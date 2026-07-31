@@ -60,6 +60,23 @@ function extractClasses(db, grade) {
   });
   return Array.from(s).sort((a, b) => a - b);
 }
+function extractElectiveGroups(db, grade, subject) {
+  const s = new Set();
+  Object.entries(db.enrollments || {}).forEach(([sk, sc]) => {
+    if (!sk.startsWith(grade + "-")) return;
+    Object.values(sc).forEach(list => list.forEach(c => { if (c.subject === subject) s.add(c.group); }));
+  });
+  return Array.from(s).sort();
+}
+function targetKeyFor(kind, subject, target) {
+  return kind === "common" ? `COMMON_${subject}_${target}` : `${subject}_${target}`;
+}
+const NOTICE_CATEGORIES = ["공지", "수행평가", "과제"];
+const NOTICE_CATEGORY_COLOR = {
+  "공지": { bg: "#fff8e6", border: "#f0dca0", text: "#8a6d1f" },
+  "수행평가": { bg: "#fdeeee", border: "#f0b8b8", text: "#a3402b" },
+  "과제": { bg: "#eaf1fb", border: "#b8d0f0", text: "#2b5aa3" },
+};
 
 /* ============================================================
    Pure-JS DEFLATE (raw) decoder — no browser API / no external lib.
@@ -480,8 +497,8 @@ export default function App() {
     const notices = [];
     (enrollments[sid] || []).forEach(course => {
       const ab = rev[course.subject];
-      const noticeKey = `${course.subject}_${course.group}`;
-      if (announcements[noticeKey] && announcements[noticeKey].text) notices.push({ subject: course.subject, group: course.group, ...announcements[noticeKey] });
+      const noticeKey = targetKeyFor("elective", course.subject, course.group);
+      (announcements[noticeKey] || []).forEach(n => notices.push({ subject: course.subject, group: `${course.group}그룹`, ...n }));
       if (!ab) { warnings.push(`"${course.subject}" 과목의 약어 매핑이 없습니다.`); return; }
       const hostTT = timetables[String(course.hostClass)];
       if (!hostTT) { warnings.push(`"${course.subject}"이 개설되는 ${roomLabel(course.hostClass)} 시간표가 없습니다.`); return; }
@@ -498,10 +515,10 @@ export default function App() {
     const seenCommon = new Set();
     DAYS.forEach(day => grid[day].forEach(c => {
       if (!c || c.type !== "fixed") return;
-      const key = `COMMON_${c.subject}_${info.class}`;
+      const key = targetKeyFor("common", c.subject, info.class);
       if (seenCommon.has(key)) return;
-      const a = announcements[key];
-      if (a && a.text) { notices.push({ subject: c.subject, group: `${info.class}반`, ...a }); seenCommon.add(key); }
+      seenCommon.add(key);
+      (announcements[key] || []).forEach(n => notices.push({ subject: c.subject, group: `${info.class}반`, ...n }));
     }));
     return { student: info, grid, warnings, notices, hasTimetable: !!homeTT };
   }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements]);
@@ -535,13 +552,14 @@ export default function App() {
   );
 }
 
-function ClassMultiSelect({ value, onChange, classOptions, light }) {
+function ClassMultiSelect({ value, onChange, classOptions, light, suffix = "반" }) {
   const selected = new Set((value || "").split(",").map(s => s.trim()).filter(Boolean));
   const toggle = (c) => {
     const s = new Set(selected);
     if (s.has(c)) s.delete(c); else s.add(c);
-    onChange(Array.from(s).sort((a, b) => a - b).join(","));
+    onChange(Array.from(s).sort((a, b) => (isNaN(a) || isNaN(b)) ? a.localeCompare(b) : a - b).join(","));
   };
+  if (!classOptions.length) return <div style={{ fontSize: 11.5, color: "#a39d8c" }}>선택 가능한 항목이 없습니다.</div>;
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
       {classOptions.map(c => (
@@ -552,8 +570,52 @@ function ClassMultiSelect({ value, onChange, classOptions, light }) {
             fontSize: light ? 12 : 11, fontWeight: 700, cursor: "pointer",
             background: selected.has(c) ? COLORS.accent : "#fff", color: selected.has(c) ? "#fff" : "#8a8578",
           }}
-        >{c}반</button>
+        >{c}{suffix}</button>
       ))}
+    </div>
+  );
+}
+
+function AssignmentsEditor({ assignments, setAssignments, db, grade }) {
+  const electiveSubjects = useMemo(() => {
+    const s = new Set();
+    Object.entries(db.enrollments || {}).forEach(([sk, sc]) => { if (sk.startsWith(grade + "-")) Object.values(sc).forEach(list => list.forEach(c => s.add(c.subject))); });
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "ko"));
+  }, [db, grade]);
+  const commonSubjects = useMemo(() => extractCommonSubjects(db, grade), [db, grade]);
+  const classOptions = useMemo(() => extractClasses(db, grade), [db, grade]);
+
+  const addBlock = () => setAssignments([...assignments, { kind: "elective", subject: "", targets: "" }]);
+  const updateBlock = (i, patch) => setAssignments(assignments.map((a, j) => j === i ? { ...a, ...patch } : a));
+  const removeBlock = (i) => setAssignments(assignments.filter((_, j) => j !== i));
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {assignments.map((a, i) => {
+        const groupOptions = a.kind === "elective" && a.subject ? extractElectiveGroups(db, grade, a.subject) : [];
+        return (
+          <div key={i} style={{ border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 10, background: "#fff" }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+              <select
+                value={a.subject ? `${a.kind}::${a.subject}` : ""}
+                onChange={e => { const [kind, subject] = e.target.value.split("::"); updateBlock(i, { kind, subject: subject || "", targets: "" }); }}
+                style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1, padding: "7px 8px" }}
+              >
+                <option value="">과목 선택</option>
+                {electiveSubjects.length > 0 && <optgroup label="이동수업 과목">{electiveSubjects.map(s => <option key={"e" + s} value={`elective::${s}`}>{s}</option>)}</optgroup>}
+                {commonSubjects.length > 0 && <optgroup label="공통과목">{commonSubjects.map(s => <option key={"c" + s} value={`common::${s}`}>{s}</option>)}</optgroup>}
+              </select>
+              <button style={styles.iconBtn} onClick={() => removeBlock(i)}><X size={14} /></button>
+            </div>
+            {a.subject && (
+              a.kind === "common"
+                ? <ClassMultiSelect value={a.targets} onChange={v => updateBlock(i, { targets: v })} classOptions={classOptions} suffix="반" />
+                : <ClassMultiSelect value={a.targets} onChange={v => updateBlock(i, { targets: v })} classOptions={groupOptions} suffix="그룹" />
+            )}
+          </div>
+        );
+      })}
+      <button style={styles.secondaryBtn} onClick={addBlock}>+ 과목 추가</button>
     </div>
   );
 }
@@ -578,17 +640,9 @@ function LoginGate({ label, list, onOk, hint }) {
 function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, onOk }) {
   const [mode, setMode] = useState("login"); // login | signup
   const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
-  const [name, setName] = useState(""), [subjectEncoded, setSubjectEncoded] = useState(""), [group, setGroup] = useState("");
+  const [name, setName] = useState("");
+  const [assignments, setAssignments] = useState([{ kind: "elective", subject: "", targets: "" }]);
   const [submitted, setSubmitted] = useState(false);
-
-  const electiveSubjects = useMemo(() => {
-    const s = new Set();
-    Object.entries(db.enrollments || {}).forEach(([sk, sc]) => { if (sk.startsWith(grade + "-")) Object.values(sc).forEach(list => list.forEach(c => s.add(c.subject))); });
-    return Array.from(s).sort((a, b) => a.localeCompare(b, "ko"));
-  }, [db, grade]);
-  const commonSubjects = useMemo(() => extractCommonSubjects(db, grade), [db, grade]);
-  const classOptions = useMemo(() => extractClasses(db, grade), [db, grade]);
-  const [kind, subject] = subjectEncoded.split("::");
 
   const submitLogin = () => {
     const f = (accounts.teacher || []).find(a => a.id === id.trim() && a.pw === pw);
@@ -596,10 +650,11 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, onOk
   };
 
   const submitSignup = async () => {
-    if (!name.trim() || !id.trim() || !pw || !subject || !group.trim()) { showToast("모든 항목을 입력해주세요.", "error"); return; }
+    const validAssignments = assignments.filter(a => a.subject && a.targets.trim());
+    if (!name.trim() || !id.trim() || !pw || !validAssignments.length) { showToast("이름·아이디·비밀번호와 담당 과목을 하나 이상 입력해주세요.", "error"); return; }
     const idTaken = [...(accounts.teacher || []), ...(accounts.teacherPending || [])].some(a => a.id === id.trim());
     if (idTaken) { showToast("이미 사용 중인 아이디입니다.", "error"); return; }
-    const req = { id: id.trim(), pw, name: name.trim(), subject, kind, group: group.trim() };
+    const req = { id: id.trim(), pw, name: name.trim(), assignments: validAssignments };
     const ok = await persistAccounts({ ...accounts, teacherPending: [...(accounts.teacherPending || []), req] });
     if (ok) { setSubmitted(true); showToast("가입 신청이 접수되었습니다.", "success"); }
   };
@@ -615,7 +670,7 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, onOk
   }
 
   return (
-    <div style={styles.loginBox}>
+    <div style={{ ...styles.loginBox, maxWidth: mode === "signup" ? 420 : 320 }}>
       <Lock size={22} color="#8a8578" />
       <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>선생님 ZONE</div>
       <div style={{ display: "flex", gap: 4, margin: "10px 0" }}>
@@ -630,20 +685,14 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, onOk
           <button style={styles.primaryBtn} onClick={submitLogin}><KeyRound size={14} /> 로그인</button>
         </>
       ) : (
-        <>
+        <div style={{ width: "100%" }}>
           <input value={name} onChange={e => setName(e.target.value)} placeholder="이름" style={styles.loginInput} />
           <input value={id} onChange={e => setId(e.target.value)} placeholder="사용할 아이디" style={styles.loginInput} />
           <input value={pw} onChange={e => setPw(e.target.value)} placeholder="사용할 비밀번호" type="password" style={styles.loginInput} />
-          <select value={subjectEncoded} onChange={e => { setSubjectEncoded(e.target.value); setGroup(""); }} style={{ ...styles.loginInput }}>
-            <option value="">담당 과목 선택</option>
-            {electiveSubjects.length > 0 && <optgroup label="이동수업 과목">{electiveSubjects.map(s => <option key={"e" + s} value={`elective::${s}`}>{s}</option>)}</optgroup>}
-            {commonSubjects.length > 0 && <optgroup label="공통과목">{commonSubjects.map(s => <option key={"c" + s} value={`common::${s}`}>{s}</option>)}</optgroup>}
-          </select>
-          {kind === "common"
-            ? <ClassMultiSelect value={group} onChange={setGroup} classOptions={classOptions} light />
-            : <input value={group} onChange={e => setGroup(e.target.value)} placeholder="담당 그룹 (예: C)" style={styles.loginInput} />}
-          <button style={styles.primaryBtn} onClick={submitSignup}>가입 신청</button>
-        </>
+          <div style={{ fontSize: 11.5, color: "#8a8578", margin: "8px 0 6px", textAlign: "left" }}>담당 과목 (여러 개 추가 가능)</div>
+          <AssignmentsEditor assignments={assignments} setAssignments={setAssignments} db={db} grade={grade} />
+          <button style={{ ...styles.primaryBtn, marginTop: 12 }} onClick={submitSignup}>가입 신청</button>
+        </div>
       )}
     </div>
   );
@@ -735,7 +784,7 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
   const [sel, setSel] = useState(null);
   useEffect(() => { if (bySubject.length && (sel === null || !bySubject.find(([k]) => k === sel))) setSel(bySubject[0][0]); }, [bySubject]); // eslint-disable-line
   const selected = (bySubject.find(([k]) => k === sel) || [null, null])[1];
-  const notice = selected ? (announcements || {})[`${selected.subject}_${selected.group}`] : null;
+  const notices = selected ? (announcements || {})[targetKeyFor("elective", selected.subject, selected.group)] || [] : [];
   if (!hasAnyData) return <EmptyState />;
   return (
     <div>
@@ -751,10 +800,20 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
         {selected && (
           <div style={styles.card}>
             <div style={styles.cardTitle}>{sel}</div>
-            {notice && notice.text && (
-              <div style={styles.noticeBox}>
-                <div style={styles.noticeTitle}>📢 {notice.teacherName ? `${notice.teacherName} 선생님 공지` : "공지"}</div>
-                <div style={styles.noticeText}>{notice.text}</div>
+            {notices.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
+                {notices.map((n, i) => {
+                  const cat = NOTICE_CATEGORY_COLOR[n.category] || NOTICE_CATEGORY_COLOR["공지"];
+                  return (
+                    <div key={i} style={{ background: cat.bg, border: `1px solid ${cat.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, color: cat.text, background: "#fff", border: `1px solid ${cat.border}`, borderRadius: 4, padding: "1px 6px" }}>{n.category || "공지"}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: cat.text }}>{n.teacherName ? `${n.teacherName} 선생님` : "공지"}</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
+                    </div>
+                  );
+                })}
               </div>
             )}
             <table style={{ ...styles.editTable, marginTop: 14 }}>
@@ -769,39 +828,104 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
 }
 
 function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout }) {
-  const isCommon = teacher.kind === "common";
-  const classList = isCommon ? teacher.group.split(",").map(s => s.trim()).filter(Boolean) : [];
-  const noticeKeys = isCommon ? classList.map(c => `COMMON_${teacher.subject}_${c}`) : [`${teacher.subject}_${teacher.group}`];
-  const existing = (db.announcements[scopeKey] || {})[noticeKeys[0]];
-  const [text, setText] = useState(existing ? existing.text : "");
+  // Expand assignments (each may have multiple targets) into flat list of {kind, subject, target}
+  const flatTargets = useMemo(() => {
+    const out = [];
+    (teacher.assignments || []).forEach(a => {
+      (a.targets || "").split(",").map(s => s.trim()).filter(Boolean).forEach(t => {
+        out.push({ kind: a.kind, subject: a.subject, target: t, label: a.kind === "common" ? `${a.subject} — ${t}반` : `${a.subject} — ${t}그룹` });
+      });
+    });
+    return out;
+  }, [teacher]);
+
+  const [selIdx, setSelIdx] = useState(0);
+  const sel = flatTargets[selIdx];
+  const targetKey = sel ? targetKeyFor(sel.kind, sel.subject, sel.target) : null;
+  const currentNotices = (db.announcements[scopeKey] || {})[targetKey] || [];
+
+  const [category, setCategory] = useState("공지");
+  const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const save = async () => {
+  const addNotice = async () => {
+    if (!text.trim()) { showToast("내용을 입력해주세요.", "error"); return; }
     setSaving(true);
     const current = db.announcements[scopeKey] || {};
-    const updated = { ...current };
-    noticeKeys.forEach(k => { updated[k] = { text: text.trim(), teacherName: teacher.name, updatedAt: new Date().toISOString() }; });
+    const list = current[targetKey] || [];
+    const newEntry = { id: Date.now() + "_" + Math.random().toString(36).slice(2, 7), category, text: text.trim(), teacherName: teacher.name, updatedAt: new Date().toISOString() };
+    const updated = { ...current, [targetKey]: [...list, newEntry] };
     const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
-    if (ok) showToast("저장했습니다.", "success");
+    if (ok) { showToast("저장했습니다.", "success"); setText(""); }
     setSaving(false);
   };
 
-  const scopeLabel = isCommon ? `${classList.map(c => c + "반").join(", ")} 대상` : `${teacher.group}그룹 대상`;
+  const deleteNotice = async (id) => {
+    const current = db.announcements[scopeKey] || {};
+    const list = (current[targetKey] || []).filter(n => n.id !== id);
+    const updated = { ...current, [targetKey]: list };
+    const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
+    if (ok) showToast("삭제했습니다.", "success");
+  };
+
+  if (!flatTargets.length) {
+    return (
+      <div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <h1 style={styles.h1}>선생님 ZONE</h1>
+          <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
+        </div>
+        <div style={styles.warnBanner}><AlertTriangle size={14} /> 담당 과목이 등록되어 있지 않습니다. 관리자에게 문의해주세요.</div>
+      </div>
+    );
+  }
 
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <h1 style={styles.h1}>선생님 ZONE</h1>
-          <p style={styles.pMuted}>{teacher.name} 선생님 · 담당 과목: {teacher.subject} ({scopeLabel})</p>
+          <p style={styles.pMuted}>{teacher.name} 선생님</p>
         </div>
         <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
       </div>
+
+      <div className="no-print" style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 6 }}>공지를 작성할 대상을 선택하세요</div>
+        <div style={styles.classChips}>
+          {flatTargets.map((t, i) => <button key={i} onClick={() => setSelIdx(i)} style={{ ...styles.classChip, ...(selIdx === i ? styles.classChipActive : {}) }}>{t.label}</button>)}
+        </div>
+      </div>
+
       <div style={styles.card}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>공지 작성</div>
-        <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>이 공지는 {teacher.subject} ({scopeLabel})인 학생의 개인 시간표{!isCommon && ' · "이동수업반별 명단" 페이지'}에 표시됩니다.</div>
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={6} style={{ ...styles.textareaInput }} placeholder="예: 다음 시간에는 3층 과학실습실로 이동합니다. 준비물: 실험복." />
-        <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 저장</button>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>{sel.label} 공지 작성</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>이 항목은 {sel.label}인 학생의 개인 시간표{sel.kind === "elective" && ' · "이동수업반별 명단" 페이지'}에 표시됩니다.</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          {NOTICE_CATEGORIES.map(c => <button key={c} onClick={() => setCategory(c)} style={{ ...styles.classChip, ...(category === c ? styles.classChipActive : {}) }}>{c}</button>)}
+        </div>
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={5} style={{ ...styles.textareaInput }} placeholder="예: 다음 시간에는 3층 과학실습실로 이동합니다. 준비물: 실험복." />
+        <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 추가</button>
+
+        {currentNotices.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>등록된 공지</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {currentNotices.slice().reverse().map(n => {
+                const cat = NOTICE_CATEGORY_COLOR[n.category] || NOTICE_CATEGORY_COLOR["공지"];
+                return (
+                  <div key={n.id} style={{ background: cat.bg, border: `1px solid ${cat.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: cat.text, background: "#fff", border: `1px solid ${cat.border}`, borderRadius: 4, padding: "1px 6px" }}>{n.category}</span>
+                      <span style={{ fontSize: 11, color: "#8a8578" }}>{new Date(n.updatedAt).toLocaleString("ko-KR")}</span>
+                      <button style={{ ...styles.iconBtn, marginLeft: "auto" }} onClick={() => deleteNotice(n.id)}><X size={14} /></button>
+                    </div>
+                    <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -824,12 +948,18 @@ function TimetableCard({ result, sid }) {
       </div>
       {notices && notices.length > 0 && (
         <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
-          {notices.map((n, i) => (
-            <div key={i} style={styles.noticeBox}>
-              <div style={styles.noticeTitle}>📢 {n.subject} ({n.group}) — {n.teacherName ? `${n.teacherName} 선생님` : "공지"}</div>
-              <div style={styles.noticeText}>{n.text}</div>
-            </div>
-          ))}
+          {notices.map((n, i) => {
+            const cat = NOTICE_CATEGORY_COLOR[n.category] || NOTICE_CATEGORY_COLOR["공지"];
+            return (
+              <div key={i} style={{ background: cat.bg, border: `1px solid ${cat.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: cat.text, background: "#fff", border: `1px solid ${cat.border}`, borderRadius: 4, padding: "1px 6px" }}>{n.category || "공지"}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: cat.text }}>{n.subject} ({n.group}) — {n.teacherName ? `${n.teacherName} 선생님` : "공지"}</span>
+                </div>
+                <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
+              </div>
+            );
+          })}
         </div>
       )}
       {warnings.length > 0 && <div style={styles.warnBox} className="no-print"><div style={styles.warnBoxTitle}><AlertTriangle size={13} /> 확인 필요 {warnings.length}건</div><ul style={styles.warnUl}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
@@ -1324,26 +1454,11 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
   const [teachers, setTeachers] = useState(accounts.teacher || []);
   useEffect(() => { setAdmins(accounts.admin); setCvs(accounts.classView); setTeachers(accounts.teacher || []); }, [accounts]);
 
-  const electiveSubjects = useMemo(() => {
-    const s = new Set();
-    Object.entries(db.enrollments || {}).forEach(([sk, sc]) => {
-      if (!sk.startsWith(grade + "-")) return;
-      Object.values(sc).forEach(list => list.forEach(c => s.add(c.subject)));
-    });
-    return Array.from(s).sort((a, b) => a.localeCompare(b, "ko"));
-  }, [db, grade]);
-  const commonSubjects = useMemo(() => extractCommonSubjects(db, grade), [db, grade]);
-  const classOptions = useMemo(() => extractClasses(db, grade), [db, grade]);
-
-  const setTeacherSubject = (i, encoded) => {
-    // encoded = "elective::과목" or "common::과목"
-    const [kind, subject] = encoded.split("::");
-    setTeachers(l => l.map((x, j) => j === i ? { ...x, kind, subject: subject || "", group: "" } : x));
-  };
-
   const save = async () => {
     const clean = a => a.filter(x => x.id.trim() && x.pw).map(x => ({ id: x.id.trim(), pw: x.pw }));
-    const cleanTeachers = teachers.filter(t => t.id.trim() && t.pw && t.subject && t.group.trim()).map(t => ({ id: t.id.trim(), pw: t.pw, name: t.name.trim(), subject: t.subject, kind: t.kind || "elective", group: t.group.trim() }));
+    const cleanTeachers = teachers
+      .filter(t => t.id.trim() && t.pw && (t.assignments || []).some(a => a.subject && a.targets.trim()))
+      .map(t => ({ id: t.id.trim(), pw: t.pw, name: t.name.trim(), assignments: (t.assignments || []).filter(a => a.subject && a.targets.trim()) }));
     const ok = await persistAccounts({ admin: clean(admins), classView: clean(cvs), teacher: cleanTeachers, teacherPending: accounts.teacherPending || [] });
     if (ok) showToast("저장했습니다.", "success");
   };
@@ -1365,6 +1480,9 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
     const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: accounts.teacher, teacherPending: newPending });
     if (ok) showToast("가입 신청을 거절했습니다.", "success");
   };
+
+  const addTeacher = () => setTeachers(t => [...t, { name: "", id: "", pw: "", assignments: [{ kind: "elective", subject: "", targets: "" }] }]);
+  const updateTeacherField = (i, key, val) => setTeachers(l => l.map((x, j) => j === i ? { ...x, [key]: val } : x));
 
   return (
     <div>
@@ -1388,7 +1506,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
               <div key={i} style={styles.issueRow}>
                 <span style={{ fontWeight: 700 }}>{req.name}</span>
                 <span style={{ color: "#8a8578", fontSize: 12 }}>({req.id})</span>
-                <span style={{ fontSize: 12 }}>{req.subject} · {req.kind === "common" ? `${req.group.split(",").map(c => c + "반").join(", ")}` : `${req.group}그룹`}</span>
+                <span style={{ fontSize: 12 }}>{(req.assignments || []).map((a, k) => `${a.subject}(${a.kind === "common" ? a.targets.split(",").map(c => c + "반").join("/") : a.targets.split(",").map(g => g + "그룹").join("/")})`).join(", ")}</span>
                 <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
                   <button style={{ ...styles.secondaryBtn, padding: "4px 10px", fontSize: 11.5 }} onClick={() => approve(req)}>승인</button>
                   <button style={{ ...styles.dangerBtn, padding: "4px 10px", fontSize: 11.5, marginTop: 0 }} onClick={() => reject(req)}>거절</button>
@@ -1401,37 +1519,23 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
 
       <div style={styles.infoBox}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>선생님 계정</div>
-        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 8 }}>담당 과목은 {grade}학년에 등록된 <b>이동수업 과목</b> 또는 <b>공통과목</b> 중에서 선택합니다. 이동수업은 담당 그룹(예: C), 공통과목은 담당 반(예: 3반)을 지정하면 해당 학생에게만 공지가 노출됩니다.</div>
-        {electiveSubjects.length === 0 && commonSubjects.length === 0 && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>먼저 이동수업 명단·학급 시간표를 업로드해야 과목을 선택할 수 있습니다.</div>}
+        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 10 }}>선생님 한 분이 여러 과목을 담당할 수 있습니다. 과목마다 담당 그룹(이동수업) 또는 담당 반(공통과목)을 각각 여러 개 선택할 수 있습니다.</div>
         {!teachers.length && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 선생님 계정이 없습니다.</div>}
-        {teachers.length > 0 && (
-          <table style={{ ...styles.editTable, marginBottom: 8 }}>
-            <thead><tr><th style={styles.th}>이름</th><th style={styles.th}>아이디</th><th style={styles.th}>비밀번호</th><th style={styles.th}>담당과목</th><th style={styles.th}>{teachers.some(t => t.kind === "common") ? "그룹/반" : "그룹"}</th><th style={{ ...styles.th, width: 40 }}></th></tr></thead>
-            <tbody>
-              {teachers.map((t, i) => (
-                <tr key={i}>
-                  <td style={styles.tdEdit}><input value={t.name} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} style={styles.cellInput} /></td>
-                  <td style={styles.tdEdit}><input value={t.id} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, id: e.target.value } : x))} style={styles.cellInput} /></td>
-                  <td style={styles.tdEdit}><input value={t.pw} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, pw: e.target.value } : x))} style={styles.cellInput} /></td>
-                  <td style={styles.tdEdit}>
-                    <select value={t.subject ? `${t.kind || "elective"}::${t.subject}` : ""} onChange={e => setTeacherSubject(i, e.target.value)} style={{ ...styles.cellInput, width: "100%" }}>
-                      <option value="">선택</option>
-                      {electiveSubjects.length > 0 && <optgroup label="이동수업 과목">{electiveSubjects.map(s => <option key={"e" + s} value={`elective::${s}`}>{s}</option>)}</optgroup>}
-                      {commonSubjects.length > 0 && <optgroup label="공통과목">{commonSubjects.map(s => <option key={"c" + s} value={`common::${s}`}>{s}</option>)}</optgroup>}
-                    </select>
-                  </td>
-                  <td style={styles.tdEdit}>
-                    {t.kind === "common"
-                      ? <ClassMultiSelect value={t.group} onChange={v => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: v } : x))} classOptions={classOptions} />
-                      : <input value={t.group} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} style={styles.cellInput} placeholder="예: C" />}
-                  </td>
-                  <td style={styles.tdEdit}><button style={styles.iconBtn} onClick={() => setTeachers(l => l.filter((_, j) => j !== i))}><X size={14} /></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <button style={styles.secondaryBtn} onClick={() => setTeachers(t => [...t, { name: "", id: "", pw: "", subject: "", kind: "elective", group: "" }])}>+ 선생님 계정 추가</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {teachers.map((t, i) => (
+            <div key={i} style={{ border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fbfaf6" }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
+                <input value={t.name} onChange={e => updateTeacherField(i, "name", e.target.value)} placeholder="이름" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
+                <input value={t.id} onChange={e => updateTeacherField(i, "id", e.target.value)} placeholder="아이디" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
+                <input value={t.pw} onChange={e => updateTeacherField(i, "pw", e.target.value)} placeholder="비밀번호" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
+                <button style={styles.iconBtn} onClick={() => setTeachers(l => l.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
+              </div>
+              <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>담당 과목</div>
+              <AssignmentsEditor assignments={t.assignments || []} setAssignments={(a) => updateTeacherField(i, "assignments", a)} db={db} grade={grade} />
+            </div>
+          ))}
+        </div>
+        <button style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={addTeacher}>+ 선생님 계정 추가</button>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button style={styles.primaryBtn} onClick={save}><Save size={14} /> 저장</button><button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화 ({RESET_PASSWORD})</button></div>
     </div>
