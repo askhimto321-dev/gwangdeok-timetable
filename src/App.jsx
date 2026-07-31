@@ -378,7 +378,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
-  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {} });
+  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {} });
   const [abbrevMap, setAbbrevMap] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [] });
   const [adminAuthed, setAdminAuthed] = useState(false);
@@ -388,15 +388,16 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev, accts] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev, accts, roomNames] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
         readStorage("kd_meta", {}),
         readStorage("kd_abbrev", {}),
         readStorage("kd_accounts", { admin: [], classView: [] }),
+        readStorage("kd_rooms", {}),
       ]);
-      setDb({ roster, enrollments, timetables, meta });
+      setDb({ roster, enrollments, timetables, meta, roomNames });
       setAbbrevMap(abbrev);
       setAccounts(accts);
       setLoading(false);
@@ -410,6 +411,7 @@ export default function App() {
     if (patch.enrollments) jobs.push(writeStorage("kd_enroll", patch.enrollments));
     if (patch.timetables) jobs.push(writeStorage("kd_tt", patch.timetables));
     if (patch.meta) jobs.push(writeStorage("kd_meta", patch.meta));
+    if (patch.roomNames) jobs.push(writeStorage("kd_rooms", patch.roomNames));
     const results = await Promise.all(jobs);
     if (results.some(r => r === false)) showToast("일부 데이터 저장에 실패했습니다. 다시 시도해주세요.", "error");
   }, [showToast]);
@@ -430,12 +432,14 @@ export default function App() {
   const roster = db.roster[scopeKey] || {};
   const enrollments = db.enrollments[scopeKey] || {};
   const timetables = db.timetables[scopeKey] || {};
+  const roomNames = db.roomNames[scopeKey] || {};
 
   const buildPersonalTimetable = useCallback((sid) => {
     const info = roster[sid];
     if (!info) return null;
     const homeTT = timetables[String(info.class)];
     const rev = {}; Object.entries(abbrevMap).forEach(([k, v]) => { rev[v] = k; });
+    const roomLabel = (cls) => roomNames[String(cls)] || `${cls}반`;
     const grid = emptyGrid();
     if (homeTT) DAYS.forEach(day => (homeTT[day] || []).forEach((c, pi) => { if (c && !isMoveSlot(c)) grid[day][pi] = { type: "pf", raw: c }; }));
     const warnings = [];
@@ -443,19 +447,19 @@ export default function App() {
       const ab = rev[course.subject];
       if (!ab) { warnings.push(`"${course.subject}" 과목의 약어 매핑이 없습니다.`); return; }
       const hostTT = timetables[String(course.hostClass)];
-      if (!hostTT) { warnings.push(`"${course.subject}"이 개설되는 ${course.hostClass}반 시간표가 없습니다.`); return; }
+      if (!hostTT) { warnings.push(`"${course.subject}"이 개설되는 ${roomLabel(course.hostClass)} 시간표가 없습니다.`); return; }
       let placed = 0;
       DAYS.forEach(day => (hostTT[day] || []).forEach((c, pi) => {
         if (!c) return;
         const bare = parseCompositeLabel(c).subject;
         const match = isMoveSlot(c) ? moveSlotAbbrev(c) === ab : bare === ab;
-        if (match) { grid[day][pi] = { type: "move", subject: course.subject, group: course.group, hostClass: course.hostClass, moved: course.hostClass !== info.class }; placed++; }
+        if (match) { grid[day][pi] = { type: "move", subject: course.subject, group: course.group, hostClass: course.hostClass, roomLabel: roomLabel(course.hostClass), moved: course.hostClass !== info.class }; placed++; }
       }));
-      if (placed === 0) warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${course.hostClass}반 시간표에서 찾지 못했습니다.`);
+      if (placed === 0) warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${roomLabel(course.hostClass)} 시간표에서 찾지 못했습니다.`);
     });
     DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: FIXED_LABELS[subject] || subject, location }; } return c; }); });
     return { student: info, grid, warnings, hasTimetable: !!homeTT };
-  }, [roster, enrollments, timetables, abbrevMap]);
+  }, [roster, enrollments, timetables, abbrevMap, roomNames]);
 
   const adminAccounts = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
   const hasAnyData = Object.keys(roster).length > 0;
@@ -596,7 +600,7 @@ function GridTable({ grid }) {
 function cellBg(c) { if (!c) return {}; if (c.type === "fixed") return { background: "#f4f6f2" }; if (c.type === "move") return { background: c.moved ? "#fbf0e6" : "#faf6e8" }; return {}; }
 function renderCell(c) {
   if (!c) return <span style={{ color: "#d8d3c6" }}>–</span>;
-  if (c.type === "move") return <div><div style={styles.cellSubject}>{c.subject}</div><div style={styles.cellRow}><span style={styles.cellTag}>{c.group}</span>{c.moved ? <span style={styles.cellMoveTag}><ArrowRight size={9} /> {c.hostClass}반</span> : <span style={styles.cellStayTag}>이동없음</span>}</div></div>;
+  if (c.type === "move") return <div><div style={styles.cellSubject}>{c.subject}</div><div style={styles.cellRow}><span style={styles.cellTag}>{c.group}</span>{c.moved ? <span style={styles.cellMoveTag}><ArrowRight size={9} /> {c.roomLabel}</span> : <span style={styles.cellStayTag}>{c.roomLabel}</span>}</div></div>;
   if (c.type === "fixed") return <div><div style={styles.cellFixed}>{c.subject}</div>{c.location && <div style={styles.cellLocation}>{c.location}</div>}</div>;
   return null;
 }
@@ -669,7 +673,7 @@ function AdminOverview({ roster, enrollments, timetables, scopeKey, db, persist,
   );
 }
 
-function AdminRoster({ scopeKey, db, persist, showToast, roster }) {
+function AdminRoster({ scopeKey, db, persist, showToast, roster, semester }) {
   const fileRef = useRef(null);
   const [preview, setPreview] = useState(null), [busy, setBusy] = useState(false);
   const handleFile = async (file) => {
@@ -677,11 +681,15 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster }) {
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const nr = {}, ne = {}; let sheets = 0;
+      const nr = {}, ne = {}; let sheets = 0, skippedOtherSem = 0;
+      // Real attendance workbooks bundle 1st/2nd semester electives in one file.
+      // Group letters distinguish them: A–F = 1학기, G–L = 2학기.
+      const semGroupRe = semester === "sem2" ? /^[G-L]/ : /^[A-F]/;
       for (const sn of wb.SheetNames) {
         const m = sn.match(/^(.+)_(\d+)반_(.+)$/);
         if (!m) continue;
         const [, subject, host, group] = m;
+        if (!semGroupRe.test(group.trim())) { skippedOtherSem++; continue; }
         const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null });
         const hi = rows.findIndex(r => r && r.includes("학번"));
         if (hi === -1) continue;
@@ -695,8 +703,8 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster }) {
         }
         sheets++;
       }
-      if (!sheets) { showToast("시트 이름 형식(과목명_N반_그룹)을 인식하지 못했습니다.", "error"); setBusy(false); return; }
-      setPreview({ nr, ne, stats: { sheets, students: Object.keys(nr).length, enroll: Object.values(ne).reduce((a, l) => a + l.length, 0) } });
+      if (!sheets) { showToast(skippedOtherSem > 0 ? `이 파일에는 ${semester === "sem2" ? "1학기(A~F)" : "2학기(G~L)"} 시트만 있는 것 같습니다. 상단에서 학기를 바꿔서 다시 올려주세요.` : "시트 이름 형식(과목명_N반_그룹)을 인식하지 못했습니다.", "error"); setBusy(false); return; }
+      setPreview({ nr, ne, stats: { sheets, students: Object.keys(nr).length, enroll: Object.values(ne).reduce((a, l) => a + l.length, 0), skippedOtherSem } });
     } catch (e) { showToast("파일 오류: " + e.message, "error"); } finally { setBusy(false); }
   };
   const apply = async () => {
@@ -708,14 +716,15 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster }) {
       <div style={styles.uploadBox}>
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>이동수업 명단(출석부) 엑셀 업로드</div>
-        <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center" }}>시트 이름 = "과목명_N반_그룹" (예: 사회와 문화_5반_A)<br />N반 = 그 수업이 열리는 개설반</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center" }}>시트 이름 = "과목명_N반_그룹" (예: 사회와 문화_5반_A)<br />N반 = 그 수업이 열리는 개설반<br />그룹이 <b>A~F면 1학기</b>, <b>G~L이면 2학기</b> 과목으로 자동 구분해서, 지금 선택된 학기({semester === "sem2" ? "2학기" : "1학기"})에 해당하는 시트만 반영합니다.</div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
         <button style={styles.uploadBtn} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />}{busy ? "분석 중…" : "파일 선택"}</button>
       </div>
       {preview && (
         <div style={styles.previewBox}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>업로드 결과</div>
-          <div style={styles.statGrid}><StatCard label="시트" value={preview.stats.sheets} unit="개" /><StatCard label="학생" value={preview.stats.students} unit="명" /><StatCard label="선택과목" value={preview.stats.enroll} unit="건" /></div>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>업로드 결과 ({semester === "sem2" ? "2학기" : "1학기"} 시트만 반영)</div>
+          <div style={styles.statGrid}><StatCard label="반영된 시트" value={preview.stats.sheets} unit="개" /><StatCard label="학생" value={preview.stats.students} unit="명" /><StatCard label="선택과목" value={preview.stats.enroll} unit="건" /></div>
+          {preview.stats.skippedOtherSem > 0 && <div style={styles.warnBanner}><AlertTriangle size={14} /> 다른 학기로 판단되어 제외된 시트 {preview.stats.skippedOtherSem}개 (필요하면 학기를 바꿔서 같은 파일을 다시 올려주세요)</div>}
           <div style={{ display: "flex", gap: 8 }}><button style={styles.primaryBtn} onClick={apply}><Save size={14} /> 반영하기</button><button style={styles.secondaryBtn} onClick={() => setPreview(null)}>취소</button></div>
         </div>
       )}
@@ -874,6 +883,43 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
           {Object.keys(timetables).length > 0 && <button style={styles.dangerBtn} onClick={async () => { await persist({ timetables: { ...db.timetables, [scopeKey]: {} } }); showToast("시간표를 삭제했습니다.", "success"); }}><Trash2 size={14} /> 시간표 삭제</button>}
         </div>
       )}
+
+      {!filePreview && !pasteGrid && Object.keys(timetables).length > 0 && (
+        <RoomNameEditor scopeKey={scopeKey} db={db} persist={persist} showToast={showToast} timetables={timetables} />
+      )}
+    </div>
+  );
+}
+
+function RoomNameEditor({ scopeKey, db, persist, showToast, timetables }) {
+  const classes = Object.keys(timetables).sort((a, b) => a - b);
+  const roomNames = db.roomNames[scopeKey] || {};
+  const [rows, setRows] = useState(classes.map(c => [c, roomNames[c] || ""]));
+  useEffect(() => { setRows(classes.map(c => [c, (db.roomNames[scopeKey] || {})[c] || ""])); }, [scopeKey, db.roomNames]); // eslint-disable-line
+
+  const save = async () => {
+    const map = { ...roomNames };
+    rows.forEach(([c, label]) => { if (label.trim()) map[c] = label.trim(); else delete map[c]; });
+    await persist({ roomNames: { ...db.roomNames, [scopeKey]: map } });
+    showToast("특별실 명칭을 저장했습니다.", "success");
+  };
+
+  return (
+    <div style={styles.infoBox}>
+      <div style={{ fontWeight: 700, marginBottom: 6 }}>특별실 명칭 지정</div>
+      <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 10 }}>실제 학급이 아닌 이동수업 전용실(예: 11반 → 인문사회교과실2)처럼, 시간표에 표시될 이름을 반별로 바꿀 수 있습니다. 비워두면 "N반"으로 표시됩니다.</div>
+      <table style={styles.editTable}>
+        <thead><tr><th style={styles.th}>반 번호</th><th style={styles.th}>표시될 이름</th></tr></thead>
+        <tbody>
+          {rows.map(([c, label], i) => (
+            <tr key={c}>
+              <td style={styles.tdReadonly}>{c}반</td>
+              <td style={styles.tdEdit}><input value={label} onChange={e => setRows(rs => { const copy = [...rs]; copy[i] = [c, e.target.value]; return copy; })} style={styles.cellInput} placeholder={`${c}반`} /></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={save}><Save size={14} /> 저장</button>
     </div>
   );
 }
@@ -988,7 +1034,12 @@ const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d
 const globalCss = `
   * { box-sizing: border-box; } body { margin: 0; } input, textarea, button { font-family: inherit; }
   .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
-  @media print { .no-print { display: none !important; } #print-area { display: block !important; } .print-page-break { break-after: page; page-break-after: always; } }
+  @media print {
+    .no-print { display: none !important; }
+    #print-area { display: block !important; }
+    .print-page-break { break-after: page; page-break-after: always; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+  }
 `;
 const styles = {
   app: { minHeight: "100vh", background: COLORS.paper, color: COLORS.ink, fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif" },
