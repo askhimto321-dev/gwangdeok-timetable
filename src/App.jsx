@@ -413,7 +413,9 @@ export default function App() {
     if (patch.meta) jobs.push(writeStorage("kd_meta", patch.meta));
     if (patch.roomNames) jobs.push(writeStorage("kd_rooms", patch.roomNames));
     const results = await Promise.all(jobs);
-    if (results.some(r => r === false)) showToast("일부 데이터 저장에 실패했습니다. 다시 시도해주세요.", "error");
+    const ok = !results.some(r => r === false);
+    if (!ok) showToast("저장에 실패했습니다 (네트워크 또는 데이터베이스 연결 문제). 다시 시도해주세요.", "error");
+    return ok;
   }, [showToast]);
   const persistAbbrev = useCallback(async (m) => {
     setAbbrevMap(m);
@@ -654,8 +656,8 @@ function CurrentTimetableViewer({ timetables }) {
 function AdminOverview({ roster, enrollments, timetables, scopeKey, db, persist, showToast }) {
   const classes = Object.keys(timetables).sort((a, b) => a - b);
   const clearAll = async () => {
-    await persist({ roster: { ...db.roster, [scopeKey]: {} }, enrollments: { ...db.enrollments, [scopeKey]: {} }, timetables: { ...db.timetables, [scopeKey]: {} } });
-    showToast("이 학년/학기의 모든 데이터를 삭제했습니다.", "success");
+    const ok = await persist({ roster: { ...db.roster, [scopeKey]: {} }, enrollments: { ...db.enrollments, [scopeKey]: {} }, timetables: { ...db.timetables, [scopeKey]: {} } });
+    if (ok) showToast("이 학년/학기의 모든 데이터를 삭제했습니다.", "success");
   };
   return (
     <div>
@@ -708,8 +710,8 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster, semester }) {
     } catch (e) { showToast("파일 오류: " + e.message, "error"); } finally { setBusy(false); }
   };
   const apply = async () => {
-    await persist({ roster: { ...db.roster, [scopeKey]: preview.nr }, enrollments: { ...db.enrollments, [scopeKey]: preview.ne }, meta: { ...db.meta, [scopeKey]: { updatedAt: new Date().toISOString() } } });
-    showToast(`${preview.stats.students}명의 명단을 반영했습니다.`, "success"); setPreview(null);
+    const ok = await persist({ roster: { ...db.roster, [scopeKey]: preview.nr }, enrollments: { ...db.enrollments, [scopeKey]: preview.ne }, meta: { ...db.meta, [scopeKey]: { updatedAt: new Date().toISOString() } } });
+    if (ok) { showToast(`${preview.stats.students}명의 명단을 반영했습니다.`, "success"); setPreview(null); }
   };
   return (
     <div>
@@ -728,7 +730,7 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster, semester }) {
           <div style={{ display: "flex", gap: 8 }}><button style={styles.primaryBtn} onClick={apply}><Save size={14} /> 반영하기</button><button style={styles.secondaryBtn} onClick={() => setPreview(null)}>취소</button></div>
         </div>
       )}
-      {Object.keys(roster).length > 0 && !preview && <button style={styles.dangerBtn} onClick={async () => { await persist({ roster: { ...db.roster, [scopeKey]: {} }, enrollments: { ...db.enrollments, [scopeKey]: {} } }); showToast("명단을 삭제했습니다.", "success"); }}><Trash2 size={14} /> 명단 삭제</button>}
+      {Object.keys(roster).length > 0 && !preview && <button style={styles.dangerBtn} onClick={async () => { const ok = await persist({ roster: { ...db.roster, [scopeKey]: {} }, enrollments: { ...db.enrollments, [scopeKey]: {} } }); if (ok) showToast("명단을 삭제했습니다.", "success"); }}><Trash2 size={14} /> 명단 삭제</button>}
     </div>
   );
 }
@@ -815,20 +817,22 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
 
   const commitAny = async (gridsMap) => {
     const merged = { ...(db.timetables[scopeKey] || {}), ...gridsMap };
-    await persist({ timetables: { ...db.timetables, [scopeKey]: merged }, meta: { ...db.meta, [scopeKey]: { updatedAt: new Date().toISOString() } } });
+    const ok = await persist({ timetables: { ...db.timetables, [scopeKey]: merged }, meta: { ...db.meta, [scopeKey]: { updatedAt: new Date().toISOString() } } });
+    if (!ok) return false;
     const used = new Set();
     Object.values(merged).forEach(g => DAYS.forEach(d => (g[d] || []).forEach(c => { if (isMoveSlot(c)) used.add(moveSlotAbbrev(c)); })));
     const subjects = new Set(); Object.values(enrollments).forEach(l => l.forEach(c => subjects.add(c.subject)));
     const missing = Array.from(used).filter(a => !abbrevMap[a]);
     if (missing.length && subjects.size) {
       const sug = suggestAbbrevMapping(missing, Array.from(subjects));
-      if (Object.keys(sug).length) { await persistAbbrev({ ...abbrevMap, ...sug }); showToast(`반영 완료 · 약어 ${Object.keys(sug).length}개 자동 매핑됨`, "success"); return; }
+      if (Object.keys(sug).length) { await persistAbbrev({ ...abbrevMap, ...sug }); showToast(`반영 완료 · 약어 ${Object.keys(sug).length}개 자동 매핑됨`, "success"); return true; }
     }
     showToast(`${Object.keys(gridsMap).length}개 반 시간표를 반영했습니다.`, "success");
+    return true;
   };
 
-  const applyFilePreview = async () => { await commitAny(filePreview); setFilePreview(null); };
-  const applyPasteGrid = async () => { await commitAny({ [pasteClass.trim()]: pasteGrid }); setPasteGrid(null); setPasteClass(""); };
+  const applyFilePreview = async () => { if (await commitAny(filePreview)) setFilePreview(null); };
+  const applyPasteGrid = async () => { if (await commitAny({ [pasteClass.trim()]: pasteGrid })) { setPasteGrid(null); setPasteClass(""); } };
 
   const updFilePreviewCell = (cls, day, pi, v) => setFilePreview(p => { const c = { ...p }; c[cls] = { ...c[cls], [day]: [...c[cls][day]] }; c[cls][day][pi] = v || null; return c; });
 
@@ -880,7 +884,7 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
         <div style={styles.infoBox}>
           <div style={{ fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><Eye size={15} /> 현재 등록된 학급 시간표</div>
           <CurrentTimetableViewer timetables={timetables} />
-          {Object.keys(timetables).length > 0 && <button style={styles.dangerBtn} onClick={async () => { await persist({ timetables: { ...db.timetables, [scopeKey]: {} } }); showToast("시간표를 삭제했습니다.", "success"); }}><Trash2 size={14} /> 시간표 삭제</button>}
+          {Object.keys(timetables).length > 0 && <button style={styles.dangerBtn} onClick={async () => { const ok = await persist({ timetables: { ...db.timetables, [scopeKey]: {} } }); if (ok) showToast("시간표를 삭제했습니다.", "success"); }}><Trash2 size={14} /> 시간표 삭제</button>}
         </div>
       )}
 
@@ -900,8 +904,8 @@ function RoomNameEditor({ scopeKey, db, persist, showToast, timetables }) {
   const save = async () => {
     const map = { ...roomNames };
     rows.forEach(([c, label]) => { if (label.trim()) map[c] = label.trim(); else delete map[c]; });
-    await persist({ roomNames: { ...db.roomNames, [scopeKey]: map } });
-    showToast("특별실 명칭을 저장했습니다.", "success");
+    const ok = await persist({ roomNames: { ...db.roomNames, [scopeKey]: map } });
+    if (ok) showToast("특별실 명칭을 저장했습니다.", "success");
   };
 
   return (
