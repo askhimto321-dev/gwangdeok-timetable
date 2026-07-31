@@ -35,9 +35,10 @@ export async function readStorage(key, fallback) {
 export async function writeStorage(key, value) {
   try {
     await setDoc(doc(db, COLLECTION, key), { value: JSON.stringify(value) });
-    return true;
+    return { ok: true };
   } catch (e) {
     console.error("storage write failed", key, e);
-    return false;
+    const detail = e && e.code ? `${e.code}` : (e && e.message ? e.message : String(e));
+    return { ok: false, error: detail };
   }
 }

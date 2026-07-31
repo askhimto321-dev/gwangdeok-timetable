@@ -413,21 +413,21 @@ export default function App() {
     if (patch.meta) jobs.push(writeStorage("kd_meta", patch.meta));
     if (patch.roomNames) jobs.push(writeStorage("kd_rooms", patch.roomNames));
     const results = await Promise.all(jobs);
-    const ok = !results.some(r => r === false);
-    if (!ok) showToast("저장에 실패했습니다 (네트워크 또는 데이터베이스 연결 문제). 다시 시도해주세요.", "error");
-    return ok;
+    const failed = results.find(r => r && r.ok === false);
+    if (failed) { showToast(`실패했습니다. (${failed.error})`, "error"); return false; }
+    return true;
   }, [showToast]);
   const persistAbbrev = useCallback(async (m) => {
     setAbbrevMap(m);
-    const ok = await writeStorage("kd_abbrev", m);
-    if (!ok) showToast("약어 매핑 저장에 실패했습니다.", "error");
-    return ok;
+    const r = await writeStorage("kd_abbrev", m);
+    if (!r.ok) { showToast(`실패했습니다. (${r.error})`, "error"); return false; }
+    return true;
   }, [showToast]);
   const persistAccounts = useCallback(async (a) => {
     setAccounts(a);
-    const ok = await writeStorage("kd_accounts", a);
-    if (!ok) showToast("계정 정보 저장에 실패했습니다.", "error");
-    return ok;
+    const r = await writeStorage("kd_accounts", a);
+    if (!r.ok) { showToast(`실패했습니다. (${r.error})`, "error"); return false; }
+    return true;
   }, [showToast]);
 
   const scopeKey = `${grade}-${semester}`;
@@ -466,7 +466,7 @@ export default function App() {
   const adminAccounts = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
   const hasAnyData = Object.keys(roster).length > 0;
 
-  if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /></div>;
+  if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   return (
     <div style={styles.app}>
@@ -707,11 +707,12 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster, semester }) {
       }
       if (!sheets) { showToast(skippedOtherSem > 0 ? `이 파일에는 ${semester === "sem2" ? "1학기(A~F)" : "2학기(G~L)"} 시트만 있는 것 같습니다. 상단에서 학기를 바꿔서 다시 올려주세요.` : "시트 이름 형식(과목명_N반_그룹)을 인식하지 못했습니다.", "error"); setBusy(false); return; }
       setPreview({ nr, ne, stats: { sheets, students: Object.keys(nr).length, enroll: Object.values(ne).reduce((a, l) => a + l.length, 0), skippedOtherSem } });
-    } catch (e) { showToast("파일 오류: " + e.message, "error"); } finally { setBusy(false); }
+      showToast("파일을 업로드했습니다.", "success");
+    } catch (e) { showToast(`실패했습니다. (${e.message})`, "error"); } finally { setBusy(false); }
   };
   const apply = async () => {
     const ok = await persist({ roster: { ...db.roster, [scopeKey]: preview.nr }, enrollments: { ...db.enrollments, [scopeKey]: preview.ne }, meta: { ...db.meta, [scopeKey]: { updatedAt: new Date().toISOString() } } });
-    if (ok) { showToast(`${preview.stats.students}명의 명단을 반영했습니다.`, "success"); setPreview(null); }
+    if (ok) { showToast("저장했습니다.", "success"); setPreview(null); }
   };
   return (
     <div>
@@ -805,8 +806,8 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
         if (!Object.keys(result).length) { showToast("시트 이름이 반 번호(1, 2, 3…)인 시트를 찾지 못했습니다.", "error"); setBusy(false); return; }
       }
       setFilePreview(result); setEditing(Object.keys(result).sort((a, b) => a - b)[0]);
-      showToast(`${Object.keys(result).length}개 반의 시간표를 인식했습니다. 아래에서 확인 후 반영하세요.`, "success");
-    } catch (e) { showToast("파일 오류: " + e.message, "error"); console.error(e); } finally { setBusy(false); }
+      showToast("파일을 업로드했습니다.", "success");
+    } catch (e) { showToast(`실패했습니다. (${e.message})`, "error"); console.error(e); } finally { setBusy(false); }
   };
 
   const startPasteEntry = () => {
@@ -825,9 +826,9 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
     const missing = Array.from(used).filter(a => !abbrevMap[a]);
     if (missing.length && subjects.size) {
       const sug = suggestAbbrevMapping(missing, Array.from(subjects));
-      if (Object.keys(sug).length) { await persistAbbrev({ ...abbrevMap, ...sug }); showToast(`반영 완료 · 약어 ${Object.keys(sug).length}개 자동 매핑됨`, "success"); return true; }
+      if (Object.keys(sug).length) { await persistAbbrev({ ...abbrevMap, ...sug }); showToast("저장했습니다.", "success"); return true; }
     }
-    showToast(`${Object.keys(gridsMap).length}개 반 시간표를 반영했습니다.`, "success");
+    showToast("저장했습니다.", "success");
     return true;
   };
 
@@ -912,7 +913,7 @@ function RoomNameEditor({ scopeKey, db, persist, showToast, timetables }) {
     const map = { ...current };
     rows.forEach(([c, label]) => { if (label.trim()) map[c] = label.trim(); else delete map[c]; });
     const ok = await persist({ roomNames: { ...db.roomNames, [scopeKey]: map } });
-    if (ok) showToast("특별실 명칭을 저장했습니다.", "success");
+    if (ok) showToast("저장했습니다.", "success");
   };
 
   return (
@@ -948,7 +949,7 @@ function AdminAbbrev({ abbrevMap, persistAbbrev, showToast, db }) {
     const ok = await persistAbbrev({ ...abbrevMap, ...sug });
     if (ok) showToast(`${Object.keys(sug).length}개 약어를 자동 매핑했습니다.`, "success");
   };
-  const save = async () => { const m = {}; rows.forEach(([k, v]) => { if (k.trim()) m[k.trim()] = v.trim(); }); const ok = await persistAbbrev(m); if (ok) showToast("저장했습니다. (전체 학년/학기 공통)", "success"); };
+  const save = async () => { const m = {}; rows.forEach(([k, v]) => { if (k.trim()) m[k.trim()] = v.trim(); }); const ok = await persistAbbrev(m); if (ok) showToast("저장했습니다.", "success"); };
   return (
     <div>
       <div style={styles.infoBox}><div style={{ fontSize: 12.5, color: "#5c574a" }}>이 매핑은 학년·학기 구분 없이 공통 적용됩니다.</div></div>
@@ -974,7 +975,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast }) {
   const save = async () => {
     const clean = a => a.filter(x => x.id.trim() && x.pw).map(x => ({ id: x.id.trim(), pw: x.pw }));
     const ok = await persistAccounts({ admin: clean(admins), classView: clean(cvs) });
-    if (ok) showToast("계정 정보를 저장했습니다.", "success");
+    if (ok) showToast("저장했습니다.", "success");
   };
   const resetAll = async () => {
     const na = admins.map(a => ({ ...a, pw: RESET_PASSWORD })), nc = cvs.map(a => ({ ...a, pw: RESET_PASSWORD }));
@@ -1054,7 +1055,8 @@ const globalCss = `
 `;
 const styles = {
   app: { minHeight: "100vh", background: COLORS.paper, color: COLORS.ink, fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif" },
-  loadingScreen: { minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" },
+  loadingScreen: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 },
+  loadingText: { fontSize: 13.5, color: "#8a8578" },
   loginBox: { textAlign: "center", padding: "36px 20px", background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 12, maxWidth: 320, margin: "20px auto", display: "flex", flexDirection: "column", alignItems: "center" },
   loginInput: { width: "100%", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, marginBottom: 8 },
   topbar: { background: "#fff", borderBottom: `1px solid ${COLORS.line}` },
