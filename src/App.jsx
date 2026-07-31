@@ -378,17 +378,18 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
-  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {} });
+  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {} });
   const [abbrevMaps, setAbbrevMaps] = useState({});
-  const [accounts, setAccounts] = useState({ admin: [], classView: [] });
+  const [accounts, setAccounts] = useState({ admin: [], classView: [], teacher: [] });
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [classAuthed, setClassAuthed] = useState(false);
+  const [loggedInTeacher, setLoggedInTeacher] = useState(null);
   const [toast, setToast] = useState(null);
   const showToast = useCallback((msg, type = "info") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4200); }, []);
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -396,10 +397,11 @@ export default function App() {
         readStorage("kd_abbrev_1", {}),
         readStorage("kd_abbrev_2", {}),
         readStorage("kd_abbrev_3", {}),
-        readStorage("kd_accounts", { admin: [], classView: [] }),
+        readStorage("kd_accounts", { admin: [], classView: [], teacher: [] }),
         readStorage("kd_rooms", {}),
+        readStorage("kd_notices", {}),
       ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames });
+      setDb({ roster, enrollments, timetables, meta, roomNames, announcements });
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       setAccounts(accts);
       setLoading(false);
@@ -413,6 +415,7 @@ export default function App() {
     if (patch.timetables) jobs.push(writeStorage("kd_tt", patch.timetables));
     if (patch.meta) jobs.push(writeStorage("kd_meta", patch.meta));
     if (patch.roomNames) jobs.push(writeStorage("kd_rooms", patch.roomNames));
+    if (patch.announcements) jobs.push(writeStorage("kd_notices", patch.announcements));
     const results = await Promise.all(jobs);
     const failed = results.find(r => r && r.ok === false);
     if (failed) { showToast(`실패했습니다. (${failed.error})`, "error"); return false; }
@@ -438,6 +441,7 @@ export default function App() {
   const timetables = db.timetables[scopeKey] || {};
   const roomNames = db.roomNames[scopeKey] || {};
   const abbrevMap = abbrevMaps[grade] || {};
+  const announcements = db.announcements[scopeKey] || {};
 
   const buildPersonalTimetable = useCallback((sid) => {
     const info = roster[sid];
@@ -448,8 +452,11 @@ export default function App() {
     const grid = emptyGrid();
     if (homeTT) DAYS.forEach(day => (homeTT[day] || []).forEach((c, pi) => { if (c && !isMoveSlot(c)) grid[day][pi] = { type: "pf", raw: c }; }));
     const warnings = [];
+    const notices = [];
     (enrollments[sid] || []).forEach(course => {
       const ab = rev[course.subject];
+      const noticeKey = `${course.subject}_${course.group}`;
+      if (announcements[noticeKey] && announcements[noticeKey].text) notices.push({ subject: course.subject, group: course.group, ...announcements[noticeKey] });
       if (!ab) { warnings.push(`"${course.subject}" 과목의 약어 매핑이 없습니다.`); return; }
       const hostTT = timetables[String(course.hostClass)];
       if (!hostTT) { warnings.push(`"${course.subject}"이 개설되는 ${roomLabel(course.hostClass)} 시간표가 없습니다.`); return; }
@@ -463,8 +470,8 @@ export default function App() {
       if (placed === 0) warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${roomLabel(course.hostClass)} 시간표에서 찾지 못했습니다.`);
     });
     DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: FIXED_LABELS[subject] || subject, location }; } return c; }); });
-    return { student: info, grid, warnings, hasTimetable: !!homeTT };
-  }, [roster, enrollments, timetables, abbrevMap, roomNames]);
+    return { student: info, grid, warnings, notices, hasTimetable: !!homeTT };
+  }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements]);
 
   const adminAccounts = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
   const hasAnyData = Object.keys(roster).length > 0;
@@ -481,8 +488,11 @@ export default function App() {
           ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />
           : <LoginGate label="학급별 조회" list={accounts.classView} onOk={() => setClassAuthed(true)} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
         {tab === "subjectGroup" && (classAuthed
-          ? <SubjectGroupView key={scopeKey} roster={roster} enrollments={enrollments} hasAnyData={hasAnyData} />
+          ? <SubjectGroupView key={scopeKey} roster={roster} enrollments={enrollments} hasAnyData={hasAnyData} announcements={announcements} />
           : <LoginGate label="이동수업반별 명단" list={accounts.classView} onOk={() => setClassAuthed(true)} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+        {tab === "teacherZone" && (loggedInTeacher
+          ? <TeacherZoneView key={scopeKey} teacher={loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={() => setLoggedInTeacher(null)} />
+          : <LoginGate label="선생님 ZONE" list={accounts.teacher} onOk={(acc) => setLoggedInTeacher(acc)} hint={accounts.teacher.length ? null : "등록된 선생님 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
         {tab === "admin" && (adminAuthed
           ? <AdminView key={scopeKey} {...{ db, persist, showToast, grade, semester, scopeKey, roster, enrollments, timetables, abbrevMap, persistAbbrev, accounts, persistAccounts, build: buildPersonalTimetable }} />
           : <LoginGate label="관리자" list={adminAccounts} onOk={() => setAdminAuthed(true)} hint={accounts.admin.length ? null : `초기 계정: ${DEFAULT_ADMIN.id} / ${DEFAULT_ADMIN.pw}`} />)}
@@ -494,7 +504,7 @@ export default function App() {
 
 function LoginGate({ label, list, onOk, hint }) {
   const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
-  const submit = () => { const f = (list || []).find(a => a.id === id.trim() && a.pw === pw); if (f) { setErr(""); onOk(); } else setErr("아이디 또는 비밀번호가 올바르지 않습니다."); };
+  const submit = () => { const f = (list || []).find(a => a.id === id.trim() && a.pw === pw); if (f) { setErr(""); onOk(f); } else setErr("아이디 또는 비밀번호가 올바르지 않습니다."); };
   return (
     <div style={styles.loginBox}>
       <Lock size={22} color="#8a8578" />
@@ -524,6 +534,7 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta }) {
           <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />
           <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />
           <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />
+          <NavBtn active={tab === "teacherZone"} onClick={() => setTab("teacherZone")} icon={<Lock size={15} />} label="선생님 ZONE" />
           <NavBtn active={tab === "admin"} onClick={() => setTab("admin")} icon={<Settings size={15} />} label="관리자" />
         </nav>
       </div>
@@ -578,21 +589,23 @@ function ClassPrintView({ roster, build, hasAnyData }) {
   );
 }
 
-function SubjectGroupView({ roster, enrollments, hasAnyData }) {
+function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
   const bySubject = useMemo(() => {
     const m = {};
     Object.entries(enrollments).forEach(([sid, list]) => {
       list.forEach(c => {
         const key = `${c.subject} (${c.group}) · ${c.hostClass}반개설`;
-        (m[key] = m[key] || []).push({ sid, ...(roster[sid] || {}) });
+        if (!m[key]) m[key] = { subject: c.subject, group: c.group, students: [] };
+        m[key].students.push({ sid, ...(roster[sid] || {}) });
       });
     });
-    Object.values(m).forEach(list => list.sort((a, b) => (a.class - b.class) || (a.number - b.number)));
+    Object.values(m).forEach(v => v.students.sort((a, b) => (a.class - b.class) || (a.number - b.number)));
     return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0], "ko"));
   }, [enrollments, roster]);
   const [sel, setSel] = useState(null);
   useEffect(() => { if (bySubject.length && (sel === null || !bySubject.find(([k]) => k === sel))) setSel(bySubject[0][0]); }, [bySubject]); // eslint-disable-line
-  const selectedList = (bySubject.find(([k]) => k === sel) || [null, []])[1];
+  const selected = (bySubject.find(([k]) => k === sel) || [null, null])[1];
+  const notice = selected ? (announcements || {})[`${selected.subject}_${selected.group}`] : null;
   if (!hasAnyData) return <EmptyState />;
   return (
     <div>
@@ -600,17 +613,23 @@ function SubjectGroupView({ roster, enrollments, hasAnyData }) {
         <h1 style={styles.h1}>이동수업반별 명단 확인하기</h1>
         <p style={styles.pMuted}>이동수업 과목·그룹을 선택하면 그 수업을 듣는 학생 명단(원소속반 포함)을 확인하고 인쇄할 수 있습니다.</p>
         <select value={sel || ""} onChange={e => setSel(e.target.value)} style={{ ...styles.loginInput, maxWidth: 420, marginBottom: 12 }}>
-          {bySubject.map(([key, list]) => <option key={key} value={key}>{key} — {list.length}명</option>)}
+          {bySubject.map(([key, v]) => <option key={key} value={key}>{key} — {v.students.length}명</option>)}
         </select>
-        {sel != null && <div style={styles.printBar}><div style={{ color: "#8a8578", fontSize: 13 }}>{sel} · {selectedList.length}명</div><button type="button" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> 명단 인쇄</button></div>}
+        {selected && <div style={styles.printBar}><div style={{ color: "#8a8578", fontSize: 13 }}>{sel} · {selected.students.length}명</div><button type="button" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> 명단 인쇄</button></div>}
       </div>
       <div id="print-area">
-        {sel != null && (
+        {selected && (
           <div style={styles.card}>
             <div style={styles.cardTitle}>{sel}</div>
+            {notice && notice.text && (
+              <div style={styles.noticeBox}>
+                <div style={styles.noticeTitle}>📢 {notice.teacherName ? `${notice.teacherName} 선생님 공지` : "공지"}</div>
+                <div style={styles.noticeText}>{notice.text}</div>
+              </div>
+            )}
             <table style={{ ...styles.editTable, marginTop: 14 }}>
               <thead><tr><th style={styles.th}>학번</th><th style={styles.th}>이름</th><th style={styles.th}>원소속반</th><th style={styles.th}>번호</th></tr></thead>
-              <tbody>{selectedList.map(s => <tr key={s.sid}><td style={styles.tdReadonly}>{s.sid}</td><td style={styles.tdReadonly}>{s.name}</td><td style={styles.tdReadonly}>{s.class}반</td><td style={styles.tdReadonly}>{s.number}</td></tr>)}</tbody>
+              <tbody>{selected.students.map(s => <tr key={s.sid}><td style={styles.tdReadonly}>{s.sid}</td><td style={styles.tdReadonly}>{s.name}</td><td style={styles.tdReadonly}>{s.class}반</td><td style={styles.tdReadonly}>{s.number}</td></tr>)}</tbody>
             </table>
           </div>
         )}
@@ -619,8 +638,42 @@ function SubjectGroupView({ roster, enrollments, hasAnyData }) {
   );
 }
 
+function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout }) {
+  const noticeKey = `${teacher.subject}_${teacher.group}`;
+  const existing = (db.announcements[scopeKey] || {})[noticeKey];
+  const [text, setText] = useState(existing ? existing.text : "");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    const current = db.announcements[scopeKey] || {};
+    const updated = { ...current, [noticeKey]: { text: text.trim(), teacherName: teacher.name, updatedAt: new Date().toISOString() } };
+    const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
+    if (ok) showToast("저장했습니다.", "success");
+    setSaving(false);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+        <div>
+          <h1 style={styles.h1}>선생님 ZONE</h1>
+          <p style={styles.pMuted}>{teacher.name} 선생님 · 담당 과목: {teacher.subject} ({teacher.group}그룹)</p>
+        </div>
+        <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
+      </div>
+      <div style={styles.card}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>공지 작성</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>이 공지는 {teacher.subject} ({teacher.group}그룹)을 수강하는 학생의 개인 시간표와 "이동수업반별 명단" 페이지에 표시됩니다.</div>
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={6} style={{ ...styles.textareaInput }} placeholder="예: 다음 시간에는 3층 과학실습실로 이동합니다. 준비물: 실험복." />
+        <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 저장</button>
+      </div>
+    </div>
+  );
+}
+
 function TimetableCard({ result, sid }) {
-  const { student, grid, warnings, hasTimetable } = result;
+  const { student, grid, warnings, hasTimetable, notices } = result;
   return (
     <div style={styles.card}>
       <div style={styles.printHeader}>
@@ -634,6 +687,16 @@ function TimetableCard({ result, sid }) {
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e3c6ae" }} /> 이동수업 (교실 이동)</span>
       </div>
+      {notices && notices.length > 0 && (
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
+          {notices.map((n, i) => (
+            <div key={i} style={styles.noticeBox}>
+              <div style={styles.noticeTitle}>📢 {n.subject} ({n.group}) — {n.teacherName ? `${n.teacherName} 선생님` : "공지"}</div>
+              <div style={styles.noticeText}>{n.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
       {warnings.length > 0 && <div style={styles.warnBox} className="no-print"><div style={styles.warnBoxTitle}><AlertTriangle size={13} /> 확인 필요 {warnings.length}건</div><ul style={styles.warnUl}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
     </div>
   );
@@ -1120,19 +1183,31 @@ function AdminAbbrev({ abbrevMap, persistAbbrev, showToast, db, grade }) {
   );
 }
 
-function AdminAccounts({ accounts, persistAccounts, showToast }) {
+function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
   const [admins, setAdmins] = useState(accounts.admin);
   const [cvs, setCvs] = useState(accounts.classView);
-  useEffect(() => { setAdmins(accounts.admin); setCvs(accounts.classView); }, [accounts]);
+  const [teachers, setTeachers] = useState(accounts.teacher || []);
+  useEffect(() => { setAdmins(accounts.admin); setCvs(accounts.classView); setTeachers(accounts.teacher || []); }, [accounts]);
+
+  const subjectOptions = useMemo(() => {
+    const s = new Set();
+    Object.entries(db.enrollments || {}).forEach(([sk, sc]) => {
+      if (!sk.startsWith(grade + "-")) return;
+      Object.values(sc).forEach(list => list.forEach(c => s.add(c.subject)));
+    });
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "ko"));
+  }, [db, grade]);
+
   const save = async () => {
     const clean = a => a.filter(x => x.id.trim() && x.pw).map(x => ({ id: x.id.trim(), pw: x.pw }));
-    const ok = await persistAccounts({ admin: clean(admins), classView: clean(cvs) });
+    const cleanTeachers = teachers.filter(t => t.id.trim() && t.pw && t.subject && t.group.trim()).map(t => ({ id: t.id.trim(), pw: t.pw, name: t.name.trim(), subject: t.subject, group: t.group.trim() }));
+    const ok = await persistAccounts({ admin: clean(admins), classView: clean(cvs), teacher: cleanTeachers });
     if (ok) showToast("저장했습니다.", "success");
   };
   const resetAll = async () => {
-    const na = admins.map(a => ({ ...a, pw: RESET_PASSWORD })), nc = cvs.map(a => ({ ...a, pw: RESET_PASSWORD }));
-    setAdmins(na); setCvs(nc);
-    const ok = await persistAccounts({ admin: na, classView: nc });
+    const na = admins.map(a => ({ ...a, pw: RESET_PASSWORD })), nc = cvs.map(a => ({ ...a, pw: RESET_PASSWORD })), nt = teachers.map(t => ({ ...t, pw: RESET_PASSWORD }));
+    setAdmins(na); setCvs(nc); setTeachers(nt);
+    const ok = await persistAccounts({ admin: na, classView: nc, teacher: nt });
     if (ok) showToast(`모든 비밀번호가 "${RESET_PASSWORD}"로 초기화되었습니다.`, "success");
   };
   return (
@@ -1147,6 +1222,35 @@ function AdminAccounts({ accounts, persistAccounts, showToast }) {
         <div style={{ fontWeight: 700, marginBottom: 8 }}>학급별 조회 / 이동수업반별 명단 계정</div>
         <AccountTable list={cvs} setList={setCvs} />
         <button style={styles.secondaryBtn} onClick={() => setCvs(a => [...a, { id: "", pw: "" }])}>+ 반별조회 계정 추가</button>
+      </div>
+      <div style={styles.infoBox}>
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>선생님 계정</div>
+        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 8 }}>담당 과목은 {grade}학년에 등록된 과목 중에서 선택하고, 담당 그룹(예: C)을 함께 입력하면 그 그룹을 듣는 학생에게만 공지가 노출됩니다.</div>
+        {subjectOptions.length === 0 && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>먼저 이동수업 명단을 업로드해야 과목을 선택할 수 있습니다.</div>}
+        {!teachers.length && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 선생님 계정이 없습니다.</div>}
+        {teachers.length > 0 && (
+          <table style={{ ...styles.editTable, marginBottom: 8 }}>
+            <thead><tr><th style={styles.th}>이름</th><th style={styles.th}>아이디</th><th style={styles.th}>비밀번호</th><th style={styles.th}>담당과목</th><th style={styles.th}>그룹</th><th style={{ ...styles.th, width: 40 }}></th></tr></thead>
+            <tbody>
+              {teachers.map((t, i) => (
+                <tr key={i}>
+                  <td style={styles.tdEdit}><input value={t.name} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} style={styles.cellInput} /></td>
+                  <td style={styles.tdEdit}><input value={t.id} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, id: e.target.value } : x))} style={styles.cellInput} /></td>
+                  <td style={styles.tdEdit}><input value={t.pw} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, pw: e.target.value } : x))} style={styles.cellInput} /></td>
+                  <td style={styles.tdEdit}>
+                    <select value={t.subject || ""} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, subject: e.target.value } : x))} style={{ ...styles.cellInput, width: "100%" }}>
+                      <option value="">선택</option>
+                      {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </td>
+                  <td style={styles.tdEdit}><input value={t.group} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} style={styles.cellInput} placeholder="예: C" /></td>
+                  <td style={styles.tdEdit}><button style={styles.iconBtn} onClick={() => setTeachers(l => l.filter((_, j) => j !== i))}><X size={14} /></button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <button style={styles.secondaryBtn} onClick={() => setTeachers(t => [...t, { name: "", id: "", pw: "", subject: "", group: "" }])}>+ 선생님 계정 추가</button>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button style={styles.primaryBtn} onClick={save}><Save size={14} /> 저장</button><button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화 ({RESET_PASSWORD})</button></div>
     </div>
@@ -1203,6 +1307,8 @@ const globalCss = `
     #print-area { display: block !important; }
     .print-page-break { break-after: page; page-break-after: always; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+    @page { size: A4; margin: 14mm; }
+    table tr { break-inside: avoid; page-break-inside: avoid; }
   }
 `;
 const styles = {
@@ -1289,6 +1395,10 @@ const styles = {
   dangerBtn: { display: "flex", alignItems: "center", gap: 6, border: "1px solid #e0b0a8", background: "#fdf1ee", color: "#a3402b", padding: "8px 14px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700, marginTop: 8 },
   iconBtn: { border: "none", background: "transparent", cursor: "pointer", padding: 4, display: "flex", color: "#a39d8c" },
   pasteBox: { background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 14, marginBottom: 14 },
+  noticeBox: { background: "#fff8e6", border: "1px solid #f0dca0", borderRadius: 8, padding: "10px 14px" },
+  noticeTitle: { fontSize: 12, fontWeight: 700, color: "#8a6d1f", marginBottom: 4 },
+  noticeText: { fontSize: 12.5, color: "#5c4a12", whiteSpace: "pre-wrap", lineHeight: 1.6 },
+  textareaInput: { width: "100%", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 10, fontSize: 13, resize: "vertical", fontFamily: "inherit" },
   issueList: { marginTop: 10, display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" },
   issueRow: { display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "7px 10px", fontSize: 12, flexWrap: "wrap" },
   issueBadge: { background: "#f3f1e9", padding: "2px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, color: "#8a8578" },
