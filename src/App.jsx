@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import * as XLSX from "xlsx";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
 
@@ -304,7 +303,7 @@ function parseHwpTimetables(arrayBuffer) {
 }
 
 /* ---------- xlsx timetable parsing ---------- */
-function parseTimetableWorkbook(wb) {
+function parseTimetableWorkbook(XLSX, wb) {
   const result = {};
   for (const sheetName of wb.SheetNames) {
     const m = sheetName.match(/^\s*(\d+)\s*(?:반)?\s*$/);
@@ -321,6 +320,12 @@ function parseTimetableWorkbook(wb) {
     result[m[1]] = grid;
   }
   return result;
+}
+
+let _xlsxModule = null;
+async function loadXLSX() {
+  if (!_xlsxModule) _xlsxModule = await import("xlsx");
+  return _xlsxModule;
 }
 
 /* ---------- Excel-style clipboard grid parsing (quote-aware TSV + HTML table) ---------- */
@@ -383,14 +388,17 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      setDb({
-        roster: await readStorage("kd_roster", {}),
-        enrollments: await readStorage("kd_enroll", {}),
-        timetables: await readStorage("kd_tt", {}),
-        meta: await readStorage("kd_meta", {}),
-      });
-      setAbbrevMap(await readStorage("kd_abbrev", {}));
-      setAccounts(await readStorage("kd_accounts", { admin: [], classView: [] }));
+      const [roster, enrollments, timetables, meta, abbrev, accts] = await Promise.all([
+        readStorage("kd_roster", {}),
+        readStorage("kd_enroll", {}),
+        readStorage("kd_tt", {}),
+        readStorage("kd_meta", {}),
+        readStorage("kd_abbrev", {}),
+        readStorage("kd_accounts", { admin: [], classView: [] }),
+      ]);
+      setDb({ roster, enrollments, timetables, meta });
+      setAbbrevMap(abbrev);
+      setAccounts(accts);
       setLoading(false);
     })();
   }, []);
@@ -667,6 +675,7 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster }) {
   const handleFile = async (file) => {
     setBusy(true);
     try {
+      const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const nr = {}, ne = {}; let sheets = 0;
       for (const sn of wb.SheetNames) {
@@ -780,7 +789,8 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
         result = byGrade[grade] || {};
         if (!Object.keys(result).length) { showToast(`한글 파일에서 ${grade}학년 시간표를 찾지 못했습니다. (파일에 있는 학년: ${Object.keys(byGrade).join(", ") || "없음"})`, "error"); setBusy(false); return; }
       } else {
-        result = parseTimetableWorkbook(XLSX.read(buf, { type: "array" }));
+        const XLSX = await loadXLSX();
+        result = parseTimetableWorkbook(XLSX, XLSX.read(buf, { type: "array" }));
         if (!Object.keys(result).length) { showToast("시트 이름이 반 번호(1, 2, 3…)인 시트를 찾지 못했습니다.", "error"); setBusy(false); return; }
       }
       setFilePreview(result); setEditing(Object.keys(result).sort((a, b) => a - b)[0]);
