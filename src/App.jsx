@@ -379,7 +379,7 @@ export default function App() {
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
   const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {} });
-  const [abbrevMap, setAbbrevMap] = useState({});
+  const [abbrevMaps, setAbbrevMaps] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [] });
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [classAuthed, setClassAuthed] = useState(false);
@@ -388,24 +388,25 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev, accts, roomNames] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
         readStorage("kd_meta", {}),
-        readStorage("kd_abbrev", {}),
+        readStorage("kd_abbrev_1", {}),
+        readStorage("kd_abbrev_2", {}),
+        readStorage("kd_abbrev_3", {}),
         readStorage("kd_accounts", { admin: [], classView: [] }),
         readStorage("kd_rooms", {}),
       ]);
       setDb({ roster, enrollments, timetables, meta, roomNames });
-      setAbbrevMap(abbrev);
+      setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       setAccounts(accts);
       setLoading(false);
     })();
   }, []);
 
   const persist = useCallback(async (patch) => {
-    setDb(d => ({ ...d, ...patch }));
     const jobs = [];
     if (patch.roster) jobs.push(writeStorage("kd_roster", patch.roster));
     if (patch.enrollments) jobs.push(writeStorage("kd_enroll", patch.enrollments));
@@ -415,18 +416,19 @@ export default function App() {
     const results = await Promise.all(jobs);
     const failed = results.find(r => r && r.ok === false);
     if (failed) { showToast(`실패했습니다. (${failed.error})`, "error"); return false; }
+    setDb(d => ({ ...d, ...patch })); // only reflect in the UI once Firestore confirms the write
     return true;
   }, [showToast]);
-  const persistAbbrev = useCallback(async (m) => {
-    setAbbrevMap(m);
-    const r = await writeStorage("kd_abbrev", m);
+  const persistAbbrev = useCallback(async (grade, m) => {
+    const r = await writeStorage(`kd_abbrev_${grade}`, m);
     if (!r.ok) { showToast(`실패했습니다. (${r.error})`, "error"); return false; }
+    setAbbrevMaps(prev => ({ ...prev, [grade]: m }));
     return true;
   }, [showToast]);
   const persistAccounts = useCallback(async (a) => {
-    setAccounts(a);
     const r = await writeStorage("kd_accounts", a);
     if (!r.ok) { showToast(`실패했습니다. (${r.error})`, "error"); return false; }
+    setAccounts(a);
     return true;
   }, [showToast]);
 
@@ -435,6 +437,7 @@ export default function App() {
   const enrollments = db.enrollments[scopeKey] || {};
   const timetables = db.timetables[scopeKey] || {};
   const roomNames = db.roomNames[scopeKey] || {};
+  const abbrevMap = abbrevMaps[grade] || {};
 
   const buildPersonalTimetable = useCallback((sid) => {
     const info = roster[sid];
@@ -677,61 +680,92 @@ function AdminOverview({ roster, enrollments, timetables, scopeKey, db, persist,
 
 function AdminRoster({ scopeKey, db, persist, showToast, roster, semester }) {
   const fileRef = useRef(null);
-  const [preview, setPreview] = useState(null), [busy, setBusy] = useState(false);
+  const [parsed, setParsed] = useState(null); // { sheets: [...], letters: [{letter, count}] }
+  const [selectedLetters, setSelectedLetters] = useState(new Set());
+  const [busy, setBusy] = useState(false);
   const handleFile = async (file) => {
     setBusy(true);
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const nr = {}, ne = {}; let sheets = 0, skippedOtherSem = 0;
-      // Real attendance workbooks bundle 1st/2nd semester electives in one file.
-      // Group letters distinguish them: A–F = 1학기, G–L = 2학기.
-      const semGroupRe = semester === "sem2" ? /^[G-L]/ : /^[A-F]/;
+      const sheets = [];
       for (const sn of wb.SheetNames) {
         const m = sn.match(/^(.+)_(\d+)반_(.+)$/);
         if (!m) continue;
         const [, subject, host, group] = m;
-        if (!semGroupRe.test(group.trim())) { skippedOtherSem++; continue; }
         const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, defval: null });
         const hi = rows.findIndex(r => r && r.includes("학번"));
         if (hi === -1) continue;
         const idx = {}; rows[hi].forEach((h, i) => { if (h) idx[h] = i; });
+        const students = [];
         for (let i = hi + 1; i < rows.length; i++) {
           const row = rows[i]; if (!row) continue;
           const sr = row[idx["학번"]]; if (!sr || sr === 0 || sr === "0") continue;
-          const sid = String(sr), name = row[idx["성명"]]; if (!name) continue;
-          if (!nr[sid]) nr[sid] = { name, class: row[idx["반"]], number: row[idx["번호"]], gender: row[idx["성별"]] };
-          (ne[sid] = ne[sid] || []).push({ subject: subject.trim(), group: group.trim(), hostClass: parseInt(host, 10) });
+          const name = row[idx["성명"]]; if (!name) continue;
+          students.push({ sid: String(sr), name, class: row[idx["반"]], number: row[idx["번호"]], gender: row[idx["성별"]] });
         }
-        sheets++;
+        const letter = (group.trim().match(/^[A-Za-z]/) || [group.trim()[0]])[0];
+        sheets.push({ subject: subject.trim(), host: parseInt(host, 10), group: group.trim(), letter, students });
       }
-      if (!sheets) { showToast(skippedOtherSem > 0 ? `이 파일에는 ${semester === "sem2" ? "1학기(A~F)" : "2학기(G~L)"} 시트만 있는 것 같습니다. 상단에서 학기를 바꿔서 다시 올려주세요.` : "시트 이름 형식(과목명_N반_그룹)을 인식하지 못했습니다.", "error"); setBusy(false); return; }
-      setPreview({ nr, ne, stats: { sheets, students: Object.keys(nr).length, enroll: Object.values(ne).reduce((a, l) => a + l.length, 0), skippedOtherSem } });
+      if (!sheets.length) { showToast("시트 이름 형식(과목명_N반_그룹)을 인식하지 못했습니다.", "error"); setBusy(false); return; }
+      const letterCounts = {};
+      sheets.forEach(s => { letterCounts[s.letter] = (letterCounts[s.letter] || 0) + 1; });
+      const letters = Object.keys(letterCounts).sort().map(l => ({ letter: l, count: letterCounts[l] }));
+      // Default selection: A–F for 1학기, G–L for 2학기 (real workbooks bundle both semesters' groups in one file)
+      const semGroupRe = semester === "sem2" ? /^[G-L]/ : /^[A-F]/;
+      const defaultSelected = new Set(letters.filter(l => semGroupRe.test(l.letter)).map(l => l.letter));
+      setParsed({ sheets });
+      setSelectedLetters(defaultSelected.size ? defaultSelected : new Set(letters.map(l => l.letter)));
       showToast("파일을 업로드했습니다.", "success");
     } catch (e) { showToast(`실패했습니다. (${e.message})`, "error"); } finally { setBusy(false); }
   };
+
+  const filteredStats = useMemo(() => {
+    if (!parsed) return null;
+    const nr = {}, ne = {};
+    let sheetCount = 0;
+    parsed.sheets.forEach(s => {
+      if (!selectedLetters.has(s.letter)) return;
+      sheetCount++;
+      s.students.forEach(st => {
+        if (!nr[st.sid]) nr[st.sid] = { name: st.name, class: st.class, number: st.number, gender: st.gender };
+        (ne[st.sid] = ne[st.sid] || []).push({ subject: s.subject, group: s.group, hostClass: s.host });
+      });
+    });
+    return { nr, ne, sheetCount };
+  }, [parsed, selectedLetters]);
+
+  const toggleLetter = (letter) => setSelectedLetters(prev => { const s = new Set(prev); if (s.has(letter)) s.delete(letter); else s.add(letter); return s; });
+
   const apply = async () => {
-    const ok = await persist({ roster: { ...db.roster, [scopeKey]: preview.nr }, enrollments: { ...db.enrollments, [scopeKey]: preview.ne }, meta: { ...db.meta, [scopeKey]: { updatedAt: new Date().toISOString() } } });
-    if (ok) { showToast("저장했습니다.", "success"); setPreview(null); }
+    const ok = await persist({ roster: { ...db.roster, [scopeKey]: filteredStats.nr }, enrollments: { ...db.enrollments, [scopeKey]: filteredStats.ne }, meta: { ...db.meta, [scopeKey]: { updatedAt: new Date().toISOString() } } });
+    if (ok) { showToast("저장했습니다.", "success"); setParsed(null); }
   };
   return (
     <div>
       <div style={styles.uploadBox}>
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>이동수업 명단(출석부) 엑셀 업로드</div>
-        <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center" }}>시트 이름 = "과목명_N반_그룹" (예: 사회와 문화_5반_A)<br />N반 = 그 수업이 열리는 개설반<br />그룹이 <b>A~F면 1학기</b>, <b>G~L이면 2학기</b> 과목으로 자동 구분해서, 지금 선택된 학기({semester === "sem2" ? "2학기" : "1학기"})에 해당하는 시트만 반영합니다.</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center" }}>시트 이름 = "과목명_N반_그룹" (예: 사회와 문화_5반_A)<br />N반 = 그 수업이 열리는 개설반<br />업로드 후 아래에서 어떤 그룹(학기)을 포함할지 직접 선택할 수 있습니다.</div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
         <button style={styles.uploadBtn} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />}{busy ? "분석 중…" : "파일 선택"}</button>
       </div>
-      {preview && (
+      {parsed && filteredStats && (
         <div style={styles.previewBox}>
-          <div style={{ fontWeight: 700, marginBottom: 8 }}>업로드 결과 ({semester === "sem2" ? "2학기" : "1학기"} 시트만 반영)</div>
-          <div style={styles.statGrid}><StatCard label="반영된 시트" value={preview.stats.sheets} unit="개" /><StatCard label="학생" value={preview.stats.students} unit="명" /><StatCard label="선택과목" value={preview.stats.enroll} unit="건" /></div>
-          {preview.stats.skippedOtherSem > 0 && <div style={styles.warnBanner}><AlertTriangle size={14} /> 다른 학기로 판단되어 제외된 시트 {preview.stats.skippedOtherSem}개 (필요하면 학기를 바꿔서 같은 파일을 다시 올려주세요)</div>}
-          <div style={{ display: "flex", gap: 8 }}><button style={styles.primaryBtn} onClick={apply}><Save size={14} /> 반영하기</button><button style={styles.secondaryBtn} onClick={() => setPreview(null)}>취소</button></div>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>포함할 그룹 선택</div>
+          <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 10 }}>파일 안에서 발견된 그룹 알파벳입니다. 지금 선택된 학기({semester === "sem2" ? "2학기" : "1학기"})에 맞는 그룹이 기본으로 체크되어 있습니다 — 필요하면 직접 켜고 꺼주세요.</div>
+          <div style={styles.classChips}>
+            {Array.from(new Set(parsed.sheets.map(s => s.letter))).sort().map(letter => (
+              <button key={letter} onClick={() => toggleLetter(letter)} style={{ ...styles.classChip, ...(selectedLetters.has(letter) ? styles.classChipActive : {}) }}>
+                {selectedLetters.has(letter) ? "✓ " : ""}{letter}그룹
+              </button>
+            ))}
+          </div>
+          <div style={styles.statGrid}><StatCard label="반영될 시트" value={filteredStats.sheetCount} unit="개" /><StatCard label="학생" value={Object.keys(filteredStats.nr).length} unit="명" /><StatCard label="선택과목" value={Object.values(filteredStats.ne).reduce((a, l) => a + l.length, 0)} unit="건" /></div>
+          <div style={{ display: "flex", gap: 8 }}><button style={styles.primaryBtn} onClick={apply} disabled={filteredStats.sheetCount === 0}><Save size={14} /> 반영하기</button><button style={styles.secondaryBtn} onClick={() => setParsed(null)}>취소</button></div>
         </div>
       )}
-      {Object.keys(roster).length > 0 && !preview && <button style={styles.dangerBtn} onClick={async () => { const ok = await persist({ roster: { ...db.roster, [scopeKey]: {} }, enrollments: { ...db.enrollments, [scopeKey]: {} } }); if (ok) showToast("명단을 삭제했습니다.", "success"); }}><Trash2 size={14} /> 명단 삭제</button>}
+      {Object.keys(roster).length > 0 && !parsed && <button style={styles.dangerBtn} onClick={async () => { const ok = await persist({ roster: { ...db.roster, [scopeKey]: {} }, enrollments: { ...db.enrollments, [scopeKey]: {} } }); if (ok) showToast("명단을 삭제했습니다.", "success"); }}><Trash2 size={14} /> 명단 삭제</button>}
     </div>
   );
 }
@@ -826,7 +860,7 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
     const missing = Array.from(used).filter(a => !abbrevMap[a]);
     if (missing.length && subjects.size) {
       const sug = suggestAbbrevMapping(missing, Array.from(subjects));
-      if (Object.keys(sug).length) { await persistAbbrev({ ...abbrevMap, ...sug }); showToast("저장했습니다.", "success"); return true; }
+      if (Object.keys(sug).length) { await persistAbbrev(grade, { ...abbrevMap, ...sug }); showToast("저장했습니다.", "success"); return true; }
     }
     showToast("저장했습니다.", "success");
     return true;
@@ -936,23 +970,31 @@ function RoomNameEditor({ scopeKey, db, persist, showToast, timetables }) {
   );
 }
 
-function AdminAbbrev({ abbrevMap, persistAbbrev, showToast, db }) {
+function AdminAbbrev({ abbrevMap, persistAbbrev, showToast, db, grade }) {
   const [rows, setRows] = useState(Object.entries(abbrevMap));
   useEffect(() => { setRows(Object.entries(abbrevMap)); }, [abbrevMap]);
-  const used = useMemo(() => { const s = new Set(); Object.values(db.timetables || {}).forEach(sc => Object.values(sc).forEach(g => DAYS.forEach(d => (g[d] || []).forEach(c => { if (isMoveSlot(c)) s.add(moveSlotAbbrev(c)); })))); return s; }, [db]);
+  const used = useMemo(() => {
+    const s = new Set();
+    Object.entries(db.timetables || {}).forEach(([sk, sc]) => {
+      if (!sk.startsWith(grade + "-")) return;
+      Object.values(sc).forEach(g => DAYS.forEach(d => (g[d] || []).forEach(c => { if (isMoveSlot(c)) s.add(moveSlotAbbrev(c)); })));
+    });
+    return s;
+  }, [db, grade]);
   const missing = Array.from(used).filter(a => !abbrevMap[a]);
   const autoFill = async () => {
-    const subjects = new Set(); Object.values(db.enrollments || {}).forEach(sc => Object.values(sc).forEach(l => l.forEach(c => subjects.add(c.subject))));
+    const subjects = new Set();
+    Object.entries(db.enrollments || {}).forEach(([sk, sc]) => { if (sk.startsWith(grade + "-")) Object.values(sc).forEach(l => l.forEach(c => subjects.add(c.subject))); });
     if (!subjects.size) { showToast("먼저 이동수업 명단을 업로드해주세요.", "error"); return; }
     const sug = suggestAbbrevMapping(missing, Array.from(subjects));
     if (!Object.keys(sug).length) { showToast("자동으로 매칭할 수 있는 항목이 없습니다.", "error"); return; }
-    const ok = await persistAbbrev({ ...abbrevMap, ...sug });
+    const ok = await persistAbbrev(grade, { ...abbrevMap, ...sug });
     if (ok) showToast(`${Object.keys(sug).length}개 약어를 자동 매핑했습니다.`, "success");
   };
-  const save = async () => { const m = {}; rows.forEach(([k, v]) => { if (k.trim()) m[k.trim()] = v.trim(); }); const ok = await persistAbbrev(m); if (ok) showToast("저장했습니다.", "success"); };
+  const save = async () => { const m = {}; rows.forEach(([k, v]) => { if (k.trim()) m[k.trim()] = v.trim(); }); const ok = await persistAbbrev(grade, m); if (ok) showToast("저장했습니다.", "success"); };
   return (
     <div>
-      <div style={styles.infoBox}><div style={{ fontSize: 12.5, color: "#5c574a" }}>이 매핑은 학년·학기 구분 없이 공통 적용됩니다.</div></div>
+      <div style={styles.infoBox}><div style={{ fontSize: 12.5, color: "#5c574a" }}>이 매핑은 {grade}학년의 1학기·2학기에 공통 적용됩니다. (다른 학년과는 별도로 관리됩니다)</div></div>
       {missing.length > 0 && (
         <div style={styles.warnBanner}>
           <AlertTriangle size={14} /> 매핑 없는 약어: {missing.join(", ")}
