@@ -897,12 +897,19 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
 
 function RoomNameEditor({ scopeKey, db, persist, showToast, timetables }) {
   const classes = Object.keys(timetables).sort((a, b) => a - b);
-  const roomNames = db.roomNames[scopeKey] || {};
-  const [rows, setRows] = useState(classes.map(c => [c, roomNames[c] || ""]));
-  useEffect(() => { setRows(classes.map(c => [c, (db.roomNames[scopeKey] || {})[c] || ""])); }, [scopeKey, db.roomNames]); // eslint-disable-line
+  const [rows, setRows] = useState(() => classes.map(c => [c, (db.roomNames[scopeKey] || {})[c] || ""]));
+  const prevScopeRef = useRef(scopeKey);
+  useEffect(() => {
+    if (prevScopeRef.current !== scopeKey) {
+      prevScopeRef.current = scopeKey;
+      setRows(classes.map(c => [c, (db.roomNames[scopeKey] || {})[c] || ""]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopeKey]);
 
   const save = async () => {
-    const map = { ...roomNames };
+    const current = db.roomNames[scopeKey] || {};
+    const map = { ...current };
     rows.forEach(([c, label]) => { if (label.trim()) map[c] = label.trim(); else delete map[c]; });
     const ok = await persist({ roomNames: { ...db.roomNames, [scopeKey]: map } });
     if (ok) showToast("특별실 명칭을 저장했습니다.", "success");
