@@ -551,7 +551,9 @@ export default function App() {
       seenCommon.add(key);
       (announcements[key] || []).forEach(n => notices.push({ subject: c.subject, group: `${info.class}반`, ...n }));
     }));
-    const homeroomNotices = announcements[homeroomKeyFor(info.class)] || [];
+    const personalNotices = (announcements[`STUDENT_${sid}`] || []).map(n => ({ ...n, origin: "personal" }));
+    const homeroomOnly = (announcements[homeroomKeyFor(info.class)] || []).map(n => ({ ...n, origin: "homeroom" }));
+    const homeroomNotices = [...homeroomOnly, ...personalNotices];
     return { student: info, grid, warnings, notices, homeroomNotices, hasTimetable: !!homeTT };
   }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements]);
 
@@ -566,14 +568,14 @@ export default function App() {
       <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} />
       <div style={styles.body}>
         {tab === "student" && <StudentView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />}
-        {tab === "classPrint" && (classAuthed
-          ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} onLogout={() => { setClassAuthed(false); saveSession({ classViewId: null }); }} />
+        {tab === "classPrint" && ((classAuthed || loggedInAdmin)
+          ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} onLogout={loggedInAdmin ? null : () => { setClassAuthed(false); saveSession({ classViewId: null }); }} />
           : <LoginGate label="학급별 조회" list={accounts.classView} onOk={(acc) => { setClassAuthed(true); saveSession({ classViewId: acc.id }); }} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
-        {tab === "subjectGroup" && (classAuthed
+        {tab === "subjectGroup" && ((classAuthed || loggedInAdmin)
           ? <SubjectGroupView key={scopeKey} roster={roster} enrollments={enrollments} hasAnyData={hasAnyData} announcements={announcements} />
           : <LoginGate label="이동수업반별 명단" list={accounts.classView} onOk={(acc) => { setClassAuthed(true); saveSession({ classViewId: acc.id }); }} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
         {tab === "teacherZone" && (loggedInTeacher
-          ? <TeacherZoneView key={scopeKey} teacher={loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={() => { setLoggedInTeacher(null); saveSession({ teacherId: null }); }} />
+          ? <TeacherZoneView key={scopeKey} teacher={loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} roster={roster} onLogout={() => { setLoggedInTeacher(null); saveSession({ teacherId: null }); }} />
           : <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} onOk={(acc) => { setLoggedInTeacher(acc); saveSession({ teacherId: acc.id }); }} />)}
         {tab === "admin" && (loggedInAdmin
           ? <AdminView key={scopeKey} {...{ db, persist, showToast, grade, semester, scopeKey, roster, enrollments, timetables, abbrevMap, persistAbbrev, accounts, persistAccounts, build: buildPersonalTimetable, loggedInAdmin, onLogout: () => { setLoggedInAdmin(null); saveSession({ adminId: null }); } }} />
@@ -670,7 +672,6 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
   const [mode, setMode] = useState("login"); // login | signup
   const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState("subject");
   const [assignments, setAssignments] = useState([{ kind: "elective", subject: "", targets: "" }]);
   const [homeroomClass, setHomeroomClass] = useState("");
   const [submitted, setSubmitted] = useState(false);
@@ -683,13 +684,10 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
   const submitSignup = async () => {
     const validAssignments = assignments.filter(a => a.subject && a.targets.trim());
     if (!name.trim() || !id.trim() || !pw) { showToast("이름·아이디·비밀번호를 입력해주세요.", "error"); return; }
-    if (role === "subject" && !validAssignments.length) { showToast("담당 과목을 하나 이상 입력해주세요.", "error"); return; }
-    if (role === "homeroom" && !homeroomClass) { showToast("담당 반을 선택해주세요.", "error"); return; }
+    if (!homeroomClass && !validAssignments.length) { showToast("학급담임 반 또는 담당 과목을 하나 이상 선택해주세요.", "error"); return; }
     const idTaken = [...(accounts.teacher || []), ...(accounts.teacherPending || [])].some(a => a.id === id.trim());
     if (idTaken) { showToast("이미 사용 중인 아이디입니다.", "error"); return; }
-    const req = role === "homeroom"
-      ? { id: id.trim(), pw, name: name.trim(), role: "homeroom", homeroomClass }
-      : { id: id.trim(), pw, name: name.trim(), role: "subject", assignments: validAssignments };
+    const req = { id: id.trim(), pw, name: name.trim(), homeroomClass, assignments: validAssignments };
     const ok = await persistAccounts({ ...accounts, teacherPending: [...(accounts.teacherPending || []), req] });
     if (ok) { setSubmitted(true); showToast("가입 신청이 접수되었습니다.", "success"); }
   };
@@ -724,25 +722,17 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
           <input value={name} onChange={e => setName(e.target.value)} placeholder="이름" style={styles.loginInput} />
           <input value={id} onChange={e => setId(e.target.value)} placeholder="사용할 아이디" style={styles.loginInput} />
           <input value={pw} onChange={e => setPw(e.target.value)} placeholder="사용할 비밀번호" type="password" style={styles.loginInput} />
-          <div style={{ display: "flex", gap: 4, margin: "8px 0" }}>
-            <button style={{ ...styles.scopeBtn, ...(role === "subject" ? styles.scopeBtnActive : {}) }} onClick={() => setRole("subject")}>교과담당</button>
-            <button style={{ ...styles.scopeBtn, ...(role === "homeroom" ? styles.scopeBtnActive : {}) }} onClick={() => setRole("homeroom")}>학급담임</button>
-          </div>
-          {role === "homeroom" ? (
-            <div style={{ textAlign: "left" }}>
-              <div style={{ fontSize: 11.5, color: "#8a8578", margin: "8px 0 6px" }}>담당 반</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {extractClasses(db, scopeKey).map(c => (
-                  <button key={c} type="button" onClick={() => setHomeroomClass(c)} style={{ ...styles.classChip, padding: "5px 10px", fontSize: 12, ...(homeroomClass === c ? styles.classChipActive : {}) }}>{c}반</button>
-                ))}
-              </div>
+          <div style={{ textAlign: "left", marginTop: 6 }}>
+            <div style={{ fontSize: 11.5, color: "#8a8578", margin: "8px 0 6px" }}>학급담임 (담당 반, 해당 시에만 선택)</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+              <button type="button" onClick={() => setHomeroomClass("")} style={{ ...styles.classChip, padding: "5px 10px", fontSize: 12, ...(!homeroomClass ? styles.classChipActive : {}) }}>없음</button>
+              {extractClasses(db, scopeKey).map(c => (
+                <button key={c} type="button" onClick={() => setHomeroomClass(c)} style={{ ...styles.classChip, padding: "5px 10px", fontSize: 12, ...(homeroomClass === c ? styles.classChipActive : {}) }}>{c}반</button>
+              ))}
             </div>
-          ) : (
-            <>
-              <div style={{ fontSize: 11.5, color: "#8a8578", margin: "8px 0 6px", textAlign: "left" }}>담당 과목 (여러 개 추가 가능)</div>
-              <AssignmentsEditor assignments={assignments} setAssignments={setAssignments} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
-            </>
-          )}
+            <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (해당 시에만 추가)</div>
+            <AssignmentsEditor assignments={assignments} setAssignments={setAssignments} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
+          </div>
           <button style={{ ...styles.primaryBtn, marginTop: 12 }} onClick={submitSignup}>가입 신청</button>
         </div>
       )}
@@ -884,41 +874,44 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
   );
 }
 
-function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout }) {
-  const isHomeroom = teacher.role === "homeroom";
-
-  // Expand assignments (each may have multiple targets) into flat list of {kind, subject, target}
+function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout, roster }) {
+  // Combine homeroom (if any) and all subject assignments into one flat list of selectable targets.
   const flatTargets = useMemo(() => {
-    if (isHomeroom) return teacher.homeroomClass ? [{ kind: "homeroom", target: teacher.homeroomClass, label: `${teacher.homeroomClass}반 학급 공지` }] : [];
     const out = [];
+    if (teacher.homeroomClass) out.push({ kind: "homeroom", target: teacher.homeroomClass, label: `${teacher.homeroomClass}반 학급 공지`, categories: HOMEROOM_CATEGORIES });
     (teacher.assignments || []).forEach(a => {
       (a.targets || "").split(",").map(s => s.trim()).filter(Boolean).forEach(t => {
-        out.push({ kind: a.kind, subject: a.subject, target: t, label: a.kind === "common" ? `${a.subject} — ${t}반` : `${a.subject} — ${t}그룹` });
+        out.push({ kind: a.kind, subject: a.subject, target: t, label: a.kind === "common" ? `${a.subject} — ${t}반` : `${a.subject} — ${t}그룹`, categories: NOTICE_CATEGORIES });
       });
     });
     return out;
-  }, [teacher, isHomeroom]);
+  }, [teacher]);
 
-  const categories = isHomeroom ? HOMEROOM_CATEGORIES : NOTICE_CATEGORIES;
   const [selIdx, setSelIdx] = useState(0);
   const sel = flatTargets[selIdx];
-  const targetKey = sel ? (isHomeroom ? homeroomKeyFor(sel.target) : targetKeyFor(sel.kind, sel.subject, sel.target)) : null;
+  const categories = sel ? sel.categories : NOTICE_CATEGORIES;
+  const targetKey = sel ? (sel.kind === "homeroom" ? homeroomKeyFor(sel.target) : targetKeyFor(sel.kind, sel.subject, sel.target)) : null;
   const currentNotices = (db.announcements[scopeKey] || {})[targetKey] || [];
 
   const [category, setCategory] = useState(categories[0]);
+  useEffect(() => { setCategory((sel ? sel.categories : NOTICE_CATEGORIES)[0]); }, [selIdx]); // eslint-disable-line
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const writeNotices = async (key, updater) => {
+    const current = db.announcements[scopeKey] || {};
+    const list = current[key] || [];
+    const updated = { ...current, [key]: updater(list) };
+    return persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
+  };
 
   const addNotice = async () => {
     if (!text.trim()) { showToast("내용을 입력해주세요.", "error"); return; }
     if (!targetKey) { showToast("대상을 먼저 선택해주세요.", "error"); return; }
     setSaving(true);
     try {
-      const current = db.announcements[scopeKey] || {};
-      const list = current[targetKey] || [];
       const newEntry = { id: Date.now() + "_" + Math.random().toString(36).slice(2, 7), category, text: text.trim(), teacherName: teacher.name, updatedAt: new Date().toISOString() };
-      const updated = { ...current, [targetKey]: [...list, newEntry] };
-      const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
+      const ok = await writeNotices(targetKey, list => [...list, newEntry]);
       if (ok) { showToast("저장했습니다.", "success"); setText(""); }
     } catch (e) {
       showToast(`오류가 발생했습니다: ${e.message}`, "error");
@@ -928,79 +921,149 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout }
 
   const deleteNotice = async (id) => {
     try {
-      const current = db.announcements[scopeKey] || {};
-      const list = (current[targetKey] || []).filter(n => n.id !== id);
-      const updated = { ...current, [targetKey]: list };
-      const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
+      const ok = await writeNotices(targetKey, list => list.filter(n => n.id !== id));
       if (ok) showToast("삭제했습니다.", "success");
     } catch (e) {
       showToast(`오류가 발생했습니다: ${e.message}`, "error");
     }
   };
 
-  if (!flatTargets.length) {
-    return (
-      <div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
-          <h1 style={styles.h1}>선생님 ZONE</h1>
-          <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
-        </div>
-        <div style={styles.warnBanner}><AlertTriangle size={14} /> {isHomeroom ? "담당 반이 등록되어 있지 않습니다." : "담당 과목이 등록되어 있지 않습니다."} 관리자에게 문의해주세요.</div>
-      </div>
-    );
-  }
-
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <h1 style={styles.h1}>선생님 ZONE</h1>
-          <p style={styles.pMuted}>{teacher.name} 선생님 {isHomeroom && "· 학급담임"}</p>
+          <p style={styles.pMuted}>{teacher.name} 선생님{teacher.homeroomClass && ` · ${teacher.homeroomClass}반 담임`}</p>
         </div>
         <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
       </div>
 
-      {!isHomeroom && (
-        <div className="no-print" style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 6 }}>공지를 작성할 대상을 선택하세요</div>
-          <div style={styles.classChips}>
-            {flatTargets.map((t, i) => <button key={i} onClick={() => setSelIdx(i)} style={{ ...styles.classChip, ...(selIdx === i ? styles.classChipActive : {}) }}>{t.label}</button>)}
-          </div>
-        </div>
+      {flatTargets.length === 0 && (
+        <div style={styles.warnBanner}><AlertTriangle size={14} /> 담당 반/과목이 등록되어 있지 않습니다. 관리자에게 문의해주세요.</div>
       )}
 
-      <div style={styles.card}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>{sel.label} 작성</div>
-        <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>
-          {isHomeroom ? `이 내용은 ${sel.target}반 학생의 개인 시간표 상단에 표시됩니다.` : `이 항목은 ${sel.label}인 학생의 개인 시간표${sel.kind === "elective" ? ' · "이동수업반별 명단" 페이지' : ""}에 표시됩니다.`}
-        </div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-          {categories.map(c => <button key={c} onClick={() => setCategory(c)} style={{ ...styles.classChip, ...(category === c ? styles.classChipActive : {}) }}>{c}</button>)}
-        </div>
-        <textarea value={text} onChange={e => setText(e.target.value)} rows={5} style={{ ...styles.textareaInput }} placeholder={isHomeroom ? "예: 다음 주 화요일까지 진로 희망서를 제출해주세요." : "예: 다음 시간에는 3층 과학실습실로 이동합니다. 준비물: 실험복."} />
-        <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 추가</button>
-
-        {currentNotices.length > 0 && (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>등록된 공지</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {currentNotices.slice().reverse().map(n => {
-                const cat = NOTICE_CATEGORY_COLOR[n.category] || NOTICE_CATEGORY_COLOR["공지"];
-                return (
-                  <div key={n.id} style={{ background: cat.bg, border: `1px solid ${cat.border}`, borderRadius: 8, padding: "10px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: cat.text, background: "#fff", border: `1px solid ${cat.border}`, borderRadius: 4, padding: "1px 6px" }}>{n.category}</span>
-                      <span style={{ fontSize: 11, color: "#8a8578" }}>{new Date(n.updatedAt).toLocaleString("ko-KR")}</span>
-                      <button style={{ ...styles.iconBtn, marginLeft: "auto" }} onClick={() => deleteNotice(n.id)}><X size={14} /></button>
-                    </div>
-                    <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
-                  </div>
-                );
-              })}
+      {flatTargets.length > 0 && (
+        <>
+          <div className="no-print" style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 6 }}>공지를 작성할 대상을 선택하세요</div>
+            <div style={styles.classChips}>
+              {flatTargets.map((t, i) => <button key={i} onClick={() => setSelIdx(i)} style={{ ...styles.classChip, ...(selIdx === i ? styles.classChipActive : {}) }}>{t.label}</button>)}
             </div>
           </div>
-        )}
+
+          <div style={styles.card}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>{sel.label} 작성</div>
+            <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>
+              {sel.kind === "homeroom" ? `이 내용은 ${sel.target}반 학생의 개인 시간표 상단에 표시됩니다.` : `이 항목은 ${sel.label}인 학생의 개인 시간표${sel.kind === "elective" ? ' · "이동수업반별 명단" 페이지' : ""}에 표시됩니다.`}
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+              {categories.map(c => <button key={c} onClick={() => setCategory(c)} style={{ ...styles.classChip, ...(category === c ? styles.classChipActive : {}) }}>{c}</button>)}
+            </div>
+            <textarea value={text} onChange={e => setText(e.target.value)} rows={5} style={{ ...styles.textareaInput }} placeholder={sel.kind === "homeroom" ? "예: 다음 주 화요일까지 진로 희망서를 제출해주세요." : "예: 다음 시간에는 3층 과학실습실로 이동합니다. 준비물: 실험복."} />
+            <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 추가</button>
+
+            {currentNotices.length > 0 && (
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>등록된 공지</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {currentNotices.slice().reverse().map(n => {
+                    const cat = NOTICE_CATEGORY_COLOR[n.category] || NOTICE_CATEGORY_COLOR["공지"];
+                    return (
+                      <div key={n.id} style={{ background: cat.bg, border: `1px solid ${cat.border}`, borderRadius: 8, padding: "10px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: cat.text, background: "#fff", border: `1px solid ${cat.border}`, borderRadius: 4, padding: "1px 6px" }}>{n.category}</span>
+                          <span style={{ fontSize: 11, color: "#8a8578" }}>{new Date(n.updatedAt).toLocaleString("ko-KR")}</span>
+                          <button style={{ ...styles.iconBtn, marginLeft: "auto" }} onClick={() => deleteNotice(n.id)}><X size={14} /></button>
+                        </div>
+                        <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <PersonalNoticeComposer roster={roster} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} teacher={teacher} />
+    </div>
+  );
+}
+
+function PersonalNoticeComposer({ roster, db, persist, showToast, scopeKey, teacher }) {
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState([]); // array of {sid, name, class, number}
+  const [category, setCategory] = useState("공지");
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const matches = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.trim();
+    return Object.entries(roster)
+      .filter(([sid, s]) => !selected.some(sel => sel.sid === sid) && (sid.includes(q) || s.name.includes(q) || `${s.class}반${s.number}번`.includes(q.replace(/\s/g, ""))))
+      .slice(0, 8);
+  }, [query, roster, selected]);
+
+  const addStudent = (sid, s) => { setSelected(prev => [...prev, { sid, ...s }]); setQuery(""); };
+  const removeStudent = (sid) => setSelected(prev => prev.filter(s => s.sid !== sid));
+
+  const send = async () => {
+    if (!text.trim()) { showToast("내용을 입력해주세요.", "error"); return; }
+    if (!selected.length) { showToast("학생을 한 명 이상 선택해주세요.", "error"); return; }
+    setSaving(true);
+    try {
+      const current = db.announcements[scopeKey] || {};
+      const updated = { ...current };
+      const newEntry = { id: Date.now() + "_" + Math.random().toString(36).slice(2, 7), category, text: text.trim(), teacherName: teacher.name, updatedAt: new Date().toISOString() };
+      selected.forEach(s => {
+        const key = `STUDENT_${s.sid}`;
+        updated[key] = [...(current[key] || []), newEntry];
+      });
+      const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
+      if (ok) { showToast(`${selected.length}명에게 전송했습니다.`, "success"); setText(""); setSelected([]); }
+    } catch (e) {
+      showToast(`오류가 발생했습니다: ${e.message}`, "error");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ ...styles.card, marginTop: 16 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>학생 지정 공지</div>
+      <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>특정 학생을 지정해서 개인 공지를 보낼 수 있습니다. 선택한 학생의 개인 시간표 상단에 표시됩니다.</div>
+      <div style={styles.searchBox}>
+        <Search size={16} color="#a39d8c" />
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="학번, 이름, 또는 '3반 12번'으로 검색" style={styles.searchInput} />
       </div>
+      {matches.length > 0 && (
+        <div style={styles.matchList}>
+          {matches.map(([sid, s]) => (
+            <button key={sid} style={styles.matchItem} onClick={() => addStudent(sid, s)}>
+              <span style={{ fontWeight: 600 }}>{s.name}</span>
+              <span style={styles.matchMeta}>{s.class}반 {s.number}번 · {sid}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {selected.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "10px 0" }}>
+          {selected.map(s => (
+            <span key={s.sid} style={{ display: "flex", alignItems: "center", gap: 4, background: COLORS.accentSoft, color: COLORS.accent, borderRadius: 14, padding: "4px 10px", fontSize: 12, fontWeight: 700 }}>
+              {s.name} ({s.class}반 {s.number}번)
+              <X size={12} style={{ cursor: "pointer" }} onClick={() => removeStudent(s.sid)} />
+            </span>
+          ))}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6, margin: "10px 0", flexWrap: "wrap" }}>
+        {[...NOTICE_CATEGORIES, ...HOMEROOM_CATEGORIES].filter((c, i, arr) => arr.indexOf(c) === i).map(c => (
+          <button key={c} onClick={() => setCategory(c)} style={{ ...styles.classChip, ...(category === c ? styles.classChipActive : {}) }}>{c}</button>
+        ))}
+      </div>
+      <textarea value={text} onChange={e => setText(e.target.value)} rows={4} style={styles.textareaInput} placeholder="예: 지난주 결석에 대한 사유서를 제출해주세요." />
+      <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={send} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} {selected.length > 0 ? `${selected.length}명에게 전송` : "전송"}</button>
     </div>
   );
 }
@@ -1021,7 +1084,7 @@ function TimetableCard({ result, sid }) {
               <div key={i} style={{ background: cat.bg, border: `1px solid ${cat.border}`, borderRadius: 8, padding: "10px 14px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                   <span style={{ fontSize: 10.5, fontWeight: 700, color: cat.text, background: "#fff", border: `1px solid ${cat.border}`, borderRadius: 4, padding: "1px 6px" }}>{n.category || "공지사항"}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: cat.text }}>{student.class}반 담임 {n.teacherName ? `${n.teacherName} 선생님` : ""}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: cat.text }}>{n.origin === "personal" ? "개인 지정 공지" : `${student.class}반 담임`} {n.teacherName ? `— ${n.teacherName} 선생님` : ""}</span>
                 </div>
                 <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
               </div>
@@ -1567,10 +1630,12 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
     const cleanGeneric = a => a.filter(x => x.id.trim() && x.pw).map(x => ({ id: x.id.trim(), pw: x.pw }));
     const cleanAdmins = a => a.filter(x => x.id.trim() && x.pw).map(x => ({ id: x.id.trim(), pw: x.pw, permissions: x.permissions || [] }));
     const cleanTeachers = teachers
-      .filter(t => t.id.trim() && t.pw && (t.role === "homeroom" ? t.homeroomClass : (t.assignments || []).some(a => a.subject && a.targets.trim())))
-      .map(t => t.role === "homeroom"
-        ? { id: t.id.trim(), pw: t.pw, name: t.name.trim(), role: "homeroom", homeroomClass: t.homeroomClass }
-        : { id: t.id.trim(), pw: t.pw, name: t.name.trim(), role: "subject", assignments: (t.assignments || []).filter(a => a.subject && a.targets.trim()) });
+      .filter(t => t.id.trim() && t.pw && (t.homeroomClass || (t.assignments || []).some(a => a.subject && a.targets.trim())))
+      .map(t => ({
+        id: t.id.trim(), pw: t.pw, name: t.name.trim(),
+        homeroomClass: t.homeroomClass || "",
+        assignments: (t.assignments || []).filter(a => a.subject && a.targets.trim()),
+      }));
     const ok = await persistAccounts({ admin: cleanAdmins(admins), classView: cleanGeneric(cvs), teacher: cleanTeachers, teacherPending: accounts.teacherPending || [] });
     if (ok) showToast("저장했습니다.", "success");
   };
@@ -1593,7 +1658,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
     if (ok) showToast("가입 신청을 거절했습니다.", "success");
   };
 
-  const addTeacher = () => setTeachers(t => [...t, { name: "", id: "", pw: "", assignments: [{ kind: "elective", subject: "", targets: "" }] }]);
+  const addTeacher = () => setTeachers(t => [...t, { name: "", id: "", pw: "", homeroomClass: "", assignments: [{ kind: "elective", subject: "", targets: "" }] }]);
   const updateTeacherField = (i, key, val) => setTeachers(l => l.map((x, j) => j === i ? { ...x, [key]: val } : x));
 
   return (
@@ -1619,7 +1684,12 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
               <div key={i} style={styles.issueRow}>
                 <span style={{ fontWeight: 700 }}>{req.name}</span>
                 <span style={{ color: "#8a8578", fontSize: 12 }}>({req.id})</span>
-                <span style={{ fontSize: 12 }}>{req.role === "homeroom" ? `학급담임 · ${req.homeroomClass}반` : (req.assignments || []).map((a, k) => `${a.subject}(${a.kind === "common" ? a.targets.split(",").map(c => c + "반").join("/") : a.targets.split(",").map(g => g + "그룹").join("/")})`).join(", ")}</span>
+                <span style={{ fontSize: 12 }}>
+                  {[
+                    req.homeroomClass ? `학급담임(${req.homeroomClass}반)` : null,
+                    (req.assignments || []).length > 0 ? (req.assignments || []).map(a => `${a.subject}(${a.kind === "common" ? a.targets.split(",").map(c => c + "반").join("/") : a.targets.split(",").map(g => g + "그룹").join("/")})`).join(", ") : null,
+                  ].filter(Boolean).join(" · ")}
+                </span>
                 <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
                   <button style={{ ...styles.secondaryBtn, padding: "4px 10px", fontSize: 11.5 }} onClick={() => approve(req)}>승인</button>
                   <button style={{ ...styles.dangerBtn, padding: "4px 10px", fontSize: 11.5, marginTop: 0 }} onClick={() => reject(req)}>거절</button>
@@ -1636,7 +1706,6 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         {!teachers.length && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 선생님 계정이 없습니다.</div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {teachers.map((t, i) => {
-            const role = t.role || "subject";
             return (
               <div key={i} style={{ border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fbfaf6" }}>
                 <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
@@ -1645,25 +1714,21 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                   <input value={t.pw} onChange={e => updateTeacherField(i, "pw", e.target.value)} placeholder="비밀번호" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
                   <button style={styles.iconBtn} onClick={() => setTeachers(l => l.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
                 </div>
-                <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
-                  <button style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11.5, ...(role === "subject" ? styles.classChipActive : {}) }} onClick={() => updateTeacherField(i, "role", "subject")}>교과담당</button>
-                  <button style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11.5, ...(role === "homeroom" ? styles.classChipActive : {}) }} onClick={() => updateTeacherField(i, "role", "homeroom")}>학급담임</button>
-                </div>
-                {role === "homeroom" ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   <div>
-                    <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>담당 반</div>
+                    <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>학급담임 (담당 반, 선택사항)</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      <button type="button" onClick={() => updateTeacherField(i, "homeroomClass", "")} style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11.5, ...(!t.homeroomClass ? styles.classChipActive : {}) }}>없음</button>
                       {extractClasses(db, scopeKey).map(c => (
                         <button key={c} type="button" onClick={() => updateTeacherField(i, "homeroomClass", c)} style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11.5, ...(t.homeroomClass === c ? styles.classChipActive : {}) }}>{c}반</button>
                       ))}
                     </div>
                   </div>
-                ) : (
                   <div>
-                    <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>담당 과목</div>
+                    <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (선택사항, 여러 개 가능)</div>
                     <AssignmentsEditor assignments={t.assignments || []} setAssignments={(a) => updateTeacherField(i, "assignments", a)} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
                   </div>
-                )}
+                </div>
               </div>
             );
           })}
@@ -1725,17 +1790,21 @@ function AdminNoticesViewer({ db, scopeKey, roster, timetables }) {
     const out = [];
     const homeroom = announcements[homeroomKeyFor(sel)] || [];
     homeroom.forEach(n => out.push({ ...n, scopeLabel: `${sel}반 학급 공지`, kind: "homeroom" }));
+    const classStudentIds = new Set(Object.entries(roster).filter(([, s]) => s.class === sel).map(([sid]) => sid));
     Object.entries(announcements).forEach(([key, list]) => {
       if (key.startsWith("COMMON_")) {
         const m = key.match(/^COMMON_(.+)_(\d+)$/);
         if (m && m[2] === String(sel)) list.forEach(n => out.push({ ...n, scopeLabel: `${m[1]} (공통과목, ${sel}반)`, kind: "common" }));
+      } else if (key.startsWith("STUDENT_")) {
+        const sid = key.replace("STUDENT_", "");
+        if (classStudentIds.has(sid)) { const s = roster[sid]; list.forEach(n => out.push({ ...n, scopeLabel: `${s.name} (${s.class}반 ${s.number}번) 개인 지정`, kind: "personal" })); }
       } else if (!key.startsWith("HOMEROOM_")) {
         const m = key.match(/^(.+)_([^_]+)$/);
         if (m) list.forEach(n => out.push({ ...n, scopeLabel: `${m[1]} (${m[2]}그룹)`, kind: "elective" }));
       }
     });
     return out.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
-  }, [announcements, sel]);
+  }, [announcements, sel, roster]);
 
   return (
     <div>
