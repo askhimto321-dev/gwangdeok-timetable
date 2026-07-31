@@ -72,6 +72,14 @@ function targetKeyFor(kind, subject, target) {
 function homeroomKeyFor(classNum) {
   return `HOMEROOM_${classNum}`;
 }
+// Defensive normalizer: older data was stored as a single {text,...} object per key;
+// newer data is an array of such objects. This safely handles both plus missing/null.
+function asNoticeArray(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  if (typeof v === "object" && v.text) return [v];
+  return [];
+}
 const NOTICE_CATEGORIES = ["공지", "수행평가", "과제"];
 const HOMEROOM_CATEGORIES = ["공지사항", "제출", "신청", "상담"];
 const NOTICE_CATEGORY_COLOR = {
@@ -529,7 +537,7 @@ export default function App() {
     (enrollments[sid] || []).forEach(course => {
       const ab = rev[course.subject];
       const noticeKey = targetKeyFor("elective", course.subject, course.group);
-      (announcements[noticeKey] || []).forEach(n => notices.push({ subject: course.subject, group: `${course.group}그룹`, ...n }));
+      asNoticeArray(announcements[noticeKey]).forEach(n => notices.push({ subject: course.subject, group: `${course.group}그룹`, ...n }));
       if (!ab) { warnings.push(`"${course.subject}" 과목의 약어 매핑이 없습니다.`); return; }
       const hostTT = timetables[String(course.hostClass)];
       if (!hostTT) { warnings.push(`"${course.subject}"이 개설되는 ${roomLabel(course.hostClass)} 시간표가 없습니다.`); return; }
@@ -549,10 +557,10 @@ export default function App() {
       const key = targetKeyFor("common", c.subject, info.class);
       if (seenCommon.has(key)) return;
       seenCommon.add(key);
-      (announcements[key] || []).forEach(n => notices.push({ subject: c.subject, group: `${info.class}반`, ...n }));
+      asNoticeArray(announcements[key]).forEach(n => notices.push({ subject: c.subject, group: `${info.class}반`, ...n }));
     }));
-    const personalNotices = (announcements[`STUDENT_${sid}`] || []).map(n => ({ ...n, origin: "personal" }));
-    const homeroomOnly = (announcements[homeroomKeyFor(info.class)] || []).map(n => ({ ...n, origin: "homeroom" }));
+    const personalNotices = asNoticeArray(announcements[`STUDENT_${sid}`]).map(n => ({ ...n, origin: "personal" }));
+    const homeroomOnly = asNoticeArray(announcements[homeroomKeyFor(info.class)]).map(n => ({ ...n, origin: "homeroom" }));
     const homeroomNotices = [...homeroomOnly, ...personalNotices];
     return { student: info, grid, warnings, notices, homeroomNotices, hasTimetable: !!homeTT };
   }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements]);
@@ -891,7 +899,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout, 
   const sel = flatTargets[selIdx];
   const categories = sel ? sel.categories : NOTICE_CATEGORIES;
   const targetKey = sel ? (sel.kind === "homeroom" ? homeroomKeyFor(sel.target) : targetKeyFor(sel.kind, sel.subject, sel.target)) : null;
-  const currentNotices = (db.announcements[scopeKey] || {})[targetKey] || [];
+  const currentNotices = asNoticeArray((db.announcements[scopeKey] || {})[targetKey]);
 
   const [category, setCategory] = useState(categories[0]);
   useEffect(() => { setCategory((sel ? sel.categories : NOTICE_CATEGORIES)[0]); }, [selIdx]); // eslint-disable-line
@@ -900,7 +908,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout, 
 
   const writeNotices = async (key, updater) => {
     const current = db.announcements[scopeKey] || {};
-    const list = current[key] || [];
+    const list = asNoticeArray(current[key]);
     const updated = { ...current, [key]: updater(list) };
     return persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
   };
@@ -1019,7 +1027,7 @@ function PersonalNoticeComposer({ roster, db, persist, showToast, scopeKey, teac
       const newEntry = { id: Date.now() + "_" + Math.random().toString(36).slice(2, 7), category, text: text.trim(), teacherName: teacher.name, updatedAt: new Date().toISOString() };
       selected.forEach(s => {
         const key = `STUDENT_${s.sid}`;
-        updated[key] = [...(current[key] || []), newEntry];
+        updated[key] = [...asNoticeArray(current[key]), newEntry];
       });
       const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
       if (ok) { showToast(`${selected.length}명에게 전송했습니다.`, "success"); setText(""); setSelected([]); }
@@ -1788,10 +1796,11 @@ function AdminNoticesViewer({ db, scopeKey, roster, timetables }) {
   const items = useMemo(() => {
     if (sel == null) return [];
     const out = [];
-    const homeroom = announcements[homeroomKeyFor(sel)] || [];
+    const homeroom = asNoticeArray(announcements[homeroomKeyFor(sel)]);
     homeroom.forEach(n => out.push({ ...n, scopeLabel: `${sel}반 학급 공지`, kind: "homeroom" }));
     const classStudentIds = new Set(Object.entries(roster).filter(([, s]) => s.class === sel).map(([sid]) => sid));
-    Object.entries(announcements).forEach(([key, list]) => {
+    Object.entries(announcements).forEach(([key, rawList]) => {
+      const list = asNoticeArray(rawList);
       if (key.startsWith("COMMON_")) {
         const m = key.match(/^COMMON_(.+)_(\d+)$/);
         if (m && m[2] === String(sel)) list.forEach(n => out.push({ ...n, scopeLabel: `${m[1]} (공통과목, ${sel}반)`, kind: "common" }));
