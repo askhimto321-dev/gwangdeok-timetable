@@ -678,7 +678,7 @@ function AdminOverview({ roster, enrollments, timetables, scopeKey, db, persist,
   );
 }
 
-function AdminRoster({ scopeKey, db, persist, showToast, roster, semester }) {
+function AdminRoster({ scopeKey, db, persist, showToast, roster, enrollments, semester }) {
   const fileRef = useRef(null);
   const [parsed, setParsed] = useState(null); // { sheets: [...], letters: [{letter, count}] }
   const [selectedLetters, setSelectedLetters] = useState(new Set());
@@ -765,7 +765,72 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster, semester }) {
           <div style={{ display: "flex", gap: 8 }}><button style={styles.primaryBtn} onClick={apply} disabled={filteredStats.sheetCount === 0}><Save size={14} /> 반영하기</button><button style={styles.secondaryBtn} onClick={() => setParsed(null)}>취소</button></div>
         </div>
       )}
+      {!parsed && Object.keys(roster).length > 0 && <CurrentRosterViewer roster={roster} enrollments={enrollments} />}
       {Object.keys(roster).length > 0 && !parsed && <button style={styles.dangerBtn} onClick={async () => { const ok = await persist({ roster: { ...db.roster, [scopeKey]: {} }, enrollments: { ...db.enrollments, [scopeKey]: {} } }); if (ok) showToast("명단을 삭제했습니다.", "success"); }}><Trash2 size={14} /> 명단 삭제</button>}
+    </div>
+  );
+}
+
+function CurrentRosterViewer({ roster, enrollments }) {
+  const [tab, setTab] = useState("class");
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [selectedSubjectKey, setSelectedSubjectKey] = useState(null);
+
+  const byClass = useMemo(() => {
+    const m = {};
+    Object.entries(roster).forEach(([sid, s]) => { (m[s.class] = m[s.class] || []).push({ sid, ...s }); });
+    Object.values(m).forEach(list => list.sort((a, b) => a.number - b.number));
+    return Object.entries(m).sort((a, b) => a[0] - b[0]);
+  }, [roster]);
+
+  const bySubject = useMemo(() => {
+    const m = {};
+    Object.entries(enrollments).forEach(([sid, list]) => {
+      list.forEach(c => {
+        const key = `${c.subject} (${c.group}) · ${c.hostClass}반개설`;
+        (m[key] = m[key] || []).push({ sid, ...(roster[sid] || {}) });
+      });
+    });
+    Object.values(m).forEach(list => list.sort((a, b) => (a.class - b.class) || (a.number - b.number)));
+    return Object.entries(m).sort((a, b) => b[1].length - a[1].length);
+  }, [enrollments, roster]);
+
+  useEffect(() => { if (byClass.length && !selectedClass) setSelectedClass(byClass[0][0]); }, [byClass]); // eslint-disable-line
+  useEffect(() => { if (bySubject.length && !selectedSubjectKey) setSelectedSubjectKey(bySubject[0][0]); }, [bySubject]); // eslint-disable-line
+
+  const StudentTable = ({ list }) => (
+    <table style={styles.editTable}>
+      <thead><tr><th style={styles.th}>학번</th><th style={styles.th}>이름</th><th style={styles.th}>반</th><th style={styles.th}>번호</th></tr></thead>
+      <tbody>{list.map(s => <tr key={s.sid}><td style={styles.tdReadonly}>{s.sid}</td><td style={styles.tdReadonly}>{s.name}</td><td style={styles.tdReadonly}>{s.class}반</td><td style={styles.tdReadonly}>{s.number}</td></tr>)}</tbody>
+    </table>
+  );
+
+  return (
+    <div style={styles.infoBox}>
+      <div style={{ fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><Eye size={15} /> 현재 저장된 출석부 (실제 반영된 데이터)</div>
+      <div style={styles.statGrid}>
+        <StatCard label="전체 학생" value={Object.keys(roster).length} unit="명" />
+        <StatCard label="반 수" value={byClass.length} unit="개" />
+        <StatCard label="개설 과목·그룹" value={bySubject.length} unit="개" />
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        <button style={{ ...styles.classChip, ...(tab === "class" ? styles.classChipActive : {}) }} onClick={() => setTab("class")}>반별 명단</button>
+        <button style={{ ...styles.classChip, ...(tab === "subject" ? styles.classChipActive : {}) }} onClick={() => setTab("subject")}>과목·그룹별 명단</button>
+      </div>
+      {tab === "class" && (
+        <div>
+          <div style={styles.classChips}>{byClass.map(([cls, list]) => <button key={cls} onClick={() => setSelectedClass(cls)} style={{ ...styles.classChip, ...(selectedClass === cls ? styles.classChipActive : {}) }}>{cls}반 ({list.length}명)</button>)}</div>
+          {selectedClass && <div style={{ maxHeight: 360, overflowY: "auto" }}><StudentTable list={(byClass.find(([c]) => c === selectedClass) || [null, []])[1]} /></div>}
+        </div>
+      )}
+      {tab === "subject" && (
+        <div>
+          <select value={selectedSubjectKey || ""} onChange={e => setSelectedSubjectKey(e.target.value)} style={{ ...styles.loginInput, marginBottom: 10, width: "100%" }}>
+            {bySubject.map(([key, list]) => <option key={key} value={key}>{key} — {list.length}명</option>)}
+          </select>
+          {selectedSubjectKey && <div style={{ maxHeight: 360, overflowY: "auto" }}><StudentTable list={(bySubject.find(([k]) => k === selectedSubjectKey) || [null, []])[1]} /></div>}
+        </div>
+      )}
     </div>
   );
 }
