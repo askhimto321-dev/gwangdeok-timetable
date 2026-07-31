@@ -36,6 +36,31 @@ function suggestAbbrevMapping(abbrevs, subjects) {
   return out;
 }
 
+const IGNORED_COMMON_LABELS = new Set(["자율학습", "진로활동", "자율", "진로"]);
+function extractCommonSubjects(db, grade) {
+  const s = new Set();
+  Object.entries(db.timetables || {}).forEach(([sk, classes]) => {
+    if (!sk.startsWith(grade + "-")) return;
+    Object.values(classes).forEach(grid => {
+      DAYS.forEach(day => (grid[day] || []).forEach(cell => {
+        if (!cell || isMoveSlot(cell)) return;
+        const { subject } = parseCompositeLabel(cell);
+        const label = FIXED_LABELS[subject] || subject;
+        if (!IGNORED_COMMON_LABELS.has(label)) s.add(subject);
+      }));
+    });
+  });
+  return Array.from(s).sort((a, b) => a.localeCompare(b, "ko"));
+}
+function extractClasses(db, grade) {
+  const s = new Set();
+  Object.entries(db.timetables || {}).forEach(([sk, classes]) => {
+    if (!sk.startsWith(grade + "-")) return;
+    Object.keys(classes).forEach(c => s.add(c));
+  });
+  return Array.from(s).sort((a, b) => a - b);
+}
+
 /* ============================================================
    Pure-JS DEFLATE (raw) decoder — no browser API / no external lib.
    Needed because DecompressionStream support/behavior can vary by
@@ -380,7 +405,7 @@ export default function App() {
   const [semester, setSemester] = useState("sem1");
   const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {} });
   const [abbrevMaps, setAbbrevMaps] = useState({});
-  const [accounts, setAccounts] = useState({ admin: [], classView: [], teacher: [] });
+  const [accounts, setAccounts] = useState({ admin: [], classView: [], teacher: [], teacherPending: [] });
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [classAuthed, setClassAuthed] = useState(false);
   const [loggedInTeacher, setLoggedInTeacher] = useState(null);
@@ -397,7 +422,7 @@ export default function App() {
         readStorage("kd_abbrev_1", {}),
         readStorage("kd_abbrev_2", {}),
         readStorage("kd_abbrev_3", {}),
-        readStorage("kd_accounts", { admin: [], classView: [], teacher: [] }),
+        readStorage("kd_accounts", { admin: [], classView: [], teacher: [], teacherPending: [] }),
         readStorage("kd_rooms", {}),
         readStorage("kd_notices", {}),
       ]);
@@ -470,6 +495,14 @@ export default function App() {
       if (placed === 0) warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${roomLabel(course.hostClass)} 시간표에서 찾지 못했습니다.`);
     });
     DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: FIXED_LABELS[subject] || subject, location }; } return c; }); });
+    const seenCommon = new Set();
+    DAYS.forEach(day => grid[day].forEach(c => {
+      if (!c || c.type !== "fixed") return;
+      const key = `COMMON_${c.subject}_${info.class}`;
+      if (seenCommon.has(key)) return;
+      const a = announcements[key];
+      if (a && a.text) { notices.push({ subject: c.subject, group: `${info.class}반`, ...a }); seenCommon.add(key); }
+    }));
     return { student: info, grid, warnings, notices, hasTimetable: !!homeTT };
   }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements]);
 
@@ -492,7 +525,7 @@ export default function App() {
           : <LoginGate label="이동수업반별 명단" list={accounts.classView} onOk={() => setClassAuthed(true)} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
         {tab === "teacherZone" && (loggedInTeacher
           ? <TeacherZoneView key={scopeKey} teacher={loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={() => setLoggedInTeacher(null)} />
-          : <LoginGate label="선생님 ZONE" list={accounts.teacher} onOk={(acc) => setLoggedInTeacher(acc)} hint={accounts.teacher.length ? null : "등록된 선생님 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+          : <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} onOk={(acc) => setLoggedInTeacher(acc)} />)}
         {tab === "admin" && (adminAuthed
           ? <AdminView key={scopeKey} {...{ db, persist, showToast, grade, semester, scopeKey, roster, enrollments, timetables, abbrevMap, persistAbbrev, accounts, persistAccounts, build: buildPersonalTimetable }} />
           : <LoginGate label="관리자" list={adminAccounts} onOk={() => setAdminAuthed(true)} hint={accounts.admin.length ? null : `초기 계정: ${DEFAULT_ADMIN.id} / ${DEFAULT_ADMIN.pw}`} />)}
@@ -515,6 +548,80 @@ function LoginGate({ label, list, onOk, hint }) {
       <input value={pw} onChange={e => setPw(e.target.value)} placeholder="비밀번호" type="password" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submit()} />
       {err && <div style={{ color: "#b3401f", fontSize: 12, marginBottom: 6 }}>{err}</div>}
       <button style={styles.primaryBtn} onClick={submit}><KeyRound size={14} /> 로그인</button>
+    </div>
+  );
+}
+
+function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, onOk }) {
+  const [mode, setMode] = useState("login"); // login | signup
+  const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
+  const [name, setName] = useState(""), [subjectEncoded, setSubjectEncoded] = useState(""), [group, setGroup] = useState("");
+  const [submitted, setSubmitted] = useState(false);
+
+  const electiveSubjects = useMemo(() => {
+    const s = new Set();
+    Object.entries(db.enrollments || {}).forEach(([sk, sc]) => { if (sk.startsWith(grade + "-")) Object.values(sc).forEach(list => list.forEach(c => s.add(c.subject))); });
+    return Array.from(s).sort((a, b) => a.localeCompare(b, "ko"));
+  }, [db, grade]);
+  const commonSubjects = useMemo(() => extractCommonSubjects(db, grade), [db, grade]);
+  const classOptions = useMemo(() => extractClasses(db, grade), [db, grade]);
+  const [kind, subject] = subjectEncoded.split("::");
+
+  const submitLogin = () => {
+    const f = (accounts.teacher || []).find(a => a.id === id.trim() && a.pw === pw);
+    if (f) { setErr(""); onOk(f); } else setErr("아이디 또는 비밀번호가 올바르지 않습니다. (승인 대기 중일 수 있습니다)");
+  };
+
+  const submitSignup = async () => {
+    if (!name.trim() || !id.trim() || !pw || !subject || !group.trim()) { showToast("모든 항목을 입력해주세요.", "error"); return; }
+    const idTaken = [...(accounts.teacher || []), ...(accounts.teacherPending || [])].some(a => a.id === id.trim());
+    if (idTaken) { showToast("이미 사용 중인 아이디입니다.", "error"); return; }
+    const req = { id: id.trim(), pw, name: name.trim(), subject, kind, group: group.trim() };
+    const ok = await persistAccounts({ ...accounts, teacherPending: [...(accounts.teacherPending || []), req] });
+    if (ok) { setSubmitted(true); showToast("가입 신청이 접수되었습니다.", "success"); }
+  };
+
+  if (submitted) {
+    return (
+      <div style={styles.loginBox}>
+        <Check size={22} color="#3d5c3a" />
+        <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>가입 신청 완료</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", margin: "8px 0 0", textAlign: "center" }}>관리자 승인 후 로그인하실 수 있습니다.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={styles.loginBox}>
+      <Lock size={22} color="#8a8578" />
+      <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>선생님 ZONE</div>
+      <div style={{ display: "flex", gap: 4, margin: "10px 0" }}>
+        <button style={{ ...styles.scopeBtn, ...(mode === "login" ? styles.scopeBtnActive : {}) }} onClick={() => setMode("login")}>로그인</button>
+        <button style={{ ...styles.scopeBtn, ...(mode === "signup" ? styles.scopeBtnActive : {}) }} onClick={() => setMode("signup")}>회원가입</button>
+      </div>
+      {mode === "login" ? (
+        <>
+          <input value={id} onChange={e => setId(e.target.value)} placeholder="아이디" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submitLogin()} />
+          <input value={pw} onChange={e => setPw(e.target.value)} placeholder="비밀번호" type="password" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submitLogin()} />
+          {err && <div style={{ color: "#b3401f", fontSize: 12, marginBottom: 6 }}>{err}</div>}
+          <button style={styles.primaryBtn} onClick={submitLogin}><KeyRound size={14} /> 로그인</button>
+        </>
+      ) : (
+        <>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="이름" style={styles.loginInput} />
+          <input value={id} onChange={e => setId(e.target.value)} placeholder="사용할 아이디" style={styles.loginInput} />
+          <input value={pw} onChange={e => setPw(e.target.value)} placeholder="사용할 비밀번호" type="password" style={styles.loginInput} />
+          <select value={subjectEncoded} onChange={e => { setSubjectEncoded(e.target.value); setGroup(""); }} style={{ ...styles.loginInput }}>
+            <option value="">담당 과목 선택</option>
+            {electiveSubjects.length > 0 && <optgroup label="이동수업 과목">{electiveSubjects.map(s => <option key={"e" + s} value={`elective::${s}`}>{s}</option>)}</optgroup>}
+            {commonSubjects.length > 0 && <optgroup label="공통과목">{commonSubjects.map(s => <option key={"c" + s} value={`common::${s}`}>{s}</option>)}</optgroup>}
+          </select>
+          {kind === "common"
+            ? <select value={group} onChange={e => setGroup(e.target.value)} style={styles.loginInput}><option value="">담당 반 선택</option>{classOptions.map(c => <option key={c} value={c}>{c}반</option>)}</select>
+            : <input value={group} onChange={e => setGroup(e.target.value)} placeholder="담당 그룹 (예: C)" style={styles.loginInput} />}
+          <button style={styles.primaryBtn} onClick={submitSignup}>가입 신청</button>
+        </>
+      )}
     </div>
   );
 }
@@ -639,7 +746,8 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
 }
 
 function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout }) {
-  const noticeKey = `${teacher.subject}_${teacher.group}`;
+  const isCommon = teacher.kind === "common";
+  const noticeKey = isCommon ? `COMMON_${teacher.subject}_${teacher.group}` : `${teacher.subject}_${teacher.group}`;
   const existing = (db.announcements[scopeKey] || {})[noticeKey];
   const [text, setText] = useState(existing ? existing.text : "");
   const [saving, setSaving] = useState(false);
@@ -653,18 +761,20 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout }
     setSaving(false);
   };
 
+  const scopeLabel = isCommon ? `${teacher.group}반 대상` : `${teacher.group}그룹 대상`;
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <h1 style={styles.h1}>선생님 ZONE</h1>
-          <p style={styles.pMuted}>{teacher.name} 선생님 · 담당 과목: {teacher.subject} ({teacher.group}그룹)</p>
+          <p style={styles.pMuted}>{teacher.name} 선생님 · 담당 과목: {teacher.subject} ({scopeLabel})</p>
         </div>
         <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
       </div>
       <div style={styles.card}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>공지 작성</div>
-        <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>이 공지는 {teacher.subject} ({teacher.group}그룹)을 수강하는 학생의 개인 시간표와 "이동수업반별 명단" 페이지에 표시됩니다.</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>이 공지는 {teacher.subject} ({scopeLabel})인 학생의 개인 시간표{!isCommon && ' · "이동수업반별 명단" 페이지'}에 표시됩니다.</div>
         <textarea value={text} onChange={e => setText(e.target.value)} rows={6} style={{ ...styles.textareaInput }} placeholder="예: 다음 시간에는 3층 과학실습실로 이동합니다. 준비물: 실험복." />
         <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 저장</button>
       </div>
@@ -1189,7 +1299,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
   const [teachers, setTeachers] = useState(accounts.teacher || []);
   useEffect(() => { setAdmins(accounts.admin); setCvs(accounts.classView); setTeachers(accounts.teacher || []); }, [accounts]);
 
-  const subjectOptions = useMemo(() => {
+  const electiveSubjects = useMemo(() => {
     const s = new Set();
     Object.entries(db.enrollments || {}).forEach(([sk, sc]) => {
       if (!sk.startsWith(grade + "-")) return;
@@ -1197,19 +1307,40 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
     });
     return Array.from(s).sort((a, b) => a.localeCompare(b, "ko"));
   }, [db, grade]);
+  const commonSubjects = useMemo(() => extractCommonSubjects(db, grade), [db, grade]);
+  const classOptions = useMemo(() => extractClasses(db, grade), [db, grade]);
+
+  const setTeacherSubject = (i, encoded) => {
+    // encoded = "elective::과목" or "common::과목"
+    const [kind, subject] = encoded.split("::");
+    setTeachers(l => l.map((x, j) => j === i ? { ...x, kind, subject: subject || "", group: "" } : x));
+  };
 
   const save = async () => {
     const clean = a => a.filter(x => x.id.trim() && x.pw).map(x => ({ id: x.id.trim(), pw: x.pw }));
-    const cleanTeachers = teachers.filter(t => t.id.trim() && t.pw && t.subject && t.group.trim()).map(t => ({ id: t.id.trim(), pw: t.pw, name: t.name.trim(), subject: t.subject, group: t.group.trim() }));
-    const ok = await persistAccounts({ admin: clean(admins), classView: clean(cvs), teacher: cleanTeachers });
+    const cleanTeachers = teachers.filter(t => t.id.trim() && t.pw && t.subject && t.group.trim()).map(t => ({ id: t.id.trim(), pw: t.pw, name: t.name.trim(), subject: t.subject, kind: t.kind || "elective", group: t.group.trim() }));
+    const ok = await persistAccounts({ admin: clean(admins), classView: clean(cvs), teacher: cleanTeachers, teacherPending: accounts.teacherPending || [] });
     if (ok) showToast("저장했습니다.", "success");
   };
   const resetAll = async () => {
     const na = admins.map(a => ({ ...a, pw: RESET_PASSWORD })), nc = cvs.map(a => ({ ...a, pw: RESET_PASSWORD })), nt = teachers.map(t => ({ ...t, pw: RESET_PASSWORD }));
     setAdmins(na); setCvs(nc); setTeachers(nt);
-    const ok = await persistAccounts({ admin: na, classView: nc, teacher: nt });
+    const ok = await persistAccounts({ admin: na, classView: nc, teacher: nt, teacherPending: accounts.teacherPending || [] });
     if (ok) showToast(`모든 비밀번호가 "${RESET_PASSWORD}"로 초기화되었습니다.`, "success");
   };
+
+  const approve = async (req) => {
+    const newTeachers = [...teachers, req];
+    const newPending = (accounts.teacherPending || []).filter(p => p.id !== req.id);
+    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: newTeachers, teacherPending: newPending });
+    if (ok) showToast(`${req.name} 선생님 계정을 승인했습니다.`, "success");
+  };
+  const reject = async (req) => {
+    const newPending = (accounts.teacherPending || []).filter(p => p.id !== req.id);
+    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: accounts.teacher, teacherPending: newPending });
+    if (ok) showToast("가입 신청을 거절했습니다.", "success");
+  };
+
   return (
     <div>
       {!accounts.admin.length && <div style={styles.warnBanner}><AlertTriangle size={14} /> 관리자 계정이 없어 초기 계정({DEFAULT_ADMIN.id}/{DEFAULT_ADMIN.pw})으로 접속 중입니다. 계정을 등록해주세요.</div>}
@@ -1223,14 +1354,34 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
         <AccountTable list={cvs} setList={setCvs} />
         <button style={styles.secondaryBtn} onClick={() => setCvs(a => [...a, { id: "", pw: "" }])}>+ 반별조회 계정 추가</button>
       </div>
+
+      {(accounts.teacherPending || []).length > 0 && (
+        <div style={styles.infoBox}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>선생님 가입 승인 대기 ({accounts.teacherPending.length}건)</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {accounts.teacherPending.map((req, i) => (
+              <div key={i} style={styles.issueRow}>
+                <span style={{ fontWeight: 700 }}>{req.name}</span>
+                <span style={{ color: "#8a8578", fontSize: 12 }}>({req.id})</span>
+                <span style={{ fontSize: 12 }}>{req.subject} · {req.kind === "common" ? `${req.group}반` : `${req.group}그룹`}</span>
+                <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+                  <button style={{ ...styles.secondaryBtn, padding: "4px 10px", fontSize: 11.5 }} onClick={() => approve(req)}>승인</button>
+                  <button style={{ ...styles.dangerBtn, padding: "4px 10px", fontSize: 11.5, marginTop: 0 }} onClick={() => reject(req)}>거절</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div style={styles.infoBox}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>선생님 계정</div>
-        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 8 }}>담당 과목은 {grade}학년에 등록된 과목 중에서 선택하고, 담당 그룹(예: C)을 함께 입력하면 그 그룹을 듣는 학생에게만 공지가 노출됩니다.</div>
-        {subjectOptions.length === 0 && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>먼저 이동수업 명단을 업로드해야 과목을 선택할 수 있습니다.</div>}
+        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 8 }}>담당 과목은 {grade}학년에 등록된 <b>이동수업 과목</b> 또는 <b>공통과목</b> 중에서 선택합니다. 이동수업은 담당 그룹(예: C), 공통과목은 담당 반(예: 3반)을 지정하면 해당 학생에게만 공지가 노출됩니다.</div>
+        {electiveSubjects.length === 0 && commonSubjects.length === 0 && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>먼저 이동수업 명단·학급 시간표를 업로드해야 과목을 선택할 수 있습니다.</div>}
         {!teachers.length && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 선생님 계정이 없습니다.</div>}
         {teachers.length > 0 && (
           <table style={{ ...styles.editTable, marginBottom: 8 }}>
-            <thead><tr><th style={styles.th}>이름</th><th style={styles.th}>아이디</th><th style={styles.th}>비밀번호</th><th style={styles.th}>담당과목</th><th style={styles.th}>그룹</th><th style={{ ...styles.th, width: 40 }}></th></tr></thead>
+            <thead><tr><th style={styles.th}>이름</th><th style={styles.th}>아이디</th><th style={styles.th}>비밀번호</th><th style={styles.th}>담당과목</th><th style={styles.th}>{teachers.some(t => t.kind === "common") ? "그룹/반" : "그룹"}</th><th style={{ ...styles.th, width: 40 }}></th></tr></thead>
             <tbody>
               {teachers.map((t, i) => (
                 <tr key={i}>
@@ -1238,19 +1389,27 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
                   <td style={styles.tdEdit}><input value={t.id} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, id: e.target.value } : x))} style={styles.cellInput} /></td>
                   <td style={styles.tdEdit}><input value={t.pw} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, pw: e.target.value } : x))} style={styles.cellInput} /></td>
                   <td style={styles.tdEdit}>
-                    <select value={t.subject || ""} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, subject: e.target.value } : x))} style={{ ...styles.cellInput, width: "100%" }}>
+                    <select value={t.subject ? `${t.kind || "elective"}::${t.subject}` : ""} onChange={e => setTeacherSubject(i, e.target.value)} style={{ ...styles.cellInput, width: "100%" }}>
                       <option value="">선택</option>
-                      {subjectOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                      {electiveSubjects.length > 0 && <optgroup label="이동수업 과목">{electiveSubjects.map(s => <option key={"e" + s} value={`elective::${s}`}>{s}</option>)}</optgroup>}
+                      {commonSubjects.length > 0 && <optgroup label="공통과목">{commonSubjects.map(s => <option key={"c" + s} value={`common::${s}`}>{s}</option>)}</optgroup>}
                     </select>
                   </td>
-                  <td style={styles.tdEdit}><input value={t.group} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} style={styles.cellInput} placeholder="예: C" /></td>
+                  <td style={styles.tdEdit}>
+                    {t.kind === "common"
+                      ? <select value={t.group} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} style={{ ...styles.cellInput, width: "100%" }}>
+                          <option value="">반 선택</option>
+                          {classOptions.map(c => <option key={c} value={c}>{c}반</option>)}
+                        </select>
+                      : <input value={t.group} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} style={styles.cellInput} placeholder="예: C" />}
+                  </td>
                   <td style={styles.tdEdit}><button style={styles.iconBtn} onClick={() => setTeachers(l => l.filter((_, j) => j !== i))}><X size={14} /></button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
-        <button style={styles.secondaryBtn} onClick={() => setTeachers(t => [...t, { name: "", id: "", pw: "", subject: "", group: "" }])}>+ 선생님 계정 추가</button>
+        <button style={styles.secondaryBtn} onClick={() => setTeachers(t => [...t, { name: "", id: "", pw: "", subject: "", kind: "elective", group: "" }])}>+ 선생님 계정 추가</button>
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button style={styles.primaryBtn} onClick={save}><Save size={14} /> 저장</button><button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화 ({RESET_PASSWORD})</button></div>
     </div>
