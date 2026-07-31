@@ -447,10 +447,12 @@ export default function App() {
   const [semester, setSemester] = useState("sem1");
   const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {} });
   const [abbrevMaps, setAbbrevMaps] = useState({});
-  const [accounts, setAccounts] = useState({ admin: [], classView: [], teacher: [], teacherPending: [] });
+  const [accounts, setAccounts] = useState({ admin: [], classView: [], teacher: [], teacherPending: [], monitors: [] });
   const [loggedInAdmin, setLoggedInAdmin] = useState(null);
   const [classAuthed, setClassAuthed] = useState(false);
   const [loggedInTeacher, setLoggedInTeacher] = useState(null);
+  const [loggedInMonitor, setLoggedInMonitor] = useState(null);
+  const [viewedTeacher, setViewedTeacher] = useState(null); // admin "view as teacher" (no separate login needed)
   const sessionRestoredRef = useRef(false);
   const [toast, setToast] = useState(null);
   const showToast = useCallback((msg, type = "info") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4200); }, []);
@@ -465,7 +467,7 @@ export default function App() {
         readStorage("kd_abbrev_1", {}),
         readStorage("kd_abbrev_2", {}),
         readStorage("kd_abbrev_3", {}),
-        readStorage("kd_accounts", { admin: [], classView: [], teacher: [], teacherPending: [] }),
+        readStorage("kd_accounts", { admin: [], classView: [], teacher: [], teacherPending: [], monitors: [] }),
         readStorage("kd_rooms", {}),
         readStorage("kd_notices", {}),
       ]);
@@ -488,6 +490,10 @@ export default function App() {
             const t = (accts.teacher || []).find(a => a.id === saved.teacherId);
             if (t) setLoggedInTeacher(t);
           }
+          if (saved.monitorId) {
+            const m = (accts.monitors || []).find(a => a.id === saved.monitorId);
+            if (m) setLoggedInMonitor(m);
+          }
         } catch { /* ignore malformed session */ }
       }
     })();
@@ -499,6 +505,23 @@ export default function App() {
       localStorage.setItem("kd_session", JSON.stringify({ ...current, ...patch }));
     } catch { /* localStorage unavailable */ }
   };
+
+  // Unified login: one credential check tried against every account type, regardless of
+  // which tab's login form triggered it. Whichever role matches gets activated immediately,
+  // unlocking every tab that role has access to — no more separate logins per tab.
+  const attemptLogin = useCallback((idRaw, pw) => {
+    const id = (idRaw || "").trim();
+    const adminList = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
+    const adminMatch = adminList.find(a => a.id === id && a.pw === pw);
+    if (adminMatch) { setLoggedInAdmin(adminMatch); saveSession({ adminId: adminMatch.id }); return "admin"; }
+    const teacherMatch = (accounts.teacher || []).find(a => a.id === id && a.pw === pw);
+    if (teacherMatch) { setLoggedInTeacher(teacherMatch); saveSession({ teacherId: teacherMatch.id }); return "teacher"; }
+    const monitorMatch = (accounts.monitors || []).find(a => a.id === id && a.pw === pw);
+    if (monitorMatch) { setLoggedInMonitor(monitorMatch); saveSession({ monitorId: monitorMatch.id }); return "monitor"; }
+    const classMatch = (accounts.classView || []).find(a => a.id === id && a.pw === pw);
+    if (classMatch) { setClassAuthed(true); saveSession({ classViewId: classMatch.id }); return "classView"; }
+    return null;
+  }, [accounts]);
 
   const persist = useCallback(async (patch) => {
     const jobs = [];
@@ -587,18 +610,24 @@ export default function App() {
       <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} />
       <div style={styles.body}>
         {tab === "student" && <StudentView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />}
-        {tab === "classPrint" && ((classAuthed || loggedInAdmin || loggedInTeacher)
-          ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} onLogout={(loggedInAdmin || loggedInTeacher) ? null : () => { setClassAuthed(false); saveSession({ classViewId: null }); }} />
-          : <LoginGate label="학급별 조회" list={accounts.classView} onOk={(acc) => { setClassAuthed(true); saveSession({ classViewId: acc.id }); }} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
-        {tab === "subjectGroup" && ((classAuthed || loggedInAdmin || loggedInTeacher)
+        {tab === "classPrint" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
+          ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} onLogout={(loggedInAdmin || loggedInTeacher || loggedInMonitor) ? null : () => { setClassAuthed(false); saveSession({ classViewId: null }); }} />
+          : <UnifiedLoginGate label="학급별 조회" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => true} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+        {tab === "subjectGroup" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
           ? <SubjectGroupView key={scopeKey} roster={roster} enrollments={enrollments} hasAnyData={hasAnyData} announcements={announcements} />
-          : <LoginGate label="이동수업반별 명단" list={accounts.classView} onOk={(acc) => { setClassAuthed(true); saveSession({ classViewId: acc.id }); }} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
-        {tab === "teacherZone" && (loggedInTeacher
-          ? <TeacherZoneView key={scopeKey} teacher={loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={(t) => setLoggedInTeacher(t)} onLogout={() => { setLoggedInTeacher(null); saveSession({ teacherId: null }); }} />
-          : <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} onOk={(acc) => { setLoggedInTeacher(acc); saveSession({ teacherId: acc.id }); }} />)}
+          : <UnifiedLoginGate label="이동수업반별 명단" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => true} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+        {tab === "teacherZone" && (
+          (loggedInTeacher || loggedInMonitor || viewedTeacher)
+            ? (loggedInMonitor
+                ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={() => { setLoggedInMonitor(null); saveSession({ monitorId: null }); }} />
+                : <TeacherZoneView key={scopeKey} teacher={viewedTeacher || loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={(t) => { if (loggedInTeacher) setLoggedInTeacher(t); else setViewedTeacher(t); }} viewingAsAdmin={!!viewedTeacher} onLogout={() => { if (viewedTeacher) setViewedTeacher(null); else { setLoggedInTeacher(null); saveSession({ teacherId: null }); } }} />)
+            : loggedInAdmin
+              ? <AdminTeacherPicker accounts={accounts} onSelect={(t) => setViewedTeacher(t)} />
+              : <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} attemptLogin={attemptLogin} onOk={() => {}} />
+        )}
         {tab === "admin" && (loggedInAdmin
           ? <AdminView key={scopeKey} {...{ db, persist, showToast, grade, semester, scopeKey, roster, enrollments, timetables, abbrevMap, persistAbbrev, accounts, persistAccounts, build: buildPersonalTimetable, loggedInAdmin, onLogout: () => { setLoggedInAdmin(null); saveSession({ adminId: null }); } }} />
-          : <LoginGate label="관리자" list={adminAccounts} onOk={(acc) => { setLoggedInAdmin(acc); saveSession({ adminId: acc.id }); }} hint={accounts.admin.length ? null : `초기 계정: ${DEFAULT_ADMIN.id} / ${DEFAULT_ADMIN.pw}`} />)}
+          : <UnifiedLoginGate label="관리자" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => r === "admin"} hint={accounts.admin.length ? null : `초기 계정: ${DEFAULT_ADMIN.id} / ${DEFAULT_ADMIN.pw}`} />)}
       </div>
       {toast && <div style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620" }}>{toast.msg}</div>}
     </div>
@@ -670,13 +699,22 @@ function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semester
   );
 }
 
-function LoginGate({ label, list, onOk, hint }) {
+const ROLE_LABEL = { admin: "관리자", teacher: "선생님", monitor: "교과부장", classView: "학급별조회" };
+function UnifiedLoginGate({ label, attemptLogin, showToast, satisfies, hint }) {
   const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
-  const submit = () => { const f = (list || []).find(a => a.id === id.trim() && a.pw === pw); if (f) { setErr(""); onOk(f); } else setErr("아이디 또는 비밀번호가 올바르지 않습니다."); };
+  const submit = () => {
+    const role = attemptLogin(id.trim(), pw);
+    if (!role) { setErr("아이디 또는 비밀번호가 올바르지 않습니다."); return; }
+    setErr("");
+    if (satisfies && !satisfies(role)) {
+      showToast(`${ROLE_LABEL[role]} 계정으로 로그인되었습니다. 해당 메뉴에서 이용해주세요.`, "info");
+    }
+  };
   return (
     <div style={styles.loginBox}>
       <Lock size={22} color="#8a8578" />
       <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>{label} 로그인</div>
+      <div style={{ fontSize: 11.5, color: "#a39d8c", margin: "6px 0 0", textAlign: "center" }}>한 번 로그인하면 계정 종류에 맞는 모든 메뉴에 자동으로 접근할 수 있습니다.</div>
       {hint && <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 0", textAlign: "center" }}>{hint}</div>}
       <div style={{ height: 14 }} />
       <input value={id} onChange={e => setId(e.target.value)} placeholder="아이디" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submit()} />
@@ -687,7 +725,101 @@ function LoginGate({ label, list, onOk, hint }) {
   );
 }
 
-function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scopeKey, semester, onOk }) {
+function MonitorZoneView({ monitor, db, persist, showToast, scopeKey, onLogout }) {
+  const targetKey = monitor.targetKey;
+  const label = `${monitor.subject} (${monitor.group}그룹)`;
+  const currentNotices = asNoticeArray((db.announcements[scopeKey] || {})[targetKey]);
+  const [category, setCategory] = useState(NOTICE_CATEGORIES[0]);
+  const [text, setText] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const writeNotices = async (updater) => {
+    const current = db.announcements[scopeKey] || {};
+    const list = asNoticeArray(current[targetKey]);
+    const updated = { ...current, [targetKey]: updater(list) };
+    return persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
+  };
+
+  const addNotice = async () => {
+    if (!text.trim()) { showToast("내용을 입력해주세요.", "error"); return; }
+    setSaving(true);
+    try {
+      const newEntry = { id: Date.now() + "_" + Math.random().toString(36).slice(2, 7), category, text: text.trim(), dueDate: dueDate || null, teacherName: `${monitor.studentName} (교과부장)`, updatedAt: new Date().toISOString() };
+      const ok = await writeNotices(list => [...list, newEntry]);
+      if (ok) { showToast("저장했습니다.", "success"); setText(""); setDueDate(""); }
+    } catch (e) {
+      showToast(`오류가 발생했습니다: ${e.message}`, "error");
+    }
+    setSaving(false);
+  };
+  const deleteNotice = async (id) => {
+    const ok = await writeNotices(list => list.filter(n => n.id !== id));
+    if (ok) showToast("삭제했습니다.", "success");
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+        <div>
+          <h1 style={styles.h1}>선생님 ZONE — 교과부장</h1>
+          <p style={styles.pMuted}>{monitor.studentName} 학생 · {label}</p>
+        </div>
+        <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
+      </div>
+      <div style={styles.card}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>{label} 공지 작성</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>이 항목은 {label}인 학생의 개인 시간표와 "이동수업반별 명단" 페이지에 표시됩니다.</div>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+          {NOTICE_CATEGORIES.map(c => <button key={c} onClick={() => setCategory(c)} style={{ ...styles.classChip, ...(category === c ? styles.classChipActive : {}) }}>{c}</button>)}
+        </div>
+        <textarea value={text} onChange={e => setText(e.target.value)} rows={5} style={styles.textareaInput} placeholder="예: 다음 시간 준비물을 챙겨주세요." />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+          <span style={{ fontSize: 12, color: "#8a8578" }}>마감기한 (선택)</span>
+          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, width: 160 }} />
+          {dueDate && <button style={styles.iconBtn} onClick={() => setDueDate("")}><X size={13} /></button>}
+        </div>
+        <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 추가</button>
+        {currentNotices.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>등록된 공지</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {currentNotices.slice().reverse().map(n => (
+                <NoticeCard key={n.id} n={n} labelText={new Date(n.updatedAt).toLocaleString("ko-KR")} onDelete={() => deleteNotice(n.id)} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AdminTeacherPicker({ accounts, onSelect }) {
+  const teachers = (accounts.teacher || []).slice().sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  return (
+    <div style={styles.loginBox}>
+      <Users size={22} color="#8a8578" />
+      <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>선생님 화면 보기</div>
+      <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 14px", textAlign: "center" }}>관리자 권한으로, 비밀번호 없이 선생님 계정 화면을 보고 관리할 수 있습니다.</div>
+      {teachers.length === 0 ? (
+        <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 선생님 계정이 없습니다.</div>
+      ) : (
+        <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 6 }}>
+          {teachers.map(t => (
+            <button key={t.id} onClick={() => onSelect(t)} style={{ ...styles.matchItem, border: `1px solid ${COLORS.line}`, borderRadius: 8 }}>
+              <span style={{ fontWeight: 700 }}>{t.name}</span>
+              <span style={styles.matchMeta}>{t.homeroomClass ? `${t.homeroomClass}반 담임` : ""}{t.homeroomClass && (t.assignments || []).length ? " · " : ""}{(t.assignments || []).map(a => a.subject).join(", ")}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scopeKey, semester, attemptLogin }) {
   const [mode, setMode] = useState("login"); // login | signup
   const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
   const [name, setName] = useState("");
@@ -696,8 +828,9 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
   const [submitted, setSubmitted] = useState(false);
 
   const submitLogin = () => {
-    const f = (accounts.teacher || []).find(a => a.id === id.trim() && a.pw === pw);
-    if (f) { setErr(""); onOk(f); } else setErr("아이디 또는 비밀번호가 올바르지 않습니다. (승인 대기 중일 수 있습니다)");
+    const role = attemptLogin(id.trim(), pw);
+    if (role) { setErr(""); }
+    else setErr("아이디 또는 비밀번호가 올바르지 않습니다. (승인 대기 중일 수 있습니다)");
   };
 
   const submitSignup = async () => {
@@ -838,7 +971,7 @@ function ClassPrintView({ roster, build, hasAnyData, onLogout }) {
         <div style={styles.classChips}>{classes.map(c => <button key={c} onClick={() => setSel(c)} style={{ ...styles.classChip, ...(sel === c ? styles.classChipActive : {}) }}>{c}반</button>)}</div>
         {sel != null && <div style={styles.printBar}><div style={{ color: "#8a8578", fontSize: 13 }}>{sel}반 학생 {students.length}명</div><button type="button" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> {sel}반 전체 인쇄</button></div>}
       </div>
-      <div id="print-area">{sel != null && students.map(([id]) => { const r = build(id); return r ? <div key={id} className="print-page-break"><TimetableCard result={r} sid={id} hideNoticesInPrint /></div> : null; })}</div>
+      <div id="print-area">{sel != null && students.map(([id]) => { const r = build(id); return r ? <div key={id} className="print-page-break"><TimetableCard result={r} sid={id} /></div> : null; })}</div>
     </div>
   );
 }
@@ -902,7 +1035,7 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
   );
 }
 
-function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onLogout, roster, accounts, persistAccounts, onUpdateTeacher }) {
+function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onLogout, roster, enrollments, accounts, persistAccounts, onUpdateTeacher, viewingAsAdmin }) {
   const [editingProfile, setEditingProfile] = useState(false);
 
   // Combine homeroom (if any) and all subject assignments into one flat list of selectable targets.
@@ -973,12 +1106,12 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
-          <h1 style={styles.h1}>선생님 ZONE</h1>
+          <h1 style={styles.h1}>선생님 ZONE {viewingAsAdmin && <span style={{ fontSize: 12, fontWeight: 700, color: "#8a6d1f", background: "#fff8e6", border: "1px solid #f0dca0", borderRadius: 5, padding: "2px 8px", marginLeft: 6 }}>관리자로 보는 중</span>}</h1>
           <p style={styles.pMuted}>{teacher.name} 선생님{teacher.homeroomClass && ` · ${teacher.homeroomClass}반 담임`}</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button style={styles.secondaryBtn} onClick={() => setEditingProfile(true)}>내 정보 수정</button>
-          <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
+          <button style={styles.secondaryBtn} onClick={onLogout}>{viewingAsAdmin ? "돌아가기" : "로그아웃"}</button>
         </div>
       </div>
 
@@ -1021,11 +1154,101 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
                 </div>
               </div>
             )}
+
+            {sel.kind !== "homeroom" && (
+              <MonitorManager
+                targetKey={targetKey} subject={sel.subject} group={sel.target} label={sel.label}
+                roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts}
+                showToast={showToast} teacherName={teacher.name}
+              />
+            )}
           </div>
         </>
       )}
 
       <PersonalNoticeComposer roster={roster} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} teacher={teacher} />
+    </div>
+  );
+}
+
+function MonitorManager({ targetKey, subject, group, label, roster, enrollments, accounts, persistAccounts, showToast, teacherName }) {
+  const [query, setQuery] = useState("");
+  const monitors = (accounts.monitors || []).filter(m => m.targetKey === targetKey);
+
+  // Candidates: students actually enrolled in this exact subject+group, not already a monitor here.
+  const candidates = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.trim();
+    const already = new Set(monitors.map(m => m.id));
+    return Object.entries(enrollments)
+      .filter(([sid, list]) => !already.has(sid) && list.some(c => c.subject === subject && c.group === group))
+      .map(([sid]) => [sid, roster[sid]])
+      .filter(([sid, s]) => s && (sid.includes(q) || s.name.includes(q) || `${s.class}반${s.number}번`.includes(q.replace(/\s/g, ""))))
+      .slice(0, 8);
+  }, [query, enrollments, roster, subject, group, monitors]);
+
+  const genPw = () => Math.random().toString(36).slice(2, 8);
+
+  const addMonitor = async (sid, s) => {
+    if (monitors.length >= 2) { showToast("교과부장은 최대 2명까지 지정할 수 있습니다.", "error"); return; }
+    const pw = genPw();
+    const idTaken = [...(accounts.admin || []), ...(accounts.teacher || []), ...(accounts.monitors || [])].some(a => a.id === sid);
+    if (idTaken) { showToast("이미 사용 중인 아이디(학번)입니다.", "error"); return; }
+    const newMonitor = { id: sid, pw, targetKey, subject, group, studentName: s.name, teacherName };
+    const ok = await persistAccounts({ ...accounts, monitors: [...(accounts.monitors || []), newMonitor] });
+    if (ok) { showToast(`${s.name} 학생을 교과부장으로 지정했습니다. (비밀번호: ${pw})`, "success"); setQuery(""); }
+  };
+
+  const removeMonitor = async (id) => {
+    const ok = await persistAccounts({ ...accounts, monitors: (accounts.monitors || []).filter(m => m.id !== id) });
+    if (ok) showToast("교과부장 지정을 해제했습니다.", "success");
+  };
+
+  const resetMonitorPw = async (id) => {
+    const pw = genPw();
+    const ok = await persistAccounts({ ...accounts, monitors: (accounts.monitors || []).map(m => m.id === id ? { ...m, pw } : m) });
+    if (ok) showToast(`비밀번호가 초기화되었습니다: ${pw}`, "success");
+  };
+
+  return (
+    <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${COLORS.line}` }}>
+      <div style={{ fontWeight: 700, marginBottom: 6, fontSize: 13 }}>교과부장 학생 관리 ({label})</div>
+      <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 10 }}>이 반을 수강하는 학생 중 최대 2명을 교과부장으로 지정하면, 그 학생도 이 반에 공지를 올릴 수 있습니다.</div>
+      {monitors.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+          {monitors.map(m => (
+            <div key={m.id} style={styles.issueRow}>
+              <span style={{ fontWeight: 700 }}>{m.studentName}</span>
+              <span style={{ color: "#8a8578", fontSize: 12 }}>({m.id})</span>
+              <span style={{ fontSize: 12, color: "#8a8578" }}>비밀번호: {m.pw}</span>
+              <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+                <button style={{ ...styles.secondaryBtn, padding: "4px 10px", fontSize: 11.5 }} onClick={() => resetMonitorPw(m.id)}>비밀번호 재발급</button>
+                <button style={{ ...styles.dangerBtn, padding: "4px 10px", fontSize: 11.5, marginTop: 0 }} onClick={() => removeMonitor(m.id)}>해제</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {monitors.length < 2 ? (
+        <div>
+          <div style={styles.searchBox}>
+            <Search size={16} color="#a39d8c" />
+            <input value={query} onChange={e => setQuery(e.target.value)} placeholder="학번, 이름으로 검색 (이 과목 수강생만 표시)" style={styles.searchInput} />
+          </div>
+          {candidates.length > 0 && (
+            <div style={styles.matchList}>
+              {candidates.map(([sid, s]) => (
+                <button key={sid} style={styles.matchItem} onClick={() => addMonitor(sid, s)}>
+                  <span style={{ fontWeight: 600 }}>{s.name}</span>
+                  <span style={styles.matchMeta}>{s.class}반 {s.number}번 · {sid}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ fontSize: 11.5, color: "#a39d8c" }}>이미 2명이 지정되어 있습니다. 해제 후 새로 지정할 수 있습니다.</div>
+      )}
     </div>
   );
 }
@@ -1158,12 +1381,12 @@ function PersonalNoticeComposer({ roster, db, persist, showToast, scopeKey, teac
   );
 }
 
-function TimetableCard({ result, sid, hideNoticesInPrint }) {
+function TimetableCard({ result, sid }) {
   const { student, grid, warnings, hasTimetable, notices, homeroomNotices } = result;
   const hasNotices = (notices && notices.length > 0) || (homeroomNotices && homeroomNotices.length > 0);
   return (
-    <div style={styles.card}>
-      <div style={styles.printHeader}>
+    <div style={styles.card} className="print-card">
+      <div style={styles.printHeader} className="print-header">
         <div><div style={styles.cardTitle}>{student.name} <span style={styles.cardSub}>{student.class}반 {student.number}번</span></div><div style={styles.cardMeta}>학번 {sid}</div></div>
         <button type="button" className="no-print" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> 인쇄 / PDF</button>
       </div>
@@ -1174,11 +1397,8 @@ function TimetableCard({ result, sid, hideNoticesInPrint }) {
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e3c6ae" }} /> 이동수업 (교실 이동)</span>
       </div>
-      {hasNotices && !hideNoticesInPrint && (
-        <>
-          <NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} />
-          <NoticesPrintList notices={notices} homeroomNotices={homeroomNotices} />
-        </>
+      {hasNotices && (
+        <NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} />
       )}
       {warnings.length > 0 && <div style={styles.warnBox} className="no-print"><div style={styles.warnBoxTitle}><AlertTriangle size={13} /> 확인 필요 {warnings.length}건</div><ul style={styles.warnUl}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
     </div>
@@ -1250,31 +1470,6 @@ function homeroomNoticeLabelFor(n) {
   return `${n.origin === "personal" ? "개인 지정 공지" : "학급 담임"}${n.teacherName ? ` — ${n.teacherName} 선생님` : ""}`;
 }
 
-// Static, print only: shows both categories in full (since a printed page can't switch tabs)
-function NoticesPrintList({ notices, homeroomNotices }) {
-  const hasSubject = notices && notices.length > 0;
-  const hasClass = homeroomNotices && homeroomNotices.length > 0;
-  return (
-    <div className="print-only" style={styles.noticesSection}>
-      {hasClass && (
-        <div style={{ marginBottom: hasSubject ? 14 : 0 }}>
-          <div style={styles.noticesPrintHeading}>학급 공지사항</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {homeroomNotices.slice().reverse().map((n, i) => <NoticeCard key={i} n={n} labelText={homeroomNoticeLabelFor(n)} />)}
-          </div>
-        </div>
-      )}
-      {hasSubject && (
-        <div>
-          <div style={styles.noticesPrintHeading}>수강 중인 과목 공지사항</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {notices.map((n, i) => <NoticeCard key={i} n={n} labelText={subjectNoticeLabel(n)} />)}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function GridTable({ grid }) {
   return (
@@ -1793,25 +1988,25 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         homeroomClass: t.homeroomClass || "",
         assignments: (t.assignments || []).filter(a => a.subject && a.targets.trim()),
       }));
-    const ok = await persistAccounts({ admin: cleanAdmins(admins), classView: cleanGeneric(cvs), teacher: cleanTeachers, teacherPending: accounts.teacherPending || [] });
+    const ok = await persistAccounts({ admin: cleanAdmins(admins), classView: cleanGeneric(cvs), teacher: cleanTeachers, teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [] });
     if (ok) showToast("저장했습니다.", "success");
   };
   const resetAll = async () => {
     const na = admins.map(a => ({ ...a, pw: RESET_PASSWORD })), nc = cvs.map(a => ({ ...a, pw: RESET_PASSWORD })), nt = teachers.map(t => ({ ...t, pw: RESET_PASSWORD }));
     setAdmins(na); setCvs(nc); setTeachers(nt);
-    const ok = await persistAccounts({ admin: na, classView: nc, teacher: nt, teacherPending: accounts.teacherPending || [] });
+    const ok = await persistAccounts({ admin: na, classView: nc, teacher: nt, teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [] });
     if (ok) showToast(`모든 비밀번호가 "${RESET_PASSWORD}"로 초기화되었습니다.`, "success");
   };
 
   const approve = async (req) => {
     const newTeachers = [...teachers, req];
     const newPending = (accounts.teacherPending || []).filter(p => p.id !== req.id);
-    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: newTeachers, teacherPending: newPending });
+    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: newTeachers, teacherPending: newPending, monitors: accounts.monitors || [] });
     if (ok) showToast(`${req.name} 선생님 계정을 승인했습니다.`, "success");
   };
   const reject = async (req) => {
     const newPending = (accounts.teacherPending || []).filter(p => p.id !== req.id);
-    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: accounts.teacher, teacherPending: newPending });
+    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: accounts.teacher, teacherPending: newPending, monitors: accounts.monitors || [] });
     if (ok) showToast("가입 신청을 거절했습니다.", "success");
   };
 
@@ -2099,8 +2294,11 @@ const globalCss = `
     #print-area { display: block !important; }
     .print-page-break { break-after: page; page-break-after: always; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
-    @page { size: A4; margin: 14mm; }
+    @page { size: A4; margin: 6mm 10mm; }
+    body { margin: 0; }
     table tr { break-inside: avoid; page-break-inside: avoid; }
+    .print-card { padding: 8px 14px !important; margin-top: 0 !important; }
+    .print-header { margin-bottom: 4px !important; }
   }
 `;
 const styles = {
@@ -2158,7 +2356,7 @@ const styles = {
   cellMoveTag: { display: "flex", alignItems: "center", gap: 2, fontSize: 9, background: "#f3ded0", color: "#9c4a1f", padding: "1px 5px", borderRadius: 4, fontWeight: 700 },
   cellStayTag: { fontSize: 9, background: COLORS.accentSoft, color: COLORS.accent, padding: "1px 5px", borderRadius: 4, fontWeight: 700 },
   cellFixed: { fontSize: 12, color: "#2b2620", fontWeight: 600, lineHeight: 1.3 },
-  cellLocation: { fontSize: 9.5, color: "#a39d8c", marginTop: 2 },
+  cellLocation: { fontSize: 10.5, color: "#5c574a", fontWeight: 600, marginTop: 2 },
   legend: { display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap" },
   legendItem: { display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#8a8578" },
   legendDot: { width: 9, height: 9, borderRadius: 3, display: "inline-block" },
