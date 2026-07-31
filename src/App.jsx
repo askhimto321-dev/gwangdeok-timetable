@@ -535,6 +535,29 @@ export default function App() {
   );
 }
 
+function ClassMultiSelect({ value, onChange, classOptions, light }) {
+  const selected = new Set((value || "").split(",").map(s => s.trim()).filter(Boolean));
+  const toggle = (c) => {
+    const s = new Set(selected);
+    if (s.has(c)) s.delete(c); else s.add(c);
+    onChange(Array.from(s).sort((a, b) => a - b).join(","));
+  };
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+      {classOptions.map(c => (
+        <button
+          key={c} type="button" onClick={() => toggle(c)}
+          style={{
+            border: `1px solid ${COLORS.line}`, borderRadius: 14, padding: light ? "5px 10px" : "3px 8px",
+            fontSize: light ? 12 : 11, fontWeight: 700, cursor: "pointer",
+            background: selected.has(c) ? COLORS.accent : "#fff", color: selected.has(c) ? "#fff" : "#8a8578",
+          }}
+        >{c}반</button>
+      ))}
+    </div>
+  );
+}
+
 function LoginGate({ label, list, onOk, hint }) {
   const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
   const submit = () => { const f = (list || []).find(a => a.id === id.trim() && a.pw === pw); if (f) { setErr(""); onOk(f); } else setErr("아이디 또는 비밀번호가 올바르지 않습니다."); };
@@ -617,7 +640,7 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, onOk
             {commonSubjects.length > 0 && <optgroup label="공통과목">{commonSubjects.map(s => <option key={"c" + s} value={`common::${s}`}>{s}</option>)}</optgroup>}
           </select>
           {kind === "common"
-            ? <select value={group} onChange={e => setGroup(e.target.value)} style={styles.loginInput}><option value="">담당 반 선택</option>{classOptions.map(c => <option key={c} value={c}>{c}반</option>)}</select>
+            ? <ClassMultiSelect value={group} onChange={setGroup} classOptions={classOptions} light />
             : <input value={group} onChange={e => setGroup(e.target.value)} placeholder="담당 그룹 (예: C)" style={styles.loginInput} />}
           <button style={styles.primaryBtn} onClick={submitSignup}>가입 신청</button>
         </>
@@ -747,21 +770,23 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
 
 function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, onLogout }) {
   const isCommon = teacher.kind === "common";
-  const noticeKey = isCommon ? `COMMON_${teacher.subject}_${teacher.group}` : `${teacher.subject}_${teacher.group}`;
-  const existing = (db.announcements[scopeKey] || {})[noticeKey];
+  const classList = isCommon ? teacher.group.split(",").map(s => s.trim()).filter(Boolean) : [];
+  const noticeKeys = isCommon ? classList.map(c => `COMMON_${teacher.subject}_${c}`) : [`${teacher.subject}_${teacher.group}`];
+  const existing = (db.announcements[scopeKey] || {})[noticeKeys[0]];
   const [text, setText] = useState(existing ? existing.text : "");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     setSaving(true);
     const current = db.announcements[scopeKey] || {};
-    const updated = { ...current, [noticeKey]: { text: text.trim(), teacherName: teacher.name, updatedAt: new Date().toISOString() } };
+    const updated = { ...current };
+    noticeKeys.forEach(k => { updated[k] = { text: text.trim(), teacherName: teacher.name, updatedAt: new Date().toISOString() }; });
     const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
     if (ok) showToast("저장했습니다.", "success");
     setSaving(false);
   };
 
-  const scopeLabel = isCommon ? `${teacher.group}반 대상` : `${teacher.group}그룹 대상`;
+  const scopeLabel = isCommon ? `${classList.map(c => c + "반").join(", ")} 대상` : `${teacher.group}그룹 대상`;
 
   return (
     <div>
@@ -1363,7 +1388,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
               <div key={i} style={styles.issueRow}>
                 <span style={{ fontWeight: 700 }}>{req.name}</span>
                 <span style={{ color: "#8a8578", fontSize: 12 }}>({req.id})</span>
-                <span style={{ fontSize: 12 }}>{req.subject} · {req.kind === "common" ? `${req.group}반` : `${req.group}그룹`}</span>
+                <span style={{ fontSize: 12 }}>{req.subject} · {req.kind === "common" ? `${req.group.split(",").map(c => c + "반").join(", ")}` : `${req.group}그룹`}</span>
                 <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
                   <button style={{ ...styles.secondaryBtn, padding: "4px 10px", fontSize: 11.5 }} onClick={() => approve(req)}>승인</button>
                   <button style={{ ...styles.dangerBtn, padding: "4px 10px", fontSize: 11.5, marginTop: 0 }} onClick={() => reject(req)}>거절</button>
@@ -1397,10 +1422,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade }) {
                   </td>
                   <td style={styles.tdEdit}>
                     {t.kind === "common"
-                      ? <select value={t.group} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} style={{ ...styles.cellInput, width: "100%" }}>
-                          <option value="">반 선택</option>
-                          {classOptions.map(c => <option key={c} value={c}>{c}반</option>)}
-                        </select>
+                      ? <ClassMultiSelect value={t.group} onChange={v => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: v } : x))} classOptions={classOptions} />
                       : <input value={t.group} onChange={e => setTeachers(l => l.map((x, j) => j === i ? { ...x, group: e.target.value } : x))} style={styles.cellInput} placeholder="예: C" />}
                   </td>
                   <td style={styles.tdEdit}><button style={styles.iconBtn} onClick={() => setTeachers(l => l.filter((_, j) => j !== i))}><X size={14} /></button></td>
