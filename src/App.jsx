@@ -731,7 +731,16 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
       </div>
       {mode === "login" ? (
         <>
-          <input value={id} onChange={e => setId(e.target.value)} placeholder="아이디" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submitLogin()} />
+          <select
+            value={id}
+            onChange={e => setId(e.target.value)}
+            style={styles.loginInput}
+          >
+            <option value="">— 이름 선택 —</option>
+            {(accounts.teacher || []).slice().sort((a, b) => a.name.localeCompare(b.name, "ko")).map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
           <input value={pw} onChange={e => setPw(e.target.value)} placeholder="비밀번호" type="password" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submitLogin()} />
           {err && <div style={{ color: "#b3401f", fontSize: 12, marginBottom: 6 }}>{err}</div>}
           <button style={styles.primaryBtn} onClick={submitLogin}><KeyRound size={14} /> 로그인</button>
@@ -2001,10 +2010,26 @@ function AdminNoticesViewer({ db, persist, showToast, scopeKey, roster, timetabl
     if (ok) showToast("삭제했습니다.", "success");
   };
 
+  const deleteAllForClass = async () => {
+    if (!items.length) return;
+    const current = { ...(db.announcements[scopeKey] || {}) };
+    // Remove exactly the notice entries currently shown for this class from their respective storage keys.
+    const idsByKey = {};
+    items.forEach(item => { (idsByKey[item.storageKey] = idsByKey[item.storageKey] || new Set()).add(item.id); });
+    Object.entries(idsByKey).forEach(([key, ids]) => {
+      current[key] = asNoticeArray(current[key]).filter(n => !ids.has(n.id));
+    });
+    const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: current } });
+    if (ok) showToast(`${sel}반 공지 ${items.length}건을 모두 삭제했습니다.`, "success");
+  };
+
   return (
     <div>
       <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>반을 선택하면 그 반 학생에게 노출되는 모든 공지(학급 공지 · 공통과목 · 이동수업)를 한눈에 확인하고 삭제할 수 있습니다.</div>
       <div style={styles.classChips}>{classes.map(c => <button key={c} onClick={() => setSel(c)} style={{ ...styles.classChip, ...(sel === c ? styles.classChipActive : {}) }}>{c}반</button>)}</div>
+      {items.length > 0 && (
+        <button style={{ ...styles.dangerBtn, marginTop: 0, marginBottom: 12 }} onClick={deleteAllForClass}><Trash2 size={14} /> {sel}반 공지 전체 삭제 ({items.length}건)</button>
+      )}
       {items.length === 0 ? (
         <div style={{ fontSize: 12.5, color: "#a39d8c" }}>현재 반영된 공지가 없습니다.</div>
       ) : (
@@ -2067,8 +2092,10 @@ const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d
 const globalCss = `
   * { box-sizing: border-box; } body { margin: 0; } input, textarea, button { font-family: inherit; }
   .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
+  .print-only { display: none; }
   @media print {
     .no-print { display: none !important; }
+    .print-only { display: block !important; }
     #print-area { display: block !important; }
     .print-page-break { break-after: page; page-break-after: always; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
@@ -2164,6 +2191,11 @@ const styles = {
   noticeTitle: { fontSize: 12, fontWeight: 700, color: "#8a6d1f", marginBottom: 4 },
   noticeText: { fontSize: 12.5, color: "#5c4a12", whiteSpace: "pre-wrap", lineHeight: 1.6 },
   textareaInput: { width: "100%", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 10, fontSize: 13, resize: "vertical", fontFamily: "inherit" },
+  noticesSection: { marginTop: 24, paddingTop: 20, borderTop: `1px solid ${COLORS.line}` },
+  noticesTabRow: { display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" },
+  noticesTabBtn: { border: `1px solid ${COLORS.line}`, background: "#fff", padding: "7px 14px", borderRadius: 20, fontSize: 12.5, cursor: "pointer", fontWeight: 700, color: "#8a8578" },
+  noticesTabBtnActive: { background: COLORS.ink, color: "#fff", borderColor: COLORS.ink },
+  noticesPrintHeading: { fontSize: 13, fontWeight: 700, marginBottom: 8, color: COLORS.ink },
   issueList: { marginTop: 10, display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" },
   issueRow: { display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "7px 10px", fontSize: 12, flexWrap: "wrap" },
   issueBadge: { background: "#f3f1e9", padding: "2px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, color: "#8a8578" },
