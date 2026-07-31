@@ -11,10 +11,11 @@
 // 5) 화면에 나오는 firebaseConfig 객체 값을 아래에 그대로 붙여넣기
 // ============================================================
 export const firebaseConfig = {
-  apiKey: "여기에_API_KEY_붙여넣기",
-  authDomain: "여기에_AUTH_DOMAIN_붙여넣기",
-  projectId: "여기에_PROJECT_ID_붙여넣기",
-  storageBucket: "여기에_STORAGE_BUCKET_붙여넣기",
-  messagingSenderId: "여기에_SENDER_ID_붙여넣기",
-  appId: "여기에_APP_ID_붙여넣기",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
