@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye } from "lucide-react";
+import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
 
 const DAYS = ["월", "화", "수", "목", "금"];
@@ -476,12 +476,15 @@ export default function App() {
       <style>{globalCss}</style>
       <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} />
       <div style={styles.body}>
-        {tab === "student" && <StudentView roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />}
+        {tab === "student" && <StudentView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />}
         {tab === "classPrint" && (classAuthed
-          ? <ClassPrintView roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />
-          : <LoginGate label="반별 조회" list={accounts.classView} onOk={() => setClassAuthed(true)} hint={accounts.classView.length ? null : "등록된 반별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+          ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />
+          : <LoginGate label="학급별 조회" list={accounts.classView} onOk={() => setClassAuthed(true)} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+        {tab === "subjectGroup" && (classAuthed
+          ? <SubjectGroupView key={scopeKey} roster={roster} enrollments={enrollments} hasAnyData={hasAnyData} />
+          : <LoginGate label="이동수업반별 명단" list={accounts.classView} onOk={() => setClassAuthed(true)} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
         {tab === "admin" && (adminAuthed
-          ? <AdminView {...{ db, persist, showToast, grade, semester, scopeKey, roster, enrollments, timetables, abbrevMap, persistAbbrev, accounts, persistAccounts, build: buildPersonalTimetable }} />
+          ? <AdminView key={scopeKey} {...{ db, persist, showToast, grade, semester, scopeKey, roster, enrollments, timetables, abbrevMap, persistAbbrev, accounts, persistAccounts, build: buildPersonalTimetable }} />
           : <LoginGate label="관리자" list={adminAccounts} onOk={() => setAdminAuthed(true)} hint={accounts.admin.length ? null : `초기 계정: ${DEFAULT_ADMIN.id} / ${DEFAULT_ADMIN.pw}`} />)}
       </div>
       {toast && <div style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620" }}>{toast.msg}</div>}
@@ -519,7 +522,8 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta }) {
         </div>
         <nav style={styles.nav}>
           <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />
-          <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="반별 조회" />
+          <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />
+          <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />
           <NavBtn active={tab === "admin"} onClick={() => setTab("admin")} icon={<Settings size={15} />} label="관리자" />
         </nav>
       </div>
@@ -564,12 +568,53 @@ function ClassPrintView({ roster, build, hasAnyData }) {
   return (
     <div>
       <div className="no-print">
-        <h1 style={styles.h1}>반별 일괄 조회</h1>
-        <p style={styles.pMuted}>반을 선택하면 그 반 학생 전체의 시간표를 인쇄할 수 있습니다.</p>
+        <h1 style={styles.h1}>학급별 일괄 조회</h1>
+        <p style={styles.pMuted}>학급을 선택하면 그 반 학생 전체의 시간표를 인쇄할 수 있습니다.</p>
         <div style={styles.classChips}>{classes.map(c => <button key={c} onClick={() => setSel(c)} style={{ ...styles.classChip, ...(sel === c ? styles.classChipActive : {}) }}>{c}반</button>)}</div>
         {sel != null && <div style={styles.printBar}><div style={{ color: "#8a8578", fontSize: 13 }}>{sel}반 학생 {students.length}명</div><button type="button" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> {sel}반 전체 인쇄</button></div>}
       </div>
       <div id="print-area">{sel != null && students.map(([id]) => { const r = build(id); return r ? <div key={id} className="print-page-break"><TimetableCard result={r} sid={id} /></div> : null; })}</div>
+    </div>
+  );
+}
+
+function SubjectGroupView({ roster, enrollments, hasAnyData }) {
+  const bySubject = useMemo(() => {
+    const m = {};
+    Object.entries(enrollments).forEach(([sid, list]) => {
+      list.forEach(c => {
+        const key = `${c.subject} (${c.group}) · ${c.hostClass}반개설`;
+        (m[key] = m[key] || []).push({ sid, ...(roster[sid] || {}) });
+      });
+    });
+    Object.values(m).forEach(list => list.sort((a, b) => (a.class - b.class) || (a.number - b.number)));
+    return Object.entries(m).sort((a, b) => a[0].localeCompare(b[0], "ko"));
+  }, [enrollments, roster]);
+  const [sel, setSel] = useState(null);
+  useEffect(() => { if (bySubject.length && (sel === null || !bySubject.find(([k]) => k === sel))) setSel(bySubject[0][0]); }, [bySubject]); // eslint-disable-line
+  const selectedList = (bySubject.find(([k]) => k === sel) || [null, []])[1];
+  if (!hasAnyData) return <EmptyState />;
+  return (
+    <div>
+      <div className="no-print">
+        <h1 style={styles.h1}>이동수업반별 명단 확인하기</h1>
+        <p style={styles.pMuted}>이동수업 과목·그룹을 선택하면 그 수업을 듣는 학생 명단(원소속반 포함)을 확인하고 인쇄할 수 있습니다.</p>
+        <select value={sel || ""} onChange={e => setSel(e.target.value)} style={{ ...styles.loginInput, maxWidth: 420, marginBottom: 12 }}>
+          {bySubject.map(([key, list]) => <option key={key} value={key}>{key} — {list.length}명</option>)}
+        </select>
+        {sel != null && <div style={styles.printBar}><div style={{ color: "#8a8578", fontSize: 13 }}>{sel} · {selectedList.length}명</div><button type="button" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> 명단 인쇄</button></div>}
+      </div>
+      <div id="print-area">
+        {sel != null && (
+          <div style={styles.card}>
+            <div style={styles.cardTitle}>{sel}</div>
+            <table style={{ ...styles.editTable, marginTop: 14 }}>
+              <thead><tr><th style={styles.th}>학번</th><th style={styles.th}>이름</th><th style={styles.th}>원소속반</th><th style={styles.th}>번호</th></tr></thead>
+              <tbody>{selectedList.map(s => <tr key={s.sid}><td style={styles.tdReadonly}>{s.sid}</td><td style={styles.tdReadonly}>{s.name}</td><td style={styles.tdReadonly}>{s.class}반</td><td style={styles.tdReadonly}>{s.number}</td></tr>)}</tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -584,7 +629,7 @@ function TimetableCard({ result, sid }) {
       </div>
       {!hasTimetable && <div style={styles.warnBanner}><AlertTriangle size={14} /> {student.class}반 시간표 데이터가 없습니다.</div>}
       <GridTable grid={grid} />
-      <div style={styles.legend} className="no-print">
+      <div style={styles.legend}>
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#c7d2c4" }} /> 공통수업</span>
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
         <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e3c6ae" }} /> 이동수업 (교실 이동)</span>
@@ -1099,7 +1144,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast }) {
         <button style={styles.secondaryBtn} onClick={() => setAdmins(a => [...a, { id: "", pw: "" }])}>+ 관리자 추가</button>
       </div>
       <div style={styles.infoBox}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>반별 조회 계정</div>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>학급별 조회 / 이동수업반별 명단 계정</div>
         <AccountTable list={cvs} setList={setCvs} />
         <button style={styles.secondaryBtn} onClick={() => setCvs(a => [...a, { id: "", pw: "" }])}>+ 반별조회 계정 추가</button>
       </div>
@@ -1214,7 +1259,7 @@ const styles = {
   cellTag: { fontSize: 9, background: "#efece1", color: "#6b6754", padding: "1px 5px", borderRadius: 4, fontWeight: 700 },
   cellMoveTag: { display: "flex", alignItems: "center", gap: 2, fontSize: 9, background: "#f3ded0", color: "#9c4a1f", padding: "1px 5px", borderRadius: 4, fontWeight: 700 },
   cellStayTag: { fontSize: 9, background: COLORS.accentSoft, color: COLORS.accent, padding: "1px 5px", borderRadius: 4, fontWeight: 700 },
-  cellFixed: { fontSize: 11.5, color: "#4a4638", lineHeight: 1.3 },
+  cellFixed: { fontSize: 12, color: "#2b2620", fontWeight: 600, lineHeight: 1.3 },
   cellLocation: { fontSize: 9.5, color: "#a39d8c", marginTop: 2 },
   legend: { display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap" },
   legendItem: { display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#8a8578" },
