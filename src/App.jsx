@@ -620,7 +620,8 @@ export default function App() {
     setSection(null);
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
-  const chooseSection = (s) => { setSection(s); saveSession({ section: s }); };
+  const activeSection = section || "grades";
+  const switchSection = (s) => { setSection(s); saveSession({ section: s }); };
 
   if (!anyLoggedIn) {
     return (
@@ -637,71 +638,43 @@ export default function App() {
     );
   }
 
-  if (!section) {
-    return (
-      <div style={styles.app}>
-        <style>{globalCss}</style>
-        <div style={{ padding: "40px 20px", textAlign: "center" }}>
-          <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 6 }}>어느 메뉴를 이용하시겠어요?</div>
-          <div style={{ fontSize: 13, color: "#8a8578", marginBottom: 28 }}>언제든 상단에서 다른 메뉴로 바꿀 수 있습니다.</div>
-          <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
-            <button onClick={() => chooseSection("grades")} style={styles.sectionCard}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>📊</div>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>성적</div>
-              <div style={{ fontSize: 12, color: "#8a8578", marginTop: 4 }}>내신 등급, 모의고사, 성적 상담</div>
-            </button>
-            <button onClick={() => chooseSection("timetable")} style={styles.sectionCard}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>🗓️</div>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>시간표</div>
-              <div style={{ fontSize: 12, color: "#8a8578", marginTop: 4 }}>이동수업 개인 시간표 조회</div>
-            </button>
-          </div>
-          <button style={{ ...styles.secondaryBtn, marginTop: 28 }} onClick={globalLogout}>로그아웃</button>
-        </div>
-      </div>
-    );
-  }
-
-  if (section === "grades") {
-    return (
-      <div style={styles.app}>
-        <style>{globalCss}</style>
-        <GradesSection
-          loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInStudent={loggedInStudent}
-          roster={roster} accounts={accounts} persistAccounts={persistAccounts}
-          showToast={showToast} onBack={() => { setSection(null); saveSession({ section: null }); }} onLogout={globalLogout}
-          grade={grade} setGrade={setGrade}
-        />
-        {toast && <div style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620" }}>{toast.msg}</div>}
-      </div>
-    );
-  }
-
   return (
     <div style={styles.app}>
       <style>{globalCss}</style>
-      <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} onBackToSections={() => { setSection(null); saveSession({ section: null }); }} />
-      <div style={styles.body}>
-        {tab === "student" && <StudentView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />}
-        {tab === "classPrint" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
-          ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} onLogout={(loggedInAdmin || loggedInTeacher || loggedInMonitor) ? null : () => { setClassAuthed(false); saveSession({ classViewId: null }); }} />
-          : <UnifiedLoginGate label="학급별 조회" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => true} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
-        {tab === "subjectGroup" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
-          ? <SubjectGroupView key={scopeKey} roster={roster} enrollments={enrollments} hasAnyData={hasAnyData} announcements={announcements} />
-          : <UnifiedLoginGate label="이동수업반별 명단" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => true} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
-        {tab === "teacherZone" && (
-          (loggedInTeacher || loggedInMonitor || viewedTeacher)
-            ? (loggedInMonitor
-                ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={() => { setLoggedInMonitor(null); saveSession({ monitorId: null }); }} />
-                : <TeacherZoneView key={scopeKey} teacher={viewedTeacher || loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={(t) => { if (loggedInTeacher) setLoggedInTeacher(t); else setViewedTeacher(t); }} viewingAsAdmin={!!viewedTeacher} onLogout={() => { if (viewedTeacher) setViewedTeacher(null); else { setLoggedInTeacher(null); saveSession({ teacherId: null }); } }} />)
-            : loggedInAdmin
-              ? <AdminTeacherPicker accounts={accounts} onSelect={(t) => setViewedTeacher(t)} />
-              : <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} attemptLogin={attemptLogin} onOk={() => {}} />
-        )}
+      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} />
+      {activeSection === "grades" ? (
+        <GradesSection
+          loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInStudent={loggedInStudent}
+          roster={roster} accounts={accounts} persistAccounts={persistAccounts}
+          showToast={showToast} onLogout={globalLogout}
+          grade={grade} setGrade={setGrade}
+        />
+      ) : (
+        <>
+          <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} />
+          <div style={styles.body}>
+            {tab === "student" && <StudentView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />}
+            {tab === "classPrint" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
+              ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} onLogout={(loggedInAdmin || loggedInTeacher || loggedInMonitor) ? null : () => { setClassAuthed(false); saveSession({ classViewId: null }); }} />
+              : <UnifiedLoginGate label="학급별 조회" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => true} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+            {tab === "subjectGroup" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
+              ? <SubjectGroupView key={scopeKey} roster={roster} enrollments={enrollments} hasAnyData={hasAnyData} announcements={announcements} />
+              : <UnifiedLoginGate label="이동수업반별 명단" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => true} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+            {tab === "teacherZone" && (
+              (loggedInTeacher || loggedInMonitor || viewedTeacher)
+                ? (loggedInMonitor
+                    ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={() => { setLoggedInMonitor(null); saveSession({ monitorId: null }); }} />
+                    : <TeacherZoneView key={scopeKey} teacher={viewedTeacher || loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={(t) => { if (loggedInTeacher) setLoggedInTeacher(t); else setViewedTeacher(t); }} viewingAsAdmin={!!viewedTeacher} onLogout={() => { if (viewedTeacher) setViewedTeacher(null); else { setLoggedInTeacher(null); saveSession({ teacherId: null }); } }} />)
+                : loggedInAdmin
+                  ? <AdminTeacherPicker accounts={accounts} onSelect={(t) => setViewedTeacher(t)} />
+                  : <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} attemptLogin={attemptLogin} onOk={() => {}} />
+            )}
         {tab === "admin" && (loggedInAdmin
           ? <AdminView key={scopeKey} {...{ db, persist, showToast, grade, semester, scopeKey, roster, enrollments, timetables, abbrevMap, persistAbbrev, accounts, persistAccounts, build: buildPersonalTimetable, loggedInAdmin, onLogout: () => { setLoggedInAdmin(null); saveSession({ adminId: null }); } }} />
           : <UnifiedLoginGate label="관리자" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => r === "admin"} hint={accounts.admin.length ? null : `초기 계정: ${DEFAULT_ADMIN.id} / ${DEFAULT_ADMIN.pw}`} />)}
-      </div>
+          </div>
+        </>
+      )}
       {toast && <div style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620" }}>{toast.msg}</div>}
     </div>
   );
@@ -973,6 +946,43 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
     </div>
   );
 }
+
+function MegaNav({ active, onSwitch, onLogout }) {
+  const items = [
+    { key: "grades", label: "성적", icon: "📊" },
+    { key: "timetable", label: "시간표", icon: "🗓️" },
+  ];
+  return (
+    <div className="no-print" style={megaNavStyles.wrap}>
+      <div style={megaNavStyles.inner}>
+        <div style={megaNavStyles.brand}>
+          <div style={styles.brandMark}>移</div>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>광덕고 학생 포털</span>
+        </div>
+        <div style={megaNavStyles.tabs}>
+          {items.map(it => (
+            <button
+              key={it.key}
+              onClick={() => onSwitch(it.key)}
+              style={{ ...megaNavStyles.tab, ...(active === it.key ? megaNavStyles.tabActive : {}) }}
+            >
+              <span style={{ marginRight: 6 }}>{it.icon}</span>{it.label}
+            </button>
+          ))}
+        </div>
+        <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
+      </div>
+    </div>
+  );
+}
+const megaNavStyles = {
+  wrap: { background: "#fff", borderBottom: `1px solid ${COLORS.line}` },
+  inner: { maxWidth: 1040, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" },
+  brand: { display: "flex", alignItems: "center", gap: 8, marginRight: 8 },
+  tabs: { display: "flex", gap: 4, flex: 1 },
+  tab: { border: "none", background: "transparent", padding: "10px 18px", borderRadius: 8, fontSize: 14.5, fontWeight: 700, color: "#a39d8c", cursor: "pointer", transition: "background 0.15s, color 0.15s" },
+  tabActive: { color: COLORS.ink, background: COLORS.accentSoft },
+};
 
 function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections }) {
   return (

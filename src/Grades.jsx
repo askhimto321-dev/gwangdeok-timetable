@@ -35,7 +35,7 @@ async function loadGradesDB() {
   return { semesterData, mockData, admissionRows, studentAccounts };
 }
 
-export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedInStudent, roster, accounts, persistAccounts, showToast, onBack, onLogout, grade, setGrade }) {
+export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedInStudent, roster, accounts, persistAccounts, showToast, onLogout, grade, setGrade }) {
   const [loading, setLoading] = useState(true);
   const [gdb, setGdb] = useState({ semesterData: {}, mockData: {}, admissionRows: [], studentAccounts: {} });
   const [tab, setTab] = useState(loggedInStudent ? "my" : "admin");
@@ -67,7 +67,6 @@ export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedIn
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button style={btn.secondary} onClick={onBack}>메뉴로</button>
           <button style={btn.secondary} onClick={onLogout}>로그아웃</button>
         </div>
       </div>
@@ -334,17 +333,140 @@ function AdminStudentAccounts({ accounts, persistAccounts, showToast, roster }) 
    관리자: 원본 성적 데이터 업로드 (학기별 성적표 / 모의고사 / 대입전형표)
    ============================================================ */
 function AdminGradesUpload({ gdb, persistGrades, showToast }) {
-  const [subtab, setSubtab] = useState("semester");
+  const [subtab, setSubtab] = useState("bulk");
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-        <TabBtn active={subtab === "semester"} onClick={() => setSubtab("semester")} label="학기별 성적표" />
-        <TabBtn active={subtab === "mock"} onClick={() => setSubtab("mock")} label="모의고사" />
-        <TabBtn active={subtab === "admission"} onClick={() => setSubtab("admission")} label="대입 전형표" />
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+        <TabBtn active={subtab === "bulk"} onClick={() => setSubtab("bulk")} label="전체 파일 한번에 업로드" />
+        <TabBtn active={subtab === "semester"} onClick={() => setSubtab("semester")} label="학기별 성적표 (개별)" />
+        <TabBtn active={subtab === "mock"} onClick={() => setSubtab("mock")} label="모의고사 (개별)" />
+        <TabBtn active={subtab === "admission"} onClick={() => setSubtab("admission")} label="대입 전형표 (개별)" />
       </div>
+      {subtab === "bulk" && <BulkUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "semester" && <SemesterUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "mock" && <MockUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "admission" && <AdmissionUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
+    </div>
+  );
+}
+
+// 시트 이름을 보고 자동으로 종류를 판별해서 워크북 하나로 성적/모의고사/대입전형을 한번에 반영.
+function classifySheetName(name) {
+  const trimmed = name.trim();
+  let m = trimmed.match(/^([123])\s*-\s*([12])\s*성적$/);
+  if (m) return { type: "semester", key: `${m[1]}-${m[2]}` };
+  m = trimmed.match(/^([123])\s*학년\s*(\d{1,2})\s*월$/);
+  if (m) return { type: "mock", key: `${m[1]}-${m[2]}` };
+  if (trimmed.includes("대입") && trimmed.includes("전형")) return { type: "admission" };
+  return null;
+}
+
+function normalizeHeader(v) {
+  return String(v ?? "").replace(/\s+/g, "").trim();
+}
+function parseAdmissionRows(rows) {
+  const need = ["대학교", "수능최저반영과목수", "수능최저합"];
+  let headerRowIdx = rows.findIndex(r => r && r.some(c => normalizeHeader(c) === "대학교"));
+  if (headerRowIdx === -1) return null;
+  const header = rows[headerRowIdx];
+  const idx = {}; header.forEach((h, i) => { if (h != null && h !== "") idx[normalizeHeader(h)] = i; });
+  if (need.some(n => idx[n] == null)) return null;
+  const admissionRows = [];
+  for (let r = headerRowIdx + 1; r < rows.length; r++) {
+    const row = rows[r]; if (!row) continue;
+    const university = row[idx["대학교"]];
+    if (!university) continue;
+    admissionRows.push({
+      university: String(university).trim(),
+      requiredSubjectCount: row[idx["수능최저반영과목수"]],
+      requiredSum: row[idx["수능최저합"]],
+      note: row[idx["전형특이사항"]] ?? "",
+    });
+  }
+  return admissionRows;
+}
+
+function BulkUpload({ gdb, persistGrades, showToast }) {
+  const fileRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState(null);
+
+  const handleFile = async (file) => {
+    setBusy(true);
+    setReport(null);
+    try {
+      const XLSX = await loadXLSX();
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const newSemesterData = { ...gdb.semesterData };
+      const newMockData = { ...gdb.mockData };
+      let newAdmissionRows = gdb.admissionRows;
+      const found = [];
+      const skipped = [];
+
+      wb.SheetNames.forEach(name => {
+        const cls = classifySheetName(name);
+        if (!cls) { skipped.push(name); return; }
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null });
+        if (cls.type === "semester") {
+          const students = parseSemesterSheet(rows);
+          const count = Object.keys(students).length;
+          if (count) {
+            newSemesterData[cls.key] = { students, updatedAt: new Date().toISOString() };
+            found.push(`${SEMESTER_LABELS[cls.key] || cls.key} 성적 — ${count}명`);
+          } else skipped.push(`${name} (학생 데이터 인식 실패)`);
+        } else if (cls.type === "mock") {
+          const students = parseMockSheet(rows);
+          const count = Object.keys(students).length;
+          if (count) {
+            newMockData[cls.key] = { students, updatedAt: new Date().toISOString() };
+            found.push(`${MOCK_MONTH_LABELS[cls.key] || cls.key} 모의고사 — ${count}명`);
+          } else skipped.push(`${name} (학생 데이터 인식 실패)`);
+        } else if (cls.type === "admission") {
+          const admissionRows = parseAdmissionRows(rows);
+          if (admissionRows && admissionRows.length) {
+            newAdmissionRows = admissionRows;
+            found.push(`대입 전형표 — ${admissionRows.length}건`);
+          } else skipped.push(`${name} (열 이름 인식 실패)`);
+        }
+      });
+
+      if (!found.length) {
+        showToast("이 파일에서 인식 가능한 시트를 찾지 못했습니다. 시트 이름이 원본과 같은지 확인해주세요.", "error");
+        setBusy(false);
+        return;
+      }
+      const ok = await persistGrades({ semesterData: newSemesterData, mockData: newMockData, admissionRows: newAdmissionRows });
+      if (ok) { showToast(`${found.length}개 시트를 반영했습니다.`, "success"); setReport({ found, skipped }); }
+    } catch (e) {
+      showToast(`파일 오류: ${e.message}`, "error");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div>
+      <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
+        <FileSpreadsheet size={22} color="#8a8578" />
+        <div style={{ fontWeight: 700, marginTop: 8 }}>원본 성적 엑셀 파일 통째로 업로드</div>
+        <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center", maxWidth: 480 }}>
+          "1-1 성적", "1-2 성적", "2-1 성적", "2-2 성적"과 "N학년 N월"(모의고사), "2028 대입 전형" 시트가 들어있는 원본 파일을 그대로 올려주세요.
+          시트 이름을 보고 자동으로 종류를 구분해서 한 번에 전부 반영합니다.
+        </div>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
+        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 파일 선택</button>
+      </div>
+      {report && (
+        <div style={card}>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>반영된 시트 ({report.found.length}개)</div>
+          <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 12.5 }}>{report.found.map((f, i) => <li key={i}>{f}</li>)}</ul>
+          {report.skipped.length > 0 && (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 8, color: "#a39d8c" }}>인식하지 못해 건너뜀 ({report.skipped.length}개)</div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "#a39d8c" }}>{report.skipped.map((f, i) => <li key={i}>{f}</li>)}</ul>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -396,6 +518,29 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
   );
 }
 
+// 모의고사 월별 시트 파싱: id열은 "학번" 또는 "신학번", 등급은 "등급" 표시가 있는 헤더 칸 바로 다음
+// 6칸(국어,수학,영어,한국사,통합사회,통합과학 고정 순서)에 있음 (원점수 칸과 이름이 겹치므로 이름매칭 대신 위치로 찾음).
+function parseMockSheet(rows) {
+  const header = rows[0] || [];
+  let sidCol = header.findIndex(h => h != null && /^(신)?학번$/.test(String(h).trim()));
+  if (sidCol === -1) sidCol = 0;
+  const gradeMarkerCol = header.findIndex(h => h != null && String(h).includes("등급"));
+  const gradeStartCol = gradeMarkerCol !== -1 ? gradeMarkerCol + 1 : null;
+  const students = {};
+  if (gradeStartCol == null) return students;
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r]; if (!row) continue;
+    const sid = row[sidCol]; if (!sid) continue;
+    const grades = {};
+    MOCK_SUBJECTS.forEach((subj, i) => {
+      const v = row[gradeStartCol + i];
+      if (v !== null && v !== undefined && v !== "") grades[subj] = Number(v);
+    });
+    if (Object.keys(grades).length) students[String(sid).trim().replace(/\.0$/, "")] = grades;
+  }
+  return students;
+}
+
 function MockUpload({ gdb, persistGrades, showToast }) {
   const [monthKey, setMonthKey] = useState("2-6");
   const fileRef = useRef(null);
@@ -407,20 +552,9 @@ function MockUpload({ gdb, persistGrades, showToast }) {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
-      const header = rows[0] || [];
-      const idx = {}; header.forEach((h, i) => { if (h) idx[String(h).trim()] = i; });
-      // 학번(A), 학급(B), 번호(C) ... 국어~통합과학 등급(O:T 영역, 헤더명 매칭)
-      const sidCol = idx["학번"] ?? 0;
-      const students = {};
-      for (let r = 1; r < rows.length; r++) {
-        const row = rows[r]; if (!row) continue;
-        const sid = row[sidCol]; if (!sid) continue;
-        const grades = {};
-        MOCK_SUBJECTS.forEach(subj => { if (idx[subj] != null && row[idx[subj]] != null) grades[subj] = Number(row[idx[subj]]); });
-        if (Object.keys(grades).length) students[String(sid).trim()] = grades;
-      }
+      const students = parseMockSheet(rows);
       const count = Object.keys(students).length;
-      if (!count) { showToast('학생 데이터를 인식하지 못했습니다. 헤더에 "학번"과 과목명(국어,수학,영어,한국사,통합사회,통합과학)이 있는지 확인해주세요.', "error"); setBusy(false); return; }
+      if (!count) { showToast('학생 데이터를 인식하지 못했습니다. "학번"(또는 신학번) 열과 "등급" 표시 칸이 있는지 확인해주세요.', "error"); setBusy(false); return; }
       const ok = await persistGrades({ mockData: { ...gdb.mockData, [monthKey]: { students, updatedAt: new Date().toISOString() } } });
       if (ok) showToast(`${MOCK_MONTH_LABELS[monthKey]} 모의고사 ${count}명분을 반영했습니다.`, "success");
     } catch (e) {
@@ -464,22 +598,8 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
-      const header = rows[0] || [];
-      const idx = {}; header.forEach((h, i) => { if (h) idx[String(h).trim()] = i; });
-      const need = ["대학교", "수능최저 반영 과목수", "수능최저 합"];
-      if (need.some(n => idx[n] == null)) { showToast(`열 이름을 확인해주세요: ${need.join(", ")}`, "error"); setBusy(false); return; }
-      const admissionRows = [];
-      for (let r = 1; r < rows.length; r++) {
-        const row = rows[r]; if (!row) continue;
-        const university = row[idx["대학교"]];
-        if (!university) continue;
-        admissionRows.push({
-          university: String(university).trim(),
-          requiredSubjectCount: row[idx["수능최저 반영 과목수"]],
-          requiredSum: row[idx["수능최저 합"]],
-          note: row[idx["전형 특이사항"]] ?? "",
-        });
-      }
+      const admissionRows = parseAdmissionRows(rows);
+      if (!admissionRows) { showToast('열 이름을 확인해주세요: "대학교", "수능최저 반영 과목수", "수능최저 합"', "error"); setBusy(false); return; }
       const ok = await persistGrades({ admissionRows });
       if (ok) showToast(`대입 전형표 ${admissionRows.length}건을 반영했습니다.`, "success");
     } catch (e) {
