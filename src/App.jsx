@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
+import GradesSection from "./Grades.jsx";
 
 const DAYS = ["월", "화", "수", "목", "금"];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7];
@@ -441,17 +442,19 @@ function clipboardToGrid(e) {
 
 /* ============================================================ */
 export default function App() {
+  const [section, setSection] = useState(null); // null = not chosen yet | "grades" | "timetable"
   const [tab, setTab] = useState("student");
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
   const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {} });
   const [abbrevMaps, setAbbrevMaps] = useState({});
-  const [accounts, setAccounts] = useState({ admin: [], classView: [], teacher: [], teacherPending: [], monitors: [] });
+  const [accounts, setAccounts] = useState({ admin: [], classView: [], teacher: [], teacherPending: [], monitors: [], students: [] });
   const [loggedInAdmin, setLoggedInAdmin] = useState(null);
   const [classAuthed, setClassAuthed] = useState(false);
   const [loggedInTeacher, setLoggedInTeacher] = useState(null);
   const [loggedInMonitor, setLoggedInMonitor] = useState(null);
+  const [loggedInStudent, setLoggedInStudent] = useState(null);
   const [viewedTeacher, setViewedTeacher] = useState(null); // admin "view as teacher" (no separate login needed)
   const sessionRestoredRef = useRef(false);
   const [toast, setToast] = useState(null);
@@ -467,7 +470,7 @@ export default function App() {
         readStorage("kd_abbrev_1", {}),
         readStorage("kd_abbrev_2", {}),
         readStorage("kd_abbrev_3", {}),
-        readStorage("kd_accounts", { admin: [], classView: [], teacher: [], teacherPending: [], monitors: [] }),
+        readStorage("kd_accounts", { admin: [], classView: [], teacher: [], teacherPending: [], monitors: [], students: [] }),
         readStorage("kd_rooms", {}),
         readStorage("kd_notices", {}),
       ]);
@@ -494,6 +497,11 @@ export default function App() {
             const m = (accts.monitors || []).find(a => a.id === saved.monitorId);
             if (m) setLoggedInMonitor(m);
           }
+          if (saved.studentId) {
+            const s = (accts.students || []).find(a => a.id === saved.studentId);
+            if (s) setLoggedInStudent(s);
+          }
+          if (saved.section) setSection(saved.section);
         } catch { /* ignore malformed session */ }
       }
     })();
@@ -520,6 +528,8 @@ export default function App() {
     if (monitorMatch) { setLoggedInMonitor(monitorMatch); saveSession({ monitorId: monitorMatch.id }); return "monitor"; }
     const classMatch = (accounts.classView || []).find(a => a.id === id && a.pw === pw);
     if (classMatch) { setClassAuthed(true); saveSession({ classViewId: classMatch.id }); return "classView"; }
+    const studentMatch = (accounts.students || []).find(a => a.id === id && a.pw === pw);
+    if (studentMatch) { setLoggedInStudent(studentMatch); saveSession({ studentId: studentMatch.id }); return "student"; }
     return null;
   }, [accounts]);
 
@@ -601,13 +611,76 @@ export default function App() {
 
   const adminAccounts = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
   const hasAnyData = Object.keys(roster).length > 0;
+  const anyLoggedIn = !!(loggedInAdmin || loggedInTeacher || loggedInMonitor || classAuthed || loggedInStudent);
 
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
+
+  const globalLogout = () => {
+    setLoggedInAdmin(null); setLoggedInTeacher(null); setLoggedInMonitor(null); setClassAuthed(false); setLoggedInStudent(null);
+    setSection(null);
+    try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
+  };
+  const chooseSection = (s) => { setSection(s); saveSession({ section: s }); };
+
+  if (!anyLoggedIn) {
+    return (
+      <div style={styles.app}>
+        <style>{globalCss}</style>
+        <div style={{ padding: "40px 20px" }}>
+          <div style={{ textAlign: "center", marginBottom: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 20 }}>광덕고 학생 포털 <span style={styles.betaBadge}>Beta</span></div>
+            <div style={{ fontSize: 13, color: "#8a8578", marginTop: 6 }}>먼저 로그인해주세요. (학생 / 선생님 / 관리자 계정 모두 아래에서 로그인합니다)</div>
+          </div>
+          <UnifiedLoginGate label="광덕고 학생 포털" attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!section) {
+    return (
+      <div style={styles.app}>
+        <style>{globalCss}</style>
+        <div style={{ padding: "40px 20px", textAlign: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 20, marginBottom: 6 }}>어느 메뉴를 이용하시겠어요?</div>
+          <div style={{ fontSize: 13, color: "#8a8578", marginBottom: 28 }}>언제든 상단에서 다른 메뉴로 바꿀 수 있습니다.</div>
+          <div style={{ display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap" }}>
+            <button onClick={() => chooseSection("grades")} style={styles.sectionCard}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>📊</div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>성적</div>
+              <div style={{ fontSize: 12, color: "#8a8578", marginTop: 4 }}>내신 등급, 모의고사, 성적 상담</div>
+            </button>
+            <button onClick={() => chooseSection("timetable")} style={styles.sectionCard}>
+              <div style={{ fontSize: 28, marginBottom: 8 }}>🗓️</div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>시간표</div>
+              <div style={{ fontSize: 12, color: "#8a8578", marginTop: 4 }}>이동수업 개인 시간표 조회</div>
+            </button>
+          </div>
+          <button style={{ ...styles.secondaryBtn, marginTop: 28 }} onClick={globalLogout}>로그아웃</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (section === "grades") {
+    return (
+      <div style={styles.app}>
+        <style>{globalCss}</style>
+        <GradesSection
+          loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInStudent={loggedInStudent}
+          roster={roster} accounts={accounts} persistAccounts={persistAccounts}
+          showToast={showToast} onBack={() => { setSection(null); saveSession({ section: null }); }} onLogout={globalLogout}
+          grade={grade} setGrade={setGrade}
+        />
+        {toast && <div style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620" }}>{toast.msg}</div>}
+      </div>
+    );
+  }
 
   return (
     <div style={styles.app}>
       <style>{globalCss}</style>
-      <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} />
+      <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} onBackToSections={() => { setSection(null); saveSession({ section: null }); }} />
       <div style={styles.body}>
         {tab === "student" && <StudentView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />}
         {tab === "classPrint" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
@@ -901,7 +974,7 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
   );
 }
 
-function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta }) {
+function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections }) {
   return (
     <div style={styles.topbar} className="no-print">
       <div style={styles.topbarRow}>
@@ -913,6 +986,7 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta }) {
           </div>
         </div>
         <nav style={styles.nav}>
+          {onBackToSections && <NavBtn active={false} onClick={onBackToSections} icon={<ArrowRight size={15} style={{ transform: "rotate(180deg)" }} />} label="메뉴로" />}
           <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />
           <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />
           <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />
@@ -1988,25 +2062,25 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         homeroomClass: t.homeroomClass || "",
         assignments: (t.assignments || []).filter(a => a.subject && a.targets.trim()),
       }));
-    const ok = await persistAccounts({ admin: cleanAdmins(admins), classView: cleanGeneric(cvs), teacher: cleanTeachers, teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [] });
+    const ok = await persistAccounts({ admin: cleanAdmins(admins), classView: cleanGeneric(cvs), teacher: cleanTeachers, teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [] });
     if (ok) showToast("저장했습니다.", "success");
   };
   const resetAll = async () => {
     const na = admins.map(a => ({ ...a, pw: RESET_PASSWORD })), nc = cvs.map(a => ({ ...a, pw: RESET_PASSWORD })), nt = teachers.map(t => ({ ...t, pw: RESET_PASSWORD }));
     setAdmins(na); setCvs(nc); setTeachers(nt);
-    const ok = await persistAccounts({ admin: na, classView: nc, teacher: nt, teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [] });
+    const ok = await persistAccounts({ admin: na, classView: nc, teacher: nt, teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [] });
     if (ok) showToast(`모든 비밀번호가 "${RESET_PASSWORD}"로 초기화되었습니다.`, "success");
   };
 
   const approve = async (req) => {
     const newTeachers = [...teachers, req];
     const newPending = (accounts.teacherPending || []).filter(p => p.id !== req.id);
-    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: newTeachers, teacherPending: newPending, monitors: accounts.monitors || [] });
+    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: newTeachers, teacherPending: newPending, monitors: accounts.monitors || [], students: accounts.students || [] });
     if (ok) showToast(`${req.name} 선생님 계정을 승인했습니다.`, "success");
   };
   const reject = async (req) => {
     const newPending = (accounts.teacherPending || []).filter(p => p.id !== req.id);
-    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: accounts.teacher, teacherPending: newPending, monitors: accounts.monitors || [] });
+    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: accounts.teacher, teacherPending: newPending, monitors: accounts.monitors || [], students: accounts.students || [] });
     if (ok) showToast("가입 신청을 거절했습니다.", "success");
   };
 
@@ -2306,6 +2380,7 @@ const styles = {
   loadingScreen: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 },
   loadingText: { fontSize: 13.5, color: "#8a8578" },
   loginBox: { textAlign: "center", padding: "36px 20px", background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 12, maxWidth: 320, margin: "20px auto", display: "flex", flexDirection: "column", alignItems: "center" },
+  sectionCard: { width: 180, padding: "28px 16px", background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 14, cursor: "pointer", textAlign: "center" },
   loginInput: { width: "100%", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, marginBottom: 8 },
   topbar: { background: "#fff", borderBottom: `1px solid ${COLORS.line}` },
   topbarRow: { maxWidth: 1040, margin: "0 auto", padding: "12px 20px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 },
