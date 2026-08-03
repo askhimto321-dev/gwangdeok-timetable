@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles } from "lucide-react";
+import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
 
@@ -543,7 +543,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
-  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [] });
+  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [] });
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] });
@@ -562,7 +562,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -575,8 +575,9 @@ export default function App() {
         readStorage("kd_notices", {}),
         readStorage("kd_materials", {}),
         readStorage("kd_feedback", []),
+        readStorage("kd_staff_notices", []),
       ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback });
+      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices });
       loadGradesDB().then(setGdb);
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
@@ -659,6 +660,7 @@ export default function App() {
     if (patch.announcements) jobs.push(writeStorage("kd_notices", patch.announcements));
     if (patch.materials) jobs.push(writeStorage("kd_materials", patch.materials));
     if (patch.feedback) jobs.push(writeStorage("kd_feedback", patch.feedback));
+    if (patch.staffNotices) jobs.push(writeStorage("kd_staff_notices", patch.staffNotices));
     const results = await Promise.all(jobs);
     const failed = results.find(r => r && r.ok === false);
     if (failed) { showToast(`실패했습니다. (${failed.error})`, "error"); return false; }
@@ -964,6 +966,7 @@ export default function App() {
           </div>
         </>
       )}
+      {(loggedInTeacher || loggedInDepartment) && <TeacherNoticeInbox account={loggedInTeacher || { ...loggedInDepartment, accountType: "department" }} notices={db.staffNotices || []} persist={persist} showToast={showToast} />}
       <FeedbackLauncher
         feedback={db.feedback || []}
         persist={persist}
@@ -2671,6 +2674,95 @@ function FeedbackAdminPanel({ feedback, persist, showToast }) {
   );
 }
 
+
+function staffNoticeAudience(notice, account) {
+  if (!notice || !account) return false;
+  if (notice.targetType === "all") return true;
+  const token = `${account.accountType || "teacher"}:${account.id}`;
+  const targets = (notice.targetIds || []).map(String);
+  return targets.includes(token) || targets.includes(String(account.id));
+}
+function AdminStaffNoticePanel({ accounts, notices, persist, showToast }) {
+  const staff = [
+    ...(accounts.teacher || []).map(item => ({ ...item, accountType: "teacher", displayRole: "선생님" })),
+    ...(accounts.departments || []).map(item => ({ ...item, accountType: "department", displayRole: "부서" })),
+  ].sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id), "ko"));
+  const [targetType, setTargetType] = useState("all");
+  const [targetId, setTargetId] = useState("");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!title.trim() && !body.trim()) { showToast("제목 또는 내용을 입력해주세요.", "error"); return; }
+    if (targetType === "individual" && !targetId) { showToast("공지 대상 교직원을 선택해주세요.", "error"); return; }
+    setBusy(true);
+    const selected = staff.find(item => `${item.accountType}:${item.id}` === String(targetId));
+    const entry = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      targetType,
+      targetIds: targetType === "all" ? [] : [targetId],
+      targetLabel: targetType === "all" ? "전체 교직원" : `${selected?.name || selected?.id || targetId} 개인`,
+      title: title.trim() || "관리자 공지",
+      body: body.trim(),
+      createdAt: new Date().toISOString(),
+      readBy: [],
+    };
+    const ok = await persist({ staffNotices: [entry, ...(notices || [])] });
+    setBusy(false);
+    if (ok) { setTitle(""); setBody(""); showToast("교직원 공지를 등록했습니다.", "success"); }
+  };
+  const remove = async id => {
+    const ok = await persist({ staffNotices: (notices || []).filter(item => item.id !== id) });
+    if (ok) showToast("공지를 삭제했습니다.", "success");
+  };
+  return <div style={{ display: "grid", gap: 14 }}>
+    <section style={styles.staffNoticeComposer}>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap" }}>
+        <div><div style={{ fontSize: 16, fontWeight: 950 }}>교직원 공지 보내기</div><div style={{ marginTop: 4, color: "#81796d", fontSize: 11 }}>전체 선생님 또는 특정 선생님·부서 계정에 개인 공지를 보냅니다.</div></div>
+        <Megaphone size={22} color="#546a9a" />
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 14, flexWrap: "wrap" }}>
+        <button type="button" onClick={() => setTargetType("all")} style={{ ...styles.classChip, ...(targetType === "all" ? styles.classChipActive : {}) }}>전체 공지</button>
+        <button type="button" onClick={() => setTargetType("individual")} style={{ ...styles.classChip, ...(targetType === "individual" ? styles.classChipActive : {}) }}>개인 공지</button>
+      </div>
+      {targetType === "individual" && <select value={targetId} onChange={event => setTargetId(event.target.value)} style={{ ...styles.loginInput, marginTop: 10 }}><option value="">— 대상 선택 —</option>{staff.map(item => <option key={`${item.accountType}-${item.id}`} value={`${item.accountType}:${item.id}`}>{item.name || item.id} · {item.displayRole}</option>)}</select>}
+      <input value={title} onChange={event => setTitle(event.target.value)} placeholder="공지 제목" style={{ ...styles.loginInput, marginTop: 10 }} />
+      <textarea value={body} onChange={event => setBody(event.target.value)} rows={5} placeholder="공지 내용을 입력하세요." style={styles.textareaInput} />
+      <button type="button" disabled={busy} onClick={submit} style={{ ...styles.primaryBtn, marginTop: 10 }}>{busy ? <Loader2 className="spin" size={14} /> : <Send size={14} />} 공지 보내기</button>
+    </section>
+    <section style={styles.card}>
+      <div style={{ fontSize: 14, fontWeight: 950, marginBottom: 10 }}>등록한 교직원 공지</div>
+      {!(notices || []).length ? <div style={styles.materialEmpty}>등록된 교직원 공지가 없습니다.</div> : <div style={{ display: "grid", gap: 8 }}>{(notices || []).map(item => <article key={item.id} style={styles.staffNoticeManageCard}><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><div><div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}><span style={styles.staffNoticeAudienceBadge}>{item.targetLabel || (item.targetType === "all" ? "전체 교직원" : "개인")}</span><b>{item.title}</b></div><div style={{ marginTop: 6, fontSize: 11.5, color: "#625b50", whiteSpace: "pre-wrap" }}>{item.body || "내용 없음"}</div><div style={{ marginTop: 7, fontSize: 9.8, color: "#9a9386" }}>{item.createdAt ? new Date(item.createdAt).toLocaleString("ko-KR") : ""} · 읽음 {(item.readBy || []).length}명</div></div><button type="button" onClick={() => remove(item.id)} style={styles.iconBtn}><Trash2 size={14} /></button></div></article>)}</div>}
+    </section>
+  </div>;
+}
+function TeacherNoticeInbox({ account, notices, persist, showToast }) {
+  const [open, setOpen] = useState(false);
+  const relevant = (notices || []).filter(item => staffNoticeAudience(item, account));
+  const readKey = `${account?.accountType || "teacher"}:${account?.id}`;
+  const unread = relevant.filter(item => !(item.readBy || []).includes(readKey));
+  if (!unread.length) return null;
+  const markOne = async id => {
+    const next = (notices || []).map(item => item.id === id ? { ...item, readBy: Array.from(new Set([...(item.readBy || []), readKey])) } : item);
+    await persist({ staffNotices: next });
+  };
+  const markAll = async () => {
+    const ids = new Set(unread.map(item => item.id));
+    const next = (notices || []).map(item => ids.has(item.id) ? { ...item, readBy: Array.from(new Set([...(item.readBy || []), readKey])) } : item);
+    const ok = await persist({ staffNotices: next });
+    if (ok) showToast("교직원 공지를 모두 읽음 처리했습니다.", "success");
+  };
+  return <div className="staff-notice-dock no-print" style={styles.staffNoticeDock}>
+    <button type="button" onClick={() => setOpen(value => !value)} style={{ ...styles.staffNoticeDockButton, ...(unread.length ? styles.staffNoticeDockUnread : {}) }}>
+      {unread.length ? <BellRing size={17} /> : <Bell size={17} />}<span>관리자 알림</span>{unread.length > 0 && <strong style={styles.staffNoticeCount}>{unread.length}</strong>}
+    </button>
+    {open && <div style={styles.staffNoticePopup}>
+      <div style={styles.staffNoticePopupHeader}><div><b>관리자 알림</b><div style={{ fontSize: 9.5, color: "#8b8390", marginTop: 2 }}>읽지 않은 알림 {unread.length}건</div></div>{unread.length > 0 && <button type="button" onClick={markAll} style={styles.iconTextBtn}><CheckCheck size={13} /> 모두 읽음</button>}</div>
+      <div style={{ display: "grid", gap: 7, maxHeight: 360, overflowY: "auto" }}>{relevant.map(item => { const isUnread = !(item.readBy || []).includes(readKey); return <button key={item.id} type="button" onClick={() => isUnread && markOne(item.id)} style={{ ...styles.staffNoticeItem, ...(isUnread ? styles.staffNoticeItemUnread : {}) }}><div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><b>{item.title || "관리자 공지"}</b>{isUnread && <span style={styles.staffNoticeNew}>NEW</span>}</div><div style={{ marginTop: 5, color: "#5e5863", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{item.body || "내용 없음"}</div><div style={{ marginTop: 6, color: "#9a929d", fontSize: 9 }}>{item.createdAt ? new Date(item.createdAt).toLocaleString("ko-KR") : ""}</div></button>; })}</div>
+    </div>}
+  </div>;
+}
+
 /* ============ ADMIN ============ */
 const ADMIN_TABS = [
   ["overview", <Database size={14} />, "현황"],
@@ -2696,6 +2788,7 @@ function AdminConsole(props) {
         <button onClick={() => setSub("timetable")} style={{ ...styles.adminTabBtn, ...(sub === "timetable" ? styles.adminTabBtnActive : {}) }}><ClipboardList size={14} /> 시간표 관리</button>
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
         <button onClick={() => setSub("accounts")} style={{ ...styles.adminTabBtn, ...(sub === "accounts" ? styles.adminTabBtnActive : {}) }}><Lock size={14} /> 계정 관리</button>
+        <button onClick={() => setSub("staffNotices")} style={{ ...styles.adminTabBtn, ...(sub === "staffNotices" ? styles.adminTabBtnActive : {}) }}><Megaphone size={14} /> 교직원 공지</button>
         <button onClick={() => setSub("feedback")} style={{ ...styles.adminTabBtn, ...(sub === "feedback" ? styles.adminTabBtnActive : {}) }}><Bug size={14} /> 건의·버그</button>
       </div>
       {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
@@ -2704,6 +2797,7 @@ function AdminConsole(props) {
           : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>
       )}
       {sub === "accounts" && <AdminAccountConsole {...props} />}
+      {sub === "staffNotices" && <AdminStaffNoticePanel accounts={props.accounts} notices={props.db.staffNotices || []} persist={props.persist} showToast={props.showToast} />}
       {sub === "feedback" && <FeedbackAdminPanel feedback={props.db.feedback || []} persist={props.persist} showToast={props.showToast} />}
     </div>
   );
@@ -3815,7 +3909,8 @@ const globalCss = `
   @media (max-width: 900px) {
     .teacher-composer-grid { grid-template-columns: 1fr !important; }
   }
-  @media (max-width: 720px) {
+  @media (max-width: 900px) { .staff-notice-dock { left: 10px !important; top: auto !important; bottom: 74px !important; width: min(300px, calc(100vw - 20px)) !important; } }
+    @media (max-width: 720px) {
     .teacher-zone-target-row { grid-template-columns: 1fr !important; }
     .teacher-workflow-steps { grid-template-columns: 1fr !important; }
     .teacher-composer-aside { border-left: 0 !important; border-top: 1px solid #e6e1d3 !important; }
@@ -4023,5 +4118,18 @@ const styles = {
   issueList: { marginTop: 10, display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" },
   issueRow: { display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "7px 10px", fontSize: 12, flexWrap: "wrap" },
   issueBadge: { background: "#f3f1e9", padding: "2px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, color: "#8a8578" },
+  staffNoticeComposer: { border: "1px solid #d9dfec", borderRadius: 14, background: "linear-gradient(135deg,#f6f8fd,#ffffff)", padding: 17, boxShadow: "0 4px 18px rgba(68,84,120,.06)" },
+  staffNoticeManageCard: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fff" },
+  staffNoticeAudienceBadge: { display: "inline-flex", borderRadius: 999, padding: "3px 7px", background: "#edf1fa", color: "#4c628f", border: "1px solid #ced8eb", fontSize: 9.5, fontWeight: 900 },
+  staffNoticeDock: { position: "fixed", left: 16, top: 82, zIndex: 44, width: 300 },
+  staffNoticeDockButton: { display: "inline-flex", alignItems: "center", gap: 7, borderRadius: 999, padding: "9px 12px", border: "1px solid #d2d5df", background: "#fff", color: "#526079", fontSize: 11.5, fontWeight: 900, cursor: "pointer", boxShadow: "0 7px 22px rgba(40,46,60,.12)" },
+  staffNoticeDockUnread: { background: "#2f3e62", color: "#fff", borderColor: "#2f3e62" },
+  staffNoticeCount: { minWidth: 20, height: 20, display: "inline-grid", placeItems: "center", borderRadius: 999, background: "#ffd978", color: "#25314d", fontSize: 10 },
+  staffNoticePopup: { marginTop: 8, width: "100%", borderRadius: 13, background: "#fff", border: "1px solid #d9dbe3", boxShadow: "0 14px 40px rgba(34,38,50,.2)", padding: 11 },
+  staffNoticePopupHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "2px 2px 9px", borderBottom: "1px solid #ece9e2", marginBottom: 8 },
+  iconTextBtn: { display: "inline-flex", alignItems: "center", gap: 4, border: 0, background: "transparent", color: "#546a9a", fontSize: 9.5, fontWeight: 900, cursor: "pointer" },
+  staffNoticeItem: { width: "100%", textAlign: "left", border: "1px solid #e6e1d8", borderRadius: 9, padding: 9, background: "#faf9f6", color: "#343039", fontSize: 10.5, cursor: "pointer" },
+  staffNoticeItemUnread: { background: "#f2f5fc", borderColor: "#cbd5eb", boxShadow: "inset 3px 0 #5b70a4" },
+  staffNoticeNew: { borderRadius: 999, background: "#f4c95d", color: "#2f3545", padding: "2px 5px", fontSize: 8, fontWeight: 950 },
   toast: { position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", color: "#fff", padding: "10px 18px", borderRadius: 8, fontSize: 13, boxShadow: "0 4px 16px rgba(0,0,0,0.2)", zIndex: 50 },
 };

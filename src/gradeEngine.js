@@ -427,6 +427,17 @@ function extractAdmissionEachRule(row) {
     .trim();
   if (!text) return null;
 
+  // 원본 엑셀은 과목 수와 기준을 별도 열로 저장할 수 있습니다.
+  // 예: 반영 과목수=3, 최저 합="각 3등급 이내". 이 경우 합산 조건이 아니라
+  // 세 과목이 각각 3등급 이내인 개별 과목 조건으로 해석합니다.
+  const explicitCount = extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
+  const requiredSumText = String(row?.requiredSum ?? "").replace(/\s+/g, " ").trim();
+  const separatedEachMatch = requiredSumText.match(/(?:각각|각|모두)\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/);
+  if (explicitCount && separatedEachMatch) {
+    const threshold = Number(separatedEachMatch[1]);
+    if (Number.isFinite(threshold)) return { count: explicitCount, threshold };
+  }
+
   // 개별 과목 기준은 반드시 같은 문장/구 안에 "N개 과목(영역)"과 "각 M등급"이 함께 있어야 합니다.
   // 이를 분리해서 찾으면 "각 교과에서 최저 등급 과목 5개 미반영" 같은 다른 문구의 숫자를
   // 잘못 가져와 3합 3으로 표시할 수 있으므로, 먼저 결합 패턴을 엄격하게 판정합니다.
