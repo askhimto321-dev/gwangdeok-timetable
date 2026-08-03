@@ -756,37 +756,66 @@ function percentPart(label, value) {
 
 
 const ADMISSION_SUBJECT_LABELS = {
-  국어: "국어",
-  수학: "수학",
-  영어: "영어",
-  통합사회: "사회",
-  통합과학: "과학",
-  한국사: "한국사",
+  국어: "국",
+  수학: "수",
+  영어: "영",
+  통합사회: "사",
+  통합과학: "과",
+  한국사: "한",
 };
 
 function admissionSubjectGroupLabel(group) {
   const labels = (group?.subjects || []).map(subject => ADMISSION_SUBJECT_LABELS[subject] || subject);
   if (!labels.length) return "";
-  if (group.type === "choice") return `${labels.join("·")} 중 우수 1개`;
+  if (group.type === "choice") return `${labels.join("/")} 택1`;
   return labels[0];
 }
 
+function admissionSubjectRuleText(value) {
+  return parseAdmissionSubjectGroups(value)
+    .map(admissionSubjectGroupLabel)
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function AdmissionSubjectRule({ value }) {
-  const groups = parseAdmissionSubjectGroups(value);
-  if (!groups.length) return null;
+  const text = admissionSubjectRuleText(value);
+  if (!text) return null;
   return (
-    <div style={subjectRule.box} title={String(value || "")}>
-      <span style={subjectRule.label}>반영</span>
-      <div style={subjectRule.chips}>
-        {groups.map((group, index) => (
-          <span key={`${group.type}-${group.subjects.join("-")}-${index}`} style={{
-            ...subjectRule.chip,
-            ...(group.type === "choice" ? subjectRule.choiceChip : {}),
-          }}>
-            {admissionSubjectGroupLabel(group)}
-          </span>
-        ))}
-      </div>
+    <span style={subjectRule.text} title={String(value || "")}>
+      {text}
+    </span>
+  );
+}
+
+function splitAdmissionSpecialNote(value) {
+  const text = String(value || "").replace(/\r/g, "").trim();
+  if (!text) return [];
+  return text
+    .replace(/\s*(<[^>]+>\s*:)/g, "\n$1")
+    .replace(/\s+(?=(?:수능\s*최저|지역균형전형|학교장추천|추천인재|교과우수|진로\/?융합\s*선택|성취도|석차등급)\s*:)/g, "\n")
+    .replace(/[;；]\s*/g, "\n")
+    .split(/\n+/)
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function AdmissionSpecialNote({ value }) {
+  const parts = splitAdmissionSpecialNote(value);
+  if (!parts.length) return null;
+  return (
+    <div style={specialNoteStyle.box} title={String(value || "")}>
+      {parts.map((part, index) => {
+        const match = part.match(/^([^:：]{1,24})[:：]\s*(.+)$/);
+        return (
+          <div key={`${part}-${index}`} style={specialNoteStyle.row}>
+            <span style={specialNoteStyle.bullet}>•</span>
+            <span>
+              {match ? <><b style={specialNoteStyle.label}>{match[1].trim()}</b><span>{match[2].trim()}</span></> : part}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -815,6 +844,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
   const [requirementFilter, setRequirementFilter] = useState("all");
+  const [sortMode, setSortMode] = useState("default");
 
   const docsByUniversity = useMemo(() => {
     const map = new Map();
@@ -853,6 +883,31 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       return true;
     });
   }, [evaluatedRows, query, statusFilter, regionFilter, requirementFilter]);
+
+  const displayRows = useMemo(() => {
+    const rows = filteredRows.slice();
+    if (sortMode === "name") {
+      rows.sort((a, b) => (
+        String(a.university || "").localeCompare(String(b.university || ""), "ko")
+        || String(a.department || a.track || "").localeCompare(String(b.department || b.track || ""), "ko")
+        || Number(a._index) - Number(b._index)
+      ));
+    } else if (sortMode === "region") {
+      const regionRank = value => {
+        const region = String(value || "미지정");
+        if (region === "미지정") return 999;
+        const index = ADMISSION_REGIONS.indexOf(region);
+        return index >= 0 ? index : 900;
+      };
+      rows.sort((a, b) => (
+        regionRank(a.region) - regionRank(b.region)
+        || String(a.region || "미지정").localeCompare(String(b.region || "미지정"), "ko")
+        || String(a.university || "").localeCompare(String(b.university || ""), "ko")
+        || Number(a._index) - Number(b._index)
+      ));
+    }
+    return rows;
+  }, [filteredRows, sortMode]);
 
   const regionOptions = useMemo(() => Array.from(new Set([
     ...evaluatedRows.map(row => row.region || "미지정"),
@@ -921,6 +976,11 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
               <option value="all">전체 지역</option>
               {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
             </select>
+            <select value={sortMode} onChange={event => setSortMode(event.target.value)} style={{ ...selectStyle, minWidth: 112 }} aria-label="대학 정렬">
+              <option value="default">기본 순서</option>
+              <option value="name">대학명순</option>
+              <option value="region">지역순</option>
+            </select>
             <div style={admissionToolbar.filterGroup}>
               {[
                 ["all", "전체"],
@@ -955,21 +1015,22 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
 
         {!admissionRows.length ? (
           <EmptyBox text="관리자가 대학별 입시전형표를 아직 등록하지 않았습니다." />
-        ) : !filteredRows.length ? (
+        ) : !displayRows.length ? (
           <div style={chartEmpty}>검색 조건에 맞는 전형이 없습니다.</div>
         ) : (
           <div style={{ ...table.scroll, overflowX: "visible" }}>
             <table style={admissionTable.base}>
               <colgroup>
-                <col style={{ width: "11.5%" }} />
-                <col style={{ width: "6%" }} />
+                <col style={{ width: "10.5%" }} />
+                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "7.5%" }} />
+                <col style={{ width: "8.5%" }} />
+                <col style={{ width: "24%" }} />
+                <col style={{ width: "7.5%" }} />
+                <col style={{ width: "10.5%" }} />
+                <col style={{ width: "6.5%" }} />
                 <col style={{ width: "8%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "20.5%" }} />
-                <col style={{ width: "18%" }} />
-                <col style={{ width: "7%" }} />
-                <col style={{ width: "10%" }} />
-                <col style={{ width: "9%" }} />
+                <col style={{ width: "10.5%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -979,44 +1040,53 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   <th style={admissionTable.th}>교과 반영비율<br />반영방법</th>
                   <th style={admissionTable.th}>전형 특이사항</th>
                   <th style={admissionTable.th}>수능 최저</th>
+                  <th style={admissionTable.th}>（반영과목）</th>
                   <th style={admissionTable.th}>내 등급</th>
                   <th style={admissionTable.th}>판정</th>
                   <th style={admissionTable.th}>모집요강</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map(row => {
+                {displayRows.map(row => {
                   const result = row.evaluation;
                   const statusMeta = admissionStatusMeta(result.status);
                   const detailParts = [row.department, row.track].filter(Boolean);
                   const detail = detailParts.length ? detailParts.join(" · ") : "전체 모집단위";
                   const reflection = admissionReflectionText(row);
                   const specialNote = admissionSpecialNote(row, reflection);
+                  const subjectRuleText = admissionSubjectRuleText(row.requiredSubjects);
                   const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
-                      <td style={admissionTable.td}><span style={regionBadge}><MapPin size={10} />{row.region || "미지정"}</span></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}>
+                        <span style={regionBadge}>
+                          {(row.region || "미지정") !== "미지정" && <MapPin size={9} />}
+                          {row.region || "미지정"}
+                        </span>
+                      </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.department }}>
                         <div style={admissionTable.primaryText}>{detail}</div>
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.reflectionCell }}>
                         {reflection ? <span style={reflectionBadge}>{reflection}</span> : <span style={admissionTable.empty}>-</span>}
                       </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.text }}>
-                        {specialNote ? <div style={admissionTable.secondaryText}>{specialNote}</div> : <span style={admissionTable.empty}>-</span>}
+                      <td style={{ ...admissionTable.td, ...admissionTable.text, ...admissionTable.noteCell }}>
+                        {specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}
                       </td>
                       <td style={admissionTable.td}>
                         {result.status === "no-minimum" ? (
                           <span style={noMinimumBadge}>최저 없음</span>
                         ) : hasMinimum ? (
-                          <div>
-                            <span style={minimumBadge}>{result.count}합 {result.threshold}</span>
-                            <AdmissionSubjectRule value={row.requiredSubjects} />
-                          </div>
+                          <span style={minimumBadge}>{result.count}합 {result.threshold}</span>
                         ) : (
                           <span style={admissionTable.empty}>요강 확인</span>
                         )}
+                      </td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.subjectCell }}>
+                        {result.status === "no-minimum" || !subjectRuleText
+                          ? <span style={admissionTable.empty}>-</span>
+                          : <AdmissionSubjectRule value={row.requiredSubjects} />}
                       </td>
                       <td style={admissionTable.td}>
                         {result.studentSum == null
@@ -2675,15 +2745,15 @@ const admissionTable = {
     width: "100%",
     borderCollapse: "collapse",
     tableLayout: "fixed",
-    fontSize: 9.7,
+    fontSize: 9.4,
   },
   th: {
     border: "1px solid #e6e1d3",
-    padding: "5px 3px",
+    padding: "6px 3px",
     background: "#f6f4ee",
     color: "#332e27",
     fontWeight: 900,
-    fontSize: 9.3,
+    fontSize: 9.1,
     lineHeight: 1.25,
     textAlign: "center",
     whiteSpace: "normal",
@@ -2691,7 +2761,7 @@ const admissionTable = {
   },
   td: {
     border: "1px solid #e6e1d3",
-    padding: "5px 4px",
+    padding: "6px 4px",
     textAlign: "center",
     verticalAlign: "middle",
     whiteSpace: "normal",
@@ -2706,8 +2776,11 @@ const admissionTable = {
     color: "#2b2620",
   },
   text: { textAlign: "left", verticalAlign: "top" },
+  regionCell: { padding: "8px 4px", overflow: "visible" },
   department: { textAlign: "center", verticalAlign: "middle", paddingLeft: 4, paddingRight: 4 },
-  reflectionCell: { textAlign: "center", verticalAlign: "middle", padding: "7px 5px" },
+  reflectionCell: { textAlign: "center", verticalAlign: "middle", padding: "7px 4px" },
+  noteCell: { padding: "7px 6px", background: "#fffefa" },
+  subjectCell: { padding: "6px 3px", verticalAlign: "middle" },
   statusCell: { padding: "8px 8px" },
   primaryText: { fontWeight: 900, color: "#2b2620", lineHeight: 1.3, textAlign: "center" },
   secondaryText: { color: "#716b5f", fontSize: 9.7, lineHeight: 1.45 },
@@ -2729,12 +2802,40 @@ const reflectionBadge = {
   whiteSpace: "normal",
   wordBreak: "keep-all",
 };
+const specialNoteStyle = {
+  box: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    padding: "5px 6px",
+    borderRadius: 7,
+    background: "#faf8f2",
+    borderLeft: "3px solid #cdbf9f",
+    color: "#514b42",
+    fontSize: 9.5,
+    lineHeight: 1.5,
+    wordBreak: "keep-all",
+    overflowWrap: "anywhere",
+  },
+  row: { display: "grid", gridTemplateColumns: "7px minmax(0, 1fr)", gap: 2, alignItems: "start" },
+  bullet: { color: "#9a7b44", fontWeight: 900, lineHeight: 1.45 },
+  label: { color: "#332e27", marginRight: 4, fontWeight: 900 },
+};
 const subjectRule = {
-  box: { marginTop: 5, display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 4, flexWrap: "wrap" },
-  label: { color: "#8d8577", fontSize: 8.3, fontWeight: 900, lineHeight: "18px" },
-  chips: { display: "flex", justifyContent: "center", gap: 3, flexWrap: "wrap", maxWidth: "100%" },
-  chip: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 18, padding: "2px 5px", borderRadius: 6, background: "#f4f6f8", border: "1px solid #dce1e5", color: "#43505a", fontSize: 8.5, fontWeight: 850, lineHeight: 1.2, whiteSpace: "normal", wordBreak: "keep-all" },
-  choiceChip: { background: "#eef6f7", borderColor: "#cfe1e3", color: "#2e6267" },
+  text: {
+    display: "inline-block",
+    maxWidth: "100%",
+    padding: "4px 6px",
+    borderRadius: 7,
+    background: "#f2f6f7",
+    border: "1px solid #d6e1e3",
+    color: "#36575b",
+    fontSize: 8.8,
+    fontWeight: 900,
+    lineHeight: 1.25,
+    whiteSpace: "nowrap",
+    letterSpacing: "-0.15px",
+  },
 };
 
 const minimumBadge = {
@@ -2781,14 +2882,18 @@ const studentSumBadge = {
 const regionBadge = {
   display: "inline-flex",
   alignItems: "center",
-  gap: 3,
+  justifyContent: "center",
+  gap: 2,
+  maxWidth: "100%",
+  boxSizing: "border-box",
   borderRadius: 999,
-  padding: "3px 7px",
+  padding: "3px 5px",
   background: "#f0f5ee",
   border: "1px solid #d1dfcd",
   color: "#3d5c3a",
-  fontSize: 10.2,
-  fontWeight: 800,
+  fontSize: 9,
+  fontWeight: 850,
+  lineHeight: 1.15,
   whiteSpace: "nowrap",
 };
 const pdfLinkStyle = {
