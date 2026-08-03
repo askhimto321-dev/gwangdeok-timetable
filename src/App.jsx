@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send } from "lucide-react";
+import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
 import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
 
@@ -10,7 +10,7 @@ const PERIODS = [1, 2, 3, 4, 5, 6, 7];
 const PERIOD_TIME = { 1: "08:40", 2: "09:40", 3: "10:40", 4: "11:40", 5: "13:30", 6: "14:30", 7: "15:30" };
 const FIXED_LABELS = { "자율": "자율학습", "진로": "진로활동" };
 const GRADES = ["1", "2", "3"];
-const DISABLED_GRADES = ["1"];
+const DISABLED_GRADES = [];
 const RESET_PASSWORD = "kd2026";
 const DEFAULT_ADMIN = { id: "admin", pw: "kd2026" };
 const SITE_TITLE = "광덕고 성적/시간표";
@@ -121,6 +121,9 @@ function extractElectiveGroups(db, scopeKey, subject) {
 function targetKeyFor(kind, subject, target) {
   return kind === "common" ? `COMMON_${subject}_${target}` : `${subject}_${target}`;
 }
+function subjectKeyFor(subject) {
+  return `SUBJECT_${String(subject || "").trim()}`;
+}
 function homeroomKeyFor(classNum) {
   return `HOMEROOM_${classNum}`;
 }
@@ -179,6 +182,7 @@ function describeNoticeTarget(targetKey, storedLabel = "") {
   const key = String(targetKey || "");
   if (key.startsWith("HOMEROOM_")) return `${key.replace("HOMEROOM_", "")}반 학급`;
   if (key.startsWith("STUDENT_")) return `학생 ${key.replace("STUDENT_", "")}`;
+  if (key.startsWith("SUBJECT_")) return `${key.replace("SUBJECT_", "")} 전체 수강생`;
   if (key.startsWith("COMMON_")) {
     const body = key.replace("COMMON_", "");
     const lastUnderscore = body.lastIndexOf("_");
@@ -679,6 +683,7 @@ export default function App() {
     if (patch.mockData) jobs.push(writeStorage("kd_grades_mocks", patch.mockData));
     if (patch.admissionRows) jobs.push(writeStorage("kd_grades_admission", patch.admissionRows));
     if (patch.admissionDocs) jobs.push(writeStorage("kd_grades_admission_docs", patch.admissionDocs));
+    if (patch.cohortSettings) jobs.push(writeStorage("kd_grades_cohorts", patch.cohortSettings));
     const results = await Promise.all(jobs);
     if (results.some(r => r && r.ok === false)) { showToast("저장에 실패했습니다.", "error"); return false; }
     setGdb(d => ({ ...d, ...patch }));
@@ -781,31 +786,31 @@ export default function App() {
     const warnings = [];
     const notices = [];
     const classroomCourseMap = new Map();
-    const registerClassroomCourse = (key, subject, label, kind) => {
+    const registerClassroomCourse = (key, subject, label, kind, compatibleKeys = []) => {
       if (!key || classroomCourseMap.has(key)) return;
-      const noticePosts = asNoticeArray(announcements[key]).map(item => ({
+      const sourceKeys = Array.from(new Set([key, ...compatibleKeys].filter(Boolean)));
+      const noticePosts = sourceKeys.flatMap(sourceKey => asNoticeArray(announcements[sourceKey])).map(item => ({
         ...item,
         title: item.title || (item.category === "수업자료" ? "수업자료" : item.category || "공지"),
         sourceType: "notice",
       }));
       const noticeMaterialIds = new Set(noticePosts.map(item => item.materialId).filter(Boolean));
-      const legacyMaterialPosts = asMaterialArray(materials[key])
+      const legacyMaterialPosts = sourceKeys.flatMap(sourceKey => asMaterialArray(materials[sourceKey]))
         .filter(item => !noticeMaterialIds.has(item.id))
-        .map(item => ({
-          ...item,
-          category: "수업자료",
-          sourceType: "legacy-material",
-        }));
+        .map(item => ({ ...item, category: "수업자료", sourceType: "legacy-material" }));
+      const seen = new Set();
       const posts = [...noticePosts, ...legacyMaterialPosts]
+        .filter(item => { const token = item.id || `${item.title}-${item.updatedAt}`; if (seen.has(token)) return false; seen.add(token); return true; })
         .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
       classroomCourseMap.set(key, { key, subject, label, kind, posts });
     };
 
     (enrollments[sid] || []).forEach(course => {
       const ab = rev[course.subject];
-      const noticeKey = targetKeyFor("elective", course.subject, course.group);
-      registerClassroomCourse(noticeKey, course.subject, `${course.subject} · ${course.group}그룹`, "elective");
-      asNoticeArray(announcements[noticeKey]).forEach(n => notices.push({ subject: course.subject, group: `${course.group}그룹`, ...n }));
+      const legacyNoticeKey = targetKeyFor("elective", course.subject, course.group);
+      const noticeKey = subjectKeyFor(course.subject);
+      registerClassroomCourse(noticeKey, course.subject, course.subject, "elective", [legacyNoticeKey]);
+      [...asNoticeArray(announcements[noticeKey]), ...asNoticeArray(announcements[legacyNoticeKey])].forEach(n => notices.push({ subject: course.subject, group: "전체 수강생", ...n }));
       if (!ab) { warnings.push(`"${course.subject}" 과목의 약어 매핑이 없습니다.`); return; }
       const hostTT = timetables[String(course.hostClass)];
       if (!hostTT) { warnings.push(`"${course.subject}"이 개설되는 ${roomLabel(course.hostClass)} 시간표가 없습니다.`); return; }
@@ -822,11 +827,12 @@ export default function App() {
     const seenCommon = new Set();
     DAYS.forEach(day => grid[day].forEach(c => {
       if (!c || c.type !== "fixed" || IGNORED_COMMON_LABELS.has(c.subject)) return;
-      const key = targetKeyFor("common", c.subject, info.class);
+      const legacyKey = targetKeyFor("common", c.subject, info.class);
+      const key = subjectKeyFor(c.subject);
       if (seenCommon.has(key)) return;
       seenCommon.add(key);
-      registerClassroomCourse(key, c.subject, c.subject, "common");
-      asNoticeArray(announcements[key]).forEach(n => notices.push({ subject: c.subject, group: `${info.class}반`, ...n }));
+      registerClassroomCourse(key, c.subject, c.subject, "common", [legacyKey]);
+      [...asNoticeArray(announcements[key]), ...asNoticeArray(announcements[legacyKey])].forEach(n => notices.push({ subject: c.subject, group: "전체 수강생", ...n }));
     }));
     const personalNotices = asNoticeArray(announcements[`STUDENT_${sid}`]).map(n => ({ ...n, origin: "personal" }));
     const homeroomOnly = asNoticeArray(announcements[homeroomKeyFor(info.class)]).map(n => ({ ...n, origin: "homeroom" }));
@@ -840,7 +846,7 @@ export default function App() {
   const anyLoggedIn = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor || classAuthed || loggedInStudent);
   const canViewStudentTimetableTools = !!(loggedInAdmin || classAuthed || loggedInMonitor || (loggedInTeacher && teacherCanViewTimetable) || (loggedInDepartment && departmentCanViewTimetable));
   const feedbackReporter = loggedInAdmin
-    ? { role: "관리자", id: loggedInAdmin.id, name: loggedInAdmin.id }
+    ? { role: "관리자", id: "", name: "관리자" }
     : loggedInTeacher
       ? { role: "선생님", id: loggedInTeacher.id, name: loggedInTeacher.name }
       : loggedInDepartment
@@ -1246,8 +1252,8 @@ function MegaNav({ active, onSwitch, onLogout, showAdmin }) {
     <div className="no-print" style={megaNavStyles.wrap}>
       <div style={megaNavStyles.inner}>
         <div style={megaNavStyles.brand}>
-          <div style={styles.brandMark}>移</div>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>광덕고 성적/시간표</span>
+          <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#315b38,#6f8e62)", boxShadow: "0 6px 14px rgba(49,91,56,0.22)" }}><Sparkles size={17} /></span>
+          <span style={{ fontWeight: 900, fontSize: 14.5 }}>광덕고 성적/시간표</span>
         </div>
         <div style={megaNavStyles.tabs}>
           {items.map(it => (
@@ -1266,12 +1272,12 @@ function MegaNav({ active, onSwitch, onLogout, showAdmin }) {
   );
 }
 const megaNavStyles = {
-  wrap: { background: "#fff", borderBottom: `1px solid ${COLORS.line}` },
-  inner: { maxWidth: 1040, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", gap: 24, flexWrap: "wrap" },
-  brand: { display: "flex", alignItems: "center", gap: 8, marginRight: 8 },
-  tabs: { display: "flex", gap: 4, flex: 1 },
-  tab: { border: "none", background: "transparent", padding: "10px 18px", borderRadius: 8, fontSize: 14.5, fontWeight: 700, color: "#a39d8c", cursor: "pointer", transition: "background 0.15s, color 0.15s" },
-  tabActive: { color: COLORS.ink, background: COLORS.accentSoft },
+  wrap: { position: "sticky", top: 0, zIndex: 40, background: "rgba(255,255,255,0.92)", backdropFilter: "blur(16px)", borderBottom: "1px solid rgba(222,217,205,0.85)", boxShadow: "0 8px 26px rgba(53,67,52,0.06)" },
+  inner: { maxWidth: 1120, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" },
+  brand: { display: "flex", alignItems: "center", gap: 10, marginRight: 8, fontWeight: 900, letterSpacing: "-0.3px" },
+  tabs: { display: "flex", gap: 6, flex: 1, alignItems: "center" },
+  tab: { border: "1px solid transparent", background: "transparent", padding: "9px 16px", borderRadius: 999, fontSize: 13.5, fontWeight: 850, color: "#817a6e", cursor: "pointer", transition: "all 0.16s ease" },
+  tabActive: { color: "#26482b", background: "linear-gradient(135deg,#edf5eb,#f5f8f2)", borderColor: "#d7e5d4", boxShadow: "0 4px 12px rgba(61,92,58,0.10)" },
 };
 
 function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections, canViewStudentTools = true, allowedGrades = null }) {
@@ -1279,9 +1285,9 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onB
     <div style={styles.topbar} className="no-print">
       <div style={styles.topbarRow}>
         <div style={styles.brand}>
-          <div style={styles.brandMark}>移</div>
+          <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#315b38,#6f8e62)", boxShadow: "0 6px 14px rgba(49,91,56,0.20)" }}><Sparkles size={17} /></span>
           <div>
-            <div style={styles.brandTitle}>{SITE_TITLE} <span style={styles.betaBadge}>Beta</span></div>
+            <div style={{ ...styles.brandTitle, fontWeight: 900 }}>{SITE_TITLE}</div>
             <div style={styles.brandSub}>{meta?.updatedAt ? `최근 업데이트 · ${new Date(meta.updatedAt).toLocaleString("ko-KR")}` : "데이터 없음"}</div>
           </div>
         </div>
@@ -1488,22 +1494,18 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   const flatTargets = useMemo(() => {
     const out = [];
     if (teacher.homeroomClass) out.push({ kind: "homeroom", target: teacher.homeroomClass, label: `${teacher.homeroomClass}반`, categories: HOMEROOM_CATEGORIES });
+    const subjects = new Map();
     (teacher.assignments || []).forEach(assignment => {
-      (assignment.targets || "").split(",").map(value => value.trim()).filter(Boolean).forEach(target => {
-        out.push({
-          kind: assignment.kind,
-          subject: assignment.subject,
-          target,
-          label: assignment.kind === "common" ? `${assignment.subject} — ${target}반` : `${assignment.subject} — ${target}그룹`,
-          categories: NOTICE_CATEGORIES,
-        });
-      });
+      const subject = String(assignment.subject || "").trim();
+      if (!subject) return;
+      if (!subjects.has(subject)) subjects.set(subject, { kind: "subject", subject, target: "ALL", label: `${subject} 전체 수강생`, categories: NOTICE_CATEGORIES });
     });
+    out.push(...Array.from(subjects.values()).sort((a, b) => a.subject.localeCompare(b.subject, "ko")));
     return out;
   }, [teacher]);
 
   const homeroomTargets = flatTargets.filter(target => target.kind === "homeroom");
-  const subjectTargets = flatTargets.filter(target => target.kind !== "homeroom");
+  const subjectTargets = flatTargets.filter(target => target.kind === "subject");
   const initialMode = homeroomTargets.length ? "homeroom" : subjectTargets.length ? "subject" : "manage";
   const [zoneMode, setZoneMode] = useState(initialMode);
   const [selectedTargetToken, setSelectedTargetToken] = useState("");
@@ -1524,7 +1526,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
 
   const sel = activeTargets.find(target => targetTokenFor(target) === selectedTargetToken) || activeTargets[0] || null;
   const categories = sel?.categories || NOTICE_CATEGORIES;
-  const targetKey = sel ? (sel.kind === "homeroom" ? homeroomKeyFor(sel.target) : targetKeyFor(sel.kind, sel.subject, sel.target)) : null;
+  const targetKey = sel ? (sel.kind === "homeroom" ? homeroomKeyFor(sel.target) : subjectKeyFor(sel.subject)) : null;
   const currentNotices = targetKey ? asNoticeArray((db.announcements[scopeKey] || {})[targetKey]) : [];
   const currentLegacyMaterials = targetKey ? asMaterialArray((db.materials?.[scopeKey] || {})[targetKey]) : [];
 
@@ -1533,12 +1535,13 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   const [text, setText] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [noticeFiles, setNoticeFiles] = useState([]);
+  const [noticeLinks, setNoticeLinks] = useState("");
   const [saving, setSaving] = useState(false);
   const noticeFileRef = useRef(null);
 
   useEffect(() => {
     setCategory(categories[0] || "공지");
-    setTitle(""); setText(""); setDueDate(""); setNoticeFiles([]);
+    setTitle(""); setText(""); setDueDate(""); setNoticeFiles([]); setNoticeLinks("");
     if (noticeFileRef.current) noticeFileRef.current.value = "";
   }, [targetKey]); // eslint-disable-line
 
@@ -1588,7 +1591,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
 
   const addNotice = async () => {
     if (!targetKey || !sel) { showToast("학급 또는 과목을 먼저 선택해주세요.", "error"); return; }
-    if (!title.trim() && !text.trim() && !noticeFiles.length) { showToast("제목·내용을 입력하거나 파일을 첨부해주세요.", "error"); return; }
+    if (!title.trim() && !text.trim() && !noticeFiles.length && !noticeLinks.trim()) { showToast("제목·내용을 입력하거나 파일 또는 링크를 첨부해주세요.", "error"); return; }
     setSaving(true);
     const uploaded = [];
     try {
@@ -1600,6 +1603,12 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
           teacherName: teacher.name,
         }));
       }
+      const linkAttachments = noticeLinks.split(/\n+/).map(value => value.trim()).filter(Boolean).map((value, index) => {
+        const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+        let fileName = `링크 ${index + 1}`;
+        try { fileName = new URL(normalized).hostname.replace(/^www\./, "") || fileName; } catch {}
+        return { url: normalized, fileName, size: 0, contentType: "text/uri-list", isLink: true };
+      });
       const now = new Date().toISOString();
       const entry = {
         id: Date.now() + "_" + Math.random().toString(36).slice(2, 8),
@@ -1607,7 +1616,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
         title: title.trim(),
         text: text.trim(),
         dueDate: dueDate || null,
-        attachments: uploaded,
+        attachments: [...uploaded, ...linkAttachments],
         teacherId: teacher.id || "",
         teacherName: teacher.name,
         targetKey,
@@ -1626,7 +1635,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
         return;
       }
       showToast(uploaded.length ? "공지와 첨부파일을 등록했습니다." : "공지를 등록했습니다.", "success");
-      setTitle(""); setText(""); setDueDate(""); setNoticeFiles([]);
+      setTitle(""); setText(""); setDueDate(""); setNoticeFiles([]); setNoticeLinks("");
       if (noticeFileRef.current) noticeFileRef.current.value = "";
     } catch (error) {
       await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path)));
@@ -1700,13 +1709,13 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
       <div style={styles.teacherZoneNav}>
         <div style={styles.teacherZoneModeRow}>
           {homeroomTargets.length > 0 && modeButton("homeroom", "학급담임 공지", homeroomTargets.length)}
-          {subjectTargets.length > 0 && modeButton("subject", "교과담임 공지", subjectTargets.length)}
+          {subjectTargets.length > 0 && modeButton("subject", "교과 전체 공지", subjectTargets.length)}
           {modeButton("personal", "학생 개별 공지", null)}
           {modeButton("manage", "내 공지 관리", authoredNotices.length)}
         </div>
         {(zoneMode === "homeroom" || zoneMode === "subject") && (
           <div className="teacher-zone-target-row" style={styles.teacherTargetRow}>
-            <span style={styles.teacherTargetLabel}>{zoneMode === "homeroom" ? "담임 학급" : "담당 과목·반"}</span>
+            <span style={styles.teacherTargetLabel}>{zoneMode === "homeroom" ? "담임 학급" : "담당 과목"}</span>
             <div style={styles.classChips}>
               {activeTargets.map(target => {
                 const token = targetTokenFor(target);
@@ -1718,7 +1727,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
       </div>
 
       {!flatTargets.length && zoneMode !== "personal" && zoneMode !== "manage" && (
-        <div style={styles.warnBanner}><AlertTriangle size={14} /> 담당 반/과목이 등록되어 있지 않습니다. "내 정보 수정"에서 직접 설정해주세요.</div>
+        <div style={styles.warnBanner}><AlertTriangle size={14} /> 담당 학급/과목이 등록되어 있지 않습니다. "내 정보 수정"에서 직접 설정해주세요.</div>
       )}
 
       {(zoneMode === "homeroom" || zoneMode === "subject") && sel && (
@@ -1740,7 +1749,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
               </label>
               <div style={styles.noticeOptionField}>
                 <span>첨부파일 (선택)</span>
-                <input ref={noticeFileRef} type="file" multiple style={{ display: "none" }} onChange={event => setNoticeFiles(Array.from(event.target.files || []))} />
+                <input ref={noticeFileRef} type="file" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,image/*,video/*,audio/*" style={{ display: "none" }} onChange={event => setNoticeFiles(Array.from(event.target.files || []))} />
                 <button type="button" style={styles.secondaryBtn} onClick={() => noticeFileRef.current?.click()}><Paperclip size={14} /> 파일 선택</button>
               </div>
             </div>
@@ -1750,6 +1759,10 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
                 <button type="button" style={styles.iconBtn} onClick={() => { setNoticeFiles([]); if (noticeFileRef.current) noticeFileRef.current.value = ""; }}><X size={14} /></button>
               </div>
             )}
+            <label style={{ ...styles.noticeOptionField, marginTop: 9 }}>
+              <span><Link2 size={12} /> 링크 첨부 (선택 · 한 줄에 하나)</span>
+              <textarea value={noticeLinks} onChange={event => setNoticeLinks(event.target.value)} rows={2} style={{ ...styles.textareaInput, minHeight: 54 }} placeholder="Google Drive, YouTube, 학습자료 링크 등을 붙여넣으세요." />
+            </label>
             <button style={{ ...styles.primaryBtn, marginTop: 12 }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 게시글 등록</button>
 
             <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${COLORS.line}` }}>
@@ -1777,15 +1790,6 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
             </div>
           </div>
 
-          {zoneMode === "subject" && (
-            <div style={{ ...styles.card, marginTop: 14 }}>
-              <MonitorManager
-                targetKey={targetKey} subject={sel.subject} group={sel.target} label={sel.label}
-                roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts}
-                showToast={showToast} teacherName={teacher.name}
-              />
-            </div>
-          )}
         </>
       )}
 
@@ -2141,8 +2145,8 @@ function AttachmentLinks({ attachments }) {
     <div style={styles.attachmentList}>
       {files.map((file, index) => (
         <a key={`${file.path || file.url || file.fileName}-${index}`} href={file.url} target="_blank" rel="noreferrer" style={styles.attachmentLink} title={file.fileName || "첨부파일"}>
-          <Download size={12} />
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.fileName || "첨부파일"}</span>
+          <>{file.isLink ? <Link2 size={12} /> : <Download size={12} />}</>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.fileName || (file.isLink ? "링크" : "첨부파일")}</span>
           {file.size ? <small>{formatAttachmentSize(file.size)}</small> : null}
         </a>
       ))}
@@ -2324,8 +2328,8 @@ function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
       status: "접수",
       reporter: {
         role: reporter?.role || "이용자",
-        id: reporter?.id || "",
-        name: reporter?.name || "",
+        id: reporter?.role === "관리자" ? "" : (reporter?.id || ""),
+        name: reporter?.role === "관리자" ? "관리자" : (reporter?.name || ""),
       },
       context: {
         section: context?.section || "",
@@ -2353,7 +2357,7 @@ function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
       </button>
       {open && (
         <div className="no-print" style={styles.feedbackOverlay} onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
-          <form onSubmit={submit} style={styles.feedbackModal}>
+          <form onSubmit={submit} autoComplete="off" style={styles.feedbackModal}>
             <div style={styles.feedbackModalHeader}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 950 }}>건의사항·버그 제보</div>
@@ -2368,16 +2372,16 @@ function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
             </div>
             <label style={styles.feedbackField}>
               <span>제목</span>
-              <input value={title} onChange={event => setTitle(event.target.value)} maxLength={80} placeholder="예: 학생 시간표가 열리지 않습니다." style={styles.loginInput} />
+              <input name="feedback_title_text" autoComplete="new-password" data-lpignore="true" value={title} onChange={event => setTitle(event.target.value)} maxLength={80} placeholder="예: 학생 시간표가 열리지 않습니다." style={styles.loginInput} />
             </label>
             <label style={styles.feedbackField}>
               <span>내용</span>
-              <textarea value={text} onChange={event => setText(event.target.value)} rows={7} maxLength={2000} placeholder="발생한 화면, 상황, 기대한 동작을 구체적으로 적어주세요." style={styles.textareaInput} />
+              <textarea name="feedback_body_text" autoComplete="new-password" data-lpignore="true" value={text} onChange={event => setText(event.target.value)} rows={7} maxLength={2000} placeholder="발생한 화면, 상황, 기대한 동작을 구체적으로 적어주세요." style={styles.textareaInput} />
             </label>
             <div style={styles.feedbackReporterInfo}>
               <span>{reporter?.role || "이용자"}</span>
               <strong>{reporter?.name || reporter?.id || "이름 미확인"}</strong>
-              {reporter?.id && <small>{reporter.id}</small>}
+              {reporter?.id && reporter?.role !== "관리자" && <small>{reporter.id}</small>}
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 13 }}>
               <button type="button" style={styles.secondaryBtn} onClick={close}>취소</button>
@@ -2432,7 +2436,7 @@ function FeedbackAdminPanel({ feedback, persist, showToast }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {rows.map(item => {
-            const reporterLabel = [item.reporter?.role, item.reporter?.name, item.reporter?.id].filter(Boolean).join(" · ");
+            const reporterLabel = [item.reporter?.role, item.reporter?.name, item.reporter?.role === "관리자" ? null : item.reporter?.id].filter(Boolean).join(" · ");
             const contextLabel = [
               item.context?.grade ? `${item.context.grade}학년` : null,
               item.context?.semester === "sem2" ? "2학기" : item.context?.semester === "sem1" ? "1학기" : null,

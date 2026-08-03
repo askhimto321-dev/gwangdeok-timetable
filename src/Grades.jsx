@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer } from "lucide-react";
+import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap } from "lucide-react";
 import { readStorage, uploadAdmissionPdf, deleteAdmissionPdf } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import {
@@ -118,6 +118,39 @@ function getAcademicYear() {
   return now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear();
 }
 const CURRENT_ACADEMIC_YEAR = getAcademicYear();
+const DEFAULT_COHORT_SETTINGS = {
+  academicYear: CURRENT_ACADEMIC_YEAR,
+  cohorts: [
+    { entryYear: CURRENT_ACADEMIC_YEAR - 2, currentGrade: 3, status: "재학" },
+    { entryYear: CURRENT_ACADEMIC_YEAR - 1, currentGrade: 2, status: "재학" },
+    { entryYear: CURRENT_ACADEMIC_YEAR, currentGrade: 1, status: "재학" },
+  ],
+};
+function normalizeCohortSettings(value) {
+  const academicYear = Number(value?.academicYear) || CURRENT_ACADEMIC_YEAR;
+  const rows = Array.isArray(value?.cohorts) ? value.cohorts : DEFAULT_COHORT_SETTINGS.cohorts;
+  const cohorts = rows.map(row => ({
+    entryYear: Number(row?.entryYear),
+    currentGrade: Number(row?.currentGrade) || null,
+    status: row?.status || (Number(row?.currentGrade) ? "재학" : "졸업"),
+  })).filter(row => Number.isFinite(row.entryYear));
+  return { academicYear, cohorts: cohorts.length ? cohorts : DEFAULT_COHORT_SETTINGS.cohorts };
+}
+function cohortDataKey(entryYear, key) { return `${Number(entryYear)}:${key}`; }
+function cohortRecord(data, entryYear, key) { return data?.[cohortDataKey(entryYear, key)] || data?.[key] || null; }
+function inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord, cohortSettings }) {
+  const direct = asNumber(studentInfo?.entryYear ?? metaRecord?.entryYear ?? latestSemesterRecord?.entryYear);
+  if (direct) return direct;
+  const grade = asNumber(studentInfo?.grade) ?? asNumber(String(sid || "").charAt(0)) ?? asNumber(latestSemesterRecord?.grade ?? metaRecord?.grade) ?? 1;
+  const settings = normalizeCohortSettings(cohortSettings);
+  const mapped = settings.cohorts.find(item => Number(item.currentGrade) === Number(grade) && item.status !== "졸업");
+  return mapped?.entryYear || settings.academicYear - grade + 1;
+}
+function entryYearForGrade(cohortSettings, grade) {
+  const settings = normalizeCohortSettings(cohortSettings);
+  return settings.cohorts.find(item => Number(item.currentGrade) === Number(grade) && item.status !== "졸업")?.entryYear || settings.academicYear - Number(grade) + 1;
+}
+
 
 function asNumber(value) {
   if (value === null || value === undefined || value === "") return null;
@@ -205,14 +238,15 @@ function inferRegionFromFileName(fileName, knownRegion = "") {
 }
 
 export async function loadGradesDB() {
-  const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts] = await Promise.all([
+  const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings] = await Promise.all([
     readStorage("kd_grades_semesters", {}),
     readStorage("kd_grades_mocks", {}),
     readStorage("kd_grades_admission", []),
     readStorage("kd_grades_admission_docs", []),
     readStorage("kd_grades_students_meta", {}),
+    readStorage("kd_grades_cohorts", DEFAULT_COHORT_SETTINGS),
   ]);
-  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts };
+  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings) };
 }
 
 export default function GradesSection({
@@ -270,6 +304,7 @@ export default function GradesSection({
           {loggedInStudent && <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="성적 조회" />}
           {loggedInStudent && <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학별 입시전형 확인" />}
           {loggedInTeacher && teacherHasGradeAccess && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label={`${currentGrade}학년 학생 성적 조회`} />}
+          {loggedInTeacher && teacherHasGradeAccess && <TabBtn active={tab === "mockAnalysis"} onClick={() => setTab("mockAnalysis")} label="모의고사 성적 분석" />}
           {loggedInTeacher && loggedInTeacher.homeroomClass && teacherHasGradeAccess && <TabBtn active={tab === "class"} onClick={() => setTab("class")} label="담임반 학생 계정" />}
           {loggedInAdmin && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label="학생 성적 조회" />}
           {loggedInAdmin && <TabBtn active={tab === "lookupAdmission"} onClick={() => setTab("lookupAdmission")} label="학생별 입시전형 확인" />}
@@ -308,6 +343,9 @@ export default function GradesSection({
             showViewTabs={false}
           />
         )}
+        {tab === "mockAnalysis" && loggedInTeacher && teacherHasGradeAccess && (
+          <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
+        )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
         )}
@@ -323,14 +361,81 @@ function TabBtn({ active, onClick, label }) {
 /* ============================================================
    학생: 내 성적 상담 화면 (구글시트 "성적(상담용, 등급변환)" 재현)
    ============================================================ */
-function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
-  const { semesterData, mockData, admissionRows, studentAccounts } = gdb;
 
-  const semesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
-  const latestSemesterRecord = semesterRecords.slice().reverse().find(Boolean) || null;
+function mockStudentName(sid, roster, gdb, entryYear) {
+  const rosterInfo = roster?.[sid];
+  if (rosterInfo?.name) return rosterInfo.name;
+  for (const key of SEMESTER_KEYS.slice().reverse()) {
+    const record = cohortRecord(gdb.semesterData, entryYear, key)?.students?.[sid];
+    if (record?.name) return record.name;
+  }
+  return "";
+}
+function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
+  const entryYear = entryYearForGrade(gdb.cohortSettings, currentGrade);
+  const available = MOCK_MONTH_KEYS.filter(key => Number(key.split("-")[0]) === Number(currentGrade) && cohortRecord(gdb.mockData, entryYear, key)?.students);
+  const [mockKey, setMockKey] = useState(available[available.length - 1] || "");
+  const [classFilter, setClassFilter] = useState("all");
+  const [subjectFilter, setSubjectFilter] = useState("전체");
+  const [gradeFilter, setGradeFilter] = useState("all");
+  useEffect(() => { if (available.length && !available.includes(mockKey)) setMockKey(available[available.length - 1]); }, [available.join("|"), mockKey]); // eslint-disable-line
+  const studentsMap = mockKey ? cohortRecord(gdb.mockData, entryYear, mockKey)?.students || {} : {};
+  const rows = useMemo(() => Object.entries(studentsMap).map(([sid, result]) => {
+    const scores = result?._scores || {};
+    const total = Number.isFinite(Number(result?._total)) ? Number(result._total) : (Object.keys(scores).length ? Object.values(scores).reduce((sum, value) => sum + Number(value || 0), 0) : null);
+    const info = roster?.[sid] || {};
+    return { sid, name: mockStudentName(sid, roster, gdb, entryYear), classNumber: info.class || Number(String(sid).slice(1, 3)) || "", number: info.number || Number(String(sid).slice(3, 5)) || "", grades: result || {}, scores, total };
+  }).sort((a,b)=>(b.total ?? -1)-(a.total ?? -1) || a.sid.localeCompare(b.sid)), [studentsMap, roster, gdb.semesterData, entryYear]);
+  let previousTotal = null;
+  let previousRank = 0;
+  rows.forEach((row, index) => {
+    if (row.total == null) { row.rank = null; return; }
+    if (previousTotal == null || row.total !== previousTotal) previousRank = index + 1;
+    row.rank = previousRank;
+    previousTotal = row.total;
+  });
+  const classes = Array.from(new Set(rows.map(row=>String(row.classNumber)).filter(Boolean))).sort((a,b)=>Number(a)-Number(b));
+  const filtered = rows.filter(row => {
+    if (classFilter !== "all" && String(row.classNumber) !== classFilter) return false;
+    if (subjectFilter !== "전체" && gradeFilter !== "all" && Number(row.grades?.[subjectFilter]) !== Number(gradeFilter)) return false;
+    return true;
+  });
+  const gradeCounts = Object.fromEntries(MOCK_SUBJECTS.map(subject => [subject, Array.from({length:9},(_,i)=>rows.filter(row=>Number(row.grades?.[subject])===i+1).length)]));
+  const cutRows = MOCK_SUBJECTS.map(subject => ({ subject, cuts: Array.from({length:9},(_,i)=>{
+    const scores=rows.filter(row=>Number(row.grades?.[subject])===i+1).map(row=>Number(row.scores?.[subject])).filter(Number.isFinite);
+    return scores.length ? Math.min(...scores) : null;
+  }) }));
+  const avg = subject => { const values=filtered.map(row=>Number(row.scores?.[subject])).filter(Number.isFinite); return values.length ? Math.round(values.reduce((a,b)=>a+b,0)/values.length*10)/10 : null; };
+  if (!available.length) return <EmptyBox text={`${currentGrade}학년 모의고사 데이터가 없습니다. 관리자가 해당 입학연도의 모의고사 파일을 업로드하면 분석할 수 있습니다.`} />;
+  return <div>
+    <div style={{ ...card, marginTop: 0, background: "linear-gradient(135deg,#f4f8f2,#ffffff)" }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}><div><div style={{fontWeight:950,fontSize:17}}>모의고사 성적 분석</div><div style={{fontSize:11.5,color:"#7c7569",marginTop:3}}>{entryYear}년 입학생 · {currentGrade}학년 · 회차별 등급·원점수·총점 순위를 분석합니다.</div></div><BarChart3 size={24} color="#3d5c3a" /></div>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:14}}>{available.map(key=><button key={key} style={{...btn.chip,...(mockKey===key?btn.chipActive:{})}} onClick={()=>setMockKey(key)}>{MOCK_MONTH_LABELS[key]}</button>)}</div>
+    </div>
+    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:10,marginTop:12}}>
+      <div style={analysisCard}><UsersRound size={17}/><strong>{rows.length}명</strong><span>응시 인원</span></div>
+      <div style={analysisCard}><TrendingUp size={17}/><strong>{(() => { const values = filtered.map(row => row.total).filter(value => value != null); return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10 : "-"; })()}</strong><span>필터 학생 평균 총점</span></div>
+      <div style={analysisCard}><GraduationCap size={17}/><strong>{rows.find(row => row.total != null)?.total ?? "-"}</strong><span>최고 총점</span></div>
+    </div>
+    <div style={{...card,padding:14}}><div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}><select value={classFilter} onChange={e=>setClassFilter(e.target.value)} style={btn.input}><option value="all">전체 반</option>{classes.map(c=><option key={c} value={c}>{c}반</option>)}</select><select value={subjectFilter} onChange={e=>setSubjectFilter(e.target.value)} style={btn.input}><option>전체</option>{MOCK_SUBJECTS.map(s=><option key={s}>{s}</option>)}</select><select value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)} disabled={subjectFilter==="전체"} style={btn.input}><option value="all">전체 등급</option>{Array.from({length:9},(_,i)=><option key={i+1} value={i+1}>{i+1}등급</option>)}</select></div></div>
+    <div style={card}><div style={{fontWeight:900,marginBottom:10}}>과목별 평균 및 등급별 인원</div><div style={{overflowX:"auto"}}><table style={table.base}><thead><tr><th style={table.th}>과목</th><th style={table.th}>평균 원점수</th>{Array.from({length:9},(_,i)=><th key={i} style={table.th}>{i+1}등급</th>)}</tr></thead><tbody>{MOCK_SUBJECTS.map(subject=><tr key={subject}><td style={{...table.td,fontWeight:850}}>{subject}</td><td style={table.td}>{avg(subject) ?? "-"}</td>{gradeCounts[subject].map((count,i)=><td key={i} style={table.td}>{count}</td>)}</tr>)}</tbody></table></div></div>
+    <div style={card}><div style={{fontWeight:900,marginBottom:4}}>회차별 관측 등급컷</div><div style={{fontSize:11,color:"#8a8578",marginBottom:9}}>업로드된 원점수 중 해당 등급의 최저점을 표시합니다. 원점수 열이 없는 파일은 ‘-’로 표시됩니다.</div><div style={{overflowX:"auto"}}><table style={table.base}><thead><tr><th style={table.th}>과목</th>{Array.from({length:9},(_,i)=><th key={i} style={table.th}>{i+1}등급</th>)}</tr></thead><tbody>{cutRows.map(row=><tr key={row.subject}><td style={{...table.td,fontWeight:850}}>{row.subject}</td>{row.cuts.map((value,i)=><td key={i} style={table.td}>{value ?? "-"}</td>)}</tr>)}</tbody></table></div></div>
+    <div style={card}><div style={{fontWeight:900,marginBottom:10}}>학생별 총점 순위</div><div style={{maxHeight:520,overflow:"auto"}}><table style={table.base}><thead><tr><th style={table.th}>등수</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(s=><th key={s} style={table.th}>{s}</th>)}</tr></thead><tbody>{filtered.map(row=><tr key={row.sid}><td style={{...table.td,fontWeight:900}}>{row.rank ?? "-"}</td><td style={table.td}>{row.sid}</td><td style={table.td}>{row.name}</td><td style={table.td}>{row.classNumber ? `${row.classNumber}반 ${row.number || ""}번` : "-"}</td><td style={{...table.td,fontWeight:900}}>{row.total ?? "-"}</td>{MOCK_SUBJECTS.map(s=><td key={s} style={table.td}>{row.scores?.[s] ?? "-"}<small style={{display:"block",color:"#8a8578"}}>{row.grades?.[s] ? `${row.grades[s]}등급` : ""}</small></td>)}</tr>)}</tbody></table></div></div>
+  </div>;
+}
+const analysisCard={background:"#fff",border:"1px solid #e2ded3",borderRadius:12,padding:14,display:"grid",gridTemplateColumns:"22px 1fr",gap:"2px 8px",alignItems:"center",color:"#3d5c3a"};
+
+function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
+  const { semesterData, mockData, admissionRows, studentAccounts, cohortSettings } = gdb;
+
+  const legacySemesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
+  const legacyLatestSemesterRecord = legacySemesterRecords.slice().reverse().find(Boolean) || null;
   const metaRecord = Array.isArray(studentAccounts)
     ? studentAccounts.find(student => String(student.id) === String(sid))
     : studentAccounts?.[sid];
+  const initialEntryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatestSemesterRecord, cohortSettings });
+  const semesterRecords = SEMESTER_KEYS.map((key, index) => cohortRecord(semesterData, initialEntryYear, key)?.students?.[sid] || legacySemesterRecords[index] || null);
+  const latestSemesterRecord = semesterRecords.slice().reverse().find(Boolean) || legacyLatestSemesterRecord;
 
   const inferredGrade = asNumber(studentInfo?.grade)
     ?? asNumber(String(sid || "").charAt(0))
@@ -339,7 +444,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const inferredClass = studentInfo?.class ?? latestSemesterRecord?.class ?? metaRecord?.class ?? asNumber(String(sid || "").slice(1, 3));
   const inferredNumber = studentInfo?.number ?? latestSemesterRecord?.number ?? metaRecord?.number ?? asNumber(String(sid || "").slice(3, 5));
   const studentName = studentInfo?.name ?? latestSemesterRecord?.name ?? metaRecord?.name ?? "";
-  const entryYear = CURRENT_ACADEMIC_YEAR - inferredGrade + 1;
+  const entryYear = initialEntryYear;
   const gradeSystem = entryYear >= 2025 ? 5 : 9;
 
   const subjectLists = SEMESTER_KEYS.map((key, index) => semesterRecords[index]?.subjects || null);
@@ -360,19 +465,19 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
     : availableSemesters[availableSemesters.length - 1];
   const activeSemSubjects = activeSemKey ? subjectLists[SEMESTER_KEYS.indexOf(activeSemKey)] : null;
 
-  const availableMockKeys = MOCK_MONTH_KEYS.filter(key => mockData[key]?.students?.[sid]);
+  const availableMockKeys = MOCK_MONTH_KEYS.filter(key => cohortRecord(mockData, entryYear, key)?.students?.[sid]);
   const [selMockKey, setSelMockKey] = useState(null);
   const activeMockKey = selMockKey && availableMockKeys.includes(selMockKey)
     ? selMockKey
     : availableMockKeys[availableMockKeys.length - 1];
-  const mockGrades = activeMockKey ? mockData[activeMockKey].students[sid] : {};
+  const mockGrades = activeMockKey ? cohortRecord(mockData, entryYear, activeMockKey)?.students?.[sid] || {} : {};
   const sums = useMemo(() => computeMockExamSums(mockGrades || {}), [mockGrades]);
 
   const latestMockKey = useMemo(() => {
     const order = MOCK_MONTH_KEYS.slice().reverse();
-    return order.find(key => mockData[key]?.students?.[sid]) || null;
+    return order.find(key => cohortRecord(mockData, entryYear, key)?.students?.[sid]) || null;
   }, [mockData, sid]);
-  const latestMockGrades = latestMockKey ? mockData[latestMockKey].students[sid] : {};
+  const latestMockGrades = latestMockKey ? cohortRecord(mockData, entryYear, latestMockKey)?.students?.[sid] || {} : {};
   const latestSums = useMemo(() => computeMockExamSums(latestMockGrades || {}), [latestMockGrades]);
 
   const overallAverage = gradeSystem === 5
@@ -406,7 +511,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const mockTrendSeries = useMemo(() => {
     const isAverage = selectedMockSubject === "전과목 평균";
     const values = availableMockKeys.map(key => {
-      const result = mockData[key]?.students?.[sid] || {};
+      const result = cohortRecord(mockData, entryYear, key)?.students?.[sid] || {};
       if (!isAverage) return asNumber(result[selectedMockSubject]);
       const valid = CORE_MOCK_SUBJECTS.map(subject => asNumber(result[subject])).filter(value => value != null);
       return valid.length ? Math.round((valid.reduce((sum, value) => sum + value, 0) / valid.length) * 100) / 100 : null;
@@ -1105,12 +1210,15 @@ function AchievementGuidancePanel({ analysis, universityCounts, gradeSystem }) {
 }
 
 function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
-  const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts } = gdb;
-  const semesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
-  const latestSemesterRecord = semesterRecords.slice().reverse().find(Boolean) || null;
+  const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts, cohortSettings } = gdb;
+  const legacySemesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
+  const legacyLatestSemesterRecord = legacySemesterRecords.slice().reverse().find(Boolean) || null;
   const metaRecord = Array.isArray(studentAccounts)
     ? studentAccounts.find(student => String(student.id) === String(sid))
     : studentAccounts?.[sid];
+  const initialEntryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatestSemesterRecord, cohortSettings });
+  const semesterRecords = SEMESTER_KEYS.map(key => cohortRecord(semesterData, initialEntryYear, key)?.students?.[sid] || legacySemesterRecords[SEMESTER_KEYS.indexOf(key)] || null);
+  const latestSemesterRecord = semesterRecords.slice().reverse().find(Boolean) || legacyLatestSemesterRecord;
   const inferredGrade = asNumber(studentInfo?.grade)
     ?? asNumber(String(sid || "").charAt(0))
     ?? asNumber(latestSemesterRecord?.grade ?? metaRecord?.grade)
@@ -1118,15 +1226,15 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const inferredClass = studentInfo?.class ?? latestSemesterRecord?.class ?? metaRecord?.class ?? asNumber(String(sid || "").slice(1, 3));
   const inferredNumber = studentInfo?.number ?? latestSemesterRecord?.number ?? metaRecord?.number ?? asNumber(String(sid || "").slice(3, 5));
   const studentName = studentInfo?.name ?? latestSemesterRecord?.name ?? metaRecord?.name ?? "";
-  const entryYear = CURRENT_ACADEMIC_YEAR - inferredGrade + 1;
+  const entryYear = initialEntryYear;
   const gradeSystem = entryYear >= 2025 ? 5 : 9;
   const achievementAnalysis = useMemo(
     () => buildStudentAchievementAnalysis(semesterRecords, gradeSystem),
     [semesterData, sid, gradeSystem], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const latestMockKey = MOCK_MONTH_KEYS.slice().reverse().find(key => mockData[key]?.students?.[sid]) || null;
-  const latestMockGrades = latestMockKey ? mockData[latestMockKey].students[sid] : {};
+  const latestMockKey = MOCK_MONTH_KEYS.slice().reverse().find(key => cohortRecord(mockData, entryYear, key)?.students?.[sid]) || null;
+  const latestMockGrades = latestMockKey ? cohortRecord(mockData, entryYear, latestMockKey)?.students?.[sid] || {} : {};
   const latestSums = useMemo(() => computeMockExamSums(latestMockGrades || {}), [latestMockGrades]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -2285,12 +2393,60 @@ export function AdminGradesUpload({ gdb, persistGrades, showToast }) {
         <TabBtn active={subtab === "mock"} onClick={() => setSubtab("mock")} label="모의고사 (개별)" />
         <TabBtn active={subtab === "admission"} onClick={() => setSubtab("admission")} label="대입 전형표 (개별)" />
         <TabBtn active={subtab === "admissionPdf"} onClick={() => setSubtab("admissionPdf")} label="대학별 모집요강 PDF" />
+        <TabBtn active={subtab === "cohorts"} onClick={() => setSubtab("cohorts")} label="학년·입학연도 관리" />
       </div>
       {subtab === "bulk" && <BulkUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "semester" && <SemesterUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "mock" && <MockUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "admission" && <AdmissionUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "admissionPdf" && <AdmissionPdfManager gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
+      {subtab === "cohorts" && <CohortManager gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
+    </div>
+  );
+}
+
+
+function CohortManager({ gdb, persistGrades, showToast }) {
+  const initial = normalizeCohortSettings(gdb.cohortSettings);
+  const [academicYear, setAcademicYear] = useState(initial.academicYear);
+  const [rows, setRows] = useState(initial.cohorts);
+  const update = (index, field, value) => setRows(current => current.map((row, i) => i === index ? { ...row, [field]: value } : row));
+  const add = () => setRows(current => [...current, { entryYear: academicYear, currentGrade: 1, status: "재학" }]);
+  const advance = () => {
+    const nextYear = Number(academicYear) + 1;
+    setAcademicYear(nextYear);
+    setRows(current => {
+      const advanced = current.map(row => {
+        if (row.status !== "재학" || !row.currentGrade) return row;
+        if (Number(row.currentGrade) >= 3) return { ...row, currentGrade: null, status: "졸업" };
+        return { ...row, currentGrade: Number(row.currentGrade) + 1 };
+      });
+      if (!advanced.some(row => Number(row.entryYear) === nextYear)) advanced.push({ entryYear: nextYear, currentGrade: 1, status: "재학" });
+      return advanced;
+    });
+  };
+  const save = async () => {
+    const value = normalizeCohortSettings({ academicYear, cohorts: rows });
+    const ok = await persistGrades({ cohortSettings: value });
+    if (ok) showToast("입학연도별 학년 설정을 저장했습니다.", "success");
+  };
+  return (
+    <div style={card}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+        <GraduationCap size={20} color="#3d5c3a" /><div><div style={{ fontWeight: 900 }}>입학연도별 학생 데이터 관리</div><div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 2 }}>성적과 모의고사는 입학연도별로 분리 저장되어 신입생·진급·졸업 후에도 이전 자료가 유지됩니다.</div></div>
+      </div>
+      <label style={{ display: "grid", gap: 4, width: 180, fontSize: 11, fontWeight: 800, color: "#746d61", marginBottom: 12 }}>현재 학년도<input type="number" value={academicYear} onChange={e => setAcademicYear(Number(e.target.value))} style={btn.input} /></label>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {rows.map((row, index) => (
+          <div key={`${row.entryYear}-${index}`} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 38px", gap: 8, padding: 10, border: "1px solid #e6e1d3", borderRadius: 9, background: "#fbfaf6" }}>
+            <label style={{ fontSize: 10.5, fontWeight: 800, color: "#746d61" }}>입학연도<input type="number" value={row.entryYear || ""} onChange={e => update(index, "entryYear", Number(e.target.value))} style={btn.input} /></label>
+            <label style={{ fontSize: 10.5, fontWeight: 800, color: "#746d61" }}>현재 학년<select value={row.currentGrade || ""} onChange={e => update(index, "currentGrade", e.target.value ? Number(e.target.value) : null)} style={btn.input}><option value="">졸업/기타</option><option value="1">1학년</option><option value="2">2학년</option><option value="3">3학년</option></select></label>
+            <label style={{ fontSize: 10.5, fontWeight: 800, color: "#746d61" }}>상태<select value={row.status || "재학"} onChange={e => update(index, "status", e.target.value)} style={btn.input}><option>재학</option><option>졸업</option><option>휴학/기타</option></select></label>
+            <button type="button" style={btn.link} onClick={() => setRows(current => current.filter((_, i) => i !== index))}>삭제</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}><button style={btn.secondary} onClick={add}>+ 입학연도 추가</button><button style={btn.secondary} onClick={advance}>다음 학년도 진급 반영</button><button style={btn.primary} onClick={save}><Save size={14} /> 저장</button></div>
     </div>
   );
 }
@@ -2658,7 +2814,14 @@ function parseAdmissionRows(rows) {
   return admissionRows;
 }
 
+
+function CohortSelector({ value, onChange, cohortSettings, label = "대상 입학연도" }) {
+  const settings = normalizeCohortSettings(cohortSettings);
+  const options = settings.cohorts.slice().sort((a, b) => b.entryYear - a.entryYear);
+  return <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "#746d61", fontWeight: 800, marginBottom: 10 }}>{label}<select value={value} onChange={e => onChange(Number(e.target.value))} style={{ ...btn.input, width: 170 }}>{options.map(row => <option key={row.entryYear} value={row.entryYear}>{row.entryYear}년 입학생 · {row.currentGrade ? `${row.currentGrade}학년` : row.status}</option>)}</select></label>;
+}
 function BulkUpload({ gdb, persistGrades, showToast }) {
+  const [entryYear, setEntryYear] = useState(entryYearForGrade(gdb.cohortSettings, 2));
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null); // { newSemesterData, newMockData, newAdmissionRows, found, skipped }
@@ -2684,15 +2847,15 @@ function BulkUpload({ gdb, persistGrades, showToast }) {
           const students = parseSemesterSheet(rows);
           const count = Object.keys(students).length;
           if (count) {
-            newSemesterData[cls.key] = { students, updatedAt: new Date().toISOString() };
-            found.push(`${SEMESTER_LABELS[cls.key] || cls.key} 성적 — ${count}명`);
+            newSemesterData[cohortDataKey(entryYear, cls.key)] = { students, entryYear, updatedAt: new Date().toISOString() };
+            found.push(`${entryYear}년 입학생 · ${SEMESTER_LABELS[cls.key] || cls.key} 성적 — ${count}명`);
           } else skipped.push(`${name} (학생 데이터 인식 실패)`);
         } else if (cls.type === "mock") {
           const students = parseMockSheet(rows);
           const count = Object.keys(students).length;
           if (count) {
-            newMockData[cls.key] = { students, updatedAt: new Date().toISOString() };
-            found.push(`${MOCK_MONTH_LABELS[cls.key] || cls.key} 모의고사 — ${count}명`);
+            newMockData[cohortDataKey(entryYear, cls.key)] = { students, entryYear, updatedAt: new Date().toISOString() };
+            found.push(`${entryYear}년 입학생 · ${MOCK_MONTH_LABELS[cls.key] || cls.key} 모의고사 — ${count}명`);
           } else skipped.push(`${name} (학생 데이터 인식 실패)`);
         } else if (cls.type === "admission") {
           // 전형표와 별도의 "전형-반영비율" 시트를 함께 읽기 위해
@@ -2735,6 +2898,7 @@ function BulkUpload({ gdb, persistGrades, showToast }) {
       <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>원본 성적 엑셀 파일 통째로 업로드</div>
+        <CohortSelector value={entryYear} onChange={setEntryYear} cohortSettings={gdb.cohortSettings} />
         <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center", maxWidth: 480 }}>
           "1-1 성적"부터 "3-2 성적"까지의 학기 성적 시트와 "N학년 N월"(모의고사), "2028 대입 전형" 시트가 들어있는 원본 파일을 그대로 올려주세요.
           시트 이름을 보고 자동으로 종류를 구분해서 한 번에 전부 반영합니다.
@@ -2764,6 +2928,7 @@ function BulkUpload({ gdb, persistGrades, showToast }) {
 
 function SemesterUpload({ gdb, persistGrades, showToast }) {
   const [semKey, setSemKey] = useState("2-1");
+  const [entryYear, setEntryYear] = useState(entryYearForGrade(gdb.cohortSettings, 2));
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null); // { students, count }
@@ -2789,14 +2954,14 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
 
   const apply = async () => {
     setApplying(true);
-    const ok = await persistGrades({ semesterData: { ...gdb.semesterData, [semKey]: { students: preview.students, updatedAt: new Date().toISOString() } } });
+    const ok = await persistGrades({ semesterData: { ...gdb.semesterData, [cohortDataKey(entryYear, semKey)]: { students: preview.students, entryYear, updatedAt: new Date().toISOString() } } });
     if (ok) { showToast(`저장했습니다. (${SEMESTER_LABELS[semKey]} ${preview.count}명)`, "success"); setPreview(null); }
     setApplying(false);
   };
 
   const removeSemester = async (k) => {
     const updated = { ...gdb.semesterData };
-    delete updated[k];
+    delete updated[cohortDataKey(entryYear, k)];
     const ok = await persistGrades({ semesterData: updated });
     if (ok) showToast(`${SEMESTER_LABELS[k]} 데이터를 삭제했습니다.`, "success");
   };
@@ -2806,6 +2971,7 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
       <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>학기별 성적표 업로드</div>
+        <CohortSelector value={entryYear} onChange={setEntryYear} cohortSettings={gdb.cohortSettings} />
         <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center" }}>엑셀의 "N-N 성적" 시트를 그대로 올려주세요. (A~E: 학번,학년,학급,번호,이름 / F열부터 과목당 6칸: 합계,원점수,성취도,석차등급,석차,수강자수)</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
           {SEMESTER_KEYS.map(k => <button key={k} onClick={() => setSemKey(k)} style={{ ...btn.chip, ...(semKey === k ? btn.chipActive : {}) }}>{SEMESTER_LABELS[k]}</button>)}
@@ -2828,8 +2994,8 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
           <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
             <span>{SEMESTER_LABELS[k]}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: gdb.semesterData[k] ? "#3d5c3a" : "#a39d8c" }}>{gdb.semesterData[k] ? `${Object.keys(gdb.semesterData[k].students).length}명 (${new Date(gdb.semesterData[k].updatedAt).toLocaleDateString("ko-KR")})` : "미등록"}</span>
-              {gdb.semesterData[k] && <button style={btn.link} onClick={() => removeSemester(k)}>삭제</button>}
+              <span style={{ color: cohortRecord(gdb.semesterData, entryYear, k) ? "#3d5c3a" : "#a39d8c" }}>{cohortRecord(gdb.semesterData, entryYear, k) ? `${Object.keys(cohortRecord(gdb.semesterData, entryYear, k).students).length}명 (${new Date(cohortRecord(gdb.semesterData, entryYear, k).updatedAt).toLocaleDateString("ko-KR")})` : "미등록"}</span>
+              {cohortRecord(gdb.semesterData, entryYear, k) && <button style={btn.link} onClick={() => removeSemester(k)}>삭제</button>}
             </div>
           </div>
         ))}
@@ -2849,24 +3015,35 @@ function parseMockSheet(rows) {
   if (sidCol === -1) sidCol = 0;
   const koreanOccurrences = [];
   header.forEach((h, i) => { if (h != null && String(h).trim() === "국어") koreanOccurrences.push(i); });
+  const scoreStartCol = koreanOccurrences.length >= 2 ? koreanOccurrences[0] : null;
+  // 과목명이 한 번만 나오면 기존 양식의 등급 구간으로 간주하고 원점수로 중복 해석하지 않습니다.
   const gradeStartCol = koreanOccurrences.length >= 2 ? koreanOccurrences[1] : (koreanOccurrences[0] ?? null);
+  const totalCol = header.findIndex(h => h != null && /^(총점|합계|총점수)$/.test(String(h).replace(/\s/g, "")));
   const students = {};
-  if (gradeStartCol == null) return students;
+  if (gradeStartCol == null && scoreStartCol == null) return students;
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r]; if (!row) continue;
     const sid = row[sidCol]; if (!sid || isNaN(Number(sid))) continue;
-    const grades = {};
+    const result = {};
+    const scores = {};
     MOCK_SUBJECTS.forEach((subj, i) => {
-      const v = row[gradeStartCol + i];
-      if (v !== null && v !== undefined && v !== "" && !isNaN(Number(v))) grades[subj] = Number(v);
+      const gradeValue = gradeStartCol == null ? null : row[gradeStartCol + i];
+      const scoreValue = scoreStartCol == null ? null : row[scoreStartCol + i];
+      if (gradeValue !== null && gradeValue !== undefined && gradeValue !== "" && !isNaN(Number(gradeValue))) result[subj] = Number(gradeValue);
+      if (scoreValue !== null && scoreValue !== undefined && scoreValue !== "" && !isNaN(Number(scoreValue))) scores[subj] = Number(scoreValue);
     });
-    if (Object.keys(grades).length) students[String(sid).trim().replace(/\.0$/, "")] = grades;
+    if (Object.keys(scores).length) result._scores = scores;
+    const explicitTotal = totalCol >= 0 && Number.isFinite(Number(row[totalCol])) ? Number(row[totalCol]) : null;
+    const computedTotal = Object.values(scores).reduce((sum, value) => sum + Number(value || 0), 0);
+    if (explicitTotal != null || Object.keys(scores).length) result._total = explicitTotal ?? computedTotal;
+    if (Object.keys(result).length) students[String(sid).trim().replace(/\.0$/, "")] = result;
   }
   return students;
 }
 
 function MockUpload({ gdb, persistGrades, showToast }) {
   const [monthKey, setMonthKey] = useState("2-6");
+  const [entryYear, setEntryYear] = useState(entryYearForGrade(gdb.cohortSettings, 2));
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -2892,14 +3069,14 @@ function MockUpload({ gdb, persistGrades, showToast }) {
 
   const apply = async () => {
     setApplying(true);
-    const ok = await persistGrades({ mockData: { ...gdb.mockData, [monthKey]: { students: preview.students, updatedAt: new Date().toISOString() } } });
+    const ok = await persistGrades({ mockData: { ...gdb.mockData, [cohortDataKey(entryYear, monthKey)]: { students: preview.students, entryYear, updatedAt: new Date().toISOString() } } });
     if (ok) { showToast(`저장했습니다. (${MOCK_MONTH_LABELS[monthKey]} ${preview.count}명)`, "success"); setPreview(null); }
     setApplying(false);
   };
 
   const removeMock = async (k) => {
     const updated = { ...gdb.mockData };
-    delete updated[k];
+    delete updated[cohortDataKey(entryYear, k)];
     const ok = await persistGrades({ mockData: updated });
     if (ok) showToast(`${MOCK_MONTH_LABELS[k]} 모의고사 데이터를 삭제했습니다.`, "success");
   };
@@ -2909,6 +3086,7 @@ function MockUpload({ gdb, persistGrades, showToast }) {
       <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>모의고사 성적 업로드</div>
+        <CohortSelector value={entryYear} onChange={setEntryYear} cohortSettings={gdb.cohortSettings} />
         <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center" }}>1행에 "학번"과 과목명(국어,수학,영어,한국사,통합사회,통합과학) 헤더가 있는 엑셀을 올려주세요.</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", justifyContent: "center" }}>
           {MOCK_MONTH_KEYS.map(k => <button key={k} onClick={() => setMonthKey(k)} style={{ ...btn.chip, ...(monthKey === k ? btn.chipActive : {}) }}>{MOCK_MONTH_LABELS[k]}</button>)}
@@ -2931,8 +3109,8 @@ function MockUpload({ gdb, persistGrades, showToast }) {
           <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
             <span>{MOCK_MONTH_LABELS[k]}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: gdb.mockData[k] ? "#3d5c3a" : "#a39d8c" }}>{gdb.mockData[k] ? `${Object.keys(gdb.mockData[k].students).length}명` : "미등록"}</span>
-              {gdb.mockData[k] && <button style={btn.link} onClick={() => removeMock(k)}>삭제</button>}
+              <span style={{ color: cohortRecord(gdb.mockData, entryYear, k) ? "#3d5c3a" : "#a39d8c" }}>{cohortRecord(gdb.mockData, entryYear, k) ? `${Object.keys(cohortRecord(gdb.mockData, entryYear, k).students).length}명` : "미등록"}</span>
+              {cohortRecord(gdb.mockData, entryYear, k) && <button style={btn.link} onClick={() => removeMock(k)}>삭제</button>}
             </div>
           </div>
         ))}
@@ -3388,6 +3566,7 @@ const card = {
   boxShadow: "0 1px 0 rgba(43,38,32,0.02)",
 };
 const btn = {
+  input: { boxSizing: "border-box", border: "1px solid #ddd7c9", borderRadius: 8, background: "#fff", padding: "7px 10px", fontSize: 12, color: "#2b2620", outline: "none" },
   primary: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "#3d5c3a", color: "#fff", padding: "8px 16px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700 },
   secondary: { border: "1px solid #e6e1d3", background: "#fff", padding: "7px 13px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700 },
   link: { border: "none", background: "transparent", color: "#3d5c3a", fontSize: 11.5, cursor: "pointer", textDecoration: "underline" },
@@ -3588,7 +3767,9 @@ const curriculumTypeSummary = {
   methodRow: { display: "grid", gap: 4 },
   method: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 0, minHeight: 31, borderRadius: 7, padding: "3px 2px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(80,75,65,0.10)", color: "#625c52" },
   methodValue: { fontSize: 10.5, lineHeight: 1.05, color: "#3d3933" },
-  methodLabel: { marginTop: 2, fontSize: 7.8, lineHeight: 1.05, fontWeight: 800, whiteSpace: "nowrap", letterSpacing: "-0.15px" },
+  methodLabel: { marginTop: 2, fontSize: 7.8, lineHeight: 1.05, fontWeight: 800, whiteSpace: "normal",
+    lineHeight: 1.18,
+    overflowWrap: "anywhere", letterSpacing: "-0.15px" },
 };
 
 const curriculumSummary = {
@@ -3627,7 +3808,9 @@ const curriculumDataWarning = {
   lineHeight: 1.5,
 };
 const curriculumMethodBadge = {
-  base: { display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: "auto", minWidth: 48, maxWidth: "100%", minHeight: 20, padding: "3px 7px", borderRadius: 7, fontSize: 8.3, fontWeight: 900, lineHeight: 1.12, whiteSpace: "normal", wordBreak: "keep-all", letterSpacing: "-0.15px" },
+  base: { display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: "auto", minWidth: 48, maxWidth: "96%",
+    padding: "3px 5px",
+    boxSizing: "border-box", minHeight: 20, padding: "3px 7px", borderRadius: 7, fontSize: 8.3, fontWeight: 900, lineHeight: 1.12, whiteSpace: "normal", wordBreak: "keep-all", letterSpacing: "-0.15px" },
   line: { display: "block", whiteSpace: "nowrap" },
   rank: { background: "#eaf2ee", color: "#416356", border: "1px solid #c8d9d2" },
   achievement: { background: "#f5f0e7", color: "#745f3f", border: "1px solid #dfd2bd" },
@@ -3734,14 +3917,14 @@ const reflectionBadge = {
   alignItems: "center",
   justifyContent: "center",
   width: "auto",
-  maxWidth: "72%",
-  padding: "1px 3px",
+  maxWidth: "88%",
+  padding: "2px 4px",
   borderRadius: 4,
   background: "#f7f8f8",
   border: "1px solid #e2e5e6",
   borderLeft: "1.5px solid #8d989f",
   color: "#4d565c",
-  fontSize: 7.05,
+  fontSize: 7.9,
   fontWeight: 820,
   lineHeight: 1.05,
   whiteSpace: "normal",
@@ -3757,7 +3940,7 @@ const reflectionBadgeLine = {
 const reflectionBadgePlus = {
   marginRight: 2,
   color: "#7d7467",
-  fontSize: 6.8,
+  fontSize: 7.2,
   fontWeight: 850,
 };
 const specialNoteStyle = {
@@ -3782,17 +3965,20 @@ const specialNoteStyle = {
 const subjectRule = {
   text: {
     display: "inline-block",
-    maxWidth: "100%",
-    padding: "4px 6px",
-    borderRadius: 7,
+    maxWidth: "94%",
+    boxSizing: "border-box",
+    padding: "3px 5px",
+    borderRadius: 6,
     background: "#f2f6f7",
     border: "1px solid #d6e1e3",
     color: "#36575b",
-    fontSize: 8.8,
+    fontSize: 8.2,
     fontWeight: 900,
-    lineHeight: 1.25,
-    whiteSpace: "nowrap",
-    letterSpacing: "-0.15px",
+    lineHeight: 1.18,
+    whiteSpace: "normal",
+    wordBreak: "keep-all",
+    overflowWrap: "anywhere",
+    letterSpacing: "-0.2px",
   },
 };
 

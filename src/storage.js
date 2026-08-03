@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, doc, getDoc, setDoc } from "firebase/firestore";
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
+import { getStorage, ref as storageRef, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { firebaseConfig } from "./firebaseConfig.js";
 
 const app = initializeApp(firebaseConfig);
@@ -53,6 +53,37 @@ function safeFilePart(value) {
     .slice(0, 100) || "file";
 }
 
+
+function attachmentContentType(file) {
+  const supplied = String(file?.type || "").trim();
+  if (supplied && supplied !== "application/octet-stream") return supplied;
+  const name = String(file?.name || "").toLowerCase();
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".hwp")) return "application/x-hwp";
+  if (name.endsWith(".hwpx")) return "application/vnd.hancom.hwpx";
+  if (name.endsWith(".doc")) return "application/msword";
+  if (name.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  if (name.endsWith(".ppt")) return "application/vnd.ms-powerpoint";
+  if (name.endsWith(".pptx")) return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+  if (name.endsWith(".xls")) return "application/vnd.ms-excel";
+  if (name.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (name.endsWith(".zip")) return "application/zip";
+  return supplied || "application/octet-stream";
+}
+
+function uploadResumableWithTimeout(target, file, metadata, timeoutMs = 90000) {
+  return new Promise((resolve, reject) => {
+    const task = uploadBytesResumable(target, file, metadata);
+    const timer = setTimeout(() => {
+      try { task.cancel(); } catch {}
+      const error = new Error("첨부파일 업로드 응답 없음 (연결 시간 초과)");
+      error.code = "storage/retry-limit-exceeded";
+      reject(error);
+    }, timeoutMs);
+    task.on("state_changed", null, error => { clearTimeout(timer); reject(error); }, () => { clearTimeout(timer); resolve(task.snapshot); });
+  });
+}
+
 // 모집요강 PDF 본문은 Firestore 문서 용량 제한 때문에 Firebase Storage에 저장하고,
 // Firestore에는 URL·대학명·파일명 등의 메타데이터만 저장합니다.
 export async function uploadAdmissionPdf(file, university) {
@@ -87,9 +118,9 @@ export async function uploadClassroomAttachment(file, meta = {}) {
   const filePart = safeFilePart(file.name || "첨부파일");
   const path = `classroom-materials/${scopePart}/${subjectPart}/${targetPart}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${filePart}`;
   const target = storageRef(fileStorage, path);
-  const contentType = file.type || "application/octet-stream";
+  const contentType = attachmentContentType(file);
   const inline = contentType === "application/pdf" || contentType.startsWith("image/");
-  const snapshot = await uploadBytes(target, file, {
+  const snapshot = await uploadResumableWithTimeout(target, file, {
     contentType,
     contentDisposition: `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name || "attachment")}`,
     customMetadata: {
