@@ -307,13 +307,19 @@ export default function GradesSection({
       </div>
 
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
-        <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
-          {loggedInStudent && <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="내 성적 리포트" />}
-          {loggedInStudent && <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학 지원 진단" />}
-          {loggedInTeacher && teacherHasGradeAccess && <TabBtn active={tab === "mockAnalysis"} onClick={() => setTab("mockAnalysis")} label="모의고사 성적 분석" />}
-          {loggedInTeacher && loggedInTeacher.homeroomClass && teacherHasGradeAccess && <TabBtn active={tab === "class"} onClick={() => setTab("class")} label="담임반 학생 계정" />}
-          {loggedInAdmin && <TabBtn active={tab === "mockAnalysis"} onClick={() => setTab("mockAnalysis")} label="모의고사 성적 분석" />}
-        </div>
+        {loggedInStudent && <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
+          <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="내 성적 리포트" />
+          <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학 지원 진단" />
+        </div>}
+        {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
+          <div style={staffToolNav.wrap}>
+            <div style={staffToolNav.heading}><BarChart3 size={17} /><div style={staffToolNav.headingText}><b>교사용 분석·관리</b><span style={{ fontSize: 10.5, fontWeight: 650, color: "#7a8495" }}>학생 조회와 별도로 분석 도구를 사용할 수 있습니다.</span></div></div>
+            <div style={staffToolNav.buttons}>
+              <button type="button" onClick={() => setTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
+              {loggedInTeacher && loggedInTeacher.homeroomClass && <button type="button" onClick={() => setTab("class")} style={{ ...staffToolNav.button, ...(tab === "class" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 담임반 학생 계정</button>}
+            </div>
+          </div>
+        )}
 
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
         {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} />}
@@ -1218,18 +1224,14 @@ function splitAdmissionDetailLabel(value) {
 }
 
 function AdmissionDetailText({ department, track }) {
-  const values = [department, track].map(value => String(value || "").trim()).filter(Boolean);
-  if (!values.length) values.push("전체 모집단위");
-
+  const departmentText = String(department || "").trim();
+  const trackText = String(track || "").trim();
+  const primary = departmentText || trackText || "전체 모집단위";
+  const secondary = departmentText && trackText && trackText !== departmentText ? trackText : "";
   return (
     <div style={admissionTable.detailStack}>
-      {values.map((value, valueIndex) => (
-        <div key={`${value}-${valueIndex}`} style={admissionTable.detailGroup}>
-          {splitAdmissionDetailLabel(value).map((line, lineIndex) => (
-            <span key={`${line}-${lineIndex}`} style={admissionTable.detailLine}>{line}</span>
-          ))}
-        </div>
-      ))}
+      <span style={admissionTable.detailLine}>{primary}</span>
+      {secondary && <span style={admissionTable.trackLine}>{secondary}</span>}
     </div>
   );
 }
@@ -1740,7 +1742,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             <table style={{ ...admissionTable.base, minWidth: admissionTableView === "full" ? 1120 : 0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "14%" }} /><col style={{ width: "15%" }} /><col style={{ width: "16%" }} /><col style={{ width: "13%" }} /><col style={{ width: "13%" }} /><col style={{ width: "15%" }} /><col style={{ width: "14%" }} />
+                  <col style={{ width: "16%" }} /><col style={{ width: "20%" }} /><col style={{ width: "16%" }} /><col style={{ width: "13%" }} /><col style={{ width: "13%" }} /><col style={{ width: "12%" }} /><col style={{ width: "10%" }} />
                 </> : <>
                   <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "8.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} />
                 </>}
@@ -1750,12 +1752,12 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
                   {admissionTableView === "full" && <th style={admissionTable.th}>지역</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>계열</th>}
-                  <th style={admissionTable.th}>모집단위<br />전형</th>
+                  <th style={admissionTable.th}>모집단위 · 전형</th>
                   {admissionTableView === "full" && <th style={admissionTable.th}>교과 반영비율<br />반영방법</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>전형 특이사항</th>}
                   <th style={admissionTable.th}>반영과목</th>
                   <th style={admissionTable.th}>대학 기준</th>
-                  <th style={admissionTable.th}>현재 반영값</th>
+                  <th style={admissionTable.th}>현재 내 최저</th>
                   <th style={admissionTable.th}>진단 결과</th>
                   <th style={admissionTable.th}>모집요강</th>
                 </tr>
@@ -1811,10 +1813,10 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           </div>
         ) : (
           <div style={{ ...table.scroll, overflowX: admissionTableView === "full" ? "auto" : "visible" }}>
-            <table style={{ ...admissionTable.base, fontSize: 9.1, minWidth: admissionTableView === "full" ? 1080 : 0 }}>
+            <table style={{ ...admissionTable.base, fontSize: 9.8, minWidth: admissionTableView === "full" ? 1180 : 0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "13%" }} /><col style={{ width: "14%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "12%" }} /><col style={{ width: "9%" }} />
+                  <col style={{ width: "15%" }} /><col style={{ width: "18%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "13%" }} /><col style={{ width: "10%" }} />
                 </> : <>
                   <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "7%" }} />
                 </>}
@@ -1824,7 +1826,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
                   {admissionTableView === "full" && <th style={admissionTable.th}>지역</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>계열</th>}
-                  <th style={admissionTable.th}>모집단위<br />전형</th>
+                  <th style={admissionTable.th}>모집단위 · 전형</th>
                   <th style={admissionTable.th}>공통과목</th>
                   <th style={admissionTable.th}>일반선택</th>
                   <th style={admissionTable.th}>진로선택</th>
@@ -3927,6 +3929,14 @@ const admissionToolbar = {
   filterLabel: { fontSize: 9.1, fontWeight: 900, color: "#766f63", whiteSpace: "nowrap", paddingRight: 2 },
   filterGroup: { display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap" },
 };
+const staffToolNav = {
+  wrap: { marginBottom: 18, padding: "11px 13px", borderRadius: 13, border: "1px solid #dce2ec", background: "linear-gradient(135deg,#f7f9fc,#ffffff)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", boxShadow: "0 4px 14px rgba(58,72,96,.05)" },
+  heading: { display: "flex", alignItems: "center", gap: 9, color: "#405575" },
+  headingText: { display: "grid", gap: 2, fontSize: 12.5, lineHeight: 1.25 },
+  buttons: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  button: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d6dce7", borderRadius: 9, background: "#fff", color: "#687386", padding: "7px 10px", fontSize: 11.5, fontWeight: 850, cursor: "pointer" },
+  active: { background: "#405b86", color: "#fff", borderColor: "#405b86", boxShadow: "0 4px 10px rgba(64,91,134,.18)" },
+};
 const admissionFieldBadge = {
   wrap: { display: "flex", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" },
   base: { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid", borderRadius: 999, padding: "3px 5px", fontSize: 8.2, fontWeight: 900, lineHeight: 1, whiteSpace: "nowrap" },
@@ -3942,7 +3952,7 @@ const requirementFilterButton = {
   count: { display: "inline-flex", minWidth: 17, height: 17, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "rgba(128,128,128,0.14)", fontSize: 8.8, fontWeight: 900 },
 };
 const admissionStatus = {
-  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 62, padding: "5px 10px", borderRadius: 999, fontSize: 10.8, fontWeight: 900, margin: "1px 0" },
+  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 64, padding: "6px 10px", borderRadius: 999, fontSize: 11, fontWeight: 900, margin: "1px 0" },
   success: { background: "#e7f5ea", color: "#24613a", border: "1px solid #bfe2c8" },
   danger: { background: "#fff0f0", color: "#9a4242", border: "1px solid #efcaca" },
   warning: { background: "#fff6df", color: "#805f1d", border: "1px solid #efddae" },
@@ -3954,15 +3964,15 @@ const admissionTable = {
     width: "100%",
     borderCollapse: "collapse",
     tableLayout: "fixed",
-    fontSize: 8.7,
+    fontSize: 10.1,
   },
   th: {
     border: "1px solid #e6e1d3",
-    padding: "6px 3px",
+    padding: "8px 5px",
     background: "#f6f4ee",
     color: "#332e27",
     fontWeight: 900,
-    fontSize: 8.5,
+    fontSize: 10,
     lineHeight: 1.18,
     textAlign: "center",
     whiteSpace: "normal",
@@ -3970,14 +3980,14 @@ const admissionTable = {
   },
   td: {
     border: "1px solid #e6e1d3",
-    padding: "6px 3px",
+    padding: "8px 5px",
     textAlign: "center",
     verticalAlign: "middle",
     whiteSpace: "normal",
     wordBreak: "keep-all",
-    overflowWrap: "anywhere",
-    lineHeight: 1.28,
-    fontSize: 8.7,
+    overflowWrap: "break-word",
+    lineHeight: 1.38,
+    fontSize: 10.1,
   },
   stickyHead: { position: "sticky", left: 0, zIndex: 4, boxShadow: "3px 0 7px rgba(43,38,32,.06)" },
   university: {
@@ -3988,22 +3998,24 @@ const admissionTable = {
     textAlign: "center",
     background: "#fbfaf6",
     color: "#2b2620",
-    lineHeight: 1.3,
+    lineHeight: 1.35,
+    fontSize: 10.8,
     boxShadow: "3px 0 7px rgba(43,38,32,.045)",
   },
   text: { textAlign: "left", verticalAlign: "top" },
   regionCell: { padding: "7px 3px", overflow: "visible" },
   fieldCell: { padding: "5px 2px" },
-  department: { textAlign: "center", verticalAlign: "middle", paddingLeft: 4, paddingRight: 4 },
+  department: { textAlign: "center", verticalAlign: "middle", paddingLeft: 7, paddingRight: 7 },
   reflectionCell: { textAlign: "center", verticalAlign: "middle", padding: "6px 3px" },
   curriculumCell: { border: "1px solid #e6e1d3", padding: "6px 2px", textAlign: "center", verticalAlign: "middle", whiteSpace: "normal", wordBreak: "keep-all" },
   noteCell: { padding: "6px 5px", background: "#fffefa" },
   subjectCell: { padding: "6px 3px", verticalAlign: "middle" },
   statusCell: { padding: "8px 8px" },
   primaryText: { fontWeight: 900, color: "#2b2620", lineHeight: 1.3, textAlign: "center" },
-  detailStack: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, width: "100%" },
+  detailStack: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" },
   detailGroup: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0, maxWidth: "100%" },
-  detailLine: { display: "block", maxWidth: "100%", color: "#2b2620", fontSize: 9.1, fontWeight: 900, lineHeight: 1.25, whiteSpace: "nowrap", letterSpacing: "-0.2px" },
+  detailLine: { display: "block", maxWidth: "100%", color: "#25211c", fontSize: 10.6, fontWeight: 900, lineHeight: 1.35, whiteSpace: "normal", wordBreak: "keep-all", overflowWrap: "break-word", letterSpacing: "-0.1px" },
+  trackLine: { display: "inline-flex", maxWidth: "100%", padding: "2px 6px", borderRadius: 6, color: "#5e6170", background: "#f1f2f5", border: "1px solid #e0e2e8", fontSize: 9.3, fontWeight: 800, lineHeight: 1.25, whiteSpace: "normal", wordBreak: "keep-all" },
   secondaryText: { color: "#716b5f", fontSize: 9.7, lineHeight: 1.45 },
   minimumDetail: { color: "#8a8578", fontSize: 9.2, marginTop: 4, lineHeight: 1.3 },
   empty: { color: "#aaa393", fontSize: 9.7, fontWeight: 700 },
@@ -4069,7 +4081,7 @@ const subjectRule = {
     background: "#f2f6f7",
     border: "1px solid #d6e1e3",
     color: "#36575b",
-    fontSize: 8.2,
+    fontSize: 9.3,
     fontWeight: 900,
     lineHeight: 1.18,
     whiteSpace: "normal",
@@ -4089,7 +4101,7 @@ const minimumBadge = {
   background: "#fff5df",
   border: "1px solid #ead39f",
   color: "#76551b",
-  fontSize: 10.2,
+  fontSize: 10.7,
   fontWeight: 900,
   whiteSpace: "nowrap",
 };
@@ -4121,18 +4133,18 @@ const studentSumBadge = {
   justifyContent: "center",
   padding: "5px 6px",
   borderRadius: 8,
-  background: "#edf7f0",
-  border: "1px solid #c8e0cd",
-  color: "#2d6238",
-  fontSize: 10.1,
+  background: "#eef3ff",
+  border: "1px solid #c8d5ef",
+  color: "#355b8d",
+  fontSize: 10.6,
   fontWeight: 900,
   whiteSpace: "nowrap",
 };
 
 const eachStudentBadge = {
-  background: "#f1f4fb",
-  border: "1px solid #d2daea",
-  color: "#415270",
+  background: "#f3efff",
+  border: "1px solid #d9cff1",
+  color: "#604f8a",
   letterSpacing: "0.2px",
 };
 

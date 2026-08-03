@@ -150,6 +150,7 @@ function markRead(sid, ids) {
     const cur = getReadIds(sid);
     ids.forEach(id => cur.add(id));
     localStorage.setItem(`kd_read_${sid}`, JSON.stringify(Array.from(cur)));
+    window.dispatchEvent(new CustomEvent("kd-notice-read", { detail: { sid } }));
   } catch { /* localStorage unavailable */ }
 }
 const NOTICE_CATEGORIES = ["공지", "수업자료", "수행평가", "과제"];
@@ -609,7 +610,11 @@ export default function App() {
           }
           if (saved.studentId) {
             const s = (accts.students || []).find(a => a.id === saved.studentId);
-            if (s) setLoggedInStudent(s);
+            if (s) {
+              const studentGrade = String(s.id || "").charAt(0);
+              if (GRADES.includes(studentGrade)) setGrade(studentGrade);
+              setLoggedInStudent(s);
+            }
           }
           if (saved.selectedStudentSid) {
             setSelectedStudentSid(String(saved.selectedStudentSid));
@@ -648,7 +653,13 @@ export default function App() {
     const classMatch = (accounts.classView || []).find(a => a.id === id && a.pw === pw);
     if (classMatch) { setClassAuthed(true); saveSession({ classViewId: classMatch.id }); return "classView"; }
     const studentMatch = (accounts.students || []).find(a => a.id === id && a.pw === pw);
-    if (studentMatch) { setLoggedInStudent(studentMatch); saveSession({ studentId: studentMatch.id }); return "student"; }
+    if (studentMatch) {
+      const studentGrade = String(studentMatch.id || "").charAt(0);
+      if (GRADES.includes(studentGrade)) setGrade(studentGrade);
+      setLoggedInStudent(studentMatch);
+      saveSession({ studentId: studentMatch.id });
+      return "student";
+    }
     return null;
   }, [accounts]);
 
@@ -995,7 +1006,15 @@ export default function App() {
           </div>
         </>
       )}
-      {(loggedInTeacher || loggedInDepartment) && <TeacherNoticeInbox account={loggedInTeacher || { ...loggedInDepartment, accountType: "department" }} notices={db.staffNotices || []} persist={persist} showToast={showToast} />}
+      {(loggedInTeacher || loggedInDepartment) && <TeacherPersonalAlertDock
+        account={loggedInTeacher || { ...loggedInDepartment, accountType: "department" }}
+        notices={db.staffNotices || []}
+        announcements={db.announcements || {}}
+        persist={persist}
+        showToast={showToast}
+        offsetTop={212}
+      />}
+      {loggedInStudent && <StudentPersonalAlertDock sid={loggedInStudent.id} result={buildPersonalTimetable(loggedInStudent.id)} offsetTop={88} />}
       <FeedbackLauncher
         feedback={db.feedback || []}
         persist={persist}
@@ -2775,6 +2794,7 @@ function AdminStaffNoticePanel({ accounts, notices, persist, showToast }) {
   const [targetId, setTargetId] = useState("");
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [dueDate, setDueDate] = useState("");
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     if (!title.trim() && !body.trim()) { showToast("제목 또는 내용을 입력해주세요.", "error"); return; }
@@ -2788,12 +2808,13 @@ function AdminStaffNoticePanel({ accounts, notices, persist, showToast }) {
       targetLabel: targetType === "all" ? "전체 교직원" : `${selected?.name || selected?.id || targetId} 개인`,
       title: title.trim() || "관리자 공지",
       body: body.trim(),
+      dueDate: dueDate || null,
       createdAt: new Date().toISOString(),
       readBy: [],
     };
     const ok = await persist({ staffNotices: [entry, ...(notices || [])] });
     setBusy(false);
-    if (ok) { setTitle(""); setBody(""); showToast("교직원 공지를 등록했습니다.", "success"); }
+    if (ok) { setTitle(""); setBody(""); setDueDate(""); showToast("교직원 공지를 등록했습니다.", "success"); }
   };
   const remove = async id => {
     const ok = await persist({ staffNotices: (notices || []).filter(item => item.id !== id) });
@@ -2812,37 +2833,143 @@ function AdminStaffNoticePanel({ accounts, notices, persist, showToast }) {
       {targetType === "individual" && <select value={targetId} onChange={event => setTargetId(event.target.value)} style={{ ...styles.loginInput, marginTop: 10 }}><option value="">— 대상 선택 —</option>{staff.map(item => <option key={`${item.accountType}-${item.id}`} value={`${item.accountType}:${item.id}`}>{item.name || item.id} · {item.displayRole}</option>)}</select>}
       <input value={title} onChange={event => setTitle(event.target.value)} placeholder="공지 제목" style={{ ...styles.loginInput, marginTop: 10 }} />
       <textarea value={body} onChange={event => setBody(event.target.value)} rows={5} placeholder="공지 내용을 입력하세요." style={styles.textareaInput} />
+      <label style={{ display: "grid", gap: 5, marginTop: 10, maxWidth: 230, fontSize: 11, fontWeight: 850, color: "#6d665c" }}>
+        마감일자 <span style={{ fontSize: 9.5, fontWeight: 650, color: "#999184" }}>선택 · 마감 3일 전부터 개인 알림 표시</span>
+        <input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} style={{ ...styles.loginInput, marginTop: 0 }} />
+      </label>
       <button type="button" disabled={busy} onClick={submit} style={{ ...styles.primaryBtn, marginTop: 10 }}>{busy ? <Loader2 className="spin" size={14} /> : <Send size={14} />} 공지 보내기</button>
     </section>
     <section style={styles.card}>
       <div style={{ fontSize: 14, fontWeight: 950, marginBottom: 10 }}>등록한 교직원 공지</div>
-      {!(notices || []).length ? <div style={styles.materialEmpty}>등록된 교직원 공지가 없습니다.</div> : <div style={{ display: "grid", gap: 8 }}>{(notices || []).map(item => <article key={item.id} style={styles.staffNoticeManageCard}><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><div><div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}><span style={styles.staffNoticeAudienceBadge}>{item.targetLabel || (item.targetType === "all" ? "전체 교직원" : "개인")}</span><b>{item.title}</b></div><div style={{ marginTop: 6, fontSize: 11.5, color: "#625b50", whiteSpace: "pre-wrap" }}>{item.body || "내용 없음"}</div><div style={{ marginTop: 7, fontSize: 9.8, color: "#9a9386" }}>{item.createdAt ? new Date(item.createdAt).toLocaleString("ko-KR") : ""} · 읽음 {(item.readBy || []).length}명</div></div><button type="button" onClick={() => remove(item.id)} style={styles.iconBtn}><Trash2 size={14} /></button></div></article>)}</div>}
+      {!(notices || []).length ? <div style={styles.materialEmpty}>등록된 교직원 공지가 없습니다.</div> : <div style={{ display: "grid", gap: 8 }}>{(notices || []).map(item => <article key={item.id} style={styles.staffNoticeManageCard}><div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}><div><div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}><span style={styles.staffNoticeAudienceBadge}>{item.targetLabel || (item.targetType === "all" ? "전체 교직원" : "개인")}</span><b>{item.title}</b></div><div style={{ marginTop: 6, fontSize: 11.5, color: "#625b50", whiteSpace: "pre-wrap" }}>{item.body || "내용 없음"}</div><div style={{ marginTop: 7, fontSize: 9.8, color: "#9a9386" }}>{item.createdAt ? new Date(item.createdAt).toLocaleString("ko-KR") : ""} · 읽음 {(item.readBy || []).length}명{item.dueDate ? ` · 마감 ${item.dueDate}` : ""}</div></div><button type="button" onClick={() => remove(item.id)} style={styles.iconBtn}><Trash2 size={14} /></button></div></article>)}</div>}
     </section>
   </div>;
 }
-function TeacherNoticeInbox({ account, notices, persist, showToast }) {
+function deadlineAlertMeta(dateStr) {
+  if (!dateStr) return null;
+  const due = new Date(`${dateStr}T23:59:59`);
+  if (Number.isNaN(due.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueDay = new Date(due);
+  dueDay.setHours(0, 0, 0, 0);
+  const days = Math.round((dueDay - today) / 86400000);
+  const label = days === 0 ? "오늘 마감" : days === 1 ? "내일 마감" : days > 1 ? `D-${days}` : `마감 ${Math.abs(days)}일 지남`;
+  return { days, label, dueSoon: days >= 0 && days <= 3, overdue: days < 0 };
+}
+function noticeIdentity(item, fallback = "") {
+  return String(item?.id || `${item?.title || ""}|${item?.text || item?.body || ""}|${item?.dueDate || ""}|${fallback}`);
+}
+function alertPreview(item) {
+  return String(item?.text || item?.body || "").trim().slice(0, 120) || "내용 없음";
+}
+function TeacherPersonalAlertDock({ account, notices, announcements, persist, showToast, offsetTop = 210 }) {
   const [open, setOpen] = useState(false);
-  const relevant = (notices || []).filter(item => staffNoticeAudience(item, account));
+  const relevantAdmin = (notices || []).filter(item => staffNoticeAudience(item, account));
   const readKey = `${account?.accountType || "teacher"}:${account?.id}`;
-  const unread = relevant.filter(item => !(item.readBy || []).includes(readKey));
-  if (!unread.length) return null;
+  const authoredDue = [];
+  Object.entries(announcements || {}).forEach(([noticeScope, targetMap]) => {
+    Object.entries(targetMap || {}).forEach(([targetKey, rawList]) => {
+      asNoticeArray(rawList).forEach(item => {
+        const due = deadlineAlertMeta(item.dueDate);
+        if (noticeAuthoredBy(item, account) && due?.dueSoon) authoredDue.push({ ...item, _scope: noticeScope, _targetKey: targetKey, _due: due });
+      });
+    });
+  });
+  const alertMap = new Map();
+  relevantAdmin.forEach(item => {
+    const unread = !(item.readBy || []).includes(readKey);
+    const due = deadlineAlertMeta(item.dueDate);
+    if (!unread && !due?.dueSoon) return;
+    alertMap.set(`admin:${noticeIdentity(item)}`, { kind: "admin", item, unread, due: due?.dueSoon ? due : null });
+  });
+  authoredDue.forEach(item => alertMap.set(`own:${noticeIdentity(item, item._targetKey)}`, { kind: "own", item, unread: false, due: item._due }));
+  const alerts = Array.from(alertMap.values()).sort((a, b) => ((a.due?.days ?? 99) - (b.due?.days ?? 99)) || Number(b.unread) - Number(a.unread));
+  if (!alerts.length) return null;
+  const unreadAdminCount = alerts.filter(alert => alert.kind === "admin" && alert.unread).length;
   const markOne = async id => {
     const next = (notices || []).map(item => item.id === id ? { ...item, readBy: Array.from(new Set([...(item.readBy || []), readKey])) } : item);
     await persist({ staffNotices: next });
   };
   const markAll = async () => {
-    const ids = new Set(unread.map(item => item.id));
-    const next = (notices || []).map(item => ids.has(item.id) ? { ...item, readBy: Array.from(new Set([...(item.readBy || []), readKey])) } : item);
+    const unreadIds = new Set(relevantAdmin.filter(item => !(item.readBy || []).includes(readKey)).map(item => item.id));
+    const next = (notices || []).map(item => unreadIds.has(item.id) ? { ...item, readBy: Array.from(new Set([...(item.readBy || []), readKey])) } : item);
     const ok = await persist({ staffNotices: next });
-    if (ok) showToast("교직원 공지를 모두 읽음 처리했습니다.", "success");
+    if (ok) showToast("관리자 공지를 모두 읽음 처리했습니다.", "success");
   };
-  return <div className="staff-notice-dock no-print" style={styles.staffNoticeDock}>
-    <button type="button" onClick={() => setOpen(value => !value)} style={{ ...styles.staffNoticeDockButton, ...(unread.length ? styles.staffNoticeDockUnread : {}) }}>
-      {unread.length ? <BellRing size={17} /> : <Bell size={17} />}<span>관리자 알림</span>{unread.length > 0 && <strong style={styles.staffNoticeCount}>{unread.length}</strong>}
+  return <div className="staff-notice-dock no-print" style={{ ...styles.staffNoticeDock, top: offsetTop }}>
+    <button type="button" onClick={() => setOpen(value => !value)} style={{ ...styles.staffNoticeDockButton, ...styles.personalAlertDockButton }}>
+      <BellRing size={17} /><span>개인 알림</span><strong style={styles.staffNoticeCount}>{alerts.length}</strong>
     </button>
     {open && <div style={styles.staffNoticePopup}>
-      <div style={styles.staffNoticePopupHeader}><div><b>관리자 알림</b><div style={{ fontSize: 9.5, color: "#8b8390", marginTop: 2 }}>읽지 않은 알림 {unread.length}건</div></div>{unread.length > 0 && <button type="button" onClick={markAll} style={styles.iconTextBtn}><CheckCheck size={13} /> 모두 읽음</button>}</div>
-      <div style={{ display: "grid", gap: 7, maxHeight: 360, overflowY: "auto" }}>{relevant.map(item => { const isUnread = !(item.readBy || []).includes(readKey); return <button key={item.id} type="button" onClick={() => isUnread && markOne(item.id)} style={{ ...styles.staffNoticeItem, ...(isUnread ? styles.staffNoticeItemUnread : {}) }}><div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><b>{item.title || "관리자 공지"}</b>{isUnread && <span style={styles.staffNoticeNew}>NEW</span>}</div><div style={{ marginTop: 5, color: "#5e5863", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{item.body || "내용 없음"}</div><div style={{ marginTop: 6, color: "#9a929d", fontSize: 9 }}>{item.createdAt ? new Date(item.createdAt).toLocaleString("ko-KR") : ""}</div></button>; })}</div>
+      <div style={styles.staffNoticePopupHeader}>
+        <div><b>개인 알림</b><div style={{ fontSize: 10, color: "#8b8390", marginTop: 2 }}>미확인 공지와 마감 임박 알림</div></div>
+        {unreadAdminCount > 0 && <button type="button" onClick={markAll} style={styles.iconTextBtn}><CheckCheck size={13} /> 관리자 공지 모두 읽음</button>}
+      </div>
+      <div style={{ display: "grid", gap: 8, maxHeight: 390, overflowY: "auto" }}>
+        {alerts.map((alert, index) => {
+          const item = alert.item;
+          const title = item.title || (alert.kind === "own" ? "내가 게시한 공지" : "관리자 공지");
+          return <article key={`${alert.kind}-${noticeIdentity(item)}-${index}`} style={{ ...styles.personalAlertItem, ...(alert.unread ? styles.personalAlertItemUnread : {}) }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+              <span style={{ ...styles.personalAlertType, ...(alert.kind === "own" ? styles.personalAlertTypeOwn : styles.personalAlertTypeAdmin) }}>{alert.kind === "own" ? "내 공지" : "관리자"}</span>
+              {alert.unread && <span style={styles.staffNoticeNew}>NEW</span>}
+              {alert.due && <span style={styles.personalAlertDue}><Calendar size={10} /> {alert.due.label}</span>}
+            </div>
+            <div style={{ marginTop: 7, fontSize: 11.5, fontWeight: 900, color: "#302d35" }}>{title}</div>
+            <div style={{ marginTop: 4, color: "#65606a", fontSize: 10.5, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{alertPreview(item)}</div>
+            {alert.kind === "admin" && alert.unread && <button type="button" onClick={() => markOne(item.id)} style={styles.personalAlertAction}><Check size={11} /> 읽음 처리</button>}
+          </article>;
+        })}
+      </div>
+    </div>}
+  </div>;
+}
+function StudentPersonalAlertDock({ sid, result, offsetTop = 88 }) {
+  const [open, setOpen] = useState(false);
+  const [readIds, setReadIds] = useState(() => getReadIds(sid));
+  useEffect(() => {
+    setReadIds(getReadIds(sid));
+    const refresh = event => { if (!event?.detail?.sid || String(event.detail.sid) === String(sid)) setReadIds(getReadIds(sid)); };
+    window.addEventListener("kd-notice-read", refresh);
+    return () => window.removeEventListener("kd-notice-read", refresh);
+  }, [sid]);
+  if (!result) return null;
+  const subjectNotices = result.notices || [];
+  const allNotices = [...subjectNotices, ...(result.homeroomNotices || [])];
+  const alertMap = new Map();
+  subjectNotices.forEach(item => {
+    if (!item.id || readIds.has(item.id)) return;
+    alertMap.set(noticeIdentity(item), { item, unread: true, due: deadlineAlertMeta(item.dueDate), source: item.subject ? `${item.subject} 공지` : "과목 공지" });
+  });
+  allNotices.forEach(item => {
+    const due = deadlineAlertMeta(item.dueDate);
+    if (!due?.dueSoon) return;
+    const key = noticeIdentity(item);
+    const previous = alertMap.get(key);
+    alertMap.set(key, { item, unread: previous?.unread || false, due, source: previous?.source || (item.subject ? `${item.subject} 공지` : item.origin === "personal" ? "개인 공지" : "학급 공지") });
+  });
+  const alerts = Array.from(alertMap.values()).sort((a, b) => ((a.due?.days ?? 99) - (b.due?.days ?? 99)) || Number(b.unread) - Number(a.unread));
+  if (!alerts.length) return null;
+  const markOne = id => { markRead(sid, [id]); setReadIds(getReadIds(sid)); };
+  return <div className="staff-notice-dock no-print" style={{ ...styles.staffNoticeDock, top: offsetTop }}>
+    <button type="button" onClick={() => setOpen(value => !value)} style={{ ...styles.staffNoticeDockButton, ...styles.studentAlertDockButton }}>
+      <BellRing size={17} /><span>개인 알림</span><strong style={styles.staffNoticeCount}>{alerts.length}</strong>
+    </button>
+    {open && <div style={styles.staffNoticePopup}>
+      <div style={styles.staffNoticePopupHeader}><div><b>개인 알림</b><div style={{ fontSize: 10, color: "#8b8390", marginTop: 2 }}>수강 과목 미확인 공지와 마감 임박 일정</div></div></div>
+      <div style={{ display: "grid", gap: 8, maxHeight: 390, overflowY: "auto" }}>
+        {alerts.map((alert, index) => <article key={`${noticeIdentity(alert.item)}-${index}`} style={{ ...styles.personalAlertItem, ...(alert.unread ? styles.personalAlertItemUnread : {}) }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
+            <span style={{ ...styles.personalAlertType, ...styles.personalAlertTypeStudent }}>{alert.source}</span>
+            {alert.unread && <span style={styles.staffNoticeNew}>NEW</span>}
+            {alert.due && <span style={styles.personalAlertDue}><Calendar size={10} /> {alert.due.label}</span>}
+          </div>
+          <div style={{ marginTop: 7, fontSize: 11.5, fontWeight: 900, color: "#302d35" }}>{alert.item.title || alert.item.category || "공지사항"}</div>
+          <div style={{ marginTop: 4, color: "#65606a", fontSize: 10.5, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{alertPreview(alert.item)}</div>
+          {alert.unread && <button type="button" onClick={() => markOne(alert.item.id)} style={styles.personalAlertAction}><Check size={11} /> 읽음 처리</button>}
+        </article>)}
+      </div>
     </div>}
   </div>;
 }
@@ -4216,9 +4343,19 @@ const styles = {
   workspaceViewBtn: { border: 0, borderRadius: 9, background: "transparent", color: "#667085", padding: "7px 10px", fontSize: 11.5, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceViewBtnActive: { background: "#fff", color: "#274b7a", boxShadow: "0 2px 8px rgba(48,65,90,.12)" },
   workspaceStudentState: { minWidth: 0, fontSize: 10.5, color: "#8a8578", textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 },
-  staffNoticeDock: { position: "fixed", left: 18, top: 142, zIndex: 44, width: 286 },
+  staffNoticeDock: { position: "fixed", left: 18, top: 212, zIndex: 44, width: 300 },
   staffNoticeDockButton: { display: "inline-flex", alignItems: "center", gap: 7, borderRadius: 999, padding: "9px 12px", border: "1px solid #d2d5df", background: "#fff", color: "#526079", fontSize: 11.5, fontWeight: 900, cursor: "pointer", boxShadow: "0 7px 22px rgba(40,46,60,.12)" },
   staffNoticeDockUnread: { background: "#2f3e62", color: "#fff", borderColor: "#2f3e62" },
+  personalAlertDockButton: { background: "linear-gradient(135deg,#314d7a,#5f6f9b)", color: "#fff", borderColor: "#314d7a", fontSize: 12.2, padding: "10px 14px" },
+  studentAlertDockButton: { background: "linear-gradient(135deg,#315d62,#4f8790)", color: "#fff", borderColor: "#315d62", fontSize: 12.2, padding: "10px 14px" },
+  personalAlertItem: { border: "1px solid #e5e1da", borderRadius: 11, padding: 10, background: "#fbfaf7" },
+  personalAlertItemUnread: { borderColor: "#c7d3eb", background: "#f3f6fc", boxShadow: "inset 3px 0 #5471a5" },
+  personalAlertType: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "2px 6px", fontSize: 8.8, fontWeight: 950, border: "1px solid" },
+  personalAlertTypeAdmin: { color: "#485c89", background: "#edf1fa", borderColor: "#ced8eb" },
+  personalAlertTypeOwn: { color: "#7c5624", background: "#fff5e6", borderColor: "#ecd6ad" },
+  personalAlertTypeStudent: { color: "#315f64", background: "#eaf4f4", borderColor: "#c9dddd" },
+  personalAlertDue: { display: "inline-flex", alignItems: "center", gap: 3, borderRadius: 999, padding: "2px 6px", fontSize: 8.8, fontWeight: 950, color: "#9a453d", background: "#fff0ee", border: "1px solid #ecc7c2" },
+  personalAlertAction: { marginTop: 8, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #ccd4e4", borderRadius: 7, background: "#fff", color: "#53698f", padding: "4px 7px", fontSize: 9.5, fontWeight: 900, cursor: "pointer" },
   staffNoticeCount: { minWidth: 20, height: 20, display: "inline-grid", placeItems: "center", borderRadius: 999, background: "#ffd978", color: "#25314d", fontSize: 10 },
   staffNoticePopup: { marginTop: 8, width: "100%", borderRadius: 13, background: "#fff", border: "1px solid #d9dbe3", boxShadow: "0 14px 40px rgba(34,38,50,.2)", padding: 11 },
   staffNoticePopupHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "2px 2px 9px", borderBottom: "1px solid #ece9e2", marginBottom: 8 },
