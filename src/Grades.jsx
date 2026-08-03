@@ -807,7 +807,7 @@ function AdmissionReflectionBadge({ value }) {
     .filter(Boolean);
   if (!parts.length) return null;
   return (
-    <span style={reflectionBadge} title={normalizeReflectionText(value)}>
+    <span className="reflection-badge" style={reflectionBadge} title={normalizeReflectionText(value)}>
       {parts.map((part, index) => (
         <span key={`${part}-${index}`} style={reflectionBadgeLine}>
           {index > 0 && <span style={reflectionBadgePlus}>＋</span>}
@@ -3619,16 +3619,16 @@ const reflectionBadge = {
   alignItems: "center",
   justifyContent: "center",
   width: "auto",
-  maxWidth: "92%",
-  padding: "3px 6px",
-  borderRadius: 6,
+  maxWidth: "82%",
+  padding: "2px 4px",
+  borderRadius: 5,
   background: "#f6f7f7",
   border: "1px solid #dfe2e3",
-  borderLeft: "3px solid #8d989f",
+  borderLeft: "2px solid #8d989f",
   color: "#485158",
-  fontSize: 8.8,
-  fontWeight: 900,
-  lineHeight: 1.18,
+  fontSize: 7.7,
+  fontWeight: 850,
+  lineHeight: 1.12,
   whiteSpace: "normal",
   wordBreak: "keep-all",
 };
@@ -3636,14 +3636,14 @@ const reflectionBadgeLine = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  minHeight: 12,
+  minHeight: 10,
   whiteSpace: "nowrap",
 };
 const reflectionBadgePlus = {
   marginRight: 2,
   color: "#7d7467",
-  fontSize: 8.5,
-  fontWeight: 900,
+  fontSize: 7.4,
+  fontWeight: 850,
 };
 const specialNoteStyle = {
   box: {

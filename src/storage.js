@@ -74,6 +74,52 @@ export async function uploadAdmissionPdf(file, university) {
   return { path: snapshot.ref.fullPath, url, fileName: file.name, size: file.size };
 }
 
+
+// 선생님 ZONE의 수업자료 첨부파일을 Firebase Storage에 저장합니다.
+// Firestore에는 게시글과 파일 메타데이터만 저장하여 문서 용량을 작게 유지합니다.
+export async function uploadClassroomAttachment(file, meta = {}) {
+  if (!file) throw new Error("첨부파일을 선택해주세요.");
+  if (file.size > 30 * 1024 * 1024) throw new Error("첨부파일은 개별 30MB 이하만 업로드할 수 있습니다.");
+
+  const scopePart = safeFilePart(meta.scopeKey || "학기");
+  const subjectPart = safeFilePart(meta.subject || "수업자료");
+  const targetPart = safeFilePart(meta.target || "전체");
+  const filePart = safeFilePart(file.name || "첨부파일");
+  const path = `classroom-materials/${scopePart}/${subjectPart}/${targetPart}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${filePart}`;
+  const target = storageRef(fileStorage, path);
+  const contentType = file.type || "application/octet-stream";
+  const inline = contentType === "application/pdf" || contentType.startsWith("image/");
+  const snapshot = await uploadBytes(target, file, {
+    contentType,
+    contentDisposition: `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name || "attachment")}`,
+    customMetadata: {
+      scopeKey: String(meta.scopeKey || ""),
+      subject: String(meta.subject || ""),
+      target: String(meta.target || ""),
+      teacherName: String(meta.teacherName || ""),
+    },
+  });
+  const url = await getDownloadURL(snapshot.ref);
+  return {
+    path: snapshot.ref.fullPath,
+    url,
+    fileName: file.name || "첨부파일",
+    size: file.size || 0,
+    contentType,
+  };
+}
+
+export async function deleteClassroomAttachment(path) {
+  if (!path) return { ok: true };
+  try {
+    await deleteObject(storageRef(fileStorage, path));
+    return { ok: true };
+  } catch (e) {
+    if (e?.code === "storage/object-not-found") return { ok: true };
+    return { ok: false, error: e?.code || e?.message || String(e) };
+  }
+}
+
 export async function deleteAdmissionPdf(path) {
   if (!path) return { ok: true };
   try {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar } from "lucide-react";
-import { readStorage, writeStorage } from "./storage.js";
+import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download } from "lucide-react";
+import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
 import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
@@ -130,6 +130,12 @@ function asNoticeArray(v) {
   if (!v) return [];
   if (Array.isArray(v)) return v;
   if (typeof v === "object" && v.text) return [v];
+  return [];
+}
+function asMaterialArray(v) {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  if (typeof v === "object" && (v.title || v.text || v.attachments)) return [v];
   return [];
 }
 function getReadIds(sid) {
@@ -498,7 +504,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
-  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {} });
+  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {} });
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] });
@@ -517,7 +523,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -528,8 +534,9 @@ export default function App() {
         readStorage("kd_accounts", { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] }),
         readStorage("kd_rooms", {}),
         readStorage("kd_notices", {}),
+        readStorage("kd_materials", {}),
       ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames, announcements });
+      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials });
       loadGradesDB().then(setGdb);
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
@@ -610,6 +617,7 @@ export default function App() {
     if (patch.meta) jobs.push(writeStorage("kd_meta", patch.meta));
     if (patch.roomNames) jobs.push(writeStorage("kd_rooms", patch.roomNames));
     if (patch.announcements) jobs.push(writeStorage("kd_notices", patch.announcements));
+    if (patch.materials) jobs.push(writeStorage("kd_materials", patch.materials));
     const results = await Promise.all(jobs);
     const failed = results.find(r => r && r.ok === false);
     if (failed) { showToast(`실패했습니다. (${failed.error})`, "error"); return false; }
@@ -648,6 +656,7 @@ export default function App() {
   const roomNames = db.roomNames[scopeKey] || {};
   const abbrevMap = abbrevMaps[grade] || {};
   const announcements = db.announcements[scopeKey] || {};
+  const materials = db.materials[scopeKey] || {};
 
   const teacherGradeAccessList = useMemo(() => teacherGradeAccess(loggedInTeacher), [loggedInTeacher]);
   const teacherTimetableAccessList = useMemo(() => teacherTimetableAccess(loggedInTeacher), [loggedInTeacher]);
@@ -735,9 +744,19 @@ export default function App() {
     if (homeTT) DAYS.forEach(day => (homeTT[day] || []).forEach((c, pi) => { if (c && !isMoveSlot(c)) grid[day][pi] = { type: "pf", raw: c }; }));
     const warnings = [];
     const notices = [];
+    const classroomCourseMap = new Map();
+    const registerClassroomCourse = (key, subject, label, kind) => {
+      if (!key || classroomCourseMap.has(key)) return;
+      classroomCourseMap.set(key, {
+        key, subject, label, kind,
+        materials: asMaterialArray(materials[key]).slice().sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))),
+      });
+    };
+
     (enrollments[sid] || []).forEach(course => {
       const ab = rev[course.subject];
       const noticeKey = targetKeyFor("elective", course.subject, course.group);
+      registerClassroomCourse(noticeKey, course.subject, `${course.subject} · ${course.group}그룹`, "elective");
       asNoticeArray(announcements[noticeKey]).forEach(n => notices.push({ subject: course.subject, group: `${course.group}그룹`, ...n }));
       if (!ab) { warnings.push(`"${course.subject}" 과목의 약어 매핑이 없습니다.`); return; }
       const hostTT = timetables[String(course.hostClass)];
@@ -754,17 +773,19 @@ export default function App() {
     DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: FIXED_LABELS[subject] || subject, location }; } return c; }); });
     const seenCommon = new Set();
     DAYS.forEach(day => grid[day].forEach(c => {
-      if (!c || c.type !== "fixed") return;
+      if (!c || c.type !== "fixed" || IGNORED_COMMON_LABELS.has(c.subject)) return;
       const key = targetKeyFor("common", c.subject, info.class);
       if (seenCommon.has(key)) return;
       seenCommon.add(key);
+      registerClassroomCourse(key, c.subject, c.subject, "common");
       asNoticeArray(announcements[key]).forEach(n => notices.push({ subject: c.subject, group: `${info.class}반`, ...n }));
     }));
     const personalNotices = asNoticeArray(announcements[`STUDENT_${sid}`]).map(n => ({ ...n, origin: "personal" }));
     const homeroomOnly = asNoticeArray(announcements[homeroomKeyFor(info.class)]).map(n => ({ ...n, origin: "homeroom" }));
     const homeroomNotices = [...homeroomOnly, ...personalNotices];
-    return { student: info, grid, warnings, notices, homeroomNotices, hasTimetable: !!homeTT };
-  }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements]);
+    const classroomCourses = Array.from(classroomCourseMap.values()).sort((a, b) => a.label.localeCompare(b.label, "ko"));
+    return { student: info, grid, warnings, notices, homeroomNotices, classroomCourses, hasTimetable: !!homeTT };
+  }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements, materials]);
 
   const adminAccounts = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
   const hasAnyData = Object.keys(roster).length > 0;
@@ -1377,6 +1398,7 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
                         <span style={{ fontSize: 12, fontWeight: 700, color: cat.text }}>{n.teacherName ? `${n.teacherName} 선생님` : "공지"}</span>
                       </div>
                       <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
+                      <AttachmentLinks attachments={n.attachments} />
                     </div>
                   );
                 })}
@@ -1396,7 +1418,6 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
 function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onLogout, roster, enrollments, accounts, persistAccounts, onUpdateTeacher, viewingAsAdmin }) {
   const [editingProfile, setEditingProfile] = useState(false);
 
-  // Combine homeroom (if any) and all subject assignments into one flat list of selectable targets.
   const flatTargets = useMemo(() => {
     const out = [];
     if (teacher.homeroomClass) out.push({ kind: "homeroom", target: teacher.homeroomClass, label: `${teacher.homeroomClass}반 학급 공지`, categories: HOMEROOM_CATEGORIES });
@@ -1413,12 +1434,28 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   const categories = sel ? sel.categories : NOTICE_CATEGORIES;
   const targetKey = sel ? (sel.kind === "homeroom" ? homeroomKeyFor(sel.target) : targetKeyFor(sel.kind, sel.subject, sel.target)) : null;
   const currentNotices = asNoticeArray((db.announcements[scopeKey] || {})[targetKey]);
+  const currentMaterials = sel && sel.kind !== "homeroom" ? asMaterialArray((db.materials?.[scopeKey] || {})[targetKey]) : [];
 
+  const [composerMode, setComposerMode] = useState("notice");
   const [category, setCategory] = useState(categories[0]);
-  useEffect(() => { setCategory((sel ? sel.categories : NOTICE_CATEGORIES)[0]); }, [selIdx]); // eslint-disable-line
+  useEffect(() => {
+    setCategory((sel ? sel.categories : NOTICE_CATEGORIES)[0]);
+    if (sel?.kind === "homeroom") setComposerMode("notice");
+  }, [selIdx]); // eslint-disable-line
+
   const [text, setText] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [materialTitle, setMaterialTitle] = useState("");
+  const [materialText, setMaterialText] = useState("");
+  const [materialFiles, setMaterialFiles] = useState([]);
+  const [publishAsNotice, setPublishAsNotice] = useState(true);
+  const materialFileRef = useRef(null);
+  useEffect(() => {
+    setText(""); setDueDate("");
+    setMaterialTitle(""); setMaterialText(""); setMaterialFiles([]); setPublishAsNotice(true);
+    if (materialFileRef.current) materialFileRef.current.value = "";
+  }, [targetKey]);
 
   const writeNotices = async (key, updater) => {
     const current = db.announcements[scopeKey] || {};
@@ -1448,6 +1485,79 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
     } catch (e) {
       showToast(`오류가 발생했습니다: ${e.message}`, "error");
     }
+  };
+
+  const addMaterial = async () => {
+    if (!sel || sel.kind === "homeroom" || !targetKey) { showToast("과목 수업을 선택해주세요.", "error"); return; }
+    if (!materialTitle.trim()) { showToast("자료 제목을 입력해주세요.", "error"); return; }
+    if (!materialText.trim() && !materialFiles.length) { showToast("본문을 입력하거나 파일을 첨부해주세요.", "error"); return; }
+    setSaving(true);
+    const uploaded = [];
+    try {
+      for (const file of materialFiles) {
+        uploaded.push(await uploadClassroomAttachment(file, {
+          scopeKey, subject: sel.subject, target: sel.target, teacherName: teacher.name,
+        }));
+      }
+      const materialId = Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+      const entry = {
+        id: materialId,
+        title: materialTitle.trim(),
+        text: materialText.trim(),
+        attachments: uploaded,
+        teacherName: teacher.name,
+        subject: sel.subject,
+        targetLabel: sel.label,
+        publishAsNotice,
+        updatedAt: new Date().toISOString(),
+      };
+      const scopeMaterials = db.materials?.[scopeKey] || {};
+      const updatedScopeMaterials = { ...scopeMaterials, [targetKey]: [...asMaterialArray(scopeMaterials[targetKey]), entry] };
+      const patch = { materials: { ...(db.materials || {}), [scopeKey]: updatedScopeMaterials } };
+      if (publishAsNotice) {
+        const scopeAnnouncements = db.announcements[scopeKey] || {};
+        const noticeEntry = {
+          id: `NOTICE_${materialId}`,
+          materialId,
+          category: "공지",
+          text: `[수업자료] ${entry.title}${entry.text ? `\n${entry.text}` : ""}`,
+          attachments: uploaded,
+          teacherName: teacher.name,
+          updatedAt: entry.updatedAt,
+        };
+        patch.announcements = {
+          ...db.announcements,
+          [scopeKey]: { ...scopeAnnouncements, [targetKey]: [...asNoticeArray(scopeAnnouncements[targetKey]), noticeEntry] },
+        };
+      }
+      const ok = await persist(patch);
+      if (!ok) {
+        await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path)));
+        return;
+      }
+      showToast(publishAsNotice ? "수업자료를 올리고 공지사항에도 등록했습니다." : "수업자료를 등록했습니다.", "success");
+      setMaterialTitle(""); setMaterialText(""); setMaterialFiles([]); setPublishAsNotice(true);
+      if (materialFileRef.current) materialFileRef.current.value = "";
+    } catch (e) {
+      await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path)));
+      showToast(`자료 업로드 오류: ${e.message}`, "error");
+    }
+    setSaving(false);
+  };
+
+  const deleteMaterial = async (material) => {
+    const scopeMaterials = db.materials?.[scopeKey] || {};
+    const updatedScopeMaterials = { ...scopeMaterials, [targetKey]: asMaterialArray(scopeMaterials[targetKey]).filter(item => item.id !== material.id) };
+    const scopeAnnouncements = db.announcements[scopeKey] || {};
+    const updatedScopeAnnouncements = { ...scopeAnnouncements, [targetKey]: asNoticeArray(scopeAnnouncements[targetKey]).filter(item => item.materialId !== material.id) };
+    const ok = await persist({
+      materials: { ...(db.materials || {}), [scopeKey]: updatedScopeMaterials },
+      announcements: { ...db.announcements, [scopeKey]: updatedScopeAnnouncements },
+    });
+    if (!ok) return;
+    const deleted = await Promise.all((material.attachments || []).map(file => deleteClassroomAttachment(file.path)));
+    if (deleted.some(result => !result.ok)) showToast("게시글은 삭제했지만 일부 첨부파일 정리에 실패했습니다.", "info");
+    else showToast("수업자료를 삭제했습니다.", "success");
   };
 
   if (editingProfile) {
@@ -1480,40 +1590,77 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
       {flatTargets.length > 0 && (
         <>
           <div className="no-print" style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 6 }}>공지를 작성할 대상을 선택하세요</div>
+            <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 6 }}>게시할 학급 또는 과목을 선택하세요.</div>
             <div style={styles.classChips}>
-              {flatTargets.map((t, i) => <button key={i} onClick={() => setSelIdx(i)} style={{ ...styles.classChip, ...(selIdx === i ? styles.classChipActive : {}) }}>{t.label}</button>)}
+              {flatTargets.map((t, i) => <button key={`${t.kind}-${t.subject || "home"}-${t.target}`} onClick={() => setSelIdx(i)} style={{ ...styles.classChip, ...(selIdx === i ? styles.classChipActive : {}) }}>{t.label}</button>)}
             </div>
           </div>
 
           <div style={styles.card}>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>{sel.label} 작성</div>
-            <div style={{ fontSize: 12.5, color: "#8a8578", marginBottom: 10 }}>
-              {sel.kind === "homeroom" ? `이 내용은 ${sel.target}반 학생의 개인 시간표 상단에 표시됩니다.` : `이 항목은 ${sel.label}인 학생의 개인 시간표${sel.kind === "elective" ? ' · "이동수업반별 명단" 페이지' : ""}에 표시됩니다.`}
-            </div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-              {categories.map(c => <button key={c} onClick={() => setCategory(c)} style={{ ...styles.classChip, ...(category === c ? styles.classChipActive : {}) }}>{c}</button>)}
-            </div>
-            <textarea value={text} onChange={e => setText(e.target.value)} rows={5} style={{ ...styles.textareaInput }} placeholder={sel.kind === "homeroom" ? "예: 다음 주 화요일까지 진로 희망서를 제출해주세요." : "예: 다음 시간에는 3층 과학실습실로 이동합니다. 준비물: 실험복."} />
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-              <span style={{ fontSize: 12, color: "#8a8578" }}>마감기한 (선택)</span>
-              <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, width: 160 }} />
-              {dueDate && <button style={styles.iconBtn} onClick={() => setDueDate("")}><X size={13} /></button>}
-            </div>
-            <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 추가</button>
-
-            {currentNotices.length > 0 && (
-              <div style={{ marginTop: 18 }}>
-                <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>등록된 공지</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {currentNotices.slice().reverse().map(n => (
-                    <NoticeCard key={n.id} n={n} labelText={new Date(n.updatedAt).toLocaleString("ko-KR")} onDelete={() => deleteNotice(n.id)} />
-                  ))}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+              <div>
+                <div style={{ fontWeight: 800 }}>{sel.label}</div>
+                <div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 3 }}>
+                  {sel.kind === "homeroom" ? `${sel.target}반 학생에게 공지합니다.` : "공지사항 또는 첨부파일이 있는 수업자료를 게시할 수 있습니다."}
                 </div>
               </div>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button onClick={() => setComposerMode("notice")} style={{ ...styles.classChip, ...(composerMode === "notice" ? styles.classChipActive : {}) }}>공지사항</button>
+                {sel.kind !== "homeroom" && <button onClick={() => setComposerMode("material")} style={{ ...styles.classChip, ...(composerMode === "material" ? styles.classChipActive : {}) }}><BookOpen size={12} style={{ verticalAlign: "-2px", marginRight: 4 }} />수업자료</button>}
+              </div>
+            </div>
+
+            {composerMode === "notice" ? (
+              <>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+                  {categories.map(c => <button key={c} onClick={() => setCategory(c)} style={{ ...styles.classChip, ...(category === c ? styles.classChipActive : {}) }}>{c}</button>)}
+                </div>
+                <textarea value={text} onChange={e => setText(e.target.value)} rows={5} style={styles.textareaInput} placeholder={sel.kind === "homeroom" ? "예: 다음 주 화요일까지 진로 희망서를 제출해주세요." : "예: 다음 시간 준비물과 과제 내용을 안내합니다."} />
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                  <span style={{ fontSize: 12, color: "#8a8578" }}>마감기한 (선택)</span>
+                  <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, width: 160 }} />
+                  {dueDate && <button style={styles.iconBtn} onClick={() => setDueDate("")}><X size={13} /></button>}
+                </div>
+                <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 공지 추가</button>
+                {currentNotices.length > 0 && (
+                  <div style={{ marginTop: 18 }}>
+                    <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>등록된 공지</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {currentNotices.slice().reverse().map(n => <NoticeCard key={n.id} n={n} labelText={new Date(n.updatedAt).toLocaleString("ko-KR")} onDelete={() => deleteNotice(n.id)} />)}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={styles.materialComposer}>
+                  <input value={materialTitle} onChange={e => setMaterialTitle(e.target.value)} placeholder="자료 제목" style={{ ...styles.loginInput, marginBottom: 8, maxWidth: "none" }} />
+                  <textarea value={materialText} onChange={e => setMaterialText(e.target.value)} rows={4} style={styles.textareaInput} placeholder="자료 설명, 학습 안내, 과제 내용을 작성하세요. 파일 없이 게시글만 등록할 수도 있습니다." />
+                  <input ref={materialFileRef} type="file" multiple style={{ display: "none" }} onChange={e => setMaterialFiles(Array.from(e.target.files || []))} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                    <button type="button" style={styles.secondaryBtn} onClick={() => materialFileRef.current?.click()}><Paperclip size={14} /> 파일 첨부</button>
+                    <span style={{ fontSize: 11.5, color: "#8a8578" }}>{materialFiles.length ? `${materialFiles.length}개 파일 선택됨` : "파일당 최대 30MB"}</span>
+                    {materialFiles.length > 0 && <button type="button" style={styles.iconBtn} onClick={() => { setMaterialFiles([]); if (materialFileRef.current) materialFileRef.current.value = ""; }}><X size={14} /></button>}
+                  </div>
+                  {materialFiles.length > 0 && <div style={styles.selectedFileList}>{materialFiles.map(file => <span key={`${file.name}-${file.size}`} style={styles.selectedFileChip}><Paperclip size={11} />{file.name}</span>)}</div>}
+                  <label style={styles.noticePublishCheck}>
+                    <input type="checkbox" checked={publishAsNotice} onChange={e => setPublishAsNotice(e.target.checked)} />
+                    <span><b>공지사항에도 등록</b><small>학생 시간표의 공지사항에도 같은 게시글과 첨부파일을 표시합니다.</small></span>
+                  </label>
+                  <button style={{ ...styles.primaryBtn, marginTop: 10 }} onClick={addMaterial} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 수업자료 등록</button>
+                </div>
+                <div style={{ marginTop: 18 }}>
+                  <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>등록된 수업자료 ({currentMaterials.length})</div>
+                  {currentMaterials.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {currentMaterials.slice().reverse().map(material => <MaterialCard key={material.id} material={material} onDelete={() => deleteMaterial(material)} />)}
+                    </div>
+                  ) : <div style={styles.materialEmpty}>아직 등록된 수업자료가 없습니다.</div>}
+                </div>
+              </>
             )}
 
-            {sel.kind !== "homeroom" && (
+            {sel.kind !== "homeroom" && composerMode === "notice" && (
               <MonitorManager
                 targetKey={targetKey} subject={sel.subject} group={sel.target} label={sel.label}
                 roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts}
@@ -1754,26 +1901,116 @@ function PersonalNoticeComposer({ roster, db, persist, showToast, scopeKey, teac
 }
 
 function TimetableCard({ result, sid }) {
-  const { student, grid, warnings, hasTimetable, notices, homeroomNotices } = result;
+  const { student, grid, warnings, hasTimetable, notices, homeroomNotices, classroomCourses = [] } = result;
   const hasNotices = (notices && notices.length > 0) || (homeroomNotices && homeroomNotices.length > 0);
+  const [view, setView] = useState("timetable");
   return (
     <div style={styles.card} className="print-card">
       <div style={styles.printHeader} className="print-header">
         <div><div style={styles.cardTitle}>{student.name} <span style={styles.cardSub}>{student.class}반 {student.number}번</span></div><div style={styles.cardMeta}>학번 {sid}</div></div>
         <button type="button" className="no-print" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> 인쇄 / PDF</button>
       </div>
-      {!hasTimetable && <div style={styles.warnBanner}><AlertTriangle size={14} /> {student.class}반 시간표 데이터가 없습니다.</div>}
-      <GridTable grid={grid} />
-      <div style={styles.legend}>
-        <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#c7d2c4" }} /> 공통수업</span>
-        <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
-        <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e3c6ae" }} /> 이동수업 (교실 이동)</span>
+      <div className="no-print" style={styles.studentViewTabs}>
+        <button type="button" onClick={() => setView("timetable")} style={{ ...styles.studentViewTab, ...(view === "timetable" ? styles.studentViewTabActive : {}) }}><Calendar size={14} /> 시간표</button>
+        <button type="button" onClick={() => setView("classroom")} style={{ ...styles.studentViewTab, ...(view === "classroom" ? styles.studentViewTabActive : {}) }}><BookOpen size={14} /> 내 강의실</button>
       </div>
-      {hasNotices && (
-        <NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} />
+      {view === "timetable" ? (
+        <>
+          {!hasTimetable && <div style={styles.warnBanner}><AlertTriangle size={14} /> {student.class}반 시간표 데이터가 없습니다.</div>}
+          <GridTable grid={grid} />
+          <div style={styles.legend}>
+            <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#c7d2c4" }} /> 공통수업</span>
+            <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
+            <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e3c6ae" }} /> 이동수업 (교실 이동)</span>
+          </div>
+          {hasNotices && <NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} />}
+          {warnings.length > 0 && <div style={styles.warnBox} className="no-print"><div style={styles.warnBoxTitle}><AlertTriangle size={13} /> 확인 필요 {warnings.length}건</div><ul style={styles.warnUl}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
+        </>
+      ) : (
+        <ClassroomMaterialsView courses={classroomCourses} />
       )}
-      {warnings.length > 0 && <div style={styles.warnBox} className="no-print"><div style={styles.warnBoxTitle}><AlertTriangle size={13} /> 확인 필요 {warnings.length}건</div><ul style={styles.warnUl}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
     </div>
+  );
+}
+
+function formatAttachmentSize(size) {
+  const value = Number(size || 0);
+  if (!value) return "";
+  if (value < 1024) return `${value}B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 102.4) / 10}KB`;
+  return `${Math.round(value / 1024 / 102.4) / 10}MB`;
+}
+
+function AttachmentLinks({ attachments }) {
+  const files = Array.isArray(attachments) ? attachments : [];
+  if (!files.length) return null;
+  return (
+    <div style={styles.attachmentList}>
+      {files.map((file, index) => (
+        <a key={`${file.path || file.url || file.fileName}-${index}`} href={file.url} target="_blank" rel="noreferrer" style={styles.attachmentLink} title={file.fileName || "첨부파일"}>
+          <Download size={12} />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.fileName || "첨부파일"}</span>
+          {file.size ? <small>{formatAttachmentSize(file.size)}</small> : null}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function MaterialCard({ material, onDelete }) {
+  const updatedLabel = material.updatedAt ? new Date(material.updatedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  return (
+    <article style={styles.materialCard}>
+      <div style={styles.materialCardHeader}>
+        <div style={{ minWidth: 0 }}>
+          <div style={styles.materialTitle}>{material.title || "수업자료"}</div>
+          <div style={styles.materialMeta}>{material.teacherName ? `${material.teacherName} 선생님` : "담당 선생님"}{updatedLabel ? ` · ${updatedLabel}` : ""}</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {material.publishAsNotice && <span style={styles.materialNoticeBadge}>공지 등록</span>}
+          {onDelete && <button type="button" style={styles.iconBtn} onClick={onDelete}><Trash2 size={14} /></button>}
+        </div>
+      </div>
+      {material.text && <div style={styles.materialBody}>{material.text}</div>}
+      <AttachmentLinks attachments={material.attachments} />
+    </article>
+  );
+}
+
+function ClassroomMaterialsView({ courses }) {
+  const availableCourses = Array.isArray(courses) ? courses : [];
+  const [selectedKey, setSelectedKey] = useState(availableCourses[0]?.key || "");
+  useEffect(() => {
+    if (!availableCourses.length) { setSelectedKey(""); return; }
+    if (!availableCourses.some(course => course.key === selectedKey)) setSelectedKey(availableCourses[0].key);
+  }, [availableCourses, selectedKey]);
+  const selected = availableCourses.find(course => course.key === selectedKey) || availableCourses[0];
+  return (
+    <section className="no-print" style={styles.classroomPanel}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontWeight: 900, fontSize: 15 }}>내 강의실</div>
+          <div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 3 }}>과목을 선택해 담당 선생님이 올린 게시글과 첨부파일을 확인하세요.</div>
+        </div>
+        <span style={styles.classroomCount}>{availableCourses.reduce((sum, course) => sum + (course.materials?.length || 0), 0)}개 자료</span>
+      </div>
+      {!availableCourses.length ? (
+        <div style={styles.materialEmpty}>현재 시간표에서 확인할 수 있는 과목이 없습니다.</div>
+      ) : (
+        <>
+          <div style={styles.classroomCourseTabs}>
+            {availableCourses.map(course => (
+              <button key={course.key} type="button" onClick={() => setSelectedKey(course.key)} style={{ ...styles.classroomCourseTab, ...(selected?.key === course.key ? styles.classroomCourseTabActive : {}) }}>
+                <span>{course.label}</span><small>{course.materials?.length || 0}</small>
+              </button>
+            ))}
+          </div>
+          <div style={styles.classroomMaterialsList}>
+            {selected?.materials?.length ? selected.materials.map(material => <MaterialCard key={material.id} material={material} />) : <div style={styles.materialEmpty}>{selected?.label}에 등록된 자료가 없습니다.</div>}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -1789,6 +2026,7 @@ function NoticeCard({ n, labelText, unread, onDelete }) {
         {onDelete && <button style={{ ...styles.iconBtn, marginLeft: "auto", color: cat.text }} onClick={onDelete}><X size={14} /></button>}
       </div>
       <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
+      <AttachmentLinks attachments={n.attachments} />
       {dueInfo && (
         <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6, fontSize: 11.5, fontWeight: 700, color: dueInfo.overdue ? "#b3401f" : cat.text }}>
           <Calendar size={12} /> 마감 {dueInfo.label}{dueInfo.overdue ? " (마감됨)" : ""}
@@ -2435,12 +2673,11 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
 
   const resetAll = async () => {
     const nextAdmins = admins.map(item => ({ ...item, pw: RESET_PASSWORD }));
-    const nextClassViews = cvs.map(item => ({ ...item, pw: RESET_PASSWORD }));
     const nextDepartments = departments.map(item => ({ ...item, pw: RESET_PASSWORD }));
     const nextTeachers = teachers.map(item => ({ ...item, pw: RESET_PASSWORD }));
-    setAdmins(nextAdmins); setCvs(nextClassViews); setDepartments(nextDepartments); setTeachers(nextTeachers);
+    setAdmins(nextAdmins); setDepartments(nextDepartments); setTeachers(nextTeachers);
     const ok = await persistAccounts({
-      admin: nextAdmins, classView: nextClassViews, departments: nextDepartments, teacher: nextTeachers,
+      admin: nextAdmins, classView: accounts.classView || [], departments: nextDepartments, teacher: nextTeachers,
       teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [],
     });
     if (ok) showToast(`모든 비밀번호가 "${RESET_PASSWORD}"로 초기화되었습니다.`, "success");
@@ -2546,7 +2783,6 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
           ["관리자", admins.length, "전체 설정"],
           ["부서 계정", departments.length, "성적·시간표 개별 권한"],
           ["선생님", teachers.length, "역할 기반 권한"],
-          ["반별조회", cvs.length, "시간표·명단 전용"],
         ].map(([label, count, caption]) => (
           <div key={label} style={accountConsole.summaryCard}>
             <div style={accountConsole.summaryLabel}>{label}</div>
@@ -2579,32 +2815,20 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         {!departments.length && <div style={accountConsole.empty}>등록된 부서 계정이 없습니다.</div>}
         <div style={accountConsole.cardGrid}>
           {departments.map((department, index) => (
-            <div key={department.id || index} style={accountConsole.accountCard}>
+            <div key={`department-${index}`} style={accountConsole.accountCard}>
               <div style={accountConsole.identityRow}>
-                <input value={department.name || ""} onChange={event => updateDepartmentField(index, "name", event.target.value)} placeholder="부서명 (예: 2학년부)" style={accountConsole.input} />
+                <input value={department.name || ""} onChange={event => updateDepartmentField(index, "name", event.target.value)} placeholder="부서명 (예: 2학년부)" style={accountConsole.input} autoComplete="off" spellCheck={false} />
                 <button style={styles.iconBtn} onClick={() => setDepartments(current => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
               </div>
               <div style={accountConsole.credentials}>
-                <label style={accountConsole.field}><span>아이디</span><input value={department.id || ""} onChange={event => updateDepartmentField(index, "id", event.target.value)} placeholder="아이디" style={accountConsole.input} /></label>
-                <label style={accountConsole.field}><span>비밀번호</span><input value={department.pw || ""} onChange={event => updateDepartmentField(index, "pw", event.target.value)} placeholder="비밀번호" style={accountConsole.input} /></label>
+                <label style={accountConsole.field}><span>아이디</span><input value={department.id || ""} onChange={event => updateDepartmentField(index, "id", event.target.value)} placeholder="영문·숫자 또는 한글 아이디" style={accountConsole.input} autoComplete="off" spellCheck={false} /></label>
+                <label style={accountConsole.field}><span>비밀번호</span><input value={department.pw || ""} onChange={event => updateDepartmentField(index, "pw", event.target.value)} placeholder="비밀번호" style={accountConsole.input} autoComplete="new-password" /></label>
               </div>
               <TeacherAccessMatrix teacher={department} index={index} onToggle={toggleDepartmentAccess} />
             </div>
           ))}
         </div>
         <button style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={addDepartment}>+ 부서 계정 추가</button>
-      </div>
-
-      <div style={accountConsole.panel}>
-        <div style={accountConsole.panelHeader}>
-          <div>
-            <div style={accountConsole.panelTitle}>학급별 조회 / 이동수업반별 명단 계정</div>
-            <div style={accountConsole.panelDescription}>성적 조회 없이 학급 시간표와 이동수업 명단만 확인하는 공용 계정입니다.</div>
-          </div>
-          <span style={accountConsole.count}>{cvs.length}개</span>
-        </div>
-        <AccountTable list={cvs} setList={setCvs} />
-        <button style={styles.secondaryBtn} onClick={() => setCvs(current => [...current, { id: "", pw: "" }])}>+ 반별조회 계정 추가</button>
       </div>
 
       {(accounts.teacherPending || []).length > 0 && (
@@ -2851,6 +3075,7 @@ function AdminNoticesViewer({ db, persist, showToast, scopeKey, roster, timetabl
                   <button style={{ ...styles.iconBtn, marginLeft: "auto", color: cat.text }} onClick={() => deleteItem(n)}><Trash2 size={14} /></button>
                 </div>
                 <div style={{ fontSize: 12.5, color: cat.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{n.text}</div>
+                <AttachmentLinks attachments={n.attachments} />
                 {dueInfo && <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 6, fontSize: 11.5, fontWeight: 700, color: dueInfo.overdue ? "#b3401f" : cat.text }}><Calendar size={12} /> 마감 {dueInfo.label}{dueInfo.overdue ? " (마감됨)" : ""}</div>}
               </div>
             );
@@ -2895,6 +3120,7 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap }) {
 /* ============ STYLES ============ */
 const globalCss = `
   * { box-sizing: border-box; } body { margin: 0; } input, textarea, button { font-family: inherit; }
+  label small { display: block; margin-top: 2px; color: #7d897a; font-weight: 500; line-height: 1.4; }
   .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
   .print-only { display: none; }
   @media print {
@@ -2911,6 +3137,7 @@ const globalCss = `
     .admission-print-root { width: 100% !important; max-width: none !important; }
     .admission-print-root table { font-size: 7pt !important; }
     .admission-print-root th, .admission-print-root td { padding: 3px 2px !important; }
+    .admission-print-root .reflection-badge { max-width: 78% !important; padding: 1px 3px !important; font-size: 6.2pt !important; line-height: 1.05 !important; border-left-width: 1.5px !important; }
   }
 `;
 const accountConsole = {
@@ -3030,6 +3257,28 @@ const styles = {
   noticesTabBtn: { border: `1px solid ${COLORS.line}`, background: "#fff", padding: "7px 14px", borderRadius: 20, fontSize: 12.5, cursor: "pointer", fontWeight: 700, color: "#8a8578" },
   noticesTabBtnActive: { background: COLORS.ink, color: "#fff", borderColor: COLORS.ink },
   noticesPrintHeading: { fontSize: 13, fontWeight: 700, marginBottom: 8, color: COLORS.ink },
+  studentViewTabs: { display: "inline-flex", gap: 4, padding: 4, marginTop: 14, marginBottom: 4, border: `1px solid ${COLORS.line}`, borderRadius: 10, background: "#f7f5ef" },
+  studentViewTab: { display: "flex", alignItems: "center", gap: 5, border: "none", background: "transparent", color: "#777064", borderRadius: 7, padding: "7px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" },
+  studentViewTabActive: { background: COLORS.accent, color: "#fff", boxShadow: "0 2px 6px rgba(61,92,58,0.18)" },
+  classroomPanel: { marginTop: 14, borderTop: `1px solid ${COLORS.line}`, paddingTop: 16 },
+  classroomCount: { border: "1px solid #d3dfd0", background: "#eef4ec", color: COLORS.accent, borderRadius: 999, padding: "5px 9px", fontSize: 10.5, fontWeight: 900, whiteSpace: "nowrap" },
+  classroomCourseTabs: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 7, marginBottom: 10 },
+  classroomCourseTab: { display: "inline-flex", alignItems: "center", gap: 6, flex: "0 0 auto", border: `1px solid ${COLORS.line}`, background: "#fff", color: "#6f695d", borderRadius: 9, padding: "7px 10px", fontSize: 11.5, fontWeight: 800, cursor: "pointer" },
+  classroomCourseTabActive: { background: "#303c31", color: "#fff", borderColor: "#303c31" },
+  classroomMaterialsList: { display: "flex", flexDirection: "column", gap: 9 },
+  materialComposer: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fbfaf6" },
+  selectedFileList: { display: "flex", flexWrap: "wrap", gap: 5, marginTop: 8 },
+  selectedFileChip: { display: "inline-flex", alignItems: "center", gap: 4, maxWidth: "100%", padding: "4px 8px", borderRadius: 7, background: "#eef1f3", color: "#4f5961", fontSize: 10.5, fontWeight: 700 },
+  noticePublishCheck: { display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, padding: "9px 10px", border: "1px solid #dbe4d8", borderRadius: 8, background: "#f3f7f2", color: "#3d5c3a", fontSize: 11.5, cursor: "pointer" },
+  materialCard: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: "12px 13px", background: "#fff" },
+  materialCardHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 },
+  materialTitle: { fontSize: 13.5, fontWeight: 900, color: "#2f2a24", overflowWrap: "anywhere" },
+  materialMeta: { marginTop: 3, fontSize: 10.5, color: "#948d80" },
+  materialBody: { marginTop: 9, fontSize: 12.2, lineHeight: 1.65, color: "#514b42", whiteSpace: "pre-wrap" },
+  materialNoticeBadge: { border: "1px solid #d3dfd0", borderRadius: 999, background: "#eef4ec", color: COLORS.accent, padding: "3px 7px", fontSize: 9.5, fontWeight: 900, whiteSpace: "nowrap" },
+  materialEmpty: { border: `1px dashed ${COLORS.line}`, borderRadius: 9, padding: "20px 12px", textAlign: "center", color: "#9b9487", fontSize: 11.5, background: "#fbfaf6" },
+  attachmentList: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 },
+  attachmentLink: { display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", border: "1px solid #d9dee1", background: "#f7f9fa", color: "#46535b", borderRadius: 7, padding: "5px 8px", textDecoration: "none", fontSize: 10.8, fontWeight: 800 },
   issueList: { marginTop: 10, display: "flex", flexDirection: "column", gap: 4, maxHeight: 400, overflowY: "auto" },
   issueRow: { display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "7px 10px", fontSize: 12, flexWrap: "wrap" },
   issueBadge: { background: "#f3f1e9", padding: "2px 8px", borderRadius: 6, fontSize: 10.5, fontWeight: 700, color: "#8a8578" },
