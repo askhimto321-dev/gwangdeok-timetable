@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
-import GradesSection from "./Grades.jsx";
+import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
 
@@ -13,7 +13,7 @@ const GRADES = ["1", "2", "3"];
 const DISABLED_GRADES = ["1"];
 const RESET_PASSWORD = "kd2026";
 const DEFAULT_ADMIN = { id: "admin", pw: "kd2026" };
-const SITE_TITLE = "광덕고 이동수업 시간표 조회하기";
+const SITE_TITLE = "광덕고 성적/시간표";
 
 /* ---------- helpers ---------- */
 function isMoveSlot(cell) { if (!cell) return false; return /^[A-Z](\(\d\))?_[가-힣A-Za-z0-9]+$/.test(cell); }
@@ -450,6 +450,7 @@ export default function App() {
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
   const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {} });
+  const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [], teacher: [], teacherPending: [], monitors: [], students: [] });
   const [loggedInAdmin, setLoggedInAdmin] = useState(null);
@@ -477,6 +478,7 @@ export default function App() {
         readStorage("kd_notices", {}),
       ]);
       setDb({ roster, enrollments, timetables, meta, roomNames, announcements });
+      loadGradesDB().then(setGdb);
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       setAccounts(accts);
       setLoading(false);
@@ -562,6 +564,17 @@ export default function App() {
     return true;
   }, [showToast]);
 
+  const persistGrades = useCallback(async (patch) => {
+    const jobs = [];
+    if (patch.semesterData) jobs.push(writeStorage("kd_grades_semesters", patch.semesterData));
+    if (patch.mockData) jobs.push(writeStorage("kd_grades_mocks", patch.mockData));
+    if (patch.admissionRows) jobs.push(writeStorage("kd_grades_admission", patch.admissionRows));
+    const results = await Promise.all(jobs);
+    if (results.some(r => r && r.ok === false)) { showToast("저장에 실패했습니다.", "error"); return false; }
+    setGdb(d => ({ ...d, ...patch }));
+    return true;
+  }, [showToast]);
+
   const scopeKey = `${grade}-${semester}`;
   const roster = db.roster[scopeKey] || {};
   const enrollments = db.enrollments[scopeKey] || {};
@@ -631,10 +644,10 @@ export default function App() {
         <style>{globalCss}</style>
         <div style={{ padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontWeight: 700, fontSize: 20 }}>광덕고 학생 포털 <span style={styles.betaBadge}>Beta</span></div>
+            <div style={{ fontWeight: 700, fontSize: 20 }}>광덕고 성적/시간표 <span style={styles.betaBadge}>Beta</span></div>
             <div style={{ fontSize: 13, color: "#8a8578", marginTop: 6 }}>먼저 로그인해주세요. (학생 / 선생님 / 관리자 계정 모두 아래에서 로그인합니다)</div>
           </div>
-          <UnifiedLoginGate label="광덕고 학생 포털" attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+          <UnifiedLoginGate label="광덕고 성적/시간표" attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
         </div>
       </div>
     );
@@ -643,14 +656,25 @@ export default function App() {
   return (
     <div style={styles.app}>
       <style>{globalCss}</style>
-      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} />
-      {activeSection === "grades" ? (
+      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} />
+      {activeSection === "admin" ? (
+        <AdminConsole
+          db={db} persist={persist} showToast={showToast} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester}
+          scopeKey={scopeKey} roster={roster} enrollments={enrollments} timetables={timetables} abbrevMap={abbrevMap} persistAbbrev={persistAbbrev}
+          accounts={accounts} persistAccounts={persistAccounts} build={buildPersonalTimetable} loggedInAdmin={loggedInAdmin}
+          gdb={gdb} persistGrades={persistGrades}
+        />
+      ) : activeSection === "grades" ? (
         <GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInStudent={loggedInStudent}
-          roster={roster} accounts={accounts} persistAccounts={persistAccounts}
-          showToast={showToast} onLogout={globalLogout}
-          grade={grade} setGrade={setGrade}
+          roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
+          gdb={gdb}
         />
+      ) : (loggedInStudent && !loggedInAdmin && !loggedInTeacher && !loggedInMonitor && !classAuthed) ? (
+        <div style={styles.body}>
+          <h1 style={styles.h1}>{loggedInStudent.name} 학생 시간표</h1>
+          <StudentOwnTimetable student={loggedInStudent} build={buildPersonalTimetable} grade={grade} setGrade={setGrade} />
+        </div>
       ) : (
         <>
           <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} />
@@ -671,9 +695,6 @@ export default function App() {
                   ? <AdminTeacherPicker accounts={accounts} onSelect={(t) => setViewedTeacher(t)} />
                   : <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} attemptLogin={attemptLogin} onOk={() => {}} />
             )}
-        {tab === "admin" && (loggedInAdmin
-          ? <AdminView key={scopeKey} {...{ db, persist, showToast, grade, semester, scopeKey, roster, enrollments, timetables, abbrevMap, persistAbbrev, accounts, persistAccounts, build: buildPersonalTimetable, loggedInAdmin, onLogout: () => { setLoggedInAdmin(null); saveSession({ adminId: null }); } }} />
-          : <UnifiedLoginGate label="관리자" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => r === "admin"} hint={accounts.admin.length ? null : `초기 계정: ${DEFAULT_ADMIN.id} / ${DEFAULT_ADMIN.pw}`} />)}
           </div>
         </>
       )}
@@ -949,17 +970,18 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
   );
 }
 
-function MegaNav({ active, onSwitch, onLogout }) {
+function MegaNav({ active, onSwitch, onLogout, showAdmin }) {
   const items = [
     { key: "grades", label: "성적", icon: "📊" },
     { key: "timetable", label: "시간표", icon: "🗓️" },
+    ...(showAdmin ? [{ key: "admin", label: "관리자", icon: "⚙️" }] : []),
   ];
   return (
     <div className="no-print" style={megaNavStyles.wrap}>
       <div style={megaNavStyles.inner}>
         <div style={megaNavStyles.brand}>
           <div style={styles.brandMark}>移</div>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>광덕고 학생 포털</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>광덕고 성적/시간표</span>
         </div>
         <div style={megaNavStyles.tabs}>
           {items.map(it => (
@@ -1003,7 +1025,6 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onB
           <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />
           <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />
           <NavBtn active={tab === "teacherZone"} onClick={() => setTab("teacherZone")} icon={<Lock size={15} />} label="선생님 ZONE" />
-          <NavBtn active={tab === "admin"} onClick={() => setTab("admin")} icon={<Settings size={15} />} label="관리자" />
         </nav>
       </div>
       <div style={styles.scopeRow}>
@@ -1018,6 +1039,22 @@ function ScopeBtn({ active, onClick, children, disabled }) { return <button onCl
 function NavBtn({ active, onClick, icon, label }) { return <button onClick={onClick} style={{ ...styles.navBtn, ...(active ? styles.navBtnActive : {}) }}>{icon}<span>{label}</span></button>; }
 
 function EmptyState() { return <div style={styles.emptyBox}><Database size={28} color="#c4bfae" /><div style={{ fontWeight: 700, marginTop: 10 }}>등록된 데이터가 없습니다</div><div style={{ fontSize: 13, color: "#8a8578", marginTop: 4 }}>관리자 탭에서 이동수업 명단(엑셀)과 학급 시간표(한글/엑셀)를 업로드하면 조회가 가능해집니다.</div></div>; }
+
+function StudentOwnTimetable({ student, build, grade, setGrade }) {
+  const result = build(student.id);
+  return (
+    <div>
+      {!result ? (
+        <div style={{ fontSize: 13, color: "#8a8578" }}>아직 {grade}학년 시간표 데이터가 준비되지 않았습니다. 학년을 바꿔서 확인해보세요.</div>
+      ) : (
+        <TimetableCard result={result} sid={student.id} />
+      )}
+      <div style={{ marginTop: 12 }}>
+        <ScopeGroup label="학년">{GRADES.map(g => <ScopeBtn key={g} active={grade === g} disabled={DISABLED_GRADES.includes(g)} onClick={() => setGrade(g)}>{g}학년{DISABLED_GRADES.includes(g) ? " (준비중)" : ""}</ScopeBtn>)}</ScopeGroup>
+      </div>
+    </div>
+  );
+}
 
 function StudentView({ roster, build, hasAnyData }) {
   const [query, setQuery] = useState(""), [sid, setSid] = useState(null);
@@ -1584,6 +1621,31 @@ const ADMIN_TABS = [
   ["accounts", <Lock size={14} />, "계정 관리"],
   ["verify", <Check size={14} />, "검증"],
 ];
+function AdminConsole(props) {
+  const [sub, setSub] = useState("timetable");
+  return (
+    <div style={styles.body}>
+      <h1 style={styles.h1}>통합 관리자</h1>
+      <p style={styles.pMuted}>시간표·성적 데이터와 모든 계정을 한 곳에서 관리합니다.</p>
+      <div style={styles.adminTabs}>
+        <button onClick={() => setSub("timetable")} style={{ ...styles.adminTabBtn, ...(sub === "timetable" ? styles.adminTabBtnActive : {}) }}><ClipboardList size={14} /> 시간표 관리</button>
+        <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
+        <button onClick={() => setSub("studentAccounts")} style={{ ...styles.adminTabBtn, ...(sub === "studentAccounts" ? styles.adminTabBtnActive : {}) }}><Users size={14} /> 학생 계정 (성적/시간표 공용)</button>
+      </div>
+      {sub === "timetable" && (
+        <AdminView key={props.scopeKey} {...props} onLogout={null} />
+      )}
+      {sub === "grades" && (
+        props.gdb ? <AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} />
+          : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>
+      )}
+      {sub === "studentAccounts" && (
+        <AdminStudentAccounts accounts={props.accounts} persistAccounts={props.persistAccounts} showToast={props.showToast} roster={props.roster} />
+      )}
+    </div>
+  );
+}
+
 function AdminView(props) {
   const perms = props.loggedInAdmin && Array.isArray(props.loggedInAdmin.permissions) ? props.loggedInAdmin.permissions : null; // null = full access
   const visibleTabs = ADMIN_TABS.filter(([k]) => !perms || perms.includes(k));

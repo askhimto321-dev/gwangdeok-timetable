@@ -25,7 +25,7 @@ async function loadXLSX() {
   return _xlsxModule;
 }
 
-async function loadGradesDB() {
+export async function loadGradesDB() {
   const [semesterData, mockData, admissionRows, studentAccounts] = await Promise.all([
     readStorage("kd_grades_semesters", {}),
     readStorage("kd_grades_mocks", {}),
@@ -35,25 +35,10 @@ async function loadGradesDB() {
   return { semesterData, mockData, admissionRows, studentAccounts };
 }
 
-export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedInStudent, roster, accounts, persistAccounts, showToast, onLogout, grade, setGrade }) {
-  const [loading, setLoading] = useState(true);
-  const [gdb, setGdb] = useState({ semesterData: {}, mockData: {}, admissionRows: [], studentAccounts: {} });
-  const [tab, setTab] = useState(loggedInStudent ? "my" : "admin");
+export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedInStudent, roster, accounts, showToast, onLogout, gdb }) {
+  const [tab, setTab] = useState(loggedInStudent ? "grades" : "lookup");
 
-  useEffect(() => { (async () => { setGdb(await loadGradesDB()); setLoading(false); })(); }, []);
-
-  const persistGrades = async (patch) => {
-    const jobs = [];
-    if (patch.semesterData) jobs.push(writeStorage("kd_grades_semesters", patch.semesterData));
-    if (patch.mockData) jobs.push(writeStorage("kd_grades_mocks", patch.mockData));
-    if (patch.admissionRows) jobs.push(writeStorage("kd_grades_admission", patch.admissionRows));
-    const results = await Promise.all(jobs);
-    if (results.some(r => r && r.ok === false)) { showToast("저장에 실패했습니다.", "error"); return false; }
-    setGdb(d => ({ ...d, ...patch }));
-    return true;
-  };
-
-  if (loading) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
+  if (!gdb) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
 
   return (
     <div>
@@ -73,27 +58,19 @@ export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedIn
 
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
         <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
-          {loggedInStudent && <TabBtn active={tab === "my"} onClick={() => setTab("my")} label="내 성적" />}
+          {loggedInStudent && <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="성적 조회" />}
+          {loggedInStudent && <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대입전형 확인" />}
           {(loggedInTeacher) && <TabBtn active={tab === "class"} onClick={() => setTab("class")} label="우리 반 학생 조회" />}
-          {loggedInAdmin && <TabBtn active={tab === "admin"} onClick={() => setTab("admin")} label="원본 데이터 업로드" />}
-          {loggedInAdmin && <TabBtn active={tab === "accounts"} onClick={() => setTab("accounts")} label="학생 계정 관리" />}
           {(loggedInAdmin || loggedInTeacher) && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label="학생 성적 조회" />}
         </div>
 
-        {tab === "my" && loggedInStudent && (
-          <StudentGradeReport sid={loggedInStudent.id} gdb={gdb} />
-        )}
+        {tab === "grades" && loggedInStudent && <StudentGradeReport sid={loggedInStudent.id} gdb={gdb} mode="grades" />}
+        {tab === "admission" && loggedInStudent && <StudentGradeReport sid={loggedInStudent.id} gdb={gdb} mode="admission" />}
         {tab === "lookup" && (loggedInAdmin || loggedInTeacher) && (
           <StudentLookup roster={roster} gdb={gdb} homeroomClass={loggedInTeacher ? loggedInTeacher.homeroomClass : null} isAdmin={!!loggedInAdmin} />
         )}
         {tab === "class" && loggedInTeacher && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
-        )}
-        {tab === "admin" && loggedInAdmin && (
-          <AdminGradesUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />
-        )}
-        {tab === "accounts" && loggedInAdmin && (
-          <AdminStudentAccounts accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} roster={roster} />
         )}
       </div>
     </div>
@@ -107,7 +84,7 @@ function TabBtn({ active, onClick, label }) {
 /* ============================================================
    학생: 내 성적 상담 화면 (구글시트 "성적(상담용, 등급변환)" 재현)
    ============================================================ */
-function StudentGradeReport({ sid, gdb }) {
+function StudentGradeReport({ sid, gdb, mode = "both" }) {
   const { semesterData, mockData, admissionRows } = gdb;
 
   const subjectLists = SEMESTER_KEYS.map(k => {
@@ -135,8 +112,12 @@ function StudentGradeReport({ sid, gdb }) {
     return <EmptyBox text="아직 등록된 성적 데이터가 없습니다. 관리자가 원본 데이터를 업로드하면 여기에 표시됩니다." />;
   }
 
+  const showGrades = mode === "grades" || mode === "both";
+  const showAdmission = mode === "admission" || mode === "both";
+
   return (
     <div>
+      {showGrades && (
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>계열별 평균 등급 (학점 가중평균)</div>
         <table style={table.base}>
@@ -158,7 +139,9 @@ function StudentGradeReport({ sid, gdb }) {
           </tbody>
         </table>
       </div>
+      )}
 
+      {showGrades && (
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 10 }}>모의고사 성적 {latestMockKey && `(${MOCK_MONTH_LABELS[latestMockKey]} 기준)`}</div>
         {!latestMockKey ? <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 모의고사 성적이 없습니다.</div> : (
@@ -175,18 +158,23 @@ function StudentGradeReport({ sid, gdb }) {
           </>
         )}
       </div>
+      )}
 
+      {showAdmission && (
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>수능 최저 도달 대학 (교과전형 기준)</div>
         <div style={{ fontSize: 13, color: matchedUniversities.length ? "#3d5c3a" : "#8a8578" }}>
           {matchedUniversities.length ? matchedUniversities.join(", ") : "도달 대학 없음"}
         </div>
       </div>
+      )}
 
+      {showAdmission && (
       <div style={{ ...card, background: "#fff8e6", border: "1px solid #f0dca0" }}>
         <div style={{ fontWeight: 700, marginBottom: 6, color: "#8a6d1f" }}>성적 분석</div>
         <div style={{ fontSize: 13, color: "#5c4a12", lineHeight: 1.6 }}>{comment}</div>
       </div>
+      )}
     </div>
   );
 }
@@ -254,7 +242,7 @@ function ClassStudentAccounts({ homeroomClass, accounts, roster }) {
 /* ============================================================
    관리자: 학생 계정 관리 (엑셀 일괄 발급)
    ============================================================ */
-function AdminStudentAccounts({ accounts, persistAccounts, showToast, roster }) {
+export function AdminStudentAccounts({ accounts, persistAccounts, showToast, roster }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
 
@@ -332,7 +320,7 @@ function AdminStudentAccounts({ accounts, persistAccounts, showToast, roster }) 
 /* ============================================================
    관리자: 원본 성적 데이터 업로드 (학기별 성적표 / 모의고사 / 대입전형표)
    ============================================================ */
-function AdminGradesUpload({ gdb, persistGrades, showToast }) {
+export function AdminGradesUpload({ gdb, persistGrades, showToast }) {
   const [subtab, setSubtab] = useState("bulk");
   return (
     <div>

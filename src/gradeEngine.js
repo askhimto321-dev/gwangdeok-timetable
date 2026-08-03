@@ -5,6 +5,24 @@
 // 독립적으로 동작하며 그대로 테스트할 수 있습니다.
 // ============================================================
 
+// ---------- 교과(계열) 자동 추론 ----------
+// 일부 시트(1학년 등)는 "교과" 칸이 비어있는 경우가 있어, 과목명을 보고 자동으로 추론합니다.
+const CATEGORY_KEYWORDS = [
+  ["한국사", /한국사/],
+  ["국어", /국어|문학|독서|화법|작문|언어와\s*매체|매체|고전\s*읽기/],
+  ["수학", /수학|대수|미적분|기하|확률과\s*통계/],
+  ["영어", /영어/],
+  ["과학", /과학|물리|화학|생명|지구과학/],
+  ["사회", /사회|정치|법과|경제|역사|지리|윤리|세계시민|여행지리|현대\s*세계/],
+  ["기술가정/정보", /기술\s*가정|정보/],
+  ["제2외국어", /일본어|중국어|독일어|프랑스어|스페인어|러시아어|아랍어|베트남어|한문/],
+];
+export function inferCategory(subjectName) {
+  const name = String(subjectName || "");
+  for (const [cat, re] of CATEGORY_KEYWORDS) { if (re.test(name)) return cat; }
+  return null;
+}
+
 // ---------- 원본 데이터 파싱 (엑셀 '학기 성적' 시트 형식) ----------
 // 시트 레이아웃: A~E = 학번,학년,학급,번호,이름
 // F열부터 6칸씩 반복: 합계,원점수,성취도,석차등급,석차(동석차수),수강자수
@@ -19,7 +37,7 @@ export function parseSemesterSheet(rows) {
     const subj = headerRow[c];
     if (subj == null || subj === "") { c += 1; continue; }
     const credit = headerRow[c + 1];
-    const category = headerRow[c + 2];
+    const category = headerRow[c + 2] || inferCategory(subj);
     blocks.push({ col: c, subject: subj, credit: Number(credit) || 0, category });
     c += 6;
   }
