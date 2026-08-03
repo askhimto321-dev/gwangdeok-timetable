@@ -96,17 +96,30 @@ function StudentGradeReport({ sid, gdb, mode = "both" }) {
 
   const groups = useMemo(() => computeAllGroupAverages(subjectLists), [semesterData, sid]); // eslint-disable-line
 
-  // 최신 모의고사(2학년 6월 우선, 없으면 마지막으로 데이터가 있는 월)
-  const latestMockKey = useMemo(() => {
-    const order = ["2-6", "2-3", "1-10", "1-9", "1-6", "1-3", "2-9", "3-3", "3-6", "3-9"];
-    return order.find(k => mockData[k] && mockData[k].students && mockData[k].students[sid]) || null;
-  }, [mockData, sid]);
-  const mockGrades = latestMockKey ? mockData[latestMockKey].students[sid] : {};
+  // 학기별 상세 성적표에서 선택된 학기 (데이터가 있는 가장 최근 학기가 기본값)
+  const availableSemesters = SEMESTER_KEYS.filter((k, i) => subjectLists[i]);
+  const [selSemKey, setSelSemKey] = useState(null);
+  const activeSemKey = selSemKey && availableSemesters.includes(selSemKey) ? selSemKey : availableSemesters[availableSemesters.length - 1];
+  const activeSemSubjects = activeSemKey ? subjectLists[SEMESTER_KEYS.indexOf(activeSemKey)] : null;
+
+  // 모의고사 회차 선택 (데이터가 있는 가장 최근 회차가 기본값)
+  const availableMockKeys = MOCK_MONTH_KEYS.filter(k => mockData[k] && mockData[k].students && mockData[k].students[sid]);
+  const [selMockKey, setSelMockKey] = useState(null);
+  const activeMockKey = selMockKey && availableMockKeys.includes(selMockKey) ? selMockKey : availableMockKeys[availableMockKeys.length - 1];
+  const mockGrades = activeMockKey ? mockData[activeMockKey].students[sid] : {};
   const sums = useMemo(() => computeMockExamSums(mockGrades || {}), [mockGrades]);
 
+  // 대입전형 판정은 항상 가장 최신 모의고사를 기준으로 합니다.
+  const latestMockKey = useMemo(() => {
+    const order = MOCK_MONTH_KEYS.slice().reverse();
+    return order.find(k => mockData[k] && mockData[k].students && mockData[k].students[sid]) || null;
+  }, [mockData, sid]);
+  const latestMockGrades = latestMockKey ? mockData[latestMockKey].students[sid] : {};
+  const latestSums = useMemo(() => computeMockExamSums(latestMockGrades || {}), [latestMockGrades]);
+
   const overallAvg5 = groups["전과목"] ? groups["전과목"].avg5 : null;
-  const matchedUniversities = useMemo(() => matchUniversities(sums, admissionRows || []), [sums, admissionRows]);
-  const comment = gradeAnalysisComment(overallAvg5, sums.sum2, sums.sum3, sums.sum4);
+  const matchedUniversities = useMemo(() => matchUniversities(latestSums, admissionRows || []), [latestSums, admissionRows]);
+  const comment = gradeAnalysisComment(overallAvg5, latestSums.sum2, latestSums.sum3, latestSums.sum4);
 
   if (!hasAnyGrades) {
     return <EmptyBox text="아직 등록된 성적 데이터가 없습니다. 관리자가 원본 데이터를 업로드하면 여기에 표시됩니다." />;
@@ -143,9 +156,33 @@ function StudentGradeReport({ sid, gdb, mode = "both" }) {
 
       {showGrades && (
       <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>모의고사 성적 {latestMockKey && `(${MOCK_MONTH_LABELS[latestMockKey]} 기준)`}</div>
-        {!latestMockKey ? <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 모의고사 성적이 없습니다.</div> : (
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>내신 성적 학기별 확인하기</div>
+        {!availableSemesters.length ? <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 내신 성적이 없습니다.</div> : (
           <>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+              {availableSemesters.map(k => <button key={k} onClick={() => setSelSemKey(k)} style={{ ...btn.chip, ...(activeSemKey === k ? btn.chipActive : {}) }}>{SEMESTER_LABELS[k]}</button>)}
+            </div>
+            <table style={table.base}>
+              <thead><tr><th style={table.th}>과목</th><th style={table.th}>학점</th><th style={table.th}>원점수</th><th style={table.th}>성취도</th><th style={table.th}>석차등급</th></tr></thead>
+              <tbody>
+                {(activeSemSubjects || []).map((s, i) => (
+                  <tr key={i}><td style={table.tdLabel}>{s.subject}</td><td style={table.td}>{s.credit}</td><td style={table.td}>{s.score ?? "-"}</td><td style={table.td}>{s.achievement ?? "-"}</td><td style={table.td}>{s.grade5 ?? "-"}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+      )}
+
+      {showGrades && (
+      <div style={card}>
+        <div style={{ fontWeight: 700, marginBottom: 10 }}>모의고사 성적 회차별 확인하기</div>
+        {!availableMockKeys.length ? <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 모의고사 성적이 없습니다.</div> : (
+          <>
+            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+              {availableMockKeys.map(k => <button key={k} onClick={() => setSelMockKey(k)} style={{ ...btn.chip, ...(activeMockKey === k ? btn.chipActive : {}) }}>{MOCK_MONTH_LABELS[k]}</button>)}
+            </div>
             <table style={table.base}>
               <thead><tr>{MOCK_SUBJECTS.map(s => <th key={s} style={table.th}>{s}</th>)}</tr></thead>
               <tbody><tr>{MOCK_SUBJECTS.map(s => <td key={s} style={table.td}>{mockGrades[s] ?? "-"}</td>)}</tr></tbody>
@@ -377,11 +414,12 @@ function parseAdmissionRows(rows) {
 function BulkUpload({ gdb, persistGrades, showToast }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [report, setReport] = useState(null);
+  const [preview, setPreview] = useState(null); // { newSemesterData, newMockData, newAdmissionRows, found, skipped }
+  const [applying, setApplying] = useState(false);
 
   const handleFile = async (file) => {
     setBusy(true);
-    setReport(null);
+    setPreview(null);
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
@@ -423,12 +461,20 @@ function BulkUpload({ gdb, persistGrades, showToast }) {
         setBusy(false);
         return;
       }
-      const ok = await persistGrades({ semesterData: newSemesterData, mockData: newMockData, admissionRows: newAdmissionRows });
-      if (ok) { showToast(`${found.length}개 시트를 반영했습니다.`, "success"); setReport({ found, skipped }); }
+      setPreview({ newSemesterData, newMockData, newAdmissionRows, found, skipped });
+      showToast(`${found.length}개 시트를 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
     }
     setBusy(false);
+  };
+
+  const apply = async () => {
+    setApplying(true);
+    const { newSemesterData, newMockData, newAdmissionRows } = preview;
+    const ok = await persistGrades({ semesterData: newSemesterData, mockData: newMockData, admissionRows: newAdmissionRows });
+    if (ok) { showToast(`저장했습니다. (${preview.found.length}개 시트 반영됨)`, "success"); setPreview(null); }
+    setApplying(false);
   };
 
   return (
@@ -443,16 +489,20 @@ function BulkUpload({ gdb, persistGrades, showToast }) {
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
         <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 파일 선택</button>
       </div>
-      {report && (
+      {preview && (
         <div style={card}>
-          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>반영된 시트 ({report.found.length}개)</div>
-          <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 12.5 }}>{report.found.map((f, i) => <li key={i}>{f}</li>)}</ul>
-          {report.skipped.length > 0 && (
+          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>인식된 시트 ({preview.found.length}개) — 아직 저장되지 않았습니다</div>
+          <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 12.5 }}>{preview.found.map((f, i) => <li key={i}>{f}</li>)}</ul>
+          {preview.skipped.length > 0 && (
             <>
-              <div style={{ fontWeight: 700, marginBottom: 8, color: "#a39d8c" }}>인식하지 못해 건너뜀 ({report.skipped.length}개)</div>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: "#a39d8c" }}>{report.skipped.map((f, i) => <li key={i}>{f}</li>)}</ul>
+              <div style={{ fontWeight: 700, marginBottom: 8, color: "#a39d8c" }}>인식하지 못해 건너뜀 ({preview.skipped.length}개)</div>
+              <ul style={{ margin: "0 0 14px", paddingLeft: 18, fontSize: 12.5, color: "#a39d8c" }}>{preview.skipped.map((f, i) => <li key={i}>{f}</li>)}</ul>
             </>
           )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 반영하기</button>
+            <button style={btn.secondary} onClick={() => setPreview(null)}>취소</button>
+          </div>
         </div>
       )}
     </div>
@@ -463,9 +513,12 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
   const [semKey, setSemKey] = useState("2-1");
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null); // { students, count }
+  const [applying, setApplying] = useState(false);
 
   const handleFile = async (file) => {
     setBusy(true);
+    setPreview(null);
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
@@ -473,12 +526,19 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
       const students = parseSemesterSheet(rows);
       const count = Object.keys(students).length;
       if (!count) { showToast("학생 데이터를 인식하지 못했습니다. 시트 형식을 확인해주세요.", "error"); setBusy(false); return; }
-      const ok = await persistGrades({ semesterData: { ...gdb.semesterData, [semKey]: { students, updatedAt: new Date().toISOString() } } });
-      if (ok) showToast(`${SEMESTER_LABELS[semKey]} 성적 ${count}명분을 반영했습니다.`, "success");
+      setPreview({ students, count });
+      showToast(`${count}명분을 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
     }
     setBusy(false);
+  };
+
+  const apply = async () => {
+    setApplying(true);
+    const ok = await persistGrades({ semesterData: { ...gdb.semesterData, [semKey]: { students: preview.students, updatedAt: new Date().toISOString() } } });
+    if (ok) { showToast(`저장했습니다. (${SEMESTER_LABELS[semKey]} ${preview.count}명)`, "success"); setPreview(null); }
+    setApplying(false);
   };
 
   return (
@@ -491,8 +551,17 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
           {SEMESTER_KEYS.map(k => <button key={k} onClick={() => setSemKey(k)} style={{ ...btn.chip, ...(semKey === k ? btn.chipActive : {}) }}>{SEMESTER_LABELS[k]}</button>)}
         </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {SEMESTER_LABELS[semKey]} 업로드</button>
+        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {SEMESTER_LABELS[semKey]} 파일 선택</button>
       </div>
+      {preview && (
+        <div style={card}>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>{SEMESTER_LABELS[semKey]} — {preview.count}명 인식됨 (아직 저장되지 않았습니다)</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 반영하기</button>
+            <button style={btn.secondary} onClick={() => setPreview(null)}>취소</button>
+          </div>
+        </div>
+      )}
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>현재 업로드 현황</div>
         {SEMESTER_KEYS.map(k => (
@@ -506,23 +575,27 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
   );
 }
 
-// 모의고사 월별 시트 파싱: id열은 "학번" 또는 "신학번", 등급은 "등급" 표시가 있는 헤더 칸 바로 다음
-// 6칸(국어,수학,영어,한국사,통합사회,통합과학 고정 순서)에 있음 (원점수 칸과 이름이 겹치므로 이름매칭 대신 위치로 찾음).
+// 모의고사 월별 시트 파싱: id열은 "학번" 또는 "신학번".
+// 헤더에 "국어"가 원점수 구간과 등급 구간에 각각 한 번씩(총 2번) 나오는데,
+// "등급" 문구 자체는 시트마다 위치가 달라 신뢰할 수 없어서(예: 오래된 시트는
+// 한참 오른쪽의 "등급컷" 안내문에도 "등급"이 들어있어 오탐 발생) 대신
+// "국어"가 두 번째로 나오는 위치를 등급 구간의 시작으로 사용합니다.
 function parseMockSheet(rows) {
   const header = rows[0] || [];
   let sidCol = header.findIndex(h => h != null && /^(신)?학번$/.test(String(h).trim()));
   if (sidCol === -1) sidCol = 0;
-  const gradeMarkerCol = header.findIndex(h => h != null && String(h).includes("등급"));
-  const gradeStartCol = gradeMarkerCol !== -1 ? gradeMarkerCol + 1 : null;
+  const koreanOccurrences = [];
+  header.forEach((h, i) => { if (h != null && String(h).trim() === "국어") koreanOccurrences.push(i); });
+  const gradeStartCol = koreanOccurrences.length >= 2 ? koreanOccurrences[1] : (koreanOccurrences[0] ?? null);
   const students = {};
   if (gradeStartCol == null) return students;
   for (let r = 1; r < rows.length; r++) {
     const row = rows[r]; if (!row) continue;
-    const sid = row[sidCol]; if (!sid) continue;
+    const sid = row[sidCol]; if (!sid || isNaN(Number(sid))) continue;
     const grades = {};
     MOCK_SUBJECTS.forEach((subj, i) => {
       const v = row[gradeStartCol + i];
-      if (v !== null && v !== undefined && v !== "") grades[subj] = Number(v);
+      if (v !== null && v !== undefined && v !== "" && !isNaN(Number(v))) grades[subj] = Number(v);
     });
     if (Object.keys(grades).length) students[String(sid).trim().replace(/\.0$/, "")] = grades;
   }
@@ -533,22 +606,32 @@ function MockUpload({ gdb, persistGrades, showToast }) {
   const [monthKey, setMonthKey] = useState("2-6");
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [applying, setApplying] = useState(false);
 
   const handleFile = async (file) => {
     setBusy(true);
+    setPreview(null);
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
       const students = parseMockSheet(rows);
       const count = Object.keys(students).length;
-      if (!count) { showToast('학생 데이터를 인식하지 못했습니다. "학번"(또는 신학번) 열과 "등급" 표시 칸이 있는지 확인해주세요.', "error"); setBusy(false); return; }
-      const ok = await persistGrades({ mockData: { ...gdb.mockData, [monthKey]: { students, updatedAt: new Date().toISOString() } } });
-      if (ok) showToast(`${MOCK_MONTH_LABELS[monthKey]} 모의고사 ${count}명분을 반영했습니다.`, "success");
+      if (!count) { showToast('학생 데이터를 인식하지 못했습니다. "학번"(또는 신학번) 열이 있는지 확인해주세요.', "error"); setBusy(false); return; }
+      setPreview({ students, count });
+      showToast(`${count}명분을 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
     }
     setBusy(false);
+  };
+
+  const apply = async () => {
+    setApplying(true);
+    const ok = await persistGrades({ mockData: { ...gdb.mockData, [monthKey]: { students: preview.students, updatedAt: new Date().toISOString() } } });
+    if (ok) { showToast(`저장했습니다. (${MOCK_MONTH_LABELS[monthKey]} ${preview.count}명)`, "success"); setPreview(null); }
+    setApplying(false);
   };
 
   return (
@@ -561,8 +644,17 @@ function MockUpload({ gdb, persistGrades, showToast }) {
           {MOCK_MONTH_KEYS.map(k => <button key={k} onClick={() => setMonthKey(k)} style={{ ...btn.chip, ...(monthKey === k ? btn.chipActive : {}) }}>{MOCK_MONTH_LABELS[k]}</button>)}
         </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {MOCK_MONTH_LABELS[monthKey]} 업로드</button>
+        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {MOCK_MONTH_LABELS[monthKey]} 파일 선택</button>
       </div>
+      {preview && (
+        <div style={card}>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>{MOCK_MONTH_LABELS[monthKey]} — {preview.count}명 인식됨 (아직 저장되지 않았습니다)</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 반영하기</button>
+            <button style={btn.secondary} onClick={() => setPreview(null)}>취소</button>
+          </div>
+        </div>
+      )}
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>현재 업로드 현황</div>
         {MOCK_MONTH_KEYS.map(k => (
@@ -579,21 +671,31 @@ function MockUpload({ gdb, persistGrades, showToast }) {
 function AdmissionUpload({ gdb, persistGrades, showToast }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [applying, setApplying] = useState(false);
 
   const handleFile = async (file) => {
     setBusy(true);
+    setPreview(null);
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
       const admissionRows = parseAdmissionRows(rows);
       if (!admissionRows) { showToast('열 이름을 확인해주세요: "대학교", "수능최저 반영 과목수", "수능최저 합"', "error"); setBusy(false); return; }
-      const ok = await persistGrades({ admissionRows });
-      if (ok) showToast(`대입 전형표 ${admissionRows.length}건을 반영했습니다.`, "success");
+      setPreview(admissionRows);
+      showToast(`${admissionRows.length}건을 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
     }
     setBusy(false);
+  };
+
+  const apply = async () => {
+    setApplying(true);
+    const ok = await persistGrades({ admissionRows: preview });
+    if (ok) { showToast(`저장했습니다. (대입 전형표 ${preview.length}건)`, "success"); setPreview(null); }
+    setApplying(false);
   };
 
   return (
@@ -603,8 +705,17 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
         <div style={{ fontWeight: 700, marginTop: 8 }}>대입 전형표 업로드</div>
         <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center" }}>"2028 대입 전형" 시트를 그대로 올려주세요. 열 이름 중 "대학교","수능최저 반영 과목수","수능최저 합"이 필요합니다.</div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 업로드</button>
+        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 파일 선택</button>
       </div>
+      {preview && (
+        <div style={card}>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>{preview.length}건 인식됨 (아직 저장되지 않았습니다)</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 반영하기</button>
+            <button style={btn.secondary} onClick={() => setPreview(null)}>취소</button>
+          </div>
+        </div>
+      )}
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>현재 등록: {gdb.admissionRows.length}건</div>
       </div>
