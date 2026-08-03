@@ -3,6 +3,8 @@ import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, Fi
 import { readStorage, writeStorage } from "./storage.js";
 import GradesSection from "./Grades.jsx";
 
+const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
+
 const DAYS = ["월", "화", "수", "목", "금"];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7];
 const PERIOD_TIME = { 1: "08:40", 2: "09:40", 3: "10:40", 4: "11:40", 5: "13:30", 6: "14:30", 7: "15:30" };
@@ -2367,7 +2369,6 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap }) {
 }
 
 /* ============ STYLES ============ */
-const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
 const globalCss = `
   * { box-sizing: border-box; } body { margin: 0; } input, textarea, button { font-family: inherit; }
   .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
