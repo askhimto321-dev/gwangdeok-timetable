@@ -820,6 +820,61 @@ function AdmissionSpecialNote({ value }) {
   );
 }
 
+function splitAdmissionDetailLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) return [];
+
+  const manualBreaks = [
+    [/학생부교과\s*우수자/g, "학생부교과\n우수자"],
+    [/학생부교과\s*전형/g, "학생부교과\n전형"],
+    [/학교장추천\s*(전형|자)/g, "학교장추천\n$1"],
+    [/지역균형\s*(전형|선발)/g, "지역균형\n$1"],
+    [/교과우수\s*(전형|자)/g, "교과우수\n$1"],
+  ];
+
+  let formatted = text;
+  manualBreaks.forEach(([pattern, replacement]) => {
+    formatted = formatted.replace(pattern, replacement);
+  });
+
+  if (!formatted.includes("\n") && formatted.length >= 8) {
+    const suffixMatch = formatted.match(/^(.{4,}?)(우수자|추천자|전형|선발)$/);
+    if (suffixMatch) formatted = `${suffixMatch[1]}\n${suffixMatch[2]}`;
+  }
+
+  return formatted.split(/\n+/).map(part => part.trim()).filter(Boolean);
+}
+
+function AdmissionDetailText({ department, track }) {
+  const values = [department, track].map(value => String(value || "").trim()).filter(Boolean);
+  if (!values.length) values.push("전체 모집단위");
+
+  return (
+    <div style={admissionTable.detailStack}>
+      {values.map((value, valueIndex) => (
+        <div key={`${value}-${valueIndex}`} style={admissionTable.detailGroup}>
+          {splitAdmissionDetailLabel(value).map((line, lineIndex) => (
+            <span key={`${line}-${lineIndex}`} style={admissionTable.detailLine}>{line}</span>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function admissionMinimumText(result) {
+  if (result?.ruleType === "each") return `${result.count}개 각 ${result.threshold}등급`;
+  return `${result?.count}합 ${result?.threshold}`;
+}
+
+function admissionStudentResultText(result) {
+  if (result?.ruleType === "each") {
+    const grades = Array.isArray(result.studentGrades) ? result.studentGrades : [];
+    return grades.length ? grades.join(" · ") : "";
+  }
+  return result?.studentSum == null ? "" : `${result.count}합 ${result.studentSum}`;
+}
+
 function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts } = gdb;
   const semesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
@@ -1050,8 +1105,6 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                 {displayRows.map(row => {
                   const result = row.evaluation;
                   const statusMeta = admissionStatusMeta(result.status);
-                  const detailParts = [row.department, row.track].filter(Boolean);
-                  const detail = detailParts.length ? detailParts.join(" · ") : "전체 모집단위";
                   const reflection = admissionReflectionText(row);
                   const specialNote = admissionSpecialNote(row, reflection);
                   const subjectRuleText = admissionSubjectRuleText(row.requiredSubjects);
@@ -1066,7 +1119,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                         </span>
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.department }}>
-                        <div style={admissionTable.primaryText}>{detail}</div>
+                        <AdmissionDetailText department={row.department} track={row.track} />
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.reflectionCell }}>
                         {reflection ? <span style={reflectionBadge}>{reflection}</span> : <span style={admissionTable.empty}>-</span>}
@@ -1078,7 +1131,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                         {result.status === "no-minimum" ? (
                           <span style={noMinimumBadge}>최저 없음</span>
                         ) : hasMinimum ? (
-                          <span style={minimumBadge}>{result.count}합 {result.threshold}</span>
+                          <span style={{ ...minimumBadge, ...(result.ruleType === "each" ? eachMinimumBadge : {}) }}>{admissionMinimumText(result)}</span>
                         ) : (
                           <span style={admissionTable.empty}>요강 확인</span>
                         )}
@@ -1089,9 +1142,9 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                           : <AdmissionSubjectRule value={row.requiredSubjects} />}
                       </td>
                       <td style={admissionTable.td}>
-                        {result.studentSum == null
+                        {!admissionStudentResultText(result)
                           ? <span style={admissionTable.empty}>-</span>
-                          : <span style={studentSumBadge}>{result.count}합 {result.studentSum}</span>}
+                          : <span style={{ ...studentSumBadge, ...(result.ruleType === "each" ? eachStudentBadge : {}) }}>{admissionStudentResultText(result)}</span>}
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.statusCell }}><span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span></td>
                       <td style={admissionTable.td}>
@@ -2783,6 +2836,9 @@ const admissionTable = {
   subjectCell: { padding: "6px 3px", verticalAlign: "middle" },
   statusCell: { padding: "8px 8px" },
   primaryText: { fontWeight: 900, color: "#2b2620", lineHeight: 1.3, textAlign: "center" },
+  detailStack: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, width: "100%" },
+  detailGroup: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0, maxWidth: "100%" },
+  detailLine: { display: "block", maxWidth: "100%", color: "#2b2620", fontSize: 9.1, fontWeight: 900, lineHeight: 1.25, whiteSpace: "nowrap", letterSpacing: "-0.2px" },
   secondaryText: { color: "#716b5f", fontSize: 9.7, lineHeight: 1.45 },
   minimumDetail: { color: "#8a8578", fontSize: 9.2, marginTop: 4, lineHeight: 1.3 },
   empty: { color: "#aaa393", fontSize: 9.7, fontWeight: 700 },
@@ -2852,6 +2908,15 @@ const minimumBadge = {
   fontWeight: 900,
   whiteSpace: "nowrap",
 };
+const eachMinimumBadge = {
+  background: "#eef3ff",
+  border: "1px solid #cbd8ef",
+  color: "#3f5680",
+  whiteSpace: "normal",
+  lineHeight: 1.2,
+  textAlign: "center",
+};
+
 const noMinimumBadge = {
   display: "inline-flex",
   alignItems: "center",
@@ -2877,6 +2942,13 @@ const studentSumBadge = {
   fontSize: 10.1,
   fontWeight: 900,
   whiteSpace: "nowrap",
+};
+
+const eachStudentBadge = {
+  background: "#f1f4fb",
+  border: "1px solid #d2daea",
+  color: "#415270",
+  letterSpacing: "0.2px",
 };
 
 const regionBadge = {

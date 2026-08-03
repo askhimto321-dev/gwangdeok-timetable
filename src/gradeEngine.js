@@ -366,39 +366,60 @@ function admissionSubjectValue(group, mockGrades) {
   return group.type === "choice" ? Math.min(...values) : values[0];
 }
 
+function computeAdmissionStudentGrades(row, mockGrades, count) {
+  const groups = parseAdmissionSubjectGroups(row?.requiredSubjects);
+  if (!groups.length || !mockGrades || !count) return null;
+
+  const values = groups
+    .map(group => admissionSubjectValue(group, mockGrades))
+    .filter(value => value != null)
+    .sort((a, b) => a - b);
+
+  if (values.length < count) return null;
+  return values.slice(0, count);
+}
+
+function extractAdmissionEachRule(row) {
+  const text = `${String(row?.requiredSum ?? "")} ${String(row?.note ?? "")}`
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return null;
+
+  // 예: "3개 과목 각 3등급 이내", "각 3개과목 각 3등급 이내"
+  const hasEachCue = /각|각각|모두/.test(text);
+  const thresholdMatch = text.match(/각\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/)
+    || text.match(/모두\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/)
+    || (hasEachCue ? text.match(/(\d+(?:\.\d+)?)\s*등급\s*이내/) : null);
+  if (!thresholdMatch) return null;
+
+  const countMatch = text.match(/(?:각\s*)?(\d+)\s*개\s*(?:과목|영역)/);
+  const count = countMatch
+    ? Number(countMatch[1])
+    : extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
+  const threshold = Number(thresholdMatch[1]);
+
+  if (!count || !Number.isFinite(threshold)) return null;
+  return { count, threshold };
+}
+
 function computeAdmissionStudentSum(row, sums, mockGrades) {
   const count = extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
   if (!count) return null;
 
-  const groups = parseAdmissionSubjectGroups(row?.requiredSubjects);
-  if (groups.length && mockGrades) {
-    const values = groups
-      .map(group => admissionSubjectValue(group, mockGrades))
-      .filter(value => value != null)
-      .sort((a, b) => a - b);
-    if (values.length < count) return null;
-    return values.slice(0, count).reduce((total, value) => total + value, 0);
-  }
+  const grades = computeAdmissionStudentGrades(row, mockGrades, count);
+  if (grades) return grades.reduce((total, value) => total + value, 0);
 
   return ({ 1: sums?.sum1, 2: sums?.sum2, 3: sums?.sum3, 4: sums?.sum4 }[Number(count)] ?? null);
 }
 
 // ---------- 수능 최저 도달 대학 매칭 ----------
 export function matchUniversities(sums, admissionRows) {
-  const { sum1, sum2, sum3, sum4 } = sums;
   const matched = new Set();
 
   (admissionRows || []).forEach(row => {
     if (!row.university) return;
-    const count = extractAdmissionCount(row.requiredSubjectCount, row.requiredSum);
-    if (!count || row.requiredSum == null || row.requiredSum === "") return;
-    if (String(row.note || "").includes("각")) return;
-
-    const studentSum = computeAdmissionStudentSum(row, sums, sums?.subjectGrades);
-    if (studentSum == null) return;
-    const threshold = extractAdmissionThreshold(row.requiredSum, count);
-    if (threshold == null) return;
-    if (studentSum <= threshold) matched.add(row.university);
+    const result = evaluateAdmissionRequirement(row, sums, sums?.subjectGrades);
+    if (result.status === "satisfied") matched.add(row.university);
   });
   return Array.from(matched);
 }
@@ -406,21 +427,44 @@ export function matchUniversities(sums, admissionRows) {
 // ---------- 대학별 수능 최저 개별 판정 ----------
 export function evaluateAdmissionRequirement(row, sums, mockGrades = null) {
   const university = String(row?.university || "").trim();
-  const count = extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
-  const threshold = extractAdmissionThreshold(row?.requiredSum, count);
-  const studentSum = count == null ? null : computeAdmissionStudentSum(row, sums, mockGrades);
+  const eachRule = extractAdmissionEachRule(row);
+  const count = eachRule?.count ?? extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
+  const threshold = eachRule?.threshold ?? extractAdmissionThreshold(row?.requiredSum, count);
+  const studentGrades = eachRule ? computeAdmissionStudentGrades(row, mockGrades, count) : null;
+  const studentSum = eachRule
+    ? (studentGrades ? studentGrades.reduce((total, value) => total + value, 0) : null)
+    : (count == null ? null : computeAdmissionStudentSum(row, sums, mockGrades));
   const note = String(row?.note || "");
 
-  if (!university) return { status: "invalid", satisfied: null, studentSum, threshold, count };
-  if (!count || threshold == null) return { status: "no-minimum", satisfied: true, studentSum, threshold, count };
-  if (note.includes("각")) return { status: "manual", satisfied: null, studentSum, threshold, count };
-  if (studentSum == null) return { status: "unavailable", satisfied: null, studentSum, threshold, count };
+  if (!university) return { status: "invalid", satisfied: null, studentSum, studentGrades, threshold, count, ruleType: eachRule ? "each" : "sum" };
+  if (!count || threshold == null) return { status: "no-minimum", satisfied: true, studentSum, studentGrades, threshold, count, ruleType: eachRule ? "each" : "sum" };
+
+  if (eachRule) {
+    if (!studentGrades) {
+      return { status: "unavailable", satisfied: null, studentSum, studentGrades, threshold, count, ruleType: "each" };
+    }
+    const satisfied = studentGrades.every(value => value <= threshold);
+    return {
+      status: satisfied ? "satisfied" : "unsatisfied",
+      satisfied,
+      studentSum,
+      studentGrades,
+      threshold,
+      count,
+      ruleType: "each",
+    };
+  }
+
+  if (note.includes("각")) return { status: "manual", satisfied: null, studentSum, studentGrades, threshold, count, ruleType: "sum" };
+  if (studentSum == null) return { status: "unavailable", satisfied: null, studentSum, studentGrades, threshold, count, ruleType: "sum" };
   return {
     status: studentSum <= threshold ? "satisfied" : "unsatisfied",
     satisfied: studentSum <= threshold,
     studentSum,
+    studentGrades,
     threshold,
     count,
+    ruleType: "sum",
   };
 }
 
