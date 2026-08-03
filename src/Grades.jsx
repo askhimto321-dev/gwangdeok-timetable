@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from "react";
-import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen } from "lucide-react";
+import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin } from "lucide-react";
 import { readStorage, uploadAdmissionPdf, deleteAdmissionPdf } from "./storage.js";
+import { extractPdfFilesFromZip } from "./zipReader.js";
 import {
   parseSemesterSheet,
   computeAllGroupAverages,
@@ -44,6 +45,13 @@ const CATEGORY_META = {
 
 const CATEGORY_TREND_OPTIONS = ["국어", "영어", "수학", "사회", "과학", "전과목"];
 const MOCK_TREND_OPTIONS = [...MOCK_SUBJECTS, "전과목 평균"];
+const ADMISSION_REGIONS = ["미지정", "서울", "경기", "인천", "강원", "대전·세종", "충북", "충남", "광주", "전북", "전남", "대구", "경북", "부산", "울산", "경남", "제주", "기타"];
+const REGION_KEYWORDS = [
+  ["서울", "서울"], ["경기", "경기"], ["인천", "인천"], ["강원", "강원"],
+  ["대전", "대전·세종"], ["세종", "대전·세종"], ["충북", "충북"], ["충남", "충남"],
+  ["광주", "광주"], ["전북", "전북"], ["전남", "전남"], ["대구", "대구"],
+  ["경북", "경북"], ["부산", "부산"], ["울산", "울산"], ["경남", "경남"], ["제주", "제주"],
+];
 
 function getAcademicYear() {
   const now = new Date();
@@ -101,6 +109,41 @@ async function loadXLSX() {
   return _xlsxModule;
 }
 
+function cleanGuideBaseName(fileName) {
+  return String(fileName || "")
+    .replace(/^.*[\/]/, "")
+    .replace(/\.pdf$/i, "")
+    .replace(/[（(]?\s*20\d{2}\s*학년도?\s*[)）]?/g, " ")
+    .replace(/수시|정시|모집요강|입학전형|전형계획|시행계획|입시요강|대학입학|최종본?|배포용|확정본?/g, " ")
+    .replace(/[_\-–—]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inferUniversityFromFileName(fileName, knownUniversities = []) {
+  const normalizedFile = universityKey(fileName);
+  const known = (knownUniversities || [])
+    .filter(Boolean)
+    .slice()
+    .sort((a, b) => String(b).length - String(a).length);
+  const matchedKnown = known.find(name => normalizedFile.includes(universityKey(name)));
+  if (matchedKnown) return matchedKnown;
+
+  const base = cleanGuideBaseName(fileName);
+  const formalMatch = base.match(/([가-힣A-Za-z0-9·]+?(?:과학기술원|교육대학교|대학교|대학))/);
+  if (formalMatch) return formalMatch[1].trim();
+
+  const token = base.split(/[\s()[\]{}]+/).find(part => part && part.length >= 2);
+  return token || "대학명 확인 필요";
+}
+
+function inferRegionFromFileName(fileName, knownRegion = "") {
+  if (knownRegion && knownRegion !== "미지정") return knownRegion;
+  const text = String(fileName || "");
+  const found = REGION_KEYWORDS.find(([keyword]) => text.includes(keyword));
+  return found ? found[1] : "미지정";
+}
+
 export async function loadGradesDB() {
   const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts] = await Promise.all([
     readStorage("kd_grades_semesters", {}),
@@ -139,12 +182,16 @@ export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedIn
           {loggedInStudent && <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학별 입시전형 확인" />}
           {(loggedInTeacher) && <TabBtn active={tab === "class"} onClick={() => setTab("class")} label="우리 반 학생 조회" />}
           {(loggedInAdmin || loggedInTeacher) && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label="학생 성적 조회" />}
+          {loggedInAdmin && <TabBtn active={tab === "lookupAdmission"} onClick={() => setTab("lookupAdmission")} label="학생별 입시전형 확인" />}
         </div>
 
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
         {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} />}
         {tab === "lookup" && (loggedInAdmin || loggedInTeacher) && (
-          <StudentLookup roster={roster} gdb={gdb} homeroomClass={loggedInTeacher ? loggedInTeacher.homeroomClass : null} isAdmin={!!loggedInAdmin} />
+          <StudentLookup key="grade-lookup" roster={roster} gdb={gdb} homeroomClass={loggedInTeacher ? loggedInTeacher.homeroomClass : null} isAdmin={!!loggedInAdmin} initialView="grades" />
+        )}
+        {tab === "lookupAdmission" && loggedInAdmin && (
+          <StudentLookup key="admission-lookup" roster={roster} gdb={gdb} isAdmin initialView="admission" />
         )}
         {tab === "class" && loggedInTeacher && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
@@ -317,35 +364,35 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                 ))}
               </div>
               <div style={table.scroll}>
-                <table style={{ ...table.base, minWidth: gradeSystem === 5 ? 1080 : 930, tableLayout: "fixed" }}>
+                <table style={{ ...table.base, ...gradeTable.base, minWidth: gradeSystem === 5 ? 790 : 700, tableLayout: "fixed" }}>
                   <colgroup>
-                    <col style={{ width: 180 }} />
-                    <col style={{ width: 125 }} />
-                    <col style={{ width: 64 }} />
-                    <col style={{ width: 82 }} />
-                    <col style={{ width: 82 }} />
-                    <col style={{ width: 148 }} />
-                    {gradeSystem === 5 && <col style={{ width: 170 }} />}
-                    <col style={{ width: 104 }} />
-                    <col style={{ width: 88 }} />
+                    <col style={{ width: 145 }} />
+                    <col style={{ width: 98 }} />
+                    <col style={{ width: 46 }} />
+                    <col style={{ width: 58 }} />
+                    <col style={{ width: 62 }} />
+                    <col style={{ width: 86 }} />
+                    {gradeSystem === 5 && <col style={{ width: 100 }} />}
+                    <col style={{ width: 86 }} />
+                    <col style={{ width: 68 }} />
                   </colgroup>
                   <thead>
                     <tr>
-                      <th style={table.th}>과목</th>
-                      <th style={table.th}>과목계열</th>
-                      <th style={table.th}>학점</th>
-                      <th style={table.th}>원점수</th>
-                      <th style={table.th}>성취도</th>
+                      <th style={{ ...table.th, ...gradeTable.th }}>과목</th>
+                      <th style={{ ...table.th, ...gradeTable.th }}>과목계열</th>
+                      <th style={{ ...table.th, ...gradeTable.th }}>학점</th>
+                      <th style={{ ...table.th, ...gradeTable.th }}>원점수</th>
+                      <th style={{ ...table.th, ...gradeTable.th }}>성취도</th>
                       {gradeSystem === 5 ? (
                         <>
-                          <th style={{ ...table.th, whiteSpace: "normal", lineHeight: 1.35 }}>석차등급(5등급)</th>
-                          <th style={{ ...table.th, whiteSpace: "normal", lineHeight: 1.35 }}>석차등급(9등급 환산)</th>
+                          <th style={{ ...table.th, ...gradeTable.th }}><span>석차등급</span><br /><span style={gradeTable.thSub}>(5등급제)</span></th>
+                          <th style={{ ...table.th, ...gradeTable.th }}><span>석차등급</span><br /><span style={gradeTable.thSub}>(9등급 환산)</span></th>
                         </>
                       ) : (
-                        <th style={{ ...table.th, whiteSpace: "normal", lineHeight: 1.35 }}>석차등급(9등급)</th>
+                        <th style={{ ...table.th, ...gradeTable.th }}><span>석차등급</span><br /><span style={gradeTable.thSub}>(9등급제)</span></th>
                       )}
-                      <th style={table.th}>석차</th>
-                      <th style={table.th}>수강자수</th>
+                      <th style={{ ...table.th, ...gradeTable.th }}>석차</th>
+                      <th style={{ ...table.th, ...gradeTable.th }}>수강자수</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -360,44 +407,44 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                       const topRate = rank != null && classSize ? Math.round((rank / classSize) * 1000) / 10 : null;
                       return (
                         <tr key={`${subject.subject}-${index}`} style={{ background: "#fff" }}>
-                          <td style={{ ...table.tdLabel, background: "#fff", borderLeft: `5px solid ${meta.color}`, color: "#2b2620" }}>
+                          <td style={{ ...table.tdLabel, ...gradeTable.subjectCell, background: "#fff", borderLeft: `4px solid ${meta.color}`, color: "#2b2620" }}>
                             <span style={{ fontWeight: 800 }}>{subject.subject}</span>
                           </td>
-                          <td style={table.td}><CategoryBadge category={meta.key} /></td>
-                          <td style={table.td}>{subject.credit}</td>
-                          <td style={table.td}>
+                          <td style={{ ...table.td, ...gradeTable.td }}><CategoryBadge category={meta.key} /></td>
+                          <td style={{ ...table.td, ...gradeTable.td }}>{subject.credit}</td>
+                          <td style={{ ...table.td, ...gradeTable.td }}>
                             <span style={{ fontWeight: score != null && score >= 90 ? 900 : 600, color: score != null && score >= 90 ? "#24613a" : "inherit" }}>
                               {subject.score ?? "-"}
                             </span>
                           </td>
-                          <td style={table.td}>
+                          <td style={{ ...table.td, ...gradeTable.td }}>
                             <span style={{ ...achievementPill.base, ...(achievement === "A" ? achievementPill.a : achievement === "B" ? achievementPill.b : achievementPill.default) }}>
                               {subject.achievement ?? "-"}
                             </span>
                           </td>
                           {sourceGrade == null ? (
-                            <td style={table.td} colSpan={gradeSystem === 5 ? 2 : 1}>
+                            <td style={{ ...table.td, ...gradeTable.td }} colSpan={gradeSystem === 5 ? 2 : 1}>
                               <span style={absoluteGradePill}>절대평가 과목</span>
                             </td>
                           ) : (
                             <>
-                              <td style={table.td}>
+                              <td style={{ ...table.td, ...gradeTable.td }}>
                                 <span style={{ ...metricPill, ...gradeValueStyle(sourceGrade) }}>{sourceGrade}</span>
                               </td>
                               {gradeSystem === 5 && (
-                                <td style={table.td}>
+                                <td style={{ ...table.td, ...gradeTable.td }}>
                                   <span style={{ ...metricPill, ...gradeValueStyle(convertedGrade) }}>{convertedGrade}</span>
                                 </td>
                               )}
                             </>
                           )}
-                          <td style={table.td}>
+                          <td style={{ ...table.td, ...gradeTable.td }}>
                             <span style={{ fontWeight: topRate != null && topRate <= 10 ? 900 : 600, color: topRate != null && topRate <= 10 ? "#24613a" : "inherit" }}>
                               {subject.rank ?? "-"}
                             </span>
                             {topRate != null && topRate <= 10 && <div style={topBadge}>상위 {topRate}%</div>}
                           </td>
-                          <td style={table.td}>{subject.classSize ?? "-"}</td>
+                          <td style={{ ...table.td, ...gradeTable.td }}>{subject.classSize ?? "-"}</td>
                         </tr>
                       );
                     })}
@@ -612,6 +659,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const latestSums = useMemo(() => computeMockExamSums(latestMockGrades || {}), [latestMockGrades]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [regionFilter, setRegionFilter] = useState("all");
 
   const docsByUniversity = useMemo(() => {
     const map = new Map();
@@ -632,6 +680,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       _index: index,
       evaluation,
       docs: docsByUniversity.get(universityKey(row.university)) || [],
+      region: String(row.region || (docsByUniversity.get(universityKey(row.university)) || [])[0]?.region || "미지정"),
     };
   }), [admissionRows, latestSums, docsByUniversity]);
 
@@ -640,12 +689,18 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
     return evaluatedRows.filter(row => {
       const haystack = [row.university, row.department, row.track, row.note].join(" ").toLowerCase();
       if (q && !haystack.includes(q)) return false;
+      if (regionFilter !== "all" && String(row.region || "미지정") !== regionFilter) return false;
       if (statusFilter === "satisfied") return row.evaluation.status === "satisfied" || row.evaluation.status === "no-minimum";
       if (statusFilter === "unsatisfied") return row.evaluation.status === "unsatisfied";
       if (statusFilter === "review") return ["manual", "unavailable"].includes(row.evaluation.status);
       return true;
     });
-  }, [evaluatedRows, query, statusFilter]);
+  }, [evaluatedRows, query, statusFilter, regionFilter]);
+
+  const regionOptions = useMemo(() => Array.from(new Set([
+    ...evaluatedRows.map(row => row.region || "미지정"),
+    ...(admissionDocs || []).map(docItem => docItem.region || "미지정"),
+  ])).filter(Boolean).sort((a, b) => a.localeCompare(b, "ko")), [evaluatedRows, admissionDocs]);
 
   const statusCounts = useMemo(() => ({
     satisfied: evaluatedRows.filter(row => ["satisfied", "no-minimum"].includes(row.evaluation.status)).length,
@@ -667,6 +722,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
         number={inferredNumber}
         entryYear={entryYear}
         gradeSystem={gradeSystem}
+        viewType="admission"
       />
 
       <div style={{ ...card, background: "linear-gradient(135deg, #f3f8f1 0%, #ffffff 72%)", borderColor: "#cfdfca" }}>
@@ -694,6 +750,10 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             <Search size={16} color="#a39d8c" />
             <input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학·학과·전형 검색" style={searchBox.input} />
           </div>
+          <select value={regionFilter} onChange={event => setRegionFilter(event.target.value)} style={{ ...selectStyle, minWidth: 120 }} aria-label="지역 선택">
+            <option value="all">전체 지역</option>
+            {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
+          </select>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {[
               ["all", "전체"],
@@ -716,6 +776,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
               <thead>
                 <tr>
                   <th style={table.th}>대학교</th>
+                  <th style={table.th}>지역</th>
                   <th style={table.th}>모집단위·전형</th>
                   <th style={table.th}>수능 최저 기준</th>
                   <th style={table.th}>내 등급 합</th>
@@ -736,6 +797,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...table.tdLabel, minWidth: 135 }}>{row.university}</td>
+                      <td style={table.td}><span style={regionBadge}><MapPin size={11} />{row.region || "미지정"}</span></td>
                       <td style={{ ...table.td, textAlign: "left", whiteSpace: "normal", lineHeight: 1.5 }}>
                         <div style={{ fontWeight: 800 }}>{detail}</div>
                         {row.note && <div style={{ marginTop: 3, color: "#8a8578", fontSize: 10.8 }}>{row.note}</div>}
@@ -768,7 +830,11 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           <div style={admissionDocs.grid}>
             {docsWithoutRows.map(docItem => (
               <div key={docItem.id || docItem.url} style={admissionDocs.card}>
-                <div><div style={{ fontWeight: 900 }}>{docItem.university}</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>{docItem.label || docItem.fileName}</div></div>
+                <div>
+                  <div style={{ fontWeight: 900 }}>{docItem.university}</div>
+                  <div style={{ marginTop: 4 }}><span style={regionBadge}><MapPin size={10} />{docItem.region || "미지정"}</span></div>
+                  <div style={{ fontSize: 11, color: "#8a8578", marginTop: 4 }}>{docItem.label || docItem.fileName}</div>
+                </div>
                 <PdfLink docItem={docItem} />
               </div>
             ))}
@@ -798,7 +864,7 @@ function PdfLink({ docItem }) {
   );
 }
 
-function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYear, gradeSystem }) {
+function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYear, gradeSystem, viewType = "grades" }) {
   const location = [
     grade != null ? `${grade}학년` : null,
     classNumber != null ? `${Number(classNumber)}반` : null,
@@ -807,9 +873,9 @@ function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYea
 
   return (
     <div style={studentBanner.box}>
-      <div style={studentBanner.eyebrow}>학생 성적 조회</div>
+      <div style={studentBanner.eyebrow}>{viewType === "admission" ? "학생 입시전형 확인" : "학생 성적 조회"}</div>
       <div style={studentBanner.title}>
-        <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span> 학생의 성적
+        <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span> {viewType === "admission" ? "학생의 대학별 입시전형" : "학생의 성적"}
       </div>
       <div style={studentBanner.badges}>
         {location && <span style={studentBanner.badge}>{location}</span>}
@@ -1086,36 +1152,57 @@ function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
 /* ============================================================
    관리자/선생님: 학생 학번으로 성적 조회
    ============================================================ */
-function StudentLookup({ roster, gdb, homeroomClass, isAdmin }) {
+function StudentLookup({ roster, gdb, homeroomClass, isAdmin, initialView = "grades" }) {
   const [query, setQuery] = useState("");
   const [sid, setSid] = useState(null);
+  const [view, setView] = useState(initialView);
 
   const candidates = useMemo(() => {
     let entries = Object.entries(roster || {});
-    if (!isAdmin && homeroomClass) entries = entries.filter(([, s]) => String(s.class) === String(homeroomClass));
+    if (!isAdmin && homeroomClass) entries = entries.filter(([, student]) => String(student.class) === String(homeroomClass));
     if (!query.trim()) return [];
     const q = query.trim();
-    return entries.filter(([id, s]) => id.includes(q) || (s.name || "").includes(q)).slice(0, 8);
+    return entries.filter(([id, student]) => id.includes(q) || (student.name || "").includes(q)).slice(0, 8);
   }, [query, roster, isAdmin, homeroomClass]);
+
+  const chooseStudent = id => {
+    setSid(id);
+    setView(initialView);
+  };
 
   return (
     <div>
       {!isAdmin && homeroomClass && <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 10 }}>담당 반({homeroomClass}반) 학생만 조회할 수 있습니다.</div>}
       <div style={searchBox.box}>
         <Search size={16} color="#a39d8c" />
-        <input value={query} onChange={e => { setQuery(e.target.value); setSid(null); }} placeholder="학번 또는 이름으로 검색" style={searchBox.input} />
+        <input
+          value={query}
+          onChange={event => { setQuery(event.target.value); setSid(null); setView(initialView); }}
+          placeholder="학번 또는 이름으로 검색"
+          style={searchBox.input}
+        />
       </div>
       {candidates.length > 0 && !sid && (
         <div style={searchBox.list}>
-          {candidates.map(([id, s]) => (
-            <button key={id} style={searchBox.item} onClick={() => setSid(id)}>
-              <span style={{ fontWeight: 600 }}>{s.name}</span>
-              <span style={{ color: "#a39d8c", fontSize: 11.5 }}>{s.class}반 {s.number}번 · {id}</span>
+          {candidates.map(([id, student]) => (
+            <button key={id} style={searchBox.item} onClick={() => chooseStudent(id)}>
+              <span style={{ fontWeight: 600 }}>{student.name}</span>
+              <span style={{ color: "#a39d8c", fontSize: 11.5 }}>{student.class}반 {student.number}번 · {id}</span>
             </button>
           ))}
         </div>
       )}
-      {sid && <div style={{ marginTop: 16 }}><StudentGradeReport key={sid} sid={sid} gdb={gdb} studentInfo={roster?.[sid]} /></div>}
+      {sid && (
+        <div style={{ marginTop: 16 }}>
+          <div style={lookupTabs.box}>
+            <button onClick={() => setView("grades")} style={{ ...lookupTabs.button, ...(view === "grades" ? lookupTabs.active : {}) }}>성적 조회</button>
+            <button onClick={() => setView("admission")} style={{ ...lookupTabs.button, ...(view === "admission" ? lookupTabs.active : {}) }}>대학별 입시전형 확인</button>
+          </div>
+          {view === "grades"
+            ? <StudentGradeReport key={`${sid}-grades`} sid={sid} gdb={gdb} mode="grades" studentInfo={roster?.[sid]} />
+            : <StudentAdmissionView key={`${sid}-admission`} sid={sid} gdb={gdb} studentInfo={roster?.[sid]} />}
+        </div>
+      )}
     </div>
   );
 }
@@ -1278,6 +1365,7 @@ function parseAdmissionRows(rows) {
   const trackIndex = firstIndex(["전형명", "전형", "전형유형"]);
   const requiredSubjectsIndex = firstIndex(["수능최저반영교과", "수능최저반영과목", "반영영역", "최저반영영역", "반영교과"]);
   const noteIndex = firstIndex(["전형특이사항", "특이사항", "비고"]);
+  const regionIndex = firstIndex(["지역", "지역구분", "소재지", "대학소재지"]);
 
   const admissionRows = [];
   for (let rowIndex = headerRowIdx + 1; rowIndex < rows.length; rowIndex++) {
@@ -1293,6 +1381,7 @@ function parseAdmissionRows(rows) {
       requiredSubjectCount: row[countIndex],
       requiredSum: row[sumIndex],
       note: noteIndex == null ? "" : String(row[noteIndex] ?? "").trim(),
+      region: regionIndex == null ? "" : String(row[regionIndex] ?? "").trim(),
     });
   }
   return admissionRows;
@@ -1641,15 +1730,44 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
 
 function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const fileRef = useRef(null);
+  const zipRef = useRef(null);
   const [university, setUniversity] = useState("");
+  const [region, setRegion] = useState("미지정");
   const [label, setLabel] = useState("");
   const [year, setYear] = useState(String(CURRENT_ACADEMIC_YEAR + 2));
   const [busy, setBusy] = useState(false);
+  const [batchPreview, setBatchPreview] = useState(null);
+  const [batchProgress, setBatchProgress] = useState("");
+  const [editingId, setEditingId] = useState(null);
+  const [editUniversity, setEditUniversity] = useState("");
+  const [editRegion, setEditRegion] = useState("미지정");
+
   const docs = (gdb.admissionDocs || []).slice().sort((a, b) => (
-    String(a.university || "").localeCompare(String(b.university || ""), "ko")
+    String(a.region || "미지정").localeCompare(String(b.region || "미지정"), "ko")
+    || String(a.university || "").localeCompare(String(b.university || ""), "ko")
     || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
   ));
-  const universityOptions = Array.from(new Set((gdb.admissionRows || []).map(row => String(row.university || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko"));
+  const universityOptions = Array.from(new Set([
+    ...(gdb.admissionRows || []).map(row => String(row.university || "").trim()),
+    ...(gdb.admissionDocs || []).map(docItem => String(docItem.university || "").trim()),
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko"));
+  const regionByUniversity = new Map();
+  [...(gdb.admissionRows || []), ...(gdb.admissionDocs || [])].forEach(item => {
+    if (item?.university && item?.region) regionByUniversity.set(universityKey(item.university), item.region);
+  });
+
+  const makeDocumentItem = (uploaded, values) => ({
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    university: values.university.trim(),
+    region: values.region || "미지정",
+    label: values.label.trim() || `${values.year ? `${values.year}학년도 ` : ""}모집요강`,
+    year: values.year.trim(),
+    fileName: uploaded.fileName,
+    size: uploaded.size,
+    url: uploaded.url,
+    storagePath: uploaded.path,
+    updatedAt: new Date().toISOString(),
+  });
 
   const handleUpload = async file => {
     if (!university.trim()) {
@@ -1661,17 +1779,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     let uploaded = null;
     try {
       uploaded = await uploadAdmissionPdf(file, university.trim());
-      const item = {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        university: university.trim(),
-        label: label.trim() || `${year ? `${year}학년도 ` : ""}모집요강`,
-        year: year.trim(),
-        fileName: uploaded.fileName,
-        size: uploaded.size,
-        url: uploaded.url,
-        storagePath: uploaded.path,
-        updatedAt: new Date().toISOString(),
-      };
+      const item = makeDocumentItem(uploaded, { university, region, label, year });
       const ok = await persistGrades({ admissionDocs: [...(gdb.admissionDocs || []), item] });
       if (!ok) {
         await deleteAdmissionPdf(uploaded.path);
@@ -1688,6 +1796,131 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const handleZip = async zipFile => {
+    setBusy(true);
+    setBatchPreview(null);
+    setBatchProgress("압축파일을 분석하고 있습니다.");
+    try {
+      if (!/\.zip$/i.test(zipFile.name || "")) throw new Error("ZIP 압축파일만 선택할 수 있습니다.");
+      if (zipFile.size > 500 * 1024 * 1024) throw new Error("ZIP 파일은 500MB 이하만 처리할 수 있습니다.");
+      const extracted = await extractPdfFilesFromZip(zipFile, {
+        maxFiles: 100,
+        maxTotalBytes: 500 * 1024 * 1024,
+        onProgress: (current, total) => setBatchProgress(`PDF를 읽는 중입니다. (${current}/${total})`),
+      });
+
+      const items = [];
+      for (let index = 0; index < extracted.length; index += 1) {
+        const entry = extracted[index];
+        const fileName = entry.name;
+        const file = new File([entry.blob], fileName, { type: "application/pdf", lastModified: zipFile.lastModified || Date.now() });
+        const inferredUniversity = inferUniversityFromFileName(fileName, universityOptions);
+        const knownRegion = regionByUniversity.get(universityKey(inferredUniversity)) || "";
+        items.push({
+          id: `${Date.now()}_${index}_${Math.random().toString(36).slice(2, 7)}`,
+          file,
+          fileName,
+          university: inferredUniversity,
+          region: inferRegionFromFileName(fileName, knownRegion),
+          label: `${year ? `${year}학년도 ` : ""}모집요강`,
+          year,
+        });
+      }
+      setBatchPreview(items);
+      setBatchProgress("");
+      showToast(`${items.length}개의 PDF를 인식했습니다. 대학명과 지역을 확인한 뒤 일괄 업로드해주세요.`, "success");
+    } catch (error) {
+      showToast(`ZIP 분석 실패: ${error?.message || error}`, "error");
+      setBatchProgress("");
+    } finally {
+      setBusy(false);
+      if (zipRef.current) zipRef.current.value = "";
+    }
+  };
+
+  const updateBatchItem = (id, patch) => {
+    setBatchPreview(items => (items || []).map(item => item.id === id ? { ...item, ...patch } : item));
+  };
+
+  const removeBatchItem = id => {
+    setBatchPreview(items => (items || []).filter(item => item.id !== id));
+  };
+
+  const uploadBatch = async () => {
+    const items = batchPreview || [];
+    if (!items.length) return;
+    if (items.some(item => !String(item.university || "").trim())) {
+      showToast("대학명이 비어 있는 파일이 있습니다.", "error");
+      return;
+    }
+    setBusy(true);
+    const uploadedItems = [];
+    const failures = [];
+    try {
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        setBatchProgress(`${item.fileName} 업로드 중 (${index + 1}/${items.length})`);
+        try {
+          const uploaded = await uploadAdmissionPdf(item.file, item.university.trim());
+          uploadedItems.push({ uploaded, doc: makeDocumentItem(uploaded, item) });
+        } catch (error) {
+          failures.push({ ...item, error: error?.message || String(error) });
+        }
+      }
+
+      if (uploadedItems.length) {
+        const ok = await persistGrades({
+          admissionDocs: [...(gdb.admissionDocs || []), ...uploadedItems.map(item => item.doc)],
+        });
+        if (!ok) {
+          await Promise.all(uploadedItems.map(item => deleteAdmissionPdf(item.uploaded.path)));
+          throw new Error("업로드된 PDF 목록을 저장하지 못했습니다.");
+        }
+      }
+
+      if (failures.length) {
+        setBatchPreview(failures);
+        showToast(`${uploadedItems.length}건 등록, ${failures.length}건 실패했습니다. 실패 항목을 확인해주세요.`, "error");
+      } else {
+        setBatchPreview(null);
+        showToast(`${uploadedItems.length}개의 모집요강 PDF를 일괄 등록했습니다.`, "success");
+      }
+    } catch (error) {
+      showToast(`일괄 업로드 실패: ${error?.message || error}`, "error");
+    } finally {
+      setBusy(false);
+      setBatchProgress("");
+    }
+  };
+
+  const startEdit = docItem => {
+    setEditingId(docItem.id || docItem.url);
+    setEditUniversity(docItem.university || "");
+    setEditRegion(docItem.region || "미지정");
+  };
+
+  const saveEdit = async docItem => {
+    if (!editUniversity.trim()) {
+      showToast("대학교명을 입력해주세요.", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const key = docItem.id || docItem.url;
+      const updated = (gdb.admissionDocs || []).map(item => (item.id || item.url) === key
+        ? { ...item, university: editUniversity.trim(), region: editRegion || "미지정", updatedAt: new Date().toISOString() }
+        : item);
+      const ok = await persistGrades({ admissionDocs: updated });
+      if (!ok) throw new Error("PDF 정보 저장에 실패했습니다.");
+      setEditingId(null);
+      showToast("대학명과 지역을 수정했습니다.", "success");
+    } catch (error) {
+      showToast(`수정 실패: ${error?.message || error}`, "error");
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -1714,8 +1947,10 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
       <div style={{ ...card, border: "1.5px dashed #d7dfd3", background: "#fbfdfb" }}>
         <SectionHeading
           title="대학별 모집요강 PDF 등록"
-          description="PDF 본문은 Firebase Storage에, 대학명·파일 링크는 Firestore에 저장됩니다. 학생은 대학별 입시전형 탭에서 바로 열어볼 수 있습니다."
+          description="개별 PDF 또는 여러 PDF가 들어 있는 ZIP 파일을 등록할 수 있습니다. ZIP의 파일명에서 대학명을 우선 추정하며, 저장 전에 대학명과 지역을 직접 확인·수정합니다."
         />
+
+        <div style={pdfAdmin.sectionTitle}>개별 PDF 업로드</div>
         <div style={pdfAdmin.formGrid}>
           <label style={pdfAdmin.label}>
             <span>대학교</span>
@@ -1723,44 +1958,125 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
             <datalist id="admission-university-options">{universityOptions.map(name => <option key={name} value={name} />)}</datalist>
           </label>
           <label style={pdfAdmin.label}>
+            <span>지역</span>
+            <select value={region} onChange={event => setRegion(event.target.value)} style={pdfAdmin.input}>
+              {ADMISSION_REGIONS.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
+            </select>
+          </label>
+          <label style={pdfAdmin.label}>
             <span>학년도</span>
             <input value={year} onChange={event => setYear(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} placeholder="2028" style={pdfAdmin.input} />
           </label>
-          <label style={{ ...pdfAdmin.label, gridColumn: "span 2" }}>
+          <label style={pdfAdmin.label}>
             <span>표시 이름</span>
-            <input value={label} onChange={event => setLabel(event.target.value)} placeholder="비워두면 ‘2028학년도 모집요강’으로 표시" style={pdfAdmin.input} />
+            <input value={label} onChange={event => setLabel(event.target.value)} placeholder="비워두면 ‘2028학년도 모집요강’" style={pdfAdmin.input} />
           </label>
         </div>
         <input ref={fileRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={event => event.target.files?.[0] && handleUpload(event.target.files[0])} />
         <button style={btn.primary} onClick={() => fileRef.current?.click()} disabled={busy || !university.trim()}>
           {busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} PDF 선택 및 업로드
         </button>
+
+        <div style={pdfAdmin.divider} />
+        <div style={pdfAdmin.sectionTitle}>ZIP 일괄 업로드</div>
+        <div style={{ fontSize: 11.5, color: "#716b5f", lineHeight: 1.6, marginBottom: 10 }}>
+          ZIP 안의 PDF 파일명을 분석해 대학명을 자동 입력합니다. 자동 인식 결과는 바로 저장되지 않으며, 아래 미리보기에서 대학명과 지역을 수정한 후 업로드합니다.
+        </div>
+        <input ref={zipRef} type="file" accept="application/zip,.zip" style={{ display: "none" }} onChange={event => event.target.files?.[0] && handleZip(event.target.files[0])} />
+        <button style={btn.secondary} onClick={() => zipRef.current?.click()} disabled={busy}>
+          <Archive size={14} /> ZIP 파일 선택
+        </button>
+        {batchProgress && <div style={pdfAdmin.progress}><Loader2 size={13} className="spin" />{batchProgress}</div>}
+
         <div style={pdfAdmin.notice}>
           <BookOpen size={14} /> Firebase Storage가 아직 활성화되지 않았거나 쓰기 규칙이 막혀 있으면 업로드가 실패합니다. 현재 앱의 자체 로그인은 Firebase Storage 규칙에서 관리자 여부를 확인할 수 없으므로, 실제 운영 시에는 Firebase Authentication 연동이 가장 안전합니다.
         </div>
       </div>
 
+      {batchPreview && (
+        <div style={card}>
+          <SectionHeading title={`ZIP 업로드 확인 (${batchPreview.length}건)`} description="대학명과 지역을 최종 확인하세요. 잘못 인식된 항목은 직접 수정하거나 목록에서 제외할 수 있습니다." />
+          <div style={table.scroll}>
+            <table style={{ ...table.base, minWidth: 860 }}>
+              <thead>
+                <tr><th style={table.th}>파일명</th><th style={table.th}>대학명</th><th style={table.th}>지역</th><th style={table.th}>표시 이름</th><th style={table.th}></th></tr>
+              </thead>
+              <tbody>
+                {batchPreview.map(item => (
+                  <tr key={item.id}>
+                    <td style={{ ...table.tdLabel, maxWidth: 220, whiteSpace: "normal", wordBreak: "break-all" }}>
+                      {item.fileName}
+                      {item.error && <div style={{ color: "#9a4242", fontSize: 10.5, marginTop: 4 }}>{item.error}</div>}
+                    </td>
+                    <td style={table.td}><input value={item.university} onChange={event => updateBatchItem(item.id, { university: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 160 }} /></td>
+                    <td style={table.td}>
+                      <select value={item.region || "미지정"} onChange={event => updateBatchItem(item.id, { region: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 105 }}>
+                        {ADMISSION_REGIONS.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
+                      </select>
+                    </td>
+                    <td style={table.td}><input value={item.label || ""} onChange={event => updateBatchItem(item.id, { label: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 150 }} /></td>
+                    <td style={table.td}><button style={pdfAdmin.deleteButton} onClick={() => removeBatchItem(item.id)} disabled={busy}><Trash2 size={12} /> 제외</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+            <button style={btn.primary} onClick={uploadBatch} disabled={busy || !batchPreview.length}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 확인한 PDF 일괄 업로드</button>
+            <button style={btn.secondary} onClick={() => setBatchPreview(null)} disabled={busy}>취소</button>
+          </div>
+        </div>
+      )}
+
       <div style={card}>
-        <SectionHeading title={`등록된 모집요강 (${docs.length}건)`} description="PDF 열기와 삭제를 할 수 있습니다." />
+        <SectionHeading title={`등록된 모집요강 (${docs.length}건)`} description="등록 후에도 대학명과 지역을 수정할 수 있습니다." />
         {!docs.length ? (
           <div style={chartEmpty}>등록된 모집요강 PDF가 없습니다.</div>
         ) : (
           <div style={admissionDocs.grid}>
-            {docs.map(docItem => (
-              <div key={docItem.id || docItem.url} style={admissionDocs.card}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 900, color: "#2b2620" }}>{docItem.university}</div>
-                  <div style={{ fontSize: 11.5, color: "#716b5f", marginTop: 3 }}>{docItem.label || docItem.fileName}</div>
-                  <div style={{ fontSize: 10.5, color: "#a39d8c", marginTop: 3 }}>
-                    {docItem.fileName}{docItem.size ? ` · ${(docItem.size / 1024 / 1024).toFixed(1)}MB` : ""}
+            {docs.map(docItem => {
+              const key = docItem.id || docItem.url;
+              const editing = editingId === key;
+              return (
+                <div key={key} style={admissionDocs.card}>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    {editing ? (
+                      <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 1fr) 110px", gap: 7 }}>
+                        <input value={editUniversity} onChange={event => setEditUniversity(event.target.value)} style={pdfAdmin.input} />
+                        <select value={editRegion} onChange={event => setEditRegion(event.target.value)} style={pdfAdmin.input}>
+                          {ADMISSION_REGIONS.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
+                        </select>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+                          <div style={{ fontWeight: 900, color: "#2b2620" }}>{docItem.university}</div>
+                          <span style={regionBadge}><MapPin size={10} />{docItem.region || "미지정"}</span>
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "#716b5f", marginTop: 3 }}>{docItem.label || docItem.fileName}</div>
+                        <div style={{ fontSize: 10.5, color: "#a39d8c", marginTop: 3 }}>
+                          {docItem.fileName}{docItem.size ? ` · ${(docItem.size / 1024 / 1024).toFixed(1)}MB` : ""}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    {editing ? (
+                      <>
+                        <button style={btn.primary} onClick={() => saveEdit(docItem)} disabled={busy}>저장</button>
+                        <button style={btn.secondary} onClick={() => setEditingId(null)} disabled={busy}>취소</button>
+                      </>
+                    ) : (
+                      <>
+                        <PdfLink docItem={docItem} />
+                        <button style={btn.secondary} onClick={() => startEdit(docItem)} disabled={busy}>정보 수정</button>
+                        <button style={pdfAdmin.deleteButton} onClick={() => removeDoc(docItem)} disabled={busy}><Trash2 size={13} /> 삭제</button>
+                      </>
+                    )}
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <PdfLink docItem={docItem} />
-                  <button style={pdfAdmin.deleteButton} onClick={() => removeDoc(docItem)} disabled={busy}><Trash2 size={13} /> 삭제</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1789,6 +2105,18 @@ const btn = {
   tabActive: { background: "#2b2620", color: "#fff", borderColor: "#2b2620" },
   chip: { border: "1px solid #e6e1d3", background: "#fff", padding: "6px 12px", borderRadius: 16, fontSize: 11.5, cursor: "pointer", fontWeight: 700, color: "#8a8578" },
   chipActive: { background: "#3d5c3a", color: "#fff", borderColor: "#3d5c3a" },
+};
+const lookupTabs = {
+  box: { display: "flex", gap: 7, marginBottom: 12, padding: 5, width: "fit-content", borderRadius: 10, background: "#f1eee7", border: "1px solid #e2dccf" },
+  button: { border: "none", background: "transparent", color: "#716b5f", borderRadius: 7, padding: "8px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer" },
+  active: { background: "#3d5c3a", color: "#fff", boxShadow: "0 1px 3px rgba(43,38,32,0.12)" },
+};
+const gradeTable = {
+  base: { fontSize: 11.2 },
+  th: { whiteSpace: "normal", lineHeight: 1.15, padding: "6px 4px", fontSize: 10.4 },
+  thSub: { fontSize: 9.3, color: "#716b5f", fontWeight: 700 },
+  td: { padding: "6px 4px", fontSize: 11.1 },
+  subjectCell: { padding: "6px 7px", whiteSpace: "normal", wordBreak: "keep-all", lineHeight: 1.35, fontSize: 11.2 },
 };
 const table = {
   scroll: { width: "100%", overflowX: "auto", borderRadius: 8 },
@@ -1916,6 +2244,19 @@ const admissionStatus = {
   warning: { background: "#fff6df", color: "#805f1d", border: "1px solid #efddae" },
   neutral: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
 };
+const regionBadge = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 3,
+  borderRadius: 999,
+  padding: "3px 7px",
+  background: "#f0f5ee",
+  border: "1px solid #d1dfcd",
+  color: "#3d5c3a",
+  fontSize: 10.2,
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
 const pdfLinkStyle = {
   display: "inline-flex",
   alignItems: "center",
@@ -1935,11 +2276,14 @@ const admissionDocs = {
   card: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: "1px solid #e6e1d3", borderRadius: 11, background: "#fbfaf7", padding: "12px 13px" },
 };
 const pdfAdmin = {
-  formGrid: { display: "grid", gridTemplateColumns: "minmax(180px, 2fr) minmax(110px, 1fr)", gap: 10, marginBottom: 12 },
+  formGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(150px, 1fr))", gap: 10, marginBottom: 12 },
   label: { display: "flex", flexDirection: "column", gap: 5, fontSize: 11.5, fontWeight: 800, color: "#5f594d" },
   input: { width: "100%", boxSizing: "border-box", border: "1px solid #ddd7c9", borderRadius: 8, background: "#fff", padding: "8px 10px", fontSize: 12.5, color: "#2b2620", outline: "none" },
   notice: { display: "flex", alignItems: "flex-start", gap: 7, marginTop: 12, borderRadius: 9, padding: "9px 10px", background: "#fff8e6", border: "1px solid #f0dca0", color: "#765e1a", fontSize: 10.8, lineHeight: 1.55 },
   deleteButton: { display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #efcaca", background: "#fff5f5", color: "#9a4242", borderRadius: 7, padding: "6px 8px", fontSize: 10.8, fontWeight: 800, cursor: "pointer" },
+  sectionTitle: { fontSize: 12.5, fontWeight: 900, color: "#3d5c3a", marginBottom: 9 },
+  divider: { height: 1, background: "#e7e2d6", margin: "18px 0" },
+  progress: { display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: "#3d5c3a", fontSize: 11.5, fontWeight: 800 },
 };
 const chartControlRow = { display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" };
 const chartControlLabel = { fontSize: 12, color: "#716b5f", fontWeight: 800 };
