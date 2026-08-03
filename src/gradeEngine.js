@@ -564,3 +564,152 @@ export function gradeAnalysisComment(overallAverage, sum2, sum3, sum4, gradeSyst
     ? "내신과 수능 최저가 적정한 상황입니다. 고3 및 실제 수능에는 N수생에 의해 현재 등급보다 더 낮아질 수 있으므로 꾸준히 모의고사 성적을 유지하시기 바랍니다."
     : "내신에 비해 수능 최저가 미흡한 상황입니다. 수능 최저를 맞추지 못한다면 본인 내신 성적에 비해 입결이 낮은 학교를 지원해야 하는 상황이 올 수도 있으므로 모의고사 성적을 신경 쓰기 바랍니다.";
 }
+
+// ---------- 2024~2026 광덕고 대입 지원 사례 파싱 ----------
+function admissionCaseText(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/\r/g, "").trim();
+}
+function admissionCaseNumber(value) {
+  if (value === null || value === undefined || value === "" || value === "-") return null;
+  const parsed = Number(String(value).replace(/,/g, "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function normalizeAdmissionCaseHeader(value) {
+  return admissionCaseText(value).replace(/\s+/g, "").replace(/[()（）·/\\_-]/g, "").toLowerCase();
+}
+function findAdmissionCaseColumn(headers, aliases, fallbackIndex = null) {
+  const normalized = headers.map(normalizeAdmissionCaseHeader);
+  const aliasKeys = aliases.map(normalizeAdmissionCaseHeader);
+  const exact = normalized.findIndex(header => aliasKeys.includes(header));
+  if (exact >= 0) return exact;
+  const includes = normalized.findIndex(header => aliasKeys.some(alias => alias && header.includes(alias)));
+  return includes >= 0 ? includes : fallbackIndex;
+}
+function normalizeAdmissionCaseFinalResult(detail, broad) {
+  const detailText = admissionCaseText(detail);
+  const broadText = admissionCaseText(broad);
+  const text = `${detailText} ${broadText}`;
+  if (/불합격|탈락/.test(text)) return { finalResult: "불합격", finalResultDetail: "불합격" };
+  if (/충원|추가합격|예비.*합격/.test(text)) return { finalResult: "합격", finalResultDetail: "충원합격" };
+  if (/최초|합격/.test(text)) return { finalResult: "합격", finalResultDetail: "최초합격" };
+  return { finalResult: "미입력", finalResultDetail: detailText || broadText || "미입력" };
+}
+function normalizeAdmissionCaseRegistration(value) {
+  const text = admissionCaseText(value).toUpperCase();
+  if (["Y", "YES", "등록", "O", "○"].includes(text)) return "등록";
+  if (["N", "NO", "미등록", "X", "×"].includes(text)) return "미등록";
+  return "미입력";
+}
+function normalizeAdmissionCaseType(value) {
+  const text = admissionCaseText(value);
+  if (/교과/.test(text)) return "학생부교과";
+  if (/종합/.test(text)) return "학생부종합";
+  if (/논술/.test(text)) return "논술";
+  if (/실기/.test(text)) return "실기";
+  if (/면접/.test(text)) return "면접";
+  return text || "기타";
+}
+function normalizeAdmissionCaseField(value, department = "") {
+  const text = `${admissionCaseText(value)} ${admissionCaseText(department)}`;
+  if (/간호/.test(text)) return "간호";
+  if (/공학|이공/.test(text)) return "공학";
+  if (/자연|과학|의약|보건|수학/.test(text)) return "자연";
+  if (/인문|사회|상경|경영|경제|어문|법|행정|교육/.test(text)) return "인문";
+  if (/예체능|예술|체육|디자인|음악|미술/.test(text)) return "예체능";
+  return admissionCaseText(value) || "공통";
+}
+function normalizeAdmissionCaseUniversity(value, fallback = "") {
+  return admissionCaseText(value || fallback).replace(/\s+/g, " ").replace(/대학교\s*\(([^)]+)\)/g, "대학교($1)").trim();
+}
+export function parseAdmissionCaseRows(rows, source = {}) {
+  if (!Array.isArray(rows) || rows.length < 2) return [];
+  const headers = rows[0] || [];
+  const column = {
+    schoolType: findAdmissionCaseColumn(headers, ["학교유형2", "학교유형"], 6),
+    region: findAdmissionCaseColumn(headers, ["지역"], 7),
+    field: findAdmissionCaseColumn(headers, ["계열"], 8),
+    university: findAdmissionCaseColumn(headers, ["대학", "대학교"], 9),
+    universityNormalized: findAdmissionCaseColumn(headers, ["대학2", "대학교2"], 10),
+    department: findAdmissionCaseColumn(headers, ["모집단위", "학과", "학과명"], 13),
+    admissionSeason: findAdmissionCaseColumn(headers, ["모집시기2", "모집시기"], 15),
+    admissionType: findAdmissionCaseColumn(headers, ["전형유형2", "전형유형"], 17),
+    detailType: findAdmissionCaseColumn(headers, ["세부유형", "세부전형"], 18),
+    specialType: findAdmissionCaseColumn(headers, ["전형유형3농어촌기회포함", "전형유형3"], 20),
+    universityGrade: findAdmissionCaseColumn(headers, ["대학별내신", "대학환산", "환산등급"], 21),
+    overallGrade: findAdmissionCaseColumn(headers, ["전교과", "전교과등급"], 22),
+    stage1: findAdmissionCaseColumn(headers, ["1단계", "일단계"], 23),
+    finalDetail: findAdmissionCaseColumn(headers, ["최종단계"], 24),
+    finalBroad: findAdmissionCaseColumn(headers, ["최종단계2", "최종결과"], 25),
+    registered: findAdmissionCaseColumn(headers, ["등록여부"], 26),
+    csatAverage: findAdmissionCaseColumn(headers, ["수능평균등급", "수능평균"], 27),
+    korean: findAdmissionCaseColumn(headers, ["국어등급"], 28),
+    math: findAdmissionCaseColumn(headers, ["수학등급"], 29),
+    english: findAdmissionCaseColumn(headers, ["영어등급"], 30),
+    inquiryAverage: findAdmissionCaseColumn(headers, ["탐구평균등급", "탐구평균"], 31),
+    inquiry1: findAdmissionCaseColumn(headers, ["탐구1등급"], 32),
+    inquiry2: findAdmissionCaseColumn(headers, ["탐구2등급"], 33),
+  };
+  const sourceId = admissionCaseText(source.sourceId) || `admission_${Date.now().toString(36)}`;
+  const periodLabel = admissionCaseText(source.periodLabel) || "2024~2026 통합";
+  const admissionYear = admissionCaseNumber(source.admissionYear);
+  return rows.slice(1).map((row, offset) => {
+    const department = admissionCaseText(row?.[column.department]);
+    const final = normalizeAdmissionCaseFinalResult(row?.[column.finalDetail], row?.[column.finalBroad]);
+    const overallGrade = admissionCaseNumber(row?.[column.overallGrade]);
+    const universityGrade = admissionCaseNumber(row?.[column.universityGrade]);
+    const csatAverage = admissionCaseNumber(row?.[column.csatAverage]);
+    const university = normalizeAdmissionCaseUniversity(row?.[column.university], row?.[column.universityNormalized]);
+    const detailType = admissionCaseText(row?.[column.detailType]);
+    const admissionTypeRaw = admissionCaseText(row?.[column.admissionType]);
+    const admissionType = normalizeAdmissionCaseType(admissionTypeRaw || detailType);
+    const registered = normalizeAdmissionCaseRegistration(row?.[column.registered]);
+    return {
+      caseId: `${sourceId}:${offset + 2}`, sourceId, sourceRow: offset + 2, periodLabel, admissionYear,
+      schoolType: admissionCaseText(row?.[column.schoolType]) || "미지정",
+      region: admissionCaseText(row?.[column.region]) || "미지정",
+      field: normalizeAdmissionCaseField(row?.[column.field], department),
+      originalField: admissionCaseText(row?.[column.field]) || "미지정",
+      university,
+      universityNormalized: normalizeAdmissionCaseUniversity(row?.[column.universityNormalized], row?.[column.university]),
+      department: department || "미지정",
+      admissionSeason: admissionCaseText(row?.[column.admissionSeason]) || "미지정",
+      admissionType, admissionTypeRaw: admissionTypeRaw || "미지정",
+      detailType: detailType || "미지정",
+      specialType: admissionCaseText(row?.[column.specialType]) || "미지정",
+      overallGrade, universityGrade,
+      stage1Result: admissionCaseText(row?.[column.stage1]) || "미입력",
+      ...final,
+      registered,
+      csatAverage,
+      csat: {
+        korean: admissionCaseNumber(row?.[column.korean]), math: admissionCaseNumber(row?.[column.math]),
+        english: admissionCaseNumber(row?.[column.english]), inquiryAverage: admissionCaseNumber(row?.[column.inquiryAverage]),
+        inquiry1: admissionCaseNumber(row?.[column.inquiry1]), inquiry2: admissionCaseNumber(row?.[column.inquiry2]),
+      },
+      gradeBand: overallGrade == null ? null : Math.max(1, Math.min(9, Math.floor(overallGrade))),
+      dataFlags: {
+        yearMissing: admissionYear == null, universityGradeMissing: universityGrade == null,
+        overallGradeMissing: overallGrade == null, csatMissing: csatAverage == null,
+        registrationUnknown: registered === "미입력",
+      },
+    };
+  }).filter(item => item.university && item.university !== "미지정");
+}
+export function summarizeAdmissionCases(cases) {
+  const rows = Array.isArray(cases) ? cases : [];
+  const count = predicate => rows.filter(predicate).length;
+  return {
+    total: rows.length,
+    accepted: count(row => row.finalResult === "합격"),
+    firstAccepted: count(row => row.finalResultDetail === "최초합격"),
+    waitlistAccepted: count(row => row.finalResultDetail === "충원합격"),
+    rejected: count(row => row.finalResult === "불합격"),
+    registered: count(row => row.registered === "등록"),
+    registrationUnknown: count(row => row.registered === "미입력"),
+    universityGradeMissing: count(row => row.universityGrade == null),
+    csatMissing: count(row => row.csatAverage == null),
+    universities: new Set(rows.map(row => row.universityNormalized || row.university).filter(Boolean)).size,
+    regions: new Set(rows.map(row => row.region).filter(Boolean)).size,
+  };
+}

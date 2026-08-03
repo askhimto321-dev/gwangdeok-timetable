@@ -700,6 +700,8 @@ export default function App() {
     if (patch.admissionRows) jobs.push(writeStorage("kd_grades_admission", patch.admissionRows));
     if (patch.admissionDocs) jobs.push(writeStorage("kd_grades_admission_docs", patch.admissionDocs));
     if (patch.cohortSettings) jobs.push(writeStorage("kd_grades_cohorts", patch.cohortSettings));
+    if (patch.admissionCaseSources) jobs.push(writeStorage("kd_grades_admission_case_sources", patch.admissionCaseSources));
+    if (patch.admissionCases) jobs.push(writeStorage("kd_grades_admission_cases", patch.admissionCases));
     const results = await Promise.all(jobs);
     const failed = results.find(result => result && result.ok === false);
     if (failed) {
@@ -3004,7 +3006,7 @@ function AdminConsole(props) {
       </div>
       {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
       {sub === "grades" && (
-        props.gdb ? <AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} />
+        props.gdb ? <AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} roster={props.roster} currentGrade={props.grade} />
           : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>
       )}
       {sub === "accounts" && <AdminAccountConsole {...props} />}

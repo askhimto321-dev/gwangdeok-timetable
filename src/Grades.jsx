@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert } from "lucide-react";
 import { readStorage, uploadAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
+import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
 import {
   parseSemesterSheet,
   computeAllGroupAverages,
@@ -238,15 +239,12 @@ function inferRegionFromFileName(fileName, knownRegion = "") {
 }
 
 export async function loadGradesDB() {
-  const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings] = await Promise.all([
-    readStorage("kd_grades_semesters", {}),
-    readStorage("kd_grades_mocks", {}),
-    readStorage("kd_grades_admission", []),
-    readStorage("kd_grades_admission_docs", []),
-    readStorage("kd_grades_students_meta", {}),
-    readStorage("kd_grades_cohorts", DEFAULT_COHORT_SETTINGS),
+  const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings, admissionCaseSources, admissionCases] = await Promise.all([
+    readStorage("kd_grades_semesters", {}), readStorage("kd_grades_mocks", {}), readStorage("kd_grades_admission", []),
+    readStorage("kd_grades_admission_docs", []), readStorage("kd_grades_students_meta", {}), readStorage("kd_grades_cohorts", DEFAULT_COHORT_SETTINGS),
+    readStorage("kd_grades_admission_case_sources", []), readStorage("kd_grades_admission_cases", []),
   ]);
-  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings) };
+  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases };
 }
 
 export default function GradesSection({
@@ -316,6 +314,7 @@ export default function GradesSection({
             <div style={staffToolNav.heading}><BarChart3 size={17} /><div style={staffToolNav.headingText}><b>교사용 분석·관리</b><span style={{ fontSize: 10.5, fontWeight: 650, color: "#7a8495" }}>학생 조회와 별도로 분석 도구를 사용할 수 있습니다.</span></div></div>
             <div style={staffToolNav.buttons}>
               <button type="button" onClick={() => setTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
+              <button type="button" onClick={() => setTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
               {loggedInTeacher && loggedInTeacher.homeroomClass && <button type="button" onClick={() => setTab("class")} style={{ ...staffToolNav.button, ...(tab === "class" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 담임반 학생 계정</button>}
             </div>
           </div>
@@ -358,6 +357,9 @@ export default function GradesSection({
         )}
         {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
+        )}
+        {tab === "admissionCases" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
+          <AdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
@@ -2552,7 +2554,7 @@ function StudentPlacementRow({ student, rosterInfo, onSave, onResetPw }) {
 /* ============================================================
    관리자: 원본 성적 데이터 업로드 (학기별 성적표 / 모의고사 / 대입전형표)
    ============================================================ */
-export function AdminGradesUpload({ gdb, persistGrades, showToast }) {
+export function AdminGradesUpload({ gdb, persistGrades, showToast, roster = {}, currentGrade = "2" }) {
   const [subtab, setSubtab] = useState("bulk");
   return (
     <div>
@@ -2562,6 +2564,7 @@ export function AdminGradesUpload({ gdb, persistGrades, showToast }) {
         <TabBtn active={subtab === "mock"} onClick={() => setSubtab("mock")} label="모의고사 (개별)" />
         <TabBtn active={subtab === "admission"} onClick={() => setSubtab("admission")} label="대입 전형표 (개별)" />
         <TabBtn active={subtab === "admissionPdf"} onClick={() => setSubtab("admissionPdf")} label="모집요강·반영표 자료" />
+        <TabBtn active={subtab === "admissionCases"} onClick={() => setSubtab("admissionCases")} label="2024–2026 대입 사례 데이터" />
         <TabBtn active={subtab === "cohorts"} onClick={() => setSubtab("cohorts")} label="학년·입학연도 관리" />
       </div>
       {subtab === "bulk" && <BulkUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
@@ -2569,6 +2572,7 @@ export function AdminGradesUpload({ gdb, persistGrades, showToast }) {
       {subtab === "mock" && <MockUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "admission" && <AdmissionUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "admissionPdf" && <AdmissionPdfManager gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
+      {subtab === "admissionCases" && <AdmissionCaseAdmin gdb={gdb} persistGrades={persistGrades} showToast={showToast} roster={roster} currentGrade={currentGrade} />}
       {subtab === "cohorts" && <CohortManager gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
     </div>
   );
