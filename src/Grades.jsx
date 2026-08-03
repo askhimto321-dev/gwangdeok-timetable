@@ -541,6 +541,13 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
     setApplying(false);
   };
 
+  const removeSemester = async (k) => {
+    const updated = { ...gdb.semesterData };
+    delete updated[k];
+    const ok = await persistGrades({ semesterData: updated });
+    if (ok) showToast(`${SEMESTER_LABELS[k]} 데이터를 삭제했습니다.`, "success");
+  };
+
   return (
     <div>
       <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
@@ -565,9 +572,12 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>현재 업로드 현황</div>
         {SEMESTER_KEYS.map(k => (
-          <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
+          <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
             <span>{SEMESTER_LABELS[k]}</span>
-            <span style={{ color: gdb.semesterData[k] ? "#3d5c3a" : "#a39d8c" }}>{gdb.semesterData[k] ? `${Object.keys(gdb.semesterData[k].students).length}명 (${new Date(gdb.semesterData[k].updatedAt).toLocaleDateString("ko-KR")})` : "미등록"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ color: gdb.semesterData[k] ? "#3d5c3a" : "#a39d8c" }}>{gdb.semesterData[k] ? `${Object.keys(gdb.semesterData[k].students).length}명 (${new Date(gdb.semesterData[k].updatedAt).toLocaleDateString("ko-KR")})` : "미등록"}</span>
+              {gdb.semesterData[k] && <button style={btn.link} onClick={() => removeSemester(k)}>삭제</button>}
+            </div>
           </div>
         ))}
       </div>
@@ -634,6 +644,13 @@ function MockUpload({ gdb, persistGrades, showToast }) {
     setApplying(false);
   };
 
+  const removeMock = async (k) => {
+    const updated = { ...gdb.mockData };
+    delete updated[k];
+    const ok = await persistGrades({ mockData: updated });
+    if (ok) showToast(`${MOCK_MONTH_LABELS[k]} 모의고사 데이터를 삭제했습니다.`, "success");
+  };
+
   return (
     <div>
       <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
@@ -658,9 +675,12 @@ function MockUpload({ gdb, persistGrades, showToast }) {
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>현재 업로드 현황</div>
         {MOCK_MONTH_KEYS.map(k => (
-          <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
+          <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
             <span>{MOCK_MONTH_LABELS[k]}</span>
-            <span style={{ color: gdb.mockData[k] ? "#3d5c3a" : "#a39d8c" }}>{gdb.mockData[k] ? `${Object.keys(gdb.mockData[k].students).length}명` : "미등록"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ color: gdb.mockData[k] ? "#3d5c3a" : "#a39d8c" }}>{gdb.mockData[k] ? `${Object.keys(gdb.mockData[k].students).length}명` : "미등록"}</span>
+              {gdb.mockData[k] && <button style={btn.link} onClick={() => removeMock(k)}>삭제</button>}
+            </div>
           </div>
         ))}
       </div>
@@ -698,6 +718,11 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
     setApplying(false);
   };
 
+  const removeAll = async () => {
+    const ok = await persistGrades({ admissionRows: [] });
+    if (ok) showToast("대입 전형표를 삭제했습니다.", "success");
+  };
+
   return (
     <div>
       <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
@@ -717,7 +742,10 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
         </div>
       )}
       <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>현재 등록: {gdb.admissionRows.length}건</div>
+        <div style={{ fontWeight: 700, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>현재 등록: {gdb.admissionRows.length}건</span>
+          {gdb.admissionRows.length > 0 && <button style={btn.link} onClick={removeAll}>전체 삭제</button>}
+        </div>
       </div>
     </div>
   );
