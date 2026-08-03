@@ -48,7 +48,8 @@ const CATEGORY_META = {
   영어: { short: "영", label: "영어", color: "#9a4254", background: "#fff0f3", row: "#fff9fa" },
   수학: { short: "수", label: "수학", color: "#5d4898", background: "#f1edff", row: "#faf8ff" },
   사회: { short: "사", label: "사회", color: "#8a641d", background: "#fff5df", row: "#fffbf2" },
-  과학: { short: "과", label: "과학", color: "#356b49", background: "#eaf7ef", row: "#f6fbf8" },
+  // 1등급·성취도 A의 초록색과 겹치지 않도록 과학은 청록-파랑 계열로 구분합니다.
+  과학: { short: "과", label: "과학", color: "#176b87", background: "#e6f5fa", row: "#f3fbfd" },
   "기술가정/정보": { short: "기정·정보", label: "기술가정/정보", color: "#2f7770", background: "#e8f7f5", row: "#f5fbfa" },
   "제2외국어/한문": { short: "제2외·한문", label: "제2외국어/한문", color: "#a35f26", background: "#fff1e4", row: "#fff9f3" },
   기타: { short: "기타", label: "기타", color: "#716b5f", background: "#f1f0ec", row: "#fbfaf7" },
@@ -91,13 +92,13 @@ function categoryMeta(category, subject) {
   return { key, ...(CATEGORY_META[key] || CATEGORY_META.기타) };
 }
 
-// 과목 계열 색과 등급 색이 겹치지 않도록 1·2등급만 강조하고
-// 나머지 등급은 중립적인 회색 배지로 표시합니다.
+// 평균 등급은 소수 구간으로 구분합니다.
+// 1.00~1.99는 초록, 2.00~2.99는 파랑, 그 외는 중립색으로 표시합니다.
 function gradeValueStyle(value) {
   const grade = asNumber(value);
   if (grade == null) return {};
-  if (grade <= 1) return { background: "#e7f5ea", color: "#24613a", border: "1px solid #bfe2c8" };
-  if (grade <= 2) return { background: "#edf3ff", color: "#315a9b", border: "1px solid #cad8f3" };
+  if (grade >= 1 && grade < 2) return { background: "#e7f5ea", color: "#24613a", border: "1px solid #bfe2c8" };
+  if (grade >= 2 && grade < 3) return { background: "#edf3ff", color: "#315a9b", border: "1px solid #cad8f3" };
   return { background: "#f4f2ed", color: "#5f594d", border: "1px solid #ded9cd" };
 }
 
@@ -673,6 +674,56 @@ function universityKey(value) {
   return String(value || "").replace(/\s+/g, "").replace(/[()\[\]·.,]/g, "").toLowerCase();
 }
 
+
+function normalizeReflectionText(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text === "-") return "";
+  return text
+    .replace(/[\r\n]+/g, " + ")
+    .replace(/[·,;/]+/g, " + ")
+    .replace(/\s*\+\s*/g, " + ")
+    .replace(/(\d)\s*%/g, "$1%")
+    .replace(/\s+/g, " ")
+    .replace(/(?:\s*\+\s*){2,}/g, " + ")
+    .replace(/^\s*\+|\+\s*$/g, "")
+    .trim();
+}
+
+function extractReflectionFromNote(note) {
+  const text = String(note ?? "");
+  if (!text) return "";
+  const match = text.match(/(?:학생부\s*)?교과\s*\d+(?:\.\d+)?\s*%(?:\s*(?:\+|,|·|\/|및)\s*(?:출결|면접|서류|학생부|비교과|추천|봉사)\s*\d+(?:\.\d+)?\s*%)*/i);
+  return normalizeReflectionText(match?.[0] || "");
+}
+
+function admissionReflectionText(row) {
+  const explicit = row?.reflection || row?.courseReflection || row?.reflectionRatio || row?.subjectReflection || row?.studentRecordRatio || row?.evaluationRatio || "";
+  return normalizeReflectionText(explicit) || extractReflectionFromNote(row?.note);
+}
+
+function admissionSpecialNote(row, reflection) {
+  const note = String(row?.note ?? "").trim();
+  if (!note || !reflection || row?.reflection || row?.courseReflection || row?.reflectionRatio || row?.subjectReflection) return note;
+  const extracted = extractReflectionFromNote(note);
+  if (!extracted) return note;
+  return note
+    .replace(/(?:학생부\s*)?교과\s*\d+(?:\.\d+)?\s*%(?:\s*(?:\+|,|·|\/|및)\s*(?:출결|면접|서류|학생부|비교과|추천|봉사)\s*\d+(?:\.\d+)?\s*%)*/i, "")
+    .replace(/^[\s:·,;+-]+|[\s:·,;+-]+$/g, "")
+    .trim();
+}
+
+function percentPart(label, value) {
+  if (value === null || value === undefined || value === "") return "";
+  const raw = String(value).trim();
+  if (!raw || raw === "-") return "";
+  const numeric = Number(raw.replace(/%/g, ""));
+  if (Number.isFinite(numeric)) {
+    const percent = numeric > 0 && numeric <= 1 ? numeric * 100 : numeric;
+    return `${label} ${Number.isInteger(percent) ? percent : Number(percent.toFixed(1))}%`;
+  }
+  return `${label} ${raw.includes("%") ? raw : `${raw}%`}`;
+}
+
 function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts } = gdb;
   const semesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
@@ -810,15 +861,15 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           <div style={{ ...table.scroll, overflowX: "visible" }}>
             <table style={admissionTable.base}>
               <colgroup>
-                <col style={{ width: "11.5%" }} />
-                <col style={{ width: "7%" }} />
-                <col style={{ width: "13.5%" }} />
-                <col style={{ width: "18%" }} />
-                <col style={{ width: "18%" }} />
-                <col style={{ width: "10%" }} />
+                <col style={{ width: "12%" }} />
                 <col style={{ width: "6.5%" }} />
-                <col style={{ width: "7.5%" }} />
-                <col style={{ width: "8%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "17%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "8.5%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -839,20 +890,21 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   const statusMeta = admissionStatusMeta(result.status);
                   const detailParts = [row.department, row.track].filter(Boolean);
                   const detail = detailParts.length ? detailParts.join(" · ") : "전체 모집단위";
-                  const reflection = row.reflection || row.courseReflection || row.reflectionRatio || row.subjectReflection || "";
+                  const reflection = admissionReflectionText(row);
+                  const specialNote = admissionSpecialNote(row, reflection);
                   const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
                       <td style={admissionTable.td}><span style={regionBadge}><MapPin size={10} />{row.region || "미지정"}</span></td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.text }}>
+                      <td style={{ ...admissionTable.td, ...admissionTable.department }}>
                         <div style={admissionTable.primaryText}>{detail}</div>
                       </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.text }}>
-                        {reflection ? <div style={admissionTable.secondaryText}>{reflection}</div> : <span style={admissionTable.empty}>-</span>}
+                      <td style={{ ...admissionTable.td, ...admissionTable.reflectionCell }}>
+                        {reflection ? <span style={reflectionBadge}>{reflection}</span> : <span style={admissionTable.empty}>-</span>}
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.text }}>
-                        {row.note ? <div style={admissionTable.secondaryText}>{row.note}</div> : <span style={admissionTable.empty}>-</span>}
+                        {specialNote ? <div style={admissionTable.secondaryText}>{specialNote}</div> : <span style={admissionTable.empty}>-</span>}
                       </td>
                       <td style={admissionTable.td}>
                         {result.status === "no-minimum" ? (
@@ -871,7 +923,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                           ? <span style={admissionTable.empty}>-</span>
                           : <span style={studentSumBadge}>{result.count}합 {result.studentSum}</span>}
                       </td>
-                      <td style={admissionTable.td}><span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.statusCell }}><span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span></td>
                       <td style={admissionTable.td}>
                         {row.docs.length ? (
                           <div style={{ display: "flex", justifyContent: "center", gap: 4, flexWrap: "wrap" }}>
@@ -1478,10 +1530,28 @@ function parseAdmissionRows(rows) {
   const departmentIndex = firstIndex(["계열학과", "모집단위", "학과", "계열", "학부"]);
   const trackIndex = firstIndex(["전형명", "전형", "전형유형"]);
   const requiredSubjectsIndex = firstIndex(["수능최저반영교과", "수능최저반영과목", "반영영역", "최저반영영역", "반영교과"]);
-  const reflectionIndex = firstIndex([
+  let reflectionIndex = firstIndex([
     "교과반영비율", "학생부교과반영비율", "교과반영방법", "교과성적반영방법",
-    "교과반영", "반영비율", "반영교과및비율", "교과반영과목",
+    "교과반영", "반영비율", "반영방법", "반영교과및비율", "교과반영과목",
+    "교과비율", "학생부반영비율", "학생부교과비율", "교과출결반영비율",
+    "교과출결비율", "전형요소반영비율", "학생부반영방법",
   ]);
+  if (reflectionIndex == null) {
+    reflectionIndex = header.findIndex(value => {
+      const key = normalizeHeader(value);
+      return (key.includes("반영비율") || key.includes("반영방법"))
+        && !key.includes("수능") && !key.includes("최저") && !key.includes("교과목");
+    });
+    if (reflectionIndex < 0) reflectionIndex = null;
+  }
+  const reflectionComponentIndexes = [
+    ["교과", firstIndex(["교과비율", "교과반영률", "교과점수비율"])],
+    ["출결", firstIndex(["출결비율", "출결반영률"])],
+    ["면접", firstIndex(["면접비율", "면접반영률"])],
+    ["서류", firstIndex(["서류비율", "서류반영률"])],
+    ["추천", firstIndex(["추천비율", "추천반영률"])],
+    ["학생부", firstIndex(["학생부비율", "학생부반영률"])],
+  ].filter(([, index]) => index != null);
   const noteIndex = firstIndex(["전형특이사항", "특이사항", "전형비고", "비고"]);
   const regionIndex = firstIndex(["지역", "지역구분", "소재지", "대학소재지"]);
 
@@ -1498,7 +1568,14 @@ function parseAdmissionRows(rows) {
       requiredSubjects: requiredSubjectsIndex == null ? "" : String(row[requiredSubjectsIndex] ?? "").trim(),
       requiredSubjectCount: row[countIndex],
       requiredSum: row[sumIndex],
-      reflection: reflectionIndex == null ? "" : String(row[reflectionIndex] ?? "").trim(),
+      reflection: (() => {
+        const direct = reflectionIndex == null ? "" : normalizeReflectionText(row[reflectionIndex]);
+        if (direct) return direct;
+        return reflectionComponentIndexes
+          .map(([label, index]) => percentPart(label, row[index]))
+          .filter(Boolean)
+          .join(" + ");
+      })(),
       note: noteIndex == null ? "" : String(row[noteIndex] ?? "").trim(),
       region: regionIndex == null ? "" : String(row[regionIndex] ?? "").trim(),
     });
@@ -2370,7 +2447,7 @@ const admissionToolbar = {
   box: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 13 },
 };
 const admissionStatus = {
-  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 68, padding: "5px 8px", borderRadius: 999, fontSize: 10.8, fontWeight: 900 },
+  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 62, padding: "5px 10px", borderRadius: 999, fontSize: 10.8, fontWeight: 900, margin: "1px 0" },
   success: { background: "#e7f5ea", color: "#24613a", border: "1px solid #bfe2c8" },
   danger: { background: "#fff0f0", color: "#9a4242", border: "1px solid #efcaca" },
   warning: { background: "#fff6df", color: "#805f1d", border: "1px solid #efddae" },
@@ -2413,10 +2490,28 @@ const admissionTable = {
     color: "#2b2620",
   },
   text: { textAlign: "left", verticalAlign: "top" },
-  primaryText: { fontWeight: 900, color: "#2b2620", lineHeight: 1.35 },
+  department: { textAlign: "center", verticalAlign: "middle", paddingLeft: 4, paddingRight: 4 },
+  reflectionCell: { textAlign: "center", verticalAlign: "middle", padding: "7px 5px" },
+  statusCell: { padding: "8px 8px" },
+  primaryText: { fontWeight: 900, color: "#2b2620", lineHeight: 1.3, textAlign: "center" },
   secondaryText: { color: "#716b5f", fontSize: 9.7, lineHeight: 1.45 },
   minimumDetail: { color: "#8a8578", fontSize: 9.2, marginTop: 4, lineHeight: 1.3 },
   empty: { color: "#aaa393", fontSize: 9.7, fontWeight: 700 },
+};
+const reflectionBadge = {
+  display: "inline-block",
+  maxWidth: "100%",
+  padding: "4px 8px",
+  borderRadius: 999,
+  background: "linear-gradient(180deg, #ffffff 0%, #eef0f2 100%)",
+  border: "1px solid #d8dadd",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9)",
+  color: "#3f454b",
+  fontSize: 9.5,
+  fontWeight: 900,
+  lineHeight: 1.25,
+  whiteSpace: "normal",
+  wordBreak: "keep-all",
 };
 const minimumBadge = {
   display: "inline-flex",
