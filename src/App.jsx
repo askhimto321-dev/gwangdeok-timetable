@@ -15,6 +15,49 @@ const RESET_PASSWORD = "kd2026";
 const DEFAULT_ADMIN = { id: "admin", pw: "kd2026" };
 const SITE_TITLE = "광덕고 성적/시간표";
 
+const TEACHER_ROLE_LABELS = { homeroom: "학급담임", gradeHead: "학년부장", other: "그외" };
+function normalizeGradeAccessList(value) {
+  const values = Array.isArray(value) ? value : (value ? [value] : []);
+  return Array.from(new Set(values.map(String).filter(item => GRADES.includes(item))));
+}
+function normalizedTeacherRole(teacher) {
+  if (teacher?.teacherRole && TEACHER_ROLE_LABELS[teacher.teacherRole]) return teacher.teacherRole;
+  return teacher?.homeroomClass ? "homeroom" : "other";
+}
+function teacherRoleGrade(teacher) {
+  const candidate = String(teacher?.roleGrade || teacher?.homeroomGrade || teacher?.gradeHeadGrade || "2");
+  return GRADES.includes(candidate) ? candidate : "2";
+}
+function teacherGradeAccess(teacher) {
+  if (!teacher) return [];
+  const role = normalizedTeacherRole(teacher);
+  if (role === "homeroom" || role === "gradeHead") return [teacherRoleGrade(teacher)];
+  return normalizeGradeAccessList(teacher.gradeAccessGrades || teacher.studentGradeAccessGrades);
+}
+function teacherTimetableAccess(teacher) {
+  if (!teacher) return [];
+  const role = normalizedTeacherRole(teacher);
+  if (role === "homeroom" || role === "gradeHead") return [teacherRoleGrade(teacher)];
+  return normalizeGradeAccessList(teacher.timetableAccessGrades || teacher.studentTimetableAccessGrades);
+}
+function applyAutomaticTeacherAccess(teacher, fallbackGrade = "2") {
+  const role = normalizedTeacherRole(teacher);
+  const roleGrade = GRADES.includes(String(teacher?.roleGrade || "")) ? String(teacher.roleGrade) : String(fallbackGrade);
+  const base = {
+    ...teacher,
+    teacherRole: role,
+    roleGrade,
+    gradeAccessGrades: normalizeGradeAccessList(teacher?.gradeAccessGrades || teacher?.studentGradeAccessGrades),
+    timetableAccessGrades: normalizeGradeAccessList(teacher?.timetableAccessGrades || teacher?.studentTimetableAccessGrades),
+  };
+  if (role === "homeroom" || role === "gradeHead") {
+    base.gradeAccessGrades = [roleGrade];
+    base.timetableAccessGrades = [roleGrade];
+  }
+  if (role !== "homeroom") base.homeroomClass = "";
+  return base;
+}
+
 /* ---------- helpers ---------- */
 function isMoveSlot(cell) { if (!cell) return false; return /^[A-Z](\(\d\))?_[가-힣A-Za-z0-9]+$/.test(cell); }
 function moveSlotAbbrev(cell) { const m = cell.match(/^[A-Z](?:\(\d\))?_(.+)$/); return m ? m[1] : null; }
@@ -459,6 +502,8 @@ export default function App() {
   const [loggedInMonitor, setLoggedInMonitor] = useState(null);
   const [loggedInStudent, setLoggedInStudent] = useState(null);
   const [viewedTeacher, setViewedTeacher] = useState(null); // admin "view as teacher" (no separate login needed)
+  const [selectedStudentSid, setSelectedStudentSid] = useState(null);
+  const [selectedStudentQuery, setSelectedStudentQuery] = useState("");
   const sessionRestoredRef = useRef(false);
   const [toast, setToast] = useState(null);
   const showToast = useCallback((msg, type = "info") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4200); }, []);
@@ -504,6 +549,12 @@ export default function App() {
           if (saved.studentId) {
             const s = (accts.students || []).find(a => a.id === saved.studentId);
             if (s) setLoggedInStudent(s);
+          }
+          if (saved.selectedStudentSid) {
+            setSelectedStudentSid(String(saved.selectedStudentSid));
+            setSelectedStudentQuery(String(saved.selectedStudentQuery || saved.selectedStudentSid));
+            const selectedGrade = String(saved.selectedStudentSid).charAt(0);
+            if (GRADES.includes(selectedGrade) && !DISABLED_GRADES.includes(selectedGrade)) setGrade(selectedGrade);
           }
           if (saved.section) setSection(saved.section);
         } catch { /* ignore malformed session */ }
@@ -584,6 +635,62 @@ export default function App() {
   const abbrevMap = abbrevMaps[grade] || {};
   const announcements = db.announcements[scopeKey] || {};
 
+  const teacherGradeAccessList = useMemo(() => teacherGradeAccess(loggedInTeacher), [loggedInTeacher]);
+  const teacherTimetableAccessList = useMemo(() => teacherTimetableAccess(loggedInTeacher), [loggedInTeacher]);
+  const teacherCanViewTimetable = !loggedInTeacher || teacherTimetableAccessList.includes(String(grade));
+
+  const updateSelectedStudentSid = useCallback((sid) => {
+    const value = sid ? String(sid).trim() : null;
+    setSelectedStudentSid(value);
+    if (value) {
+      setSelectedStudentQuery(value);
+      const inferredGrade = value.charAt(0);
+      if (GRADES.includes(inferredGrade) && !DISABLED_GRADES.includes(inferredGrade)) setGrade(inferredGrade);
+      saveSession({ selectedStudentSid: value, selectedStudentQuery: value });
+    } else {
+      saveSession({ selectedStudentSid: null });
+    }
+  }, []);
+
+  const updateSelectedStudentQuery = useCallback((queryValue) => {
+    const value = String(queryValue ?? "");
+    setSelectedStudentQuery(value);
+    const exactSid = value.trim();
+    const existsInAnyRoster = exactSid && Object.values(db.roster || {}).some(scopeRoster => scopeRoster?.[exactSid]);
+    if (existsInAnyRoster) {
+      setSelectedStudentSid(exactSid);
+      const inferredGrade = exactSid.charAt(0);
+      if (GRADES.includes(inferredGrade) && !DISABLED_GRADES.includes(inferredGrade)) setGrade(inferredGrade);
+      saveSession({ selectedStudentSid: exactSid, selectedStudentQuery: exactSid });
+    } else {
+      if (selectedStudentSid && exactSid !== selectedStudentSid) {
+        setSelectedStudentSid(null);
+        saveSession({ selectedStudentSid: null, selectedStudentQuery: value });
+      } else {
+        saveSession({ selectedStudentQuery: value });
+      }
+    }
+  }, [db.roster, selectedStudentSid]);
+
+  useEffect(() => {
+    if (!loggedInTeacher) return;
+    const refreshed = (accounts.teacher || []).find(item => item.id === loggedInTeacher.id);
+    if (refreshed && refreshed !== loggedInTeacher) setLoggedInTeacher(refreshed);
+  }, [accounts, loggedInTeacher]);
+
+  useEffect(() => {
+    if (!loggedInTeacher) return;
+    const available = Array.from(new Set([...teacherGradeAccessList, ...teacherTimetableAccessList]));
+    if (available.length && !available.includes(String(grade))) {
+      const next = available.find(item => !DISABLED_GRADES.includes(item)) || available[0];
+      if (next && next !== String(grade)) setGrade(next);
+    }
+  }, [loggedInTeacher, teacherGradeAccessList, teacherTimetableAccessList, grade]);
+
+  useEffect(() => {
+    if (loggedInTeacher && !teacherCanViewTimetable && tab !== "teacherZone") setTab("teacherZone");
+  }, [loggedInTeacher, teacherCanViewTimetable, tab]);
+
   const buildPersonalTimetable = useCallback((sid) => {
     const info = roster[sid];
     if (!info) return null;
@@ -628,6 +735,7 @@ export default function App() {
   const adminAccounts = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
   const hasAnyData = Object.keys(roster).length > 0;
   const anyLoggedIn = !!(loggedInAdmin || loggedInTeacher || loggedInMonitor || classAuthed || loggedInStudent);
+  const canViewStudentTimetableTools = !!(loggedInAdmin || classAuthed || loggedInMonitor || (loggedInTeacher && teacherCanViewTimetable));
 
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
@@ -637,7 +745,19 @@ export default function App() {
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
   const activeSection = section || "grades";
-  const switchSection = (s) => { setSection(s); saveSession({ section: s }); };
+  const switchSection = (s) => {
+    if (loggedInAdmin && selectedStudentSid) {
+      const inferredGrade = String(selectedStudentSid).charAt(0);
+      if (GRADES.includes(inferredGrade) && !DISABLED_GRADES.includes(inferredGrade)) setGrade(inferredGrade);
+      if (s === "timetable") setTab("student");
+    }
+    setSection(s);
+    saveSession({
+      section: s,
+      selectedStudentSid,
+      selectedStudentQuery,
+    });
+  };
 
   if (!anyLoggedIn) {
     return (
@@ -669,7 +789,11 @@ export default function App() {
         <GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInStudent={loggedInStudent}
           roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
-          gdb={gdb}
+          gdb={gdb} currentGrade={grade} teacherGradeAccess={teacherGradeAccessList}
+          selectedStudentSid={loggedInAdmin ? selectedStudentSid : undefined}
+          onSelectedStudentSidChange={loggedInAdmin ? updateSelectedStudentSid : undefined}
+          selectedStudentQuery={loggedInAdmin ? selectedStudentQuery : undefined}
+          onSelectedStudentQueryChange={loggedInAdmin ? updateSelectedStudentQuery : undefined}
         />
       ) : (loggedInStudent && !loggedInAdmin && !loggedInTeacher && !loggedInMonitor && !classAuthed) ? (
         <div style={styles.body}>
@@ -678,15 +802,31 @@ export default function App() {
         </div>
       ) : (
         <>
-          <TopBar tab={tab} setTab={setTab} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]} />
+          <TopBar
+            tab={tab} setTab={setTab} grade={grade} setGrade={setGrade}
+            semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]}
+            canViewStudentTools={canViewStudentTimetableTools}
+            allowedGrades={loggedInTeacher ? teacherTimetableAccessList : null}
+          />
           <div style={styles.body}>
-            {tab === "student" && <StudentView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} />}
-            {tab === "classPrint" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
+            {tab === "student" && (canViewStudentTimetableTools
+              ? <StudentView
+                  key={scopeKey}
+                  roster={roster}
+                  build={buildPersonalTimetable}
+                  hasAnyData={hasAnyData}
+                  selectedSid={loggedInAdmin ? selectedStudentSid : undefined}
+                  onSelectedSidChange={loggedInAdmin ? updateSelectedStudentSid : undefined}
+                  sharedQuery={loggedInAdmin ? selectedStudentQuery : undefined}
+                  onSharedQueryChange={loggedInAdmin ? updateSelectedStudentQuery : undefined}
+                />
+              : <div style={styles.warnBanner}><AlertTriangle size={14} /> {grade}학년 학생 시간표 조회 권한이 없습니다.</div>)}
+            {tab === "classPrint" && (canViewStudentTimetableTools
               ? <ClassPrintView key={scopeKey} roster={roster} build={buildPersonalTimetable} hasAnyData={hasAnyData} onLogout={(loggedInAdmin || loggedInTeacher || loggedInMonitor) ? null : () => { setClassAuthed(false); saveSession({ classViewId: null }); }} />
-              : <UnifiedLoginGate label="학급별 조회" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => true} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
-            {tab === "subjectGroup" && ((classAuthed || loggedInAdmin || loggedInTeacher || loggedInMonitor)
+              : <div style={styles.warnBanner}><AlertTriangle size={14} /> {grade}학년 학생 시간표 조회 권한이 없습니다.</div>)}
+            {tab === "subjectGroup" && (canViewStudentTimetableTools
               ? <SubjectGroupView key={scopeKey} roster={roster} enrollments={enrollments} hasAnyData={hasAnyData} announcements={announcements} />
-              : <UnifiedLoginGate label="이동수업반별 명단" attemptLogin={attemptLogin} showToast={showToast} satisfies={r => true} hint={accounts.classView.length ? null : "등록된 학급별조회 계정이 없습니다. 관리자 탭에서 먼저 계정을 만들어주세요."} />)}
+              : <div style={styles.warnBanner}><AlertTriangle size={14} /> {grade}학년 학생 시간표 조회 권한이 없습니다.</div>)}
             {tab === "teacherZone" && (
               (loggedInTeacher || loggedInMonitor || viewedTeacher)
                 ? (loggedInMonitor
@@ -909,7 +1049,11 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
     if (!homeroomClass && !validAssignments.length) { showToast("학급담임 반 또는 담당 과목을 하나 이상 선택해주세요.", "error"); return; }
     const idTaken = [...(accounts.teacher || []), ...(accounts.teacherPending || [])].some(a => a.id === id.trim());
     if (idTaken) { showToast("이미 사용 중인 아이디입니다.", "error"); return; }
-    const req = { id: id.trim(), pw, name: name.trim(), homeroomClass, assignments: validAssignments };
+    const req = applyAutomaticTeacherAccess({
+      id: id.trim(), pw, name: name.trim(), homeroomClass, assignments: validAssignments,
+      teacherRole: homeroomClass ? "homeroom" : "other", roleGrade: grade,
+      gradeAccessGrades: [], timetableAccessGrades: [],
+    }, grade);
     const ok = await persistAccounts({ ...accounts, teacherPending: [...(accounts.teacherPending || []), req] });
     if (ok) { setSubmitted(true); showToast("가입 신청이 접수되었습니다.", "success"); }
   };
@@ -1009,7 +1153,7 @@ const megaNavStyles = {
   tabActive: { color: COLORS.ink, background: COLORS.accentSoft },
 };
 
-function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections }) {
+function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections, canViewStudentTools = true, allowedGrades = null }) {
   return (
     <div style={styles.topbar} className="no-print">
       <div style={styles.topbarRow}>
@@ -1022,14 +1166,18 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onB
         </div>
         <nav style={styles.nav}>
           {onBackToSections && <NavBtn active={false} onClick={onBackToSections} icon={<ArrowRight size={15} style={{ transform: "rotate(180deg)" }} />} label="메뉴로" />}
-          <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />
-          <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />
-          <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />
+          {canViewStudentTools && <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />}
+          {canViewStudentTools && <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />}
+          {canViewStudentTools && <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />}
           <NavBtn active={tab === "teacherZone"} onClick={() => setTab("teacherZone")} icon={<Lock size={15} />} label="선생님 ZONE" />
         </nav>
       </div>
       <div style={styles.scopeRow}>
-        <ScopeGroup label="학년">{GRADES.map(g => <ScopeBtn key={g} active={grade === g} disabled={DISABLED_GRADES.includes(g)} onClick={() => setGrade(g)}>{g}학년{DISABLED_GRADES.includes(g) ? " (준비중)" : ""}</ScopeBtn>)}</ScopeGroup>
+        <ScopeGroup label="학년">{GRADES.map(g => {
+          const permissionDisabled = Array.isArray(allowedGrades) && !allowedGrades.map(String).includes(String(g));
+          const disabled = DISABLED_GRADES.includes(g) || permissionDisabled;
+          return <ScopeBtn key={g} active={grade === g} disabled={disabled} onClick={() => setGrade(g)}>{g}학년{DISABLED_GRADES.includes(g) ? " (준비중)" : permissionDisabled ? " (권한없음)" : ""}</ScopeBtn>;
+        })}</ScopeGroup>
         <ScopeGroup label="학기"><ScopeBtn active={semester === "sem1"} onClick={() => setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={semester === "sem2"} onClick={() => setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>
       </div>
     </div>
@@ -1057,9 +1205,37 @@ function StudentOwnTimetable({ student, build, grade, setGrade }) {
   );
 }
 
-function StudentView({ roster, build, hasAnyData }) {
-  const [query, setQuery] = useState(""), [sid, setSid] = useState(null);
-  const matches = useMemo(() => { if (!query.trim()) return []; const q = query.trim(); return Object.entries(roster).filter(([id, s]) => id.includes(q) || s.name.includes(q) || `${s.class}반${s.number}번`.includes(q.replace(/\s/g, ""))).slice(0, 8); }, [query, roster]);
+function StudentView({
+  roster,
+  build,
+  hasAnyData,
+  selectedSid,
+  onSelectedSidChange,
+  sharedQuery,
+  onSharedQueryChange,
+}) {
+  const [localQuery, setLocalQuery] = useState("");
+  const [localSid, setLocalSid] = useState(null);
+  const controlledSid = selectedSid !== undefined;
+  const controlledQuery = sharedQuery !== undefined;
+  const sid = controlledSid ? selectedSid : localSid;
+  const query = controlledQuery ? sharedQuery : localQuery;
+  const setSid = value => controlledSid ? onSelectedSidChange?.(value) : setLocalSid(value);
+  const setQuery = value => controlledQuery ? onSharedQueryChange?.(value) : setLocalQuery(value);
+  useEffect(() => {
+    const exactId = query.trim();
+    if (!sid && exactId && roster?.[exactId]) setSid(exactId);
+  }, [query, sid, roster]); // eslint-disable-line
+
+  const matches = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.trim();
+    return Object.entries(roster).filter(([id, student]) => (
+      id.includes(q)
+      || (student.name || "").includes(q)
+      || `${student.class}반${student.number}번`.includes(q.replace(/\s/g, ""))
+    )).slice(0, 8);
+  }, [query, roster]);
   const result = sid ? build(sid) : null;
   if (!hasAnyData) return <EmptyState />;
   return (
@@ -1067,10 +1243,34 @@ function StudentView({ roster, build, hasAnyData }) {
       <div className="no-print">
         <h1 style={styles.h1}>학생 시간표 조회</h1>
         <p style={styles.pMuted}>학번, 이름, 또는 "3반 12번"처럼 입력해 검색하세요.</p>
-        <div style={styles.searchBox}><Search size={16} color="#a39d8c" /><input value={query} onChange={e => { setQuery(e.target.value); setSid(null); }} placeholder="예: 20401, 홍길동" style={styles.searchInput} />{query && <X size={16} color="#a39d8c" style={{ cursor: "pointer" }} onClick={() => setQuery("")} />}</div>
-        {matches.length > 0 && !sid && <div style={styles.matchList}>{matches.map(([id, s]) => <button key={id} style={styles.matchItem} onClick={() => { setSid(id); setQuery(`${s.name} (${s.class}반 ${s.number}번)`); }}><span style={{ fontWeight: 600 }}>{s.name}</span><span style={styles.matchMeta}>{s.class}반 {s.number}번 · {id}</span></button>)}</div>}
+        <div style={styles.searchBox}>
+          <Search size={16} color="#a39d8c" />
+          <input
+            value={query}
+            onChange={event => {
+              const nextValue = event.target.value;
+              setQuery(nextValue);
+              const trimmed = nextValue.trim();
+              if (!/^\d{5}$/.test(trimmed) && trimmed !== String(sid || "")) setSid(null);
+            }}
+            placeholder="예: 20401, 홍길동"
+            style={styles.searchInput}
+          />
+          {query && <X size={16} color="#a39d8c" style={{ cursor: "pointer" }} onClick={() => { setQuery(""); setSid(null); }} />}
+        </div>
+        {matches.length > 0 && !sid && (
+          <div style={styles.matchList}>
+            {matches.map(([id, student]) => (
+              <button key={id} style={styles.matchItem} onClick={() => { setSid(id); setQuery(id); }}>
+                <span style={{ fontWeight: 600 }}>{student.name}</span>
+                <span style={styles.matchMeta}>{student.class}반 {student.number}번 · {id}</span>
+              </button>
+            ))}
+          </div>
+        )}
         {query && matches.length === 0 && !sid && <div style={{ fontSize: 12.5, color: "#a39d8c", marginTop: 8 }}>일치하는 학생이 없습니다.</div>}
       </div>
+      {sid && !result && <div style={styles.warnBanner}><AlertTriangle size={14} /> 선택한 학생의 현재 학년·학기 시간표 데이터가 없습니다.</div>}
       {result && <TimetableCard result={result} sid={sid} />}
     </div>
   );
@@ -1381,13 +1581,19 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
   const [homeroomClass, setHomeroomClass] = useState(teacher.homeroomClass || "");
   const [assignments, setAssignments] = useState(teacher.assignments && teacher.assignments.length ? teacher.assignments : [{ kind: "elective", subject: "", targets: "" }]);
   const [saving, setSaving] = useState(false);
+  const role = normalizedTeacherRole(teacher);
+  const canEditHomeroom = role === "homeroom";
   const classOptions = useMemo(() => extractClasses(db, scopeKey), [db, scopeKey]);
 
   const save = async () => {
     setSaving(true);
     try {
       const cleanAssignments = assignments.filter(a => a.subject && a.targets.trim());
-      const updatedTeacher = { ...teacher, homeroomClass, assignments: cleanAssignments };
+      const updatedTeacher = applyAutomaticTeacherAccess({
+        ...teacher,
+        homeroomClass: canEditHomeroom ? homeroomClass : teacher.homeroomClass,
+        assignments: cleanAssignments,
+      }, teacherRoleGrade(teacher));
       const newTeacherList = (accounts.teacher || []).map(t => t.id === teacher.id ? updatedTeacher : t);
       const ok = await persistAccounts({ ...accounts, teacher: newTeacherList });
       if (ok) { showToast("저장했습니다.", "success"); onDone(updatedTeacher); }
@@ -1407,13 +1613,21 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
         <button style={styles.secondaryBtn} onClick={() => onDone(null)}>취소</button>
       </div>
       <div style={styles.card}>
-        <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>학급담임 (담당 반, 선택사항)</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 16 }}>
-          <button type="button" onClick={() => setHomeroomClass("")} style={{ ...styles.classChip, padding: "5px 10px", fontSize: 12, ...(!homeroomClass ? styles.classChipActive : {}) }}>없음</button>
-          {classOptions.map(c => (
-            <button key={c} type="button" onClick={() => setHomeroomClass(c)} style={{ ...styles.classChip, padding: "5px 10px", fontSize: 12, ...(homeroomClass === c ? styles.classChipActive : {}) }}>{c}반</button>
-          ))}
+        <div style={{ ...styles.infoBox, padding: 10, marginBottom: 14 }}>
+          <strong style={{ fontSize: 12 }}>관리자 지정 역할: {TEACHER_ROLE_LABELS[role]}</strong>
+          <div style={{ fontSize: 11, color: "#8a8578", marginTop: 4 }}>학생 성적·시간표 접근 권한과 역할은 관리자 계정관리에서만 변경할 수 있습니다.</div>
         </div>
+        {canEditHomeroom && (
+          <>
+            <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>학급담임 반</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 16 }}>
+              <button type="button" onClick={() => setHomeroomClass("")} style={{ ...styles.classChip, padding: "5px 10px", fontSize: 12, ...(!homeroomClass ? styles.classChipActive : {}) }}>미지정</button>
+              {classOptions.map(c => (
+                <button key={c} type="button" onClick={() => setHomeroomClass(c)} style={{ ...styles.classChip, padding: "5px 10px", fontSize: 12, ...(homeroomClass === c ? styles.classChipActive : {}) }}>{c}반</button>
+              ))}
+            </div>
+          </>
+        )}
         <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (해당 시에만 추가)</div>
         <AssignmentsEditor assignments={assignments} setAssignments={setAssignments} db={db} scopeKey={scopeKey} semesterLabel={null} />
         <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 저장</button>
@@ -1619,7 +1833,6 @@ const ADMIN_TABS = [
   ["timetable", <FileText size={14} />, "학급 시간표"],
   ["abbrev", <Settings size={14} />, "약어 매핑"],
   ["notices", <ClipboardList size={14} />, "공지 현황"],
-  ["accounts", <Lock size={14} />, "계정 관리"],
   ["verify", <Check size={14} />, "검증"],
 ];
 function AdminConsole(props) {
@@ -1627,22 +1840,32 @@ function AdminConsole(props) {
   return (
     <div style={styles.body}>
       <h1 style={styles.h1}>통합 관리자</h1>
-      <p style={styles.pMuted}>시간표·성적 데이터와 모든 계정을 한 곳에서 관리합니다.</p>
+      <p style={styles.pMuted}>시간표·성적 데이터와 계정·접근 권한을 한 곳에서 관리합니다.</p>
       <div style={styles.adminTabs}>
         <button onClick={() => setSub("timetable")} style={{ ...styles.adminTabBtn, ...(sub === "timetable" ? styles.adminTabBtnActive : {}) }}><ClipboardList size={14} /> 시간표 관리</button>
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
-        <button onClick={() => setSub("studentAccounts")} style={{ ...styles.adminTabBtn, ...(sub === "studentAccounts" ? styles.adminTabBtnActive : {}) }}><Users size={14} /> 학생 계정 (성적/시간표 공용)</button>
+        <button onClick={() => setSub("accounts")} style={{ ...styles.adminTabBtn, ...(sub === "accounts" ? styles.adminTabBtnActive : {}) }}><Lock size={14} /> 계정 관리</button>
       </div>
-      {sub === "timetable" && (
-        <AdminView key={props.scopeKey} {...props} onLogout={null} />
-      )}
+      {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
       {sub === "grades" && (
         props.gdb ? <AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} />
           : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>
       )}
-      {sub === "studentAccounts" && (
-        <AdminStudentAccounts accounts={props.accounts} persistAccounts={props.persistAccounts} showToast={props.showToast} roster={props.roster} />
-      )}
+      {sub === "accounts" && <AdminAccountConsole {...props} />}
+    </div>
+  );
+}
+
+function AdminAccountConsole(props) {
+  const [sub, setSub] = useState("staff");
+  return (
+    <div>
+      <div style={{ ...styles.adminTabs, marginBottom: 14 }}>
+        <button onClick={() => setSub("staff")} style={{ ...styles.adminTabBtn, ...(sub === "staff" ? styles.adminTabBtnActive : {}) }}><Users size={14} /> 선생님·관리자 계정</button>
+        <button onClick={() => setSub("students")} style={{ ...styles.adminTabBtn, ...(sub === "students" ? styles.adminTabBtnActive : {}) }}><Users size={14} /> 학생 계정</button>
+      </div>
+      {sub === "staff" && <AdminAccounts {...props} />}
+      {sub === "students" && <AdminStudentAccounts accounts={props.accounts} persistAccounts={props.persistAccounts} showToast={props.showToast} roster={props.roster} />}
     </div>
   );
 }
@@ -1672,7 +1895,6 @@ function AdminView(props) {
       {sub === "timetable" && <AdminTimetable {...props} />}
       {sub === "abbrev" && <AdminAbbrev {...props} />}
       {sub === "notices" && <AdminNoticesViewer {...props} />}
-      {sub === "accounts" && <AdminAccounts {...props} />}
       {sub === "verify" && <AdminVerify {...props} />}
     </div>
   );
@@ -2122,74 +2344,127 @@ function AdminAbbrev({ abbrevMap, persistAbbrev, showToast, db, grade }) {
 }
 
 function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeKey, semester }) {
+  const normalizeTeachers = list => (list || []).map(teacher => applyAutomaticTeacherAccess(teacher, teacherRoleGrade(teacher) || grade));
   const [admins, setAdmins] = useState(accounts.admin);
   const [cvs, setCvs] = useState(accounts.classView);
-  const [teachers, setTeachers] = useState(accounts.teacher || []);
-  useEffect(() => { setAdmins(accounts.admin); setCvs(accounts.classView); setTeachers(accounts.teacher || []); }, [accounts]);
+  const [teachers, setTeachers] = useState(() => normalizeTeachers(accounts.teacher));
+  useEffect(() => {
+    setAdmins(accounts.admin);
+    setCvs(accounts.classView);
+    setTeachers(normalizeTeachers(accounts.teacher));
+  }, [accounts]); // eslint-disable-line
 
   const save = async () => {
-    const cleanGeneric = a => a.filter(x => x.id.trim() && x.pw).map(x => ({ id: x.id.trim(), pw: x.pw }));
-    const cleanAdmins = a => a.filter(x => x.id.trim() && x.pw).map(x => ({ id: x.id.trim(), pw: x.pw, permissions: x.permissions || [] }));
+    const cleanGeneric = list => list.filter(item => item.id.trim() && item.pw).map(item => ({ id: item.id.trim(), pw: item.pw }));
+    const cleanAdmins = list => list.filter(item => item.id.trim() && item.pw).map(item => ({ id: item.id.trim(), pw: item.pw, permissions: item.permissions || [] }));
     const cleanTeachers = teachers
-      .filter(t => t.id.trim() && t.pw)
-      .map(t => ({
-        id: t.id.trim(), pw: t.pw, name: (t.name || "").trim(),
-        homeroomClass: t.homeroomClass || "",
-        assignments: (t.assignments || []).filter(a => a.subject && a.targets.trim()),
-      }));
-    const ok = await persistAccounts({ admin: cleanAdmins(admins), classView: cleanGeneric(cvs), teacher: cleanTeachers, teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [] });
+      .filter(teacher => teacher.id.trim() && teacher.pw)
+      .map(teacher => {
+        const normalized = applyAutomaticTeacherAccess(teacher, grade);
+        return {
+          id: normalized.id.trim(), pw: normalized.pw, name: (normalized.name || "").trim(),
+          teacherRole: normalized.teacherRole, roleGrade: normalized.roleGrade,
+          homeroomClass: normalized.homeroomClass || "",
+          gradeAccessGrades: normalized.gradeAccessGrades,
+          timetableAccessGrades: normalized.timetableAccessGrades,
+          assignments: (normalized.assignments || []).filter(assignment => assignment.subject && assignment.targets.trim()),
+        };
+      });
+    const ok = await persistAccounts({
+      admin: cleanAdmins(admins), classView: cleanGeneric(cvs), teacher: cleanTeachers,
+      teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [],
+    });
     if (ok) showToast("저장했습니다.", "success");
   };
+
   const resetAll = async () => {
-    const na = admins.map(a => ({ ...a, pw: RESET_PASSWORD })), nc = cvs.map(a => ({ ...a, pw: RESET_PASSWORD })), nt = teachers.map(t => ({ ...t, pw: RESET_PASSWORD }));
-    setAdmins(na); setCvs(nc); setTeachers(nt);
-    const ok = await persistAccounts({ admin: na, classView: nc, teacher: nt, teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [] });
+    const nextAdmins = admins.map(item => ({ ...item, pw: RESET_PASSWORD }));
+    const nextClassViews = cvs.map(item => ({ ...item, pw: RESET_PASSWORD }));
+    const nextTeachers = teachers.map(item => ({ ...item, pw: RESET_PASSWORD }));
+    setAdmins(nextAdmins); setCvs(nextClassViews); setTeachers(nextTeachers);
+    const ok = await persistAccounts({
+      admin: nextAdmins, classView: nextClassViews, teacher: nextTeachers,
+      teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [],
+    });
     if (ok) showToast(`모든 비밀번호가 "${RESET_PASSWORD}"로 초기화되었습니다.`, "success");
   };
 
-  const approve = async (req) => {
-    const newTeachers = [...teachers, req];
-    const newPending = (accounts.teacherPending || []).filter(p => p.id !== req.id);
-    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: newTeachers, teacherPending: newPending, monitors: accounts.monitors || [], students: accounts.students || [] });
+  const approve = async req => {
+    const approved = applyAutomaticTeacherAccess({
+      ...req,
+      teacherRole: req.teacherRole || (req.homeroomClass ? "homeroom" : "other"),
+      roleGrade: req.roleGrade || grade,
+    }, grade);
+    const newTeachers = [...teachers, approved];
+    const newPending = (accounts.teacherPending || []).filter(item => item.id !== req.id);
+    const ok = await persistAccounts({
+      admin: accounts.admin, classView: accounts.classView, teacher: newTeachers,
+      teacherPending: newPending, monitors: accounts.monitors || [], students: accounts.students || [],
+    });
     if (ok) showToast(`${req.name} 선생님 계정을 승인했습니다.`, "success");
   };
-  const reject = async (req) => {
-    const newPending = (accounts.teacherPending || []).filter(p => p.id !== req.id);
-    const ok = await persistAccounts({ admin: accounts.admin, classView: accounts.classView, teacher: accounts.teacher, teacherPending: newPending, monitors: accounts.monitors || [], students: accounts.students || [] });
+  const reject = async req => {
+    const newPending = (accounts.teacherPending || []).filter(item => item.id !== req.id);
+    const ok = await persistAccounts({ ...accounts, teacherPending: newPending });
     if (ok) showToast("가입 신청을 거절했습니다.", "success");
   };
 
-  const addTeacher = () => setTeachers(t => [...t, { name: "", id: "", pw: "", homeroomClass: "", assignments: [{ kind: "elective", subject: "", targets: "" }] }]);
-  const updateTeacherField = (i, key, val) => setTeachers(l => l.map((x, j) => j === i ? { ...x, [key]: val } : x));
+  const addTeacher = () => setTeachers(current => [...current, applyAutomaticTeacherAccess({
+    name: "", id: "", pw: "", teacherRole: "other", roleGrade: grade,
+    homeroomClass: "", gradeAccessGrades: [], timetableAccessGrades: [],
+    assignments: [{ kind: "elective", subject: "", targets: "" }],
+  }, grade)]);
+  const updateTeacherField = (index, key, value) => setTeachers(current => current.map((teacher, itemIndex) => (
+    itemIndex === index ? { ...teacher, [key]: value } : teacher
+  )));
+  const updateTeacherRole = (index, role) => setTeachers(current => current.map((teacher, itemIndex) => {
+    if (itemIndex !== index) return teacher;
+    return applyAutomaticTeacherAccess({
+      ...teacher, teacherRole: role, roleGrade: teacher.roleGrade || grade,
+      homeroomClass: role === "homeroom" ? teacher.homeroomClass : "",
+    }, teacher.roleGrade || grade);
+  }));
+  const toggleTeacherAccess = (index, field, gradeKey) => setTeachers(current => current.map((teacher, itemIndex) => {
+    if (itemIndex !== index) return teacher;
+    const values = normalizeGradeAccessList(teacher[field]);
+    return { ...teacher, [field]: values.includes(gradeKey) ? values.filter(item => item !== gradeKey) : [...values, gradeKey] };
+  }));
 
   const teacherFileRef = useRef(null);
   const [teacherUploadBusy, setTeacherUploadBusy] = useState(false);
-  const handleTeacherExcel = async (file) => {
+  const handleTeacherExcel = async file => {
     setTeacherUploadBusy(true);
     try {
       const XLSX = await loadXLSX();
-      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
-      const hi = rows.findIndex(r => r && r.some(c => ["이름", "아이디", "비밀번호"].includes(String(c || "").trim())));
-      if (hi === -1) { showToast('첫 행에 "이름", "아이디", "비밀번호" 열 헤더가 있어야 합니다.', "error"); setTeacherUploadBusy(false); return; }
-      const idx = {}; rows[hi].forEach((h, i) => { if (h) idx[String(h).trim()] = i; });
-      if (idx["이름"] == null || idx["아이디"] == null || idx["비밀번호"] == null) { showToast('"이름", "아이디", "비밀번호" 열을 모두 찾지 못했습니다.', "error"); setTeacherUploadBusy(false); return; }
-      const existingIds = new Set(teachers.map(t => t.id));
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: null });
+      const headerIndex = rows.findIndex(row => row && row.some(cell => ["이름", "아이디", "비밀번호"].includes(String(cell || "").trim())));
+      if (headerIndex === -1) { showToast('첫 행에 "이름", "아이디", "비밀번호" 열 헤더가 있어야 합니다.', "error"); setTeacherUploadBusy(false); return; }
+      const indexes = {};
+      rows[headerIndex].forEach((header, index) => { if (header) indexes[String(header).trim()] = index; });
+      if (indexes["이름"] == null || indexes["아이디"] == null || indexes["비밀번호"] == null) {
+        showToast('"이름", "아이디", "비밀번호" 열을 모두 찾지 못했습니다.', "error");
+        setTeacherUploadBusy(false); return;
+      }
+      const existingIds = new Set(teachers.map(teacher => teacher.id));
       const added = [];
-      for (let i = hi + 1; i < rows.length; i++) {
-        const row = rows[i]; if (!row) continue;
-        const name = row[idx["이름"]], id = row[idx["아이디"]], pw = row[idx["비밀번호"]];
+      for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex++) {
+        const row = rows[rowIndex]; if (!row) continue;
+        const name = row[indexes["이름"]], id = row[indexes["아이디"]], pw = row[indexes["비밀번호"]];
         if (!name || !id || !pw) continue;
-        const idStr = String(id).trim();
-        if (existingIds.has(idStr)) continue;
-        existingIds.add(idStr);
-        added.push({ name: String(name).trim(), id: idStr, pw: String(pw).trim(), homeroomClass: "", assignments: [] });
+        const idString = String(id).trim();
+        if (existingIds.has(idString)) continue;
+        existingIds.add(idString);
+        added.push(applyAutomaticTeacherAccess({
+          name: String(name).trim(), id: idString, pw: String(pw).trim(), teacherRole: "other", roleGrade: grade,
+          homeroomClass: "", gradeAccessGrades: [], timetableAccessGrades: [], assignments: [],
+        }, grade));
       }
       if (!added.length) { showToast("추가할 새 계정을 찾지 못했습니다. (아이디 중복 또는 빈 값)", "error"); setTeacherUploadBusy(false); return; }
-      setTeachers(t => [...t, ...added]);
-      showToast(`${added.length}명의 선생님 계정을 추가했습니다. 아래 목록에서 확인 후 "저장"을 눌러주세요.`, "success");
-    } catch (e) {
-      showToast(`파일 오류: ${e.message}`, "error");
+      setTeachers(current => [...current, ...added]);
+      showToast(`${added.length}명의 선생님 계정을 추가했습니다. 역할과 접근 권한을 확인한 뒤 저장해주세요.`, "success");
+    } catch (error) {
+      showToast(`파일 오류: ${error.message}`, "error");
     }
     setTeacherUploadBusy(false);
   };
@@ -2199,33 +2474,33 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       {!accounts.admin.length && <div style={styles.warnBanner}><AlertTriangle size={14} /> 관리자 계정이 없어 초기 계정({DEFAULT_ADMIN.id}/{DEFAULT_ADMIN.pw})으로 접속 중입니다. 계정을 등록해주세요.</div>}
       <div style={styles.infoBox}>
         <div style={{ fontWeight: 700, marginBottom: 6 }}>관리자 계정</div>
-        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 8 }}>계정별로 접근 가능한 메뉴를 지정할 수 있습니다. 아무것도 체크하지 않으면 전체 메뉴에 접근할 수 있습니다.</div>
+        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 8 }}>계정별로 접근 가능한 관리자 메뉴를 지정할 수 있습니다. 아무것도 체크하지 않으면 전체 메뉴에 접근할 수 있습니다.</div>
         <AdminAccountTable list={admins} setList={setAdmins} />
-        <button style={styles.secondaryBtn} onClick={() => setAdmins(a => [...a, { id: "", pw: "", permissions: [] }])}>+ 관리자 추가</button>
+        <button style={styles.secondaryBtn} onClick={() => setAdmins(current => [...current, { id: "", pw: "", permissions: [] }])}>+ 관리자 추가</button>
       </div>
       <div style={styles.infoBox}>
         <div style={{ fontWeight: 700, marginBottom: 8 }}>학급별 조회 / 이동수업반별 명단 계정</div>
         <AccountTable list={cvs} setList={setCvs} />
-        <button style={styles.secondaryBtn} onClick={() => setCvs(a => [...a, { id: "", pw: "" }])}>+ 반별조회 계정 추가</button>
+        <button style={styles.secondaryBtn} onClick={() => setCvs(current => [...current, { id: "", pw: "" }])}>+ 반별조회 계정 추가</button>
       </div>
 
       {(accounts.teacherPending || []).length > 0 && (
         <div style={styles.infoBox}>
           <div style={{ fontWeight: 700, marginBottom: 6 }}>선생님 가입 승인 대기 ({accounts.teacherPending.length}건)</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {accounts.teacherPending.map((req, i) => (
-              <div key={i} style={styles.issueRow}>
-                <span style={{ fontWeight: 700 }}>{req.name}</span>
-                <span style={{ color: "#8a8578", fontSize: 12 }}>({req.id})</span>
+            {accounts.teacherPending.map((request, index) => (
+              <div key={index} style={styles.issueRow}>
+                <span style={{ fontWeight: 700 }}>{request.name}</span>
+                <span style={{ color: "#8a8578", fontSize: 12 }}>({request.id})</span>
                 <span style={{ fontSize: 12 }}>
                   {[
-                    req.homeroomClass ? `학급담임(${req.homeroomClass}반)` : null,
-                    (req.assignments || []).length > 0 ? (req.assignments || []).map(a => `${a.subject}(${a.kind === "common" ? a.targets.split(",").map(c => c + "반").join("/") : a.targets.split(",").map(g => g + "그룹").join("/")})`).join(", ") : null,
+                    request.homeroomClass ? `학급담임(${request.roleGrade || grade}학년 ${request.homeroomClass}반)` : null,
+                    (request.assignments || []).length > 0 ? (request.assignments || []).map(assignment => `${assignment.subject}(${assignment.targets})`).join(", ") : null,
                   ].filter(Boolean).join(" · ")}
                 </span>
                 <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
-                  <button style={{ ...styles.secondaryBtn, padding: "4px 10px", fontSize: 11.5 }} onClick={() => approve(req)}>승인</button>
-                  <button style={{ ...styles.dangerBtn, padding: "4px 10px", fontSize: 11.5, marginTop: 0 }} onClick={() => reject(req)}>거절</button>
+                  <button style={{ ...styles.secondaryBtn, padding: "4px 10px", fontSize: 11.5 }} onClick={() => approve(request)}>승인</button>
+                  <button style={{ ...styles.dangerBtn, padding: "4px 10px", fontSize: 11.5, marginTop: 0 }} onClick={() => reject(request)}>거절</button>
                 </div>
               </div>
             ))}
@@ -2234,39 +2509,72 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       )}
 
       <div style={styles.infoBox}>
-        <div style={{ fontWeight: 700, marginBottom: 6 }}>선생님 계정</div>
-        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 10 }}>선생님 한 분이 여러 과목을 담당할 수 있습니다(교과담당). 학급담임은 담당 반 하나를 지정해 학급 공지를 작성할 수 있습니다.</div>
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>선생님 계정 및 학생정보 접근 권한</div>
+        <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 10, lineHeight: 1.55 }}>
+          학급담임과 학년부장은 지정 학년의 전체 학생 성적과 시간표 권한이 자동으로 부여됩니다. 그외 역할은 관리자가 학년별 성적·시간표 권한을 직접 체크해야 합니다.
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: 10, border: `1px dashed ${COLORS.line}`, borderRadius: 8 }}>
           <FileSpreadsheet size={18} color="#8a8578" />
-          <div style={{ fontSize: 11.5, color: "#8a8578", flex: 1 }}>엑셀로 일괄 등록: 첫 행에 "이름", "아이디", "비밀번호" 열이 있는 파일을 올려주세요. (과목/그룹은 각 선생님이 로그인 후 "내 정보 수정"에서 직접 선택합니다)</div>
-          <input ref={teacherFileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleTeacherExcel(e.target.files[0])} />
+          <div style={{ fontSize: 11.5, color: "#8a8578", flex: 1 }}>엑셀 일괄 등록: 첫 행에 "이름", "아이디", "비밀번호" 열이 있는 파일을 올려주세요. 신규 계정은 기본적으로 학생정보 접근 권한이 없는 "그외" 역할로 등록됩니다.</div>
+          <input ref={teacherFileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={event => event.target.files[0] && handleTeacherExcel(event.target.files[0])} />
           <button style={styles.secondaryBtn} onClick={() => teacherFileRef.current.click()} disabled={teacherUploadBusy}>{teacherUploadBusy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 엑셀 업로드</button>
         </div>
         {!teachers.length && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 선생님 계정이 없습니다.</div>}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {teachers.map((t, i) => {
+          {teachers.map((teacher, index) => {
+            const role = normalizedTeacherRole(teacher);
+            const roleGrade = teacherRoleGrade(teacher);
+            const roleScopeKey = `${roleGrade}-${semester}`;
+            const classOptions = extractClasses(db, roleScopeKey);
+            const automatic = role === "homeroom" || role === "gradeHead";
             return (
-              <div key={i} style={{ border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fbfaf6" }}>
-                <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
-                  <input value={t.name} onChange={e => updateTeacherField(i, "name", e.target.value)} placeholder="이름" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
-                  <input value={t.id} onChange={e => updateTeacherField(i, "id", e.target.value)} placeholder="아이디" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
-                  <input value={t.pw} onChange={e => updateTeacherField(i, "pw", e.target.value)} placeholder="비밀번호" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
-                  <button style={styles.iconBtn} onClick={() => setTeachers(l => l.filter((_, j) => j !== i))}><Trash2 size={14} /></button>
+              <div key={teacher.id || index} style={{ border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fbfaf6" }}>
+                <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
+                  <input value={teacher.name || ""} onChange={event => updateTeacherField(index, "name", event.target.value)} placeholder="이름" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
+                  <input value={teacher.id || ""} onChange={event => updateTeacherField(index, "id", event.target.value)} placeholder="아이디" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
+                  <input value={teacher.pw || ""} onChange={event => updateTeacherField(index, "pw", event.target.value)} placeholder="비밀번호" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
+                  <button style={styles.iconBtn} onClick={() => setTeachers(current => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 0.8fr) minmax(260px, 1.5fr)", gap: 12, marginBottom: 12 }}>
                   <div>
-                    <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>학급담임 (담당 반, 선택사항)</div>
+                    <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>학교 역할</div>
+                    <select value={role} onChange={event => updateTeacherRole(index, event.target.value)} style={{ ...styles.cellInput, width: "100%", border: `1px solid ${COLORS.line}`, borderRadius: 6, padding: "7px 8px" }}>
+                      <option value="homeroom">학급담임</option>
+                      <option value="gradeHead">학년부장</option>
+                      <option value="other">그외</option>
+                    </select>
+                  </div>
+                  <div>
+                    {automatic ? (
+                      <>
+                        <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>담당 학년</div>
+                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                          {GRADES.map(gradeKey => <button key={gradeKey} type="button" onClick={() => updateTeacherField(index, "roleGrade", gradeKey)} style={{ ...styles.classChip, padding: "5px 11px", fontSize: 11.5, ...(roleGrade === gradeKey ? styles.classChipActive : {}) }}>{gradeKey}학년</button>)}
+                        </div>
+                        <div style={{ ...styles.okBanner, marginTop: 8, padding: "7px 10px", fontSize: 11.5 }}><Check size={13} /> {roleGrade}학년 전체 학생 성적 + 학생 시간표 자동 권한</div>
+                      </>
+                    ) : (
+                      <TeacherAccessMatrix teacher={teacher} index={index} onToggle={toggleTeacherAccess} />
+                    )}
+                  </div>
+                </div>
+
+                {role === "homeroom" && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>{roleGrade}학년 담임반</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      <button type="button" onClick={() => updateTeacherField(i, "homeroomClass", "")} style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11.5, ...(!t.homeroomClass ? styles.classChipActive : {}) }}>없음</button>
-                      {extractClasses(db, scopeKey).map(c => (
-                        <button key={c} type="button" onClick={() => updateTeacherField(i, "homeroomClass", c)} style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11.5, ...(t.homeroomClass === c ? styles.classChipActive : {}) }}>{c}반</button>
+                      <button type="button" onClick={() => updateTeacherField(index, "homeroomClass", "")} style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11.5, ...(!teacher.homeroomClass ? styles.classChipActive : {}) }}>미지정</button>
+                      {classOptions.map(classNumber => (
+                        <button key={classNumber} type="button" onClick={() => updateTeacherField(index, "homeroomClass", classNumber)} style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11.5, ...(String(teacher.homeroomClass) === String(classNumber) ? styles.classChipActive : {}) }}>{classNumber}반</button>
                       ))}
                     </div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (선택사항, 여러 개 가능)</div>
-                    <AssignmentsEditor assignments={t.assignments || []} setAssignments={(a) => updateTeacherField(i, "assignments", a)} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
-                  </div>
+                )}
+
+                <div>
+                  <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (선택사항, 여러 개 가능)</div>
+                  <AssignmentsEditor assignments={teacher.assignments || []} setAssignments={assignments => updateTeacherField(index, "assignments", assignments)} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
                 </div>
               </div>
             );
@@ -2274,10 +2582,34 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         </div>
         <button style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={addTeacher}>+ 선생님 계정 추가</button>
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button style={styles.primaryBtn} onClick={save}><Save size={14} /> 저장</button><button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화 ({RESET_PASSWORD})</button></div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button style={styles.primaryBtn} onClick={save}><Save size={14} /> 계정·권한 저장</button>
+        <button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화 ({RESET_PASSWORD})</button>
+      </div>
     </div>
   );
 }
+
+function TeacherAccessMatrix({ teacher, index, onToggle }) {
+  const gradeAccess = normalizeGradeAccessList(teacher.gradeAccessGrades);
+  const timetableAccess = normalizeGradeAccessList(teacher.timetableAccessGrades);
+  return (
+    <div>
+      <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>학년별 학생정보 접근 권한</div>
+      <div style={{ border: `1px solid ${COLORS.line}`, borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+        {GRADES.map((gradeKey, rowIndex) => (
+          <div key={gradeKey} style={{ display: "grid", gridTemplateColumns: "70px 1fr 1fr", alignItems: "center", gap: 6, padding: "7px 9px", borderTop: rowIndex ? `1px solid ${COLORS.line}` : "none" }}>
+            <strong style={{ fontSize: 11.5 }}>{gradeKey}학년</strong>
+            <button type="button" onClick={() => onToggle(index, "gradeAccessGrades", gradeKey)} style={{ ...styles.classChip, padding: "4px 8px", fontSize: 11, ...(gradeAccess.includes(gradeKey) ? styles.classChipActive : {}) }}>성적 조회</button>
+            <button type="button" onClick={() => onToggle(index, "timetableAccessGrades", gradeKey)} style={{ ...styles.classChip, padding: "4px 8px", fontSize: 11, ...(timetableAccess.includes(gradeKey) ? styles.classChipActive : {}) }}>시간표 조회</button>
+          </div>
+        ))}
+      </div>
+      {!gradeAccess.length && !timetableAccess.length && <div style={{ fontSize: 10.8, color: "#a3402b", marginTop: 6 }}>별도 권한 없음: 학생 성적과 학생 시간표에 접근할 수 없습니다.</div>}
+    </div>
+  );
+}
+
 function AccountTable({ list, setList }) {
   if (!list.length) return <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 계정이 없습니다.</div>;
   return (

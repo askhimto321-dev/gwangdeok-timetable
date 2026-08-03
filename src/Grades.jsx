@@ -701,7 +701,13 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
 
 
 function universityKey(value) {
-  return String(value || "").replace(/\s+/g, "").replace(/[()\[\]·.,]/g, "").toLowerCase();
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/대학교/g, "대")
+    .replace(/캠퍼스/g, "")
+    .replace(/\s+/g, "")
+    .replace(/[()\[\]{}·ㆍ.,_-]/g, "")
+    .toLowerCase();
 }
 
 
@@ -729,6 +735,25 @@ function extractReflectionFromNote(note) {
 function admissionReflectionText(row) {
   const explicit = row?.reflection || row?.courseReflection || row?.reflectionRatio || row?.subjectReflection || row?.studentRecordRatio || row?.evaluationRatio || "";
   return normalizeReflectionText(explicit) || extractReflectionFromNote(row?.note);
+}
+
+
+function AdmissionReflectionBadge({ value }) {
+  const parts = normalizeReflectionText(value)
+    .split(/\s*\+\s*/)
+    .map(part => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return null;
+  return (
+    <span style={reflectionBadge} title={normalizeReflectionText(value)}>
+      {parts.map((part, index) => (
+        <span key={`${part}-${index}`} style={reflectionBadgeLine}>
+          {index > 0 && <span style={reflectionBadgePlus}>＋</span>}
+          <span>{part}</span>
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function admissionSpecialNote(row, reflection) {
@@ -1054,35 +1079,53 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
         entryYear={entryYear}
         gradeSystem={gradeSystem}
         viewType="admission"
-      />
-
-      <div style={{ ...card, background: "linear-gradient(135deg, #f3f8f1 0%, #ffffff 72%)", borderColor: "#cfdfca" }}>
-        <SectionHeading
-          title={admissionViewMode === "mock" ? "대학별 수능 최저 확인" : "대학별 내신 반영 방식"}
-          description={admissionViewMode === "mock"
-            ? (latestMockKey
-              ? `${mockCalendarLabel(latestMockKey, entryYear)} 모의고사의 1합·2합·3합·4합으로 대학별 수능 최저 충족 여부를 판정합니다.`
-              : "모의고사 성적이 등록되면 대학별 수능 최저 충족 여부를 자동으로 판정합니다.")
-            : "공통과목·일반선택·진로선택·융합선택을 대학이 석차등급, 성취도, 정성평가 중 어떤 방식으로 반영하는지 비교합니다."}
-        />
-        {admissionViewMode === "mock" ? (
-          <>
-            <MockSumCards sums={latestSums} />
-            <div style={admissionSummary.grid}>
-              <div style={{ ...admissionSummary.card, ...admissionSummary.success }}><b>{statusCounts.satisfied}</b><span>충족·최저 없음</span></div>
-              <div style={{ ...admissionSummary.card, ...admissionSummary.danger }}><b>{statusCounts.unsatisfied}</b><span>미충족</span></div>
-              <div style={{ ...admissionSummary.card, ...admissionSummary.neutral }}><b>{statusCounts.review}</b><span>별도 확인</span></div>
-            </div>
-          </>
-        ) : (
-          <div style={curriculumSummary.grid}>
-            <div style={{ ...curriculumSummary.card, ...curriculumSummary.rank }}><b>{curriculumMethodCounts.rank}</b><span>석차등급 반영</span></div>
-            <div style={{ ...curriculumSummary.card, ...curriculumSummary.achievement }}><b>{curriculumMethodCounts.achievement}</b><span>성취도 반영</span></div>
-            <div style={{ ...curriculumSummary.card, ...curriculumSummary.mixed }}><b>{curriculumMethodCounts.mixed}</b><span>석차·성취 혼합</span></div>
-            <div style={{ ...curriculumSummary.card, ...curriculumSummary.qualitative }}><b>{curriculumMethodCounts.qualitative}</b><span>정성평가 포함</span></div>
-            <div style={{ ...curriculumSummary.card, ...curriculumSummary.excluded }}><b>{curriculumMethodCounts.excluded}</b><span>미반영 포함</span></div>
+        actions={(
+          <div style={admissionModeSwitch.darkBox} aria-label="입시전형 보기 방식">
+            <button
+              onClick={() => setAdmissionViewMode("mock")}
+              style={{ ...admissionModeSwitch.darkButton, ...(admissionViewMode === "mock" ? admissionModeSwitch.darkActive : {}) }}
+            >수능 최저 기준</button>
+            <button
+              onClick={() => setAdmissionViewMode("school")}
+              style={{ ...admissionModeSwitch.darkButton, ...(admissionViewMode === "school" ? admissionModeSwitch.darkActive : {}) }}
+            >내신 반영 방식</button>
           </div>
         )}
+      />
+
+      <div style={{ ...card, ...admissionHero.card }}>
+        <div style={admissionHero.headerRow}>
+          <div style={admissionHero.heading}>
+            <SectionHeading
+              title={admissionViewMode === "mock" ? "대학별 수능 최저 확인" : "대학별 내신 반영 방식"}
+              description={admissionViewMode === "mock"
+                ? (latestMockKey
+                  ? `${mockCalendarLabel(latestMockKey, entryYear)} 모의고사의 1합·2합·3합·4합으로 대학별 수능 최저 충족 여부를 판정합니다.`
+                  : "모의고사 성적이 등록되면 대학별 수능 최저 충족 여부를 자동으로 판정합니다.")
+                : "공통과목·일반선택·진로선택·융합선택을 대학이 석차등급, 성취도, 정성평가 중 어떤 방식으로 반영하는지 비교합니다."}
+            />
+          </div>
+        </div>
+        <div style={admissionHero.content}>
+          {admissionViewMode === "mock" ? (
+            <>
+              <MockSumCards sums={latestSums} />
+              <div style={admissionSummary.grid}>
+                <div style={{ ...admissionSummary.card, ...admissionSummary.success }}><b>{statusCounts.satisfied}</b><span>충족·최저 없음</span></div>
+                <div style={{ ...admissionSummary.card, ...admissionSummary.danger }}><b>{statusCounts.unsatisfied}</b><span>미충족</span></div>
+                <div style={{ ...admissionSummary.card, ...admissionSummary.neutral }}><b>{statusCounts.review}</b><span>별도 확인</span></div>
+              </div>
+            </>
+          ) : (
+            <div style={curriculumSummary.grid}>
+              <div style={{ ...curriculumSummary.card, ...curriculumSummary.rank }}><b>{curriculumMethodCounts.rank}</b><span>석차등급 반영</span></div>
+              <div style={{ ...curriculumSummary.card, ...curriculumSummary.achievement }}><b>{curriculumMethodCounts.achievement}</b><span>성취도 반영</span></div>
+              <div style={{ ...curriculumSummary.card, ...curriculumSummary.mixed }}><b>{curriculumMethodCounts.mixed}</b><span>석차·성취 혼합</span></div>
+              <div style={{ ...curriculumSummary.card, ...curriculumSummary.qualitative }}><b>{curriculumMethodCounts.qualitative}</b><span>정성평가 포함</span></div>
+              <div style={{ ...curriculumSummary.card, ...curriculumSummary.excluded }}><b>{curriculumMethodCounts.excluded}</b><span>미반영 포함</span></div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={card}>
@@ -1102,16 +1145,6 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
               <option value="all">전체 지역</option>
               {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
             </select>
-            <div style={admissionModeSwitch.box} aria-label="입시전형 보기 방식">
-              <button
-                onClick={() => setAdmissionViewMode("mock")}
-                style={{ ...admissionModeSwitch.button, ...(admissionViewMode === "mock" ? admissionModeSwitch.active : {}) }}
-              >수능 최저 기준</button>
-              <button
-                onClick={() => setAdmissionViewMode("school")}
-                style={{ ...admissionModeSwitch.button, ...(admissionViewMode === "school" ? admissionModeSwitch.active : {}) }}
-              >내신 반영 방식</button>
-            </div>
             {admissionViewMode === "mock" && (
               <div style={admissionToolbar.filterGroup}>
                 {[
@@ -1208,7 +1241,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                         <AdmissionDetailText department={row.department} track={row.track} />
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.reflectionCell }}>
-                        {reflection ? <span style={reflectionBadge}>{reflection}</span> : <span style={admissionTable.empty}>-</span>}
+                        {reflection ? <AdmissionReflectionBadge value={reflection} /> : <span style={admissionTable.empty}>-</span>}
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.text, ...admissionTable.noteCell }}>
                         {specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}
@@ -1296,7 +1329,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                       <td style={admissionTable.curriculumCell}><CurriculumMethodBadge value={row.careerElectiveMethod} /></td>
                       <td style={admissionTable.curriculumCell}><CurriculumMethodBadge value={row.convergenceElectiveMethod} /></td>
                       <td style={{ ...admissionTable.td, ...admissionTable.reflectionCell }}>
-                        {reflection ? <span style={reflectionBadge}>{reflection}</span> : <span style={admissionTable.empty}>-</span>}
+                        {reflection ? <AdmissionReflectionBadge value={reflection} /> : <span style={admissionTable.empty}>-</span>}
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.text, ...admissionTable.noteCell }}>
                         {specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}
@@ -1363,7 +1396,7 @@ function PdfLink({ docItem, compact = false }) {
   );
 }
 
-function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYear, gradeSystem, viewType = "grades" }) {
+function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYear, gradeSystem, viewType = "grades", actions = null }) {
   const location = [
     grade != null ? `${grade}학년` : null,
     classNumber != null ? `${Number(classNumber)}반` : null,
@@ -1372,14 +1405,19 @@ function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYea
 
   return (
     <div style={studentBanner.box}>
-      <div style={studentBanner.eyebrow}>{viewType === "admission" ? "학생 입시전형 확인" : "학생 성적 조회"}</div>
-      <div style={studentBanner.title}>
-        <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span> {viewType === "admission" ? "학생의 대학별 입시전형" : "학생의 성적"}
-      </div>
-      <div style={studentBanner.badges}>
-        {location && <span style={studentBanner.badge}>{location}</span>}
-        <span style={studentBanner.badge}>{entryYear}학년도 입학생</span>
-        <span style={{ ...studentBanner.badge, ...studentBanner.gradeBadge }}>{gradeSystem}등급제</span>
+      <div style={studentBanner.topRow}>
+        <div style={studentBanner.main}>
+          <div style={studentBanner.eyebrow}>{viewType === "admission" ? "학생 입시전형 확인" : "학생 성적 조회"}</div>
+          <div style={studentBanner.title}>
+            <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span> {viewType === "admission" ? "학생의 대학별 입시전형" : "학생의 성적"}
+          </div>
+          <div style={studentBanner.badges}>
+            {location && <span style={studentBanner.badge}>{location}</span>}
+            <span style={studentBanner.badge}>{entryYear}학년도 입학생</span>
+            <span style={{ ...studentBanner.badge, ...studentBanner.gradeBadge }}>{gradeSystem}등급제</span>
+          </div>
+        </div>
+        {actions && <div style={studentBanner.actions}>{actions}</div>}
       </div>
     </div>
   );
@@ -1704,6 +1742,7 @@ function StudentLookup({
   }, [query, roster, isAdmin, homeroomClass]);
 
   const chooseStudent = id => {
+    updateQuery(id);
     updateSid(id);
     setView(initialView);
   };
@@ -1716,8 +1755,10 @@ function StudentLookup({
         <input
           value={query}
           onChange={event => {
-            updateQuery(event.target.value);
-            updateSid(null);
+            const nextValue = event.target.value;
+            updateQuery(nextValue);
+            const trimmed = nextValue.trim();
+            if (!/^\d{5}$/.test(trimmed) && trimmed !== String(sid || "")) updateSid(null);
             setView(initialView);
           }}
           placeholder="학번 또는 이름으로 검색"
@@ -1957,6 +1998,123 @@ function findReflectionInLookup(row, lookup) {
   return "";
 }
 
+
+const CURRICULUM_METHOD_HEADER_ALIASES = {
+  commonSubjectMethod: ["공통과목반영여부", "공통과목반영방법", "공통과목평가방법", "공통과목반영기준", "공통과목"],
+  generalElectiveMethod: ["일반선택반영여부", "일반선택반영방법", "일반선택평가방법", "일반선택반영기준", "일반선택"],
+  careerElectiveMethod: ["진로선택반영여부", "진로선택반영방법", "진로선택평가방법", "진로선택반영기준", "진로선택"],
+  convergenceElectiveMethod: ["융합선택반영여부", "융합선택반영방법", "융합선택평가방법", "융합선택반영기준", "융합선택"],
+};
+
+function curriculumLookupKey(university, track = "", department = "") {
+  return [
+    universityKey(university),
+    normalizeAdmissionLookupKey(track),
+    normalizeAdmissionLookupKey(department),
+  ].join("|");
+}
+
+function parseCurriculumMethodLookup(rows) {
+  if (!Array.isArray(rows)) return { map: new Map(), ordered: [] };
+  const headerRowIdx = rows.findIndex(row => {
+    const headers = (row || []).map(normalizeHeader);
+    return Object.values(CURRICULUM_METHOD_HEADER_ALIASES)
+      .some(aliases => aliases.some(alias => headers.includes(alias)));
+  });
+  if (headerRowIdx < 0) return { map: new Map(), ordered: [] };
+
+  const header = rows[headerRowIdx] || [];
+  const findIndex = aliases => header.findIndex(value => aliases.includes(normalizeHeader(value)));
+  const indexes = Object.fromEntries(
+    Object.entries(CURRICULUM_METHOD_HEADER_ALIASES)
+      .map(([field, aliases]) => [field, findIndex(aliases)])
+  );
+  if (!Object.values(indexes).some(index => index >= 0)) return { map: new Map(), ordered: [] };
+
+  const universityIndex = findIndex(["대학교", "대학명", "대학"]);
+  const trackIndex = findIndex(["전형명", "전형", "전형유형", "전형구분"]);
+  const departmentIndex = findIndex(["계열학과", "모집단위", "학과", "계열", "학부"]);
+  const map = new Map();
+  const ordered = [];
+  let carriedUniversity = "";
+  let carriedTrack = "";
+  let carriedDepartment = "";
+
+  for (let rowIndex = headerRowIdx + 1; rowIndex < rows.length; rowIndex++) {
+    const row = rows[rowIndex] || [];
+    if (universityIndex >= 0 && String(row[universityIndex] ?? "").trim()) carriedUniversity = String(row[universityIndex]).trim();
+    if (trackIndex >= 0 && String(row[trackIndex] ?? "").trim()) carriedTrack = String(row[trackIndex]).trim();
+    if (departmentIndex >= 0 && String(row[departmentIndex] ?? "").trim()) carriedDepartment = String(row[departmentIndex]).trim();
+
+    const methods = Object.fromEntries(
+      Object.entries(indexes).map(([field, index]) => [
+        field,
+        index >= 0 ? String(row[index] ?? "").trim() : "",
+      ])
+    );
+    if (!Object.values(methods).some(value => normalizeCurriculumMethod(value) !== "미입력")) continue;
+
+    const entry = {
+      university: carriedUniversity,
+      track: carriedTrack,
+      department: carriedDepartment,
+      methods,
+    };
+    ordered.push(entry);
+
+    const keys = [
+      curriculumLookupKey(entry.university, entry.track, entry.department),
+      curriculumLookupKey(entry.university, entry.track, ""),
+      curriculumLookupKey(entry.university, "", entry.department),
+      curriculumLookupKey(entry.university, "", ""),
+    ];
+    keys.filter(key => key.replace(/\|/g, "")).forEach(key => {
+      if (!map.has(key)) map.set(key, methods);
+    });
+  }
+
+  return { map, ordered };
+}
+
+function findCurriculumMethodsInLookup(row, lookup) {
+  if (!lookup?.map || !(lookup.map instanceof Map)) return null;
+  const exactKeys = [
+    curriculumLookupKey(row?.university, row?.track, row?.department),
+    curriculumLookupKey(row?.university, row?.track, ""),
+    curriculumLookupKey(row?.university, "", row?.department),
+    curriculumLookupKey(row?.university, "", ""),
+  ];
+  for (const key of exactKeys) {
+    if (lookup.map.has(key)) return lookup.map.get(key);
+  }
+
+  const university = universityKey(row?.university);
+  const track = normalizeAdmissionLookupKey(row?.track);
+  const department = normalizeAdmissionLookupKey(row?.department);
+  for (const [key, methods] of lookup.map.entries()) {
+    const [candidateUniversity, candidateTrack, candidateDepartment] = key.split("|");
+    const universityMatches = university && candidateUniversity
+      && (university.includes(candidateUniversity) || candidateUniversity.includes(university));
+    if (!universityMatches) continue;
+    const trackMatches = !track || !candidateTrack || track.includes(candidateTrack) || candidateTrack.includes(track);
+    const departmentMatches = !department || !candidateDepartment || department.includes(candidateDepartment) || candidateDepartment.includes(department);
+    if (trackMatches && departmentMatches) return methods;
+  }
+  return null;
+}
+
+function mergeCurriculumMethods(row, methods) {
+  if (!methods) return row;
+  const patch = {};
+  Object.keys(CURRICULUM_METHOD_HEADER_ALIASES).forEach(field => {
+    if (normalizeCurriculumMethod(row?.[field]) === "미입력"
+      && normalizeCurriculumMethod(methods?.[field]) !== "미입력") {
+      patch[field] = methods[field];
+    }
+  });
+  return Object.keys(patch).length ? { ...row, ...patch } : row;
+}
+
 function parseAdmissionWorkbook(workbook, XLSX) {
   const sheetRows = (workbook?.SheetNames || []).map(name => ({
     name,
@@ -1969,22 +2127,42 @@ function parseAdmissionWorkbook(workbook, XLSX) {
 
   // 전형표 본문은 가장 많은 대학 전형 행을 가진 시트를 기준으로 사용합니다.
   const base = parsedCandidates.sort((a, b) => b.parsed.length - a.parsed.length)[0].parsed;
-  const lookup = new Map();
-  let orderedLookup = [];
+  const reflectionLookup = new Map();
+  let orderedReflectionLookup = [];
+  const curriculumLookup = { map: new Map(), ordered: [] };
+
   sheetRows.forEach(item => {
-    const sheetLookup = parseReflectionLookup(item.rows);
-    sheetLookup.forEach((ratio, key) => lookup.set(key, ratio));
-    if ((sheetLookup.ordered || []).length > orderedLookup.length) orderedLookup = sheetLookup.ordered || [];
+    const sheetReflectionLookup = parseReflectionLookup(item.rows);
+    sheetReflectionLookup.forEach((ratio, key) => reflectionLookup.set(key, ratio));
+    if ((sheetReflectionLookup.ordered || []).length > orderedReflectionLookup.length) {
+      orderedReflectionLookup = sheetReflectionLookup.ordered || [];
+    }
+
+    const sheetCurriculumLookup = parseCurriculumMethodLookup(item.rows);
+    sheetCurriculumLookup.map.forEach((methods, key) => {
+      if (!curriculumLookup.map.has(key)) curriculumLookup.map.set(key, methods);
+    });
+    if (sheetCurriculumLookup.ordered.length > curriculumLookup.ordered.length) {
+      curriculumLookup.ordered = sheetCurriculumLookup.ordered;
+    }
   });
 
-  return base.map((row, index) => {
-    if (admissionReflectionText(row)) return row;
-    const mapped = findReflectionInLookup(row, lookup);
-    if (mapped) return { ...row, reflection: mapped };
-    // 전형표 본문과 전형-반영비율 표의 행 수가 정확히 같으면 행 순서도 보조 기준으로 사용합니다.
-    if (orderedLookup.length === base.length && orderedLookup[index]?.ratio) {
-      return { ...row, reflection: orderedLookup[index].ratio };
+  return base.map((baseRow, index) => {
+    let row = baseRow;
+
+    if (!admissionReflectionText(row)) {
+      const mapped = findReflectionInLookup(row, reflectionLookup);
+      if (mapped) row = { ...row, reflection: mapped };
+      else if (orderedReflectionLookup.length === base.length && orderedReflectionLookup[index]?.ratio) {
+        row = { ...row, reflection: orderedReflectionLookup[index].ratio };
+      }
     }
+
+    let methods = findCurriculumMethodsInLookup(row, curriculumLookup);
+    if (!methods && curriculumLookup.ordered.length === base.length) {
+      methods = curriculumLookup.ordered[index]?.methods || null;
+    }
+    row = mergeCurriculumMethods(row, methods);
     return row;
   });
 }
@@ -2853,6 +3031,9 @@ const studentBanner = {
     marginBottom: 14,
     boxShadow: "0 8px 22px rgba(47,70,48,0.16)",
   },
+  topRow: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" },
+  main: { flex: "1 1 520px", minWidth: 0 },
+  actions: { flex: "0 0 auto", alignSelf: "flex-start" },
   eyebrow: { fontSize: 11.5, opacity: 0.78, fontWeight: 700, letterSpacing: "0.04em", marginBottom: 5 },
   title: { fontSize: 21, fontWeight: 500, lineHeight: 1.35 },
   identity: { fontWeight: 900 },
@@ -2946,10 +3127,34 @@ const absoluteGradePill = {
   fontSize: 11,
   fontWeight: 800,
 };
+const admissionHero = {
+  card: {
+    background: "linear-gradient(135deg, #f3f8f1 0%, #ffffff 72%)",
+    borderColor: "#cfdfca",
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 18,
+    flexWrap: "wrap",
+  },
+  heading: { flex: "1 1 430px", minWidth: 0 },
+  content: {
+    minHeight: 164,
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "flex-start",
+  },
+};
+
 const admissionModeSwitch = {
   box: { display: "inline-flex", gap: 3, padding: 3, borderRadius: 10, background: "#efede7", border: "1px solid #ded9cd" },
   button: { border: "none", background: "transparent", color: "#716b5f", borderRadius: 7, padding: "7px 10px", fontSize: 10.8, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
   active: { background: "#2f4b32", color: "#fff", boxShadow: "0 1px 3px rgba(43,38,32,0.14)" },
+  darkBox: { display: "inline-flex", gap: 3, padding: 3, borderRadius: 11, background: "rgba(255,255,255,0.11)", border: "1px solid rgba(255,255,255,0.18)", backdropFilter: "blur(3px)" },
+  darkButton: { border: "none", background: "transparent", color: "rgba(255,255,255,0.78)", borderRadius: 8, padding: "8px 11px", fontSize: 10.8, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  darkActive: { background: "#fff", color: "#315132", boxShadow: "0 1px 4px rgba(0,0,0,0.16)" },
 };
 const curriculumSummary = {
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(125px, 1fr))", gap: 8, marginTop: 12 },
@@ -3061,19 +3266,35 @@ const admissionTable = {
   empty: { color: "#aaa393", fontSize: 9.7, fontWeight: 700 },
 };
 const reflectionBadge = {
-  display: "inline-block",
+  display: "inline-flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
   maxWidth: "100%",
   padding: "4px 8px",
-  borderRadius: 999,
+  borderRadius: 12,
   background: "linear-gradient(180deg, #ffffff 0%, #eef0f2 100%)",
   border: "1px solid #d8dadd",
   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9)",
   color: "#3f454b",
   fontSize: 9.5,
   fontWeight: 900,
-  lineHeight: 1.25,
+  lineHeight: 1.2,
   whiteSpace: "normal",
   wordBreak: "keep-all",
+};
+const reflectionBadgeLine = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minHeight: 12,
+  whiteSpace: "nowrap",
+};
+const reflectionBadgePlus = {
+  marginRight: 2,
+  color: "#7d7467",
+  fontSize: 8.5,
+  fontWeight: 900,
 };
 const specialNoteStyle = {
   box: {
