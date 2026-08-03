@@ -248,7 +248,16 @@ export function computeMockExamSums(mockGrades) {
     const inquiry = [toNumberOrNull(통합사회), toNumberOrNull(통합과학)].filter(value => value != null);
     if (inquiry.length) sum4 = korean + math + english + Math.min(...inquiry);
   }
-  return { sum1, sum2, sum3, sum4 };
+  return {
+    sum1, sum2, sum3, sum4,
+    subjectGrades: {
+      국어: toNumberOrNull(국어),
+      수학: toNumberOrNull(수학),
+      영어: toNumberOrNull(영어),
+      통합사회: toNumberOrNull(통합사회),
+      통합과학: toNumberOrNull(통합과학),
+    },
+  };
 }
 
 function extractAdmissionCount(value, requiredSum = "") {
@@ -273,6 +282,107 @@ function extractAdmissionThreshold(value, count) {
   return Number(nums[nums.length - 1]);
 }
 
+
+const ADMISSION_SUBJECT_ALIASES = {
+  "국": "국어", "국어": "국어",
+  "수": "수학", "수학": "수학",
+  "영": "영어", "영어": "영어",
+  "사": "통합사회", "사회": "통합사회", "통합사회": "통합사회",
+  "과": "통합과학", "과학": "통합과학", "통합과학": "통합과학",
+  "한": "한국사", "한국사": "한국사",
+};
+
+function normalizeAdmissionSubjectToken(token) {
+  const raw = String(token || "")
+    .replace(/\s+/g, "")
+    .replace(/영역|과목|등급|반영/g, "")
+    .trim();
+  if (!raw) return null;
+  if (/^(탐|탐구|사회과학|사과)$/.test(raw)) return "탐구";
+  return ADMISSION_SUBJECT_ALIASES[raw] || null;
+}
+
+function extractAdmissionSubjectTokens(text) {
+  const compact = String(text || "").replace(/\s+/g, "");
+  if (!compact) return [];
+  const matches = compact.match(/통합사회|통합과학|한국사|국어|수학|영어|사회|과학|탐구|[국수영사과한탐]/g) || [];
+  return matches.map(normalizeAdmissionSubjectToken).filter(Boolean);
+}
+
+// 수능 최저 반영과목 문구를 계산 가능한 그룹으로 바꿉니다.
+// 예: "국,수,영,(사,과)" → 국어 / 수학 / 영어 / 사회·과학 중 우수 1개
+export function parseAdmissionSubjectGroups(value) {
+  const original = String(value || "").trim();
+  if (!original || original === "-") return [];
+
+  const groups = [];
+  const placeholders = [];
+  const withoutParentheses = original.replace(/\(([^)]+)\)/g, (_all, inner) => {
+    const tokens = Array.from(new Set(extractAdmissionSubjectTokens(inner)));
+    if (tokens.length) {
+      const index = placeholders.length;
+      placeholders.push(tokens);
+      return ` __CHOICE_${index}__ `;
+    }
+    return " ";
+  });
+
+  const chunks = withoutParentheses
+    .split(/(__CHOICE_\d+__)/)
+    .map(chunk => chunk.trim())
+    .filter(Boolean);
+
+  chunks.forEach(chunk => {
+    const choiceMatch = chunk.match(/^__CHOICE_(\d+)__$/);
+    if (choiceMatch) {
+      const subjects = placeholders[Number(choiceMatch[1])] || [];
+      if (subjects.length === 1) groups.push({ type: "single", subjects });
+      else if (subjects.length > 1) groups.push({ type: "choice", subjects });
+      return;
+    }
+    extractAdmissionSubjectTokens(chunk).forEach(subject => {
+      if (subject === "탐구") {
+        groups.push({ type: "choice", subjects: ["통합사회", "통합과학"] });
+      } else {
+        groups.push({ type: "single", subjects: [subject] });
+      }
+    });
+  });
+
+  const seen = new Set();
+  return groups.filter(group => {
+    const key = `${group.type}:${group.subjects.join("|")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function admissionSubjectValue(group, mockGrades) {
+  const values = (group?.subjects || [])
+    .map(subject => toNumberOrNull(mockGrades?.[subject]))
+    .filter(value => value != null);
+  if (!values.length) return null;
+  return group.type === "choice" ? Math.min(...values) : values[0];
+}
+
+function computeAdmissionStudentSum(row, sums, mockGrades) {
+  const count = extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
+  if (!count) return null;
+
+  const groups = parseAdmissionSubjectGroups(row?.requiredSubjects);
+  if (groups.length && mockGrades) {
+    const values = groups
+      .map(group => admissionSubjectValue(group, mockGrades))
+      .filter(value => value != null)
+      .sort((a, b) => a - b);
+    if (values.length < count) return null;
+    return values.slice(0, count).reduce((total, value) => total + value, 0);
+  }
+
+  return ({ 1: sums?.sum1, 2: sums?.sum2, 3: sums?.sum3, 4: sums?.sum4 }[Number(count)] ?? null);
+}
+
 // ---------- 수능 최저 도달 대학 매칭 ----------
 export function matchUniversities(sums, admissionRows) {
   const { sum1, sum2, sum3, sum4 } = sums;
@@ -284,7 +394,7 @@ export function matchUniversities(sums, admissionRows) {
     if (!count || row.requiredSum == null || row.requiredSum === "") return;
     if (String(row.note || "").includes("각")) return;
 
-    const studentSum = { 1: sum1, 2: sum2, 3: sum3, 4: sum4 }[count];
+    const studentSum = computeAdmissionStudentSum(row, sums, sums?.subjectGrades);
     if (studentSum == null) return;
     const threshold = extractAdmissionThreshold(row.requiredSum, count);
     if (threshold == null) return;
@@ -294,11 +404,11 @@ export function matchUniversities(sums, admissionRows) {
 }
 
 // ---------- 대학별 수능 최저 개별 판정 ----------
-export function evaluateAdmissionRequirement(row, sums) {
+export function evaluateAdmissionRequirement(row, sums, mockGrades = null) {
   const university = String(row?.university || "").trim();
   const count = extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
   const threshold = extractAdmissionThreshold(row?.requiredSum, count);
-  const studentSum = count == null ? null : ({ 1: sums?.sum1, 2: sums?.sum2, 3: sums?.sum3, 4: sums?.sum4 }[Number(count)] ?? null);
+  const studentSum = count == null ? null : computeAdmissionStudentSum(row, sums, mockGrades);
   const note = String(row?.note || "");
 
   if (!university) return { status: "invalid", satisfied: null, studentSum, threshold, count };

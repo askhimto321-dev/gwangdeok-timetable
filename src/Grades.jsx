@@ -13,6 +13,7 @@ import {
   getSubjectGrade,
   grade5to9,
   evaluateAdmissionRequirement,
+  parseAdmissionSubjectGroups,
 } from "./gradeEngine.js";
 
 const SEMESTER_KEYS = ["1-1", "1-2", "2-1", "2-2", "3-1", "3-2"];
@@ -50,7 +51,7 @@ const CATEGORY_META = {
   사회: { short: "사", label: "사회", color: "#8a641d", background: "#fff5df", row: "#fffbf2" },
   // 1등급·성취도 A의 초록색과 겹치지 않도록 과학은 청록-파랑 계열로 구분합니다.
   과학: { short: "과", label: "과학", color: "#176b87", background: "#e6f5fa", row: "#f3fbfd" },
-  "기술가정/정보": { short: "기정·정보", label: "기술가정/정보", color: "#2f7770", background: "#e8f7f5", row: "#f5fbfa" },
+  "기술가정/정보": { short: "기가·정보", label: "기가/정보", color: "#2f7770", background: "#e8f7f5", row: "#f5fbfa" },
   "제2외국어/한문": { short: "제2외·한문", label: "제2외국어/한문", color: "#a35f26", background: "#fff1e4", row: "#fff9f3" },
   기타: { short: "기타", label: "기타", color: "#716b5f", background: "#f1f0ec", row: "#fbfaf7" },
 };
@@ -167,11 +168,35 @@ export async function loadGradesDB() {
   return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts };
 }
 
-export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedInStudent, roster, accounts, showToast, onLogout, gdb }) {
+export default function GradesSection({
+  loggedInAdmin,
+  loggedInTeacher,
+  loggedInStudent,
+  roster,
+  accounts,
+  showToast,
+  onLogout,
+  gdb,
+  currentGrade = "2",
+  teacherGradeAccess = [],
+  selectedStudentSid,
+  onSelectedStudentSidChange,
+  selectedStudentQuery,
+  onSelectedStudentQueryChange,
+}) {
   const [tab, setTab] = useState(loggedInStudent ? "grades" : "lookup");
-  // 관리자 조회 탭을 오가더라도 같은 학생을 계속 보도록 검색 상태를 상위에서 공유합니다.
-  const [lookupSid, setLookupSid] = useState(null);
-  const [lookupQuery, setLookupQuery] = useState("");
+  const [localLookupSid, setLocalLookupSid] = useState(null);
+  const [localLookupQuery, setLocalLookupQuery] = useState("");
+  const controlledLookup = selectedStudentSid !== undefined;
+  const lookupSid = controlledLookup ? selectedStudentSid : localLookupSid;
+  const lookupQuery = selectedStudentQuery !== undefined ? selectedStudentQuery : localLookupQuery;
+  const setLookupSid = value => controlledLookup ? onSelectedStudentSidChange?.(value) : setLocalLookupSid(value);
+  const setLookupQuery = value => selectedStudentQuery !== undefined ? onSelectedStudentQueryChange?.(value) : setLocalLookupQuery(value);
+  const teacherHasGradeAccess = !loggedInTeacher || (teacherGradeAccess || []).map(String).includes(String(currentGrade));
+
+  useEffect(() => {
+    if (loggedInTeacher && !teacherHasGradeAccess && tab !== "class") setTab("lookup");
+  }, [loggedInTeacher, teacherHasGradeAccess, tab]);
 
   if (!gdb) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
 
@@ -195,25 +220,30 @@ export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedIn
         <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
           {loggedInStudent && <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="성적 조회" />}
           {loggedInStudent && <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학별 입시전형 확인" />}
-          {(loggedInTeacher) && <TabBtn active={tab === "class"} onClick={() => setTab("class")} label="우리 반 학생 조회" />}
-          {(loggedInAdmin || loggedInTeacher) && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label="학생 성적 조회" />}
+          {loggedInTeacher && teacherHasGradeAccess && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label={`${currentGrade}학년 학생 성적 조회`} />}
+          {loggedInTeacher && loggedInTeacher.homeroomClass && teacherHasGradeAccess && <TabBtn active={tab === "class"} onClick={() => setTab("class")} label="담임반 학생 계정" />}
+          {loggedInAdmin && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label="학생 성적 조회" />}
           {loggedInAdmin && <TabBtn active={tab === "lookupAdmission"} onClick={() => setTab("lookupAdmission")} label="학생별 입시전형 확인" />}
         </div>
 
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
         {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} />}
-        {tab === "lookup" && (loggedInAdmin || loggedInTeacher) && (
+
+        {loggedInTeacher && !teacherHasGradeAccess && (
+          <EmptyBox text={`${currentGrade}학년 학생 성적 조회 권한이 없습니다. 관리자에게 역할 또는 성적 조회 권한을 요청해주세요.`} />
+        )}
+
+        {tab === "lookup" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <StudentLookup
             roster={roster}
             gdb={gdb}
-            homeroomClass={loggedInTeacher ? loggedInTeacher.homeroomClass : null}
-            isAdmin={!!loggedInAdmin}
+            isAdmin
             initialView="grades"
             selectedSid={loggedInAdmin ? lookupSid : undefined}
             onSelectedSidChange={loggedInAdmin ? setLookupSid : undefined}
             sharedQuery={loggedInAdmin ? lookupQuery : undefined}
             onSharedQueryChange={loggedInAdmin ? setLookupQuery : undefined}
-            showViewTabs={!loggedInAdmin}
+            showViewTabs={false}
           />
         )}
         {tab === "lookupAdmission" && loggedInAdmin && (
@@ -229,7 +259,7 @@ export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedIn
             showViewTabs={false}
           />
         )}
-        {tab === "class" && loggedInTeacher && (
+        {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
         )}
       </div>
@@ -724,6 +754,43 @@ function percentPart(label, value) {
   return `${label} ${raw.includes("%") ? raw : `${raw}%`}`;
 }
 
+
+const ADMISSION_SUBJECT_LABELS = {
+  국어: "국어",
+  수학: "수학",
+  영어: "영어",
+  통합사회: "사회",
+  통합과학: "과학",
+  한국사: "한국사",
+};
+
+function admissionSubjectGroupLabel(group) {
+  const labels = (group?.subjects || []).map(subject => ADMISSION_SUBJECT_LABELS[subject] || subject);
+  if (!labels.length) return "";
+  if (group.type === "choice") return `${labels.join("·")} 중 우수 1개`;
+  return labels[0];
+}
+
+function AdmissionSubjectRule({ value }) {
+  const groups = parseAdmissionSubjectGroups(value);
+  if (!groups.length) return null;
+  return (
+    <div style={subjectRule.box} title={String(value || "")}>
+      <span style={subjectRule.label}>반영</span>
+      <div style={subjectRule.chips}>
+        {groups.map((group, index) => (
+          <span key={`${group.type}-${group.subjects.join("-")}-${index}`} style={{
+            ...subjectRule.chip,
+            ...(group.type === "choice" ? subjectRule.choiceChip : {}),
+          }}>
+            {admissionSubjectGroupLabel(group)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts } = gdb;
   const semesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
@@ -747,6 +814,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
+  const [requirementFilter, setRequirementFilter] = useState("all");
 
   const docsByUniversity = useMemo(() => {
     const map = new Map();
@@ -761,7 +829,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   }, [admissionDocs]);
 
   const evaluatedRows = useMemo(() => (admissionRows || []).map((row, index) => {
-    const evaluation = evaluateAdmissionRequirement(row, latestSums);
+    const evaluation = evaluateAdmissionRequirement(row, latestSums, latestMockGrades);
     return {
       ...row,
       _index: index,
@@ -769,20 +837,22 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       docs: docsByUniversity.get(universityKey(row.university)) || [],
       region: String(row.region || (docsByUniversity.get(universityKey(row.university)) || [])[0]?.region || "미지정"),
     };
-  }), [admissionRows, latestSums, docsByUniversity]);
+  }), [admissionRows, latestSums, latestMockGrades, docsByUniversity]);
 
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return evaluatedRows.filter(row => {
-      const haystack = [row.university, row.department, row.track, row.reflection, row.note].join(" ").toLowerCase();
+      const haystack = [row.university, row.department, row.track, row.reflection, row.note, row.requiredSubjects].join(" ").toLowerCase();
       if (q && !haystack.includes(q)) return false;
       if (regionFilter !== "all" && String(row.region || "미지정") !== regionFilter) return false;
+      if (requirementFilter === "none" && row.evaluation.status !== "no-minimum") return false;
+      if (!["all", "none"].includes(requirementFilter) && Number(row.evaluation.count) !== Number(requirementFilter)) return false;
       if (statusFilter === "satisfied") return row.evaluation.status === "satisfied" || row.evaluation.status === "no-minimum";
       if (statusFilter === "unsatisfied") return row.evaluation.status === "unsatisfied";
       if (statusFilter === "review") return ["manual", "unavailable"].includes(row.evaluation.status);
       return true;
     });
-  }, [evaluatedRows, query, statusFilter, regionFilter]);
+  }, [evaluatedRows, query, statusFilter, regionFilter, requirementFilter]);
 
   const regionOptions = useMemo(() => Array.from(new Set([
     ...evaluatedRows.map(row => row.region || "미지정"),
@@ -793,6 +863,15 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
     satisfied: evaluatedRows.filter(row => ["satisfied", "no-minimum"].includes(row.evaluation.status)).length,
     unsatisfied: evaluatedRows.filter(row => row.evaluation.status === "unsatisfied").length,
     review: evaluatedRows.filter(row => ["manual", "unavailable"].includes(row.evaluation.status)).length,
+  }), [evaluatedRows]);
+
+  const requirementCounts = useMemo(() => ({
+    all: evaluatedRows.length,
+    1: evaluatedRows.filter(row => Number(row.evaluation.count) === 1).length,
+    2: evaluatedRows.filter(row => Number(row.evaluation.count) === 2).length,
+    3: evaluatedRows.filter(row => Number(row.evaluation.count) === 3).length,
+    4: evaluatedRows.filter(row => Number(row.evaluation.count) === 4).length,
+    none: evaluatedRows.filter(row => row.evaluation.status === "no-minimum").length,
   }), [evaluatedRows]);
 
   const docsWithoutRows = useMemo(() => (admissionDocs || []).filter(docItem => (
@@ -830,25 +909,46 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       <div style={card}>
         <SectionHeading
           title="대학별 전형 판정"
-          description="모집단위나 전형별 기준이 다를 수 있으므로 최종 지원 전에는 반드시 모집요강 PDF의 세부 조건을 확인하세요."
+          description="최저 유형별로 대학을 나누어 볼 수 있습니다. (사·과)처럼 괄호로 묶인 과목은 두 과목 중 더 높은 등급(숫자가 작은 등급) 1개만 반영합니다."
         />
         <div style={admissionToolbar.box}>
-          <div style={{ ...searchBox.box, maxWidth: "none", flex: 1, minWidth: 230 }}>
-            <Search size={16} color="#a39d8c" />
-            <input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학·학과·전형 검색" style={searchBox.input} />
+          <div style={admissionToolbar.mainRow}>
+            <div style={{ ...searchBox.box, maxWidth: "none", flex: 1, minWidth: 210 }}>
+              <Search size={16} color="#a39d8c" />
+              <input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학·학과·전형 검색" style={searchBox.input} />
+            </div>
+            <select value={regionFilter} onChange={event => setRegionFilter(event.target.value)} style={{ ...selectStyle, minWidth: 105 }} aria-label="지역 선택">
+              <option value="all">전체 지역</option>
+              {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
+            </select>
+            <div style={admissionToolbar.filterGroup}>
+              {[
+                ["all", "전체"],
+                ["satisfied", "충족"],
+                ["unsatisfied", "미충족"],
+                ["review", "별도 확인"],
+              ].map(([key, label]) => (
+                <button key={key} onClick={() => setStatusFilter(key)} style={{ ...btn.chip, ...(statusFilter === key ? btn.chipActive : {}) }}>{label}</button>
+              ))}
+            </div>
           </div>
-          <select value={regionFilter} onChange={event => setRegionFilter(event.target.value)} style={{ ...selectStyle, minWidth: 120 }} aria-label="지역 선택">
-            <option value="all">전체 지역</option>
-            {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
-          </select>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={admissionToolbar.requirementRow}>
+            <span style={admissionToolbar.requirementLabel}>최저 유형</span>
             {[
               ["all", "전체"],
-              ["satisfied", "충족"],
-              ["unsatisfied", "미충족"],
-              ["review", "별도 확인"],
+              ["1", "1합"],
+              ["2", "2합"],
+              ["3", "3합"],
+              ["4", "4합"],
+              ["none", "최저 없음"],
             ].map(([key, label]) => (
-              <button key={key} onClick={() => setStatusFilter(key)} style={{ ...btn.chip, ...(statusFilter === key ? btn.chipActive : {}) }}>{label}</button>
+              <button
+                key={key}
+                onClick={() => setRequirementFilter(key)}
+                style={{ ...requirementFilterButton.base, ...(requirementFilter === key ? requirementFilterButton.active : {}) }}
+              >
+                {label}<span style={requirementFilterButton.count}>{requirementCounts[key] || 0}</span>
+              </button>
             ))}
           </div>
         </div>
@@ -861,15 +961,15 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           <div style={{ ...table.scroll, overflowX: "visible" }}>
             <table style={admissionTable.base}>
               <colgroup>
-                <col style={{ width: "12%" }} />
-                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "11.5%" }} />
+                <col style={{ width: "6%" }} />
+                <col style={{ width: "8%" }} />
                 <col style={{ width: "10%" }} />
-                <col style={{ width: "17%" }} />
-                <col style={{ width: "20%" }} />
-                <col style={{ width: "10%" }} />
+                <col style={{ width: "20.5%" }} />
+                <col style={{ width: "18%" }} />
                 <col style={{ width: "7%" }} />
+                <col style={{ width: "10%" }} />
                 <col style={{ width: "9%" }} />
-                <col style={{ width: "8.5%" }} />
               </colgroup>
               <thead>
                 <tr>
@@ -912,7 +1012,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                         ) : hasMinimum ? (
                           <div>
                             <span style={minimumBadge}>{result.count}합 {result.threshold}</span>
-                            {row.requiredSubjects && <div style={admissionTable.minimumDetail}>{row.requiredSubjects}</div>}
+                            <AdmissionSubjectRule value={row.requiredSubjects} />
                           </div>
                         ) : (
                           <span style={admissionTable.empty}>요강 확인</span>
@@ -1058,7 +1158,6 @@ function GradeAverageRow({ name, group, displaySemesterKeys, gradeScale, categor
   const averageField = gradeScale === 9 ? "avg9" : "avg5";
   const average = group?.[averageField] ?? null;
   const categoryStyle = categoryRow ? (CATEGORY_META[name] || CATEGORY_META.기타) : null;
-  const combinationStyle = !categoryRow ? (COMBINATION_META[name] || COMBINATION_META.전과목) : null;
   const isBest = average != null && bestAverage != null && average === bestAverage;
 
   return (
@@ -1068,14 +1167,11 @@ function GradeAverageRow({ name, group, displaySemesterKeys, gradeScale, categor
         textAlign: "center",
         whiteSpace: "normal",
         ...(categoryStyle ? { background: categoryStyle.background, color: categoryStyle.color, borderLeft: `5px solid ${categoryStyle.color}` } : {}),
-        ...(combinationStyle ? { background: combinationStyle.background, color: combinationStyle.color } : {}),
       }}>
         {categoryStyle ? (
           <CategoryBadge category={name} showLabel />
         ) : (
-          <span style={{ ...combinationBadge, color: combinationStyle.color, borderColor: `${combinationStyle.color}44`, background: "rgba(255,255,255,0.65)" }}>
-            {name}
-          </span>
+          <span style={combinationLabel}>{name}</span>
         )}
       </td>
       {displaySemesterKeys.map(key => {
@@ -1317,6 +1413,11 @@ function StudentLookup({
     setView(initialView);
   }, [initialView]);
 
+  useEffect(() => {
+    const exactId = query.trim();
+    if (!sid && exactId && roster?.[exactId]) updateSid(exactId);
+  }, [query, sid, roster]); // eslint-disable-line
+
   const candidates = useMemo(() => {
     let entries = Object.entries(roster || {});
     if (!isAdmin && homeroomClass) entries = entries.filter(([, student]) => String(student.class) === String(homeroomClass));
@@ -1511,6 +1612,106 @@ function classifySheetName(name) {
 function normalizeHeader(v) {
   return String(v ?? "").replace(/\s+/g, "").trim();
 }
+function normalizeAdmissionLookupKey(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/20\d{2}학년도?/g, "")
+    .replace(/학생부교과/g, "교과")
+    .replace(/전형$/g, "")
+    .replace(/[\s·ㆍ_\-–—()[\]{}]/g, "")
+    .trim();
+}
+
+function parseReflectionLookup(rows) {
+  if (!Array.isArray(rows)) return new Map();
+  const ratioHeaders = [
+    "반영비율", "교과반영비율", "학생부교과반영비율", "교과반영방법",
+    "교과성적반영방법", "전형요소반영비율", "학생부반영비율", "학생부반영방법",
+  ];
+  const trackHeaders = ["전형", "전형명", "전형유형", "전형구분"];
+  const headerRowIdx = rows.findIndex(row => {
+    const headers = (row || []).map(normalizeHeader);
+    return headers.some(header => trackHeaders.includes(header))
+      && headers.some(header => ratioHeaders.includes(header) || (header.includes("반영비율") && !header.includes("수능")));
+  });
+  if (headerRowIdx < 0) return new Map();
+
+  const header = rows[headerRowIdx] || [];
+  const trackIndex = header.findIndex(value => trackHeaders.includes(normalizeHeader(value)));
+  let ratioIndex = header.findIndex(value => ratioHeaders.includes(normalizeHeader(value)));
+  if (ratioIndex < 0) {
+    ratioIndex = header.findIndex(value => {
+      const key = normalizeHeader(value);
+      return key.includes("반영비율") && !key.includes("수능") && !key.includes("최저");
+    });
+  }
+  if (trackIndex < 0 || ratioIndex < 0) return new Map();
+
+  const map = new Map();
+  const ordered = [];
+  for (let i = headerRowIdx + 1; i < rows.length; i++) {
+    const row = rows[i] || [];
+    const track = String(row[trackIndex] ?? "").trim();
+    const ratio = normalizeReflectionText(row[ratioIndex]);
+    const key = normalizeAdmissionLookupKey(track);
+    if (!key || !ratio) continue;
+    map.set(key, ratio);
+    ordered.push({ key, track, ratio });
+  }
+  map.ordered = ordered;
+  return map;
+}
+
+function findReflectionInLookup(row, lookup) {
+  if (!(lookup instanceof Map) || lookup.size === 0) return "";
+  const candidates = [row?.track, row?.department, row?.note]
+    .map(value => normalizeAdmissionLookupKey(value))
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    if (lookup.has(candidate)) return lookup.get(candidate);
+  }
+  const entries = Array.from(lookup.entries()).sort((a, b) => b[0].length - a[0].length);
+  for (const candidate of candidates) {
+    for (const [key, ratio] of entries) {
+      if (key.length >= 3 && (candidate.includes(key) || key.includes(candidate))) return ratio;
+    }
+  }
+  return "";
+}
+
+function parseAdmissionWorkbook(workbook, XLSX) {
+  const sheetRows = (workbook?.SheetNames || []).map(name => ({
+    name,
+    rows: XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null }),
+  }));
+  const parsedCandidates = sheetRows
+    .map(item => ({ ...item, parsed: parseAdmissionRows(item.rows) }))
+    .filter(item => item.parsed && item.parsed.length);
+  if (!parsedCandidates.length) return null;
+
+  // 전형표 본문은 가장 많은 대학 전형 행을 가진 시트를 기준으로 사용합니다.
+  const base = parsedCandidates.sort((a, b) => b.parsed.length - a.parsed.length)[0].parsed;
+  const lookup = new Map();
+  let orderedLookup = [];
+  sheetRows.forEach(item => {
+    const sheetLookup = parseReflectionLookup(item.rows);
+    sheetLookup.forEach((ratio, key) => lookup.set(key, ratio));
+    if ((sheetLookup.ordered || []).length > orderedLookup.length) orderedLookup = sheetLookup.ordered || [];
+  });
+
+  return base.map((row, index) => {
+    if (admissionReflectionText(row)) return row;
+    const mapped = findReflectionInLookup(row, lookup);
+    if (mapped) return { ...row, reflection: mapped };
+    // 전형표 본문과 전형-반영비율 표의 행 수가 정확히 같으면 행 순서도 보조 기준으로 사용합니다.
+    if (orderedLookup.length === base.length && orderedLookup[index]?.ratio) {
+      return { ...row, reflection: orderedLookup[index].ratio };
+    }
+    return row;
+  });
+}
+
 function parseAdmissionRows(rows) {
   const headerRowIdx = rows.findIndex(row => row && row.some(cell => ["대학교", "대학명"].includes(normalizeHeader(cell))));
   if (headerRowIdx === -1) return null;
@@ -1620,13 +1821,16 @@ function BulkUpload({ gdb, persistGrades, showToast }) {
             found.push(`${MOCK_MONTH_LABELS[cls.key] || cls.key} 모의고사 — ${count}명`);
           } else skipped.push(`${name} (학생 데이터 인식 실패)`);
         } else if (cls.type === "admission") {
-          const admissionRows = parseAdmissionRows(rows);
-          if (admissionRows && admissionRows.length) {
-            newAdmissionRows = admissionRows;
-            found.push(`대입 전형표 — ${admissionRows.length}건`);
-          } else skipped.push(`${name} (열 이름 인식 실패)`);
+          // 전형표와 별도의 "전형-반영비율" 시트를 함께 읽기 위해
+          // 실제 대입 데이터 처리는 아래에서 통합 실행합니다.
         }
       });
+
+      const workbookAdmissionRows = parseAdmissionWorkbook(wb, XLSX);
+      if (workbookAdmissionRows && workbookAdmissionRows.length) {
+        newAdmissionRows = workbookAdmissionRows;
+        found.push(`대입 전형표 — ${workbookAdmissionRows.length}건 (반영비율 ${workbookAdmissionRows.filter(row => admissionReflectionText(row)).length}건)`);
+      }
 
       if (!found.length) {
         showToast("이 파일에서 인식 가능한 시트를 찾지 못했습니다. 시트 이름이 원본과 같은지 확인해주세요.", "error");
@@ -1872,11 +2076,11 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
-      const admissionRows = parseAdmissionRows(rows);
+      const admissionRows = parseAdmissionWorkbook(wb, XLSX);
       if (!admissionRows) { showToast('열 이름을 확인해주세요: "대학교/대학명", "수능최저 반영 과목수/반영 교과수", "수능최저 합/최저합 기준"', "error"); setBusy(false); return; }
       setPreview(admissionRows);
-      showToast(`${admissionRows.length}건을 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
+      const reflectionCount = admissionRows.filter(row => admissionReflectionText(row)).length;
+      showToast(`${admissionRows.length}건을 인식했습니다. (반영비율 ${reflectionCount}건)`, reflectionCount ? "success" : "info");
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
     }
@@ -1900,13 +2104,19 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
       <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>대입 전형표 업로드</div>
-        <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center" }}>"2028 대입 전형" 시트를 그대로 올려주세요. 열 이름은 "대학교/대학명", "수능최저 반영 과목수/반영 교과수", "수능최저 합/최저합 기준" 중 하나를 사용할 수 있습니다.</div>
+        <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center", maxWidth: 560, lineHeight: 1.55 }}>
+          원본 엑셀 파일을 그대로 올려주세요. 대학 전형표 시트뿐 아니라 별도의 "전형 / 반영비율" 시트도 함께 검색하여 전형명에 맞는 반영비율을 자동 결합합니다.
+        </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
         <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 파일 선택</button>
       </div>
       {preview && (
         <div style={card}>
-          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>{preview.length}건 인식됨 (아직 저장되지 않았습니다)</div>
+          <div style={{ fontWeight: 700, marginBottom: 6, color: "#3d5c3a" }}>{preview.length}건 인식됨 (아직 저장되지 않았습니다)</div>
+          <div style={{ fontSize: 12, color: preview.some(row => admissionReflectionText(row)) ? "#3d5c3a" : "#a3402b", marginBottom: 10 }}>
+            교과 반영비율 인식: {preview.filter(row => admissionReflectionText(row)).length}건
+            {!preview.some(row => admissionReflectionText(row)) && " · 전형/반영비율 시트의 열 이름과 전형명을 확인해주세요."}
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 반영하기</button>
             <button style={btn.secondary} onClick={() => setPreview(null)}>취소</button>
@@ -2387,18 +2597,15 @@ const categoryBadgeBase = {
   fontWeight: 900,
   lineHeight: 1.1,
 };
-const combinationBadge = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
+const combinationLabel = {
+  display: "inline-block",
   minWidth: 74,
-  minHeight: 26,
-  padding: "4px 9px",
-  borderRadius: 999,
-  border: "1px solid transparent",
+  padding: "2px 4px",
+  color: "#3d3932",
   fontSize: 11.2,
   fontWeight: 900,
-  lineHeight: 1.1,
+  lineHeight: 1.25,
+  textAlign: "center",
 };
 const categoryGuide = {
   box: { display: "flex", gap: "7px 13px", flexWrap: "wrap", margin: "0 0 12px", padding: "9px 11px", background: "#faf9f5", border: "1px solid #ebe7dc", borderRadius: 10 },
@@ -2444,7 +2651,16 @@ const admissionSummary = {
   neutral: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
 };
 const admissionToolbar = {
-  box: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 13 },
+  box: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 13 },
+  mainRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  filterGroup: { display: "flex", gap: 5, flexWrap: "wrap" },
+  requirementRow: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "7px 9px", background: "#f8f7f3", border: "1px solid #e5e0d4", borderRadius: 10 },
+  requirementLabel: { fontSize: 10, fontWeight: 900, color: "#6f685d", marginRight: 2 },
+};
+const requirementFilterButton = {
+  base: { display: "inline-flex", alignItems: "center", gap: 5, border: "1px solid #d9d4c8", background: "#fff", color: "#514b42", borderRadius: 999, padding: "4px 8px", fontSize: 10, fontWeight: 850, cursor: "pointer" },
+  active: { background: "#2f4b32", color: "#fff", borderColor: "#2f4b32" },
+  count: { display: "inline-flex", minWidth: 17, height: 17, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "rgba(128,128,128,0.14)", fontSize: 8.8, fontWeight: 900 },
 };
 const admissionStatus = {
   base: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 62, padding: "5px 10px", borderRadius: 999, fontSize: 10.8, fontWeight: 900, margin: "1px 0" },
@@ -2459,15 +2675,15 @@ const admissionTable = {
     width: "100%",
     borderCollapse: "collapse",
     tableLayout: "fixed",
-    fontSize: 10.2,
+    fontSize: 9.7,
   },
   th: {
     border: "1px solid #e6e1d3",
-    padding: "6px 4px",
+    padding: "5px 3px",
     background: "#f6f4ee",
     color: "#332e27",
     fontWeight: 900,
-    fontSize: 9.8,
+    fontSize: 9.3,
     lineHeight: 1.25,
     textAlign: "center",
     whiteSpace: "normal",
@@ -2475,7 +2691,7 @@ const admissionTable = {
   },
   td: {
     border: "1px solid #e6e1d3",
-    padding: "6px 5px",
+    padding: "5px 4px",
     textAlign: "center",
     verticalAlign: "middle",
     whiteSpace: "normal",
@@ -2513,6 +2729,14 @@ const reflectionBadge = {
   whiteSpace: "normal",
   wordBreak: "keep-all",
 };
+const subjectRule = {
+  box: { marginTop: 5, display: "flex", alignItems: "flex-start", justifyContent: "center", gap: 4, flexWrap: "wrap" },
+  label: { color: "#8d8577", fontSize: 8.3, fontWeight: 900, lineHeight: "18px" },
+  chips: { display: "flex", justifyContent: "center", gap: 3, flexWrap: "wrap", maxWidth: "100%" },
+  chip: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 18, padding: "2px 5px", borderRadius: 6, background: "#f4f6f8", border: "1px solid #dce1e5", color: "#43505a", fontSize: 8.5, fontWeight: 850, lineHeight: 1.2, whiteSpace: "normal", wordBreak: "keep-all" },
+  choiceChip: { background: "#eef6f7", borderColor: "#cfe1e3", color: "#2e6267" },
+};
+
 const minimumBadge = {
   display: "inline-flex",
   alignItems: "center",
