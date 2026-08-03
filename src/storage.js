@@ -75,14 +75,14 @@ export async function uploadAdmissionPdf(file, university) {
 }
 
 
-// 선생님 ZONE의 수업자료 첨부파일을 Firebase Storage에 저장합니다.
+// 선생님 ZONE 공지 게시글의 첨부파일을 Firebase Storage에 저장합니다.
 // Firestore에는 게시글과 파일 메타데이터만 저장하여 문서 용량을 작게 유지합니다.
 export async function uploadClassroomAttachment(file, meta = {}) {
   if (!file) throw new Error("첨부파일을 선택해주세요.");
   if (file.size > 30 * 1024 * 1024) throw new Error("첨부파일은 개별 30MB 이하만 업로드할 수 있습니다.");
 
   const scopePart = safeFilePart(meta.scopeKey || "학기");
-  const subjectPart = safeFilePart(meta.subject || "수업자료");
+  const subjectPart = safeFilePart(meta.subject || "공지자료");
   const targetPart = safeFilePart(meta.target || "전체");
   const filePart = safeFilePart(file.name || "첨부파일");
   const path = `classroom-materials/${scopePart}/${subjectPart}/${targetPart}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${filePart}`;

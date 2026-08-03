@@ -1443,8 +1443,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                 <col style={{ width: "7.5%" }} />
                 <col style={{ width: "6.5%" }} />
                 <col style={{ width: "21.5%" }} />
-                <col style={{ width: "6.5%" }} />
-                <col style={{ width: "9%" }} />
+                <col style={{ width: "8.5%" }} />
+                <col style={{ width: "7%" }} />
                 <col style={{ width: "5.5%" }} />
                 <col style={{ width: "7%" }} />
                 <col style={{ width: "8%" }} />
@@ -1457,8 +1457,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   <th style={admissionTable.th}>모집단위<br />전형</th>
                   <th style={admissionTable.th}>교과 반영비율<br />반영방법</th>
                   <th style={admissionTable.th}>전형 특이사항</th>
+                  <th style={admissionTable.th}>반영과목</th>
                   <th style={admissionTable.th}>수능 최저</th>
-                  <th style={admissionTable.th}>（반영과목）</th>
                   <th style={admissionTable.th}>내 등급</th>
                   <th style={admissionTable.th}>판정</th>
                   <th style={admissionTable.th}>모집요강</th>
@@ -1491,6 +1491,11 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                       <td style={{ ...admissionTable.td, ...admissionTable.text, ...admissionTable.noteCell }}>
                         {specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}
                       </td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.subjectCell }}>
+                        {result.status === "no-minimum" || !subjectRuleText
+                          ? <span style={admissionTable.empty}>-</span>
+                          : <AdmissionSubjectRule value={row.requiredSubjects} />}
+                      </td>
                       <td style={admissionTable.td}>
                         {result.status === "no-minimum" ? (
                           <span style={noMinimumBadge}>최저 없음</span>
@@ -1499,11 +1504,6 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                         ) : (
                           <span style={admissionTable.empty}>요강 확인</span>
                         )}
-                      </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.subjectCell }}>
-                        {result.status === "no-minimum" || !subjectRuleText
-                          ? <span style={admissionTable.empty}>-</span>
-                          : <AdmissionSubjectRule value={row.requiredSubjects} />}
                       </td>
                       <td style={admissionTable.td}>
                         {!admissionStudentResultText(result)
@@ -2083,9 +2083,18 @@ function ClassStudentAccounts({ homeroomClass, accounts, roster }) {
 /* ============================================================
    관리자: 학생 계정 관리 (엑셀 일괄 발급)
    ============================================================ */
-export function AdminStudentAccounts({ accounts, persistAccounts, showToast, roster }) {
+export function AdminStudentAccounts({ accounts, persistAccounts, showToast, roster, db, persist, scopeKey }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
+
+  const positiveInt = value => {
+    const number = Number(value);
+    return Number.isInteger(number) && number > 0 ? number : null;
+  };
+  const inferredPlacement = sid => ({
+    class: positiveInt(String(sid || "").slice(1, 3)),
+    number: positiveInt(String(sid || "").slice(3, 5)),
+  });
 
   const handleExcel = async (file) => {
     setBusy(true);
@@ -2098,7 +2107,7 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
       const idx = {}; rows[hi].forEach((h, i) => { if (h) idx[String(h).trim()] = i; });
       const pwCol = idx["초기비밀번호"] != null ? idx["초기비밀번호"] : idx["비밀번호"];
       if (idx["학번"] == null || idx["이름"] == null || pwCol == null) { showToast("학번/이름/초기비밀번호 열을 찾지 못했습니다.", "error"); setBusy(false); return; }
-      const existing = new Map((accounts.students || []).map(s => [s.id, s]));
+      const existing = new Map((accounts.students || []).map(student => [student.id, student]));
       let added = 0, updated = 0;
       for (let i = hi + 1; i < rows.length; i++) {
         const row = rows[i]; if (!row) continue;
@@ -2106,8 +2115,17 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
         const sid = String(sidRaw).trim();
         const name = row[idx["이름"]]; if (!name) continue;
         const pw = String(row[pwCol] ?? "").trim() || "kd2026";
-        const rosterInfo = roster[sid];
-        const rec = { id: sid, pw, name: String(name).trim(), class: rosterInfo ? rosterInfo.class : Number(sid.slice(1, 3)), number: rosterInfo ? rosterInfo.number : Number(sid.slice(3, 5)) };
+        const rosterInfo = roster?.[sid] || {};
+        const previous = existing.get(sid) || {};
+        const inferred = inferredPlacement(sid);
+        const rec = {
+          ...previous,
+          id: sid,
+          pw,
+          name: String(name).trim(),
+          class: positiveInt(rosterInfo.class) ?? positiveInt(previous.class) ?? inferred.class,
+          number: positiveInt(rosterInfo.number) ?? positiveInt(previous.number) ?? inferred.number,
+        };
         if (existing.has(sid)) updated++; else added++;
         existing.set(sid, rec);
       }
@@ -2120,12 +2138,58 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
   };
 
   const resetPw = async (sid) => {
-    const updated = (accounts.students || []).map(s => s.id === sid ? { ...s, pw: "kd2026" } : s);
+    const updated = (accounts.students || []).map(student => student.id === sid ? { ...student, pw: "kd2026" } : student);
     const ok = await persistAccounts({ ...accounts, students: updated });
     if (ok) showToast('비밀번호가 "kd2026"으로 초기화되었습니다.', "success");
   };
 
-  const students = (accounts.students || []).slice().sort((a, b) => (a.class - b.class) || (a.number - b.number));
+  const savePlacement = async (student, classValue, numberValue) => {
+    const classNumber = positiveInt(classValue);
+    const studentNumber = positiveInt(numberValue);
+    if (!classNumber || !studentNumber) {
+      showToast("반과 번호를 1 이상의 숫자로 입력해주세요.", "error");
+      return false;
+    }
+    if (!db || !persist || !scopeKey) {
+      showToast("현재 학기 명단 저장 기능을 불러오지 못했습니다.", "error");
+      return false;
+    }
+    const scopeRoster = db.roster?.[scopeKey] || {};
+    const previousRoster = scopeRoster[student.id] || {};
+    const nextRoster = {
+      ...db.roster,
+      [scopeKey]: {
+        ...scopeRoster,
+        [student.id]: {
+          ...previousRoster,
+          name: previousRoster.name || student.name,
+          class: classNumber,
+          number: studentNumber,
+        },
+      },
+    };
+    const rosterOk = await persist({ roster: nextRoster });
+    if (!rosterOk) return false;
+
+    const nextStudents = (accounts.students || []).map(item => item.id === student.id
+      ? { ...item, class: classNumber, number: studentNumber }
+      : item);
+    const accountOk = await persistAccounts({ ...accounts, students: nextStudents });
+    if (!accountOk) {
+      showToast("명단은 저장됐지만 학생 계정 정보 저장에 실패했습니다. 다시 저장해주세요.", "error");
+      return false;
+    }
+    showToast(`${student.id} ${student.name} 학생을 ${classNumber}반 ${studentNumber}번으로 저장했습니다.`, "success");
+    return true;
+  };
+
+  const students = (accounts.students || []).slice().sort((a, b) => {
+    const aClass = positiveInt(roster?.[a.id]?.class) ?? positiveInt(a.class) ?? 999;
+    const bClass = positiveInt(roster?.[b.id]?.class) ?? positiveInt(b.class) ?? 999;
+    const aNumber = positiveInt(roster?.[a.id]?.number) ?? positiveInt(a.number) ?? 999;
+    const bNumber = positiveInt(roster?.[b.id]?.number) ?? positiveInt(b.number) ?? 999;
+    return (aClass - bClass) || (aNumber - bNumber) || String(a.id).localeCompare(String(b.id));
+  });
 
   return (
     <div>
@@ -2137,17 +2201,23 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
         <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 엑셀 업로드</button>
       </div>
       <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>등록된 학생 계정 ({students.length}명)</div>
+        <div style={{ fontWeight: 700, marginBottom: 5 }}>등록된 학생 계정 ({students.length}명)</div>
+        <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 10 }}>
+          반·번호가 비어 있거나 잘못 들어온 학생은 아래에서 직접 수정할 수 있습니다. 현재 선택한 학년·학기의 명단과 학생 계정에 함께 반영됩니다.
+        </div>
         {!students.length ? <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 계정이 없습니다.</div> : (
-          <div style={{ maxHeight: 420, overflowY: "auto" }}>
+          <div style={{ maxHeight: 520, overflowY: "auto" }}>
             <table style={table.base}>
-              <thead><tr><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>번호</th><th style={table.th}></th></tr></thead>
+              <thead><tr><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={{ ...table.th, width: 82 }}>반</th><th style={{ ...table.th, width: 82 }}>번호</th><th style={{ ...table.th, width: 190 }}>관리</th></tr></thead>
               <tbody>
-                {students.map(s => (
-                  <tr key={s.id}>
-                    <td style={table.td}>{s.id}</td><td style={table.td}>{s.name}</td><td style={table.td}>{s.class}</td><td style={table.td}>{s.number}</td>
-                    <td style={table.td}><button style={btn.link} onClick={() => resetPw(s.id)}>비밀번호 초기화</button></td>
-                  </tr>
+                {students.map(student => (
+                  <StudentPlacementRow
+                    key={student.id}
+                    student={student}
+                    rosterInfo={roster?.[student.id]}
+                    onSave={savePlacement}
+                    onResetPw={resetPw}
+                  />
                 ))}
               </tbody>
             </table>
@@ -2155,6 +2225,50 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
         )}
       </div>
     </div>
+  );
+}
+
+function StudentPlacementRow({ student, rosterInfo, onSave, onResetPw }) {
+  const cleanPlacementValue = value => {
+    const number = Number(value);
+    return Number.isInteger(number) && number > 0 ? String(number) : "";
+  };
+  const sourceClass = cleanPlacementValue(rosterInfo?.class ?? student.class) || cleanPlacementValue(String(student.id || "").slice(1, 3));
+  const sourceNumber = cleanPlacementValue(rosterInfo?.number ?? student.number) || cleanPlacementValue(String(student.id || "").slice(3, 5));
+  const [classValue, setClassValue] = useState(sourceClass);
+  const [numberValue, setNumberValue] = useState(sourceNumber);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setClassValue(cleanPlacementValue(rosterInfo?.class ?? student.class) || cleanPlacementValue(String(student.id || "").slice(1, 3)));
+    setNumberValue(cleanPlacementValue(rosterInfo?.number ?? student.number) || cleanPlacementValue(String(student.id || "").slice(3, 5)));
+  }, [student.class, student.number, rosterInfo?.class, rosterInfo?.number]);
+
+  const save = async () => {
+    setSaving(true);
+    await onSave(student, classValue, numberValue);
+    setSaving(false);
+  };
+
+  const invalid = !Number.isInteger(Number(classValue)) || Number(classValue) <= 0 || !Number.isInteger(Number(numberValue)) || Number(numberValue) <= 0;
+
+  return (
+    <tr style={invalid ? { background: "#fff8ec" } : undefined}>
+      <td style={table.td}>{student.id}</td>
+      <td style={table.td}>{student.name}</td>
+      <td style={table.td}>
+        <input value={classValue} onChange={event => setClassValue(event.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" aria-label={`${student.name} 반`} style={{ ...pdfAdmin.input, width: 56, textAlign: "center", padding: "6px 5px" }} placeholder="반" />
+      </td>
+      <td style={table.td}>
+        <input value={numberValue} onChange={event => setNumberValue(event.target.value.replace(/[^\d]/g, ""))} inputMode="numeric" aria-label={`${student.name} 번호`} style={{ ...pdfAdmin.input, width: 56, textAlign: "center", padding: "6px 5px" }} placeholder="번호" />
+      </td>
+      <td style={table.td}>
+        <div style={{ display: "flex", justifyContent: "center", gap: 5, flexWrap: "wrap" }}>
+          <button style={btn.smallPrimary} onClick={save} disabled={saving}>{saving ? <Loader2 size={12} className="spin" /> : <Save size={12} />} 반·번호 저장</button>
+          <button style={btn.link} onClick={() => onResetPw(student.id)}>비밀번호 초기화</button>
+        </div>
+      </td>
+    </tr>
   );
 }
 
@@ -3277,6 +3391,7 @@ const btn = {
   primary: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "#3d5c3a", color: "#fff", padding: "8px 16px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700 },
   secondary: { border: "1px solid #e6e1d3", background: "#fff", padding: "7px 13px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700 },
   link: { border: "none", background: "transparent", color: "#3d5c3a", fontSize: 11.5, cursor: "pointer", textDecoration: "underline" },
+  smallPrimary: { display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #bfd2bc", background: "#edf5eb", color: "#315a35", padding: "5px 8px", borderRadius: 7, fontSize: 10.8, cursor: "pointer", fontWeight: 800 },
   tab: { border: "1px solid #e6e1d3", background: "#fff", padding: "7px 14px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700, color: "#8a8578" },
   tabActive: { background: "#2b2620", color: "#fff", borderColor: "#2b2620" },
   chip: { border: "1px solid #e6e1d3", background: "#fff", padding: "6px 12px", borderRadius: 16, fontSize: 11.5, cursor: "pointer", fontWeight: 700, color: "#8a8578" },
@@ -3619,16 +3734,16 @@ const reflectionBadge = {
   alignItems: "center",
   justifyContent: "center",
   width: "auto",
-  maxWidth: "82%",
-  padding: "2px 4px",
-  borderRadius: 5,
-  background: "#f6f7f7",
-  border: "1px solid #dfe2e3",
-  borderLeft: "2px solid #8d989f",
-  color: "#485158",
-  fontSize: 7.7,
-  fontWeight: 850,
-  lineHeight: 1.12,
+  maxWidth: "72%",
+  padding: "1px 3px",
+  borderRadius: 4,
+  background: "#f7f8f8",
+  border: "1px solid #e2e5e6",
+  borderLeft: "1.5px solid #8d989f",
+  color: "#4d565c",
+  fontSize: 7.05,
+  fontWeight: 820,
+  lineHeight: 1.05,
   whiteSpace: "normal",
   wordBreak: "keep-all",
 };
@@ -3636,13 +3751,13 @@ const reflectionBadgeLine = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  minHeight: 10,
+  minHeight: 8,
   whiteSpace: "nowrap",
 };
 const reflectionBadgePlus = {
   marginRight: 2,
   color: "#7d7467",
-  fontSize: 7.4,
+  fontSize: 6.8,
   fontWeight: 850,
 };
 const specialNoteStyle = {
