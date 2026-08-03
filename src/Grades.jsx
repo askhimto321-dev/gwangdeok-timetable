@@ -107,6 +107,18 @@ function AdmissionFieldBadges({ tags }) {
     </div>
   );
 }
+
+function AdmissionRegionField({ row }) {
+  const region = row?.region || "미지정";
+  return (
+    <div style={admissionTable.regionFieldStack}>
+      <span style={{ ...regionBadge, ...admissionTable.regionCompact }}>
+        {region !== "미지정" && <MapPin size={8} />}{region}
+      </span>
+      <AdmissionFieldBadges tags={row?._fieldTags} />
+    </div>
+  );
+}
 const REGION_KEYWORDS = [
   ["서울", "서울"], ["경기", "경기"], ["인천", "인천"], ["강원", "강원"],
   ["대전", "대전·세종"], ["세종", "대전·세종"], ["충북", "충북"], ["충남", "충남"],
@@ -1744,7 +1756,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             <table style={{ ...admissionTable.base, minWidth: admissionTableView === "full" ? 1120 : 0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "16%" }} /><col style={{ width: "20%" }} /><col style={{ width: "16%" }} /><col style={{ width: "13%" }} /><col style={{ width: "13%" }} /><col style={{ width: "12%" }} /><col style={{ width: "10%" }} />
+                  <col style={{ width: "13%" }} /><col style={{ width: "10%" }} /><col style={{ width: "18%" }} /><col style={{ width: "13%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "13%" }} />
                 </> : <>
                   <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "8.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} />
                 </>}
@@ -1752,6 +1764,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
               <thead>
                 <tr>
                   <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
+                  {admissionTableView === "focus" && <th style={admissionTable.th}>지역 · 계열</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>지역</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>계열</th>}
                   <th style={admissionTable.th}>모집단위 · 전형</th>
@@ -1775,6 +1788,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
+                      {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionFieldCell }}><AdmissionRegionField row={row} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       <td style={{ ...admissionTable.td, ...admissionTable.department }}><AdmissionDetailText department={row.department} track={row.track} /></td>
@@ -1818,7 +1832,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             <table style={{ ...admissionTable.base, fontSize: 9.8, minWidth: admissionTableView === "full" ? 1180 : 0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "15%" }} /><col style={{ width: "18%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "13%" }} /><col style={{ width: "10%" }} />
+                  <col style={{ width: "12%" }} /><col style={{ width: "9%" }} /><col style={{ width: "16%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "13%" }} /><col style={{ width: "14%" }} />
                 </> : <>
                   <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "7%" }} />
                 </>}
@@ -1826,6 +1840,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
               <thead>
                 <tr>
                   <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
+                  {admissionTableView === "focus" && <th style={admissionTable.th}>지역 · 계열</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>지역</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>계열</th>}
                   <th style={admissionTable.th}>모집단위 · 전형</th>
@@ -1845,6 +1860,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   return (
                     <tr key={`school-${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
+                      {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionFieldCell }}><AdmissionRegionField row={row} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       <td style={{ ...admissionTable.td, ...admissionTable.department }}><AdmissionDetailText department={row.department} track={row.track} /></td>
@@ -1926,19 +1942,22 @@ function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYea
     classNumber != null ? `${Number(classNumber)}반` : null,
     number != null ? `${Number(number)}번` : null,
   ].filter(Boolean).join(" ");
+  const admissionView = viewType === "admission";
 
   return (
-    <div style={studentBanner.box}>
+    <div style={{ ...studentBanner.box, ...(admissionView ? studentBanner.admissionBox : {}) }}>
       <div style={studentBanner.topRow}>
         <div style={studentBanner.main}>
-          <div style={studentBanner.eyebrow}>{viewType === "admission" ? "대학 지원 진단" : "성적 리포트"}</div>
-          <div style={studentBanner.title}>
-            <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span> {viewType === "admission" ? "학생의 대학 지원 진단" : "학생의 성적 리포트"}
+          <div style={{ ...studentBanner.eyebrow, ...(admissionView ? studentBanner.admissionEyebrow : {}) }}>{admissionView ? "학생 대학 지원 진단" : "학생 성적 리포트"}</div>
+          <div style={studentBanner.titleRow}>
+            <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span>
+            <span style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : {}) }}>{admissionView ? "대학 지원" : "성적 분석"}</span>
           </div>
+          <div style={studentBanner.subtitle}>{admissionView ? "현재 성적과 대학별 지원 기준을 비교한 상담용 진단입니다." : "학기별 내신 성적과 성취도 흐름을 확인합니다."}</div>
           <div style={studentBanner.badges}>
             {location && <span style={studentBanner.badge}>{location}</span>}
             <span style={studentBanner.badge}>{entryYear}학년도 입학생</span>
-            <span style={{ ...studentBanner.badge, ...studentBanner.gradeBadge }}>{gradeSystem}등급제</span>
+            <span style={{ ...studentBanner.badge, ...studentBanner.gradeBadge, ...(admissionView ? studentBanner.admissionGradeBadge : {}) }}>{gradeSystem}등급제</span>
           </div>
         </div>
         {actions && <div style={studentBanner.actions}>{actions}</div>}
@@ -1946,7 +1965,6 @@ function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYea
     </div>
   );
 }
-
 function SectionHeading({ title, description }) {
   return (
     <div style={{ marginBottom: 12 }}>
@@ -3713,7 +3731,14 @@ const studentBanner = {
   actions: { flex: "0 0 auto", alignSelf: "flex-start" },
   eyebrow: { fontSize: 11.5, opacity: 0.78, fontWeight: 700, letterSpacing: "0.04em", marginBottom: 5 },
   title: { fontSize: 21, fontWeight: 500, lineHeight: 1.35 },
-  identity: { fontWeight: 900 },
+  titleRow: { display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", fontSize: 22, lineHeight: 1.25 },
+  identity: { fontWeight: 950, letterSpacing: "-0.03em" },
+  titleTag: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "4px 9px", background: "rgba(255,255,255,.14)", border: "1px solid rgba(255,255,255,.22)", fontSize: 10.5, fontWeight: 900 },
+  subtitle: { marginTop: 7, fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,.82)", fontWeight: 650 },
+  admissionBox: { background: "linear-gradient(135deg,#273f68 0%,#4b5f8e 52%,#65558b 100%)", boxShadow: "0 10px 25px rgba(45,59,103,.20)" },
+  admissionEyebrow: { color: "#dbe7ff", opacity: 1 },
+  admissionTitleTag: { background: "#ffe071", borderColor: "#ffe071", color: "#28354f" },
+  admissionGradeBadge: { background: "#fff", color: "#394c78", borderColor: "#fff" },
   badges: { display: "flex", flexWrap: "wrap", gap: 7, marginTop: 13 },
   badge: { display: "inline-flex", alignItems: "center", background: "rgba(255,255,255,0.13)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 999, padding: "5px 10px", fontSize: 11.5, fontWeight: 700 },
   gradeBadge: { background: "#fff", color: "#315132", borderColor: "#fff" },
@@ -3943,7 +3968,7 @@ const staffToolNav = {
 };
 const admissionFieldBadge = {
   wrap: { display: "flex", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" },
-  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid", borderRadius: 999, padding: "3px 5px", fontSize: 8.2, fontWeight: 900, lineHeight: 1, whiteSpace: "nowrap" },
+  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid", borderRadius: 999, padding: "3px 6px", fontSize: 8.7, fontWeight: 900, lineHeight: 1, whiteSpace: "nowrap" },
 };
 const fieldFilterButton = {
   base: { display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #ded9cd", borderRadius: 999, background: "#fff", color: "#5f594d", padding: "6px 8px", fontSize: 10, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
@@ -3968,7 +3993,7 @@ const admissionTable = {
     width: "100%",
     borderCollapse: "collapse",
     tableLayout: "fixed",
-    fontSize: 10.1,
+    fontSize: 10.6,
   },
   th: {
     border: "1px solid #e6e1d3",
@@ -3976,8 +4001,8 @@ const admissionTable = {
     background: "#f6f4ee",
     color: "#332e27",
     fontWeight: 900,
-    fontSize: 10,
-    lineHeight: 1.18,
+    fontSize: 10.4,
+    lineHeight: 1.2,
     textAlign: "center",
     whiteSpace: "normal",
     wordBreak: "keep-all",
@@ -3991,7 +4016,7 @@ const admissionTable = {
     wordBreak: "keep-all",
     overflowWrap: "break-word",
     lineHeight: 1.38,
-    fontSize: 10.1,
+    fontSize: 10.5,
   },
   stickyHead: { position: "sticky", left: 0, zIndex: 4, boxShadow: "3px 0 7px rgba(43,38,32,.06)" },
   university: {
@@ -4009,6 +4034,9 @@ const admissionTable = {
   text: { textAlign: "left", verticalAlign: "top" },
   regionCell: { padding: "7px 3px", overflow: "visible" },
   fieldCell: { padding: "5px 2px" },
+  regionFieldCell: { padding: "5px 3px" },
+  regionFieldStack: { display: "grid", justifyItems: "center", gap: 5, minWidth: 0 },
+  regionCompact: { padding: "3px 5px", fontSize: 8.8 },
   department: { textAlign: "center", verticalAlign: "middle", paddingLeft: 7, paddingRight: 7 },
   reflectionCell: { textAlign: "center", verticalAlign: "middle", padding: "6px 3px" },
   curriculumCell: { border: "1px solid #e6e1d3", padding: "6px 2px", textAlign: "center", verticalAlign: "middle", whiteSpace: "normal", wordBreak: "keep-all" },
@@ -4018,8 +4046,8 @@ const admissionTable = {
   primaryText: { fontWeight: 900, color: "#2b2620", lineHeight: 1.3, textAlign: "center" },
   detailStack: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" },
   detailGroup: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0, maxWidth: "100%" },
-  detailLine: { display: "block", maxWidth: "100%", color: "#25211c", fontSize: 10.6, fontWeight: 900, lineHeight: 1.35, whiteSpace: "normal", wordBreak: "keep-all", overflowWrap: "break-word", letterSpacing: "-0.1px" },
-  trackLine: { display: "inline-flex", maxWidth: "100%", padding: "2px 6px", borderRadius: 6, color: "#5e6170", background: "#f1f2f5", border: "1px solid #e0e2e8", fontSize: 9.3, fontWeight: 800, lineHeight: 1.25, whiteSpace: "normal", wordBreak: "keep-all" },
+  detailLine: { display: "block", maxWidth: "100%", color: "#25211c", fontSize: 11, fontWeight: 900, lineHeight: 1.35, whiteSpace: "normal", wordBreak: "keep-all", overflowWrap: "break-word", letterSpacing: "-0.1px" },
+  trackLine: { display: "inline-flex", maxWidth: "100%", padding: "3px 7px", borderRadius: 7, color: "#4f5870", background: "#eef1f7", border: "1px solid #dce1eb", fontSize: 9.7, fontWeight: 800, lineHeight: 1.25, whiteSpace: "normal", wordBreak: "keep-all" },
   secondaryText: { color: "#716b5f", fontSize: 9.7, lineHeight: 1.45 },
   minimumDetail: { color: "#8a8578", fontSize: 9.2, marginTop: 4, lineHeight: 1.3 },
   empty: { color: "#aaa393", fontSize: 9.7, fontWeight: 700 },

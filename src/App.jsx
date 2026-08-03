@@ -976,6 +976,7 @@ export default function App() {
             semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]}
             canViewStudentTools={canViewStudentTimetableTools}
             allowedGrades={(loggedInTeacher || loggedInDepartment) ? staffTimetableAccessList : null}
+            compact={staffWorkspaceEnabled}
           />
           <div style={styles.body}>
             {tab === "student" && (canViewStudentTimetableTools
@@ -1394,18 +1395,18 @@ const megaNavStyles = {
   tabActive: { color: "#26482b", background: "linear-gradient(135deg,#edf5eb,#f5f8f2)", borderColor: "#d7e5d4", boxShadow: "0 4px 12px rgba(61,92,58,0.10)" },
 };
 
-function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections, canViewStudentTools = true, allowedGrades = null }) {
+function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections, canViewStudentTools = true, allowedGrades = null, compact = false }) {
   return (
-    <div style={styles.topbar} className="no-print">
-      <div style={styles.topbarRow}>
-        <div style={styles.brand}>
+    <div style={{ ...styles.topbar, ...(compact ? styles.topbarCompact : {}) }} className="no-print">
+      <div style={{ ...styles.topbarRow, ...(compact ? styles.topbarRowCompact : {}) }}>
+        {!compact && <div style={styles.brand}>
           <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#315b38,#6f8e62)", boxShadow: "0 6px 14px rgba(49,91,56,0.20)" }}><Sparkles size={17} /></span>
           <div>
             <div style={{ ...styles.brandTitle, fontWeight: 900 }}>{SITE_TITLE}</div>
             <div style={styles.brandSub}>{meta?.updatedAt ? `최근 업데이트 · ${new Date(meta.updatedAt).toLocaleString("ko-KR")}` : "데이터 없음"}</div>
           </div>
-        </div>
-        <nav style={styles.nav}>
+        </div>}
+        <nav style={{ ...styles.nav, ...(compact ? styles.navCompact : {}) }}>
           {onBackToSections && <NavBtn active={false} onClick={onBackToSections} icon={<ArrowRight size={15} style={{ transform: "rotate(180deg)" }} />} label="메뉴로" />}
           {canViewStudentTools && <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />}
           {canViewStudentTools && <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />}
@@ -4166,6 +4167,9 @@ const styles = {
   sectionCard: { width: 180, padding: "28px 16px", background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 14, cursor: "pointer", textAlign: "center" },
   loginInput: { width: "100%", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "9px 12px", fontSize: 13, marginBottom: 8 },
   topbar: { background: "#fff", borderBottom: `1px solid ${COLORS.line}` },
+  topbarCompact: { position: "relative", top: "auto", zIndex: 20, margin: "10px auto 0", maxWidth: 1080, border: "1px solid #e2ded3", borderRadius: 14, padding: "9px 12px", background: "linear-gradient(135deg,#fafbfc,#fff)" },
+  topbarRowCompact: { justifyContent: "flex-start", gap: 10 },
+  navCompact: { flex: "1 1 auto", justifyContent: "flex-start" },
   topbarRow: { maxWidth: 1040, margin: "0 auto", padding: "12px 20px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 },
   scopeRow: { maxWidth: 1040, margin: "0 auto", padding: "0 20px 12px", display: "flex", gap: 20, flexWrap: "wrap" },
   scopeGroup: { display: "flex", alignItems: "center", gap: 8 },
