@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin } from "lucide-react";
+import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer } from "lucide-react";
 import { readStorage, uploadAdmissionPdf, deleteAdmissionPdf } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import {
@@ -9,6 +9,7 @@ import {
   matchUniversities,
   gradeAnalysisComment,
   inferCategory,
+  inferSubjectType,
   normalizeCategory,
   getSubjectGrade,
   grade5to9,
@@ -56,9 +57,52 @@ const CATEGORY_META = {
   기타: { short: "기타", label: "기타", color: "#716b5f", background: "#f1f0ec", row: "#fbfaf7" },
 };
 
+const SUBJECT_TYPE_META = {
+  "공통과목": { short: "공통", color: "#285846", background: "#e8f4ed", border: "#bfd9c9" },
+  "일반선택": { short: "일반", color: "#315a9b", background: "#edf3ff", border: "#cad8f3" },
+  "진로선택": { short: "진로", color: "#65468e", background: "#f2edfb", border: "#d9ccef" },
+  "융합선택": { short: "융합", color: "#9a5a22", background: "#fff2e6", border: "#efd1b4" },
+  "기타": { short: "기타", color: "#716b5f", background: "#f4f2ed", border: "#ded9cd" },
+};
+
+function subjectTypeMeta(subject) {
+  const type = inferSubjectType(subject?.subject, subject?.subjectType);
+  return { type, ...(SUBJECT_TYPE_META[type] || SUBJECT_TYPE_META.기타) };
+}
+
 const CATEGORY_TREND_OPTIONS = ["국어", "영어", "수학", "사회", "과학", "전과목"];
 const MOCK_TREND_OPTIONS = [...MOCK_SUBJECTS, "전과목 평균"];
 const ADMISSION_REGIONS = ["미지정", "서울", "경기", "인천", "강원", "대전·세종", "충북", "충남", "광주", "전북", "전남", "대구", "경북", "부산", "울산", "경남", "제주", "기타"];
+const ADMISSION_FIELD_FILTERS = ["인문", "자연", "간호"];
+const ADMISSION_FIELD_META = {
+  인문: { color: "#76551b", background: "#fff4dc", border: "#ead39d" },
+  자연: { color: "#176b87", background: "#e6f5fa", border: "#bcdde8" },
+  간호: { color: "#8a3d64", background: "#fff0f6", border: "#edc9dc" },
+  공통: { color: "#5f594d", background: "#f4f2ed", border: "#ded9cd" },
+};
+
+function admissionFieldTags(row) {
+  const explicit = String(row?.admissionField || row?.field || row?.series || "").trim();
+  const text = [explicit, row?.department, row?.track, row?.note]
+    .filter(Boolean).join(" ").replace(/\s+/g, "");
+  const tags = [];
+  if (/간호/.test(text)) tags.push("간호");
+  if (/(인문|사회계열|상경|경영|경제|어문|문과|법학|행정|교육계열)/.test(text)) tags.push("인문");
+  if (/(자연|이공|공학|과학계열|수학계열|자연과학|의약|의학|약학|수의|보건계열)/.test(text)) tags.push("자연");
+  return Array.from(new Set(tags));
+}
+
+function AdmissionFieldBadges({ tags }) {
+  const values = tags?.length ? tags : ["공통"];
+  return (
+    <div style={admissionFieldBadge.wrap}>
+      {values.map(value => {
+        const meta = ADMISSION_FIELD_META[value] || ADMISSION_FIELD_META.공통;
+        return <span key={value} style={{ ...admissionFieldBadge.base, color: meta.color, background: meta.background, borderColor: meta.border }}>{value}</span>;
+      })}
+    </div>
+  );
+}
 const REGION_KEYWORDS = [
   ["서울", "서울"], ["경기", "경기"], ["인천", "인천"], ["강원", "강원"],
   ["대전", "대전·세종"], ["세종", "대전·세종"], ["충북", "충북"], ["충남", "충남"],
@@ -207,7 +251,9 @@ export default function GradesSection({
           <div style={{ fontWeight: 700, fontSize: 16 }}>성적</div>
           <div style={{ fontSize: 11.5, color: "#8a8578" }}>
             {loggedInStudent && `${loggedInStudent.name} 학생`}
-            {loggedInTeacher && `${loggedInTeacher.name} 선생님`}
+            {loggedInTeacher && (loggedInTeacher.accountType === "department"
+              ? `${loggedInTeacher.name || loggedInTeacher.id} 부서 계정`
+              : `${loggedInTeacher.name} 선생님`)}
             {loggedInAdmin && "관리자"}
           </div>
         </div>
@@ -423,24 +469,33 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                 ))}
               </div>
               <div style={categoryGuide.box}>
-                {Object.entries(CATEGORY_META).filter(([key]) => key !== "기타").map(([key, meta]) => (
-                  <span key={key} style={categoryGuide.item}>
-                    <span style={{ ...categoryGuide.dot, background: meta.color }} />{meta.label}
-                  </span>
-                ))}
+                <div style={categoryGuide.group}>
+                  <strong style={categoryGuide.title}>교과계열</strong>
+                  {Object.entries(CATEGORY_META).filter(([key]) => key !== "기타").map(([key, meta]) => (
+                    <span key={key} style={categoryGuide.item}>
+                      <span style={{ ...categoryGuide.dot, background: meta.color }} />{meta.label}
+                    </span>
+                  ))}
+                </div>
+                <div style={categoryGuide.group}>
+                  <strong style={categoryGuide.title}>과목유형</strong>
+                  {Object.entries(SUBJECT_TYPE_META).filter(([key]) => key !== "기타").map(([key, meta]) => (
+                    <span key={key} style={{ ...courseTypeBadge.base, color: meta.color, background: meta.background, borderColor: meta.border }}>{meta.short}</span>
+                  ))}
+                </div>
               </div>
               <div style={table.scroll}>
-                <table style={{ ...table.base, ...gradeTable.base, minWidth: gradeSystem === 5 ? 790 : 700, tableLayout: "fixed" }}>
+                <table style={{ ...table.base, ...gradeTable.base, minWidth: gradeSystem === 5 ? 785 : 690, tableLayout: "fixed" }}>
                   <colgroup>
-                    <col style={{ width: 145 }} />
-                    <col style={{ width: 98 }} />
-                    <col style={{ width: 46 }} />
-                    <col style={{ width: 58 }} />
+                    <col style={{ width: 170 }} />
+                    <col style={{ width: 82 }} />
+                    <col style={{ width: 42 }} />
+                    <col style={{ width: 54 }} />
+                    <col style={{ width: 56 }} />
+                    <col style={{ width: 78 }} />
+                    {gradeSystem === 5 && <col style={{ width: 82 }} />}
+                    <col style={{ width: 76 }} />
                     <col style={{ width: 62 }} />
-                    <col style={{ width: 86 }} />
-                    {gradeSystem === 5 && <col style={{ width: 100 }} />}
-                    <col style={{ width: 86 }} />
-                    <col style={{ width: 68 }} />
                   </colgroup>
                   <thead>
                     <tr>
@@ -464,6 +519,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                   <tbody>
                     {(activeSemSubjects || []).map((subject, index) => {
                       const meta = categoryMeta(subject.category, subject.subject);
+                      const typeMeta = subjectTypeMeta(subject);
                       const sourceGrade = getSubjectGrade(subject);
                       const convertedGrade = sourceGrade == null ? null : Math.round(grade5to9(sourceGrade) * 100) / 100;
                       const score = asNumber(subject.score);
@@ -474,7 +530,10 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                       return (
                         <tr key={`${subject.subject}-${index}`} style={{ background: "#fff" }}>
                           <td style={{ ...table.tdLabel, ...gradeTable.subjectCell, background: "#fff", borderLeft: `4px solid ${meta.color}`, color: "#2b2620" }}>
-                            <span style={{ fontWeight: 800 }}>{subject.subject}</span>
+                            <div style={gradeTable.subjectWrap}>
+                              <span style={gradeTable.subjectName}>{subject.subject}</span>
+                              <CourseTypeBadge meta={typeMeta} />
+                            </div>
                           </td>
                           <td style={{ ...table.td, ...gradeTable.td }}><CategoryBadge category={meta.key} /></td>
                           <td style={{ ...table.td, ...gradeTable.td }}>{subject.credit}</td>
@@ -941,6 +1000,106 @@ function admissionStudentResultText(result) {
   return result?.studentSum == null ? "" : `${result.count}합 ${result.studentSum}`;
 }
 
+const ACHIEVEMENT_LEVEL = { A: 1, B: 2, C: 3, D: 4, E: 5 };
+
+function achievementLabel(value) {
+  const label = String(value || "").trim().toUpperCase();
+  return ACHIEVEMENT_LEVEL[label] ? label : null;
+}
+
+function buildStudentAchievementAnalysis(semesterRecords, gradeSystem) {
+  const entries = (semesterRecords || []).flatMap((record, semesterIndex) => (record?.subjects || []).map(subject => {
+    const achievement = achievementLabel(subject.achievement);
+    const rankGrade = getSubjectGrade(subject);
+    const subjectType = inferSubjectType(subject.subject, subject.subjectType);
+    return {
+      ...subject,
+      semesterKey: SEMESTER_KEYS[semesterIndex],
+      achievement,
+      achievementLevel: achievement ? ACHIEVEMENT_LEVEL[achievement] : null,
+      rankGrade: asNumber(rankGrade),
+      subjectType,
+    };
+  })).filter(item => item.achievement);
+
+  const comparable = Number(gradeSystem) === 5
+    ? entries.filter(item => item.rankGrade != null && item.rankGrade >= 1 && item.rankGrade <= 5)
+    : [];
+  const lowerThanRank = comparable.filter(item => item.achievementLevel > item.rankGrade);
+  const higherThanRank = comparable.filter(item => item.achievementLevel < item.rankGrade);
+  const aligned = comparable.filter(item => item.achievementLevel === item.rankGrade);
+  const absolute = entries.filter(item => item.rankGrade == null);
+
+  const byType = {};
+  ["공통과목", "일반선택", "진로선택", "융합선택", "기타"].forEach(type => {
+    const items = entries.filter(item => item.subjectType === type);
+    byType[type] = {
+      items,
+      total: items.length,
+      a: items.filter(item => item.achievement === "A").length,
+      belowB: items.filter(item => ["C", "D", "E"].includes(item.achievement)).length,
+    };
+  });
+
+  return { entries, comparable, lowerThanRank, higherThanRank, aligned, absolute, byType };
+}
+
+function compactSubjectExamples(items, limit = 3) {
+  return (items || []).slice(0, limit).map(item => `${item.subject}(${item.rankGrade ?? "-"}등급·${item.achievement})`).join(", ");
+}
+
+function AchievementGuidancePanel({ analysis, universityCounts, gradeSystem }) {
+  const lower = analysis?.lowerThanRank || [];
+  const higher = analysis?.higherThanRank || [];
+  const career = analysis?.byType?.["진로선택"] || { total: 0, a: 0, belowB: 0 };
+  const convergence = analysis?.byType?.["융합선택"] || { total: 0, a: 0, belowB: 0 };
+  const hasAchievement = (analysis?.entries || []).length > 0;
+
+  let headline = "성취도 자료가 입력되면 석차등급과의 균형을 분석합니다.";
+  let tone = achievementAdvice.neutral;
+  if (hasAchievement && Number(gradeSystem) !== 5) {
+    headline = "성취도와 선택과목 유형을 중심으로 관리 상태를 확인하세요.";
+  } else if (lower.length) {
+    headline = `석차등급보다 성취도가 낮은 과목이 ${lower.length}개 있어 성취도 관리가 필요합니다.`;
+    tone = achievementAdvice.warning;
+  } else if (higher.length) {
+    headline = `석차등급보다 성취도가 높은 과목이 ${higher.length}개 있어 일부 대학 반영 방식에서 유리할 수 있습니다.`;
+    tone = achievementAdvice.positive;
+  } else if (hasAchievement) {
+    headline = "석차등급과 성취도가 전반적으로 균형을 이루고 있습니다.";
+    tone = achievementAdvice.positive;
+  }
+
+  return (
+    <div style={{ ...achievementAdvice.box, ...tone }}>
+      <div style={achievementAdvice.header}>
+        <div>
+          <div style={achievementAdvice.eyebrow}>학생 성취도 분석</div>
+          <div style={achievementAdvice.title}>{headline}</div>
+        </div>
+        <div style={achievementAdvice.countBadge}>성취도 반영 대학 {universityCounts?.achievementUniversities || 0}개</div>
+      </div>
+      <div style={achievementAdvice.metrics}>
+        <span style={achievementAdvice.metric}>석차보다 낮음 <b>{lower.length}</b></span>
+        <span style={achievementAdvice.metric}>석차보다 높음 <b>{higher.length}</b></span>
+        <span style={achievementAdvice.metric}>진로선택 A <b>{career.a}/{career.total}</b></span>
+        <span style={achievementAdvice.metric}>융합선택 A <b>{convergence.a}/{convergence.total}</b></span>
+      </div>
+      <div style={achievementAdvice.comments}>
+        {lower.length > 0 && (
+          <div><b>관리 필요:</b> {compactSubjectExamples(lower)}{lower.length > 3 ? ` 외 ${lower.length - 3}개` : ""}. 석차등급과 성취도를 함께 반영하는 대학에서 불리할 수 있으므로 성취도 보완이 필요합니다.</div>
+        )}
+        {higher.length > 0 && (
+          <div><b>강점 활용:</b> {compactSubjectExamples(higher)}{higher.length > 3 ? ` 외 ${higher.length - 3}개` : ""}. 석차등급과 성취도 중 우수한 결과를 활용하는 대학에서 유리할 수 있으나, 선택의 폭을 넓히려면 석차등급 관리도 함께 필요합니다.</div>
+        )}
+        {career.total > 0 && <div><b>진로선택:</b> A 비율 {Math.round((career.a / career.total) * 100)}%{career.belowB ? ` · C 이하 ${career.belowB}개 과목은 우선 관리하세요.` : " · 현재 성취도 흐름이 양호합니다."}</div>}
+        {convergence.total > 0 && <div><b>융합선택:</b> A 비율 {Math.round((convergence.a / convergence.total) * 100)}%{convergence.belowB ? ` · C 이하 ${convergence.belowB}개 과목은 정성평가 대학 지원 시 점검이 필요합니다.` : " · 정성평가 자료로 활용하기 좋습니다."}</div>}
+        {!hasAchievement && <div>내신 성적표의 성취도(A~E)를 등록하면 과목 유형별 관리 코멘트가 자동으로 생성됩니다.</div>}
+      </div>
+    </div>
+  );
+}
+
 function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts } = gdb;
   const semesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
@@ -957,6 +1116,10 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const studentName = studentInfo?.name ?? latestSemesterRecord?.name ?? metaRecord?.name ?? "";
   const entryYear = CURRENT_ACADEMIC_YEAR - inferredGrade + 1;
   const gradeSystem = entryYear >= 2025 ? 5 : 9;
+  const achievementAnalysis = useMemo(
+    () => buildStudentAchievementAnalysis(semesterRecords, gradeSystem),
+    [semesterData, sid, gradeSystem], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const latestMockKey = MOCK_MONTH_KEYS.slice().reverse().find(key => mockData[key]?.students?.[sid]) || null;
   const latestMockGrades = latestMockKey ? mockData[latestMockKey].students[sid] : {};
@@ -964,6 +1127,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
+  const [fieldFilter, setFieldFilter] = useState("all");
   const [requirementFilter, setRequirementFilter] = useState("all");
   const [admissionViewMode, setAdmissionViewMode] = useState("mock");
 
@@ -987,6 +1151,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       evaluation,
       docs: docsByUniversity.get(universityKey(row.university)) || [],
       region: String(row.region || (docsByUniversity.get(universityKey(row.university)) || [])[0]?.region || "미지정"),
+      _fieldTags: admissionFieldTags(row),
     };
   }), [admissionRows, latestSums, latestMockGrades, docsByUniversity]);
 
@@ -995,6 +1160,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
     return evaluatedRows.filter(row => {
       const haystack = [
         row.university,
+        row.admissionField,
         row.department,
         row.track,
         row.reflection,
@@ -1007,6 +1173,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       ].join(" ").toLowerCase();
       if (q && !haystack.includes(q)) return false;
       if (regionFilter !== "all" && String(row.region || "미지정") !== regionFilter) return false;
+      if (fieldFilter !== "all" && !(row._fieldTags || []).includes(fieldFilter)) return false;
       if (admissionViewMode === "mock") {
         if (requirementFilter === "none" && row.evaluation.status !== "no-minimum") return false;
         if (!["all", "none"].includes(requirementFilter) && Number(row.evaluation.count) !== Number(requirementFilter)) return false;
@@ -1016,7 +1183,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       }
       return true;
     });
-  }, [evaluatedRows, query, statusFilter, regionFilter, requirementFilter, admissionViewMode]);
+  }, [evaluatedRows, query, statusFilter, regionFilter, fieldFilter, requirementFilter, admissionViewMode]);
 
   const displayRows = useMemo(() => {
     const rows = filteredRows.slice();
@@ -1048,16 +1215,28 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
     none: evaluatedRows.filter(row => row.evaluation.status === "no-minimum").length,
   }), [evaluatedRows]);
 
+  const fieldCounts = useMemo(() => Object.fromEntries([
+    ["all", evaluatedRows.length],
+    ...ADMISSION_FIELD_FILTERS.map(field => [field, evaluatedRows.filter(row => (row._fieldTags || []).includes(field)).length]),
+  ]), [evaluatedRows]);
+
   const curriculumMethodCounts = useMemo(() => {
+    const uniqueUniversities = predicate => new Set(
+      evaluatedRows.filter(predicate).map(row => universityKey(row.university)).filter(Boolean),
+    ).size;
     const rowHas = key => evaluatedRows.filter(row => (
       CURRICULUM_METHOD_FIELDS.some(([field]) => curriculumMethodMeta(row[field]).key === key)
     )).length;
+    const reflectsAchievement = value => ["achievement", "mixed"].includes(curriculumMethodMeta(value).key);
     return {
-      rank: rowHas("rank"),
+      rank: uniqueUniversities(row => CURRICULUM_METHOD_FIELDS.some(([field]) => curriculumMethodMeta(row[field]).key === "rank")),
       achievement: rowHas("achievement"),
-      mixed: rowHas("mixed"),
-      qualitative: rowHas("qualitative"),
-      excluded: rowHas("excluded"),
+      achievementUniversities: uniqueUniversities(row => CURRICULUM_METHOD_FIELDS.some(([field]) => reflectsAchievement(row[field]))),
+      careerAchievementUniversities: uniqueUniversities(row => reflectsAchievement(row.careerElectiveMethod)),
+      convergenceAchievementUniversities: uniqueUniversities(row => reflectsAchievement(row.convergenceElectiveMethod)),
+      mixed: uniqueUniversities(row => CURRICULUM_METHOD_FIELDS.some(([field]) => curriculumMethodMeta(row[field]).key === "mixed")),
+      qualitative: uniqueUniversities(row => CURRICULUM_METHOD_FIELDS.some(([field]) => curriculumMethodMeta(row[field]).key === "qualitative")),
+      excluded: uniqueUniversities(row => CURRICULUM_METHOD_FIELDS.some(([field]) => curriculumMethodMeta(row[field]).key === "excluded")),
       total: evaluatedRows.filter(row => (
         CURRICULUM_METHOD_FIELDS.some(([field]) => normalizeCurriculumMethod(row[field]) !== "미입력")
       )).length,
@@ -1069,7 +1248,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   )), [admissionDocs, evaluatedRows]);
 
   return (
-    <div>
+    <div className="admission-print-root">
       <StudentIdentityBanner
         sid={sid}
         name={studentName}
@@ -1080,7 +1259,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
         gradeSystem={gradeSystem}
         viewType="admission"
         actions={(
-          <div style={admissionModeSwitch.darkBox} aria-label="입시전형 보기 방식">
+          <div className="no-print" style={admissionModeSwitch.darkBox} aria-label="입시전형 보기 방식">
             <button
               onClick={() => setAdmissionViewMode("mock")}
               style={{ ...admissionModeSwitch.darkButton, ...(admissionViewMode === "mock" ? admissionModeSwitch.darkActive : {}) }}
@@ -1089,6 +1268,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
               onClick={() => setAdmissionViewMode("school")}
               style={{ ...admissionModeSwitch.darkButton, ...(admissionViewMode === "school" ? admissionModeSwitch.darkActive : {}) }}
             >내신 반영 방식</button>
+            <button type="button" onClick={() => window.print()} style={admissionModeSwitch.printButton} title="브라우저 인쇄 창에서 PDF로 저장할 수 있습니다."><Printer size={12} /> 인쇄·PDF</button>
           </div>
         )}
       />
@@ -1117,13 +1297,17 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
               </div>
             </>
           ) : (
-            <div style={curriculumSummary.grid}>
-              <div style={{ ...curriculumSummary.card, ...curriculumSummary.rank }}><b>{curriculumMethodCounts.rank}</b><span>석차등급 반영</span></div>
-              <div style={{ ...curriculumSummary.card, ...curriculumSummary.achievement }}><b>{curriculumMethodCounts.achievement}</b><span>성취도 반영</span></div>
-              <div style={{ ...curriculumSummary.card, ...curriculumSummary.mixed }}><b>{curriculumMethodCounts.mixed}</b><span>석차·성취 혼합</span></div>
-              <div style={{ ...curriculumSummary.card, ...curriculumSummary.qualitative }}><b>{curriculumMethodCounts.qualitative}</b><span>정성평가 포함</span></div>
-              <div style={{ ...curriculumSummary.card, ...curriculumSummary.excluded }}><b>{curriculumMethodCounts.excluded}</b><span>미반영 포함</span></div>
-            </div>
+            <>
+              <div style={curriculumSummary.grid}>
+                <div style={{ ...curriculumSummary.card, ...curriculumSummary.rank }}><b>{curriculumMethodCounts.rank}</b><span>석차등급 반영 대학</span></div>
+                <div style={{ ...curriculumSummary.card, ...curriculumSummary.achievement }}><b>{curriculumMethodCounts.achievementUniversities}</b><span>성취도 반영 대학</span></div>
+                <div style={{ ...curriculumSummary.card, ...curriculumSummary.mixed }}><b>{curriculumMethodCounts.mixed}</b><span>석차·성취 혼합 대학</span></div>
+                <div style={{ ...curriculumSummary.card, ...curriculumSummary.career }}><b>{curriculumMethodCounts.careerAchievementUniversities}</b><span>진로선택 성취도 대학</span></div>
+                <div style={{ ...curriculumSummary.card, ...curriculumSummary.convergence }}><b>{curriculumMethodCounts.convergenceAchievementUniversities}</b><span>융합선택 성취도 대학</span></div>
+                <div style={{ ...curriculumSummary.card, ...curriculumSummary.qualitative }}><b>{curriculumMethodCounts.qualitative}</b><span>정성평가 포함 대학</span></div>
+              </div>
+              <AchievementGuidancePanel analysis={achievementAnalysis} universityCounts={curriculumMethodCounts} gradeSystem={gradeSystem} />
+            </>
           )}
         </div>
       </div>
@@ -1135,13 +1319,20 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             ? "최저 유형별로 대학을 나누어 볼 수 있습니다. (사·과)처럼 괄호로 묶인 과목은 두 과목 중 더 높은 등급(숫자가 작은 등급) 1개만 반영합니다."
             : "대학명순으로 정렬되며, 선택과목 유형별 반영 방식과 교과 반영비율을 한 표에서 비교합니다."}
         />
-        <div style={admissionToolbar.box}>
+        <div className="no-print" style={admissionToolbar.box}>
           <div style={admissionToolbar.mainRow}>
-            <div style={{ ...searchBox.box, maxWidth: "none", flex: 1, minWidth: 210 }}>
-              <Search size={16} color="#a39d8c" />
-              <input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학·학과·전형 검색" style={searchBox.input} />
+            <div style={{ ...searchBox.box, maxWidth: 245, flex: "0 1 245px", minWidth: 180 }}>
+              <Search size={15} color="#a39d8c" />
+              <input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학·학과 검색" style={searchBox.input} />
             </div>
-            <select value={regionFilter} onChange={event => setRegionFilter(event.target.value)} style={{ ...selectStyle, minWidth: 105 }} aria-label="지역 선택">
+            <div style={admissionToolbar.filterGroup} aria-label="계열 선택">
+              {[["all", "전체"], ...ADMISSION_FIELD_FILTERS.map(field => [field, field])].map(([key, label]) => (
+                <button key={key} onClick={() => setFieldFilter(key)} style={{ ...fieldFilterButton.base, ...(fieldFilter === key ? fieldFilterButton.active : {}) }}>
+                  {label}<span style={fieldFilterButton.count}>{fieldCounts[key] || 0}</span>
+                </button>
+              ))}
+            </div>
+            <select value={regionFilter} onChange={event => setRegionFilter(event.target.value)} style={{ ...selectStyle, minWidth: 96 }} aria-label="지역 선택">
               <option value="all">전체 지역</option>
               {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
             </select>
@@ -1195,21 +1386,23 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           <div style={{ ...table.scroll, overflowX: "visible" }}>
             <table style={admissionTable.base}>
               <colgroup>
-                <col style={{ width: "10.5%" }} />
-                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "5.5%" }} />
+                <col style={{ width: "5%" }} />
                 <col style={{ width: "7.5%" }} />
-                <col style={{ width: "8.5%" }} />
-                <col style={{ width: "24%" }} />
                 <col style={{ width: "7.5%" }} />
-                <col style={{ width: "10.5%" }} />
+                <col style={{ width: "20.5%" }} />
                 <col style={{ width: "6.5%" }} />
+                <col style={{ width: "9%" }} />
+                <col style={{ width: "5.5%" }} />
+                <col style={{ width: "7%" }} />
                 <col style={{ width: "8%" }} />
-                <col style={{ width: "10.5%" }} />
               </colgroup>
               <thead>
                 <tr>
                   <th style={admissionTable.th}>대학교</th>
                   <th style={admissionTable.th}>지역</th>
+                  <th style={admissionTable.th}>계열</th>
                   <th style={admissionTable.th}>모집단위<br />전형</th>
                   <th style={admissionTable.th}>교과 반영비율<br />반영방법</th>
                   <th style={admissionTable.th}>전형 특이사항</th>
@@ -1237,6 +1430,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                           {row.region || "미지정"}
                         </span>
                       </td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>
                       <td style={{ ...admissionTable.td, ...admissionTable.department }}>
                         <AdmissionDetailText department={row.department} track={row.track} />
                       </td>
@@ -1283,21 +1477,23 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           <div style={{ ...table.scroll, overflowX: "visible" }}>
             <table style={{ ...admissionTable.base, fontSize: 9.1 }}>
               <colgroup>
-                <col style={{ width: "11%" }} />
-                <col style={{ width: "6.5%" }} />
-                <col style={{ width: "9.5%" }} />
-                <col style={{ width: "8.5%" }} />
-                <col style={{ width: "8.5%" }} />
                 <col style={{ width: "9%" }} />
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "10.5%" }} />
-                <col style={{ width: "19%" }} />
-                <col style={{ width: "8.5%" }} />
+                <col style={{ width: "5.5%" }} />
+                <col style={{ width: "5%" }} />
+                <col style={{ width: "7.5%" }} />
+                <col style={{ width: "7.5%" }} />
+                <col style={{ width: "7.5%" }} />
+                <col style={{ width: "8%" }} />
+                <col style={{ width: "8%" }} />
+                <col style={{ width: "8%" }} />
+                <col style={{ width: "20%" }} />
+                <col style={{ width: "7%" }} />
               </colgroup>
               <thead>
                 <tr>
                   <th style={admissionTable.th}>대학교</th>
                   <th style={admissionTable.th}>지역</th>
+                  <th style={admissionTable.th}>계열</th>
                   <th style={admissionTable.th}>모집단위<br />전형</th>
                   <th style={admissionTable.th}>공통과목</th>
                   <th style={admissionTable.th}>일반선택</th>
@@ -1321,6 +1517,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                           {row.region || "미지정"}
                         </span>
                       </td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>
                       <td style={{ ...admissionTable.td, ...admissionTable.department }}>
                         <AdmissionDetailText department={row.department} track={row.track} />
                       </td>
@@ -1540,6 +1737,23 @@ function CategoryBadge({ category, showLabel = false }) {
   return (
     <span style={{ ...categoryBadgeBase, background: meta.background, color: meta.color, border: `1px solid ${meta.color}33` }}>
       {showLabel ? meta.label : meta.short}
+    </span>
+  );
+}
+
+function CourseTypeBadge({ meta }) {
+  const resolved = meta || SUBJECT_TYPE_META.기타;
+  return (
+    <span
+      style={{
+        ...courseTypeBadge.base,
+        color: resolved.color,
+        background: resolved.background,
+        borderColor: resolved.border,
+      }}
+      title={resolved.type || "과목유형 미분류"}
+    >
+      {resolved.short || "기타"}
     </span>
   );
 }
@@ -2006,11 +2220,12 @@ const CURRICULUM_METHOD_HEADER_ALIASES = {
   convergenceElectiveMethod: ["융합선택반영여부", "융합선택반영방법", "융합선택평가방법", "융합선택반영기준", "융합선택"],
 };
 
-function curriculumLookupKey(university, track = "", department = "") {
+function curriculumLookupKey(university, track = "", department = "", admissionField = "") {
   return [
     universityKey(university),
     normalizeAdmissionLookupKey(track),
     normalizeAdmissionLookupKey(department),
+    normalizeAdmissionLookupKey(admissionField),
   ].join("|");
 }
 
@@ -2033,18 +2248,25 @@ function parseCurriculumMethodLookup(rows) {
 
   const universityIndex = findIndex(["대학교", "대학명", "대학"]);
   const trackIndex = findIndex(["전형명", "전형", "전형유형", "전형구분"]);
-  const departmentIndex = findIndex(["계열학과", "모집단위", "학과", "계열", "학부"]);
+  const explicitDepartmentIndex = findIndex(["계열학과", "모집단위", "학과", "학부"]);
+  const genericSeriesIndex = findIndex(["계열"]);
+  const admissionFieldIndex = findIndex(["계열구분", "지원계열", "모집계열", "대학계열", "계열유형", "인문자연구분", "인문자연간호구분"])
+    >= 0 ? findIndex(["계열구분", "지원계열", "모집계열", "대학계열", "계열유형", "인문자연구분", "인문자연간호구분"])
+    : (explicitDepartmentIndex >= 0 ? genericSeriesIndex : -1);
+  const departmentIndex = explicitDepartmentIndex >= 0 ? explicitDepartmentIndex : genericSeriesIndex;
   const map = new Map();
   const ordered = [];
   let carriedUniversity = "";
   let carriedTrack = "";
   let carriedDepartment = "";
+  let carriedAdmissionField = "";
 
   for (let rowIndex = headerRowIdx + 1; rowIndex < rows.length; rowIndex++) {
     const row = rows[rowIndex] || [];
     if (universityIndex >= 0 && String(row[universityIndex] ?? "").trim()) carriedUniversity = String(row[universityIndex]).trim();
     if (trackIndex >= 0 && String(row[trackIndex] ?? "").trim()) carriedTrack = String(row[trackIndex]).trim();
     if (departmentIndex >= 0 && String(row[departmentIndex] ?? "").trim()) carriedDepartment = String(row[departmentIndex]).trim();
+    if (admissionFieldIndex >= 0 && String(row[admissionFieldIndex] ?? "").trim()) carriedAdmissionField = String(row[admissionFieldIndex]).trim();
 
     const methods = Object.fromEntries(
       Object.entries(indexes).map(([field, index]) => [
@@ -2058,15 +2280,20 @@ function parseCurriculumMethodLookup(rows) {
       university: carriedUniversity,
       track: carriedTrack,
       department: carriedDepartment,
+      admissionField: carriedAdmissionField,
       methods,
     };
     ordered.push(entry);
 
     const keys = [
-      curriculumLookupKey(entry.university, entry.track, entry.department),
-      curriculumLookupKey(entry.university, entry.track, ""),
-      curriculumLookupKey(entry.university, "", entry.department),
-      curriculumLookupKey(entry.university, "", ""),
+      curriculumLookupKey(entry.university, entry.track, entry.department, entry.admissionField),
+      curriculumLookupKey(entry.university, entry.track, entry.department, ""),
+      curriculumLookupKey(entry.university, entry.track, "", entry.admissionField),
+      curriculumLookupKey(entry.university, entry.track, "", ""),
+      curriculumLookupKey(entry.university, "", entry.department, entry.admissionField),
+      curriculumLookupKey(entry.university, "", entry.department, ""),
+      curriculumLookupKey(entry.university, "", "", entry.admissionField),
+      curriculumLookupKey(entry.university, "", "", ""),
     ];
     keys.filter(key => key.replace(/\|/g, "")).forEach(key => {
       if (!map.has(key)) map.set(key, methods);
@@ -2079,10 +2306,14 @@ function parseCurriculumMethodLookup(rows) {
 function findCurriculumMethodsInLookup(row, lookup) {
   if (!lookup?.map || !(lookup.map instanceof Map)) return null;
   const exactKeys = [
-    curriculumLookupKey(row?.university, row?.track, row?.department),
-    curriculumLookupKey(row?.university, row?.track, ""),
-    curriculumLookupKey(row?.university, "", row?.department),
-    curriculumLookupKey(row?.university, "", ""),
+    curriculumLookupKey(row?.university, row?.track, row?.department, row?.admissionField),
+    curriculumLookupKey(row?.university, row?.track, row?.department, ""),
+    curriculumLookupKey(row?.university, row?.track, "", row?.admissionField),
+    curriculumLookupKey(row?.university, row?.track, "", ""),
+    curriculumLookupKey(row?.university, "", row?.department, row?.admissionField),
+    curriculumLookupKey(row?.university, "", row?.department, ""),
+    curriculumLookupKey(row?.university, "", "", row?.admissionField),
+    curriculumLookupKey(row?.university, "", "", ""),
   ];
   for (const key of exactKeys) {
     if (lookup.map.has(key)) return lookup.map.get(key);
@@ -2091,14 +2322,16 @@ function findCurriculumMethodsInLookup(row, lookup) {
   const university = universityKey(row?.university);
   const track = normalizeAdmissionLookupKey(row?.track);
   const department = normalizeAdmissionLookupKey(row?.department);
+  const admissionField = normalizeAdmissionLookupKey(row?.admissionField);
   for (const [key, methods] of lookup.map.entries()) {
-    const [candidateUniversity, candidateTrack, candidateDepartment] = key.split("|");
+    const [candidateUniversity, candidateTrack, candidateDepartment, candidateAdmissionField] = key.split("|");
     const universityMatches = university && candidateUniversity
       && (university.includes(candidateUniversity) || candidateUniversity.includes(university));
     if (!universityMatches) continue;
     const trackMatches = !track || !candidateTrack || track.includes(candidateTrack) || candidateTrack.includes(track);
     const departmentMatches = !department || !candidateDepartment || department.includes(candidateDepartment) || candidateDepartment.includes(department);
-    if (trackMatches && departmentMatches) return methods;
+    const fieldMatches = !admissionField || !candidateAdmissionField || admissionField.includes(candidateAdmissionField) || candidateAdmissionField.includes(admissionField);
+    if (trackMatches && departmentMatches && fieldMatches) return methods;
   }
   return null;
 }
@@ -2183,7 +2416,11 @@ function parseAdmissionRows(rows) {
   const sumIndex = firstIndex(["수능최저합", "최저합기준", "최저합", "수능최저등급합"]);
   if (universityIndex == null || countIndex == null || sumIndex == null) return null;
 
-  const departmentIndex = firstIndex(["계열학과", "모집단위", "학과", "계열", "학부"]);
+  const explicitDepartmentIndex = firstIndex(["계열학과", "모집단위", "학과", "학부"]);
+  const genericSeriesIndex = idx["계열"] != null ? idx["계열"] : null;
+  const admissionFieldIndex = firstIndex(["계열구분", "지원계열", "모집계열", "대학계열", "계열유형", "인문자연구분", "인문자연간호구분"])
+    ?? (explicitDepartmentIndex != null ? genericSeriesIndex : null);
+  const departmentIndex = explicitDepartmentIndex ?? genericSeriesIndex;
   const trackIndex = firstIndex(["전형명", "전형", "전형유형"]);
   const requiredSubjectsIndex = firstIndex(["수능최저반영교과", "수능최저반영과목", "반영영역", "최저반영영역", "반영교과"]);
   let reflectionIndex = firstIndex([
@@ -2231,6 +2468,7 @@ function parseAdmissionRows(rows) {
     if (!university) continue;
     admissionRows.push({
       university: String(university).trim(),
+      admissionField: admissionFieldIndex == null ? "" : String(row[admissionFieldIndex] ?? "").trim(),
       department: departmentIndex == null ? "" : String(row[departmentIndex] ?? "").trim(),
       track: trackIndex == null ? "" : String(row[trackIndex] ?? "").trim(),
       requiredSubjects: requiredSubjectsIndex == null ? "" : String(row[requiredSubjectsIndex] ?? "").trim(),
@@ -3000,10 +3238,12 @@ const lookupTabs = {
 };
 const gradeTable = {
   base: { fontSize: 11.2 },
-  th: { whiteSpace: "normal", lineHeight: 1.15, padding: "6px 4px", fontSize: 10.4 },
-  thSub: { fontSize: 9.3, color: "#716b5f", fontWeight: 700 },
-  td: { padding: "6px 4px", fontSize: 11.1 },
-  subjectCell: { padding: "6px 7px", whiteSpace: "normal", wordBreak: "keep-all", lineHeight: 1.35, fontSize: 11.2 },
+  th: { whiteSpace: "normal", lineHeight: 1.15, padding: "6px 3px", fontSize: 10.2 },
+  thSub: { fontSize: 8.9, color: "#716b5f", fontWeight: 700 },
+  td: { padding: "6px 3px", fontSize: 10.9 },
+  subjectCell: { padding: "6px 7px", whiteSpace: "normal", wordBreak: "keep-all", lineHeight: 1.3, fontSize: 11 },
+  subjectWrap: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, minWidth: 0 },
+  subjectName: { fontWeight: 850, minWidth: 0, overflowWrap: "anywhere" },
 };
 const table = {
   scroll: { width: "100%", overflowX: "auto", borderRadius: 8 },
@@ -3092,9 +3332,14 @@ const combinationLabel = {
   textAlign: "center",
 };
 const categoryGuide = {
-  box: { display: "flex", gap: "7px 13px", flexWrap: "wrap", margin: "0 0 12px", padding: "9px 11px", background: "#faf9f5", border: "1px solid #ebe7dc", borderRadius: 10 },
-  item: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.8, color: "#716b5f", fontWeight: 700 },
-  dot: { width: 8, height: 8, borderRadius: 99, display: "inline-block" },
+  box: { display: "flex", flexDirection: "column", gap: 7, margin: "0 0 12px", padding: "9px 11px", background: "#faf9f5", border: "1px solid #ebe7dc", borderRadius: 10 },
+  group: { display: "flex", alignItems: "center", gap: "6px 10px", flexWrap: "wrap" },
+  title: { fontSize: 10, color: "#514b42", minWidth: 48 },
+  item: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: "#716b5f", fontWeight: 700 },
+  dot: { width: 7, height: 7, borderRadius: 99, display: "inline-block" },
+};
+const courseTypeBadge = {
+  base: { display: "inline-flex", flex: "0 0 auto", alignItems: "center", justifyContent: "center", minWidth: 34, padding: "3px 6px", borderRadius: 999, border: "1px solid", fontSize: 8.8, fontWeight: 900, lineHeight: 1.05, whiteSpace: "nowrap" },
 };
 const metricPill = {
   display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 32, minHeight: 25, padding: "2px 8px", borderRadius: 999, fontWeight: 900, lineHeight: 1,
@@ -3155,6 +3400,7 @@ const admissionModeSwitch = {
   darkBox: { display: "inline-flex", gap: 3, padding: 3, borderRadius: 11, background: "rgba(255,255,255,0.11)", border: "1px solid rgba(255,255,255,0.18)", backdropFilter: "blur(3px)" },
   darkButton: { border: "none", background: "transparent", color: "rgba(255,255,255,0.78)", borderRadius: 8, padding: "8px 11px", fontSize: 10.8, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   darkActive: { background: "#fff", color: "#315132", boxShadow: "0 1px 4px rgba(0,0,0,0.16)" },
+  printButton: { display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid rgba(255,255,255,0.38)", borderRadius: 8, background: "transparent", color: "#fff", padding: "8px 9px", fontSize: 9.6, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
 };
 const curriculumSummary = {
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(125px, 1fr))", gap: 8, marginTop: 12 },
@@ -3162,8 +3408,23 @@ const curriculumSummary = {
   rank: { background: "#edf7e6", color: "#3e6b2f", border: "1px solid #cfe3c1" },
   achievement: { background: "#fff4d5", color: "#7a5b19", border: "1px solid #ecd89f" },
   mixed: { background: "#e7f3fb", color: "#2d617c", border: "1px solid #c1ddea" },
+  career: { background: "#f1ebfa", color: "#624a8a", border: "1px solid #d8caec" },
+  convergence: { background: "#fff0e2", color: "#8e5522", border: "1px solid #efd0b2" },
   qualitative: { background: "#f0ebfb", color: "#5e4c88", border: "1px solid #d7ccef" },
   excluded: { background: "#fdebea", color: "#944845", border: "1px solid #efc9c6" },
+};
+const achievementAdvice = {
+  box: { marginTop: 12, borderRadius: 12, padding: "12px 13px", border: "1px solid #ded9cd", background: "#faf9f5", color: "#514b42" },
+  neutral: { background: "#faf9f5", borderColor: "#ded9cd" },
+  warning: { background: "#fff7e8", borderColor: "#ead29f" },
+  positive: { background: "#eef8f0", borderColor: "#c9e1ce" },
+  header: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
+  eyebrow: { fontSize: 9.8, fontWeight: 900, color: "#786f62", letterSpacing: "0.03em" },
+  title: { marginTop: 3, fontSize: 12.2, fontWeight: 900, lineHeight: 1.45 },
+  countBadge: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "5px 9px", background: "#fff", border: "1px solid rgba(80,75,65,0.18)", fontSize: 9.8, fontWeight: 900, whiteSpace: "nowrap" },
+  metrics: { display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 },
+  metric: { display: "inline-flex", gap: 4, alignItems: "center", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(80,75,65,0.12)", borderRadius: 999, padding: "4px 8px", fontSize: 9.6, fontWeight: 750 },
+  comments: { display: "grid", gap: 5, marginTop: 10, fontSize: 10.3, lineHeight: 1.55, color: "#5f594d" },
 };
 const curriculumDataWarning = {
   margin: "0 0 12px",
@@ -3200,6 +3461,15 @@ const admissionToolbar = {
   requirementRow: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "7px 9px", background: "#f8f7f3", border: "1px solid #e5e0d4", borderRadius: 10 },
   requirementLabel: { fontSize: 10, fontWeight: 900, color: "#6f685d", marginRight: 2 },
 };
+const admissionFieldBadge = {
+  wrap: { display: "flex", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" },
+  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid", borderRadius: 999, padding: "3px 5px", fontSize: 8.2, fontWeight: 900, lineHeight: 1, whiteSpace: "nowrap" },
+};
+const fieldFilterButton = {
+  base: { display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #ded9cd", borderRadius: 999, background: "#fff", color: "#5f594d", padding: "6px 8px", fontSize: 10, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
+  active: { background: "#2f4b32", color: "#fff", borderColor: "#2f4b32" },
+  count: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 16, height: 16, borderRadius: 99, background: "rgba(255,255,255,0.25)", fontSize: 8.5, fontWeight: 900 },
+};
 const requirementFilterButton = {
   base: { display: "inline-flex", alignItems: "center", gap: 5, border: "1px solid #d9d4c8", background: "#fff", color: "#514b42", borderRadius: 999, padding: "4px 8px", fontSize: 10, fontWeight: 850, cursor: "pointer" },
   active: { background: "#2f4b32", color: "#fff", borderColor: "#2f4b32" },
@@ -3218,7 +3488,7 @@ const admissionTable = {
     width: "100%",
     borderCollapse: "collapse",
     tableLayout: "fixed",
-    fontSize: 9.4,
+    fontSize: 8.7,
   },
   th: {
     border: "1px solid #e6e1d3",
@@ -3226,21 +3496,22 @@ const admissionTable = {
     background: "#f6f4ee",
     color: "#332e27",
     fontWeight: 900,
-    fontSize: 9.1,
-    lineHeight: 1.25,
+    fontSize: 8.5,
+    lineHeight: 1.18,
     textAlign: "center",
     whiteSpace: "normal",
     wordBreak: "keep-all",
   },
   td: {
     border: "1px solid #e6e1d3",
-    padding: "6px 4px",
+    padding: "6px 3px",
     textAlign: "center",
     verticalAlign: "middle",
     whiteSpace: "normal",
     wordBreak: "keep-all",
     overflowWrap: "anywhere",
-    lineHeight: 1.35,
+    lineHeight: 1.28,
+    fontSize: 8.7,
   },
   university: {
     fontWeight: 900,
@@ -3250,11 +3521,12 @@ const admissionTable = {
     lineHeight: 1.3,
   },
   text: { textAlign: "left", verticalAlign: "top" },
-  regionCell: { padding: "8px 4px", overflow: "visible" },
+  regionCell: { padding: "7px 3px", overflow: "visible" },
+  fieldCell: { padding: "5px 2px" },
   department: { textAlign: "center", verticalAlign: "middle", paddingLeft: 4, paddingRight: 4 },
-  reflectionCell: { textAlign: "center", verticalAlign: "middle", padding: "7px 4px" },
-  curriculumCell: { border: "1px solid #e6e1d3", padding: "7px 3px", textAlign: "center", verticalAlign: "middle", whiteSpace: "normal", wordBreak: "keep-all" },
-  noteCell: { padding: "7px 6px", background: "#fffefa" },
+  reflectionCell: { textAlign: "center", verticalAlign: "middle", padding: "6px 3px" },
+  curriculumCell: { border: "1px solid #e6e1d3", padding: "6px 2px", textAlign: "center", verticalAlign: "middle", whiteSpace: "normal", wordBreak: "keep-all" },
+  noteCell: { padding: "6px 5px", background: "#fffefa" },
   subjectCell: { padding: "6px 3px", verticalAlign: "middle" },
   statusCell: { padding: "8px 8px" },
   primaryText: { fontWeight: 900, color: "#2b2620", lineHeight: 1.3, textAlign: "center" },

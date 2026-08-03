@@ -43,6 +43,32 @@ export function normalizeCategory(category, subjectName = "") {
   return inferCategory(subjectName) || "기타";
 }
 
+// ---------- 2022 개정 교육과정 과목 유형 자동 추론 ----------
+// 현재 성적 원본에는 과목 유형 열이 없으므로 과목명을 기준으로 공통과목,
+// 일반선택, 진로선택, 융합선택을 판별합니다. 이전 교육과정 명칭도 함께 지원합니다.
+const SUBJECT_TYPE_RULES = [
+  ["공통과목", /^(공통국어[12]?|공통수학[12]?|공통영어[12]?|한국사[12]?|통합사회[12]?|통합과학[12]?|과학탐구실험[12]?)$/],
+  ["융합선택", /(독서토론과글쓰기|매체의사소통|언어생활탐구|수학과문화|실용통계|수학과제탐구|실생활영어회화|미디어영어|세계문화와영어|여행지리|역사로탐구하는현대세계|사회문제탐구|금융과경제생활|윤리문제탐구|기후변화와지속가능한세계|과학의역사와문화|기후변화와환경생태|융합과학탐구|스포츠생활[12]?|스포츠와문화|음악과미디어|미술과매체|창의공학설계|지식재산일반|생명과학실험|아동발달과부모|소프트웨어와생활|독일어권문화|프랑스어권문화|스페인어권문화|중국문화|일본문화|러시아문화|아랍문화|베트남문화|언어생활과한자|인간과경제활동|논술)$/],
+  ["진로선택", /(주제탐구독서|문학과영상|직무의사소통|기하|미적분Ⅱ|미적분2|경제수학|인공지능수학|직무수학|영미문학읽기|영어발표와토론|심화영어|심화영어독해와작문|직무영어|한국지리탐구|도시의미래탐구|동아시아역사기행|정치|법과사회|경제|윤리와사상|인문학과윤리|국제관계의이해|역학과에너지|전자기와양자|물질과에너지|화학반응의세계|세포와물질대사|생물의유전|지구시스템과학|행성우주과학|운동과건강|음악연주와창작|음악감상과비평|미술창작|미술감상과비평|로봇과공학세계|생활과학탐구|인공지능기초|데이터과학|독일어회화|프랑스어회화|스페인어회화|중국어회화|일본어회화|러시아어회화|아랍어회화|베트남어회화|한문고전읽기|인간과철학|논리와사고|인간과심리|교육의이해|삶과종교|보건|생태와환경|진로와직업)$/],
+  ["일반선택", /(화법과언어|독서와작문|문학|대수|미적분Ⅰ|미적분1|확률과통계|영어Ⅰ|영어1|영어Ⅱ|영어2|영어독해와작문|세계시민과지리|세계사|사회와문화|현대사회와윤리|물리학|화학|생명과학|지구과학|체육[12]?|스포츠문화|스포츠과학|음악|미술|연극|기술.?가정|정보|독일어|프랑스어|스페인어|중국어|일본어|러시아어|아랍어|베트남어|한문|철학|논리학|심리학|교육학|종교학|진로와직업|생태와환경)$/],
+];
+
+export function inferSubjectType(subjectName, explicitType = "") {
+  const explicit = String(explicitType || "").replace(/\s/g, "");
+  if (/공통/.test(explicit)) return "공통과목";
+  if (/일반/.test(explicit)) return "일반선택";
+  if (/진로/.test(explicit)) return "진로선택";
+  if (/융합/.test(explicit)) return "융합선택";
+
+  const compact = String(subjectName || "")
+    .replace(/[·ㆍ\s_-]/g, "")
+    .replace(/I{1,3}$/i, match => ({ I: "Ⅰ", II: "Ⅱ", III: "Ⅲ" }[match.toUpperCase()] || match));
+  for (const [type, pattern] of SUBJECT_TYPE_RULES) {
+    if (pattern.test(compact)) return type;
+  }
+  return "기타";
+}
+
 function toNumberOrNull(value) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
@@ -93,6 +119,7 @@ export function parseSemesterSheet(rows) {
         subject,
         credit,
         category: normalizeCategory(category, subject),
+        subjectType: inferSubjectType(subject),
         raw: toNumberOrNull(raw),
         score: toNumberOrNull(row[col + 1]),
         achievement: row[col + 2] ?? null,
