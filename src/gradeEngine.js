@@ -7,16 +7,17 @@
 // ============================================================
 
 // ---------- 교과(계열) 자동 추론 ----------
-// 일부 시트는 "교과" 칸이 비어 있으므로 과목명을 보고 자동으로 추론합니다.
+// 일부 시트는 "교과" 칸이 비어 있거나 예전 명칭으로 저장되어 있으므로
+// 과목명과 원본 교과명을 함께 보고 표준 교과명으로 정규화합니다.
 const CATEGORY_KEYWORDS = [
   ["한국사", /한국사/],
+  // "중국어"에 "국어"가 포함되므로 제2외국어/한문을 국어보다 먼저 판별합니다.
+  ["제2외국어/한문", /제2\s*외국어|일본어|중국어|독일어|프랑스어|스페인어|러시아어|아랍어|베트남어|한문/],
+  // "정보과학"처럼 과학이 포함된 과목이 과학으로 잘못 분류되지 않도록 먼저 판별합니다.
+  ["기술가정/정보", /기술[·\s/]*가정|가정\s*과학|정보|인공지능|프로그래밍|데이터\s*과학|지식\s*재산|아동\s*발달/],
   ["국어", /국어|문학|독서|화법|작문|언어와\s*매체|매체|고전\s*읽기/],
   ["수학", /수학|대수|미적분|기하|확률과\s*통계/],
   ["영어", /영어/],
-  // "정보과학"처럼 과학이라는 글자가 포함된 과목이 과학으로 잘못 분류되지 않도록
-  // 기술가정/정보와 제2외국어를 과학보다 먼저 판별합니다.
-  ["기술가정/정보", /기술[·\s/]*가정|가정\s*과학|정보|인공지능|프로그래밍|데이터\s*과학/],
-  ["제2외국어", /제2\s*외국어|일본어|중국어|독일어|프랑스어|스페인어|러시아어|아랍어|베트남어|한문/],
   ["과학", /과학|물리|화학|생명|지구과학/],
   ["사회", /사회|정치|법과|경제|역사|지리|윤리|세계시민|여행지리|현대\s*세계/],
 ];
@@ -27,6 +28,19 @@ export function inferCategory(subjectName) {
     if (re.test(name)) return cat;
   }
   return null;
+}
+
+export function normalizeCategory(category, subjectName = "") {
+  const raw = String(category || "").replace(/\s/g, "");
+  if (/^한국사$/.test(raw)) return "한국사";
+  if (/제2외국어|일본어|중국어|한문|독일어|프랑스어|스페인어|러시아어|아랍어|베트남어/.test(raw)) return "제2외국어/한문";
+  if (/기술.?가정|가정|정보|인공지능|프로그래밍|데이터과학|지식재산|아동발달/.test(raw)) return "기술가정/정보";
+  if (/국어|문학|독서|화법|작문|언어/.test(raw)) return "국어";
+  if (/영어/.test(raw)) return "영어";
+  if (/수학|대수|미적분|기하|확률/.test(raw)) return "수학";
+  if (/사회|한국사|역사|지리|윤리|정치|경제/.test(raw)) return raw === "한국사" ? "한국사" : "사회";
+  if (/과학|물리|화학|생명|지구/.test(raw)) return "과학";
+  return inferCategory(subjectName) || "기타";
 }
 
 function toNumberOrNull(value) {
@@ -78,7 +92,7 @@ export function parseSemesterSheet(rows) {
       subjects.push({
         subject,
         credit,
-        category: category || inferCategory(subject),
+        category: normalizeCategory(category, subject),
         raw: toNumberOrNull(raw),
         score: toNumberOrNull(row[col + 1]),
         achievement: row[col + 2] ?? null,
@@ -115,7 +129,9 @@ export const SUBJECT_GROUPS = {
   수학: /^수학$/,
   사회: /^(사회|한국사)$/,
   과학: /^과학$/,
-  전과목: /국어|수학|영어|사회|한국사|과학|기술가정\/정보|제2외국어/,
+  "기술가정/정보": /^기술가정\/정보$/,
+  "제2외국어/한문": /^제2외국어\/한문$/,
+  전과목: /국어|수학|영어|사회|한국사|과학|기술가정\/정보|제2외국어\/한문/,
   국영수사과: /국어|수학|영어|사회|한국사|과학/,
   국영수사: /국어|영어|수학|사회|한국사/,
   국영수과: /국어|영어|수학|과학/,
@@ -129,7 +145,7 @@ export const SUBJECT_GROUPS = {
 export function weightedAverageGrade(subjects, categoryRegex) {
   const matched = (subjects || []).filter(subject => {
     const grade = getSubjectGrade(subject);
-    return grade != null && categoryRegex.test(String(subject.category || inferCategory(subject.subject) || ""));
+    return grade != null && categoryRegex.test(normalizeCategory(subject.category, subject.subject));
   });
   if (!matched.length) return null;
 
@@ -233,6 +249,18 @@ export function computeMockExamSums(mockGrades) {
   return { sum2, sum3, sum4 };
 }
 
+function extractAdmissionThreshold(value, count) {
+  const text = String(value ?? "");
+  if (count != null) {
+    const specific = text.match(new RegExp(`${Number(count)}\\s*합\\s*([0-9]+(?:\\.[0-9]+)?)`));
+    if (specific) return Number(specific[1]);
+  }
+  const nums = text.match(/\d+(?:\.\d+)?/g);
+  if (!nums?.length) return null;
+  // "2합 4"처럼 영역 수가 문자열에 함께 적힌 경우 첫 숫자는 영역 수이므로 마지막 값을 사용합니다.
+  return Number(nums[nums.length - 1]);
+}
+
 // ---------- 수능 최저 도달 대학 매칭 ----------
 export function matchUniversities(sums, admissionRows) {
   const { sum2, sum3, sum4 } = sums;
@@ -245,12 +273,32 @@ export function matchUniversities(sums, admissionRows) {
 
     const studentSum = { 2: sum2, 3: sum3, 4: sum4 }[Number(row.requiredSubjectCount)];
     if (studentSum == null) return;
-    const nums = String(row.requiredSum).match(/\d+(\.\d+)?/g);
-    if (!nums) return;
-    const threshold = Math.max(...nums.map(Number));
+    const threshold = extractAdmissionThreshold(row.requiredSum, row.requiredSubjectCount);
+    if (threshold == null) return;
     if (studentSum <= threshold) matched.add(row.university);
   });
   return Array.from(matched);
+}
+
+// ---------- 대학별 수능 최저 개별 판정 ----------
+export function evaluateAdmissionRequirement(row, sums) {
+  const university = String(row?.university || "").trim();
+  const count = toNumberOrNull(row?.requiredSubjectCount);
+  const threshold = extractAdmissionThreshold(row?.requiredSum, count);
+  const studentSum = count == null ? null : ({ 2: sums?.sum2, 3: sums?.sum3, 4: sums?.sum4 }[Number(count)] ?? null);
+  const note = String(row?.note || "");
+
+  if (!university) return { status: "invalid", satisfied: null, studentSum, threshold, count };
+  if (!count || threshold == null) return { status: "no-minimum", satisfied: true, studentSum, threshold, count };
+  if (note.includes("각")) return { status: "manual", satisfied: null, studentSum, threshold, count };
+  if (studentSum == null) return { status: "unavailable", satisfied: null, studentSum, threshold, count };
+  return {
+    status: studentSum <= threshold ? "satisfied" : "unsatisfied",
+    satisfied: studentSum <= threshold,
+    studentSum,
+    threshold,
+    count,
+  };
 }
 
 // ---------- 성적 분석 코멘트 자동 생성 ----------

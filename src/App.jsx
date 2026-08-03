@@ -569,6 +569,7 @@ export default function App() {
     if (patch.semesterData) jobs.push(writeStorage("kd_grades_semesters", patch.semesterData));
     if (patch.mockData) jobs.push(writeStorage("kd_grades_mocks", patch.mockData));
     if (patch.admissionRows) jobs.push(writeStorage("kd_grades_admission", patch.admissionRows));
+    if (patch.admissionDocs) jobs.push(writeStorage("kd_grades_admission_docs", patch.admissionDocs));
     const results = await Promise.all(jobs);
     if (results.some(r => r && r.ok === false)) { showToast("저장에 실패했습니다.", "error"); return false; }
     setGdb(d => ({ ...d, ...patch }));
