@@ -556,6 +556,7 @@ export default function App() {
   const [viewedTeacher, setViewedTeacher] = useState(null); // admin "view as teacher" (no separate login needed)
   const [selectedStudentSid, setSelectedStudentSid] = useState(null);
   const [selectedStudentQuery, setSelectedStudentQuery] = useState("");
+  const [studentWorkspaceView, setStudentWorkspaceView] = useState("grades");
   const sessionRestoredRef = useRef(false);
   const [toast, setToast] = useState(null);
   const showToast = useCallback((msg, type = "info") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4200); }, []);
@@ -617,6 +618,7 @@ export default function App() {
             if (GRADES.includes(selectedGrade) && !DISABLED_GRADES.includes(selectedGrade)) setGrade(selectedGrade);
           }
           if (saved.section) setSection(saved.section);
+          if (["grades", "admission", "timetable"].includes(saved.studentWorkspaceView)) setStudentWorkspaceView(saved.studentWorkspaceView);
         } catch { /* ignore malformed session */ }
       }
     })();
@@ -872,8 +874,24 @@ export default function App() {
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
   const activeSection = section || "grades";
+  const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
+  const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
+  const changeStudentWorkspaceView = (view) => {
+    setStudentWorkspaceView(view);
+    if (view === "timetable") {
+      setSection("timetable");
+      setTab("student");
+    } else {
+      setSection("grades");
+    }
+    saveSession({ section: view === "timetable" ? "timetable" : "grades", studentWorkspaceView: view, selectedStudentSid, selectedStudentQuery });
+  };
   const switchSection = (s) => {
-    if (loggedInAdmin && selectedStudentSid) {
+    if (staffWorkspaceEnabled) {
+      if (s === "timetable") setStudentWorkspaceView("timetable");
+      if (s === "grades" && studentWorkspaceView === "timetable") setStudentWorkspaceView("grades");
+    }
+    if (staffWorkspaceEnabled && selectedStudentSid) {
       const inferredGrade = String(selectedStudentSid).charAt(0);
       if (GRADES.includes(inferredGrade) && !DISABLED_GRADES.includes(inferredGrade)) setGrade(inferredGrade);
       if (s === "timetable") setTab("student");
@@ -905,6 +923,16 @@ export default function App() {
     <div style={styles.app}>
       <style>{globalCss}</style>
       <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} />
+      {staffWorkspaceEnabled && activeSection !== "admin" && <StaffStudentWorkspaceBar
+        allRosters={db.roster}
+        allowedGrades={workspaceAllowedGrades}
+        selectedSid={selectedStudentSid}
+        query={selectedStudentQuery}
+        onQueryChange={updateSelectedStudentQuery}
+        onSelect={updateSelectedStudentSid}
+        activeView={studentWorkspaceView}
+        onViewChange={changeStudentWorkspaceView}
+      />}
       {activeSection === "admin" ? (
         <AdminConsole
           db={db} persist={persist} showToast={showToast} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester}
@@ -917,10 +945,11 @@ export default function App() {
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
           roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
           gdb={gdb} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
-          selectedStudentSid={loggedInAdmin ? selectedStudentSid : undefined}
-          onSelectedStudentSidChange={loggedInAdmin ? updateSelectedStudentSid : undefined}
-          selectedStudentQuery={loggedInAdmin ? selectedStudentQuery : undefined}
-          onSelectedStudentQueryChange={loggedInAdmin ? updateSelectedStudentQuery : undefined}
+          selectedStudentSid={staffWorkspaceEnabled ? selectedStudentSid : undefined}
+          onSelectedStudentSidChange={staffWorkspaceEnabled ? updateSelectedStudentSid : undefined}
+          selectedStudentQuery={staffWorkspaceEnabled ? selectedStudentQuery : undefined}
+          onSelectedStudentQueryChange={staffWorkspaceEnabled ? updateSelectedStudentQuery : undefined}
+          requestedStudentView={studentWorkspaceView}
         />
       ) : (loggedInStudent && !loggedInAdmin && !loggedInTeacher && !loggedInDepartment && !loggedInMonitor && !classAuthed) ? (
         <div style={styles.body}>
@@ -942,10 +971,10 @@ export default function App() {
                   roster={roster}
                   build={buildPersonalTimetable}
                   hasAnyData={hasAnyData}
-                  selectedSid={loggedInAdmin ? selectedStudentSid : undefined}
-                  onSelectedSidChange={loggedInAdmin ? updateSelectedStudentSid : undefined}
-                  sharedQuery={loggedInAdmin ? selectedStudentQuery : undefined}
-                  onSharedQueryChange={loggedInAdmin ? updateSelectedStudentQuery : undefined}
+                  selectedSid={staffWorkspaceEnabled ? selectedStudentSid : undefined}
+                  onSelectedSidChange={staffWorkspaceEnabled ? updateSelectedStudentSid : undefined}
+                  sharedQuery={staffWorkspaceEnabled ? selectedStudentQuery : undefined}
+                  onSharedQueryChange={staffWorkspaceEnabled ? updateSelectedStudentQuery : undefined}
                 />
               : <div style={styles.warnBanner}><AlertTriangle size={14} /> {grade}학년 학생 시간표 조회 권한이 없습니다.</div>)}
             {tab === "classPrint" && (canViewStudentTimetableTools
@@ -1046,11 +1075,17 @@ function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semester
 
 const ROLE_LABEL = { admin: "관리자", teacher: "선생님", department: "부서", monitor: "교과부장", classView: "학급별조회" };
 function UnifiedLoginGate({ label, attemptLogin, showToast, satisfies, hint }) {
-  const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
+  const [id, setId] = useState(() => { try { return localStorage.getItem("kd_saved_login_id") || ""; } catch { return ""; } });
+  const [pw, setPw] = useState(""), [err, setErr] = useState("");
+  const [rememberId, setRememberId] = useState(() => { try { return !!localStorage.getItem("kd_saved_login_id"); } catch { return false; } });
   const submit = () => {
     const role = attemptLogin(id.trim(), pw);
     if (!role) { setErr("아이디 또는 비밀번호가 올바르지 않습니다."); return; }
     setErr("");
+    try {
+      if (rememberId) localStorage.setItem("kd_saved_login_id", id.trim());
+      else localStorage.removeItem("kd_saved_login_id");
+    } catch { /* localStorage unavailable */ }
     if (satisfies && !satisfies(role)) {
       showToast(`${ROLE_LABEL[role]} 계정으로 로그인되었습니다. 해당 메뉴에서 이용해주세요.`, "info");
     }
@@ -1064,6 +1099,9 @@ function UnifiedLoginGate({ label, attemptLogin, showToast, satisfies, hint }) {
       <div style={{ height: 14 }} />
       <input value={id} onChange={e => setId(e.target.value)} placeholder="아이디" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submit()} />
       <input value={pw} onChange={e => setPw(e.target.value)} placeholder="비밀번호" type="password" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submit()} />
+      <label style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", margin: "-2px 0 7px", fontSize: 11.5, color: "#6f6a61", cursor: "pointer" }}>
+        <input type="checkbox" checked={rememberId} onChange={e => setRememberId(e.target.checked)} /> 아이디 저장
+      </label>
       {err && <div style={{ color: "#b3401f", fontSize: 12, marginBottom: 6 }}>{err}</div>}
       <button style={styles.primaryBtn} onClick={submit}><KeyRound size={14} /> 로그인</button>
     </div>
@@ -1249,6 +1287,52 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
       )}
     </div>
   );
+}
+
+function StaffStudentWorkspaceBar({
+  allRosters,
+  allowedGrades,
+  selectedSid,
+  query,
+  onQueryChange,
+  onSelect,
+  activeView,
+  onViewChange,
+}) {
+  const mergedStudents = useMemo(() => {
+    const map = new Map();
+    Object.entries(allRosters || {}).forEach(([scope, scopeRoster]) => {
+      const scopeGrade = String(scope).split("-")[0];
+      if (allowedGrades?.length && !allowedGrades.map(String).includes(scopeGrade)) return;
+      Object.entries(scopeRoster || {}).forEach(([sid, student]) => {
+        if (!map.has(sid)) map.set(sid, { ...student, sid, grade: scopeGrade });
+      });
+    });
+    return Array.from(map.values());
+  }, [allRosters, allowedGrades]);
+  const matches = useMemo(() => {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q || selectedSid) return [];
+    return mergedStudents.filter(student => (
+      student.sid.includes(q)
+      || String(student.name || "").toLowerCase().includes(q)
+      || `${student.class}반${student.number}번`.includes(q.replace(/\s/g, ""))
+    )).slice(0, 8);
+  }, [mergedStudents, query, selectedSid]);
+  return <div className="no-print" style={styles.workspaceBarWrap}>
+    <div style={styles.workspaceBarInner}>
+      <div style={styles.workspaceSearchWrap}>
+        <Search size={16} color="#788397" />
+        <input value={query || ""} onChange={event => onQueryChange(event.target.value)} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
+        {query && <button type="button" onClick={() => { onQueryChange(""); onSelect(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
+        {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
+      </div>
+      <div style={styles.workspaceViewTabs}>
+        {[['grades','성적 리포트'],['admission','대학 지원 진단'],['timetable','개인 시간표']].map(([key,label]) => <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceViewBtn, ...(activeView === key ? styles.workspaceViewBtnActive : {}) }}>{label}</button>)}
+      </div>
+      <div style={styles.workspaceStudentState}>{selectedSid ? <><span>선택 학생</span><strong>{selectedSid}</strong></> : <span>학생을 검색해 세 화면을 연속 조회하세요.</span>}</div>
+    </div>
+  </div>;
 }
 
 function MegaNav({ active, onSwitch, onLogout, showAdmin }) {
@@ -4078,7 +4162,7 @@ const styles = {
   teacherTargetRow: { display: "grid", gridTemplateColumns: "130px 1fr", alignItems: "start", gap: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${COLORS.line}` },
   teacherTargetLabel: { fontSize: 11, color: "#4f493f", fontWeight: 950, paddingTop: 4 },
   teacherTargetHint: { fontSize: 9.8, color: "#9a9385", marginTop: 3, lineHeight: 1.4 },
-  teacherTargetChoice: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, minWidth: 130, border: `1px solid ${COLORS.line}`, background: "#fff", borderRadius: 10, padding: "8px 11px", color: "#514b42", fontSize: 11.5, fontWeight: 900, cursor: "pointer" },
+  teacherTargetChoice: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, minWidth: 130, border: `1px solid ${COLORS.line}`, background: "#fff", borderRadius: 10, padding: "8px 11px", color: "#514b42", fontSize: 12, fontWeight: 900, cursor: "pointer" },
   teacherTargetChoiceActive: { background: "#2f4932", borderColor: "#2f4932", color: "#fff", boxShadow: "0 4px 12px rgba(47,73,50,.18)" },
   teacherTargetEmpty: { minHeight: 150, border: `1px dashed ${COLORS.line}`, borderRadius: 13, background: "#fbfaf6", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, color: "#7f786b", marginBottom: 14 },
   teacherComposerHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "16px 18px", background: "linear-gradient(135deg,#f3f7f1,#fff)", borderBottom: `1px solid ${COLORS.line}` },
@@ -4121,7 +4205,18 @@ const styles = {
   staffNoticeComposer: { border: "1px solid #d9dfec", borderRadius: 14, background: "linear-gradient(135deg,#f6f8fd,#ffffff)", padding: 17, boxShadow: "0 4px 18px rgba(68,84,120,.06)" },
   staffNoticeManageCard: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fff" },
   staffNoticeAudienceBadge: { display: "inline-flex", borderRadius: 999, padding: "3px 7px", background: "#edf1fa", color: "#4c628f", border: "1px solid #ced8eb", fontSize: 9.5, fontWeight: 900 },
-  staffNoticeDock: { position: "fixed", left: 16, top: 82, zIndex: 44, width: 300 },
+  workspaceBarWrap: { position: "sticky", top: 55, zIndex: 35, background: "rgba(248,247,243,.94)", backdropFilter: "blur(13px)", borderBottom: "1px solid #e5e0d6" },
+  workspaceBarInner: { maxWidth: 1120, margin: "0 auto", padding: "9px 20px", display: "grid", gridTemplateColumns: "minmax(250px,1fr) auto minmax(150px,.45fr)", gap: 10, alignItems: "center" },
+  workspaceSearchWrap: { position: "relative", minWidth: 0, height: 38, borderRadius: 12, border: "1px solid #d8dfe8", background: "#fff", display: "flex", alignItems: "center", gap: 8, padding: "0 11px", boxShadow: "0 3px 12px rgba(55,70,90,.05)" },
+  workspaceSearchInput: { flex: 1, minWidth: 0, border: 0, outline: 0, fontSize: 12.5, fontWeight: 750, background: "transparent" },
+  workspaceClearBtn: { border: 0, background: "transparent", color: "#8a909a", cursor: "pointer", padding: 3, display: "grid", placeItems: "center" },
+  workspaceMatches: { position: "absolute", left: 0, right: 0, top: 43, zIndex: 70, background: "#fff", border: "1px solid #dce2ea", borderRadius: 12, padding: 6, boxShadow: "0 14px 32px rgba(46,56,72,.16)", display: "grid", gap: 3 },
+  workspaceMatchItem: { border: 0, borderRadius: 8, background: "transparent", padding: "8px 10px", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, color: "#6b7280" },
+  workspaceViewTabs: { display: "flex", gap: 4, padding: 3, borderRadius: 12, background: "#e9edf3" },
+  workspaceViewBtn: { border: 0, borderRadius: 9, background: "transparent", color: "#667085", padding: "7px 10px", fontSize: 11.5, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
+  workspaceViewBtnActive: { background: "#fff", color: "#274b7a", boxShadow: "0 2px 8px rgba(48,65,90,.12)" },
+  workspaceStudentState: { minWidth: 0, fontSize: 10.5, color: "#8a8578", textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 },
+  staffNoticeDock: { position: "fixed", left: 18, top: 142, zIndex: 44, width: 286 },
   staffNoticeDockButton: { display: "inline-flex", alignItems: "center", gap: 7, borderRadius: 999, padding: "9px 12px", border: "1px solid #d2d5df", background: "#fff", color: "#526079", fontSize: 11.5, fontWeight: 900, cursor: "pointer", boxShadow: "0 7px 22px rgba(40,46,60,.12)" },
   staffNoticeDockUnread: { background: "#2f3e62", color: "#fff", borderColor: "#2f3e62" },
   staffNoticeCount: { minWidth: 20, height: 20, display: "inline-grid", placeItems: "center", borderRadius: 999, background: "#ffd978", color: "#25314d", fontSize: 10 },

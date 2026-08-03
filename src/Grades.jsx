@@ -264,6 +264,7 @@ export default function GradesSection({
   onSelectedStudentSidChange,
   selectedStudentQuery,
   onSelectedStudentQueryChange,
+  requestedStudentView,
 }) {
   const [tab, setTab] = useState(loggedInStudent ? "grades" : "lookup");
   const [localLookupSid, setLocalLookupSid] = useState(null);
@@ -278,6 +279,12 @@ export default function GradesSection({
   useEffect(() => {
     if (loggedInTeacher && !teacherHasGradeAccess && tab !== "class") setTab("lookup");
   }, [loggedInTeacher, teacherHasGradeAccess, tab]);
+
+  useEffect(() => {
+    if (!requestedStudentView || loggedInStudent) return;
+    if (requestedStudentView === "grades") setTab("lookup");
+    if (requestedStudentView === "admission") setTab("lookupAdmission");
+  }, [requestedStudentView, loggedInStudent]);
 
   if (!gdb) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
 
@@ -303,11 +310,8 @@ export default function GradesSection({
         <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
           {loggedInStudent && <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="내 성적 리포트" />}
           {loggedInStudent && <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학 지원 진단" />}
-          {loggedInTeacher && teacherHasGradeAccess && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label={`${currentGrade}학년 성적 리포트`} />}
           {loggedInTeacher && teacherHasGradeAccess && <TabBtn active={tab === "mockAnalysis"} onClick={() => setTab("mockAnalysis")} label="모의고사 성적 분석" />}
           {loggedInTeacher && loggedInTeacher.homeroomClass && teacherHasGradeAccess && <TabBtn active={tab === "class"} onClick={() => setTab("class")} label="담임반 학생 계정" />}
-          {loggedInAdmin && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label="학생 성적 리포트" />}
-          {loggedInAdmin && <TabBtn active={tab === "lookupAdmission"} onClick={() => setTab("lookupAdmission")} label="학생 대학 지원 진단" />}
           {loggedInAdmin && <TabBtn active={tab === "mockAnalysis"} onClick={() => setTab("mockAnalysis")} label="모의고사 성적 분석" />}
         </div>
 
@@ -324,14 +328,15 @@ export default function GradesSection({
             gdb={gdb}
             isAdmin
             initialView="grades"
-            selectedSid={loggedInAdmin ? lookupSid : undefined}
-            onSelectedSidChange={loggedInAdmin ? setLookupSid : undefined}
-            sharedQuery={loggedInAdmin ? lookupQuery : undefined}
-            onSharedQueryChange={loggedInAdmin ? setLookupQuery : undefined}
+            selectedSid={lookupSid}
+            onSelectedSidChange={setLookupSid}
+            sharedQuery={lookupQuery}
+            onSharedQueryChange={setLookupQuery}
             showViewTabs={false}
+            hideSearch={true}
           />
         )}
-        {tab === "lookupAdmission" && loggedInAdmin && (
+        {tab === "lookupAdmission" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <StudentLookup
             roster={roster}
             gdb={gdb}
@@ -342,6 +347,7 @@ export default function GradesSection({
             sharedQuery={lookupQuery}
             onSharedQueryChange={setLookupQuery}
             showViewTabs={false}
+            hideSearch={true}
           />
         )}
         {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
@@ -505,12 +511,12 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
 
   return (
     <div>
-      <div style={{ ...card, marginTop: 0, padding: 18, background: "linear-gradient(135deg,#27344f 0%,#435a78 58%,#776892 100%)", color: "#fff", overflow: "hidden" }}>
+      <div style={{ ...card, marginTop: 0, padding: 18, background: "linear-gradient(135deg,#58739a 0%,#6f8fb5 52%,#9485b0 100%)", color: "#fff", overflow: "hidden" }}>
         <div>
           <div style={{ fontWeight: 950, fontSize: 19 }}>모의고사 성적 분석</div>
           <div style={{ fontSize: 11.5, color: "#e8edf6", marginTop: 4 }}>{entryYear}년 입학생 · 1학년부터 {currentGrade}학년까지 누적 회차 분석</div>
         </div>
-        <div style={{ marginTop: 14, padding: 8, borderRadius: 12, background: "rgba(15,23,42,.28)", border: "1px solid rgba(255,255,255,.15)", display: "flex", gap: 7, flexWrap: "wrap" }}>
+        <div style={{ marginTop: 14, padding: 8, borderRadius: 12, background: "rgba(255,255,255,.13)", border: "1px solid rgba(255,255,255,.15)", display: "flex", gap: 7, flexWrap: "wrap" }}>
           {available.map(key => (
             <button key={key} style={{ ...btn.chip, minHeight: 32, background: mockKey === key ? "#ffd978" : "rgba(255,255,255,.13)", color: mockKey === key ? "#2e3445" : "#f7f8fc", borderColor: mockKey === key ? "#ffe7a5" : "rgba(255,255,255,.34)", boxShadow: mockKey === key ? "0 3px 10px rgba(0,0,0,.18)" : "none", fontWeight: 900 }} onClick={() => setMockKey(key)}>
               {MOCK_MONTH_LABELS[key]}
@@ -546,8 +552,8 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
           </div>
           <select value={classMetric} onChange={event => setClassMetric(event.target.value)} style={{ ...btn.input, width: 132 }}><option>총점</option>{MOCK_SUBJECTS.map(subject => <option key={subject}>{subject}</option>)}</select>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,.68fr) minmax(0,1.55fr)", gap: 24, alignItems: "start", minWidth: 0 }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 7, minWidth: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(220px,.68fr) minmax(0,1.55fr)", gap: 28, alignItems: "stretch", minWidth: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 7, minWidth: 0, minHeight: 292, padding: "4px 0" }}>
             {classSummaries.map(summary => {
               const value = classMetricValue(summary);
               const width = value == null ? 0 : Math.max(3, Number(value) / classMetricMax * 100);
@@ -555,14 +561,14 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
                 <strong>{summary.classNumber}반</strong>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ height: 10, background: "#eeeae1", borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#456b94,#7aa6c7)", borderRadius: 99 }} /></div>
-                  {summary.absentCount > 0 && <span style={{ display: "inline-flex", marginTop: 4, borderRadius: 999, background: "#fff0ed", color: "#9a493c", border: "1px solid #f1c9c2", padding: "2px 6px", fontSize: 9.2, fontWeight: 900 }}>결시 {summary.absentCount}</span>}
+                  {summary.absentCount > 0 && <span style={{ display: "inline-flex", marginTop: 4, borderRadius: 999, background: "#fff0ed", color: "#9a493c", border: "1px solid #f1c9c2", padding: "2px 6px", fontSize: 9.8, fontWeight: 900 }}>결시 {summary.absentCount}</span>}
                 </div>
                 <span style={{ fontWeight: 900, textAlign: "right" }}>{value ?? "-"}</span>
               </div>;
             })}
           </div>
-          <div style={{ minWidth: 0, overflow: "hidden", border: "1px solid #e4dfd4", borderRadius: 9 }}>
-            <table style={{ ...table.base, width: "100%", minWidth: 0, tableLayout: "fixed", fontSize: 9.2 }}><colgroup><col style={{ width: 38 }} /><col style={{ width: 42 }} /><col style={{ width: 42 }} /><col style={{ width: 58 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} />)}</colgroup>
+          <div style={{ minWidth: 0, minHeight: 292, overflow: "hidden", border: "1px solid #e4dfd4", borderRadius: 9, display: "flex", alignItems: "stretch" }}>
+            <table style={{ ...table.base, width: "100%", minWidth: 0, tableLayout: "fixed", fontSize: 9.8, height: "100%" }}><colgroup><col style={{ width: 38 }} /><col style={{ width: 42 }} /><col style={{ width: 42 }} /><col style={{ width: 58 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} />)}</colgroup>
               <thead><tr><th style={{ ...table.th, padding: "6px 2px" }}>반</th><th style={{ ...table.th, padding: "6px 2px" }}>응시</th><th style={{ ...table.th, padding: "6px 2px" }}>결시</th><th style={{ ...table.th, padding: "6px 2px" }}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={{ ...table.th, padding: "6px 2px", lineHeight: 1.15, wordBreak: "keep-all" }}>{subject === "통합사회" ? <>통합<br />사회</> : subject === "통합과학" ? <>통합<br />과학</> : subject}</th>)}</tr></thead>
               <tbody>{classSummaries.map(summary => <tr key={summary.classNumber}><td style={{ ...table.td, padding: "6px 2px", fontWeight: 900 }}>{summary.classNumber}반</td><td style={{ ...table.td, padding: "6px 2px" }}>{summary.presentCount}</td><td style={{ ...table.td, padding: "6px 2px", color: summary.absentCount ? "#a14c40" : "#8a8578", fontWeight: summary.absentCount ? 900 : 600 }}>{summary.absentCount}</td><td style={{ ...table.td, padding: "6px 2px", fontWeight: 900 }}>{summary.total ?? "-"}</td>{MOCK_SUBJECTS.map(subject => <td key={subject} style={{ ...table.td, padding: "6px 2px" }}>{summary.subjects[subject] ?? "-"}</td>)}</tr>)}</tbody>
             </table>
@@ -1643,7 +1649,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
 
       <div style={card}>
         <SectionHeading
-          title={admissionViewMode === "mock" ? "대학별 전형 판정" : "대학별 내신 반영 방식"}
+          title={admissionViewMode === "mock" ? "대학별 지원 가능성 진단" : "대학별 내신 반영 방식"}
           description={admissionViewMode === "mock"
             ? "최저 유형별로 대학을 나누어 볼 수 있습니다. (사·과)처럼 괄호로 묶인 과목은 두 과목 중 더 높은 등급(숫자가 작은 등급) 1개만 반영합니다."
             : "대학명순으로 정렬되며, 핵심 열 보기와 전체 열 보기를 전환해 비교할 수 있습니다."}
@@ -1682,7 +1688,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           {admissionViewMode === "mock" && (
             <div style={admissionToolbar.secondaryRow}>
               <div style={admissionToolbar.filterCluster}>
-                <span style={admissionToolbar.filterLabel}>판정</span>
+                <span style={admissionToolbar.filterLabel}>진단 결과</span>
                 <div style={admissionToolbar.filterGroup}>
                   {[
                     ["all", "전체"],
@@ -1734,7 +1740,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             <table style={{ ...admissionTable.base, minWidth: admissionTableView === "full" ? 1120 : 0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "13%" }} /><col style={{ width: "13%" }} /><col style={{ width: "15%" }} /><col style={{ width: "12%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} /><col style={{ width: "10%" }} />
+                  <col style={{ width: "14%" }} /><col style={{ width: "15%" }} /><col style={{ width: "16%" }} /><col style={{ width: "13%" }} /><col style={{ width: "13%" }} /><col style={{ width: "15%" }} /><col style={{ width: "14%" }} />
                 </> : <>
                   <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "8.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} />
                 </>}
@@ -1748,9 +1754,9 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   {admissionTableView === "full" && <th style={admissionTable.th}>교과 반영비율<br />반영방법</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>전형 특이사항</th>}
                   <th style={admissionTable.th}>반영과목</th>
-                  <th style={admissionTable.th}>수능 최저</th>
-                  <th style={admissionTable.th}>내 등급</th>
-                  <th style={admissionTable.th}>판정</th>
+                  <th style={admissionTable.th}>대학 기준</th>
+                  <th style={admissionTable.th}>현재 반영값</th>
+                  <th style={admissionTable.th}>진단 결과</th>
                   <th style={admissionTable.th}>모집요강</th>
                 </tr>
               </thead>
@@ -2238,6 +2244,7 @@ function StudentLookup({
   sharedQuery,
   onSharedQueryChange,
   showViewTabs = true,
+  hideSearch = false,
 }) {
   const [localQuery, setLocalQuery] = useState("");
   const [localSid, setLocalSid] = useState(null);
@@ -2283,7 +2290,7 @@ function StudentLookup({
   return (
     <div>
       {!isAdmin && homeroomClass && <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 10 }}>담당 반({homeroomClass}반) 학생만 조회할 수 있습니다.</div>}
-      <div style={searchBox.box}>
+      {!hideSearch && <div style={searchBox.box}>
         <Search size={16} color="#a39d8c" />
         <input
           value={query}
@@ -2297,8 +2304,8 @@ function StudentLookup({
           placeholder="학번 또는 이름으로 검색"
           style={searchBox.input}
         />
-      </div>
-      {candidates.length > 0 && !sid && (
+      </div>}
+      {!hideSearch && candidates.length > 0 && !sid && (
         <div style={searchBox.list}>
           {candidates.map(([id, student]) => (
             <button key={id} style={searchBox.item} onClick={() => chooseStudent(id)}>
