@@ -1,16 +1,23 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, Upload, FileSpreadsheet, Loader2, Save, X, ArrowRight, Users } from "lucide-react";
-import { readStorage, writeStorage } from "./storage.js";
+import React, { useState, useMemo, useRef } from "react";
+import { Search, Upload, FileSpreadsheet, Loader2, Save } from "lucide-react";
+import { readStorage } from "./storage.js";
 import {
   parseSemesterSheet,
   computeAllGroupAverages,
   computeMockExamSums,
   matchUniversities,
   gradeAnalysisComment,
+  inferCategory,
+  getSubjectGrade,
+  grade5to9,
 } from "./gradeEngine.js";
 
-const SEMESTER_KEYS = ["1-1", "1-2", "2-1", "2-2"];
-const SEMESTER_LABELS = { "1-1": "1학년 1학기", "1-2": "1학년 2학기", "2-1": "2학년 1학기", "2-2": "2학년 2학기" };
+const SEMESTER_KEYS = ["1-1", "1-2", "2-1", "2-2", "3-1", "3-2"];
+const SEMESTER_LABELS = {
+  "1-1": "1학년 1학기", "1-2": "1학년 2학기",
+  "2-1": "2학년 1학기", "2-2": "2학년 2학기",
+  "3-1": "3학년 1학기", "3-2": "3학년 2학기",
+};
 const MOCK_MONTH_KEYS = ["1-3", "1-6", "1-9", "1-10", "2-3", "2-6", "2-9", "3-3", "3-6", "3-9"];
 const MOCK_MONTH_LABELS = {
   "1-3": "1학년 3월", "1-6": "1학년 6월", "1-9": "1학년 9월", "1-10": "1학년 10월",
@@ -18,6 +25,43 @@ const MOCK_MONTH_LABELS = {
   "3-3": "3학년 3월", "3-6": "3학년 6월", "3-9": "3학년 9월",
 };
 const MOCK_SUBJECTS = ["국어", "수학", "영어", "한국사", "통합사회", "통합과학"];
+const CORE_MOCK_SUBJECTS = ["국어", "수학", "영어", "통합사회", "통합과학"];
+const CATEGORY_GROUP_NAMES = ["국어", "영어", "수학", "사회", "과학"];
+const COMBINATION_GROUP_NAMES = ["전과목", "국영수사과", "국영수사", "국영수과", "국영수", "국영사", "국영과", "영수사", "영수과"];
+
+function getAcademicYear() {
+  const now = new Date();
+  return now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear();
+}
+const CURRENT_ACADEMIC_YEAR = getAcademicYear();
+
+function asNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function shortCategory(category, subject) {
+  const resolved = category || inferCategory(subject);
+  if (resolved === "국어") return "국";
+  if (resolved === "영어") return "영";
+  if (resolved === "수학") return "수";
+  if (resolved === "사회" || resolved === "한국사") return "사";
+  if (resolved === "과학") return "과";
+  return "기타";
+}
+
+function semesterCalendarLabel(key, entryYear, compact = false) {
+  const [grade, semester] = key.split("-").map(Number);
+  const year = entryYear + grade - 1;
+  return compact ? `${year} · ${grade}-${semester}` : `${year}년 ${grade}학년 ${semester}학기`;
+}
+
+function mockCalendarLabel(key, entryYear, compact = false) {
+  const [grade, month] = key.split("-").map(Number);
+  const year = entryYear + grade - 1;
+  return compact ? `${year} · ${grade}학년 ${month}월` : `${year}년 ${grade}학년 ${month}월`;
+}
 
 let _xlsxModule = null;
 async function loadXLSX() {
@@ -64,8 +108,8 @@ export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedIn
           {(loggedInAdmin || loggedInTeacher) && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label="학생 성적 조회" />}
         </div>
 
-        {tab === "grades" && loggedInStudent && <StudentGradeReport sid={loggedInStudent.id} gdb={gdb} mode="grades" />}
-        {tab === "admission" && loggedInStudent && <StudentGradeReport sid={loggedInStudent.id} gdb={gdb} mode="admission" />}
+        {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
+        {tab === "admission" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="admission" studentInfo={loggedInStudent} />}
         {tab === "lookup" && (loggedInAdmin || loggedInTeacher) && (
           <StudentLookup roster={roster} gdb={gdb} homeroomClass={loggedInTeacher ? loggedInTeacher.homeroomClass : null} isAdmin={!!loggedInAdmin} />
         )}
@@ -84,134 +128,601 @@ function TabBtn({ active, onClick, label }) {
 /* ============================================================
    학생: 내 성적 상담 화면 (구글시트 "성적(상담용, 등급변환)" 재현)
    ============================================================ */
-function StudentGradeReport({ sid, gdb, mode = "both" }) {
-  const { semesterData, mockData, admissionRows } = gdb;
+function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
+  const { semesterData, mockData, admissionRows, studentAccounts } = gdb;
 
-  const subjectLists = SEMESTER_KEYS.map(k => {
-    const sem = semesterData[k];
-    if (!sem || !sem.students || !sem.students[sid]) return null;
-    return sem.students[sid].subjects;
+  const semesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
+  const latestSemesterRecord = semesterRecords.slice().reverse().find(Boolean) || null;
+  const metaRecord = Array.isArray(studentAccounts)
+    ? studentAccounts.find(student => String(student.id) === String(sid))
+    : studentAccounts?.[sid];
+
+  const inferredGrade = asNumber(studentInfo?.grade)
+    ?? asNumber(String(sid || "").charAt(0))
+    ?? asNumber(latestSemesterRecord?.grade ?? metaRecord?.grade)
+    ?? 1;
+  const inferredClass = studentInfo?.class ?? latestSemesterRecord?.class ?? metaRecord?.class ?? asNumber(String(sid || "").slice(1, 3));
+  const inferredNumber = studentInfo?.number ?? latestSemesterRecord?.number ?? metaRecord?.number ?? asNumber(String(sid || "").slice(3, 5));
+  const studentName = studentInfo?.name ?? latestSemesterRecord?.name ?? metaRecord?.name ?? "";
+  const entryYear = CURRENT_ACADEMIC_YEAR - inferredGrade + 1;
+  const gradeSystem = entryYear >= 2025 ? 5 : 9;
+
+  const subjectLists = SEMESTER_KEYS.map((key, index) => semesterRecords[index]?.subjects || null);
+  const hasAnyGrades = subjectLists.some(Boolean);
+  const [requestedGradeScale, setRequestedGradeScale] = useState(null);
+  const displayGradeScale = gradeSystem === 9 ? 9 : (requestedGradeScale === 9 ? 9 : 5);
+  const groups = useMemo(() => computeAllGroupAverages(subjectLists, gradeSystem), [semesterData, sid, gradeSystem]); // eslint-disable-line
+
+  const displaySemesterKeys = SEMESTER_KEYS.filter(key => Number(key.split("-")[0]) <= inferredGrade);
+  const availableSemesters = displaySemesterKeys.filter(key => {
+    const index = SEMESTER_KEYS.indexOf(key);
+    return subjectLists[index] && subjectLists[index].length;
   });
-  const hasAnyGrades = subjectLists.some(l => l);
 
-  const groups = useMemo(() => computeAllGroupAverages(subjectLists), [semesterData, sid]); // eslint-disable-line
-
-  // 학기별 상세 성적표에서 선택된 학기 (데이터가 있는 가장 최근 학기가 기본값)
-  const availableSemesters = SEMESTER_KEYS.filter((k, i) => subjectLists[i]);
   const [selSemKey, setSelSemKey] = useState(null);
-  const activeSemKey = selSemKey && availableSemesters.includes(selSemKey) ? selSemKey : availableSemesters[availableSemesters.length - 1];
+  const activeSemKey = selSemKey && availableSemesters.includes(selSemKey)
+    ? selSemKey
+    : availableSemesters[availableSemesters.length - 1];
   const activeSemSubjects = activeSemKey ? subjectLists[SEMESTER_KEYS.indexOf(activeSemKey)] : null;
 
-  // 모의고사 회차 선택 (데이터가 있는 가장 최근 회차가 기본값)
-  const availableMockKeys = MOCK_MONTH_KEYS.filter(k => mockData[k] && mockData[k].students && mockData[k].students[sid]);
+  const availableMockKeys = MOCK_MONTH_KEYS.filter(key => mockData[key]?.students?.[sid]);
   const [selMockKey, setSelMockKey] = useState(null);
-  const activeMockKey = selMockKey && availableMockKeys.includes(selMockKey) ? selMockKey : availableMockKeys[availableMockKeys.length - 1];
+  const activeMockKey = selMockKey && availableMockKeys.includes(selMockKey)
+    ? selMockKey
+    : availableMockKeys[availableMockKeys.length - 1];
   const mockGrades = activeMockKey ? mockData[activeMockKey].students[sid] : {};
   const sums = useMemo(() => computeMockExamSums(mockGrades || {}), [mockGrades]);
 
-  // 대입전형 판정은 항상 가장 최신 모의고사를 기준으로 합니다.
   const latestMockKey = useMemo(() => {
     const order = MOCK_MONTH_KEYS.slice().reverse();
-    return order.find(k => mockData[k] && mockData[k].students && mockData[k].students[sid]) || null;
+    return order.find(key => mockData[key]?.students?.[sid]) || null;
   }, [mockData, sid]);
   const latestMockGrades = latestMockKey ? mockData[latestMockKey].students[sid] : {};
   const latestSums = useMemo(() => computeMockExamSums(latestMockGrades || {}), [latestMockGrades]);
 
-  const overallAvg5 = groups["전과목"] ? groups["전과목"].avg5 : null;
-  const matchedUniversities = useMemo(() => matchUniversities(latestSums, admissionRows || []), [latestSums, admissionRows]);
-  const comment = gradeAnalysisComment(overallAvg5, latestSums.sum2, latestSums.sum3, latestSums.sum4);
+  const overallAverage = gradeSystem === 5
+    ? groups["전과목"]?.avg5 ?? null
+    : groups["전과목"]?.avg9 ?? null;
+  const matchedUniversities = useMemo(
+    () => matchUniversities(latestSums, admissionRows || []),
+    [latestSums, admissionRows],
+  );
+  const comment = gradeAnalysisComment(overallAverage, latestSums.sum2, latestSums.sum3, latestSums.sum4, gradeSystem);
 
-  if (!hasAnyGrades) {
-    return <EmptyBox text="아직 등록된 성적 데이터가 없습니다. 관리자가 원본 데이터를 업로드하면 여기에 표시됩니다." />;
-  }
+  const [trendTab, setTrendTab] = useState("category");
+  const internalSubjectOptions = useMemo(() => {
+    const names = new Set();
+    subjectLists.forEach(subjects => (subjects || []).forEach(subject => names.add(subject.subject)));
+    return Array.from(names);
+  }, [semesterData, sid]); // eslint-disable-line
+  const [selectedInternalSubject, setSelectedInternalSubject] = useState(null);
+  const activeInternalSubject = selectedInternalSubject && internalSubjectOptions.includes(selectedInternalSubject)
+    ? selectedInternalSubject
+    : internalSubjectOptions[0] || null;
+  const [selectedMockSubject, setSelectedMockSubject] = useState("국어");
+
+  const categoryTrendSeries = useMemo(() => {
+    const names = [...CATEGORY_GROUP_NAMES, "전과목 평균"];
+    return names.map(name => {
+      const groupName = name === "전과목 평균" ? "전과목" : name;
+      return {
+        name,
+        isAverage: name === "전과목 평균",
+        values: availableSemesters.map(key => {
+          const field = displayGradeScale === 9 ? "perSemester9" : "perSemester5";
+          return groups[groupName]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null;
+        }),
+      };
+    });
+  }, [groups, availableSemesters, displayGradeScale]);
+
+  const internalTrendSeries = useMemo(() => {
+    if (!activeInternalSubject) return [];
+    const subjectValues = availableSemesters.map(key => {
+      const subjects = subjectLists[SEMESTER_KEYS.indexOf(key)] || [];
+      const record = subjects.find(subject => subject.subject === activeInternalSubject);
+      const sourceGrade = getSubjectGrade(record);
+      if (sourceGrade == null) return null;
+      return gradeSystem === 5 && displayGradeScale === 9
+        ? Math.round(grade5to9(sourceGrade) * 100) / 100
+        : sourceGrade;
+    });
+    const averageValues = availableSemesters.map(key => {
+      const field = displayGradeScale === 9 ? "perSemester9" : "perSemester5";
+      return groups["전과목"]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null;
+    });
+    return [
+      { name: activeInternalSubject, values: subjectValues },
+      { name: "학기 평균", values: averageValues, isAverage: true },
+    ];
+  }, [activeInternalSubject, availableSemesters, semesterData, sid, groups, gradeSystem, displayGradeScale]); // eslint-disable-line
+
+  const mockTrendSeries = useMemo(() => {
+    const subjectValues = availableMockKeys.map(key => asNumber(mockData[key]?.students?.[sid]?.[selectedMockSubject]));
+    const averageValues = availableMockKeys.map(key => {
+      const result = mockData[key]?.students?.[sid] || {};
+      const values = CORE_MOCK_SUBJECTS.map(subject => asNumber(result[subject])).filter(value => value != null);
+      return values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) / 100 : null;
+    });
+    return [
+      { name: selectedMockSubject, values: subjectValues },
+      { name: "국·수·영·탐 평균", values: averageValues, isAverage: true },
+    ];
+  }, [availableMockKeys, mockData, sid, selectedMockSubject]);
 
   const showGrades = mode === "grades" || mode === "both";
   const showAdmission = mode === "admission" || mode === "both";
+  const hasAnyData = hasAnyGrades || availableMockKeys.length > 0;
 
   return (
     <div>
-      {showGrades && (
-      <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>계열별 평균 등급 (학점 가중평균)</div>
-        <table style={table.base}>
-          <thead>
-            <tr>
-              <th style={table.th}>구분</th>
-              {SEMESTER_KEYS.map(k => <th key={k} style={table.th}>{SEMESTER_LABELS[k]}</th>)}
-              <th style={table.th}>전체 평균</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Object.entries(groups).map(([name, g]) => (
-              <tr key={name}>
-                <td style={table.tdLabel}>{name}</td>
-                {g.perSemester5.map((v, i) => <td key={i} style={table.td}>{v ?? "-"}</td>)}
-                <td style={{ ...table.td, fontWeight: 700 }}>{g.avg5 ?? "-"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <StudentIdentityBanner
+        sid={sid}
+        name={studentName}
+        grade={inferredGrade}
+        classNumber={inferredClass}
+        number={inferredNumber}
+        entryYear={entryYear}
+        gradeSystem={gradeSystem}
+      />
+
+      {!hasAnyData && (
+        <EmptyBox text="아직 등록된 성적 데이터가 없습니다. 관리자가 원본 데이터를 업로드하면 여기에 표시됩니다." />
       )}
 
-      {showGrades && (
-      <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>내신 성적 학기별 확인하기</div>
-        {!availableSemesters.length ? <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 내신 성적이 없습니다.</div> : (
-          <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-              {availableSemesters.map(k => <button key={k} onClick={() => setSelSemKey(k)} style={{ ...btn.chip, ...(activeSemKey === k ? btn.chipActive : {}) }}>{SEMESTER_LABELS[k]}</button>)}
-            </div>
+      {showGrades && hasAnyGrades && (
+        <div style={card}>
+          <SectionHeading
+            title={`교과·계열별 평균 등급 (${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"} · 학점 가중평균)`}
+            description="국어·영어·수학·사회·과학 교과와 기존 교과 조합을 구분해 표시합니다."
+          />
+          {gradeSystem === 5 && (
+            <GradeScaleSelector value={displayGradeScale} onChange={setRequestedGradeScale} />
+          )}
+          <div style={table.scroll}>
             <table style={table.base}>
-              <thead><tr><th style={table.th}>과목</th><th style={table.th}>학점</th><th style={table.th}>원점수</th><th style={table.th}>성취도</th><th style={table.th}>석차등급</th><th style={table.th}>석차</th><th style={table.th}>수강자수</th></tr></thead>
+              <thead>
+                <tr>
+                  <th style={table.th}>구분</th>
+                  {displaySemesterKeys.map(key => (
+                    <th key={key} style={table.th}>{semesterCalendarLabel(key, entryYear)}</th>
+                  ))}
+                  <th style={table.th}>전체 평균</th>
+                </tr>
+              </thead>
               <tbody>
-                {(activeSemSubjects || []).map((s, i) => (
-                  <tr key={i}><td style={table.tdLabel}>{s.subject}</td><td style={table.td}>{s.credit}</td><td style={table.td}>{s.score ?? "-"}</td><td style={table.td}>{s.achievement ?? "-"}</td><td style={table.td}>{s.grade5 ?? "-"}</td><td style={table.td}>{s.rank ?? "-"}</td><td style={table.td}>{s.classSize ?? "-"}</td></tr>
+                <tr>
+                  <td colSpan={displaySemesterKeys.length + 2} style={table.sectionRow}>교과별 평균</td>
+                </tr>
+                {CATEGORY_GROUP_NAMES.map(name => (
+                  <GradeAverageRow
+                    key={name}
+                    name={name}
+                    group={groups[name]}
+                    displaySemesterKeys={displaySemesterKeys}
+                    gradeScale={displayGradeScale}
+                  />
+                ))}
+                <tr>
+                  <td colSpan={displaySemesterKeys.length + 2} style={table.sectionRow}>계열 조합별 평균</td>
+                </tr>
+                {COMBINATION_GROUP_NAMES.map(name => (
+                  <GradeAverageRow
+                    key={name}
+                    name={name}
+                    group={groups[name]}
+                    displaySemesterKeys={displaySemesterKeys}
+                    gradeScale={displayGradeScale}
+                  />
                 ))}
               </tbody>
             </table>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
+
+      {showGrades && (hasAnyGrades || availableMockKeys.length > 0) && (
+        <div style={card}>
+          <SectionHeading
+            title="성적 추이 그래프"
+            description={`학기·회차별 등급 추이를 확인할 수 있습니다. 내신 그래프는 ${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"} 기준이며, 위쪽의 1등급에 가까울수록 우수합니다.`}
+          />
+          <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+            <TrendTabButton active={trendTab === "category"} onClick={() => setTrendTab("category")}>계열별</TrendTabButton>
+            <TrendTabButton active={trendTab === "internal"} onClick={() => setTrendTab("internal")}>내신 과목별</TrendTabButton>
+            <TrendTabButton active={trendTab === "mock"} onClick={() => setTrendTab("mock")}>모의고사</TrendTabButton>
+          </div>
+
+          {trendTab === "category" && (
+            <GradeTrendChart
+              title="교과별 평균 등급 추이"
+              xLabels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))}
+              series={categoryTrendSeries}
+              maxGrade={displayGradeScale}
+              emptyText="계열별 그래프를 만들 내신 성적이 없습니다."
+            />
+          )}
+
+          {trendTab === "internal" && (
+            <div>
+              <div style={chartControlRow}>
+                <label htmlFor={`internal-subject-${sid}`} style={chartControlLabel}>과목 선택</label>
+                <select
+                  id={`internal-subject-${sid}`}
+                  value={activeInternalSubject || ""}
+                  onChange={event => setSelectedInternalSubject(event.target.value)}
+                  style={selectStyle}
+                >
+                  {internalSubjectOptions.map(subject => <option key={subject} value={subject}>{subject}</option>)}
+                </select>
+              </div>
+              <GradeTrendChart
+                title={`${activeInternalSubject || "내신 과목"} 등급과 학기 평균`}
+                xLabels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))}
+                series={internalTrendSeries}
+                maxGrade={displayGradeScale}
+                emptyText="과목별 그래프를 만들 내신 성적이 없습니다."
+              />
+            </div>
+          )}
+
+          {trendTab === "mock" && (
+            <div>
+              <div style={{ ...chartControlRow, alignItems: "flex-start" }}>
+                <span style={{ ...chartControlLabel, paddingTop: 6 }}>과목 선택</span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {MOCK_SUBJECTS.map(subject => (
+                    <button
+                      key={subject}
+                      onClick={() => setSelectedMockSubject(subject)}
+                      style={{ ...btn.chip, ...(selectedMockSubject === subject ? btn.chipActive : {}) }}
+                    >
+                      {subject}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <GradeTrendChart
+                title={`${selectedMockSubject} 등급과 회차 평균`}
+                xLabels={availableMockKeys.map(key => mockCalendarLabel(key, entryYear, true))}
+                series={mockTrendSeries}
+                maxGrade={9}
+                emptyText="모의고사 추이 그래프를 만들 성적이 없습니다."
+              />
+            </div>
+          )}
+        </div>
       )}
 
       {showGrades && (
-      <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 10 }}>모의고사 성적 회차별 확인하기</div>
-        {!availableMockKeys.length ? <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 모의고사 성적이 없습니다.</div> : (
-          <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-              {availableMockKeys.map(k => <button key={k} onClick={() => setSelMockKey(k)} style={{ ...btn.chip, ...(activeMockKey === k ? btn.chipActive : {}) }}>{MOCK_MONTH_LABELS[k]}</button>)}
-            </div>
-            <table style={table.base}>
-              <thead><tr>{MOCK_SUBJECTS.map(s => <th key={s} style={table.th}>{s}</th>)}</tr></thead>
-              <tbody><tr>{MOCK_SUBJECTS.map(s => <td key={s} style={table.td}>{mockGrades[s] ?? "-"}</td>)}</tr></tbody>
-            </table>
-            <div style={{ display: "flex", gap: 20, marginTop: 12, fontSize: 13 }}>
-              <div><b>2합</b> {sums.sum2 ?? "-"}</div>
-              <div><b>3합</b> {sums.sum3 ?? "-"}</div>
-              <div><b>4합</b> {sums.sum4 ?? "-"}</div>
-            </div>
-          </>
-        )}
-      </div>
-      )}
-
-      {showAdmission && (
-      <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>수능 최저 도달 대학 (교과전형 기준)</div>
-        <div style={{ fontSize: 13, color: matchedUniversities.length ? "#3d5c3a" : "#8a8578" }}>
-          {matchedUniversities.length ? matchedUniversities.join(", ") : "도달 대학 없음"}
+        <div style={card}>
+          <SectionHeading
+            title="내신 성적 학기별 확인하기"
+            description={gradeSystem === 5
+              ? "과목별 교과계열과 5등급제 원등급, 9등급 환산값을 분리해 표시합니다."
+              : "과목별 교과계열과 9등급제 석차등급을 표시합니다."}
+          />
+          {!availableSemesters.length ? (
+            <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 내신 성적이 없습니다.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                {availableSemesters.map(key => (
+                  <button
+                    key={key}
+                    onClick={() => setSelSemKey(key)}
+                    style={{ ...btn.chip, ...(activeSemKey === key ? btn.chipActive : {}) }}
+                  >
+                    {semesterCalendarLabel(key, entryYear)}
+                  </button>
+                ))}
+              </div>
+              <div style={table.scroll}>
+                <table style={table.base}>
+                  <thead>
+                    <tr>
+                      <th style={table.th}>과목</th>
+                      <th style={table.th}>과목계열</th>
+                      <th style={table.th}>학점</th>
+                      <th style={table.th}>원점수</th>
+                      <th style={table.th}>성취도</th>
+                      {gradeSystem === 5 ? (
+                        <>
+                          <th style={table.th}>석차등급 (5등급제)</th>
+                          <th style={table.th}>9등급 환산</th>
+                        </>
+                      ) : (
+                        <th style={table.th}>석차등급 (9등급제)</th>
+                      )}
+                      <th style={table.th}>석차</th>
+                      <th style={table.th}>수강자수</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(activeSemSubjects || []).map((subject, index) => (
+                      <tr key={`${subject.subject}-${index}`}>
+                        <td style={table.tdLabel}>{subject.subject}</td>
+                        <td style={table.td}><CategoryBadge category={shortCategory(subject.category, subject.subject)} /></td>
+                        <td style={table.td}>{subject.credit}</td>
+                        <td style={table.td}>{subject.score ?? "-"}</td>
+                        <td style={table.td}>{subject.achievement ?? "-"}</td>
+                        <td style={{ ...table.td, fontWeight: 800 }}>{getSubjectGrade(subject) ?? "-"}</td>
+                        {gradeSystem === 5 && (
+                          <td style={{ ...table.td, fontWeight: 800, color: "#5d4898" }}>
+                            {getSubjectGrade(subject) == null ? "-" : Math.round(grade5to9(getSubjectGrade(subject)) * 100) / 100}
+                          </td>
+                        )}
+                        <td style={table.td}>{subject.rank ?? "-"}</td>
+                        <td style={table.td}>{subject.classSize ?? "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
-      </div>
+      )}
+
+      {showGrades && (
+        <div style={card}>
+          <SectionHeading
+            title="모의고사 성적 회차별 확인하기"
+            description="선택한 회차의 과목별 등급과 최적 2합·3합·4합을 확인합니다."
+          />
+          {!availableMockKeys.length ? (
+            <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 모의고사 성적이 없습니다.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                {availableMockKeys.map(key => (
+                  <button
+                    key={key}
+                    onClick={() => setSelMockKey(key)}
+                    style={{ ...btn.chip, ...(activeMockKey === key ? btn.chipActive : {}) }}
+                  >
+                    {mockCalendarLabel(key, entryYear)}
+                  </button>
+                ))}
+              </div>
+              <div style={table.scroll}>
+                <table style={table.base}>
+                  <thead><tr>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead>
+                  <tbody><tr>{MOCK_SUBJECTS.map(subject => <td key={subject} style={table.td}>{mockGrades[subject] ?? "-"}</td>)}</tr></tbody>
+                </table>
+              </div>
+              <MockSumCards sums={sums} />
+            </>
+          )}
+        </div>
       )}
 
       {showAdmission && (
-      <div style={{ ...card, background: "#fff8e6", border: "1px solid #f0dca0" }}>
-        <div style={{ fontWeight: 700, marginBottom: 6, color: "#8a6d1f" }}>성적 분석</div>
-        <div style={{ fontSize: 13, color: "#5c4a12", lineHeight: 1.6 }}>{comment}</div>
-      </div>
+        <div style={card}>
+          <SectionHeading
+            title="수능 최저 도달 대학 (교과전형 기준)"
+            description={latestMockKey ? `${mockCalendarLabel(latestMockKey, entryYear)} 모의고사를 기준으로 판정했습니다.` : "등록된 최신 모의고사를 기준으로 판정합니다."}
+          />
+          <div style={{ fontSize: 13, color: matchedUniversities.length ? "#3d5c3a" : "#8a8578", lineHeight: 1.7 }}>
+            {matchedUniversities.length ? matchedUniversities.join(", ") : "도달 대학 없음"}
+          </div>
+        </div>
       )}
+
+      {showAdmission && (
+        <div style={{ ...card, background: "#fff8e6", border: "1px solid #f0dca0" }}>
+          <div style={{ fontWeight: 700, marginBottom: 6, color: "#8a6d1f" }}>성적 분석</div>
+          <div style={{ fontSize: 13, color: "#5c4a12", lineHeight: 1.6 }}>{comment}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYear, gradeSystem }) {
+  const location = [
+    grade != null ? `${grade}학년` : null,
+    classNumber != null ? `${Number(classNumber)}반` : null,
+    number != null ? `${Number(number)}번` : null,
+  ].filter(Boolean).join(" ");
+
+  return (
+    <div style={studentBanner.box}>
+      <div style={studentBanner.eyebrow}>학생 성적 조회</div>
+      <div style={studentBanner.title}>
+        <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span> 학생의 성적
+      </div>
+      <div style={studentBanner.badges}>
+        {location && <span style={studentBanner.badge}>{location}</span>}
+        <span style={studentBanner.badge}>{entryYear}학년도 입학생</span>
+        <span style={{ ...studentBanner.badge, ...studentBanner.gradeBadge }}>{gradeSystem}등급제</span>
+      </div>
+    </div>
+  );
+}
+
+function SectionHeading({ title, description }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontWeight: 800, fontSize: 15, color: "#2b2620" }}>{title}</div>
+      {description && <div style={{ fontSize: 11.8, color: "#8a8578", marginTop: 4, lineHeight: 1.5 }}>{description}</div>}
+    </div>
+  );
+}
+
+function GradeAverageRow({ name, group, displaySemesterKeys, gradeScale }) {
+  const semesterField = gradeScale === 9 ? "perSemester9" : "perSemester5";
+  const averageField = gradeScale === 9 ? "avg9" : "avg5";
+  return (
+    <tr>
+      <td style={table.tdLabel}>{name}</td>
+      {displaySemesterKeys.map(key => {
+        const value = group?.[semesterField]?.[SEMESTER_KEYS.indexOf(key)] ?? null;
+        return <td key={key} style={table.td}>{value ?? "-"}</td>;
+      })}
+      <td style={{ ...table.td, fontWeight: 800 }}>{group?.[averageField] ?? "-"}</td>
+    </tr>
+  );
+}
+
+function GradeScaleSelector({ value, onChange }) {
+  return (
+    <div style={gradeScaleSelector.box}>
+      <div>
+        <div style={gradeScaleSelector.title}>내신 등급 기준</div>
+        <div style={gradeScaleSelector.description}>5등급제 원등급과 9등급 환산값(2n-1)을 분리해서 확인합니다.</div>
+      </div>
+      <div style={gradeScaleSelector.buttons}>
+        <button
+          onClick={() => onChange(5)}
+          style={{ ...gradeScaleSelector.button, ...(value === 5 ? gradeScaleSelector.active : {}) }}
+        >
+          5등급제 원등급
+        </button>
+        <button
+          onClick={() => onChange(9)}
+          style={{ ...gradeScaleSelector.button, ...(value === 9 ? gradeScaleSelector.active : {}) }}
+        >
+          9등급 환산
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CategoryBadge({ category }) {
+  const categoryStyles = {
+    국: { background: "#eef3ff", color: "#315a9b" },
+    영: { background: "#fff0f3", color: "#9a4254" },
+    수: { background: "#f1edff", color: "#5d4898" },
+    사: { background: "#fff5df", color: "#8a641d" },
+    과: { background: "#eaf7ef", color: "#356b49" },
+    기타: { background: "#f1f0ec", color: "#716b5f" },
+  };
+  return <span style={{ ...categoryBadgeBase, ...(categoryStyles[category] || categoryStyles.기타) }}>{category}</span>;
+}
+
+function TrendTabButton({ active, onClick, children }) {
+  return (
+    <button onClick={onClick} style={{ ...btn.tab, ...(active ? btn.tabActive : {}) }}>
+      {children}
+    </button>
+  );
+}
+
+function MockSumCards({ sums }) {
+  return (
+    <div style={mockSum.grid}>
+      {[
+        ["2합", sums.sum2],
+        ["3합", sums.sum3],
+        ["4합", sums.sum4],
+      ].map(([label, value]) => (
+        <div key={label} style={mockSum.card}>
+          <div style={mockSum.label}>{label}</div>
+          <div style={mockSum.value}>{value ?? "-"}</div>
+          <div style={mockSum.caption}>최적 등급 합</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
+  const width = 920;
+  const height = 330;
+  const margin = { top: 24, right: 24, bottom: 62, left: 52 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const labels = xLabels || [];
+  const usableSeries = (series || []).filter(item => item.values?.some(value => asNumber(value) != null));
+  const palette = ["#315a9b", "#9a4254", "#5d4898", "#8a641d", "#356b49", "#2f7770", "#2b2620"];
+
+  if (!labels.length || !usableSeries.length) {
+    return <div style={chartEmpty}>{emptyText || "그래프로 표시할 성적이 없습니다."}</div>;
+  }
+
+  const xAt = index => labels.length === 1
+    ? margin.left + plotWidth / 2
+    : margin.left + (plotWidth * index) / (labels.length - 1);
+  const yAt = value => margin.top + ((value - 1) / Math.max(1, maxGrade - 1)) * plotHeight;
+  const buildPath = values => {
+    let path = "";
+    let drawing = false;
+    values.forEach((rawValue, index) => {
+      const value = asNumber(rawValue);
+      if (value == null) {
+        drawing = false;
+        return;
+      }
+      path += `${drawing ? " L" : "M"} ${xAt(index)} ${yAt(value)}`;
+      drawing = true;
+    });
+    return path;
+  };
+
+  return (
+    <div style={chart.box}>
+      <div style={chart.title}>{title}</div>
+      <div style={chart.legend}>
+        {usableSeries.map((item, index) => (
+          <div key={item.name} style={chart.legendItem}>
+            <span style={{
+              ...chart.legendLine,
+              background: item.isAverage ? "transparent" : palette[index % palette.length],
+              borderTop: item.isAverage ? `3px dashed ${palette[index % palette.length]}` : "none",
+            }} />
+            <span>{item.name}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ width: "100%", overflowX: "auto" }}>
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} style={{ width: "100%", minWidth: 620, display: "block" }}>
+          {Array.from({ length: maxGrade }, (_, index) => index + 1).map(grade => {
+            const y = yAt(grade);
+            return (
+              <g key={grade}>
+                <line x1={margin.left} y1={y} x2={width - margin.right} y2={y} stroke="#e9e5da" strokeWidth="1" />
+                <text x={margin.left - 12} y={y + 4} textAnchor="end" fontSize="11" fill="#8a8578">{grade}</text>
+              </g>
+            );
+          })}
+          <text x="15" y={margin.top + plotHeight / 2} transform={`rotate(-90 15 ${margin.top + plotHeight / 2})`} textAnchor="middle" fontSize="11" fill="#8a8578">등급</text>
+
+          {labels.map((label, index) => (
+            <g key={`${label}-${index}`}>
+              <line x1={xAt(index)} y1={margin.top} x2={xAt(index)} y2={margin.top + plotHeight} stroke="#f2efe7" strokeWidth="1" />
+              <text x={xAt(index)} y={height - 27} textAnchor="middle" fontSize="10.5" fill="#716b5f">{label}</text>
+            </g>
+          ))}
+
+          {usableSeries.map((item, seriesIndex) => {
+            const color = palette[seriesIndex % palette.length];
+            return (
+              <g key={item.name}>
+                <path
+                  d={buildPath(item.values)}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={item.isAverage ? 3.5 : 2.4}
+                  strokeDasharray={item.isAverage ? "8 5" : undefined}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                {item.values.map((rawValue, index) => {
+                  const value = asNumber(rawValue);
+                  if (value == null) return null;
+                  return (
+                    <circle key={`${item.name}-${index}`} cx={xAt(index)} cy={yAt(value)} r={item.isAverage ? 4.5 : 3.8} fill="#fff" stroke={color} strokeWidth="2.5">
+                      <title>{`${item.name} · ${labels[index]} · ${value}등급`}</title>
+                    </circle>
+                  );
+                })}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
     </div>
   );
 }
@@ -248,7 +759,7 @@ function StudentLookup({ roster, gdb, homeroomClass, isAdmin }) {
           ))}
         </div>
       )}
-      {sid && <div style={{ marginTop: 16 }}><StudentGradeReport sid={sid} gdb={gdb} /></div>}
+      {sid && <div style={{ marginTop: 16 }}><StudentGradeReport key={sid} sid={sid} gdb={gdb} studentInfo={roster?.[sid]} /></div>}
     </div>
   );
 }
@@ -483,7 +994,7 @@ function BulkUpload({ gdb, persistGrades, showToast }) {
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>원본 성적 엑셀 파일 통째로 업로드</div>
         <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center", maxWidth: 480 }}>
-          "1-1 성적", "1-2 성적", "2-1 성적", "2-2 성적"과 "N학년 N월"(모의고사), "2028 대입 전형" 시트가 들어있는 원본 파일을 그대로 올려주세요.
+          "1-1 성적"부터 "3-2 성적"까지의 학기 성적 시트와 "N학년 N월"(모의고사), "2028 대입 전형" 시트가 들어있는 원본 파일을 그대로 올려주세요.
           시트 이름을 보고 자동으로 종류를 구분해서 한 번에 전부 반영합니다.
         </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
@@ -755,8 +1266,15 @@ function EmptyBox({ text }) {
   return <div style={{ ...card, textAlign: "center", color: "#a39d8c", fontSize: 13 }}>{text}</div>;
 }
 
-/* ---------- 스타일 (기존 시간표 앱 스타일과 어울리게 최소 구성) ---------- */
-const card = { background: "#fff", border: "1px solid #e6e1d3", borderRadius: 12, padding: 18, marginBottom: 14 };
+/* ---------- 스타일 (기존 시간표 앱의 차분한 톤 유지) ---------- */
+const card = {
+  background: "#fff",
+  border: "1px solid #e6e1d3",
+  borderRadius: 14,
+  padding: 18,
+  marginBottom: 14,
+  boxShadow: "0 1px 0 rgba(43,38,32,0.02)",
+};
 const btn = {
   primary: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "#3d5c3a", color: "#fff", padding: "8px 16px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700 },
   secondary: { border: "1px solid #e6e1d3", background: "#fff", padding: "7px 13px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700 },
@@ -767,14 +1285,89 @@ const btn = {
   chipActive: { background: "#3d5c3a", color: "#fff", borderColor: "#3d5c3a" },
 };
 const table = {
-  base: { width: "100%", borderCollapse: "collapse", fontSize: 12.5 },
-  th: { border: "1px solid #e6e1d3", padding: "6px 8px", background: "#f6f4ee", fontWeight: 700, fontSize: 11.5 },
-  td: { border: "1px solid #e6e1d3", padding: "6px 8px", textAlign: "center" },
-  tdLabel: { border: "1px solid #e6e1d3", padding: "6px 8px", fontWeight: 700, background: "#fbfaf6" },
+  scroll: { width: "100%", overflowX: "auto", borderRadius: 8 },
+  base: { width: "100%", minWidth: 700, borderCollapse: "collapse", fontSize: 12.5 },
+  th: { border: "1px solid #e6e1d3", padding: "7px 8px", background: "#f6f4ee", fontWeight: 800, fontSize: 11.5, whiteSpace: "nowrap" },
+  td: { border: "1px solid #e6e1d3", padding: "7px 8px", textAlign: "center", whiteSpace: "nowrap" },
+  tdLabel: { border: "1px solid #e6e1d3", padding: "7px 8px", fontWeight: 700, background: "#fbfaf6", whiteSpace: "nowrap" },
+  sectionRow: { border: "1px solid #ded8c9", padding: "7px 9px", background: "#eeeae0", color: "#5f594d", fontSize: 11.5, fontWeight: 800, textAlign: "left" },
 };
 const searchBox = {
   box: { display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e6e1d3", borderRadius: 10, padding: "9px 13px", maxWidth: 420 },
   input: { border: "none", outline: "none", flex: 1, fontSize: 13.5, background: "transparent" },
   list: { marginTop: 8, maxWidth: 420, background: "#fff", border: "1px solid #e6e1d3", borderRadius: 10, overflow: "hidden" },
   item: { display: "flex", flexDirection: "column", alignItems: "flex-start", width: "100%", textAlign: "left", padding: "9px 13px", border: "none", background: "transparent", cursor: "pointer", borderBottom: "1px solid #e6e1d3", fontSize: 13, gap: 2 },
+};
+const studentBanner = {
+  box: {
+    background: "linear-gradient(135deg, #2f4630 0%, #466a43 100%)",
+    color: "#fff",
+    borderRadius: 16,
+    padding: "20px 22px",
+    marginBottom: 14,
+    boxShadow: "0 8px 22px rgba(47,70,48,0.16)",
+  },
+  eyebrow: { fontSize: 11.5, opacity: 0.78, fontWeight: 700, letterSpacing: "0.04em", marginBottom: 5 },
+  title: { fontSize: 21, fontWeight: 500, lineHeight: 1.35 },
+  identity: { fontWeight: 900 },
+  badges: { display: "flex", flexWrap: "wrap", gap: 7, marginTop: 13 },
+  badge: { display: "inline-flex", alignItems: "center", background: "rgba(255,255,255,0.13)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 999, padding: "5px 10px", fontSize: 11.5, fontWeight: 700 },
+  gradeBadge: { background: "#fff", color: "#315132", borderColor: "#fff" },
+};
+const gradeScaleSelector = {
+  box: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap",
+    border: "1px solid #e3dfd3",
+    background: "#faf9f5",
+    borderRadius: 12,
+    padding: "11px 12px",
+    marginBottom: 12,
+  },
+  title: { fontSize: 12.5, fontWeight: 900, color: "#3d3932" },
+  description: { fontSize: 10.8, color: "#8a8578", marginTop: 3 },
+  buttons: { display: "flex", gap: 6, flexWrap: "wrap" },
+  button: {
+    border: "1px solid #ddd7c9",
+    background: "#fff",
+    color: "#716b5f",
+    borderRadius: 999,
+    padding: "7px 11px",
+    fontSize: 11.5,
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+  active: { background: "#5d4898", borderColor: "#5d4898", color: "#fff" },
+};
+const categoryBadgeBase = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: 28,
+  height: 24,
+  padding: "0 7px",
+  borderRadius: 999,
+  fontSize: 11.5,
+  fontWeight: 900,
+};
+const mockSum = {
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))", gap: 10, marginTop: 14 },
+  card: { border: "1px solid #dfe7dc", background: "#f5faf4", borderRadius: 12, padding: "13px 14px", textAlign: "center" },
+  label: { fontSize: 13, fontWeight: 900, color: "#3d5c3a" },
+  value: { fontSize: 30, fontWeight: 900, lineHeight: 1.15, color: "#233523", margin: "4px 0 2px" },
+  caption: { fontSize: 10.5, color: "#7d897a" },
+};
+const chartControlRow = { display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" };
+const chartControlLabel = { fontSize: 12, color: "#716b5f", fontWeight: 800 };
+const selectStyle = { minWidth: 170, border: "1px solid #ddd7c9", borderRadius: 8, background: "#fff", padding: "7px 10px", fontSize: 12.5, color: "#2b2620", outline: "none" };
+const chartEmpty = { border: "1px dashed #ddd7c9", borderRadius: 12, padding: "34px 16px", textAlign: "center", color: "#a39d8c", fontSize: 12.5, background: "#fbfaf6" };
+const chart = {
+  box: { border: "1px solid #ece8dd", borderRadius: 12, padding: "14px 14px 8px", background: "#fff" },
+  title: { fontSize: 13.5, fontWeight: 800, color: "#2b2620", marginBottom: 9 },
+  legend: { display: "flex", gap: "8px 16px", alignItems: "center", flexWrap: "wrap", marginBottom: 4, fontSize: 10.8, color: "#716b5f" },
+  legendItem: { display: "flex", alignItems: "center", gap: 6 },
+  legendLine: { display: "inline-block", width: 22, height: 3, borderRadius: 99 },
 };
