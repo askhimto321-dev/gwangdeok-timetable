@@ -29,6 +29,20 @@ const CORE_MOCK_SUBJECTS = ["국어", "수학", "영어", "통합사회", "통�
 const CATEGORY_GROUP_NAMES = ["국어", "영어", "수학", "사회", "과학"];
 const COMBINATION_GROUP_NAMES = ["전과목", "국영수사과", "국영수사", "국영수과", "국영수", "국영사", "국영과", "영수사", "영수과"];
 
+const CATEGORY_META = {
+  국어: { short: "국", label: "국어", color: "#315a9b", background: "#eef3ff", row: "#f8faff" },
+  영어: { short: "영", label: "영어", color: "#9a4254", background: "#fff0f3", row: "#fff9fa" },
+  수학: { short: "수", label: "수학", color: "#5d4898", background: "#f1edff", row: "#faf8ff" },
+  사회: { short: "사", label: "사회", color: "#8a641d", background: "#fff5df", row: "#fffbf2" },
+  과학: { short: "과", label: "과학", color: "#356b49", background: "#eaf7ef", row: "#f6fbf8" },
+  "기술가정/정보": { short: "기정·정보", label: "기술가정/정보", color: "#2f7770", background: "#e8f7f5", row: "#f5fbfa" },
+  제2외국어: { short: "제2외", label: "제2외국어", color: "#a35f26", background: "#fff1e4", row: "#fff9f3" },
+  기타: { short: "기타", label: "기타", color: "#716b5f", background: "#f1f0ec", row: "#fbfaf7" },
+};
+
+const CATEGORY_TREND_OPTIONS = ["국어", "영어", "수학", "사회", "과학", "전과목"];
+const MOCK_TREND_OPTIONS = [...MOCK_SUBJECTS, "전과목 평균"];
+
 function getAcademicYear() {
   const now = new Date();
   return now.getMonth() < 2 ? now.getFullYear() - 1 : now.getFullYear();
@@ -41,15 +55,38 @@ function asNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-function shortCategory(category, subject) {
-  const resolved = category || inferCategory(subject);
-  if (resolved === "국어") return "국";
-  if (resolved === "영어") return "영";
-  if (resolved === "수학") return "수";
-  if (resolved === "사회" || resolved === "한국사") return "사";
-  if (resolved === "과학") return "과";
+function resolveCategoryKey(category, subject) {
+  const raw = String(category || inferCategory(subject) || "").replace(/\s/g, "");
+  if (/국어|문학|독서|화법|작문|언어/.test(raw)) return "국어";
+  if (/영어/.test(raw)) return "영어";
+  if (/수학|대수|미적분|기하|확률/.test(raw)) return "수학";
+  if (/사회|한국사|역사|지리|윤리|정치|경제/.test(raw)) return "사회";
+  if (/기술.?가정|가정|정보|인공지능|프로그래밍|데이터과학/.test(raw)) return "기술가정/정보";
+  if (/제2외국어|일본어|중국어|한문|독일어|프랑스어|스페인어|러시아어|아랍어|베트남어/.test(raw)) return "제2외국어";
+  if (/과학|물리|화학|생명|지구/.test(raw)) return "과학";
   return "기타";
 }
+
+function shortCategory(category, subject) {
+  const key = resolveCategoryKey(category, subject);
+  return CATEGORY_META[key]?.short || CATEGORY_META.기타.short;
+}
+
+function categoryMeta(category, subject) {
+  const key = resolveCategoryKey(category, subject);
+  return { key, ...(CATEGORY_META[key] || CATEGORY_META.기타) };
+}
+
+function gradeValueStyle(value, maxGrade = 9) {
+  const grade = asNumber(value);
+  if (grade == null) return {};
+  if (grade <= 1) return { background: "#e7f5ea", color: "#24613a", border: "1px solid #bfe2c8" };
+  if (grade <= 2) return { background: "#edf3ff", color: "#315a9b", border: "1px solid #cad8f3" };
+  const middle = maxGrade === 5 ? 3 : 4;
+  if (grade <= middle) return { background: "#fff6df", color: "#805f1d", border: "1px solid #efddae" };
+  return { background: "#fff0f0", color: "#9a4242", border: "1px solid #efcaca" };
+}
+
 
 function semesterCalendarLabel(key, entryYear, compact = false) {
   const [grade, semester] = key.split("-").map(Number);
@@ -148,7 +185,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const gradeSystem = entryYear >= 2025 ? 5 : 9;
 
   const subjectLists = SEMESTER_KEYS.map((key, index) => semesterRecords[index]?.subjects || null);
-  const hasAnyGrades = subjectLists.some(Boolean);
+  const hasAnyGrades = subjectLists.some(subjects => subjects?.length);
   const [requestedGradeScale, setRequestedGradeScale] = useState(null);
   const displayGradeScale = gradeSystem === 9 ? 9 : (requestedGradeScale === 9 ? 9 : 5);
   const groups = useMemo(() => computeAllGroupAverages(subjectLists, gradeSystem), [semesterData, sid, gradeSystem]); // eslint-disable-line
@@ -190,64 +227,47 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const comment = gradeAnalysisComment(overallAverage, latestSums.sum2, latestSums.sum3, latestSums.sum4, gradeSystem);
 
   const [trendTab, setTrendTab] = useState("category");
-  const internalSubjectOptions = useMemo(() => {
-    const names = new Set();
-    subjectLists.forEach(subjects => (subjects || []).forEach(subject => names.add(subject.subject)));
-    return Array.from(names);
-  }, [semesterData, sid]); // eslint-disable-line
-  const [selectedInternalSubject, setSelectedInternalSubject] = useState(null);
-  const activeInternalSubject = selectedInternalSubject && internalSubjectOptions.includes(selectedInternalSubject)
-    ? selectedInternalSubject
-    : internalSubjectOptions[0] || null;
-  const [selectedMockSubject, setSelectedMockSubject] = useState("국어");
+  const [selectedCategoryTrend, setSelectedCategoryTrend] = useState("전과목");
+  const [selectedMockSubject, setSelectedMockSubject] = useState("전과목 평균");
 
   const categoryTrendSeries = useMemo(() => {
-    const names = [...CATEGORY_GROUP_NAMES, "전과목 평균"];
-    return names.map(name => {
-      const groupName = name === "전과목 평균" ? "전과목" : name;
-      return {
-        name,
-        isAverage: name === "전과목 평균",
-        values: availableSemesters.map(key => {
-          const field = displayGradeScale === 9 ? "perSemester9" : "perSemester5";
-          return groups[groupName]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null;
-        }),
-      };
-    });
-  }, [groups, availableSemesters, displayGradeScale]);
-
-  const internalTrendSeries = useMemo(() => {
-    if (!activeInternalSubject) return [];
-    const subjectValues = availableSemesters.map(key => {
-      const subjects = subjectLists[SEMESTER_KEYS.indexOf(key)] || [];
-      const record = subjects.find(subject => subject.subject === activeInternalSubject);
-      const sourceGrade = getSubjectGrade(record);
-      if (sourceGrade == null) return null;
-      return gradeSystem === 5 && displayGradeScale === 9
-        ? Math.round(grade5to9(sourceGrade) * 100) / 100
-        : sourceGrade;
-    });
-    const averageValues = availableSemesters.map(key => {
-      const field = displayGradeScale === 9 ? "perSemester9" : "perSemester5";
-      return groups["전과목"]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null;
-    });
-    return [
-      { name: activeInternalSubject, values: subjectValues },
-      { name: "학기 평균", values: averageValues, isAverage: true },
-    ];
-  }, [activeInternalSubject, availableSemesters, semesterData, sid, groups, gradeSystem, displayGradeScale]); // eslint-disable-line
+    const field = displayGradeScale === 9 ? "perSemester9" : "perSemester5";
+    const meta = selectedCategoryTrend === "전과목"
+      ? { color: "#2b2620", label: "전과목 평균" }
+      : CATEGORY_META[selectedCategoryTrend];
+    return [{
+      name: meta?.label || selectedCategoryTrend,
+      color: meta?.color || "#2b2620",
+      values: availableSemesters.map(key => (
+        groups[selectedCategoryTrend]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null
+      )),
+      showLabels: true,
+    }];
+  }, [groups, availableSemesters, displayGradeScale, selectedCategoryTrend]);
 
   const mockTrendSeries = useMemo(() => {
-    const subjectValues = availableMockKeys.map(key => asNumber(mockData[key]?.students?.[sid]?.[selectedMockSubject]));
-    const averageValues = availableMockKeys.map(key => {
+    const isAverage = selectedMockSubject === "전과목 평균";
+    const values = availableMockKeys.map(key => {
       const result = mockData[key]?.students?.[sid] || {};
-      const values = CORE_MOCK_SUBJECTS.map(subject => asNumber(result[subject])).filter(value => value != null);
-      return values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 100) / 100 : null;
+      if (!isAverage) return asNumber(result[selectedMockSubject]);
+      const valid = CORE_MOCK_SUBJECTS.map(subject => asNumber(result[subject])).filter(value => value != null);
+      return valid.length ? Math.round((valid.reduce((sum, value) => sum + value, 0) / valid.length) * 100) / 100 : null;
     });
-    return [
-      { name: selectedMockSubject, values: subjectValues },
-      { name: "국·수·영·탐 평균", values: averageValues, isAverage: true },
-    ];
+    const mockColors = {
+      국어: CATEGORY_META.국어.color,
+      수학: CATEGORY_META.수학.color,
+      영어: CATEGORY_META.영어.color,
+      한국사: CATEGORY_META.사회.color,
+      통합사회: "#b57b20",
+      통합과학: CATEGORY_META.과학.color,
+      "전과목 평균": "#2b2620",
+    };
+    return [{
+      name: selectedMockSubject,
+      color: mockColors[selectedMockSubject] || "#2b2620",
+      values,
+      showLabels: true,
+    }];
   }, [availableMockKeys, mockData, sid, selectedMockSubject]);
 
   const showGrades = mode === "grades" || mode === "both";
@@ -270,143 +290,19 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         <EmptyBox text="아직 등록된 성적 데이터가 없습니다. 관리자가 원본 데이터를 업로드하면 여기에 표시됩니다." />
       )}
 
-      {showGrades && hasAnyGrades && (
-        <div style={card}>
-          <SectionHeading
-            title={`교과·계열별 평균 등급 (${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"} · 학점 가중평균)`}
-            description="국어·영어·수학·사회·과학 교과와 기존 교과 조합을 구분해 표시합니다."
-          />
-          {gradeSystem === 5 && (
-            <GradeScaleSelector value={displayGradeScale} onChange={setRequestedGradeScale} />
-          )}
-          <div style={table.scroll}>
-            <table style={table.base}>
-              <thead>
-                <tr>
-                  <th style={table.th}>구분</th>
-                  {displaySemesterKeys.map(key => (
-                    <th key={key} style={table.th}>{semesterCalendarLabel(key, entryYear)}</th>
-                  ))}
-                  <th style={table.th}>전체 평균</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td colSpan={displaySemesterKeys.length + 2} style={table.sectionRow}>교과별 평균</td>
-                </tr>
-                {CATEGORY_GROUP_NAMES.map(name => (
-                  <GradeAverageRow
-                    key={name}
-                    name={name}
-                    group={groups[name]}
-                    displaySemesterKeys={displaySemesterKeys}
-                    gradeScale={displayGradeScale}
-                  />
-                ))}
-                <tr>
-                  <td colSpan={displaySemesterKeys.length + 2} style={table.sectionRow}>계열 조합별 평균</td>
-                </tr>
-                {COMBINATION_GROUP_NAMES.map(name => (
-                  <GradeAverageRow
-                    key={name}
-                    name={name}
-                    group={groups[name]}
-                    displaySemesterKeys={displaySemesterKeys}
-                    gradeScale={displayGradeScale}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {showGrades && (hasAnyGrades || availableMockKeys.length > 0) && (
-        <div style={card}>
-          <SectionHeading
-            title="성적 추이 그래프"
-            description={`학기·회차별 등급 추이를 확인할 수 있습니다. 내신 그래프는 ${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"} 기준이며, 위쪽의 1등급에 가까울수록 우수합니다.`}
-          />
-          <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-            <TrendTabButton active={trendTab === "category"} onClick={() => setTrendTab("category")}>계열별</TrendTabButton>
-            <TrendTabButton active={trendTab === "internal"} onClick={() => setTrendTab("internal")}>내신 과목별</TrendTabButton>
-            <TrendTabButton active={trendTab === "mock"} onClick={() => setTrendTab("mock")}>모의고사</TrendTabButton>
-          </div>
-
-          {trendTab === "category" && (
-            <GradeTrendChart
-              title="교과별 평균 등급 추이"
-              xLabels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))}
-              series={categoryTrendSeries}
-              maxGrade={displayGradeScale}
-              emptyText="계열별 그래프를 만들 내신 성적이 없습니다."
-            />
-          )}
-
-          {trendTab === "internal" && (
-            <div>
-              <div style={chartControlRow}>
-                <label htmlFor={`internal-subject-${sid}`} style={chartControlLabel}>과목 선택</label>
-                <select
-                  id={`internal-subject-${sid}`}
-                  value={activeInternalSubject || ""}
-                  onChange={event => setSelectedInternalSubject(event.target.value)}
-                  style={selectStyle}
-                >
-                  {internalSubjectOptions.map(subject => <option key={subject} value={subject}>{subject}</option>)}
-                </select>
-              </div>
-              <GradeTrendChart
-                title={`${activeInternalSubject || "내신 과목"} 등급과 학기 평균`}
-                xLabels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))}
-                series={internalTrendSeries}
-                maxGrade={displayGradeScale}
-                emptyText="과목별 그래프를 만들 내신 성적이 없습니다."
-              />
-            </div>
-          )}
-
-          {trendTab === "mock" && (
-            <div>
-              <div style={{ ...chartControlRow, alignItems: "flex-start" }}>
-                <span style={{ ...chartControlLabel, paddingTop: 6 }}>과목 선택</span>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {MOCK_SUBJECTS.map(subject => (
-                    <button
-                      key={subject}
-                      onClick={() => setSelectedMockSubject(subject)}
-                      style={{ ...btn.chip, ...(selectedMockSubject === subject ? btn.chipActive : {}) }}
-                    >
-                      {subject}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <GradeTrendChart
-                title={`${selectedMockSubject} 등급과 회차 평균`}
-                xLabels={availableMockKeys.map(key => mockCalendarLabel(key, entryYear, true))}
-                series={mockTrendSeries}
-                maxGrade={9}
-                emptyText="모의고사 추이 그래프를 만들 성적이 없습니다."
-              />
-            </div>
-          )}
-        </div>
-      )}
-
       {showGrades && (
         <div style={card}>
           <SectionHeading
-            title="내신 성적 학기별 확인하기"
+            title="내신 성적"
             description={gradeSystem === 5
-              ? "과목별 교과계열과 5등급제 원등급, 9등급 환산값을 분리해 표시합니다."
-              : "과목별 교과계열과 9등급제 석차등급을 표시합니다."}
+              ? "과목 계열을 색상으로 구분하고, 5등급제 원등급과 9등급 환산값을 함께 표시합니다."
+              : "과목 계열을 색상으로 구분하고, 9등급제 석차등급을 표시합니다."}
           />
           {!availableSemesters.length ? (
             <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 내신 성적이 없습니다.</div>
           ) : (
             <>
-              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
                 {availableSemesters.map(key => (
                   <button
                     key={key}
@@ -415,6 +311,13 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                   >
                     {semesterCalendarLabel(key, entryYear)}
                   </button>
+                ))}
+              </div>
+              <div style={categoryGuide.box}>
+                {Object.entries(CATEGORY_META).filter(([key]) => key !== "기타").map(([key, meta]) => (
+                  <span key={key} style={categoryGuide.item}>
+                    <span style={{ ...categoryGuide.dot, background: meta.color }} />{meta.label}
+                  </span>
                 ))}
               </div>
               <div style={table.scroll}>
@@ -439,23 +342,50 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {(activeSemSubjects || []).map((subject, index) => (
-                      <tr key={`${subject.subject}-${index}`}>
-                        <td style={table.tdLabel}>{subject.subject}</td>
-                        <td style={table.td}><CategoryBadge category={shortCategory(subject.category, subject.subject)} /></td>
-                        <td style={table.td}>{subject.credit}</td>
-                        <td style={table.td}>{subject.score ?? "-"}</td>
-                        <td style={table.td}>{subject.achievement ?? "-"}</td>
-                        <td style={{ ...table.td, fontWeight: 800 }}>{getSubjectGrade(subject) ?? "-"}</td>
-                        {gradeSystem === 5 && (
-                          <td style={{ ...table.td, fontWeight: 800, color: "#5d4898" }}>
-                            {getSubjectGrade(subject) == null ? "-" : Math.round(grade5to9(getSubjectGrade(subject)) * 100) / 100}
+                    {(activeSemSubjects || []).map((subject, index) => {
+                      const meta = categoryMeta(subject.category, subject.subject);
+                      const sourceGrade = getSubjectGrade(subject);
+                      const convertedGrade = sourceGrade == null ? null : Math.round(grade5to9(sourceGrade) * 100) / 100;
+                      const score = asNumber(subject.score);
+                      const achievement = String(subject.achievement ?? "");
+                      const rank = asNumber(subject.rank);
+                      const classSize = asNumber(subject.classSize);
+                      const topRate = rank != null && classSize ? Math.round((rank / classSize) * 1000) / 10 : null;
+                      return (
+                        <tr key={`${subject.subject}-${index}`} style={{ background: meta.row }}>
+                          <td style={{ ...table.tdLabel, background: meta.background, borderLeft: `5px solid ${meta.color}`, color: meta.color }}>
+                            {subject.subject}
                           </td>
-                        )}
-                        <td style={table.td}>{subject.rank ?? "-"}</td>
-                        <td style={table.td}>{subject.classSize ?? "-"}</td>
-                      </tr>
-                    ))}
+                          <td style={table.td}><CategoryBadge category={meta.key} /></td>
+                          <td style={table.td}>{subject.credit}</td>
+                          <td style={table.td}>
+                            <span style={{ fontWeight: score != null && score >= 90 ? 900 : 600, color: score != null && score >= 90 ? "#24613a" : "inherit" }}>
+                              {subject.score ?? "-"}
+                            </span>
+                          </td>
+                          <td style={table.td}>
+                            <span style={{ ...achievementPill.base, ...(achievement === "A" ? achievementPill.a : achievement === "B" ? achievementPill.b : achievementPill.default) }}>
+                              {subject.achievement ?? "-"}
+                            </span>
+                          </td>
+                          <td style={table.td}>
+                            <span style={{ ...metricPill, ...gradeValueStyle(sourceGrade, gradeSystem) }}>{sourceGrade ?? "-"}</span>
+                          </td>
+                          {gradeSystem === 5 && (
+                            <td style={table.td}>
+                              <span style={{ ...metricPill, ...gradeValueStyle(convertedGrade, 9) }}>{convertedGrade ?? "-"}</span>
+                            </td>
+                          )}
+                          <td style={table.td}>
+                            <span style={{ fontWeight: topRate != null && topRate <= 10 ? 900 : 600, color: topRate != null && topRate <= 10 ? "#24613a" : "inherit" }}>
+                              {subject.rank ?? "-"}
+                            </span>
+                            {topRate != null && topRate <= 10 && <div style={topBadge}>상위 {topRate}%</div>}
+                          </td>
+                          <td style={table.td}>{subject.classSize ?? "-"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -464,10 +394,123 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         </div>
       )}
 
+      {showGrades && hasAnyGrades && (
+        <div style={card}>
+          <SectionHeading
+            title={`교과별 평균 (${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"})`}
+            description="국어·영어·수학·사회·과학의 학점 가중평균입니다. 전체 평균 열은 별도로 강조했습니다."
+          />
+          {gradeSystem === 5 && (
+            <GradeScaleSelector value={displayGradeScale} onChange={setRequestedGradeScale} />
+          )}
+          <AverageTable
+            names={CATEGORY_GROUP_NAMES}
+            groups={groups}
+            displaySemesterKeys={displaySemesterKeys}
+            entryYear={entryYear}
+            gradeScale={displayGradeScale}
+            categoryRows
+          />
+        </div>
+      )}
+
+      {showGrades && hasAnyGrades && (
+        <div style={card}>
+          <SectionHeading
+            title={`계열별 평균 (${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"})`}
+            description="대학 교과전형에서 자주 활용하는 교과 조합별 학점 가중평균입니다."
+          />
+          <AverageTable
+            names={COMBINATION_GROUP_NAMES}
+            groups={groups}
+            displaySemesterKeys={displaySemesterKeys}
+            entryYear={entryYear}
+            gradeScale={displayGradeScale}
+          />
+        </div>
+      )}
+
+      {showGrades && (hasAnyGrades || availableMockKeys.length > 0) && (
+        <div style={card}>
+          <SectionHeading
+            title="성적 추이 그래프"
+            description={`선택한 항목 한 개만 그래프로 표시하여 선이 겹치지 않도록 했습니다. 내신은 ${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"} 기준이며, 위쪽의 1등급에 가까울수록 우수합니다.`}
+          />
+          <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+            <TrendTabButton active={trendTab === "category"} onClick={() => setTrendTab("category")}>교과별 내신</TrendTabButton>
+            <TrendTabButton active={trendTab === "mock"} onClick={() => setTrendTab("mock")}>모의고사</TrendTabButton>
+          </div>
+
+          {trendTab === "category" && (
+            <div>
+              <div style={{ ...chartControlRow, alignItems: "flex-start" }}>
+                <span style={{ ...chartControlLabel, paddingTop: 7 }}>그래프 선택</span>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                  {CATEGORY_TREND_OPTIONS.map(name => {
+                    const meta = name === "전과목"
+                      ? { color: "#2b2620", background: "#f1f0ec", short: "전과목" }
+                      : CATEGORY_META[name];
+                    const active = selectedCategoryTrend === name;
+                    return (
+                      <button
+                        key={name}
+                        onClick={() => setSelectedCategoryTrend(name)}
+                        style={{
+                          ...btn.chip,
+                          borderColor: meta.color,
+                          background: active ? meta.color : meta.background,
+                          color: active ? "#fff" : meta.color,
+                          boxShadow: active ? `0 3px 10px ${meta.color}33` : "none",
+                        }}
+                      >
+                        {meta.short}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <GradeTrendChart
+                title={`${selectedCategoryTrend === "전과목" ? "전과목 평균" : selectedCategoryTrend} 등급 추이`}
+                xLabels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))}
+                series={categoryTrendSeries}
+                maxGrade={displayGradeScale}
+                emptyText="선택한 교과의 내신 성적이 없습니다."
+              />
+            </div>
+          )}
+
+          {trendTab === "mock" && (
+            <div>
+              <div style={{ ...chartControlRow, alignItems: "flex-start" }}>
+                <span style={{ ...chartControlLabel, paddingTop: 7 }}>그래프 선택</span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {MOCK_TREND_OPTIONS.map(subject => (
+                    <button
+                      key={subject}
+                      onClick={() => setSelectedMockSubject(subject)}
+                      style={{ ...btn.chip, ...(selectedMockSubject === subject ? btn.chipActive : {}) }}
+                    >
+                      {subject}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <GradeTrendChart
+                title={`${selectedMockSubject} 등급 추이`}
+                xLabels={availableMockKeys.map(key => mockCalendarLabel(key, entryYear, true))}
+                series={mockTrendSeries}
+                maxGrade={9}
+                emptyText="선택한 모의고사 성적이 없습니다."
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {showGrades && (
         <div style={card}>
           <SectionHeading
-            title="모의고사 성적 회차별 확인하기"
+            title="모의고사 성적"
             description="선택한 회차의 과목별 등급과 최적 2합·3합·4합을 확인합니다."
           />
           {!availableMockKeys.length ? (
@@ -488,7 +531,15 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
               <div style={table.scroll}>
                 <table style={table.base}>
                   <thead><tr>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead>
-                  <tbody><tr>{MOCK_SUBJECTS.map(subject => <td key={subject} style={table.td}>{mockGrades[subject] ?? "-"}</td>)}</tr></tbody>
+                  <tbody>
+                    <tr>
+                      {MOCK_SUBJECTS.map(subject => (
+                        <td key={subject} style={table.td}>
+                          <span style={{ ...metricPill, ...gradeValueStyle(mockGrades[subject], 9) }}>{mockGrades[subject] ?? "-"}</span>
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
                 </table>
               </div>
               <MockSumCards sums={sums} />
@@ -550,17 +601,74 @@ function SectionHeading({ title, description }) {
   );
 }
 
-function GradeAverageRow({ name, group, displaySemesterKeys, gradeScale }) {
+function AverageTable({ names, groups, displaySemesterKeys, entryYear, gradeScale, categoryRows = false }) {
+  const averages = names
+    .map(name => gradeScale === 9 ? groups[name]?.avg9 : groups[name]?.avg5)
+    .filter(value => asNumber(value) != null);
+  const bestAverage = averages.length ? Math.min(...averages) : null;
+
+  return (
+    <div style={table.scroll}>
+      <table style={table.base}>
+        <thead>
+          <tr>
+            <th style={table.th}>구분</th>
+            {displaySemesterKeys.map(key => (
+              <th key={key} style={table.th}>{semesterCalendarLabel(key, entryYear)}</th>
+            ))}
+            <th style={{ ...table.th, ...table.averageTh }}>전체 평균</th>
+          </tr>
+        </thead>
+        <tbody>
+          {names.map(name => (
+            <GradeAverageRow
+              key={name}
+              name={name}
+              group={groups[name]}
+              displaySemesterKeys={displaySemesterKeys}
+              gradeScale={gradeScale}
+              categoryRow={categoryRows}
+              bestAverage={bestAverage}
+            />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GradeAverageRow({ name, group, displaySemesterKeys, gradeScale, categoryRow = false, bestAverage = null }) {
   const semesterField = gradeScale === 9 ? "perSemester9" : "perSemester5";
   const averageField = gradeScale === 9 ? "avg9" : "avg5";
+  const average = group?.[averageField] ?? null;
+  const meta = categoryRow ? (CATEGORY_META[name] || CATEGORY_META.기타) : null;
+  const isBest = average != null && bestAverage != null && average === bestAverage;
+
   return (
-    <tr>
-      <td style={table.tdLabel}>{name}</td>
+    <tr style={meta ? { background: meta.row } : undefined}>
+      <td style={{
+        ...table.tdLabel,
+        ...(meta ? { background: meta.background, color: meta.color, borderLeft: `5px solid ${meta.color}` } : {}),
+        ...(name === "전과목" ? { background: "#efeee9", fontWeight: 900 } : {}),
+      }}>
+        {meta ? <CategoryBadge category={name} showLabel /> : name}
+      </td>
       {displaySemesterKeys.map(key => {
         const value = group?.[semesterField]?.[SEMESTER_KEYS.indexOf(key)] ?? null;
-        return <td key={key} style={table.td}>{value ?? "-"}</td>;
+        return (
+          <td key={key} style={table.td}>
+            {value == null ? "-" : <span style={{ ...metricPill, ...gradeValueStyle(value, gradeScale) }}>{value}</span>}
+          </td>
+        );
       })}
-      <td style={{ ...table.td, fontWeight: 800 }}>{group?.[averageField] ?? "-"}</td>
+      <td style={{ ...table.td, ...table.averageTd, ...(isBest ? table.bestAverageTd : {}) }}>
+        {average == null ? "-" : (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <span style={{ ...metricPill, ...gradeValueStyle(average, gradeScale), fontWeight: 900 }}>{average}</span>
+            {isBest && <span style={bestBadge}>최우수</span>}
+          </div>
+        )}
+      </td>
     </tr>
   );
 }
@@ -590,16 +698,14 @@ function GradeScaleSelector({ value, onChange }) {
   );
 }
 
-function CategoryBadge({ category }) {
-  const categoryStyles = {
-    국: { background: "#eef3ff", color: "#315a9b" },
-    영: { background: "#fff0f3", color: "#9a4254" },
-    수: { background: "#f1edff", color: "#5d4898" },
-    사: { background: "#fff5df", color: "#8a641d" },
-    과: { background: "#eaf7ef", color: "#356b49" },
-    기타: { background: "#f1f0ec", color: "#716b5f" },
-  };
-  return <span style={{ ...categoryBadgeBase, ...(categoryStyles[category] || categoryStyles.기타) }}>{category}</span>;
+function CategoryBadge({ category, showLabel = false }) {
+  const key = CATEGORY_META[category] ? category : resolveCategoryKey(category, category);
+  const meta = CATEGORY_META[key] || CATEGORY_META.기타;
+  return (
+    <span style={{ ...categoryBadgeBase, background: meta.background, color: meta.color, border: `1px solid ${meta.color}33` }}>
+      {showLabel ? meta.label : meta.short}
+    </span>
+  );
 }
 
 function TrendTabButton({ active, onClick, children }) {
@@ -630,8 +736,8 @@ function MockSumCards({ sums }) {
 
 function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
   const width = 920;
-  const height = 330;
-  const margin = { top: 24, right: 24, bottom: 62, left: 52 };
+  const height = 350;
+  const margin = { top: 38, right: 28, bottom: 66, left: 54 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const labels = xLabels || [];
@@ -665,25 +771,38 @@ function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
     <div style={chart.box}>
       <div style={chart.title}>{title}</div>
       <div style={chart.legend}>
-        {usableSeries.map((item, index) => (
-          <div key={item.name} style={chart.legendItem}>
-            <span style={{
-              ...chart.legendLine,
-              background: item.isAverage ? "transparent" : palette[index % palette.length],
-              borderTop: item.isAverage ? `3px dashed ${palette[index % palette.length]}` : "none",
-            }} />
-            <span>{item.name}</span>
-          </div>
-        ))}
+        {usableSeries.map((item, index) => {
+          const color = item.color || palette[index % palette.length];
+          return (
+            <div key={item.name} style={{ ...chart.legendItem, color, fontWeight: 800 }}>
+              <span style={{ ...chart.legendLine, background: color }} />
+              <span>{item.name}</span>
+            </div>
+          );
+        })}
+        <span style={chart.hint}>※ 위쪽(1등급)에 가까울수록 우수</span>
       </div>
       <div style={{ width: "100%", overflowX: "auto" }}>
         <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} style={{ width: "100%", minWidth: 620, display: "block" }}>
+          {maxGrade >= 2 && (
+            <g>
+              <rect
+                x={margin.left}
+                y={yAt(1)}
+                width={plotWidth}
+                height={Math.max(1, yAt(2) - yAt(1))}
+                fill="#f0f8f2"
+              />
+              <text x={width - margin.right - 8} y={yAt(1) + 14} textAnchor="end" fontSize="10" fill="#568064">우수 구간</text>
+            </g>
+          )}
+
           {Array.from({ length: maxGrade }, (_, index) => index + 1).map(grade => {
             const y = yAt(grade);
             return (
               <g key={grade}>
-                <line x1={margin.left} y1={y} x2={width - margin.right} y2={y} stroke="#e9e5da" strokeWidth="1" />
-                <text x={margin.left - 12} y={y + 4} textAnchor="end" fontSize="11" fill="#8a8578">{grade}</text>
+                <line x1={margin.left} y1={y} x2={width - margin.right} y2={y} stroke={grade === 1 ? "#bcd8c4" : "#e9e5da"} strokeWidth={grade === 1 ? "1.5" : "1"} />
+                <text x={margin.left - 12} y={y + 4} textAnchor="end" fontSize="11" fontWeight={grade === 1 ? "800" : "500"} fill={grade === 1 ? "#356b49" : "#8a8578"}>{grade}</text>
               </g>
             );
           })}
@@ -697,25 +816,33 @@ function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
           ))}
 
           {usableSeries.map((item, seriesIndex) => {
-            const color = palette[seriesIndex % palette.length];
+            const color = item.color || palette[seriesIndex % palette.length];
             return (
               <g key={item.name}>
                 <path
                   d={buildPath(item.values)}
                   fill="none"
                   stroke={color}
-                  strokeWidth={item.isAverage ? 3.5 : 2.4}
-                  strokeDasharray={item.isAverage ? "8 5" : undefined}
+                  strokeWidth="3.5"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
                 {item.values.map((rawValue, index) => {
                   const value = asNumber(rawValue);
                   if (value == null) return null;
+                  const labelY = Math.max(16, yAt(value) - 13);
                   return (
-                    <circle key={`${item.name}-${index}`} cx={xAt(index)} cy={yAt(value)} r={item.isAverage ? 4.5 : 3.8} fill="#fff" stroke={color} strokeWidth="2.5">
-                      <title>{`${item.name} · ${labels[index]} · ${value}등급`}</title>
-                    </circle>
+                    <g key={`${item.name}-${index}`}>
+                      <circle cx={xAt(index)} cy={yAt(value)} r="5" fill="#fff" stroke={color} strokeWidth="3">
+                        <title>{`${item.name} · ${labels[index]} · ${value}등급`}</title>
+                      </circle>
+                      {item.showLabels && (
+                        <g>
+                          <rect x={xAt(index) - 18} y={labelY - 12} width="36" height="19" rx="9.5" fill={color} opacity="0.96" />
+                          <text x={xAt(index)} y={labelY + 1} textAnchor="middle" fontSize="10.5" fontWeight="800" fill="#fff">{value}</text>
+                        </g>
+                      )}
+                    </g>
                   );
                 })}
               </g>
@@ -726,6 +853,7 @@ function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
     </div>
   );
 }
+
 
 /* ============================================================
    관리자/선생님: 학생 학번으로 성적 조회
@@ -1287,10 +1415,13 @@ const btn = {
 const table = {
   scroll: { width: "100%", overflowX: "auto", borderRadius: 8 },
   base: { width: "100%", minWidth: 700, borderCollapse: "collapse", fontSize: 12.5 },
-  th: { border: "1px solid #e6e1d3", padding: "7px 8px", background: "#f6f4ee", fontWeight: 800, fontSize: 11.5, whiteSpace: "nowrap" },
-  td: { border: "1px solid #e6e1d3", padding: "7px 8px", textAlign: "center", whiteSpace: "nowrap" },
-  tdLabel: { border: "1px solid #e6e1d3", padding: "7px 8px", fontWeight: 700, background: "#fbfaf6", whiteSpace: "nowrap" },
+  th: { border: "1px solid #e6e1d3", padding: "8px 8px", background: "#f6f4ee", fontWeight: 800, fontSize: 11.5, whiteSpace: "nowrap" },
+  td: { border: "1px solid #e6e1d3", padding: "8px 8px", textAlign: "center", whiteSpace: "nowrap" },
+  tdLabel: { border: "1px solid #e6e1d3", padding: "8px 9px", fontWeight: 700, background: "#fbfaf6", whiteSpace: "nowrap" },
   sectionRow: { border: "1px solid #ded8c9", padding: "7px 9px", background: "#eeeae0", color: "#5f594d", fontSize: 11.5, fontWeight: 800, textAlign: "left" },
+  averageTh: { background: "#e9f2e7", color: "#315132", borderColor: "#cbdcc8" },
+  averageTd: { background: "#f4f9f3", borderColor: "#d7e4d4", fontWeight: 900 },
+  bestAverageTd: { background: "#e8f6ea", boxShadow: "inset 0 0 0 1px #b8dcbc" },
 };
 const searchBox = {
   box: { display: "flex", alignItems: "center", gap: 8, background: "#fff", border: "1px solid #e6e1d3", borderRadius: 10, padding: "9px 13px", maxWidth: 420 },
@@ -1346,13 +1477,30 @@ const categoryBadgeBase = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  minWidth: 28,
-  height: 24,
-  padding: "0 7px",
+  minWidth: 30,
+  minHeight: 24,
+  padding: "4px 8px",
   borderRadius: 999,
-  fontSize: 11.5,
+  fontSize: 11.2,
   fontWeight: 900,
+  lineHeight: 1.1,
 };
+const categoryGuide = {
+  box: { display: "flex", gap: "7px 13px", flexWrap: "wrap", margin: "0 0 12px", padding: "9px 11px", background: "#faf9f5", border: "1px solid #ebe7dc", borderRadius: 10 },
+  item: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.8, color: "#716b5f", fontWeight: 700 },
+  dot: { width: 8, height: 8, borderRadius: 99, display: "inline-block" },
+};
+const metricPill = {
+  display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 32, minHeight: 25, padding: "2px 8px", borderRadius: 999, fontWeight: 900, lineHeight: 1,
+};
+const achievementPill = {
+  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 28, minHeight: 24, borderRadius: 999, padding: "2px 7px", fontWeight: 900 },
+  a: { background: "#e7f5ea", color: "#24613a", border: "1px solid #bfe2c8" },
+  b: { background: "#edf3ff", color: "#315a9b", border: "1px solid #cad8f3" },
+  default: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
+};
+const topBadge = { marginTop: 3, fontSize: 9.5, fontWeight: 900, color: "#24613a", background: "#e7f5ea", borderRadius: 999, padding: "2px 5px", display: "inline-block" };
+const bestBadge = { fontSize: 9.5, fontWeight: 900, color: "#24613a", background: "#dff1e3", border: "1px solid #b9ddc1", borderRadius: 999, padding: "3px 6px" };
 const mockSum = {
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))", gap: 10, marginTop: 14 },
   card: { border: "1px solid #dfe7dc", background: "#f5faf4", borderRadius: 12, padding: "13px 14px", textAlign: "center" },
@@ -1370,4 +1518,5 @@ const chart = {
   legend: { display: "flex", gap: "8px 16px", alignItems: "center", flexWrap: "wrap", marginBottom: 4, fontSize: 10.8, color: "#716b5f" },
   legendItem: { display: "flex", alignItems: "center", gap: 6 },
   legendLine: { display: "inline-block", width: 22, height: 3, borderRadius: 99 },
+  hint: { marginLeft: "auto", fontSize: 10.5, color: "#8a8578", fontWeight: 600 },
 };
