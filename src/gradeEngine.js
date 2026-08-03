@@ -385,9 +385,24 @@ export function parseAdmissionSubjectGroups(value) {
   });
 }
 
-function admissionSubjectValue(group, mockGrades) {
+function adjustedAdmissionGrade(subject, value, row) {
+  const grade = toNumberOrNull(value);
+  if (grade == null) return null;
+  const ruleText = `${String(row?.requiredSum ?? "")} ${String(row?.note ?? "")}`
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // 경기대 등 일부 대학은 영어 1·2등급을 모두 1등급으로 환산합니다.
+  // 이 문구를 "2개 과목 각 1등급" 조건으로 오해하지 않고 영어 환산에만 적용합니다.
+  const englishOneTwoAsOne = /영어[^.\n]{0,35}(?:1\s*[,·/\-]?\s*2|1\s*~\s*2)\s*등급[^.\n]{0,35}(?:모두|동일|각각)?[^.\n]{0,15}1\s*등급(?:으로)?\s*(?:반영|환산|처리)/.test(ruleText)
+    || /영어\s*1\s*등급과?\s*2\s*등급[^.\n]{0,25}1\s*등급/.test(ruleText);
+  if (subject === "영어" && englishOneTwoAsOne && grade <= 2) return 1;
+  return grade;
+}
+
+function admissionSubjectValue(group, mockGrades, row) {
   const values = (group?.subjects || [])
-    .map(subject => toNumberOrNull(mockGrades?.[subject]))
+    .map(subject => adjustedAdmissionGrade(subject, mockGrades?.[subject], row))
     .filter(value => value != null);
   if (!values.length) return null;
   return group.type === "choice" ? Math.min(...values) : values[0];
@@ -398,7 +413,7 @@ function computeAdmissionStudentGrades(row, mockGrades, count) {
   if (!groups.length || !mockGrades || !count) return null;
 
   const values = groups
-    .map(group => admissionSubjectValue(group, mockGrades))
+    .map(group => admissionSubjectValue(group, mockGrades, row))
     .filter(value => value != null)
     .sort((a, b) => a - b);
 
@@ -412,19 +427,19 @@ function extractAdmissionEachRule(row) {
     .trim();
   if (!text) return null;
 
-  // 예: "3개 과목 각 3등급 이내", "각 3개과목 각 3등급 이내"
-  const hasEachCue = /각|각각|모두/.test(text);
-  const thresholdMatch = text.match(/각\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/)
+  // "3개 과목 각 3등급 이내"처럼 과목/영역 수가 명시된 경우만 개별 과목 기준으로 봅니다.
+  // "영어 1,2등급은 모두 1등급으로 반영" 같은 환산 문구는 개별 2개 과목 조건이 아닙니다.
+  const countMatch = text.match(/(?:각\s*)?(\d+)\s*개\s*(?:과목|영역)/)
+    || text.match(/(?:과목|영역)\s*(\d+)\s*개/);
+  if (!countMatch) return null;
+
+  const thresholdMatch = text.match(/각(?:각)?\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/)
     || text.match(/모두\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/)
-    || (hasEachCue ? text.match(/(\d+(?:\.\d+)?)\s*등급\s*이내/) : null);
+    || text.match(/각(?:각)?[^0-9]{0,12}(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/);
   if (!thresholdMatch) return null;
 
-  const countMatch = text.match(/(?:각\s*)?(\d+)\s*개\s*(?:과목|영역)/);
-  const count = countMatch
-    ? Number(countMatch[1])
-    : extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
+  const count = Number(countMatch[1]);
   const threshold = Number(thresholdMatch[1]);
-
   if (!count || !Number.isFinite(threshold)) return null;
   return { count, threshold };
 }
@@ -482,7 +497,11 @@ export function evaluateAdmissionRequirement(row, sums, mockGrades = null) {
     };
   }
 
-  if (note.includes("각")) return { status: "manual", satisfied: null, studentSum, studentGrades, threshold, count, ruleType: "sum" };
+  // 단순 환산 문구의 "각각"을 수동 판정 조건으로 오해하지 않습니다.
+  // 명시적인 "N개 과목/영역 각 M등급" 형식은 위 extractAdmissionEachRule에서 이미 처리됩니다.
+  if (/(?:\d+\s*개\s*(?:과목|영역))[^.\n]{0,25}각/.test(note)) {
+    return { status: "manual", satisfied: null, studentSum, studentGrades, threshold, count, ruleType: "sum" };
+  }
   if (studentSum == null) return { status: "unavailable", satisfied: null, studentSum, studentGrades, threshold, count, ruleType: "sum" };
   return {
     status: studentSum <= threshold ? "satisfied" : "unsatisfied",

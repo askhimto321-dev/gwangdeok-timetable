@@ -1620,6 +1620,8 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   const [noticeFiles, setNoticeFiles] = useState([]);
   const [noticeLinks, setNoticeLinks] = useState("");
   const [saving, setSaving] = useState(false);
+  const [attachmentDiagnostic, setAttachmentDiagnostic] = useState(null);
+  const [diagnosingAttachment, setDiagnosingAttachment] = useState(false);
   const noticeFileRef = useRef(null);
 
   useEffect(() => {
@@ -1662,12 +1664,12 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
     Object.values(nextAnnouncements).forEach(targetMap => {
       Object.values(targetMap || {}).forEach(rawList => {
         asNoticeArray(rawList).forEach(entry => (entry.attachments || []).forEach(file => {
-          if (file.path) referencedPaths.add(file.path);
+          if (file.path || file.dataKey) referencedPaths.add(file.path || file.dataKey);
         }));
       });
     });
-    const removableFiles = (notice.attachments || []).filter(file => file.path && !referencedPaths.has(file.path));
-    const deleted = await Promise.all(removableFiles.map(file => deleteClassroomAttachment(file.path)));
+    const removableFiles = (notice.attachments || []).filter(file => (file.path || file.dataKey) && !referencedPaths.has(file.path || file.dataKey));
+    const deleted = await Promise.all(removableFiles.map(file => deleteClassroomAttachment(file.path || file.dataKey)));
     if (deleted.some(result => !result.ok)) showToast("공지는 삭제했지만 일부 첨부파일 정리에 실패했습니다.", "info");
     else showToast("공지를 삭제했습니다.", "success");
   };
@@ -1714,17 +1716,28 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
       };
       const ok = await persist({ announcements: nextAnnouncements });
       if (!ok) {
-        await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path)));
+        await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path || file.dataKey)));
         return;
       }
-      showToast(uploaded.length ? "공지와 첨부파일을 등록했습니다." : "공지를 등록했습니다.", "success");
+      const fallbackCount = uploaded.filter(file => file.storageMode === "firestore-attachment").length;
+      showToast(uploaded.length
+        ? (fallbackCount ? `공지와 첨부파일을 등록했습니다. (${fallbackCount}개는 Firestore 대체 저장)` : "공지와 첨부파일을 등록했습니다.")
+        : "공지를 등록했습니다.", "success");
       setTitle(""); setText(""); setDueDate(""); setNoticeFiles([]); setNoticeLinks("");
       if (noticeFileRef.current) noticeFileRef.current.value = "";
     } catch (error) {
-      await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path)));
+      await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path || file.dataKey)));
       showToast(`등록 오류: ${classroomUploadErrorMessage(error)}`, "error");
     }
     setSaving(false);
+  };
+
+  const runAttachmentDiagnostic = async () => {
+    setDiagnosingAttachment(true);
+    const result = await diagnoseStorageConnection();
+    setAttachmentDiagnostic(result);
+    showToast(result.ok ? "첨부파일 저장소 연결이 정상입니다." : `Storage 연결 실패: ${result.code || result.error || "원인 미상"}`, result.ok ? "success" : "error");
+    setDiagnosingAttachment(false);
   };
 
   const deleteLegacyMaterial = async material => {
@@ -1748,11 +1761,11 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
     Object.values(nextAnnouncements).forEach(targetMap => {
       Object.values(targetMap || {}).forEach(rawList => {
         asNoticeArray(rawList).forEach(entry => (entry.attachments || []).forEach(file => {
-          if (file.path) referencedPaths.add(file.path);
+          if (file.path || file.dataKey) referencedPaths.add(file.path || file.dataKey);
         }));
       });
     });
-    await Promise.all((material.attachments || []).filter(file => file.path && !referencedPaths.has(file.path)).map(file => deleteClassroomAttachment(file.path)));
+    await Promise.all((material.attachments || []).filter(file => (file.path || file.dataKey) && !referencedPaths.has(file.path || file.dataKey)).map(file => deleteClassroomAttachment(file.path || file.dataKey)));
     showToast("이전 수업자료를 삭제했습니다.", "success");
   };
 
@@ -1838,10 +1851,18 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
             </div>
             {noticeFiles.length > 0 && (
               <div style={styles.selectedFileList}>
-                {noticeFiles.map(file => <span key={`${file.name}-${file.size}`} style={styles.selectedFileChip}><Paperclip size={11} />{file.name}</span>)}
+                {noticeFiles.map(file => <span key={`${file.name}-${file.size}`} style={styles.selectedFileChip}><Paperclip size={11} /><span style={{ maxWidth: 230, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span><small style={{ color: "#746d61" }}>{formatAttachmentSize(file.size)}</small></span>)}
                 <button type="button" style={styles.iconBtn} onClick={() => { setNoticeFiles([]); if (noticeFileRef.current) noticeFileRef.current.value = ""; }}><X size={14} /></button>
               </div>
             )}
+            <div style={{ marginTop: 8, padding: "9px 11px", border: `1px solid ${COLORS.line}`, borderRadius: 9, background: "#fbfaf6", display: "flex", alignItems: "center", gap: 9, justifyContent: "space-between", flexWrap: "wrap" }}>
+              <div style={{ fontSize: 10.8, color: "#746d61", lineHeight: 1.5 }}>
+                제목·내용·마감일은 서로 충돌하지 않으며 모두 선택 항목입니다. 파일 또는 링크만 등록해도 됩니다.<br />
+                10MB 이하 파일은 Storage 실패 시 독립 Firestore 분할 저장으로 자동 대체됩니다.
+                {attachmentDiagnostic && <span style={{ display: "block", marginTop: 3, color: attachmentDiagnostic.ok ? "#24613a" : "#a13e38", fontWeight: 800 }}>{attachmentDiagnostic.ok ? `Storage 정상 · ${attachmentDiagnostic.bucket || "bucket 확인됨"}` : `Storage 실패 · ${attachmentDiagnostic.code || attachmentDiagnostic.error || "원인 미상"}`}</span>}
+              </div>
+              <button type="button" style={styles.secondaryBtn} onClick={runAttachmentDiagnostic} disabled={diagnosingAttachment}>{diagnosingAttachment ? <Loader2 size={13} className="spin" /> : <Upload size={13} />} 첨부 연결 진단</button>
+            </div>
             <label style={{ ...styles.noticeOptionField, marginTop: 9 }}>
               <span><Link2 size={12} /> 링크 첨부 (선택 · 한 줄에 하나)</span>
               <textarea value={noticeLinks} onChange={event => setNoticeLinks(event.target.value)} rows={2} style={{ ...styles.textareaInput, minHeight: 54 }} placeholder="Google Drive, YouTube, 학습자료 링크 등을 붙여넣으세요." />
@@ -2115,14 +2136,14 @@ function PersonalNoticeComposer({ roster, db, persist, showToast, scopeKey, teac
       });
       const ok = await persist({ announcements: { ...db.announcements, [scopeKey]: updated } });
       if (!ok) {
-        await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path)));
+        await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path || file.dataKey)));
         return;
       }
       showToast(`${selected.length}명에게 전송했습니다.`, "success");
       setTitle(""); setText(""); setDueDate(""); setSelected([]); setFiles([]);
       if (fileRef.current) fileRef.current.value = "";
     } catch (error) {
-      await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path)));
+      await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path || file.dataKey)));
       showToast(`전송 오류: ${classroomUploadErrorMessage(error)}`, "error");
     }
     setSaving(false);
@@ -2223,16 +2244,42 @@ function formatAttachmentSize(size) {
 
 function AttachmentLinks({ attachments }) {
   const files = Array.isArray(attachments) ? attachments : [];
+  const [openingKey, setOpeningKey] = useState("");
+  const [openError, setOpenError] = useState("");
   if (!files.length) return null;
+
+  const openStoredAttachment = async (file, index) => {
+    const key = file.dataKey || `${file.fileName}-${index}`;
+    setOpeningKey(key);
+    setOpenError("");
+    try {
+      const stored = await readStorage(file.dataKey, null);
+      if (!stored?.dataUrl) throw new Error("저장된 첨부파일 데이터를 찾지 못했습니다.");
+      const anchor = document.createElement("a");
+      anchor.href = stored.dataUrl;
+      anchor.download = file.fileName || stored.fileName || "첨부파일";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+    } catch (error) {
+      setOpenError(error?.message || "첨부파일을 여는 중 오류가 발생했습니다.");
+    }
+    setOpeningKey("");
+  };
+
   return (
-    <div style={styles.attachmentList}>
-      {files.map((file, index) => (
-        <a key={`${file.path || file.url || file.fileName}-${index}`} href={file.url} target={file.download ? undefined : "_blank"} rel="noreferrer" download={file.download ? (file.fileName || "첨부파일") : undefined} style={styles.attachmentLink} title={file.fileName || "첨부파일"}>
-          <>{file.isLink ? <Link2 size={12} /> : <Download size={12} />}</>
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.fileName || (file.isLink ? "링크" : "첨부파일")}</span>
-          {file.size ? <small>{formatAttachmentSize(file.size)}</small> : null}
-        </a>
-      ))}
+    <div>
+      <div style={styles.attachmentList}>
+        {files.map((file, index) => {
+          const key = `${file.path || file.dataKey || file.url || file.fileName}-${index}`;
+          const content = <><>{file.isLink ? <Link2 size={12} /> : (openingKey === (file.dataKey || `${file.fileName}-${index}`) ? <Loader2 size={12} className="spin" /> : <Download size={12} />)}</><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.fileName || (file.isLink ? "링크" : "첨부파일")}</span>{file.size ? <small>{formatAttachmentSize(file.size)}</small> : null}</>;
+          if (file.dataKey) {
+            return <button key={key} type="button" onClick={() => openStoredAttachment(file, index)} disabled={!!openingKey} style={{ ...styles.attachmentLink, cursor: "pointer" }} title={`${file.fileName || "첨부파일"} · Firestore 대체 저장`}>{content}</button>;
+          }
+          return <a key={key} href={file.url} target={file.download ? undefined : "_blank"} rel="noreferrer" download={file.download ? (file.fileName || "첨부파일") : undefined} style={styles.attachmentLink} title={file.fileName || "첨부파일"}>{content}</a>;
+        })}
+      </div>
+      {openError && <div style={{ marginTop: 5, fontSize: 10.5, color: "#a13e38" }}>{openError}</div>}
     </div>
   );
 }

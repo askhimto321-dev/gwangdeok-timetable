@@ -374,19 +374,41 @@ function mockStudentName(sid, roster, gdb, entryYear) {
 }
 function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
   const entryYear = entryYearForGrade(gdb.cohortSettings, currentGrade);
-  const available = MOCK_MONTH_KEYS.filter(key => Number(key.split("-")[0]) === Number(currentGrade) && cohortRecord(gdb.mockData, entryYear, key)?.students);
+  // 현재 학년까지의 누적 회차를 모두 보여줍니다. 예: 2학년은 1학년 3·6·9·10월도 함께 조회.
+  const available = MOCK_MONTH_KEYS.filter(key => (
+    Number(key.split("-")[0]) <= Number(currentGrade)
+    && cohortRecord(gdb.mockData, entryYear, key)?.students
+  ));
   const [mockKey, setMockKey] = useState(available[available.length - 1] || "");
   const [classFilter, setClassFilter] = useState("all");
   const [subjectFilter, setSubjectFilter] = useState("전체");
   const [gradeFilter, setGradeFilter] = useState("all");
-  useEffect(() => { if (available.length && !available.includes(mockKey)) setMockKey(available[available.length - 1]); }, [available.join("|"), mockKey]); // eslint-disable-line
+  const [classMetric, setClassMetric] = useState("총점");
+
+  useEffect(() => {
+    if (available.length && !available.includes(mockKey)) setMockKey(available[available.length - 1]);
+  }, [available.join("|"), mockKey]); // eslint-disable-line
+
   const studentsMap = mockKey ? cohortRecord(gdb.mockData, entryYear, mockKey)?.students || {} : {};
   const rows = useMemo(() => Object.entries(studentsMap).map(([sid, result]) => {
     const scores = result?._scores || {};
-    const total = Number.isFinite(Number(result?._total)) ? Number(result._total) : (Object.keys(scores).length ? Object.values(scores).reduce((sum, value) => sum + Number(value || 0), 0) : null);
+    const total = Number.isFinite(Number(result?._total))
+      ? Number(result._total)
+      : (Object.keys(scores).length
+        ? Object.values(scores).reduce((sum, value) => sum + Number(value || 0), 0)
+        : null);
     const info = roster?.[sid] || {};
-    return { sid, name: mockStudentName(sid, roster, gdb, entryYear), classNumber: info.class || Number(String(sid).slice(1, 3)) || "", number: info.number || Number(String(sid).slice(3, 5)) || "", grades: result || {}, scores, total };
-  }).sort((a,b)=>(b.total ?? -1)-(a.total ?? -1) || a.sid.localeCompare(b.sid)), [studentsMap, roster, gdb.semesterData, entryYear]);
+    return {
+      sid,
+      name: mockStudentName(sid, roster, gdb, entryYear),
+      classNumber: info.class || Number(String(sid).slice(1, 3)) || "",
+      number: info.number || Number(String(sid).slice(3, 5)) || "",
+      grades: result || {},
+      scores,
+      total,
+    };
+  }).sort((a, b) => (b.total ?? -1) - (a.total ?? -1) || a.sid.localeCompare(b.sid)), [studentsMap, roster, gdb.semesterData, entryYear]);
+
   let previousTotal = null;
   let previousRank = 0;
   rows.forEach((row, index) => {
@@ -395,36 +417,139 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
     row.rank = previousRank;
     previousTotal = row.total;
   });
-  const classes = Array.from(new Set(rows.map(row=>String(row.classNumber)).filter(Boolean))).sort((a,b)=>Number(a)-Number(b));
-  const filtered = rows.filter(row => {
-    if (classFilter !== "all" && String(row.classNumber) !== classFilter) return false;
-    if (subjectFilter !== "전체" && gradeFilter !== "all" && Number(row.grades?.[subjectFilter]) !== Number(gradeFilter)) return false;
-    return true;
+
+  const classes = Array.from(new Set(rows.map(row => String(row.classNumber)).filter(Boolean))).sort((a, b) => Number(a) - Number(b));
+  const classScopedRows = classFilter === "all" ? rows : rows.filter(row => String(row.classNumber) === classFilter);
+  const filtered = classScopedRows.filter(row => {
+    if (gradeFilter === "all") return true;
+    const targetGrade = Number(gradeFilter);
+    if (subjectFilter === "전체") {
+      return MOCK_SUBJECTS.some(subject => Number(row.grades?.[subject]) === targetGrade);
+    }
+    return Number(row.grades?.[subjectFilter]) === targetGrade;
   });
-  const gradeCounts = Object.fromEntries(MOCK_SUBJECTS.map(subject => [subject, Array.from({length:9},(_,i)=>rows.filter(row=>Number(row.grades?.[subject])===i+1).length)]));
-  const cutRows = MOCK_SUBJECTS.map(subject => ({ subject, cuts: Array.from({length:9},(_,i)=>{
-    const scores=rows.filter(row=>Number(row.grades?.[subject])===i+1).map(row=>Number(row.scores?.[subject])).filter(Number.isFinite);
-    return scores.length ? Math.min(...scores) : null;
-  }) }));
-  const avg = subject => { const values=filtered.map(row=>Number(row.scores?.[subject])).filter(Number.isFinite); return values.length ? Math.round(values.reduce((a,b)=>a+b,0)/values.length*10)/10 : null; };
-  if (!available.length) return <EmptyBox text={`${currentGrade}학년 모의고사 데이터가 없습니다. 관리자가 해당 입학연도의 모의고사 파일을 업로드하면 분석할 수 있습니다.`} />;
-  return <div>
-    <div style={{ ...card, marginTop: 0, background: "linear-gradient(135deg,#f4f8f2,#ffffff)" }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:12, flexWrap:"wrap" }}><div><div style={{fontWeight:950,fontSize:17}}>모의고사 성적 분석</div><div style={{fontSize:11.5,color:"#7c7569",marginTop:3}}>{entryYear}년 입학생 · {currentGrade}학년 · 회차별 등급·원점수·총점 순위를 분석합니다.</div></div><BarChart3 size={24} color="#3d5c3a" /></div>
-      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:14}}>{available.map(key=><button key={key} style={{...btn.chip,...(mockKey===key?btn.chipActive:{})}} onClick={()=>setMockKey(key)}>{MOCK_MONTH_LABELS[key]}</button>)}</div>
+
+  const gradeCounts = Object.fromEntries(MOCK_SUBJECTS.map(subject => [
+    subject,
+    Array.from({ length: 9 }, (_, index) => classScopedRows.filter(row => Number(row.grades?.[subject]) === index + 1).length),
+  ]));
+  const cutRows = MOCK_SUBJECTS.map(subject => ({
+    subject,
+    cuts: Array.from({ length: 9 }, (_, index) => {
+      const scores = classScopedRows
+        .filter(row => Number(row.grades?.[subject]) === index + 1)
+        .map(row => Number(row.scores?.[subject]))
+        .filter(Number.isFinite);
+      return scores.length ? Math.min(...scores) : null;
+    }),
+  }));
+  const avgFor = (sourceRows, subject) => {
+    const values = sourceRows.map(row => Number(row.scores?.[subject])).filter(Number.isFinite);
+    return values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length * 10) / 10 : null;
+  };
+  const totalAverage = sourceRows => {
+    const values = sourceRows.map(row => row.total).filter(value => value != null);
+    return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10 : null;
+  };
+
+  const classSummaries = classes.map(classNumber => {
+    const classRows = rows.filter(row => String(row.classNumber) === String(classNumber));
+    return {
+      classNumber,
+      count: classRows.length,
+      total: totalAverage(classRows),
+      subjects: Object.fromEntries(MOCK_SUBJECTS.map(subject => [subject, avgFor(classRows, subject)])),
+    };
+  });
+  const classMetricValue = summary => classMetric === "총점" ? summary.total : summary.subjects[classMetric];
+  const classMetricMax = Math.max(1, ...classSummaries.map(summary => Number(classMetricValue(summary) || 0)));
+
+  if (!available.length) return <EmptyBox text={`${currentGrade}학년 학생의 누적 모의고사 데이터가 없습니다. 관리자가 해당 입학연도의 모의고사 파일을 업로드하면 분석할 수 있습니다.`} />;
+
+  const summaryItems = [
+    { icon: <UsersRound size={18} />, value: `${rows.length}명`, label: "응시 인원", tone: "#315a9b", bg: "#eef3ff" },
+    { icon: <TrendingUp size={18} />, value: totalAverage(filtered) ?? "-", label: "조회 학생 평균 총점", tone: "#76551b", bg: "#fff6e6" },
+    { icon: <GraduationCap size={18} />, value: rows.find(row => row.total != null)?.total ?? "-", label: "최고 총점", tone: "#3d5c3a", bg: "#edf5eb" },
+  ];
+  const gradeCellStyle = grade => grade === 1
+    ? { background: "#e3f5e8", color: "#1f6a3a", fontWeight: 950 }
+    : grade === 2
+      ? { background: "#eaf1ff", color: "#315a9b", fontWeight: 950 }
+      : {};
+  const subjectGradeBadge = grade => grade === 1
+    ? { background: "#dff4e5", color: "#1e6637", border: "1px solid #b9dfc4" }
+    : grade === 2
+      ? { background: "#e7efff", color: "#315a9b", border: "1px solid #c3d2ef" }
+      : { color: "#8a8578" };
+
+  return (
+    <div>
+      <div style={{ ...card, marginTop: 0, padding: 18, background: "linear-gradient(135deg,#263b2d 0%,#3e6247 58%,#edf4eb 58%,#ffffff 100%)", color: "#fff" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontWeight: 950, fontSize: 19 }}>모의고사 성적 분석</div>
+            <div style={{ fontSize: 11.5, color: "#dce8dc", marginTop: 4 }}>{entryYear}년 입학생 · 1학년부터 {currentGrade}학년까지 누적 회차 분석</div>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 650 }}>
+            {available.map(key => (
+              <button key={key} style={{ ...btn.chip, background: mockKey === key ? "#fff" : "rgba(255,255,255,.13)", color: mockKey === key ? "#28412f" : "#fff", borderColor: mockKey === key ? "#fff" : "rgba(255,255,255,.32)" }} onClick={() => setMockKey(key)}>
+                {MOCK_MONTH_LABELS[key]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10, marginTop: 12 }}>
+        {summaryItems.map(item => (
+          <div key={item.label} style={{ background: item.bg, border: `1px solid ${item.tone}22`, borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <span style={{ width: 36, height: 36, borderRadius: 11, display: "grid", placeItems: "center", color: item.tone, background: "rgba(255,255,255,.72)", flex: "0 0 auto" }}>{item.icon}</span>
+            <div style={{ minWidth: 0 }}><div style={{ fontWeight: 950, fontSize: 18, color: item.tone, lineHeight: 1.1 }}>{item.value}</div><div style={{ color: "#746d61", fontSize: 11.5, marginTop: 4, whiteSpace: "normal" }}>{item.label}</div></div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...card, padding: 14 }}>
+        <div style={{ display: "flex", gap: 9, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={classFilter} onChange={event => setClassFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>
+          <select value={subjectFilter} onChange={event => setSubjectFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option>전체</option>{MOCK_SUBJECTS.map(subject => <option key={subject}>{subject}</option>)}</select>
+          <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option value="all">전체 등급</option>{Array.from({ length: 9 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}등급</option>)}</select>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "#8a8578" }}>{subjectFilter === "전체" && gradeFilter !== "all" ? `전 과목 중 ${gradeFilter}등급을 하나 이상 보유한 학생` : `${filtered.length}명 조회`}</span>
+        </div>
+      </div>
+
+      <div style={{ ...card, borderTop: "4px solid #315a9b" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11 }}><div><div style={{ fontWeight: 950 }}>과목별 평균 및 등급별 인원</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>1·2등급 인원을 강조했습니다. 반 필터를 바꾸면 표도 함께 갱신됩니다.</div></div></div>
+        <div style={{ overflowX: "auto" }}><table style={{ ...table.base, tableLayout: "fixed", minWidth: 820 }}><thead><tr><th style={{ ...table.th, width: 96 }}>과목</th><th style={{ ...table.th, width: 92 }}>평균 원점수</th>{Array.from({ length: 9 }, (_, index) => <th key={index} style={{ ...table.th, ...(index < 2 ? gradeCellStyle(index + 1) : {}) }}>{index + 1}등급</th>)}</tr></thead><tbody>{MOCK_SUBJECTS.map(subject => <tr key={subject}><td style={{ ...table.td, fontWeight: 900 }}>{subject}</td><td style={{ ...table.td, fontWeight: 850 }}>{avgFor(classScopedRows, subject) ?? "-"}</td>{gradeCounts[subject].map((count, index) => <td key={index} style={{ ...table.td, ...gradeCellStyle(index + 1) }}>{count}</td>)}</tr>)}</tbody></table></div>
+      </div>
+
+      <div style={{ ...card, borderTop: "4px solid #76551b" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 11 }}><div><div style={{ fontWeight: 950 }}>반별 평균 비교</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>막대와 표를 함께 보며 반별 총점·과목 평균을 비교합니다.</div></div><select value={classMetric} onChange={event => setClassMetric(event.target.value)} style={{ ...btn.input, width: 132 }}><option>총점</option>{MOCK_SUBJECTS.map(subject => <option key={subject}>{subject}</option>)}</select></div>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(240px,.8fr) minmax(520px,1.6fr)", gap: 14, alignItems: "start" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {classSummaries.map(summary => {
+              const value = classMetricValue(summary);
+              const width = value == null ? 0 : Math.max(3, Number(value) / classMetricMax * 100);
+              return <div key={summary.classNumber} style={{ display: "grid", gridTemplateColumns: "38px 1fr 46px", alignItems: "center", gap: 7, fontSize: 11.5 }}><strong>{summary.classNumber}반</strong><div style={{ height: 12, background: "#eeeae1", borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#334b38,#88a36f)", borderRadius: 99 }} /></div><span style={{ fontWeight: 900, textAlign: "right" }}>{value ?? "-"}</span></div>;
+            })}
+          </div>
+          <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 640, fontSize: 10.5 }}><thead><tr><th style={table.th}>반</th><th style={table.th}>인원</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{classSummaries.map(summary => <tr key={summary.classNumber}><td style={{ ...table.td, fontWeight: 900 }}>{summary.classNumber}반</td><td style={table.td}>{summary.count}</td><td style={{ ...table.td, fontWeight: 900 }}>{summary.total ?? "-"}</td>{MOCK_SUBJECTS.map(subject => <td key={subject} style={table.td}>{summary.subjects[subject] ?? "-"}</td>)}</tr>)}</tbody></table></div>
+        </div>
+      </div>
+
+      <div style={{ ...card, borderTop: "4px solid #8a641d" }}><div style={{ fontWeight: 950, marginBottom: 4 }}>회차별 관측 등급컷</div><div style={{ fontSize: 11, color: "#8a8578", marginBottom: 9 }}>업로드된 원점수 중 해당 등급의 최저점을 표시합니다. 원점수 열이 없는 파일은 ‘-’로 표시됩니다.</div><div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 760 }}><thead><tr><th style={table.th}>과목</th>{Array.from({ length: 9 }, (_, index) => <th key={index} style={{ ...table.th, ...(index < 2 ? gradeCellStyle(index + 1) : {}) }}>{index + 1}등급</th>)}</tr></thead><tbody>{cutRows.map(row => <tr key={row.subject}><td style={{ ...table.td, fontWeight: 850 }}>{row.subject}</td>{row.cuts.map((value, index) => <td key={index} style={{ ...table.td, ...gradeCellStyle(index + 1) }}>{value ?? "-"}</td>)}</tr>)}</tbody></table></div></div>
+
+      <div style={{ ...card, borderTop: "4px solid #2b2620" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>학생별 총점 순위</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>상위 24위는 검은 순위 배지로 강조하고 과목별 1·2등급은 색으로 구분합니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{filtered.length}명</span></div><div style={{ maxHeight: 560, overflow: "auto" }}><table style={{ ...table.base, minWidth: 880, tableLayout: "fixed" }}><colgroup><col style={{ width: 58 }} /><col style={{ width: 72 }} /><col style={{ width: 105 }} /><col style={{ width: 72 }} /><col style={{ width: 66 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} style={{ width: 72 }} />)}</colgroup><thead><tr><th style={table.th}>등수</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{filtered.map(row => {
+        const isTop24 = row.rank != null && row.rank <= 24;
+        return <tr key={row.sid} style={{ background: isTop24 ? "#fffdf5" : "#fff" }}><td style={{ ...table.td, fontWeight: 900 }}><span style={isTop24 ? { display: "inline-grid", placeItems: "center", minWidth: 31, height: 25, padding: "0 5px", borderRadius: 7, background: "#171714", color: "#f2d56b", boxShadow: "0 0 0 2px #f3e6a5" } : {}}>{row.rank ?? "-"}</span></td><td style={table.td}>{row.sid}</td><td style={{ ...table.td, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.name}>{row.name}</td><td style={table.td}>{row.classNumber ? `${row.classNumber}반 ${row.number || ""}번` : "-"}</td><td style={{ ...table.td, fontWeight: 950, color: isTop24 ? "#6d5311" : "#2b2620" }}>{row.total ?? "-"}</td>{MOCK_SUBJECTS.map(subject => {
+          const grade = Number(row.grades?.[subject]);
+          return <td key={subject} style={table.td}><div style={{ fontWeight: 750 }}>{row.scores?.[subject] ?? "-"}</div>{grade ? <small style={{ display: "inline-block", marginTop: 2, borderRadius: 999, padding: grade <= 2 ? "2px 6px" : 0, ...subjectGradeBadge(grade) }}>{grade}등급</small> : null}</td>;
+        })}</tr>;
+      })}</tbody></table></div></div>
     </div>
-    <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(190px,1fr))",gap:10,marginTop:12}}>
-      <div style={analysisCard}><UsersRound size={17}/><strong>{rows.length}명</strong><span>응시 인원</span></div>
-      <div style={analysisCard}><TrendingUp size={17}/><strong>{(() => { const values = filtered.map(row => row.total).filter(value => value != null); return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 10) / 10 : "-"; })()}</strong><span>필터 학생 평균 총점</span></div>
-      <div style={analysisCard}><GraduationCap size={17}/><strong>{rows.find(row => row.total != null)?.total ?? "-"}</strong><span>최고 총점</span></div>
-    </div>
-    <div style={{...card,padding:14}}><div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}><select value={classFilter} onChange={e=>setClassFilter(e.target.value)} style={btn.input}><option value="all">전체 반</option>{classes.map(c=><option key={c} value={c}>{c}반</option>)}</select><select value={subjectFilter} onChange={e=>setSubjectFilter(e.target.value)} style={btn.input}><option>전체</option>{MOCK_SUBJECTS.map(s=><option key={s}>{s}</option>)}</select><select value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)} disabled={subjectFilter==="전체"} style={btn.input}><option value="all">전체 등급</option>{Array.from({length:9},(_,i)=><option key={i+1} value={i+1}>{i+1}등급</option>)}</select></div></div>
-    <div style={card}><div style={{fontWeight:900,marginBottom:10}}>과목별 평균 및 등급별 인원</div><div style={{overflowX:"auto"}}><table style={table.base}><thead><tr><th style={table.th}>과목</th><th style={table.th}>평균 원점수</th>{Array.from({length:9},(_,i)=><th key={i} style={table.th}>{i+1}등급</th>)}</tr></thead><tbody>{MOCK_SUBJECTS.map(subject=><tr key={subject}><td style={{...table.td,fontWeight:850}}>{subject}</td><td style={table.td}>{avg(subject) ?? "-"}</td>{gradeCounts[subject].map((count,i)=><td key={i} style={table.td}>{count}</td>)}</tr>)}</tbody></table></div></div>
-    <div style={card}><div style={{fontWeight:900,marginBottom:4}}>회차별 관측 등급컷</div><div style={{fontSize:11,color:"#8a8578",marginBottom:9}}>업로드된 원점수 중 해당 등급의 최저점을 표시합니다. 원점수 열이 없는 파일은 ‘-’로 표시됩니다.</div><div style={{overflowX:"auto"}}><table style={table.base}><thead><tr><th style={table.th}>과목</th>{Array.from({length:9},(_,i)=><th key={i} style={table.th}>{i+1}등급</th>)}</tr></thead><tbody>{cutRows.map(row=><tr key={row.subject}><td style={{...table.td,fontWeight:850}}>{row.subject}</td>{row.cuts.map((value,i)=><td key={i} style={table.td}>{value ?? "-"}</td>)}</tr>)}</tbody></table></div></div>
-    <div style={card}><div style={{fontWeight:900,marginBottom:10}}>학생별 총점 순위</div><div style={{maxHeight:520,overflow:"auto"}}><table style={table.base}><thead><tr><th style={table.th}>등수</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(s=><th key={s} style={table.th}>{s}</th>)}</tr></thead><tbody>{filtered.map(row=><tr key={row.sid}><td style={{...table.td,fontWeight:900}}>{row.rank ?? "-"}</td><td style={table.td}>{row.sid}</td><td style={table.td}>{row.name}</td><td style={table.td}>{row.classNumber ? `${row.classNumber}반 ${row.number || ""}번` : "-"}</td><td style={{...table.td,fontWeight:900}}>{row.total ?? "-"}</td>{MOCK_SUBJECTS.map(s=><td key={s} style={table.td}>{row.scores?.[s] ?? "-"}<small style={{display:"block",color:"#8a8578"}}>{row.grades?.[s] ? `${row.grades[s]}등급` : ""}</small></td>)}</tr>)}</tbody></table></div></div>
-  </div>;
+  );
 }
-const analysisCard={background:"#fff",border:"1px solid #e2ded3",borderRadius:12,padding:14,display:"grid",gridTemplateColumns:"22px 1fr",gap:"2px 8px",alignItems:"center",color:"#3d5c3a"};
+const analysisCard = { background: "#fff", border: "1px solid #e2ded3", borderRadius: 12, padding: 14, display: "flex", alignItems: "center", gap: 10, color: "#3d5c3a" };
 
 function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const { semesterData, mockData, admissionRows, studentAccounts, cohortSettings } = gdb;
@@ -2443,16 +2568,16 @@ function CohortManager({ gdb, persistGrades, showToast }) {
   };
   return (
     <div style={card}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <GraduationCap size={20} color="#3d5c3a" /><div><div style={{ fontWeight: 900 }}>입학연도별 학생 데이터 관리</div><div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 2 }}>성적과 모의고사는 입학연도별로 분리 저장되어 신입생·진급·졸업 후에도 이전 자료가 유지됩니다.</div></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #e6e1d3" }}>
+        <span style={{ width: 38, height: 38, borderRadius: 12, display: "grid", placeItems: "center", background: "#eaf2e8" }}><GraduationCap size={20} color="#3d5c3a" /></span><div><div style={{ fontWeight: 950, fontSize: 16 }}>입학연도별 학생 데이터 관리</div><div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 5 }}>성적과 모의고사는 입학연도별로 분리 저장되어 신입생·진급·졸업 후에도 이전 자료가 유지됩니다.</div></div>
       </div>
-      <label style={{ display: "grid", gap: 4, width: 180, fontSize: 11, fontWeight: 800, color: "#746d61", marginBottom: 12 }}>현재 학년도<input type="number" value={academicYear} onChange={e => setAcademicYear(Number(e.target.value))} style={btn.input} /></label>
+      <label style={{ display: "grid", gap: 7, width: 190, fontSize: 11, fontWeight: 850, color: "#746d61", marginBottom: 18 }}>현재 학년도<input type="number" value={academicYear} onChange={e => setAcademicYear(Number(e.target.value))} style={btn.input} /></label>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {rows.map((row, index) => (
-          <div key={`${row.entryYear}-${index}`} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 38px", gap: 8, padding: 10, border: "1px solid #e6e1d3", borderRadius: 9, background: "#fbfaf6" }}>
-            <label style={{ fontSize: 10.5, fontWeight: 800, color: "#746d61" }}>입학연도<input type="number" value={row.entryYear || ""} onChange={e => update(index, "entryYear", Number(e.target.value))} style={btn.input} /></label>
-            <label style={{ fontSize: 10.5, fontWeight: 800, color: "#746d61" }}>현재 학년<select value={row.currentGrade || ""} onChange={e => update(index, "currentGrade", e.target.value ? Number(e.target.value) : null)} style={btn.input}><option value="">졸업/기타</option><option value="1">1학년</option><option value="2">2학년</option><option value="3">3학년</option></select></label>
-            <label style={{ fontSize: 10.5, fontWeight: 800, color: "#746d61" }}>상태<select value={row.status || "재학"} onChange={e => update(index, "status", e.target.value)} style={btn.input}><option>재학</option><option>졸업</option><option>휴학/기타</option></select></label>
+          <div key={`${row.entryYear}-${index}`} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 44px", gap: 12, padding: 14, border: "1px solid #e6e1d3", borderRadius: 11, background: "#fbfaf6", alignItems: "end" }}>
+            <label style={{ display: "grid", gap: 7, fontSize: 10.5, fontWeight: 850, color: "#746d61" }}>입학연도<input type="number" value={row.entryYear || ""} onChange={e => update(index, "entryYear", Number(e.target.value))} style={btn.input} /></label>
+            <label style={{ display: "grid", gap: 7, fontSize: 10.5, fontWeight: 850, color: "#746d61" }}>현재 학년<select value={row.currentGrade || ""} onChange={e => update(index, "currentGrade", e.target.value ? Number(e.target.value) : null)} style={btn.input}><option value="">졸업/기타</option><option value="1">1학년</option><option value="2">2학년</option><option value="3">3학년</option></select></label>
+            <label style={{ display: "grid", gap: 7, fontSize: 10.5, fontWeight: 850, color: "#746d61" }}>상태<select value={row.status || "재학"} onChange={e => update(index, "status", e.target.value)} style={btn.input}><option>재학</option><option>졸업</option><option>휴학/기타</option></select></label>
             <button type="button" style={btn.link} onClick={() => setRows(current => current.filter((_, i) => i !== index))}>삭제</button>
           </div>
         ))}

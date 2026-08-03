@@ -334,31 +334,47 @@ export async function uploadClassroomAttachment(file, meta = {}) {
       storageMode: "firebase-storage",
     };
   } catch (error) {
-    // Storage가 아직 활성화되지 않았거나 Anonymous Auth 규칙이 준비되지 않은 학교에서도
-    // 작은 수업자료는 공지 데이터와 함께 Firestore 분할 저장으로 보존합니다.
-    // 대용량 파일은 Firestore 읽기 비용과 초기 로딩 부담이 커지므로 6MB까지만 대체 저장합니다.
-    if (file.size <= 6 * 1024 * 1024) {
-      const url = await fileToDataUrl(file);
-      return {
-        path: "",
-        url,
+    // Storage가 막혀 있어도 공지 본문 전체에 base64를 끼워 넣지 않습니다.
+    // 첨부파일을 독립된 Firestore 분할 문서로 저장해 공지 저장 실패와 반복 재업로드를 방지합니다.
+    if (file.size <= 10 * 1024 * 1024) {
+      const dataUrl = await fileToDataUrl(file);
+      const dataKey = `kd_classroom_attachment_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+      const fallback = await writeStorage(dataKey, {
+        dataUrl,
         fileName: file.name || "첨부파일",
         size: file.size || 0,
         contentType,
-        storageMode: "firestore-inline",
+        createdAt: new Date().toISOString(),
+      });
+      if (!fallback?.ok) {
+        const storageDetail = error?.code || error?.message || String(error);
+        throw new Error(`Firebase Storage 실패 (${storageDetail}) / Firestore 대체 저장도 실패 (${fallback?.error || "원인 미상"})`);
+      }
+      return {
+        path: "",
+        dataKey,
+        url: "",
+        fileName: file.name || "첨부파일",
+        size: file.size || 0,
+        contentType,
+        storageMode: "firestore-attachment",
         download: true,
         storageWarning: error?.code || error?.message || String(error),
       };
     }
     const detail = error?.code || error?.message || String(error);
-    throw new Error(`Firebase Storage 업로드 실패 (${detail}). 6MB 이하 파일은 자동 대체 저장되지만, 이 파일은 더 큽니다. 관리자 화면의 저장소 연결 진단과 Firebase Anonymous Authentication·Storage 규칙을 확인해주세요.`);
+    throw new Error(`Firebase Storage 업로드 실패 (${detail}). 10MB 이하 파일은 Firestore 분할 저장으로 대체하지만, 이 파일은 더 큽니다. 관리자 화면에서 저장소 연결 진단과 Firebase Storage 규칙을 확인해주세요.`);
   }
 }
 
-export async function deleteClassroomAttachment(path) {
-  if (!path) return { ok: true };
+export async function deleteClassroomAttachment(identifier) {
+  if (!identifier) return { ok: true };
+  if (String(identifier).startsWith("kd_classroom_attachment_")) {
+    const result = await writeStorage(String(identifier), null);
+    return result?.ok ? { ok: true } : { ok: false, error: result?.error || "대체 첨부파일 삭제 실패" };
+  }
   try {
-    await deleteObject(storageRef(fileStorage, path));
+    await deleteObject(storageRef(fileStorage, identifier));
     return { ok: true };
   } catch (error) {
     if (error?.code === "storage/object-not-found") return { ok: true };
