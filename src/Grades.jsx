@@ -58,11 +58,13 @@ const CATEGORY_META = {
 };
 
 const SUBJECT_TYPE_META = {
-  "공통과목": { short: "공통", color: "#285846", background: "#e8f4ed", border: "#bfd9c9" },
-  "일반선택": { short: "일반", color: "#315a9b", background: "#edf3ff", border: "#cad8f3" },
-  "진로선택": { short: "진로", color: "#65468e", background: "#f2edfb", border: "#d9ccef" },
-  "융합선택": { short: "융합", color: "#9a5a22", background: "#fff2e6", border: "#efd1b4" },
-  "기타": { short: "기타", color: "#716b5f", background: "#f4f2ed", border: "#ded9cd" },
+  // 교과계열 배지의 파랑·빨강·보라·황토·청록과 겹치지 않도록,
+  // 과목유형은 명도와 채도가 확실히 다른 전용 팔레트를 사용합니다.
+  "공통과목": { short: "공통", color: "#ffffff", background: "#374151", border: "#1f2937" },
+  "일반선택": { short: "일반", color: "#365314", background: "#ecfccb", border: "#a3e635" },
+  "진로선택": { short: "진로", color: "#86198f", background: "#fae8ff", border: "#e879f9" },
+  "융합선택": { short: "융합", color: "#9a3412", background: "#ffedd5", border: "#fb923c" },
+  "기타": { short: "기타", color: "#4b5563", background: "#f3f4f6", border: "#d1d5db" },
 };
 
 function subjectTypeMeta(subject) {
@@ -73,7 +75,7 @@ function subjectTypeMeta(subject) {
 const CATEGORY_TREND_OPTIONS = ["국어", "영어", "수학", "사회", "과학", "전과목"];
 const MOCK_TREND_OPTIONS = [...MOCK_SUBJECTS, "전과목 평균"];
 const ADMISSION_REGIONS = ["미지정", "서울", "경기", "인천", "강원", "대전·세종", "충북", "충남", "광주", "전북", "전남", "대구", "경북", "부산", "울산", "경남", "제주", "기타"];
-const ADMISSION_FIELD_FILTERS = ["인문", "자연", "간호"];
+const ADMISSION_FIELD_FILTERS = ["공통", "인문", "자연", "간호"];
 const ADMISSION_FIELD_META = {
   인문: { color: "#76551b", background: "#fff4dc", border: "#ead39d" },
   자연: { color: "#176b87", background: "#e6f5fa", border: "#bcdde8" },
@@ -89,7 +91,9 @@ function admissionFieldTags(row) {
   if (/간호/.test(text)) tags.push("간호");
   if (/(인문|사회계열|상경|경영|경제|어문|문과|법학|행정|교육계열)/.test(text)) tags.push("인문");
   if (/(자연|이공|공학|과학계열|수학계열|자연과학|의약|의학|약학|수의|보건계열)/.test(text)) tags.push("자연");
-  return Array.from(new Set(tags));
+  if (/(공통계열|전계열|계열공통)/.test(text)) tags.push("공통");
+  const unique = Array.from(new Set(tags));
+  return unique.length ? unique : ["공통"];
 }
 
 function AdmissionFieldBadges({ tags }) {
@@ -1080,8 +1084,8 @@ function AchievementGuidancePanel({ analysis, universityCounts, gradeSystem }) {
         <div style={achievementAdvice.countBadge}>성취도 반영 대학 {universityCounts?.achievementUniversities || 0}개</div>
       </div>
       <div style={achievementAdvice.metrics}>
-        <span style={achievementAdvice.metric}>석차보다 낮음 <b>{lower.length}</b></span>
-        <span style={achievementAdvice.metric}>석차보다 높음 <b>{higher.length}</b></span>
+        <span style={achievementAdvice.metric}>등급보다 낮음 <b>{lower.length}</b></span>
+        <span style={achievementAdvice.metric}>등급보다 높음 <b>{higher.length}</b></span>
         <span style={achievementAdvice.metric}>진로선택 A <b>{career.a}/{career.total}</b></span>
         <span style={achievementAdvice.metric}>융합선택 A <b>{convergence.a}/{convergence.total}</b></span>
       </div>
@@ -1224,13 +1228,21 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
     const uniqueUniversities = predicate => new Set(
       evaluatedRows.filter(predicate).map(row => universityKey(row.university)).filter(Boolean),
     ).size;
-    const rowHas = key => evaluatedRows.filter(row => (
-      CURRICULUM_METHOD_FIELDS.some(([field]) => curriculumMethodMeta(row[field]).key === key)
-    )).length;
     const reflectsAchievement = value => ["achievement", "mixed"].includes(curriculumMethodMeta(value).key);
+    const bySubjectType = Object.fromEntries(CURRICULUM_METHOD_FIELDS.map(([field, label]) => {
+      const countByMethod = key => uniqueUniversities(row => curriculumMethodMeta(row[field]).key === key);
+      return [field, {
+        label,
+        total: uniqueUniversities(row => normalizeCurriculumMethod(row[field]) !== "미입력"),
+        rank: countByMethod("rank"),
+        achievement: countByMethod("achievement"),
+        mixed: countByMethod("mixed"),
+        qualitative: countByMethod("qualitative"),
+        excluded: countByMethod("excluded"),
+      }];
+    }));
     return {
       rank: uniqueUniversities(row => CURRICULUM_METHOD_FIELDS.some(([field]) => curriculumMethodMeta(row[field]).key === "rank")),
-      achievement: rowHas("achievement"),
       achievementUniversities: uniqueUniversities(row => CURRICULUM_METHOD_FIELDS.some(([field]) => reflectsAchievement(row[field]))),
       careerAchievementUniversities: uniqueUniversities(row => reflectsAchievement(row.careerElectiveMethod)),
       convergenceAchievementUniversities: uniqueUniversities(row => reflectsAchievement(row.convergenceElectiveMethod)),
@@ -1240,6 +1252,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       total: evaluatedRows.filter(row => (
         CURRICULUM_METHOD_FIELDS.some(([field]) => normalizeCurriculumMethod(row[field]) !== "미입력")
       )).length,
+      bySubjectType,
     };
   }, [evaluatedRows]);
 
@@ -1298,13 +1311,32 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             </>
           ) : (
             <>
-              <div style={curriculumSummary.grid}>
-                <div style={{ ...curriculumSummary.card, ...curriculumSummary.rank }}><b>{curriculumMethodCounts.rank}</b><span>석차등급 반영 대학</span></div>
-                <div style={{ ...curriculumSummary.card, ...curriculumSummary.achievement }}><b>{curriculumMethodCounts.achievementUniversities}</b><span>성취도 반영 대학</span></div>
-                <div style={{ ...curriculumSummary.card, ...curriculumSummary.mixed }}><b>{curriculumMethodCounts.mixed}</b><span>석차·성취 혼합 대학</span></div>
-                <div style={{ ...curriculumSummary.card, ...curriculumSummary.career }}><b>{curriculumMethodCounts.careerAchievementUniversities}</b><span>진로선택 성취도 대학</span></div>
-                <div style={{ ...curriculumSummary.card, ...curriculumSummary.convergence }}><b>{curriculumMethodCounts.convergenceAchievementUniversities}</b><span>융합선택 성취도 대학</span></div>
-                <div style={{ ...curriculumSummary.card, ...curriculumSummary.qualitative }}><b>{curriculumMethodCounts.qualitative}</b><span>정성평가 포함 대학</span></div>
+              <div style={curriculumTypeSummary.wrap}>
+                <div style={curriculumTypeSummary.headingRow}>
+                  <strong style={curriculumTypeSummary.heading}>과목 유형별 반영 대학 수</strong>
+                  <span style={curriculumTypeSummary.caption}>같은 대학도 과목 유형에 따라 반영 방식이 다를 수 있습니다.</span>
+                </div>
+                <div style={curriculumTypeSummary.grid}>
+                  {CURRICULUM_METHOD_FIELDS.map(([field, label]) => {
+                    const counts = curriculumMethodCounts.bySubjectType?.[field] || {};
+                    const meta = CURRICULUM_TYPE_SUMMARY_META[field] || CURRICULUM_TYPE_SUMMARY_META.commonSubjectMethod;
+                    return (
+                      <div key={field} style={{ ...curriculumTypeSummary.card, borderTopColor: meta.accent, background: meta.background }}>
+                        <div style={curriculumTypeSummary.cardHeader}>
+                          <span style={{ ...curriculumTypeSummary.typeBadge, color: meta.color, background: meta.badge, borderColor: meta.border }}>{label}</span>
+                          <span style={curriculumTypeSummary.total}>반영 {counts.total || 0}개 대학</span>
+                        </div>
+                        <div style={curriculumTypeSummary.methodGrid}>
+                          <span style={curriculumTypeSummary.method}><b>{counts.rank || 0}</b> 석차</span>
+                          <span style={curriculumTypeSummary.method}><b>{counts.achievement || 0}</b> 성취</span>
+                          <span style={curriculumTypeSummary.method}><b>{counts.mixed || 0}</b> 혼합</span>
+                          <span style={curriculumTypeSummary.method}><b>{counts.qualitative || 0}</b> 정성</span>
+                          <span style={curriculumTypeSummary.method}><b>{counts.excluded || 0}</b> 미반영</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               <AchievementGuidancePanel analysis={achievementAnalysis} universityCounts={curriculumMethodCounts} gradeSystem={gradeSystem} />
             </>
@@ -1321,31 +1353,40 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
         />
         <div className="no-print" style={admissionToolbar.box}>
           <div style={admissionToolbar.mainRow}>
-            <div style={{ ...searchBox.box, maxWidth: 245, flex: "0 1 245px", minWidth: 180 }}>
+            <div style={{ ...searchBox.box, maxWidth: 225, flex: "0 1 225px", minWidth: 175 }}>
               <Search size={15} color="#a39d8c" />
               <input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학·학과 검색" style={searchBox.input} />
             </div>
-            <div style={admissionToolbar.filterGroup} aria-label="계열 선택">
-              {[["all", "전체"], ...ADMISSION_FIELD_FILTERS.map(field => [field, field])].map(([key, label]) => (
-                <button key={key} onClick={() => setFieldFilter(key)} style={{ ...fieldFilterButton.base, ...(fieldFilter === key ? fieldFilterButton.active : {}) }}>
-                  {label}<span style={fieldFilterButton.count}>{fieldCounts[key] || 0}</span>
-                </button>
-              ))}
-            </div>
-            <select value={regionFilter} onChange={event => setRegionFilter(event.target.value)} style={{ ...selectStyle, minWidth: 96 }} aria-label="지역 선택">
-              <option value="all">전체 지역</option>
-              {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
-            </select>
-            {admissionViewMode === "mock" && (
+            <div style={admissionToolbar.filterCluster} aria-label="계열 선택">
+              <span style={admissionToolbar.filterLabel}>계열</span>
               <div style={admissionToolbar.filterGroup}>
-                {[
-                  ["all", "전체"],
-                  ["satisfied", "충족"],
-                  ["unsatisfied", "미충족"],
-                  ["review", "별도 확인"],
-                ].map(([key, label]) => (
-                  <button key={key} onClick={() => setStatusFilter(key)} style={{ ...btn.chip, ...(statusFilter === key ? btn.chipActive : {}) }}>{label}</button>
+                {[["all", "전체"], ...ADMISSION_FIELD_FILTERS.map(field => [field, field])].map(([key, label]) => (
+                  <button key={key} onClick={() => setFieldFilter(key)} style={{ ...fieldFilterButton.base, ...(fieldFilter === key ? fieldFilterButton.active : {}) }}>
+                    {label}<span style={fieldFilterButton.count}>{fieldCounts[key] || 0}</span>
+                  </button>
                 ))}
+              </div>
+            </div>
+            <div style={admissionToolbar.filterCluster}>
+              <span style={admissionToolbar.filterLabel}>지역</span>
+              <select value={regionFilter} onChange={event => setRegionFilter(event.target.value)} style={{ ...selectStyle, minWidth: 92, paddingTop: 5, paddingBottom: 5 }} aria-label="지역 선택">
+                <option value="all">전체 지역</option>
+                {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
+              </select>
+            </div>
+            {admissionViewMode === "mock" && (
+              <div style={admissionToolbar.filterCluster}>
+                <span style={admissionToolbar.filterLabel}>판정</span>
+                <div style={admissionToolbar.filterGroup}>
+                  {[
+                    ["all", "전체"],
+                    ["satisfied", "충족"],
+                    ["unsatisfied", "미충족"],
+                    ["review", "별도 확인"],
+                  ].map(([key, label]) => (
+                    <button key={key} onClick={() => setStatusFilter(key)} style={{ ...btn.chip, ...(statusFilter === key ? btn.chipActive : {}) }}>{label}</button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -3402,6 +3443,26 @@ const admissionModeSwitch = {
   darkActive: { background: "#fff", color: "#315132", boxShadow: "0 1px 4px rgba(0,0,0,0.16)" },
   printButton: { display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid rgba(255,255,255,0.38)", borderRadius: 8, background: "transparent", color: "#fff", padding: "8px 9px", fontSize: 9.6, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
 };
+const CURRICULUM_TYPE_SUMMARY_META = {
+  commonSubjectMethod: { accent: "#374151", color: "#ffffff", badge: "#374151", border: "#1f2937", background: "#f7f8fa" },
+  generalElectiveMethod: { accent: "#84cc16", color: "#365314", badge: "#ecfccb", border: "#a3e635", background: "#fbfef2" },
+  careerElectiveMethod: { accent: "#d946ef", color: "#86198f", badge: "#fae8ff", border: "#e879f9", background: "#fff8ff" },
+  convergenceElectiveMethod: { accent: "#f97316", color: "#9a3412", badge: "#ffedd5", border: "#fb923c", background: "#fffaf5" },
+};
+const curriculumTypeSummary = {
+  wrap: { marginTop: 12 },
+  headingRow: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, flexWrap: "wrap", marginBottom: 8 },
+  heading: { fontSize: 11.8, color: "#332e27" },
+  caption: { fontSize: 9.5, color: "#857d70" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 },
+  card: { minWidth: 0, border: "1px solid #e1ddd3", borderTop: "4px solid", borderRadius: 10, padding: "9px 9px 8px" },
+  cardHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 5, marginBottom: 7 },
+  typeBadge: { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid", borderRadius: 999, padding: "3px 7px", fontSize: 9.3, fontWeight: 900, whiteSpace: "nowrap" },
+  total: { fontSize: 8.8, color: "#766f63", fontWeight: 800, whiteSpace: "nowrap" },
+  methodGrid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 4 },
+  method: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 2, minWidth: 0, borderRadius: 6, padding: "3px 3px", background: "rgba(255,255,255,0.85)", border: "1px solid rgba(80,75,65,0.10)", color: "#625c52", fontSize: 8.2, fontWeight: 750, whiteSpace: "nowrap" },
+};
+
 const curriculumSummary = {
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(125px, 1fr))", gap: 8, marginTop: 12 },
   card: { display: "flex", alignItems: "baseline", justifyContent: "center", gap: 7, borderRadius: 11, padding: "10px 10px", fontSize: 10.8, fontWeight: 800 },
@@ -3455,11 +3516,13 @@ const admissionSummary = {
   neutral: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
 };
 const admissionToolbar = {
-  box: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 13 },
-  mainRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  filterGroup: { display: "flex", gap: 5, flexWrap: "wrap" },
-  requirementRow: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "7px 9px", background: "#f8f7f3", border: "1px solid #e5e0d4", borderRadius: 10 },
-  requirementLabel: { fontSize: 10, fontWeight: 900, color: "#6f685d", marginRight: 2 },
+  box: { display: "flex", flexDirection: "column", gap: 11, marginBottom: 13 },
+  mainRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
+  filterCluster: { display: "inline-flex", alignItems: "center", gap: 7, flexWrap: "wrap", padding: "5px 7px", background: "#faf9f5", border: "1px solid #e5e0d4", borderRadius: 10 },
+  filterLabel: { fontSize: 9.2, fontWeight: 900, color: "#766f63", whiteSpace: "nowrap" },
+  filterGroup: { display: "flex", gap: 4, flexWrap: "wrap" },
+  requirementRow: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "7px 10px", background: "#f8f7f3", border: "1px solid #e5e0d4", borderRadius: 10 },
+  requirementLabel: { fontSize: 10, fontWeight: 900, color: "#6f685d", marginRight: 4 },
 };
 const admissionFieldBadge = {
   wrap: { display: "flex", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" },
