@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin } from "lucide-react";
 import { readStorage, uploadAdmissionPdf, deleteAdmissionPdf } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
@@ -31,6 +31,17 @@ const MOCK_SUBJECTS = ["국어", "수학", "영어", "한국사", "통합사회"
 const CORE_MOCK_SUBJECTS = ["국어", "수학", "영어", "통합사회", "통합과학"];
 const CATEGORY_GROUP_NAMES = ["국어", "영어", "수학", "사회", "과학", "기술가정/정보", "제2외국어/한문"];
 const COMBINATION_GROUP_NAMES = ["전과목", "국영수사과", "국영수사", "국영수과", "국영수", "국영사", "국영과", "영수사", "영수과"];
+const COMBINATION_META = {
+  전과목: { color: "#2f4630", background: "#eaf2e8" },
+  국영수사과: { color: "#315a9b", background: "#edf3ff" },
+  국영수사: { color: "#76551b", background: "#fff4dc" },
+  국영수과: { color: "#356b49", background: "#eaf7ef" },
+  국영수: { color: "#5d4898", background: "#f1edff" },
+  국영사: { color: "#9a4254", background: "#fff0f3" },
+  국영과: { color: "#2f7770", background: "#e8f7f5" },
+  영수사: { color: "#8a641d", background: "#fff5df" },
+  영수과: { color: "#416a7d", background: "#edf6fa" },
+};
 
 const CATEGORY_META = {
   국어: { short: "국", label: "국어", color: "#315a9b", background: "#eef3ff", row: "#f8faff" },
@@ -157,6 +168,9 @@ export async function loadGradesDB() {
 
 export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedInStudent, roster, accounts, showToast, onLogout, gdb }) {
   const [tab, setTab] = useState(loggedInStudent ? "grades" : "lookup");
+  // 관리자 조회 탭을 오가더라도 같은 학생을 계속 보도록 검색 상태를 상위에서 공유합니다.
+  const [lookupSid, setLookupSid] = useState(null);
+  const [lookupQuery, setLookupQuery] = useState("");
 
   if (!gdb) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
 
@@ -188,10 +202,31 @@ export default function GradesSection({ loggedInAdmin, loggedInTeacher, loggedIn
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
         {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} />}
         {tab === "lookup" && (loggedInAdmin || loggedInTeacher) && (
-          <StudentLookup key="grade-lookup" roster={roster} gdb={gdb} homeroomClass={loggedInTeacher ? loggedInTeacher.homeroomClass : null} isAdmin={!!loggedInAdmin} initialView="grades" />
+          <StudentLookup
+            roster={roster}
+            gdb={gdb}
+            homeroomClass={loggedInTeacher ? loggedInTeacher.homeroomClass : null}
+            isAdmin={!!loggedInAdmin}
+            initialView="grades"
+            selectedSid={loggedInAdmin ? lookupSid : undefined}
+            onSelectedSidChange={loggedInAdmin ? setLookupSid : undefined}
+            sharedQuery={loggedInAdmin ? lookupQuery : undefined}
+            onSharedQueryChange={loggedInAdmin ? setLookupQuery : undefined}
+            showViewTabs={!loggedInAdmin}
+          />
         )}
         {tab === "lookupAdmission" && loggedInAdmin && (
-          <StudentLookup key="admission-lookup" roster={roster} gdb={gdb} isAdmin initialView="admission" />
+          <StudentLookup
+            roster={roster}
+            gdb={gdb}
+            isAdmin
+            initialView="admission"
+            selectedSid={lookupSid}
+            onSelectedSidChange={setLookupSid}
+            sharedQuery={lookupQuery}
+            onSharedQueryChange={setLookupQuery}
+            showViewTabs={false}
+          />
         )}
         {tab === "class" && loggedInTeacher && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
@@ -492,6 +527,48 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         </div>
       )}
 
+      {showGrades && (
+        <div style={card}>
+          <SectionHeading
+            title="모의고사 성적"
+            description="선택한 회차의 과목별 등급과 최적 2합·3합·4합을 확인합니다."
+          />
+          {!availableMockKeys.length ? (
+            <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 모의고사 성적이 없습니다.</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+                {availableMockKeys.map(key => (
+                  <button
+                    key={key}
+                    onClick={() => setSelMockKey(key)}
+                    style={{ ...btn.chip, ...(activeMockKey === key ? btn.chipActive : {}) }}
+                  >
+                    {mockCalendarLabel(key, entryYear)}
+                  </button>
+                ))}
+              </div>
+              <div style={table.scroll}>
+                <table style={table.base}>
+                  <thead><tr>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead>
+                  <tbody>
+                    <tr>
+                      {MOCK_SUBJECTS.map(subject => (
+                        <td key={subject} style={table.td}>
+                          <span style={{ ...metricPill, ...gradeValueStyle(mockGrades[subject], 9) }}>{mockGrades[subject] ?? "-"}</span>
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <MockSumCards sums={sums} />
+            </>
+          )}
+        </div>
+      )}
+
+
       {showGrades && (hasAnyGrades || availableMockKeys.length > 0) && (
         <div style={card}>
           <SectionHeading
@@ -565,47 +642,6 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                 emptyText="선택한 모의고사 성적이 없습니다."
               />
             </div>
-          )}
-        </div>
-      )}
-
-      {showGrades && (
-        <div style={card}>
-          <SectionHeading
-            title="모의고사 성적"
-            description="선택한 회차의 과목별 등급과 최적 2합·3합·4합을 확인합니다."
-          />
-          {!availableMockKeys.length ? (
-            <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 모의고사 성적이 없습니다.</div>
-          ) : (
-            <>
-              <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-                {availableMockKeys.map(key => (
-                  <button
-                    key={key}
-                    onClick={() => setSelMockKey(key)}
-                    style={{ ...btn.chip, ...(activeMockKey === key ? btn.chipActive : {}) }}
-                  >
-                    {mockCalendarLabel(key, entryYear)}
-                  </button>
-                ))}
-              </div>
-              <div style={table.scroll}>
-                <table style={table.base}>
-                  <thead><tr>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead>
-                  <tbody>
-                    <tr>
-                      {MOCK_SUBJECTS.map(subject => (
-                        <td key={subject} style={table.td}>
-                          <span style={{ ...metricPill, ...gradeValueStyle(mockGrades[subject], 9) }}>{mockGrades[subject] ?? "-"}</span>
-                        </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <MockSumCards sums={sums} />
-            </>
           )}
         </div>
       )}
@@ -687,7 +723,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return evaluatedRows.filter(row => {
-      const haystack = [row.university, row.department, row.track, row.note].join(" ").toLowerCase();
+      const haystack = [row.university, row.department, row.track, row.reflection, row.note].join(" ").toLowerCase();
       if (q && !haystack.includes(q)) return false;
       if (regionFilter !== "all" && String(row.region || "미지정") !== regionFilter) return false;
       if (statusFilter === "satisfied") return row.evaluation.status === "satisfied" || row.evaluation.status === "no-minimum";
@@ -729,7 +765,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
         <SectionHeading
           title="대학별 입시전형 확인"
           description={latestMockKey
-            ? `${mockCalendarLabel(latestMockKey, entryYear)} 모의고사의 2합·3합·4합으로 대학별 수능 최저 충족 여부를 판정합니다.`
+            ? `${mockCalendarLabel(latestMockKey, entryYear)} 모의고사의 1합·2합·3합·4합으로 대학별 수능 최저 충족 여부를 판정합니다.`
             : "모의고사 성적이 등록되면 대학별 수능 최저 충족 여부를 자동으로 판정합니다."}
         />
         <MockSumCards sums={latestSums} />
@@ -771,49 +807,77 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
         ) : !filteredRows.length ? (
           <div style={chartEmpty}>검색 조건에 맞는 전형이 없습니다.</div>
         ) : (
-          <div style={table.scroll}>
-            <table style={{ ...table.base, minWidth: 970 }}>
+          <div style={{ ...table.scroll, overflowX: "visible" }}>
+            <table style={admissionTable.base}>
+              <colgroup>
+                <col style={{ width: "11.5%" }} />
+                <col style={{ width: "7%" }} />
+                <col style={{ width: "13.5%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "18%" }} />
+                <col style={{ width: "10%" }} />
+                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "7.5%" }} />
+                <col style={{ width: "8%" }} />
+              </colgroup>
               <thead>
                 <tr>
-                  <th style={table.th}>대학교</th>
-                  <th style={table.th}>지역</th>
-                  <th style={table.th}>모집단위·전형</th>
-                  <th style={table.th}>수능 최저 기준</th>
-                  <th style={table.th}>내 등급 합</th>
-                  <th style={table.th}>판정</th>
-                  <th style={table.th}>모집요강 PDF</th>
+                  <th style={admissionTable.th}>대학교</th>
+                  <th style={admissionTable.th}>지역</th>
+                  <th style={admissionTable.th}>모집단위<br />전형</th>
+                  <th style={admissionTable.th}>교과 반영비율<br />반영방법</th>
+                  <th style={admissionTable.th}>전형 특이사항</th>
+                  <th style={admissionTable.th}>수능 최저</th>
+                  <th style={admissionTable.th}>내 등급</th>
+                  <th style={admissionTable.th}>판정</th>
+                  <th style={admissionTable.th}>모집요강</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRows.map(row => {
                   const result = row.evaluation;
                   const statusMeta = admissionStatusMeta(result.status);
-                  const detail = [row.department, row.track].filter(Boolean).join(" · ") || "전체 모집단위";
-                  const requiredText = result.status === "no-minimum"
-                    ? "수능 최저 없음"
-                    : result.count && result.threshold != null
-                      ? `${result.count}개 영역 합 ${result.threshold} 이내`
-                      : "모집요강 확인";
+                  const detailParts = [row.department, row.track].filter(Boolean);
+                  const detail = detailParts.length ? detailParts.join(" · ") : "전체 모집단위";
+                  const reflection = row.reflection || row.courseReflection || row.reflectionRatio || row.subjectReflection || "";
+                  const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
                   return (
                     <tr key={`${row.university}-${row._index}`}>
-                      <td style={{ ...table.tdLabel, minWidth: 135 }}>{row.university}</td>
-                      <td style={table.td}><span style={regionBadge}><MapPin size={11} />{row.region || "미지정"}</span></td>
-                      <td style={{ ...table.td, textAlign: "left", whiteSpace: "normal", lineHeight: 1.5 }}>
-                        <div style={{ fontWeight: 800 }}>{detail}</div>
-                        {row.note && <div style={{ marginTop: 3, color: "#8a8578", fontSize: 10.8 }}>{row.note}</div>}
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
+                      <td style={admissionTable.td}><span style={regionBadge}><MapPin size={10} />{row.region || "미지정"}</span></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.text }}>
+                        <div style={admissionTable.primaryText}>{detail}</div>
                       </td>
-                      <td style={table.td}>
-                        <div style={{ fontWeight: 800 }}>{requiredText}</div>
-                        {row.requiredSubjects && <div style={{ color: "#8a8578", fontSize: 10.5, marginTop: 3 }}>{row.requiredSubjects}</div>}
+                      <td style={{ ...admissionTable.td, ...admissionTable.text }}>
+                        {reflection ? <div style={admissionTable.secondaryText}>{reflection}</div> : <span style={admissionTable.empty}>-</span>}
                       </td>
-                      <td style={table.td}>{result.studentSum == null ? "-" : <span style={metricPill}>{result.count}합 {result.studentSum}</span>}</td>
-                      <td style={table.td}><span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span></td>
-                      <td style={table.td}>
-                        {row.docs.length ? (
-                          <div style={{ display: "flex", justifyContent: "center", gap: 5, flexWrap: "wrap" }}>
-                            {row.docs.map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} />)}
+                      <td style={{ ...admissionTable.td, ...admissionTable.text }}>
+                        {row.note ? <div style={admissionTable.secondaryText}>{row.note}</div> : <span style={admissionTable.empty}>-</span>}
+                      </td>
+                      <td style={admissionTable.td}>
+                        {result.status === "no-minimum" ? (
+                          <span style={noMinimumBadge}>최저 없음</span>
+                        ) : hasMinimum ? (
+                          <div>
+                            <span style={minimumBadge}>{result.count}합 {result.threshold}</span>
+                            {row.requiredSubjects && <div style={admissionTable.minimumDetail}>{row.requiredSubjects}</div>}
                           </div>
-                        ) : <span style={{ color: "#a39d8c", fontSize: 11 }}>미등록</span>}
+                        ) : (
+                          <span style={admissionTable.empty}>요강 확인</span>
+                        )}
+                      </td>
+                      <td style={admissionTable.td}>
+                        {result.studentSum == null
+                          ? <span style={admissionTable.empty}>-</span>
+                          : <span style={studentSumBadge}>{result.count}합 {result.studentSum}</span>}
+                      </td>
+                      <td style={admissionTable.td}><span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span></td>
+                      <td style={admissionTable.td}>
+                        {row.docs.length ? (
+                          <div style={{ display: "flex", justifyContent: "center", gap: 4, flexWrap: "wrap" }}>
+                            {row.docs.map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />)}
+                          </div>
+                        ) : <span style={admissionTable.empty}>미등록</span>}
                       </td>
                     </tr>
                   );
@@ -849,17 +913,23 @@ function admissionStatusMeta(status) {
   const map = {
     satisfied: { label: "충족", style: admissionStatus.success },
     unsatisfied: { label: "미충족", style: admissionStatus.danger },
-    "no-minimum": { label: "최저 없음", style: admissionStatus.success },
+    "no-minimum": { label: "최저 없음", style: admissionStatus.noMinimum },
     manual: { label: "조건 확인", style: admissionStatus.warning },
     unavailable: { label: "성적 미입력", style: admissionStatus.neutral },
   };
   return map[status] || { label: "판정 불가", style: admissionStatus.neutral };
 }
 
-function PdfLink({ docItem }) {
+function PdfLink({ docItem, compact = false }) {
   return (
-    <a href={docItem.url} target="_blank" rel="noreferrer" style={pdfLinkStyle} title={docItem.fileName || docItem.label || "모집요강 PDF"}>
-      <FileText size={13} /> {docItem.label || docItem.year || "PDF 보기"} <ExternalLink size={11} />
+    <a
+      href={docItem.url}
+      target="_blank"
+      rel="noreferrer"
+      style={{ ...pdfLinkStyle, ...(compact ? pdfLinkCompactStyle : {}) }}
+      title={docItem.fileName || docItem.label || "모집요강 PDF"}
+    >
+      <FileText size={compact ? 11 : 13} /> {compact ? "보기" : (docItem.label || docItem.year || "PDF 보기")} <ExternalLink size={compact ? 9 : 11} />
     </a>
   );
 }
@@ -935,17 +1005,26 @@ function GradeAverageRow({ name, group, displaySemesterKeys, gradeScale, categor
   const semesterField = gradeScale === 9 ? "perSemester9" : "perSemester5";
   const averageField = gradeScale === 9 ? "avg9" : "avg5";
   const average = group?.[averageField] ?? null;
-  const meta = categoryRow ? (CATEGORY_META[name] || CATEGORY_META.기타) : null;
+  const categoryStyle = categoryRow ? (CATEGORY_META[name] || CATEGORY_META.기타) : null;
+  const combinationStyle = !categoryRow ? (COMBINATION_META[name] || COMBINATION_META.전과목) : null;
   const isBest = average != null && bestAverage != null && average === bestAverage;
 
   return (
-    <tr style={meta ? { background: meta.row } : undefined}>
+    <tr style={categoryStyle ? { background: categoryStyle.row } : undefined}>
       <td style={{
         ...table.tdLabel,
-        ...(meta ? { background: meta.background, color: meta.color, borderLeft: `5px solid ${meta.color}` } : {}),
-        ...(name === "전과목" ? { background: "#efeee9", fontWeight: 900 } : {}),
+        textAlign: "center",
+        whiteSpace: "normal",
+        ...(categoryStyle ? { background: categoryStyle.background, color: categoryStyle.color, borderLeft: `5px solid ${categoryStyle.color}` } : {}),
+        ...(combinationStyle ? { background: combinationStyle.background, color: combinationStyle.color } : {}),
       }}>
-        {meta ? <CategoryBadge category={name} showLabel /> : name}
+        {categoryStyle ? (
+          <CategoryBadge category={name} showLabel />
+        ) : (
+          <span style={{ ...combinationBadge, color: combinationStyle.color, borderColor: `${combinationStyle.color}44`, background: "rgba(255,255,255,0.65)" }}>
+            {name}
+          </span>
+        )}
       </td>
       {displaySemesterKeys.map(key => {
         const value = group?.[semesterField]?.[SEMESTER_KEYS.indexOf(key)] ?? null;
@@ -1152,10 +1231,39 @@ function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
 /* ============================================================
    관리자/선생님: 학생 학번으로 성적 조회
    ============================================================ */
-function StudentLookup({ roster, gdb, homeroomClass, isAdmin, initialView = "grades" }) {
-  const [query, setQuery] = useState("");
-  const [sid, setSid] = useState(null);
+function StudentLookup({
+  roster,
+  gdb,
+  homeroomClass,
+  isAdmin,
+  initialView = "grades",
+  selectedSid,
+  onSelectedSidChange,
+  sharedQuery,
+  onSharedQueryChange,
+  showViewTabs = true,
+}) {
+  const [localQuery, setLocalQuery] = useState("");
+  const [localSid, setLocalSid] = useState(null);
   const [view, setView] = useState(initialView);
+
+  const controlledSid = selectedSid !== undefined;
+  const controlledQuery = sharedQuery !== undefined;
+  const sid = controlledSid ? selectedSid : localSid;
+  const query = controlledQuery ? sharedQuery : localQuery;
+
+  const updateSid = value => {
+    if (controlledSid) onSelectedSidChange?.(value);
+    else setLocalSid(value);
+  };
+  const updateQuery = value => {
+    if (controlledQuery) onSharedQueryChange?.(value);
+    else setLocalQuery(value);
+  };
+
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
 
   const candidates = useMemo(() => {
     let entries = Object.entries(roster || {});
@@ -1166,7 +1274,7 @@ function StudentLookup({ roster, gdb, homeroomClass, isAdmin, initialView = "gra
   }, [query, roster, isAdmin, homeroomClass]);
 
   const chooseStudent = id => {
-    setSid(id);
+    updateSid(id);
     setView(initialView);
   };
 
@@ -1177,7 +1285,11 @@ function StudentLookup({ roster, gdb, homeroomClass, isAdmin, initialView = "gra
         <Search size={16} color="#a39d8c" />
         <input
           value={query}
-          onChange={event => { setQuery(event.target.value); setSid(null); setView(initialView); }}
+          onChange={event => {
+            updateQuery(event.target.value);
+            updateSid(null);
+            setView(initialView);
+          }}
           placeholder="학번 또는 이름으로 검색"
           style={searchBox.input}
         />
@@ -1194,10 +1306,12 @@ function StudentLookup({ roster, gdb, homeroomClass, isAdmin, initialView = "gra
       )}
       {sid && (
         <div style={{ marginTop: 16 }}>
-          <div style={lookupTabs.box}>
-            <button onClick={() => setView("grades")} style={{ ...lookupTabs.button, ...(view === "grades" ? lookupTabs.active : {}) }}>성적 조회</button>
-            <button onClick={() => setView("admission")} style={{ ...lookupTabs.button, ...(view === "admission" ? lookupTabs.active : {}) }}>대학별 입시전형 확인</button>
-          </div>
+          {showViewTabs && (
+            <div style={lookupTabs.box}>
+              <button onClick={() => setView("grades")} style={{ ...lookupTabs.button, ...(view === "grades" ? lookupTabs.active : {}) }}>성적 조회</button>
+              <button onClick={() => setView("admission")} style={{ ...lookupTabs.button, ...(view === "admission" ? lookupTabs.active : {}) }}>대학별 입시전형 확인</button>
+            </div>
+          )}
           {view === "grades"
             ? <StudentGradeReport key={`${sid}-grades`} sid={sid} gdb={gdb} mode="grades" studentInfo={roster?.[sid]} />
             : <StudentAdmissionView key={`${sid}-admission`} sid={sid} gdb={gdb} studentInfo={roster?.[sid]} />}
@@ -1364,7 +1478,11 @@ function parseAdmissionRows(rows) {
   const departmentIndex = firstIndex(["계열학과", "모집단위", "학과", "계열", "학부"]);
   const trackIndex = firstIndex(["전형명", "전형", "전형유형"]);
   const requiredSubjectsIndex = firstIndex(["수능최저반영교과", "수능최저반영과목", "반영영역", "최저반영영역", "반영교과"]);
-  const noteIndex = firstIndex(["전형특이사항", "특이사항", "비고"]);
+  const reflectionIndex = firstIndex([
+    "교과반영비율", "학생부교과반영비율", "교과반영방법", "교과성적반영방법",
+    "교과반영", "반영비율", "반영교과및비율", "교과반영과목",
+  ]);
+  const noteIndex = firstIndex(["전형특이사항", "특이사항", "전형비고", "비고"]);
   const regionIndex = firstIndex(["지역", "지역구분", "소재지", "대학소재지"]);
 
   const admissionRows = [];
@@ -1380,6 +1498,7 @@ function parseAdmissionRows(rows) {
       requiredSubjects: requiredSubjectsIndex == null ? "" : String(row[requiredSubjectsIndex] ?? "").trim(),
       requiredSubjectCount: row[countIndex],
       requiredSum: row[sumIndex],
+      reflection: reflectionIndex == null ? "" : String(row[reflectionIndex] ?? "").trim(),
       note: noteIndex == null ? "" : String(row[noteIndex] ?? "").trim(),
       region: regionIndex == null ? "" : String(row[regionIndex] ?? "").trim(),
     });
@@ -2191,6 +2310,19 @@ const categoryBadgeBase = {
   fontWeight: 900,
   lineHeight: 1.1,
 };
+const combinationBadge = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: 74,
+  minHeight: 26,
+  padding: "4px 9px",
+  borderRadius: 999,
+  border: "1px solid transparent",
+  fontSize: 11.2,
+  fontWeight: 900,
+  lineHeight: 1.1,
+};
 const categoryGuide = {
   box: { display: "flex", gap: "7px 13px", flexWrap: "wrap", margin: "0 0 12px", padding: "9px 11px", background: "#faf9f5", border: "1px solid #ebe7dc", borderRadius: 10 },
   item: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.8, color: "#716b5f", fontWeight: 700 },
@@ -2242,8 +2374,91 @@ const admissionStatus = {
   success: { background: "#e7f5ea", color: "#24613a", border: "1px solid #bfe2c8" },
   danger: { background: "#fff0f0", color: "#9a4242", border: "1px solid #efcaca" },
   warning: { background: "#fff6df", color: "#805f1d", border: "1px solid #efddae" },
+  noMinimum: { background: "#eef1ff", color: "#4f4a91", border: "1px solid #d3d1f2" },
   neutral: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
 };
+const admissionTable = {
+  base: {
+    width: "100%",
+    borderCollapse: "collapse",
+    tableLayout: "fixed",
+    fontSize: 10.2,
+  },
+  th: {
+    border: "1px solid #e6e1d3",
+    padding: "6px 4px",
+    background: "#f6f4ee",
+    color: "#332e27",
+    fontWeight: 900,
+    fontSize: 9.8,
+    lineHeight: 1.25,
+    textAlign: "center",
+    whiteSpace: "normal",
+    wordBreak: "keep-all",
+  },
+  td: {
+    border: "1px solid #e6e1d3",
+    padding: "6px 5px",
+    textAlign: "center",
+    verticalAlign: "middle",
+    whiteSpace: "normal",
+    wordBreak: "keep-all",
+    overflowWrap: "anywhere",
+    lineHeight: 1.35,
+  },
+  university: {
+    fontWeight: 900,
+    textAlign: "left",
+    background: "#fbfaf6",
+    color: "#2b2620",
+  },
+  text: { textAlign: "left", verticalAlign: "top" },
+  primaryText: { fontWeight: 900, color: "#2b2620", lineHeight: 1.35 },
+  secondaryText: { color: "#716b5f", fontSize: 9.7, lineHeight: 1.45 },
+  minimumDetail: { color: "#8a8578", fontSize: 9.2, marginTop: 4, lineHeight: 1.3 },
+  empty: { color: "#aaa393", fontSize: 9.7, fontWeight: 700 },
+};
+const minimumBadge = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  minWidth: 48,
+  padding: "5px 7px",
+  borderRadius: 8,
+  background: "#fff5df",
+  border: "1px solid #ead39f",
+  color: "#76551b",
+  fontSize: 10.2,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+const noMinimumBadge = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "5px 7px",
+  borderRadius: 8,
+  background: "#eef1ff",
+  border: "1px solid #d3d1f2",
+  color: "#4f4a91",
+  fontSize: 9.8,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+const studentSumBadge = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "5px 6px",
+  borderRadius: 8,
+  background: "#edf7f0",
+  border: "1px solid #c8e0cd",
+  color: "#2d6238",
+  fontSize: 10.1,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
+};
+
 const regionBadge = {
   display: "inline-flex",
   alignItems: "center",
@@ -2270,6 +2485,12 @@ const pdfLinkStyle = {
   fontWeight: 800,
   textDecoration: "none",
   whiteSpace: "nowrap",
+};
+const pdfLinkCompactStyle = {
+  gap: 2,
+  padding: "4px 5px",
+  borderRadius: 6,
+  fontSize: 9.2,
 };
 const admissionDocs = {
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 9 },

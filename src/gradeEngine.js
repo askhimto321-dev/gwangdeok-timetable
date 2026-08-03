@@ -235,6 +235,8 @@ export function computeMockExamSums(mockGrades) {
     return Math.min(...pairsList.map(combo => combo.reduce((sum, [, value]) => sum + value, 0)));
   };
 
+  // 일부 대학은 1개 영역 등급만 요구하므로 1합도 함께 계산합니다.
+  const sum1 = candidates.length ? Math.min(...candidates.map(([, value]) => value)) : null;
   const sum2 = candidates.length >= 2 ? sumOf(combinations(candidates, 2)) : null;
   const sum3 = candidates.length >= 3 ? sumOf(combinations(candidates, 3)) : null;
 
@@ -246,7 +248,17 @@ export function computeMockExamSums(mockGrades) {
     const inquiry = [toNumberOrNull(통합사회), toNumberOrNull(통합과학)].filter(value => value != null);
     if (inquiry.length) sum4 = korean + math + english + Math.min(...inquiry);
   }
-  return { sum2, sum3, sum4 };
+  return { sum1, sum2, sum3, sum4 };
+}
+
+function extractAdmissionCount(value, requiredSum = "") {
+  const direct = toNumberOrNull(value);
+  if (direct != null) return direct;
+  const text = `${String(value ?? "")} ${String(requiredSum ?? "")}`;
+  const match = text.match(/([1-4])\s*(?:개\s*영역\s*)?합/);
+  if (match) return Number(match[1]);
+  const firstNumber = text.match(/\b([1-4])\b/);
+  return firstNumber ? Number(firstNumber[1]) : null;
 }
 
 function extractAdmissionThreshold(value, count) {
@@ -263,17 +275,18 @@ function extractAdmissionThreshold(value, count) {
 
 // ---------- 수능 최저 도달 대학 매칭 ----------
 export function matchUniversities(sums, admissionRows) {
-  const { sum2, sum3, sum4 } = sums;
+  const { sum1, sum2, sum3, sum4 } = sums;
   const matched = new Set();
 
   (admissionRows || []).forEach(row => {
     if (!row.university) return;
-    if (!row.requiredSubjectCount || row.requiredSubjectCount === "" || row.requiredSum == null || row.requiredSum === "") return;
+    const count = extractAdmissionCount(row.requiredSubjectCount, row.requiredSum);
+    if (!count || row.requiredSum == null || row.requiredSum === "") return;
     if (String(row.note || "").includes("각")) return;
 
-    const studentSum = { 2: sum2, 3: sum3, 4: sum4 }[Number(row.requiredSubjectCount)];
+    const studentSum = { 1: sum1, 2: sum2, 3: sum3, 4: sum4 }[count];
     if (studentSum == null) return;
-    const threshold = extractAdmissionThreshold(row.requiredSum, row.requiredSubjectCount);
+    const threshold = extractAdmissionThreshold(row.requiredSum, count);
     if (threshold == null) return;
     if (studentSum <= threshold) matched.add(row.university);
   });
@@ -283,9 +296,9 @@ export function matchUniversities(sums, admissionRows) {
 // ---------- 대학별 수능 최저 개별 판정 ----------
 export function evaluateAdmissionRequirement(row, sums) {
   const university = String(row?.university || "").trim();
-  const count = toNumberOrNull(row?.requiredSubjectCount);
+  const count = extractAdmissionCount(row?.requiredSubjectCount, row?.requiredSum);
   const threshold = extractAdmissionThreshold(row?.requiredSum, count);
-  const studentSum = count == null ? null : ({ 2: sums?.sum2, 3: sums?.sum3, 4: sums?.sum4 }[Number(count)] ?? null);
+  const studentSum = count == null ? null : ({ 1: sums?.sum1, 2: sums?.sum2, 3: sums?.sum3, 4: sums?.sum4 }[Number(count)] ?? null);
   const note = String(row?.note || "");
 
   if (!university) return { status: "invalid", satisfied: null, studentSum, threshold, count };
