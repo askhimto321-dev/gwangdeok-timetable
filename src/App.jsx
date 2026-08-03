@@ -1075,6 +1075,7 @@ function MonitorZoneView({ monitor, db, persist, showToast, scopeKey, onLogout }
   const [text, setText] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingStage, setSavingStage] = useState("");
 
   const writeNotices = async (updater) => {
     const current = db.announcements[scopeKey] || {};
@@ -1602,12 +1603,13 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
 
   useEffect(() => {
     if (!activeTargets.length) { setSelectedTargetToken(""); return; }
-    if (!activeTargets.some(target => targetTokenFor(target) === selectedTargetToken)) {
-      setSelectedTargetToken(targetTokenFor(activeTargets[0]));
-    }
+    const selectionIsValid = activeTargets.some(target => targetTokenFor(target) === selectedTargetToken);
+    if (selectionIsValid) return;
+    // 대상이 하나뿐이면 바로 작성할 수 있게 선택하고, 여러 개이면 사용자가 먼저 대상을 고르게 합니다.
+    setSelectedTargetToken(activeTargets.length === 1 ? targetTokenFor(activeTargets[0]) : "");
   }, [zoneMode, flatTargets, selectedTargetToken]); // eslint-disable-line
 
-  const sel = activeTargets.find(target => targetTokenFor(target) === selectedTargetToken) || activeTargets[0] || null;
+  const sel = activeTargets.find(target => targetTokenFor(target) === selectedTargetToken) || null;
   const categories = sel?.categories || NOTICE_CATEGORIES;
   const targetKey = sel ? (sel.kind === "homeroom" ? homeroomKeyFor(sel.target) : subjectKeyFor(sel.subject)) : null;
   const currentNotices = targetKey ? asNoticeArray((db.announcements[scopeKey] || {})[targetKey]) : [];
@@ -1620,6 +1622,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   const [noticeFiles, setNoticeFiles] = useState([]);
   const [noticeLinks, setNoticeLinks] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingStage, setSavingStage] = useState("");
   const [attachmentDiagnostic, setAttachmentDiagnostic] = useState(null);
   const [diagnosingAttachment, setDiagnosingAttachment] = useState(false);
   const noticeFileRef = useRef(null);
@@ -1678,9 +1681,12 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
     if (!targetKey || !sel) { showToast("학급 또는 과목을 먼저 선택해주세요.", "error"); return; }
     if (!title.trim() && !text.trim() && !noticeFiles.length && !noticeLinks.trim()) { showToast("제목·내용을 입력하거나 파일 또는 링크를 첨부해주세요.", "error"); return; }
     setSaving(true);
+    setSavingStage(noticeFiles.length ? "첨부파일 저장 중" : "게시글 저장 중");
     const uploaded = [];
     try {
-      for (const file of noticeFiles) {
+      for (let index = 0; index < noticeFiles.length; index += 1) {
+        const file = noticeFiles[index];
+        setSavingStage(`첨부 ${index + 1}/${noticeFiles.length} 저장 중 · ${formatAttachmentSize(file.size)}`);
         uploaded.push(await uploadClassroomAttachment(file, {
           scopeKey,
           subject: sel.subject || `${sel.target}반`,
@@ -1714,6 +1720,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
         ...db.announcements,
         [scopeKey]: { ...currentScope, [targetKey]: [...asNoticeArray(currentScope[targetKey]), entry] },
       };
+      setSavingStage("게시글 저장 중");
       const ok = await persist({ announcements: nextAnnouncements });
       if (!ok) {
         await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path || file.dataKey)));
@@ -1725,11 +1732,15 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
         : "공지를 등록했습니다.", "success");
       setTitle(""); setText(""); setDueDate(""); setNoticeFiles([]); setNoticeLinks("");
       if (noticeFileRef.current) noticeFileRef.current.value = "";
+      // 등록 결과를 바로 확인할 수 있도록 내 공지 관리 화면으로 이동합니다.
+      setZoneMode("manage");
     } catch (error) {
       await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path || file.dataKey)));
       showToast(`등록 오류: ${classroomUploadErrorMessage(error)}`, "error");
+    } finally {
+      setSaving(false);
+      setSavingStage("");
     }
-    setSaving(false);
   };
 
   const runAttachmentDiagnostic = async () => {
@@ -1782,12 +1793,22 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   const modeButton = (mode, label, count) => (
     <button
       type="button"
-      onClick={() => setZoneMode(mode)}
+      onClick={() => {
+        if (mode !== zoneMode && (mode === "homeroom" || mode === "subject")) setSelectedTargetToken("");
+        setZoneMode(mode);
+      }}
       style={{ ...styles.teacherZoneModeBtn, ...(zoneMode === mode ? styles.teacherZoneModeBtnActive : {}) }}
     >
       {label}{count != null && <span style={styles.teacherZoneModeCount}>{count}</span>}
     </button>
   );
+
+  const workflowStep = zoneMode === "manage" ? 3 : (zoneMode === "personal" || sel ? 2 : 1);
+  const workflowSteps = [
+    [1, "대상 선택", "학급·과목·학생"],
+    [2, "공지 작성", "내용·기한·첨부"],
+    [3, "등록 확인", "내 공지 관리"],
+  ];
 
   return (
     <div>
@@ -1802,96 +1823,138 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
         </div>
       </div>
 
-      <div style={styles.teacherZoneNav}>
-        <div style={styles.teacherZoneModeRow}>
-          {homeroomTargets.length > 0 && modeButton("homeroom", "학급담임 공지", homeroomTargets.length)}
-          {subjectTargets.length > 0 && modeButton("subject", "교과 전체 공지", subjectTargets.length)}
-          {modeButton("personal", "학생 개별 공지", null)}
-          {modeButton("manage", "내 공지 관리", authoredNotices.length)}
-        </div>
-        {(zoneMode === "homeroom" || zoneMode === "subject") && (
-          <div className="teacher-zone-target-row" style={styles.teacherTargetRow}>
-            <span style={styles.teacherTargetLabel}>{zoneMode === "homeroom" ? "담임 학급" : "담당 과목"}</span>
-            <div style={styles.classChips}>
-              {activeTargets.map(target => {
-                const token = targetTokenFor(target);
-                return <button key={token} type="button" onClick={() => setSelectedTargetToken(token)} style={{ ...styles.classChip, ...(token === selectedTargetToken ? styles.classChipActive : {}) }}>{target.label}</button>;
-              })}
+      <div style={styles.teacherWorkflow}>
+        <div className="teacher-workflow-steps" style={styles.teacherWorkflowSteps}>
+          {workflowSteps.map(([step, label, caption]) => (
+            <div key={step} style={{ ...styles.teacherWorkflowStep, ...(workflowStep === step ? styles.teacherWorkflowStepActive : {}), ...(workflowStep > step ? styles.teacherWorkflowStepDone : {}) }}>
+              <span style={styles.teacherWorkflowNumber}>{workflowStep > step ? "✓" : step}</span>
+              <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}><b style={{ fontSize: 11, lineHeight: 1.25 }}>{label}</b><small style={{ marginTop: 2, color: "#9a9385", fontSize: 9, lineHeight: 1.25 }}>{caption}</small></span>
             </div>
+          ))}
+        </div>
+        <div style={styles.teacherZoneNav}>
+          <div style={styles.teacherZoneModeRow}>
+            {homeroomTargets.length > 0 && modeButton("homeroom", "학급담임 공지", homeroomTargets.length)}
+            {subjectTargets.length > 0 && modeButton("subject", "교과 전체 공지", subjectTargets.length)}
+            {modeButton("personal", "학생 개별 공지", null)}
+            {modeButton("manage", "내 공지 관리", authoredNotices.length)}
           </div>
-        )}
+          {(zoneMode === "homeroom" || zoneMode === "subject") && (
+            <div className="teacher-zone-target-row" style={styles.teacherTargetRow}>
+              <div>
+                <div style={styles.teacherTargetLabel}>{zoneMode === "homeroom" ? "담임 학급 선택" : "담당 과목 선택"}</div>
+                <div style={styles.teacherTargetHint}>{activeTargets.length > 1 ? "공지 대상을 먼저 선택하면 작성 화면이 열립니다." : "등록 대상"}</div>
+              </div>
+              <div style={styles.classChips}>
+                {activeTargets.map(target => {
+                  const token = targetTokenFor(target);
+                  return <button key={token} type="button" onClick={() => setSelectedTargetToken(token)} style={{ ...styles.teacherTargetChoice, ...(token === selectedTargetToken ? styles.teacherTargetChoiceActive : {}) }}><span>{target.label}</span><small>{target.kind === "subject" ? "전체 수강생" : "학급 전체"}</small></button>;
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {!flatTargets.length && zoneMode !== "personal" && zoneMode !== "manage" && (
         <div style={styles.warnBanner}><AlertTriangle size={14} /> 담당 학급/과목이 등록되어 있지 않습니다. "내 정보 수정"에서 직접 설정해주세요.</div>
       )}
 
+      {(zoneMode === "homeroom" || zoneMode === "subject") && activeTargets.length > 1 && !sel && (
+        <div style={styles.teacherTargetEmpty}>
+          <BookOpen size={22} />
+          <div><b>먼저 공지 대상을 선택해주세요.</b><span>대상을 선택하면 공지 작성 화면이 열립니다.</span></div>
+        </div>
+      )}
+
       {(zoneMode === "homeroom" || zoneMode === "subject") && sel && (
         <>
-          <div style={styles.card}>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontWeight: 900, fontSize: 15 }}>{sel.label} 게시글 작성</div>
-              <div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 4 }}>공지·과제·수업자료를 같은 형식으로 올리고 필요하면 파일을 첨부합니다.</div>
-            </div>
-            <div style={{ display: "flex", gap: 6, marginBottom: 9, flexWrap: "wrap" }}>
-              {categories.map(item => <button key={item} type="button" onClick={() => setCategory(item)} style={{ ...styles.classChip, ...(category === item ? styles.classChipActive : {}) }}>{item}</button>)}
-            </div>
-            <input value={title} onChange={event => setTitle(event.target.value)} placeholder="제목 (선택)" style={{ ...styles.loginInput, maxWidth: "none", marginBottom: 8 }} />
-            <textarea value={text} onChange={event => setText(event.target.value)} rows={5} style={styles.textareaInput} placeholder={sel.kind === "homeroom" ? "학급 공지 내용을 작성하세요." : "수업 안내, 준비물, 과제 또는 자료 설명을 작성하세요."} />
-            <div style={styles.noticeOptionGrid}>
-              <label style={styles.noticeOptionField}>
-                <span>마감일자 (선택)</span>
-                <input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 7 }} />
-              </label>
-              <div style={styles.noticeOptionField}>
-                <span>첨부파일 (선택)</span>
-                <input ref={noticeFileRef} type="file" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,image/*,video/*,audio/*" style={{ display: "none" }} onChange={event => setNoticeFiles(Array.from(event.target.files || []))} />
-                <button type="button" style={styles.secondaryBtn} onClick={() => noticeFileRef.current?.click()}><Paperclip size={14} /> 파일 선택</button>
+          <div style={{ ...styles.card, padding: 0, overflow: "hidden" }}>
+            <div style={styles.teacherComposerHeader}>
+              <div>
+                <span style={styles.teacherComposerEyebrow}>2단계 · 공지 작성</span>
+                <div style={styles.teacherComposerTitle}>{sel.label}</div>
+                <div style={styles.teacherComposerDescription}>공지·과제·수업자료를 하나의 게시글로 등록합니다.</div>
               </div>
+              <span style={styles.teacherComposerTargetBadge}>{sel.kind === "subject" ? "전체 수강생" : "학급 전체"}</span>
             </div>
-            {noticeFiles.length > 0 && (
-              <div style={styles.selectedFileList}>
-                {noticeFiles.map(file => <span key={`${file.name}-${file.size}`} style={styles.selectedFileChip}><Paperclip size={11} /><span style={{ maxWidth: 230, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span><small style={{ color: "#746d61" }}>{formatAttachmentSize(file.size)}</small></span>)}
-                <button type="button" style={styles.iconBtn} onClick={() => { setNoticeFiles([]); if (noticeFileRef.current) noticeFileRef.current.value = ""; }}><X size={14} /></button>
-              </div>
-            )}
-            <div style={{ marginTop: 8, padding: "9px 11px", border: `1px solid ${COLORS.line}`, borderRadius: 9, background: "#fbfaf6", display: "flex", alignItems: "center", gap: 9, justifyContent: "space-between", flexWrap: "wrap" }}>
-              <div style={{ fontSize: 10.8, color: "#746d61", lineHeight: 1.5 }}>
-                제목·내용·마감일은 서로 충돌하지 않으며 모두 선택 항목입니다. 파일 또는 링크만 등록해도 됩니다.<br />
-                10MB 이하 파일은 Storage 실패 시 독립 Firestore 분할 저장으로 자동 대체됩니다.
-                {attachmentDiagnostic && <span style={{ display: "block", marginTop: 3, color: attachmentDiagnostic.ok ? "#24613a" : "#a13e38", fontWeight: 800 }}>{attachmentDiagnostic.ok ? `Storage 정상 · ${attachmentDiagnostic.bucket || "bucket 확인됨"}` : `Storage 실패 · ${attachmentDiagnostic.code || attachmentDiagnostic.error || "원인 미상"}`}</span>}
-              </div>
-              <button type="button" style={styles.secondaryBtn} onClick={runAttachmentDiagnostic} disabled={diagnosingAttachment}>{diagnosingAttachment ? <Loader2 size={13} className="spin" /> : <Upload size={13} />} 첨부 연결 진단</button>
-            </div>
-            <label style={{ ...styles.noticeOptionField, marginTop: 9 }}>
-              <span><Link2 size={12} /> 링크 첨부 (선택 · 한 줄에 하나)</span>
-              <textarea value={noticeLinks} onChange={event => setNoticeLinks(event.target.value)} rows={2} style={{ ...styles.textareaInput, minHeight: 54 }} placeholder="Google Drive, YouTube, 학습자료 링크 등을 붙여넣으세요." />
-            </label>
-            <button style={{ ...styles.primaryBtn, marginTop: 12 }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 게시글 등록</button>
 
-            <div style={{ marginTop: 20, paddingTop: 16, borderTop: `1px solid ${COLORS.line}` }}>
-              <div style={{ fontWeight: 800, marginBottom: 9, fontSize: 13 }}>이 대상에 등록한 게시글 ({currentNotices.length})</div>
-              {currentNotices.length ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  {currentNotices.slice().reverse().map(notice => (
-                    <NoticeCard
-                      key={notice.id}
-                      n={notice}
-                      labelText={notice.updatedAt ? new Date(notice.updatedAt).toLocaleString("ko-KR") : teacher.name}
-                      onDelete={() => removeNoticeAt({ scopeKey, targetKey, notice })}
-                    />
-                  ))}
+            <div className="teacher-composer-grid" style={styles.teacherComposerGrid}>
+              <section style={styles.teacherComposerMain}>
+                <div style={styles.teacherFieldLabel}>공지 종류</div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                  {categories.map(item => <button key={item} type="button" onClick={() => setCategory(item)} style={{ ...styles.classChip, ...(category === item ? styles.classChipActive : {}) }}>{item}</button>)}
                 </div>
-              ) : <div style={styles.materialEmpty}>아직 등록된 게시글이 없습니다.</div>}
-              {currentLegacyMaterials.length > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 800, color: "#746d61", marginBottom: 7 }}>이전 버전 수업자료 ({currentLegacyMaterials.length})</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {currentLegacyMaterials.slice().reverse().map(material => <MaterialCard key={material.id} material={material} onDelete={() => deleteLegacyMaterial(material)} />)}
-                  </div>
+                <label style={styles.teacherFormField}>
+                  <span>제목 <small>선택</small></span>
+                  <input value={title} onChange={event => setTitle(event.target.value)} placeholder="학생이 바로 이해할 수 있는 제목" style={{ ...styles.loginInput, maxWidth: "none", marginBottom: 0 }} />
+                </label>
+                <label style={styles.teacherFormField}>
+                  <span>내용 <small>선택</small></span>
+                  <textarea value={text} onChange={event => setText(event.target.value)} rows={7} style={{ ...styles.textareaInput, minHeight: 170 }} placeholder={sel.kind === "homeroom" ? "학급 공지 내용을 작성하세요." : "수업 안내, 준비물, 과제 또는 자료 설명을 작성하세요."} />
+                </label>
+              </section>
+
+              <aside className="teacher-composer-aside" style={styles.teacherComposerAside}>
+                <div style={styles.teacherAsideSection}>
+                  <div style={styles.teacherFieldLabel}>게시 설정</div>
+                  <label style={styles.teacherFormField}>
+                    <span>마감일자 <small>선택</small></span>
+                    <input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 8 }} />
+                  </label>
                 </div>
-              )}
+
+                <div style={styles.teacherAsideSection}>
+                  <div style={styles.teacherFieldLabel}>첨부파일</div>
+                  <input ref={noticeFileRef} type="file" multiple accept=".pdf,.hwp,.hwpx,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.zip,image/*,video/*,audio/*" style={{ display: "none" }} onChange={event => setNoticeFiles(Array.from(event.target.files || []))} />
+                  <button type="button" style={{ ...styles.secondaryBtn, width: "100%", justifyContent: "center" }} onClick={() => noticeFileRef.current?.click()}><Paperclip size={14} /> 파일 선택</button>
+                  {noticeFiles.length > 0 && (
+                    <div style={{ ...styles.selectedFileList, marginTop: 8 }}>
+                      {noticeFiles.map(file => <span key={`${file.name}-${file.size}`} style={{ ...styles.selectedFileChip, width: "100%", justifyContent: "flex-start" }}><Paperclip size={11} /><span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span><small style={{ color: "#746d61" }}>{formatAttachmentSize(file.size)}</small></span>)}
+                      <button type="button" style={{ ...styles.iconBtn, alignSelf: "flex-end" }} onClick={() => { setNoticeFiles([]); if (noticeFileRef.current) noticeFileRef.current.value = ""; }}><X size={14} /></button>
+                    </div>
+                  )}
+                </div>
+
+                <label style={{ ...styles.teacherFormField, ...styles.teacherAsideSection }}>
+                  <span><Link2 size={12} /> 링크 첨부 <small>한 줄에 하나</small></span>
+                  <textarea value={noticeLinks} onChange={event => setNoticeLinks(event.target.value)} rows={3} style={{ ...styles.textareaInput, minHeight: 78 }} placeholder="Google Drive, YouTube, 학습자료 링크" />
+                </label>
+
+                <div style={styles.teacherUploadGuide}>
+                  <div>8MB 이하 파일은 Firestore에 바로 저장합니다. 큰 파일만 Firebase Storage를 사용합니다.</div>
+                  {attachmentDiagnostic && <span style={{ color: attachmentDiagnostic.ok ? "#24613a" : "#a13e38", fontWeight: 850 }}>{attachmentDiagnostic.ok ? `Storage 정상 · ${attachmentDiagnostic.bucket || "확인됨"}` : `Storage 실패 · ${attachmentDiagnostic.code || attachmentDiagnostic.error || "원인 미상"}`}</span>}
+                  <button type="button" style={{ ...styles.secondaryBtn, width: "100%", justifyContent: "center" }} onClick={runAttachmentDiagnostic} disabled={diagnosingAttachment}>{diagnosingAttachment ? <Loader2 size={13} className="spin" /> : <Upload size={13} />} 첨부 연결 진단</button>
+                </div>
+              </aside>
             </div>
+
+            <div style={styles.teacherComposerFooter}>
+              <div style={styles.teacherComposerFooterText}>제목·내용·기한은 선택 항목입니다. 파일이나 링크만으로도 등록할 수 있습니다.</div>
+              <button style={{ ...styles.primaryBtn, minWidth: saving ? 220 : 132, justifyContent: "center" }} onClick={addNotice} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} {saving ? (savingStage || "저장 중") : "게시글 등록"}</button>
+            </div>
+          </div>
+
+          <div style={{ ...styles.card, marginTop: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
+              <div><div style={{ fontWeight: 900, fontSize: 14 }}>이 대상의 최근 게시글</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>최근 3개만 표시합니다. 전체 게시글은 ‘내 공지 관리’에서 확인하세요.</div></div>
+              <button type="button" style={styles.secondaryBtn} onClick={() => setZoneMode("manage")}>전체 관리</button>
+            </div>
+            {currentNotices.length ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {currentNotices.slice(-3).reverse().map(notice => (
+                  <NoticeCard key={notice.id} n={notice} labelText={notice.updatedAt ? new Date(notice.updatedAt).toLocaleString("ko-KR") : teacher.name} onDelete={() => removeNoticeAt({ scopeKey, targetKey, notice })} />
+                ))}
+              </div>
+            ) : <div style={styles.materialEmpty}>아직 등록된 게시글이 없습니다.</div>}
+            {currentLegacyMaterials.length > 0 && (
+              <details style={{ marginTop: 12 }}>
+                <summary style={{ cursor: "pointer", fontSize: 11.5, fontWeight: 850, color: "#746d61" }}>이전 버전 수업자료 {currentLegacyMaterials.length}개</summary>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                  {currentLegacyMaterials.slice().reverse().map(material => <MaterialCard key={material.id} material={material} onDelete={() => deleteLegacyMaterial(material)} />)}
+                </div>
+              </details>
+            )}
           </div>
 
         </>
@@ -1908,7 +1971,10 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
               <div style={{ fontWeight: 900, fontSize: 15 }}>내가 올린 모든 공지</div>
               <div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 3 }}>학년·학기와 대상에 관계없이 본인이 작성한 공지를 확인하고 삭제할 수 있습니다.</div>
             </div>
-            <span style={styles.classroomCount}>{authoredNotices.length}개</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              <span style={styles.classroomCount}>{authoredNotices.length}개</span>
+              <button type="button" style={styles.primaryBtn} onClick={() => setZoneMode(subjectTargets.length ? "subject" : homeroomTargets.length ? "homeroom" : "personal")}><Save size={13} /> 새 공지 작성</button>
+            </div>
           </div>
           {authoredNotices.length ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -2620,10 +2686,11 @@ function AdminConsole(props) {
     <div style={styles.body}>
       <h1 style={styles.h1}>통합 관리자</h1>
       <p style={styles.pMuted}>시간표·성적 데이터와 계정·접근 권한을 한 곳에서 관리합니다.</p>
-      <div style={styles.adminScopePanel}>
+      <div className="admin-scope-sticky" style={styles.adminScopePanel}>
+        <div style={styles.adminScopeIdentity}><Calendar size={16} /><div><b style={{ display: "block", fontSize: 11 }}>관리 범위</b><span style={{ display: "block", marginTop: 2, fontSize: 9.5, color: "#8a8578" }}>아래 선택은 모든 관리자 메뉴에 공통 적용됩니다.</span></div></div>
         <ScopeGroup label="학년">{GRADES.map(g => <ScopeBtn key={g} active={props.grade === g} disabled={DISABLED_GRADES.includes(g)} onClick={() => props.setGrade(g)}>{g}학년{DISABLED_GRADES.includes(g) ? " (준비중)" : ""}</ScopeBtn>)}</ScopeGroup>
         <ScopeGroup label="학기"><ScopeBtn active={props.semester === "sem1"} onClick={() => props.setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={props.semester === "sem2"} onClick={() => props.setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>
-        <div style={styles.adminScopeCaption}>현재 관리 범위 · {props.grade}학년 {props.semester === "sem1" ? "1학기" : "2학기"}</div>
+        <div style={styles.adminScopeCaption}><span>현재</span><strong>{props.grade}학년 · {props.semester === "sem1" ? "1학기" : "2학기"}</strong></div>
       </div>
       <div style={styles.adminTabs}>
         <button onClick={() => setSub("timetable")} style={{ ...styles.adminTabBtn, ...(sub === "timetable" ? styles.adminTabBtnActive : {}) }}><ClipboardList size={14} /> 시간표 관리</button>
@@ -3745,8 +3812,14 @@ const globalCss = `
     .admission-print-root th, .admission-print-root td { padding: 3px 2px !important; }
     .admission-print-root .reflection-badge { max-width: 68% !important; padding: 0 2px !important; font-size: 5.5pt !important; line-height: 1 !important; border-left-width: 1px !important; }
   }
+  @media (max-width: 900px) {
+    .teacher-composer-grid { grid-template-columns: 1fr !important; }
+  }
   @media (max-width: 720px) {
     .teacher-zone-target-row { grid-template-columns: 1fr !important; }
+    .teacher-workflow-steps { grid-template-columns: 1fr !important; }
+    .teacher-composer-aside { border-left: 0 !important; border-top: 1px solid #e6e1d3 !important; }
+    .admin-scope-sticky { position: static !important; }
   }
 `;
 const accountConsole = {
@@ -3845,8 +3918,9 @@ const styles = {
   classChips: { display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14 },
   classChip: { border: `1px solid ${COLORS.line}`, background: "#fff", padding: "7px 13px", borderRadius: 20, fontSize: 12, cursor: "pointer", fontWeight: 700, color: "#8a8578" },
   classChipActive: { background: COLORS.accent, color: "#fff", borderColor: COLORS.accent },
-  adminScopePanel: { display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", padding: "12px 14px", margin: "12px 0 14px", border: `1px solid ${COLORS.line}`, borderRadius: 12, background: "#fbfaf6" },
-  adminScopeCaption: { marginLeft: "auto", fontSize: 11.5, color: "#6f695d", fontWeight: 850, whiteSpace: "nowrap" },
+  adminScopePanel: { position: "sticky", top: 66, zIndex: 18, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", padding: "10px 12px", margin: "12px 0 14px", border: `1px solid ${COLORS.line}`, borderRadius: 13, background: "rgba(251,250,246,.94)", backdropFilter: "blur(12px)", boxShadow: "0 7px 22px rgba(43,38,32,.08)" },
+  adminScopeIdentity: { display: "flex", alignItems: "center", gap: 8, minWidth: 150, color: "#315337" },
+  adminScopeCaption: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, fontSize: 10.5, color: "#6f695d", fontWeight: 850, whiteSpace: "nowrap", background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 999, padding: "5px 9px" },
   adminTabs: { display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" },
   adminTabBtn: { display: "flex", alignItems: "center", gap: 6, border: `1px solid ${COLORS.line}`, background: "#fff", padding: "7px 12px", borderRadius: 8, fontSize: 12, cursor: "pointer", fontWeight: 700, color: "#8a8578" },
   adminTabBtnActive: { background: COLORS.ink, color: "#fff", borderColor: COLORS.ink },
@@ -3895,13 +3969,37 @@ const styles = {
   materialEmpty: { border: `1px dashed ${COLORS.line}`, borderRadius: 9, padding: "20px 12px", textAlign: "center", color: "#9b9487", fontSize: 11.5, background: "#fbfaf6" },
   attachmentList: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 9 },
   attachmentLink: { display: "inline-flex", alignItems: "center", gap: 5, maxWidth: "100%", border: "1px solid #d9dee1", background: "#f7f9fa", color: "#46535b", borderRadius: 7, padding: "5px 8px", textDecoration: "none", fontSize: 10.8, fontWeight: 800 },
+  teacherWorkflow: { marginBottom: 14 },
+  teacherWorkflowSteps: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 7, marginBottom: 8 },
+  teacherWorkflowStep: { display: "flex", alignItems: "center", gap: 8, minWidth: 0, padding: "9px 10px", border: `1px solid ${COLORS.line}`, borderRadius: 11, background: "#f6f4ee", color: "#8a8578" },
+  teacherWorkflowStepActive: { background: "#eef4ec", color: "#2f5134", borderColor: "#b9cfb8", boxShadow: "0 3px 12px rgba(47,81,52,.08)" },
+  teacherWorkflowStepDone: { background: "#f7faf6", color: "#59705b", borderColor: "#d4dfd2" },
+  teacherWorkflowNumber: { width: 24, height: 24, flex: "0 0 auto", display: "grid", placeItems: "center", borderRadius: 8, background: "#fff", border: `1px solid ${COLORS.line}`, fontSize: 11, fontWeight: 950 },
   teacherZoneNav: { border: `1px solid ${COLORS.line}`, borderRadius: 12, background: "#fff", padding: 11, marginBottom: 14, boxShadow: "0 2px 10px rgba(43,38,32,0.035)" },
   teacherZoneModeRow: { display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" },
   teacherZoneModeBtn: { display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${COLORS.line}`, background: "#fff", color: "#6f695d", borderRadius: 9, padding: "8px 12px", fontSize: 12, fontWeight: 850, cursor: "pointer" },
   teacherZoneModeBtnActive: { background: "#2f4932", color: "#fff", borderColor: "#2f4932", boxShadow: "0 2px 6px rgba(47,73,50,0.18)" },
   teacherZoneModeCount: { display: "inline-flex", minWidth: 19, height: 19, alignItems: "center", justifyContent: "center", borderRadius: 999, background: "rgba(128,128,128,0.14)", fontSize: 9.5, fontWeight: 900 },
-  teacherTargetRow: { display: "grid", gridTemplateColumns: "82px 1fr", alignItems: "start", gap: 9, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${COLORS.line}` },
-  teacherTargetLabel: { fontSize: 10.8, color: "#837c70", fontWeight: 850, paddingTop: 7 },
+  teacherTargetRow: { display: "grid", gridTemplateColumns: "130px 1fr", alignItems: "start", gap: 12, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${COLORS.line}` },
+  teacherTargetLabel: { fontSize: 11, color: "#4f493f", fontWeight: 950, paddingTop: 4 },
+  teacherTargetHint: { fontSize: 9.8, color: "#9a9385", marginTop: 3, lineHeight: 1.4 },
+  teacherTargetChoice: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, minWidth: 130, border: `1px solid ${COLORS.line}`, background: "#fff", borderRadius: 10, padding: "8px 11px", color: "#514b42", fontSize: 11.5, fontWeight: 900, cursor: "pointer" },
+  teacherTargetChoiceActive: { background: "#2f4932", borderColor: "#2f4932", color: "#fff", boxShadow: "0 4px 12px rgba(47,73,50,.18)" },
+  teacherTargetEmpty: { minHeight: 150, border: `1px dashed ${COLORS.line}`, borderRadius: 13, background: "#fbfaf6", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, color: "#7f786b", marginBottom: 14 },
+  teacherComposerHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "16px 18px", background: "linear-gradient(135deg,#f3f7f1,#fff)", borderBottom: `1px solid ${COLORS.line}` },
+  teacherComposerEyebrow: { fontSize: 9.5, fontWeight: 950, color: "#648066", letterSpacing: ".04em" },
+  teacherComposerTitle: { fontSize: 17, fontWeight: 950, marginTop: 3, color: "#263b2d" },
+  teacherComposerDescription: { fontSize: 11, color: "#7d776b", marginTop: 4 },
+  teacherComposerTargetBadge: { display: "inline-flex", alignItems: "center", borderRadius: 999, background: "#2f4932", color: "#fff", padding: "5px 9px", fontSize: 10, fontWeight: 900, whiteSpace: "nowrap" },
+  teacherComposerGrid: { display: "grid", gridTemplateColumns: "minmax(0,1.65fr) minmax(260px,.72fr)", alignItems: "stretch" },
+  teacherComposerMain: { padding: 18, minWidth: 0 },
+  teacherComposerAside: { padding: 16, minWidth: 0, background: "#fbfaf6", borderLeft: `1px solid ${COLORS.line}`, display: "flex", flexDirection: "column", gap: 12 },
+  teacherAsideSection: { paddingBottom: 12, borderBottom: `1px solid ${COLORS.line}` },
+  teacherFieldLabel: { fontSize: 10.5, color: "#645e53", fontWeight: 950, marginBottom: 7 },
+  teacherFormField: { display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, fontSize: 10.5, color: "#645e53", fontWeight: 900 },
+  teacherUploadGuide: { display: "flex", flexDirection: "column", gap: 7, padding: "9px 10px", borderRadius: 9, background: "#f3f1eb", color: "#746d61", fontSize: 9.7, lineHeight: 1.45 },
+  teacherComposerFooter: { position: "sticky", bottom: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "11px 16px", background: "rgba(255,255,255,.96)", borderTop: `1px solid ${COLORS.line}`, backdropFilter: "blur(10px)" },
+  teacherComposerFooterText: { fontSize: 10.5, color: "#8a8578", lineHeight: 1.45 },
   noticeOptionGrid: { display: "grid", gridTemplateColumns: "minmax(160px, 220px) minmax(180px, 1fr)", gap: 10, alignItems: "end", marginTop: 10 },
   noticeOptionField: { display: "grid", gap: 5, fontSize: 11, color: "#766f63", fontWeight: 800 },
   teacherNoticeManageRow: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 9, background: "#fbfaf6" },

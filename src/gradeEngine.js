@@ -427,21 +427,35 @@ function extractAdmissionEachRule(row) {
     .trim();
   if (!text) return null;
 
-  // "3개 과목 각 3등급 이내"처럼 과목/영역 수가 명시된 경우만 개별 과목 기준으로 봅니다.
-  // "영어 1,2등급은 모두 1등급으로 반영" 같은 환산 문구는 개별 2개 과목 조건이 아닙니다.
-  const countMatch = text.match(/(?:각\s*)?(\d+)\s*개\s*(?:과목|영역)/)
-    || text.match(/(?:과목|영역)\s*(\d+)\s*개/);
-  if (!countMatch) return null;
+  // 개별 과목 기준은 반드시 같은 문장/구 안에 "N개 과목(영역)"과 "각 M등급"이 함께 있어야 합니다.
+  // 이를 분리해서 찾으면 "각 교과에서 최저 등급 과목 5개 미반영" 같은 다른 문구의 숫자를
+  // 잘못 가져와 3합 3으로 표시할 수 있으므로, 먼저 결합 패턴을 엄격하게 판정합니다.
+  const strictPatterns = [
+    /(\d+)\s*개\s*(?:과목|영역)[^.;\n]{0,70}?(?:각각|각|모두)\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/,
+    /(?:각각|각|모두)\s*(\d+)\s*개\s*(?:과목|영역)[^.;\n]{0,70}?(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/,
+    /(?:과목|영역)\s*(\d+)\s*개[^.;\n]{0,70}?(?:각각|각|모두)\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/,
+  ];
+  for (const pattern of strictPatterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const count = Number(match[1]);
+      const threshold = Number(match[2]);
+      if (count && Number.isFinite(threshold)) return { count, threshold };
+    }
+  }
 
-  const thresholdMatch = text.match(/각(?:각)?\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/)
-    || text.match(/모두\s*(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/)
-    || text.match(/각(?:각)?[^0-9]{0,12}(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/);
-  if (!thresholdMatch) return null;
+  // 서강대처럼 데이터 열에는 "3합 3"으로 들어 있고 특이사항에 "3개 과목 각각 3등급 이내"가
+  // 분리되어 저장된 경우를 위한 보조 판정입니다. 대학명과 문구가 모두 확인될 때만 적용합니다.
+  const university = String(row?.university || "").replace(/\s+/g, "");
+  const hasExplicitEachWording = /(?:각각|각|모두)[^.;\n]{0,30}등급(?:\s*이내)?/.test(text)
+    && /3\s*개\s*(?:과목|영역)|(?:과목|영역)\s*3\s*개/.test(text);
+  if (/서강대/.test(university) && hasExplicitEachWording) {
+    const thresholdMatch = text.match(/(?:각각|각|모두)[^0-9]{0,20}(\d+(?:\.\d+)?)\s*등급(?:\s*이내)?/);
+    const threshold = Number(thresholdMatch?.[1] || 3);
+    return { count: 3, threshold: Number.isFinite(threshold) ? threshold : 3 };
+  }
 
-  const count = Number(countMatch[1]);
-  const threshold = Number(thresholdMatch[1]);
-  if (!count || !Number.isFinite(threshold)) return null;
-  return { count, threshold };
+  return null;
 }
 
 function computeAdmissionStudentSum(row, sums, mockGrades) {

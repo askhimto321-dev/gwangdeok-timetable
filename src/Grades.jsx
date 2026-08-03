@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
-import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap } from "lucide-react";
+import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert } from "lucide-react";
 import { readStorage, uploadAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import {
@@ -384,6 +384,7 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
   const [subjectFilter, setSubjectFilter] = useState("전체");
   const [gradeFilter, setGradeFilter] = useState("all");
   const [classMetric, setClassMetric] = useState("총점");
+  const [showCutoffs, setShowCutoffs] = useState(false);
 
   useEffect(() => {
     if (available.length && !available.includes(mockKey)) setMockKey(available[available.length - 1]);
@@ -392,7 +393,17 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
   const studentsMap = mockKey ? cohortRecord(gdb.mockData, entryYear, mockKey)?.students || {} : {};
   const rows = useMemo(() => Object.entries(studentsMap).map(([sid, result]) => {
     const scores = result?._scores || {};
-    const total = Number.isFinite(Number(result?._total))
+    const gradeValues = MOCK_SUBJECTS.map(subject => Number(result?.[subject])).filter(Number.isFinite);
+    const scoreValues = MOCK_SUBJECTS.map(subject => {
+      const raw = scores?.[subject];
+      return raw === "" || raw == null ? null : Number(raw);
+    });
+    // 원점수가 모두 0 또는 비어 있고, 입력된 등급이 모두 9등급이면 결시자로 분리합니다.
+    // 결시자는 평균·등수·등급별 인원 계산에서 제외하되 반별 결시 인원에는 포함합니다.
+    const allScoresMissingOrZero = scoreValues.every(value => value == null || value === 0);
+    const allGradesNine = gradeValues.length > 0 && gradeValues.every(value => value === 9);
+    const isAbsent = allScoresMissingOrZero && allGradesNine;
+    const computedTotal = Number.isFinite(Number(result?._total))
       ? Number(result._total)
       : (Object.keys(scores).length
         ? Object.values(scores).reduce((sum, value) => sum + Number(value || 0), 0)
@@ -405,7 +416,8 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
       number: info.number || Number(String(sid).slice(3, 5)) || "",
       grades: result || {},
       scores,
-      total,
+      isAbsent,
+      total: isAbsent ? null : computedTotal,
     };
   }).sort((a, b) => (b.total ?? -1) - (a.total ?? -1) || a.sid.localeCompare(b.sid)), [studentsMap, roster, gdb.semesterData, entryYear]);
 
@@ -420,6 +432,7 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
 
   const classes = Array.from(new Set(rows.map(row => String(row.classNumber)).filter(Boolean))).sort((a, b) => Number(a) - Number(b));
   const classScopedRows = classFilter === "all" ? rows : rows.filter(row => String(row.classNumber) === classFilter);
+  const classScopedPresentRows = classScopedRows.filter(row => !row.isAbsent);
   const filtered = classScopedRows.filter(row => {
     if (gradeFilter === "all") return true;
     const targetGrade = Number(gradeFilter);
@@ -431,12 +444,12 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
 
   const gradeCounts = Object.fromEntries(MOCK_SUBJECTS.map(subject => [
     subject,
-    Array.from({ length: 9 }, (_, index) => classScopedRows.filter(row => Number(row.grades?.[subject]) === index + 1).length),
+    Array.from({ length: 9 }, (_, index) => classScopedPresentRows.filter(row => Number(row.grades?.[subject]) === index + 1).length),
   ]));
   const cutRows = MOCK_SUBJECTS.map(subject => ({
     subject,
     cuts: Array.from({ length: 9 }, (_, index) => {
-      const scores = classScopedRows
+      const scores = classScopedPresentRows
         .filter(row => Number(row.grades?.[subject]) === index + 1)
         .map(row => Number(row.scores?.[subject]))
         .filter(Number.isFinite);
@@ -454,11 +467,15 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
 
   const classSummaries = classes.map(classNumber => {
     const classRows = rows.filter(row => String(row.classNumber) === String(classNumber));
+    const presentRows = classRows.filter(row => !row.isAbsent);
+    const absentRows = classRows.filter(row => row.isAbsent);
     return {
       classNumber,
       count: classRows.length,
-      total: totalAverage(classRows),
-      subjects: Object.fromEntries(MOCK_SUBJECTS.map(subject => [subject, avgFor(classRows, subject)])),
+      presentCount: presentRows.length,
+      absentCount: absentRows.length,
+      total: totalAverage(presentRows),
+      subjects: Object.fromEntries(MOCK_SUBJECTS.map(subject => [subject, avgFor(presentRows, subject)])),
     };
   });
   const classMetricValue = summary => classMetric === "총점" ? summary.total : summary.subjects[classMetric];
@@ -466,10 +483,14 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
 
   if (!available.length) return <EmptyBox text={`${currentGrade}학년 학생의 누적 모의고사 데이터가 없습니다. 관리자가 해당 입학연도의 모의고사 파일을 업로드하면 분석할 수 있습니다.`} />;
 
+  const presentRows = rows.filter(row => !row.isAbsent);
+  const absentRows = rows.filter(row => row.isAbsent);
+  const filteredPresentRows = filtered.filter(row => !row.isAbsent);
   const summaryItems = [
-    { icon: <UsersRound size={18} />, value: `${rows.length}명`, label: "응시 인원", tone: "#315a9b", bg: "#eef3ff" },
-    { icon: <TrendingUp size={18} />, value: totalAverage(filtered) ?? "-", label: "조회 학생 평균 총점", tone: "#76551b", bg: "#fff6e6" },
-    { icon: <GraduationCap size={18} />, value: rows.find(row => row.total != null)?.total ?? "-", label: "최고 총점", tone: "#3d5c3a", bg: "#edf5eb" },
+    { icon: <UsersRound size={18} />, value: `${presentRows.length}명`, label: "응시 인원", tone: "#315a9b", bg: "#eef3ff" },
+    { icon: <CircleAlert size={18} />, value: `${absentRows.length}명`, label: "결시 인원", tone: "#9a493c", bg: "#fff0ed" },
+    { icon: <TrendingUp size={18} />, value: totalAverage(filteredPresentRows) ?? "-", label: "조회 학생 평균 총점", tone: "#76551b", bg: "#fff6e6" },
+    { icon: <GraduationCap size={18} />, value: presentRows.find(row => row.total != null)?.total ?? "-", label: "최고 총점", tone: "#3d5c3a", bg: "#edf5eb" },
   ];
   const gradeCellStyle = grade => grade === 1
     ? { background: "#e3f5e8", color: "#1f6a3a", fontWeight: 950 }
@@ -484,23 +505,31 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
 
   return (
     <div>
-      <div style={{ ...card, marginTop: 0, padding: 18, background: "linear-gradient(135deg,#263b2d 0%,#3e6247 58%,#edf4eb 58%,#ffffff 100%)", color: "#fff" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontWeight: 950, fontSize: 19 }}>모의고사 성적 분석</div>
-            <div style={{ fontSize: 11.5, color: "#dce8dc", marginTop: 4 }}>{entryYear}년 입학생 · 1학년부터 {currentGrade}학년까지 누적 회차 분석</div>
-          </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 650 }}>
-            {available.map(key => (
-              <button key={key} style={{ ...btn.chip, background: mockKey === key ? "#fff" : "rgba(255,255,255,.13)", color: mockKey === key ? "#28412f" : "#fff", borderColor: mockKey === key ? "#fff" : "rgba(255,255,255,.32)" }} onClick={() => setMockKey(key)}>
-                {MOCK_MONTH_LABELS[key]}
-              </button>
-            ))}
-          </div>
+      <div style={{ ...card, marginTop: 0, padding: 18, background: "linear-gradient(135deg,#263b2d,#3c6248)", color: "#fff", overflow: "hidden" }}>
+        <div>
+          <div style={{ fontWeight: 950, fontSize: 19 }}>모의고사 성적 분석</div>
+          <div style={{ fontSize: 11.5, color: "#dce8dc", marginTop: 4 }}>{entryYear}년 입학생 · 1학년부터 {currentGrade}학년까지 누적 회차 분석</div>
+        </div>
+        <div style={{ marginTop: 14, padding: 8, borderRadius: 12, background: "rgba(12,28,18,.28)", border: "1px solid rgba(255,255,255,.15)", display: "flex", gap: 7, flexWrap: "wrap" }}>
+          {available.map(key => (
+            <button key={key} style={{ ...btn.chip, minHeight: 32, background: mockKey === key ? "#f1d56f" : "rgba(255,255,255,.1)", color: mockKey === key ? "#26341f" : "#f7fbf5", borderColor: mockKey === key ? "#f6e59e" : "rgba(255,255,255,.3)", boxShadow: mockKey === key ? "0 3px 10px rgba(0,0,0,.18)" : "none", fontWeight: 900 }} onClick={() => setMockKey(key)}>
+              {MOCK_MONTH_LABELS[key]}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10, marginTop: 12 }}>
+      <div style={{ ...card, padding: 12, marginTop: 12, borderLeft: "4px solid #3d5c3a" }}>
+        <div style={{ display: "flex", gap: 9, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ fontSize: 10, fontWeight: 950, color: "#5f594d", marginRight: 2 }}>조회 조건</div>
+          <select value={classFilter} onChange={event => setClassFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>
+          <select value={subjectFilter} onChange={event => setSubjectFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option>전체</option>{MOCK_SUBJECTS.map(subject => <option key={subject}>{subject}</option>)}</select>
+          <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option value="all">전체 등급</option>{Array.from({ length: 9 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}등급</option>)}</select>
+          <span style={{ marginLeft: "auto", borderRadius: 999, background: "#f1f4ee", color: "#3f5c42", border: "1px solid #d4dfd1", padding: "5px 9px", fontSize: 10.5, fontWeight: 900 }}>{subjectFilter === "전체" && gradeFilter !== "all" ? `전 과목 중 ${gradeFilter}등급 보유 · ${filtered.length}명` : `${filtered.length}명 조회`}</span>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginTop: 10 }}>
         {summaryItems.map(item => (
           <div key={item.label} style={{ background: item.bg, border: `1px solid ${item.tone}22`, borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
             <span style={{ width: 36, height: 36, borderRadius: 11, display: "grid", placeItems: "center", color: item.tone, background: "rgba(255,255,255,.72)", flex: "0 0 auto" }}>{item.icon}</span>
@@ -509,43 +538,62 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
         ))}
       </div>
 
-      <div style={{ ...card, padding: 14 }}>
-        <div style={{ display: "flex", gap: 9, flexWrap: "wrap", alignItems: "center" }}>
-          <select value={classFilter} onChange={event => setClassFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>
-          <select value={subjectFilter} onChange={event => setSubjectFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option>전체</option>{MOCK_SUBJECTS.map(subject => <option key={subject}>{subject}</option>)}</select>
-          <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option value="all">전체 등급</option>{Array.from({ length: 9 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}등급</option>)}</select>
-          <span style={{ marginLeft: "auto", fontSize: 11, color: "#8a8578" }}>{subjectFilter === "전체" && gradeFilter !== "all" ? `전 과목 중 ${gradeFilter}등급을 하나 이상 보유한 학생` : `${filtered.length}명 조회`}</span>
+      <div style={{ ...card, borderTop: "4px solid #76551b", overflow: "hidden" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 11 }}>
+          <div>
+            <div style={{ fontWeight: 950 }}>반별 평균 비교</div>
+            <div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>결시자는 평균에서 제외하며, 응시·결시 인원을 함께 표시합니다.</div>
+          </div>
+          <select value={classMetric} onChange={event => setClassMetric(event.target.value)} style={{ ...btn.input, width: 132 }}><option>총점</option>{MOCK_SUBJECTS.map(subject => <option key={subject}>{subject}</option>)}</select>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(205px,.62fr) minmax(0,1.55fr)", gap: 12, alignItems: "start", minWidth: 0 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7, minWidth: 0 }}>
+            {classSummaries.map(summary => {
+              const value = classMetricValue(summary);
+              const width = value == null ? 0 : Math.max(3, Number(value) / classMetricMax * 100);
+              return <div key={summary.classNumber} style={{ display: "grid", gridTemplateColumns: "34px minmax(0,1fr) 45px", alignItems: "center", gap: 6, fontSize: 10.7 }}>
+                <strong>{summary.classNumber}반</strong>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ height: 10, background: "#eeeae1", borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#334b38,#88a36f)", borderRadius: 99 }} /></div>
+                  {summary.absentCount > 0 && <div style={{ marginTop: 2, color: "#a14c40", fontSize: 8.8, fontWeight: 850 }}>결시 {summary.absentCount}명</div>}
+                </div>
+                <span style={{ fontWeight: 900, textAlign: "right" }}>{value ?? "-"}</span>
+              </div>;
+            })}
+          </div>
+          <div style={{ minWidth: 0, overflow: "hidden", border: "1px solid #e4dfd4", borderRadius: 9 }}>
+            <table style={{ ...table.base, width: "100%", minWidth: 0, tableLayout: "fixed", fontSize: 9.2 }}>
+              <thead><tr><th style={{ ...table.th, padding: "6px 2px" }}>반</th><th style={{ ...table.th, padding: "6px 2px" }}>응시</th><th style={{ ...table.th, padding: "6px 2px" }}>결시</th><th style={{ ...table.th, padding: "6px 2px" }}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={{ ...table.th, padding: "6px 2px", lineHeight: 1.15, wordBreak: "keep-all" }}>{subject === "통합사회" ? <>통합<br />사회</> : subject === "통합과학" ? <>통합<br />과학</> : subject}</th>)}</tr></thead>
+              <tbody>{classSummaries.map(summary => <tr key={summary.classNumber}><td style={{ ...table.td, padding: "6px 2px", fontWeight: 900 }}>{summary.classNumber}반</td><td style={{ ...table.td, padding: "6px 2px" }}>{summary.presentCount}</td><td style={{ ...table.td, padding: "6px 2px", color: summary.absentCount ? "#a14c40" : "#8a8578", fontWeight: summary.absentCount ? 900 : 600 }}>{summary.absentCount}</td><td style={{ ...table.td, padding: "6px 2px", fontWeight: 900 }}>{summary.total ?? "-"}</td>{MOCK_SUBJECTS.map(subject => <td key={subject} style={{ ...table.td, padding: "6px 2px" }}>{summary.subjects[subject] ?? "-"}</td>)}</tr>)}</tbody>
+            </table>
+          </div>
         </div>
       </div>
 
       <div style={{ ...card, borderTop: "4px solid #315a9b" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11 }}><div><div style={{ fontWeight: 950 }}>과목별 평균 및 등급별 인원</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>1·2등급 인원을 강조했습니다. 반 필터를 바꾸면 표도 함께 갱신됩니다.</div></div></div>
-        <div style={{ overflowX: "auto" }}><table style={{ ...table.base, tableLayout: "fixed", minWidth: 820 }}><thead><tr><th style={{ ...table.th, width: 96 }}>과목</th><th style={{ ...table.th, width: 92 }}>평균 원점수</th>{Array.from({ length: 9 }, (_, index) => <th key={index} style={{ ...table.th, ...(index < 2 ? gradeCellStyle(index + 1) : {}) }}>{index + 1}등급</th>)}</tr></thead><tbody>{MOCK_SUBJECTS.map(subject => <tr key={subject}><td style={{ ...table.td, fontWeight: 900 }}>{subject}</td><td style={{ ...table.td, fontWeight: 850 }}>{avgFor(classScopedRows, subject) ?? "-"}</td>{gradeCounts[subject].map((count, index) => <td key={index} style={{ ...table.td, ...gradeCellStyle(index + 1) }}>{count}</td>)}</tr>)}</tbody></table></div>
+        <div style={{ overflowX: "auto" }}><table style={{ ...table.base, tableLayout: "fixed", minWidth: 820 }}><thead><tr><th style={{ ...table.th, width: 96 }}>과목</th><th style={{ ...table.th, width: 92 }}>평균 원점수</th>{Array.from({ length: 9 }, (_, index) => <th key={index} style={{ ...table.th, ...(index < 2 ? gradeCellStyle(index + 1) : {}) }}>{index + 1}등급</th>)}</tr></thead><tbody>{MOCK_SUBJECTS.map(subject => <tr key={subject}><td style={{ ...table.td, fontWeight: 900 }}>{subject}</td><td style={{ ...table.td, fontWeight: 850 }}>{avgFor(classScopedPresentRows, subject) ?? "-"}</td>{gradeCounts[subject].map((count, index) => <td key={index} style={{ ...table.td, ...gradeCellStyle(index + 1) }}>{count}</td>)}</tr>)}</tbody></table></div>
       </div>
-
-      <div style={{ ...card, borderTop: "4px solid #76551b" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 11 }}><div><div style={{ fontWeight: 950 }}>반별 평균 비교</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>막대와 표를 함께 보며 반별 총점·과목 평균을 비교합니다.</div></div><select value={classMetric} onChange={event => setClassMetric(event.target.value)} style={{ ...btn.input, width: 132 }}><option>총점</option>{MOCK_SUBJECTS.map(subject => <option key={subject}>{subject}</option>)}</select></div>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(240px,.8fr) minmax(520px,1.6fr)", gap: 14, alignItems: "start" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {classSummaries.map(summary => {
-              const value = classMetricValue(summary);
-              const width = value == null ? 0 : Math.max(3, Number(value) / classMetricMax * 100);
-              return <div key={summary.classNumber} style={{ display: "grid", gridTemplateColumns: "38px 1fr 46px", alignItems: "center", gap: 7, fontSize: 11.5 }}><strong>{summary.classNumber}반</strong><div style={{ height: 12, background: "#eeeae1", borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#334b38,#88a36f)", borderRadius: 99 }} /></div><span style={{ fontWeight: 900, textAlign: "right" }}>{value ?? "-"}</span></div>;
-            })}
-          </div>
-          <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 640, fontSize: 10.5 }}><thead><tr><th style={table.th}>반</th><th style={table.th}>인원</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{classSummaries.map(summary => <tr key={summary.classNumber}><td style={{ ...table.td, fontWeight: 900 }}>{summary.classNumber}반</td><td style={table.td}>{summary.count}</td><td style={{ ...table.td, fontWeight: 900 }}>{summary.total ?? "-"}</td>{MOCK_SUBJECTS.map(subject => <td key={subject} style={table.td}>{summary.subjects[subject] ?? "-"}</td>)}</tr>)}</tbody></table></div>
-        </div>
-      </div>
-
-      <div style={{ ...card, borderTop: "4px solid #8a641d" }}><div style={{ fontWeight: 950, marginBottom: 4 }}>회차별 관측 등급컷</div><div style={{ fontSize: 11, color: "#8a8578", marginBottom: 9 }}>업로드된 원점수 중 해당 등급의 최저점을 표시합니다. 원점수 열이 없는 파일은 ‘-’로 표시됩니다.</div><div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 760 }}><thead><tr><th style={table.th}>과목</th>{Array.from({ length: 9 }, (_, index) => <th key={index} style={{ ...table.th, ...(index < 2 ? gradeCellStyle(index + 1) : {}) }}>{index + 1}등급</th>)}</tr></thead><tbody>{cutRows.map(row => <tr key={row.subject}><td style={{ ...table.td, fontWeight: 850 }}>{row.subject}</td>{row.cuts.map((value, index) => <td key={index} style={{ ...table.td, ...gradeCellStyle(index + 1) }}>{value ?? "-"}</td>)}</tr>)}</tbody></table></div></div>
 
       <div style={{ ...card, borderTop: "4px solid #2b2620" }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>학생별 총점 순위</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>상위 24위는 검은 순위 배지로 강조하고 과목별 1·2등급은 색으로 구분합니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{filtered.length}명</span></div><div style={{ maxHeight: 560, overflow: "auto" }}><table style={{ ...table.base, minWidth: 880, tableLayout: "fixed" }}><colgroup><col style={{ width: 58 }} /><col style={{ width: 72 }} /><col style={{ width: 105 }} /><col style={{ width: 72 }} /><col style={{ width: 66 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} style={{ width: 72 }} />)}</colgroup><thead><tr><th style={table.th}>등수</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{filtered.map(row => {
         const isTop24 = row.rank != null && row.rank <= 24;
-        return <tr key={row.sid} style={{ background: isTop24 ? "#fffdf5" : "#fff" }}><td style={{ ...table.td, fontWeight: 900 }}><span style={isTop24 ? { display: "inline-grid", placeItems: "center", minWidth: 31, height: 25, padding: "0 5px", borderRadius: 7, background: "#171714", color: "#f2d56b", boxShadow: "0 0 0 2px #f3e6a5" } : {}}>{row.rank ?? "-"}</span></td><td style={table.td}>{row.sid}</td><td style={{ ...table.td, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.name}>{row.name}</td><td style={table.td}>{row.classNumber ? `${row.classNumber}반 ${row.number || ""}번` : "-"}</td><td style={{ ...table.td, fontWeight: 950, color: isTop24 ? "#6d5311" : "#2b2620" }}>{row.total ?? "-"}</td>{MOCK_SUBJECTS.map(subject => {
+        return <tr key={row.sid} style={{ background: isTop24 ? "#fffdf5" : "#fff" }}><td style={{ ...table.td, fontWeight: 900 }}><span style={isTop24 ? { display: "inline-grid", placeItems: "center", minWidth: 31, height: 25, padding: "0 5px", borderRadius: 7, background: "#171714", color: "#f2d56b", boxShadow: "0 0 0 2px #f3e6a5" } : {}}>{row.rank ?? "-"}</span></td><td style={table.td}>{row.sid}</td><td style={{ ...table.td, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.name}>{row.name}</td><td style={table.td}>{row.classNumber ? `${row.classNumber}반` : "-"}</td><td style={{ ...table.td, fontWeight: 950, color: isTop24 ? "#6d5311" : "#2b2620" }}>{row.isAbsent ? "결시" : (row.total ?? "-")}</td>{MOCK_SUBJECTS.map(subject => {
           const grade = Number(row.grades?.[subject]);
           return <td key={subject} style={table.td}><div style={{ fontWeight: 750 }}>{row.scores?.[subject] ?? "-"}</div>{grade ? <small style={{ display: "inline-block", marginTop: 2, borderRadius: 999, padding: grade <= 2 ? "2px 6px" : 0, ...subjectGradeBadge(grade) }}>{grade}등급</small> : null}</td>;
         })}</tr>;
       })}</tbody></table></div></div>
+
+      <div style={{ ...card, borderTop: "4px solid #8a641d", padding: 0, overflow: "hidden" }}>
+        <button type="button" onClick={() => setShowCutoffs(value => !value)} style={{ width: "100%", border: 0, background: "#fffaf0", padding: "13px 15px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer", color: "#4f493f", textAlign: "left" }}>
+          <span><b style={{ display: "block", fontSize: 13 }}>등급컷 상세 보기</b><small style={{ display: "block", marginTop: 3, color: "#8a8578", fontSize: 10.5 }}>업로드된 원점수 중 각 등급의 최저점입니다. 필요할 때만 펼쳐 확인합니다.</small></span>
+          <span style={{ borderRadius: 999, background: showCutoffs ? "#8a641d" : "#fff", color: showCutoffs ? "#fff" : "#76551b", border: "1px solid #d9c38d", padding: "5px 9px", fontSize: 10, fontWeight: 900 }}>{showCutoffs ? "접기" : "펼치기"}</span>
+        </button>
+        {showCutoffs && (
+          <div style={{ padding: 14, borderTop: "1px solid #eadfca", overflowX: "auto" }}>
+            <table style={{ ...table.base, minWidth: 760 }}><thead><tr><th style={table.th}>과목</th>{Array.from({ length: 9 }, (_, index) => <th key={index} style={{ ...table.th, ...(index < 2 ? gradeCellStyle(index + 1) : {}) }}>{index + 1}등급</th>)}</tr></thead><tbody>{cutRows.map(row => <tr key={row.subject}><td style={{ ...table.td, fontWeight: 850 }}>{row.subject}</td>{row.cuts.map((value, index) => <td key={index} style={{ ...table.td, ...gradeCellStyle(index + 1) }}>{value ?? "-"}</td>)}</tr>)}</tbody></table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1372,6 +1420,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const [fieldFilter, setFieldFilter] = useState("all");
   const [requirementFilter, setRequirementFilter] = useState("all");
   const [admissionViewMode, setAdmissionViewMode] = useState("mock");
+  const [admissionTableView, setAdmissionTableView] = useState("focus");
 
   const docsByUniversity = useMemo(() => {
     const map = new Map();
@@ -1597,7 +1646,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           title={admissionViewMode === "mock" ? "대학별 전형 판정" : "대학별 내신 반영 방식"}
           description={admissionViewMode === "mock"
             ? "최저 유형별로 대학을 나누어 볼 수 있습니다. (사·과)처럼 괄호로 묶인 과목은 두 과목 중 더 높은 등급(숫자가 작은 등급) 1개만 반영합니다."
-            : "대학명순으로 정렬되며, 선택과목 유형별 반영 방식과 교과 반영비율을 한 표에서 비교합니다."}
+            : "대학명순으로 정렬되며, 핵심 열 보기와 전체 열 보기를 전환해 비교할 수 있습니다."}
         />
         <div className="no-print" style={admissionToolbar.box}>
           <div style={admissionToolbar.primaryRow}>
@@ -1621,6 +1670,13 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                 <option value="all">전체 지역</option>
                 {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
               </select>
+            </div>
+            <div style={admissionToolbar.filterCluster}>
+              <span style={admissionToolbar.filterLabel}>표시</span>
+              <div style={admissionToolbar.filterGroup}>
+                <button type="button" onClick={() => setAdmissionTableView("focus")} style={{ ...btn.chip, ...(admissionTableView === "focus" ? btn.chipActive : {}) }}>핵심 열</button>
+                <button type="button" onClick={() => setAdmissionTableView("full")} style={{ ...btn.chip, ...(admissionTableView === "full" ? btn.chipActive : {}) }}>전체 열</button>
+              </div>
             </div>
           </div>
           {admissionViewMode === "mock" && (
@@ -1674,29 +1730,23 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
         ) : !displayRows.length ? (
           <div style={chartEmpty}>검색 조건에 맞는 전형이 없습니다.</div>
         ) : admissionViewMode === "mock" ? (
-          <div style={{ ...table.scroll, overflowX: "visible" }}>
-            <table style={admissionTable.base}>
+          <div style={{ ...table.scroll, overflowX: admissionTableView === "full" ? "auto" : "visible" }}>
+            <table style={{ ...admissionTable.base, minWidth: admissionTableView === "full" ? 1120 : 0 }}>
               <colgroup>
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "5.5%" }} />
-                <col style={{ width: "5%" }} />
-                <col style={{ width: "7.5%" }} />
-                <col style={{ width: "6.5%" }} />
-                <col style={{ width: "21.5%" }} />
-                <col style={{ width: "8.5%" }} />
-                <col style={{ width: "7%" }} />
-                <col style={{ width: "5.5%" }} />
-                <col style={{ width: "7%" }} />
-                <col style={{ width: "8%" }} />
+                {admissionTableView === "focus" ? <>
+                  <col style={{ width: "13%" }} /><col style={{ width: "13%" }} /><col style={{ width: "15%" }} /><col style={{ width: "12%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} /><col style={{ width: "10%" }} />
+                </> : <>
+                  <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "8.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} />
+                </>}
               </colgroup>
               <thead>
                 <tr>
-                  <th style={admissionTable.th}>대학교</th>
-                  <th style={admissionTable.th}>지역</th>
-                  <th style={admissionTable.th}>계열</th>
+                  <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
+                  {admissionTableView === "full" && <th style={admissionTable.th}>지역</th>}
+                  {admissionTableView === "full" && <th style={admissionTable.th}>계열</th>}
                   <th style={admissionTable.th}>모집단위<br />전형</th>
-                  <th style={admissionTable.th}>교과 반영비율<br />반영방법</th>
-                  <th style={admissionTable.th}>전형 특이사항</th>
+                  {admissionTableView === "full" && <th style={admissionTable.th}>교과 반영비율<br />반영방법</th>}
+                  {admissionTableView === "full" && <th style={admissionTable.th}>전형 특이사항</th>}
                   <th style={admissionTable.th}>반영과목</th>
                   <th style={admissionTable.th}>수능 최저</th>
                   <th style={admissionTable.th}>내 등급</th>
@@ -1715,22 +1765,11 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}>
-                        <span style={regionBadge}>
-                          {(row.region || "미지정") !== "미지정" && <MapPin size={9} />}
-                          {row.region || "미지정"}
-                        </span>
-                      </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.department }}>
-                        <AdmissionDetailText department={row.department} track={row.track} />
-                      </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.reflectionCell }}>
-                        {reflection ? <AdmissionReflectionBadge value={reflection} /> : <span style={admissionTable.empty}>-</span>}
-                      </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.text, ...admissionTable.noteCell }}>
-                        {specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}
-                      </td>
+                      {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
+                      {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
+                      <td style={{ ...admissionTable.td, ...admissionTable.department }}><AdmissionDetailText department={row.department} track={row.track} /></td>
+                      {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.reflectionCell }}>{reflection ? <AdmissionReflectionBadge value={reflection} /> : <span style={admissionTable.empty}>-</span>}</td>}
+                      {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.text, ...admissionTable.noteCell }}>{specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}</td>}
                       <td style={{ ...admissionTable.td, ...admissionTable.subjectCell }}>
                         {result.status === "no-minimum" || !subjectRuleText
                           ? <span style={admissionTable.empty}>-</span>
@@ -1765,33 +1804,27 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             </table>
           </div>
         ) : (
-          <div style={{ ...table.scroll, overflowX: "visible" }}>
-            <table style={{ ...admissionTable.base, fontSize: 9.1 }}>
+          <div style={{ ...table.scroll, overflowX: admissionTableView === "full" ? "auto" : "visible" }}>
+            <table style={{ ...admissionTable.base, fontSize: 9.1, minWidth: admissionTableView === "full" ? 1080 : 0 }}>
               <colgroup>
-                <col style={{ width: "9%" }} />
-                <col style={{ width: "5.5%" }} />
-                <col style={{ width: "5%" }} />
-                <col style={{ width: "7.5%" }} />
-                <col style={{ width: "7.5%" }} />
-                <col style={{ width: "7.5%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "6.5%" }} />
-                <col style={{ width: "21.5%" }} />
-                <col style={{ width: "7%" }} />
+                {admissionTableView === "focus" ? <>
+                  <col style={{ width: "13%" }} /><col style={{ width: "14%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "12%" }} /><col style={{ width: "9%" }} />
+                </> : <>
+                  <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "7%" }} />
+                </>}
               </colgroup>
               <thead>
                 <tr>
-                  <th style={admissionTable.th}>대학교</th>
-                  <th style={admissionTable.th}>지역</th>
-                  <th style={admissionTable.th}>계열</th>
+                  <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
+                  {admissionTableView === "full" && <th style={admissionTable.th}>지역</th>}
+                  {admissionTableView === "full" && <th style={admissionTable.th}>계열</th>}
                   <th style={admissionTable.th}>모집단위<br />전형</th>
                   <th style={admissionTable.th}>공통과목</th>
                   <th style={admissionTable.th}>일반선택</th>
                   <th style={admissionTable.th}>진로선택</th>
                   <th style={admissionTable.th}>융합선택</th>
                   <th style={admissionTable.th}>교과 반영비율</th>
-                  <th style={admissionTable.th}>전형 특이사항</th>
+                  {admissionTableView === "full" && <th style={admissionTable.th}>전형 특이사항</th>}
                   <th style={admissionTable.th}>반영표 확인</th>
                 </tr>
               </thead>
@@ -1802,16 +1835,9 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   return (
                     <tr key={`school-${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}>
-                        <span style={regionBadge}>
-                          {(row.region || "미지정") !== "미지정" && <MapPin size={9} />}
-                          {row.region || "미지정"}
-                        </span>
-                      </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.department }}>
-                        <AdmissionDetailText department={row.department} track={row.track} />
-                      </td>
+                      {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
+                      {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
+                      <td style={{ ...admissionTable.td, ...admissionTable.department }}><AdmissionDetailText department={row.department} track={row.track} /></td>
                       <td style={admissionTable.curriculumCell}><CurriculumMethodBadge value={row.commonSubjectMethod} /></td>
                       <td style={admissionTable.curriculumCell}><CurriculumMethodBadge value={row.generalElectiveMethod} /></td>
                       <td style={admissionTable.curriculumCell}><CurriculumMethodBadge value={row.careerElectiveMethod} /></td>
@@ -1819,9 +1845,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                       <td style={{ ...admissionTable.td, ...admissionTable.reflectionCell }}>
                         {reflection ? <AdmissionReflectionBadge value={reflection} /> : <span style={admissionTable.empty}>-</span>}
                       </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.text, ...admissionTable.noteCell }}>
-                        {specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}
-                      </td>
+                      {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.text, ...admissionTable.noteCell }}>{specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}</td>}
                       <td style={admissionTable.td}>
                         {row.reflectionDocs.length ? (
                           <div style={{ display: "flex", justifyContent: "center", gap: 4, flexWrap: "wrap" }}>
@@ -3890,8 +3914,8 @@ const admissionSummary = {
 };
 const admissionToolbar = {
   box: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 13 },
-  primaryRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" },
-  secondaryRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap" },
+  primaryRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  secondaryRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
   filterCluster: { display: "inline-flex", alignItems: "center", gap: 7, flexWrap: "nowrap", minHeight: 38, padding: "4px 7px", background: "#faf9f6", border: "1px solid #e6e2da", borderRadius: 9 },
   filterLabel: { fontSize: 9.1, fontWeight: 900, color: "#766f63", whiteSpace: "nowrap", paddingRight: 2 },
   filterGroup: { display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap" },
@@ -3948,12 +3972,17 @@ const admissionTable = {
     lineHeight: 1.28,
     fontSize: 8.7,
   },
+  stickyHead: { position: "sticky", left: 0, zIndex: 4, boxShadow: "3px 0 7px rgba(43,38,32,.06)" },
   university: {
+    position: "sticky",
+    left: 0,
+    zIndex: 2,
     fontWeight: 900,
     textAlign: "center",
     background: "#fbfaf6",
     color: "#2b2620",
     lineHeight: 1.3,
+    boxShadow: "3px 0 7px rgba(43,38,32,.045)",
   },
   text: { textAlign: "left", verticalAlign: "top" },
   regionCell: { padding: "7px 3px", overflow: "visible" },

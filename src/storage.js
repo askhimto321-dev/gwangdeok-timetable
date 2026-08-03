@@ -303,6 +303,30 @@ export async function uploadAdmissionPdf(file, university) {
 }
 
 // 선생님 ZONE 공지 게시글의 첨부파일을 Firebase Storage에 저장합니다.
+async function saveClassroomAttachmentInFirestore(file, contentType, storageWarning = "") {
+  const dataUrl = await fileToDataUrl(file);
+  const dataKey = `kd_classroom_attachment_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  const fallback = await writeStorage(dataKey, {
+    dataUrl,
+    fileName: file.name || "첨부파일",
+    size: file.size || 0,
+    contentType,
+    createdAt: new Date().toISOString(),
+  });
+  if (!fallback?.ok) throw new Error(fallback?.error || "Firestore 첨부파일 저장 실패");
+  return {
+    path: "",
+    dataKey,
+    url: "",
+    fileName: file.name || "첨부파일",
+    size: file.size || 0,
+    contentType,
+    storageMode: "firestore-attachment",
+    download: true,
+    storageWarning,
+  };
+}
+
 export async function uploadClassroomAttachment(file, meta = {}) {
   if (!file) throw new Error("첨부파일을 선택해주세요.");
   if (file.size > 30 * 1024 * 1024) throw new Error("첨부파일은 개별 30MB 이하만 업로드할 수 있습니다.");
@@ -314,6 +338,21 @@ export async function uploadClassroomAttachment(file, meta = {}) {
   const path = `classroom-materials/${scopePart}/${subjectPart}/${targetPart}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${filePart}`;
   const contentType = attachmentContentType(file);
   const inline = contentType === "application/pdf" || contentType.startsWith("image/");
+
+  // 일반적인 HWP·HWPX·PDF 수업자료는 Storage 연결을 먼저 기다리지 않고
+  // Firestore 분할 문서에 바로 저장합니다. 이 방식은 홈페이지 자체 로그인 환경에서도
+  // 안정적으로 동작하며, 작은 파일이 업로드 로딩 상태에서 오래 멈추는 문제를 방지합니다.
+  const directFirestoreLimit = 8 * 1024 * 1024;
+  let firestoreError = null;
+  if (file.size <= directFirestoreLimit) {
+    try {
+      return await saveClassroomAttachmentInFirestore(file, contentType);
+    } catch (error) {
+      firestoreError = error;
+      console.warn("direct Firestore attachment save failed; trying Firebase Storage", error);
+    }
+  }
+
   try {
     const { snapshot, url } = await uploadFile(path, file, {
       contentType,
@@ -333,37 +372,18 @@ export async function uploadClassroomAttachment(file, meta = {}) {
       contentType,
       storageMode: "firebase-storage",
     };
-  } catch (error) {
-    // Storage가 막혀 있어도 공지 본문 전체에 base64를 끼워 넣지 않습니다.
-    // 첨부파일을 독립된 Firestore 분할 문서로 저장해 공지 저장 실패와 반복 재업로드를 방지합니다.
-    if (file.size <= 10 * 1024 * 1024) {
-      const dataUrl = await fileToDataUrl(file);
-      const dataKey = `kd_classroom_attachment_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
-      const fallback = await writeStorage(dataKey, {
-        dataUrl,
-        fileName: file.name || "첨부파일",
-        size: file.size || 0,
-        contentType,
-        createdAt: new Date().toISOString(),
-      });
-      if (!fallback?.ok) {
-        const storageDetail = error?.code || error?.message || String(error);
-        throw new Error(`Firebase Storage 실패 (${storageDetail}) / Firestore 대체 저장도 실패 (${fallback?.error || "원인 미상"})`);
+  } catch (storageError) {
+    // 8~10MB 파일은 Storage가 막힌 경우에 한해 Firestore 대체 저장을 마지막으로 시도합니다.
+    if (file.size <= 10 * 1024 * 1024 && file.size > directFirestoreLimit) {
+      try {
+        return await saveClassroomAttachmentInFirestore(file, contentType, storageError?.code || storageError?.message || String(storageError));
+      } catch (fallbackError) {
+        firestoreError = fallbackError;
       }
-      return {
-        path: "",
-        dataKey,
-        url: "",
-        fileName: file.name || "첨부파일",
-        size: file.size || 0,
-        contentType,
-        storageMode: "firestore-attachment",
-        download: true,
-        storageWarning: error?.code || error?.message || String(error),
-      };
     }
-    const detail = error?.code || error?.message || String(error);
-    throw new Error(`Firebase Storage 업로드 실패 (${detail}). 10MB 이하 파일은 Firestore 분할 저장으로 대체하지만, 이 파일은 더 큽니다. 관리자 화면에서 저장소 연결 진단과 Firebase Storage 규칙을 확인해주세요.`);
+    const storageDetail = storageError?.code || storageError?.message || String(storageError);
+    const firestoreDetail = firestoreError?.message || firestoreError || "시도하지 않음";
+    throw new Error(`첨부 저장 실패: Firestore (${firestoreDetail}) / Firebase Storage (${storageDetail}). 관리자 화면의 첨부 연결 진단을 확인해주세요.`);
   }
 }
 
