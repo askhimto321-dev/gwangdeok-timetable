@@ -58,13 +58,12 @@ const CATEGORY_META = {
 };
 
 const SUBJECT_TYPE_META = {
-  // 교과계열 배지의 파랑·빨강·보라·황토·청록과 겹치지 않도록,
-  // 과목유형은 명도와 채도가 확실히 다른 전용 팔레트를 사용합니다.
-  "공통과목": { short: "공통", color: "#ffffff", background: "#374151", border: "#1f2937" },
-  "일반선택": { short: "일반", color: "#365314", background: "#ecfccb", border: "#a3e635" },
-  "진로선택": { short: "진로", color: "#86198f", background: "#fae8ff", border: "#e879f9" },
-  "융합선택": { short: "융합", color: "#9a3412", background: "#ffedd5", border: "#fb923c" },
-  "기타": { short: "기타", color: "#4b5563", background: "#f3f4f6", border: "#d1d5db" },
+  // 교과계열 색과 경쟁하지 않도록 채도를 낮춘 회색·청록·자주·갈색 계열을 사용합니다.
+  "공통과목": { short: "공통", color: "#48545f", background: "#eef1f3", border: "#c9d0d5" },
+  "일반선택": { short: "일반", color: "#3f6862", background: "#eaf2f0", border: "#bfd2ce" },
+  "진로선택": { short: "진로", color: "#6d5a70", background: "#f1edf2", border: "#d4c8d5" },
+  "융합선택": { short: "융합", color: "#7b604e", background: "#f4eee9", border: "#dccdc2" },
+  "기타": { short: "기타", color: "#66645f", background: "#f3f2ef", border: "#d8d5cf" },
 };
 
 function subjectTypeMeta(subject) {
@@ -984,9 +983,10 @@ function curriculumMethodMeta(value) {
 
 function CurriculumMethodBadge({ value }) {
   const meta = curriculumMethodMeta(value);
+  const lines = meta.key === "mixed" ? ["석차등급", "＋ 성취도"] : [meta.label];
   return (
     <span style={{ ...curriculumMethodBadge.base, ...meta.style }} title={String(value || meta.label)}>
-      {meta.label}
+      {lines.map((line, index) => <span key={`${line}-${index}`} style={curriculumMethodBadge.line}>{line}</span>)}
     </span>
   );
 }
@@ -1326,12 +1326,20 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                           <span style={{ ...curriculumTypeSummary.typeBadge, color: meta.color, background: meta.badge, borderColor: meta.border }}>{label}</span>
                           <span style={curriculumTypeSummary.total}>반영 {counts.total || 0}개 대학</span>
                         </div>
-                        <div style={curriculumTypeSummary.methodGrid}>
-                          <span style={curriculumTypeSummary.method}><b>{counts.rank || 0}</b> 석차</span>
-                          <span style={curriculumTypeSummary.method}><b>{counts.achievement || 0}</b> 성취</span>
-                          <span style={curriculumTypeSummary.method}><b>{counts.mixed || 0}</b> 혼합</span>
-                          <span style={curriculumTypeSummary.method}><b>{counts.qualitative || 0}</b> 정성</span>
-                          <span style={curriculumTypeSummary.method}><b>{counts.excluded || 0}</b> 미반영</span>
+                        <div style={curriculumTypeSummary.methodRows}>
+                          {[
+                            [["rank", "석차등급"], ["achievement", "성취도"], ["mixed", "석차＋성취"]],
+                            [["qualitative", "정성평가"], ["excluded", "미반영"]],
+                          ].map((group, groupIndex) => (
+                            <div key={groupIndex} style={{ ...curriculumTypeSummary.methodRow, gridTemplateColumns: `repeat(${group.length}, minmax(0, 1fr))` }}>
+                              {group.map(([key, methodLabel]) => (
+                                <span key={key} style={curriculumTypeSummary.method}>
+                                  <b style={curriculumTypeSummary.methodValue}>{counts[key] || 0}</b>
+                                  <span style={curriculumTypeSummary.methodLabel}>{methodLabel}</span>
+                                </span>
+                              ))}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     );
@@ -1352,12 +1360,12 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             : "대학명순으로 정렬되며, 선택과목 유형별 반영 방식과 교과 반영비율을 한 표에서 비교합니다."}
         />
         <div className="no-print" style={admissionToolbar.box}>
-          <div style={admissionToolbar.mainRow}>
-            <div style={{ ...searchBox.box, maxWidth: 225, flex: "0 1 225px", minWidth: 175 }}>
+          <div style={admissionToolbar.primaryRow}>
+            <div style={{ ...searchBox.box, width: 215, minWidth: 185 }}>
               <Search size={15} color="#a39d8c" />
               <input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학·학과 검색" style={searchBox.input} />
             </div>
-            <div style={admissionToolbar.filterCluster} aria-label="계열 선택">
+            <div style={{ ...admissionToolbar.filterCluster, flex: "1 1 auto" }} aria-label="계열 선택">
               <span style={admissionToolbar.filterLabel}>계열</span>
               <div style={admissionToolbar.filterGroup}>
                 {[["all", "전체"], ...ADMISSION_FIELD_FILTERS.map(field => [field, field])].map(([key, label]) => (
@@ -1374,7 +1382,9 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                 {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
               </select>
             </div>
-            {admissionViewMode === "mock" && (
+          </div>
+          {admissionViewMode === "mock" && (
+            <div style={admissionToolbar.secondaryRow}>
               <div style={admissionToolbar.filterCluster}>
                 <span style={admissionToolbar.filterLabel}>판정</span>
                 <div style={admissionToolbar.filterGroup}>
@@ -1388,27 +1398,27 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   ))}
                 </div>
               </div>
-            )}
-          </div>
-          {admissionViewMode === "mock" && (
-            <div style={admissionToolbar.requirementRow}>
-              <span style={admissionToolbar.requirementLabel}>최저 유형</span>
-              {[
-                ["all", "전체"],
-                ["1", "1합"],
-                ["2", "2합"],
-                ["3", "3합"],
-                ["4", "4합"],
-                ["none", "최저 없음"],
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setRequirementFilter(key)}
-                  style={{ ...requirementFilterButton.base, ...(requirementFilter === key ? requirementFilterButton.active : {}) }}
-                >
-                  {label}<span style={requirementFilterButton.count}>{requirementCounts[key] || 0}</span>
-                </button>
-              ))}
+              <div style={{ ...admissionToolbar.filterCluster, flex: "1 1 auto" }}>
+                <span style={admissionToolbar.filterLabel}>최저 유형</span>
+                <div style={admissionToolbar.filterGroup}>
+                  {[
+                    ["all", "전체"],
+                    ["1", "1합"],
+                    ["2", "2합"],
+                    ["3", "3합"],
+                    ["4", "4합"],
+                    ["none", "최저 없음"],
+                  ].map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => setRequirementFilter(key)}
+                      style={{ ...requirementFilterButton.base, ...(requirementFilter === key ? requirementFilterButton.active : {}) }}
+                    >
+                      {label}<span style={requirementFilterButton.count}>{requirementCounts[key] || 0}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -1431,8 +1441,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                 <col style={{ width: "5.5%" }} />
                 <col style={{ width: "5%" }} />
                 <col style={{ width: "7.5%" }} />
-                <col style={{ width: "7.5%" }} />
-                <col style={{ width: "20.5%" }} />
+                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "21.5%" }} />
                 <col style={{ width: "6.5%" }} />
                 <col style={{ width: "9%" }} />
                 <col style={{ width: "5.5%" }} />
@@ -1526,8 +1536,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                 <col style={{ width: "7.5%" }} />
                 <col style={{ width: "8%" }} />
                 <col style={{ width: "8%" }} />
-                <col style={{ width: "8%" }} />
-                <col style={{ width: "20%" }} />
+                <col style={{ width: "6.5%" }} />
+                <col style={{ width: "21.5%" }} />
                 <col style={{ width: "7%" }} />
               </colgroup>
               <thead>
@@ -3444,10 +3454,10 @@ const admissionModeSwitch = {
   printButton: { display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid rgba(255,255,255,0.38)", borderRadius: 8, background: "transparent", color: "#fff", padding: "8px 9px", fontSize: 9.6, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
 };
 const CURRICULUM_TYPE_SUMMARY_META = {
-  commonSubjectMethod: { accent: "#374151", color: "#ffffff", badge: "#374151", border: "#1f2937", background: "#f7f8fa" },
-  generalElectiveMethod: { accent: "#84cc16", color: "#365314", badge: "#ecfccb", border: "#a3e635", background: "#fbfef2" },
-  careerElectiveMethod: { accent: "#d946ef", color: "#86198f", badge: "#fae8ff", border: "#e879f9", background: "#fff8ff" },
-  convergenceElectiveMethod: { accent: "#f97316", color: "#9a3412", badge: "#ffedd5", border: "#fb923c", background: "#fffaf5" },
+  commonSubjectMethod: { accent: "#66737d", color: "#48545f", badge: "#eef1f3", border: "#c9d0d5", background: "#f8f9fa" },
+  generalElectiveMethod: { accent: "#5f8a84", color: "#3f6862", badge: "#eaf2f0", border: "#bfd2ce", background: "#f7fbfa" },
+  careerElectiveMethod: { accent: "#8b758d", color: "#6d5a70", badge: "#f1edf2", border: "#d4c8d5", background: "#faf8fa" },
+  convergenceElectiveMethod: { accent: "#9a7963", color: "#7b604e", badge: "#f4eee9", border: "#dccdc2", background: "#fbf9f7" },
 };
 const curriculumTypeSummary = {
   wrap: { marginTop: 12 },
@@ -3455,12 +3465,15 @@ const curriculumTypeSummary = {
   heading: { fontSize: 11.8, color: "#332e27" },
   caption: { fontSize: 9.5, color: "#857d70" },
   grid: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 },
-  card: { minWidth: 0, border: "1px solid #e1ddd3", borderTop: "4px solid", borderRadius: 10, padding: "9px 9px 8px" },
+  card: { minWidth: 0, border: "1px solid #e3e0d9", borderTop: "3px solid", borderRadius: 10, padding: "9px 9px 8px", boxShadow: "0 1px 0 rgba(60,55,45,0.03)" },
   cardHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 5, marginBottom: 7 },
-  typeBadge: { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid", borderRadius: 999, padding: "3px 7px", fontSize: 9.3, fontWeight: 900, whiteSpace: "nowrap" },
+  typeBadge: { display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid", borderRadius: 7, padding: "3px 7px", fontSize: 9.2, fontWeight: 900, whiteSpace: "nowrap" },
   total: { fontSize: 8.8, color: "#766f63", fontWeight: 800, whiteSpace: "nowrap" },
-  methodGrid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 4 },
-  method: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 2, minWidth: 0, borderRadius: 6, padding: "3px 3px", background: "rgba(255,255,255,0.85)", border: "1px solid rgba(80,75,65,0.10)", color: "#625c52", fontSize: 8.2, fontWeight: 750, whiteSpace: "nowrap" },
+  methodRows: { display: "grid", gap: 4 },
+  methodRow: { display: "grid", gap: 4 },
+  method: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 0, minHeight: 31, borderRadius: 7, padding: "3px 2px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(80,75,65,0.10)", color: "#625c52" },
+  methodValue: { fontSize: 10.5, lineHeight: 1.05, color: "#3d3933" },
+  methodLabel: { marginTop: 2, fontSize: 7.8, lineHeight: 1.05, fontWeight: 800, whiteSpace: "nowrap", letterSpacing: "-0.15px" },
 };
 
 const curriculumSummary = {
@@ -3499,14 +3512,15 @@ const curriculumDataWarning = {
   lineHeight: 1.5,
 };
 const curriculumMethodBadge = {
-  base: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: "100%", minHeight: 21, padding: "3px 4px", borderRadius: 999, fontSize: 8.6, fontWeight: 900, lineHeight: 1.15, whiteSpace: "normal", wordBreak: "keep-all", letterSpacing: "-0.15px" },
-  rank: { background: "#dff2cc", color: "#4d7b2e", border: "1px solid #cae5b2" },
-  achievement: { background: "#ffe7ad", color: "#7b5a16", border: "1px solid #f2d690" },
-  mixed: { background: "#cce8f8", color: "#286487", border: "1px solid #b6dced" },
-  qualitative: { background: "#e7dcf8", color: "#624a8a", border: "1px solid #d4c5ec" },
-  excluded: { background: "#f8cfcc", color: "#9a4540", border: "1px solid #ecb8b4" },
-  empty: { background: "#f4f2ed", color: "#a29b8d", border: "1px solid #dfdbd1" },
-  other: { background: "#eef0f2", color: "#4f565d", border: "1px solid #d8dce0" },
+  base: { display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: "auto", minWidth: 48, maxWidth: "100%", minHeight: 20, padding: "3px 7px", borderRadius: 7, fontSize: 8.3, fontWeight: 900, lineHeight: 1.12, whiteSpace: "normal", wordBreak: "keep-all", letterSpacing: "-0.15px" },
+  line: { display: "block", whiteSpace: "nowrap" },
+  rank: { background: "#eaf2ee", color: "#416356", border: "1px solid #c8d9d2" },
+  achievement: { background: "#f5f0e7", color: "#745f3f", border: "1px solid #dfd2bd" },
+  mixed: { background: "#edf1f6", color: "#4d6278", border: "1px solid #cdd7e1" },
+  qualitative: { background: "#f1edf3", color: "#695772", border: "1px solid #d6cad8" },
+  excluded: { background: "#f5eded", color: "#865453", border: "1px solid #e1cccc" },
+  empty: { background: "#f5f4f1", color: "#a09a8f", border: "1px solid #e0ddd6" },
+  other: { background: "#eff1f2", color: "#515a61", border: "1px solid #d8dcde" },
 };
 const admissionSummary = {
   grid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(110px, 1fr))", gap: 8, marginTop: 12 },
@@ -3516,13 +3530,12 @@ const admissionSummary = {
   neutral: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
 };
 const admissionToolbar = {
-  box: { display: "flex", flexDirection: "column", gap: 11, marginBottom: 13 },
-  mainRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  filterCluster: { display: "inline-flex", alignItems: "center", gap: 7, flexWrap: "wrap", padding: "5px 7px", background: "#faf9f5", border: "1px solid #e5e0d4", borderRadius: 10 },
-  filterLabel: { fontSize: 9.2, fontWeight: 900, color: "#766f63", whiteSpace: "nowrap" },
-  filterGroup: { display: "flex", gap: 4, flexWrap: "wrap" },
-  requirementRow: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "7px 10px", background: "#f8f7f3", border: "1px solid #e5e0d4", borderRadius: 10 },
-  requirementLabel: { fontSize: 10, fontWeight: 900, color: "#6f685d", marginRight: 4 },
+  box: { display: "flex", flexDirection: "column", gap: 8, marginBottom: 13 },
+  primaryRow: { display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" },
+  secondaryRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap" },
+  filterCluster: { display: "inline-flex", alignItems: "center", gap: 7, flexWrap: "nowrap", minHeight: 38, padding: "4px 7px", background: "#faf9f6", border: "1px solid #e6e2da", borderRadius: 9 },
+  filterLabel: { fontSize: 9.1, fontWeight: 900, color: "#766f63", whiteSpace: "nowrap", paddingRight: 2 },
+  filterGroup: { display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap" },
 };
 const admissionFieldBadge = {
   wrap: { display: "flex", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" },
@@ -3605,16 +3618,17 @@ const reflectionBadge = {
   flexDirection: "column",
   alignItems: "center",
   justifyContent: "center",
-  maxWidth: "100%",
-  padding: "4px 8px",
-  borderRadius: 12,
-  background: "linear-gradient(180deg, #ffffff 0%, #eef0f2 100%)",
-  border: "1px solid #d8dadd",
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.9)",
-  color: "#3f454b",
-  fontSize: 9.5,
+  width: "auto",
+  maxWidth: "92%",
+  padding: "3px 6px",
+  borderRadius: 6,
+  background: "#f6f7f7",
+  border: "1px solid #dfe2e3",
+  borderLeft: "3px solid #8d989f",
+  color: "#485158",
+  fontSize: 8.8,
   fontWeight: 900,
-  lineHeight: 1.2,
+  lineHeight: 1.18,
   whiteSpace: "normal",
   wordBreak: "keep-all",
 };
