@@ -1752,19 +1752,20 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
         ) : !displayRows.length ? (
           <div style={chartEmpty}>검색 조건에 맞는 전형이 없습니다.</div>
         ) : admissionViewMode === "mock" ? (
-          <div style={{ ...table.scroll, overflowX: admissionTableView === "full" ? "auto" : "visible" }}>
-            <table style={{ ...admissionTable.base, minWidth: admissionTableView === "full" ? 1120 : 0 }}>
+          <div style={{ ...table.scroll, overflowX: "visible" }}>
+            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 9.3 : 10.2, minWidth:0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "13%" }} /><col style={{ width: "10%" }} /><col style={{ width: "18%" }} /><col style={{ width: "13%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "13%" }} />
+                  <col style={{ width: "11%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "18%" }} /><col style={{ width: "12%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "13%" }} />
                 </> : <>
-                  <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "8.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} />
+                  <col style={{ width: "8.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} /><col style={{ width: "20%" }} /><col style={{ width: "9%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "15%" }} />
                 </>}
               </colgroup>
               <thead>
                 <tr>
                   <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
-                  {admissionTableView === "focus" && <th style={admissionTable.th}>지역 · 계열</th>}
+                  {admissionTableView === "focus" && <th style={admissionTable.th}>지역</th>}
+                  {admissionTableView === "focus" && <th style={admissionTable.th}>계열</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>지역</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>계열</th>}
                   <th style={admissionTable.th}>모집단위 · 전형</th>
@@ -1788,7 +1789,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
-                      {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionFieldCell }}><AdmissionRegionField row={row} /></td>}
+                      {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
+                      {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       <td style={{ ...admissionTable.td, ...admissionTable.department }}><AdmissionDetailText department={row.department} track={row.track} /></td>
@@ -1828,19 +1830,20 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
             </table>
           </div>
         ) : (
-          <div style={{ ...table.scroll, overflowX: admissionTableView === "full" ? "auto" : "visible" }}>
-            <table style={{ ...admissionTable.base, fontSize: 9.8, minWidth: admissionTableView === "full" ? 1180 : 0 }}>
+          <div style={{ ...table.scroll, overflowX: "visible" }}>
+            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 9.1 : 9.8, minWidth:0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "12%" }} /><col style={{ width: "9%" }} /><col style={{ width: "16%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "13%" }} /><col style={{ width: "14%" }} />
+                  <col style={{ width: "10%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "15%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "13%" }} /><col style={{ width: "14%" }} />
                 </> : <>
-                  <col style={{ width: "9%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "8%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "21.5%" }} /><col style={{ width: "7%" }} />
+                  <col style={{ width: "8.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "10.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "25%" }} /><col style={{ width: "7%" }} />
                 </>}
               </colgroup>
               <thead>
                 <tr>
                   <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
-                  {admissionTableView === "focus" && <th style={admissionTable.th}>지역 · 계열</th>}
+                  {admissionTableView === "focus" && <th style={admissionTable.th}>지역</th>}
+                  {admissionTableView === "focus" && <th style={admissionTable.th}>계열</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>지역</th>}
                   {admissionTableView === "full" && <th style={admissionTable.th}>계열</th>}
                   <th style={admissionTable.th}>모집단위 · 전형</th>
@@ -1860,7 +1863,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   return (
                     <tr key={`school-${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
-                      {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionFieldCell }}><AdmissionRegionField row={row} /></td>}
+                      {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
+                      {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       <td style={{ ...admissionTable.td, ...admissionTable.department }}><AdmissionDetailText department={row.department} track={row.track} /></td>
@@ -4001,22 +4005,22 @@ const admissionTable = {
     background: "#f6f4ee",
     color: "#332e27",
     fontWeight: 900,
-    fontSize: 10.4,
-    lineHeight: 1.2,
+    fontSize: 9.8,
+    lineHeight: 1.18,
     textAlign: "center",
     whiteSpace: "normal",
     wordBreak: "keep-all",
   },
   td: {
     border: "1px solid #e6e1d3",
-    padding: "8px 5px",
+    padding: "7px 4px",
     textAlign: "center",
     verticalAlign: "middle",
     whiteSpace: "normal",
     wordBreak: "keep-all",
     overflowWrap: "break-word",
     lineHeight: 1.38,
-    fontSize: 10.5,
+    fontSize: 9.9,
   },
   stickyHead: { position: "sticky", left: 0, zIndex: 4, boxShadow: "3px 0 7px rgba(43,38,32,.06)" },
   university: {
@@ -4028,7 +4032,7 @@ const admissionTable = {
     background: "#fbfaf6",
     color: "#2b2620",
     lineHeight: 1.35,
-    fontSize: 10.8,
+    fontSize: 10.2,
     boxShadow: "3px 0 7px rgba(43,38,32,.045)",
   },
   text: { textAlign: "left", verticalAlign: "top" },

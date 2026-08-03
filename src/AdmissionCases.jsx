@@ -50,6 +50,18 @@ const CSS=`
 .admission-filter-group.is-field .admission-filter-options{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
 .admission-filter-group.is-field .admission-filter-chip{width:100%;min-height:38px}
 .admission-filter-group.is-field .admission-filter-chip.is-active{background:linear-gradient(135deg,#315f95,#5d69a4);border-color:transparent}
+.admission-filter-group.is-admission-type{background:linear-gradient(135deg,#f8fbff,#fcfbff);border-color:#dce4ef}
+.admission-filter-priority{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.admission-filter-secondary-options{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.admission-filter-priority .admission-filter-chip,.admission-filter-secondary-options .admission-filter-chip{width:100%;min-height:38px}
+.admission-filter-priority .admission-filter-chip{background:#f5f8fd;border-color:#cdd9ea;color:#294c76}
+.admission-filter-priority .admission-filter-chip.is-active{background:linear-gradient(135deg,#294f7f,#536e9a);border-color:transparent;color:#fff}
+.admission-filter-secondary-options .admission-filter-chip.is-active{background:#5b6374;border-color:#5b6374;color:#fff}
+.admission-cut-arrow{display:inline-flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap;font-weight:900}
+.admission-holistic-notice{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:10px;background:#fff8e8;border:1px solid #ecd69e;color:#755b20;font-size:11.5px;line-height:1.45}
+.admission-university-picker{display:grid;grid-template-columns:minmax(240px,1fr) minmax(250px,.9fr);gap:10px;align-items:end}
+.admission-university-picker select{width:100%;height:42px;border:1px solid #cfd8e5;border-radius:11px;background:#fff;padding:0 12px;font-weight:800;color:#2d3948;outline:none}
+.admission-university-picker select:focus{border-color:#6e8db8;box-shadow:0 0 0 3px rgba(64,101,151,.12)}
 .admission-range-button{
   min-width:66px;padding:8px 13px;border:1px solid #d5deea;border-radius:10px;
   background:#fff;color:#465466;font-size:13px;font-weight:700;cursor:pointer;
@@ -98,12 +110,15 @@ const CSS=`
   .admission-filter-primary,.admission-filter-secondary{grid-template-columns:1fr}
   .admission-case-comparison{grid-template-columns:1fr}
   .admission-university-choice-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .admission-university-picker{grid-template-columns:1fr}
 }
 @media(max-width:640px){
   .admission-case-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .admission-filter-group.is-region .admission-filter-options{grid-template-columns:repeat(3,minmax(0,1fr))}
   .admission-filter-group.is-field .admission-filter-options{grid-template-columns:repeat(2,minmax(0,1fr))}
   .admission-university-choice-grid{grid-template-columns:1fr}
+  .admission-filter-priority{grid-template-columns:1fr}
+  .admission-filter-secondary-options{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 `
 
@@ -127,21 +142,29 @@ function caseSufficiency(total){
   if(total>=5)return{label:"표본 제한",detail:"5~9건"};
   return{label:"표본 주의",detail:"4건 이하"};
 }
-function gradeDifference(studentGrade,medianGrade){
-  const student=num(studentGrade),medianValue=num(medianGrade);
-  if(student==null||medianValue==null)return{label:"비교 불가",color:"#777167",background:"#f3f1ed"};
-  const diff=student-medianValue,amount=Math.abs(diff);
-  if(amount<0.05)return{label:"중앙값과 유사",color:"#315a9b",background:"#edf3ff"};
-  if(diff<0)return{label:`${fmt(amount)}등급 유리`,color:"#2f7347",background:"#edf8f0"};
-  return{label:`${fmt(amount)}등급 불리`,color:"#9a3f3f",background:"#fff0f0"};
+function gradeDifference(studentGrade,cutGrade){
+  const student=num(studentGrade),cut=num(cutGrade);
+  if(student==null||cut==null)return{label:"-",detail:"비교 불가",color:"#777167",background:"#f3f1ed"};
+  const diff=student-cut,amount=Math.abs(diff);
+  if(amount<0.05)return{label:"≈ 동일",detail:"합격자 50%컷과 유사",color:"#315a9b",background:"#edf3ff"};
+  if(diff<0)return{label:`▲ ${fmt(amount)}`,detail:`50%컷보다 ${fmt(amount)}등급 앞섬`,color:"#2f7347",background:"#edf8f0"};
+  return{label:`▼ ${fmt(amount)}`,detail:`50%컷보다 ${fmt(amount)}등급 뒤`,color:"#9a3f3f",background:"#fff0f0"};
 }
-function applicationBand(rate,total=0){
+function applicationBand(studentGrade,cutGrade){
+  const student=num(studentGrade),cut=num(cutGrade);
+  if(student==null||cut==null)return{label:"판단 보류",detail:"50%컷 자료 부족",color:"#656b75",background:"#f1f3f5",border:"#d9dde2"};
+  const diff=student-cut;
+  if(diff>0.5)return{label:"상향",detail:"50%컷보다 0.5등급 초과 뒤",color:"#9c3f45",background:"#fff0f1",border:"#efc8cb"};
+  if(diff>0.2)return{label:"소신",detail:"50%컷보다 0.2~0.5등급 뒤",color:"#9a5f22",background:"#fff4e7",border:"#edcfaa"};
+  if(diff>=-0.2)return{label:"적정",detail:"50%컷 ±0.2등급",color:"#6f5a17",background:"#fff8d9",border:"#eadb91"};
+  if(diff>=-0.5)return{label:"안정",detail:"50%컷보다 0.2~0.5등급 앞",color:"#2f6d4b",background:"#edf8f1",border:"#c7e3d1"};
+  return{label:"하향",detail:"50%컷보다 0.5등급 초과 앞",color:"#365a8a",background:"#edf3ff",border:"#cad8ef"};
+}
+function acceptanceRateMeta(rate){
   const value=Number(rate)||0;
-  if(value<15)return{label:"상향",color:"#9c3f45",background:"#fff0f1",border:"#efc8cb"};
-  if(value<30)return{label:"소신",color:"#9a5f22",background:"#fff4e7",border:"#edcfaa"};
-  if(value<50)return{label:"적정",color:"#6f5a17",background:"#fff8d9",border:"#eadb91"};
-  if(value<70)return{label:"안정",color:"#2f6d4b",background:"#edf8f1",border:"#c7e3d1"};
-  return{label:"하향",color:"#365a8a",background:"#edf3ff",border:"#cad8ef"};
+  if(value>=50)return{color:"#2f7347",background:"#edf8f0",border:"#c7e4cf"};
+  if(value>=30)return{color:"#8a641d",background:"#fff7e5",border:"#ecd7a6"};
+  return{color:"#9a3f3f",background:"#fff0f0",border:"#efcaca"};
 }
 function registrationDisplay(row){if(row?.finalResult==="불합격")return{label:"-",color:"#8a857a",background:"transparent"};if(row?.registered==="등록")return{label:"등록",color:"#2f7347",background:"#edf8f0"};if(row?.registered==="미등록")return{label:"미등록",color:"#8a641d",background:"#fff6df"};return{label:"미입력",color:"#777167",background:"#f3f1ed"}}
 function buildUniversityDetails(rows){const map=new Map();for(const row of rows){const department=row.department||"모집단위 미입력";const type=row.detailType&&row.detailType!=="미지정"?row.detailType:(row.admissionType||"전형 미입력");const key=`${department}|||${type}`;if(!map.has(key))map.set(key,{department,type,items:[]});map.get(key).items.push(row)}return Array.from(map.values()).map(group=>{const accepted=group.items.filter(x=>x.finalResult==="합격");return{department:group.department,type:group.type,total:group.items.length,accepted:accepted.length,first:group.items.filter(x=>x.finalResultDetail==="최초합격").length,waitlist:group.items.filter(x=>x.finalResultDetail==="충원합격").length,rejected:group.items.filter(x=>x.finalResult==="불합격").length,rate:group.items.length?accepted.length/group.items.length*100:null,median:median(accepted.map(x=>x.universityGrade??x.overallGrade))}}).sort((a,b)=>b.total-a.total||a.department.localeCompare(b.department,"ko"))}
@@ -169,14 +192,10 @@ function Table({children,minWidth=0,style=null,className=""}){return <div style=
 function Empty({title,text,icon=<Database size={28}/>}){return <div style={styles.empty}>{icon}<b>{title}</b>{text&&<span>{text}</span>}</div>}
 function SearchBox({value,onChange,placeholder,count}){return <div style={styles.searchBox}><Search size={16}/><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>{count&&<span>{count}</span>}</div>}
 function RateBand({rate,total,compact=false}){
-  const band=applicationBand(rate,total);
-  const meterColor=band.color;
-  return <div style={{display:"grid",gap:compact?2:4,justifyItems:"center"}}>
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:5,flexWrap:"wrap"}}>
-      <b style={{fontSize:compact?11:13,color:band.color}}>{fmt(rate,1)}%</b>
-      <span className="admission-band-badge" style={{color:band.color,background:band.background,borderColor:band.border,padding:compact?"4px 7px":"5px 9px",fontSize:compact?9.5:11}}>{band.label}</span>
-    </div>
-    {!compact&&<div className="admission-rate-meter" style={{width:92}}><span style={{width:`${Math.max(0,Math.min(100,Number(rate)||0))}%`,background:meterColor}}/></div>}
+  const meta=acceptanceRateMeta(rate);
+  return <div style={{display:"grid",gap:compact?2:4,justifyItems:"center"}} title={`지원 ${total||0}건 중 합격 사례 비율`}>
+    <span style={{display:"inline-flex",alignItems:"center",justifyContent:"center",padding:compact?"4px 7px":"5px 9px",borderRadius:999,border:`1px solid ${meta.border}`,background:meta.background,color:meta.color,fontWeight:900,fontSize:compact?10:12,whiteSpace:"nowrap"}}>합격 {fmt(rate,1)}%</span>
+    {!compact&&<div className="admission-rate-meter" style={{width:92}}><span style={{width:`${Math.max(0,Math.min(100,Number(rate)||0))}%`,background:meta.color}}/></div>}
   </div>;
 }
 
@@ -205,7 +224,9 @@ function StudentConnector({profile,query,onQuery,onSelect,roster}){
       <div className="admission-student-metrics" style={styles.studentMetrics}>
         <div><small>현재 내신</small><b>{fmt(profile.average)}</b></div>
         <div><small>9등급 비교값</small><b style={{color:COLORS.blue}}>{fmt(profile.converted)}</b></div>
-        <div><small>최신 최저</small><b>{profile.sums?.sum2?`2합 ${profile.sums.sum2}`:"미입력"}</b></div>
+        <div><small>2합 최저</small><b>{profile.sums?.sum2??"-"}</b></div>
+        <div><small>3합 최저</small><b>{profile.sums?.sum3??"-"}</b></div>
+        <div><small>4합 최저</small><b>{profile.sums?.sum4??"-"}</b></div>
       </div>
     </div>:<div style={styles.studentPlaceholder}>학생을 선택하면 현재 성적과 과거 사례를 연결합니다.</div>}
   </div>;
@@ -215,22 +236,20 @@ function toggleSelection(values,option){
   return values.includes(option)?values.filter(item=>item!==option):[...values,option];
 }
 
-function FilterChipGroup({label,options,value,onChange,compact=false,kind="default"}){
-  const className=`admission-filter-group ${kind==="region"?"is-region":""} ${kind==="field"?"is-field":""}`.trim();
+function FilterChipGroup({label,options,value,onChange,compact=false,kind="default",priorityOptions=[]}){
+  const className=`admission-filter-group ${kind==="region"?"is-region":""} ${kind==="field"?"is-field":""} ${kind==="admissionType"?"is-admission-type":""}`.trim();
+  const priority=priorityOptions.filter(option=>options.includes(option));
+  const secondary=options.filter(option=>!priority.includes(option));
+  const optionButton=option=><button type="button" key={option} className={`admission-filter-chip ${value.includes(option)?"is-active":""}`} onClick={()=>onChange(toggleSelection(value,option))}>{option}</button>;
   return <div className={className} style={compact?{padding:11}:{}}>
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
       <b style={{fontSize:13,color:"#354052"}}>{label}</b>
       <span style={{fontSize:11,color:"#7b8491",fontWeight:700}}>{value.length?`${value.length}개 선택`:"전체"}</span>
     </div>
-    <div className="admission-filter-options">
-      <button type="button" className={`admission-filter-chip ${value.length===0?"is-active":""}`} onClick={()=>onChange([])}>전체</button>
-      {options.map(option=><button
-        type="button"
-        key={option}
-        className={`admission-filter-chip ${value.includes(option)?"is-active":""}`}
-        onClick={()=>onChange(toggleSelection(value,option))}
-      >{option}</button>)}
-    </div>
+    {kind==="admissionType"?<>
+      <div className="admission-filter-options admission-filter-priority">{priority.map(optionButton)}</div>
+      <div className="admission-filter-options admission-filter-secondary-options"><button type="button" className={`admission-filter-chip ${value.length===0?"is-active":""}`} onClick={()=>onChange([])}>전체</button>{secondary.map(optionButton)}</div>
+    </>:<div className="admission-filter-options"><button type="button" className={`admission-filter-chip ${value.length===0?"is-active":""}`} onClick={()=>onChange([])}>전체</button>{options.map(optionButton)}</div>}
   </div>;
 }
 
@@ -239,7 +258,7 @@ function FilterPanel({cases,filters,setFilters,filteredCount}){
   const regions=useMemo(()=>unique(cases.map(x=>x.region)).sort((a,b)=>a.localeCompare(b,"ko")),[cases]);
   const fields=useMemo(()=>unique(cases.map(x=>x.field)).sort((a,b)=>a.localeCompare(b,"ko")),[cases]);
   const schoolTypes=useMemo(()=>unique(cases.map(x=>x.schoolType)).sort((a,b)=>a.localeCompare(b,"ko")),[cases]);
-  const admissionTypes=useMemo(()=>unique(cases.map(x=>x.admissionType)).sort((a,b)=>a.localeCompare(b,"ko")),[cases]);
+  const admissionTypes=useMemo(()=>{const priority=["학생부교과","학생부위주","학생부종합","서류위주","논술","면접","실기"];const values=unique(cases.map(x=>x.admissionType));return [...priority.filter(x=>values.includes(x)),...values.filter(x=>!priority.includes(x)).sort((a,b)=>a.localeCompare(b,"ko"))]},[cases]);
   const reset=()=>setFilters({query:"",regions:[],fields:[],schoolTypes:[],admissionTypes:[],results:[],minGrade:"",maxGrade:""});
   const selectedCount=(filters.regions?.length||0)+(filters.fields?.length||0)+(filters.schoolTypes?.length||0)+(filters.admissionTypes?.length||0)+(filters.results?.length||0)+(filters.minGrade!==""?1:0)+(filters.maxGrade!==""?1:0);
 
@@ -297,7 +316,16 @@ function StudentMatch({rows,profile}){
       return grade!=null&&Math.abs(grade-profile.converted)<=range&&(field==="전체"||row.field===field);
     });
   },[rows,profile,range,field]);
-  const stats=useMemo(()=>groupStats(similar,row=>row.universityNormalized||row.university).slice(0,30),[similar]);
+  const stats=useMemo(()=>{
+    const labels=unique(similar.map(row=>row.universityNormalized||row.university));
+    return labels.map(label=>{
+      const similarRows=similar.filter(row=>(row.universityNormalized||row.university)===label);
+      const allRows=rows.filter(row=>(row.universityNormalized||row.university)===label&&(field==="전체"||row.field===field));
+      const acceptedAll=allRows.filter(row=>row.finalResult==="합격");
+      return{label,total:similarRows.length,accepted:similarRows.filter(row=>row.finalResult==="합격").length,rejected:similarRows.filter(row=>row.finalResult==="불합격").length,median:median(acceptedAll.map(row=>row.universityGrade??row.overallGrade)),allTotal:allRows.length,allAccepted:acceptedAll.length};
+    }).sort((a,b)=>b.total-a.total||a.label.localeCompare(b.label,"ko")).slice(0,30);
+  },[similar,rows,field]);
+  const hasHolistic=useMemo(()=>similar.some(row=>String(row.admissionType||row.detailType||"").includes("종합")),[similar]);
   useEffect(()=>setSelectedUniversity(""),[range,field,profile?.sid]);
   if(!profile)return <Empty title="학생을 먼저 선택하세요." text="학번을 연동하면 현재 성적과 가까운 과거 지원 사례를 보여줍니다." icon={<GraduationCap size={28}/>}/>;
   if(profile.converted==null)return <Empty title="비교할 내신 성적이 없습니다." text="학생의 학기 성적을 먼저 업로드하세요." icon={<AlertTriangle size={28}/>}/>;
@@ -308,10 +336,12 @@ function StudentMatch({rows,profile}){
     const selectedAll=rows.filter(row=>(row.universityNormalized||row.university)===selectedUniversity&&(field==="전체"||row.field===field));
     const acceptedAll=selectedAll.filter(row=>row.finalResult==="합격");
     const detailRows=buildUniversityDetails(selectedAll);
-    const medianGrade=median(acceptedAll.map(row=>row.universityGrade??row.overallGrade));
+    const cut50=median(acceptedAll.map(row=>row.universityGrade??row.overallGrade));
     const rate=selectedAll.length?acceptedAll.length/selectedAll.length*100:0;
     const sample=caseSufficiency(selectedAll.length);
-    const difference=gradeDifference(profile.converted,medianGrade);
+    const difference=gradeDifference(profile.converted,cut50);
+    const fit=applicationBand(profile.converted,cut50);
+    const holistic=selectedAll.some(row=>String(row.admissionType||row.detailType||"").includes("종합"));
     return <div style={{display:"grid",gap:16}}>
       <button type="button" onClick={()=>setSelectedUniversity("")} style={styles.backButton}><ArrowLeft size={15}/>대학 목록으로</button>
       <section style={styles.universityDetailPage}>
@@ -319,12 +349,12 @@ function StudentMatch({rows,profile}){
           <div style={{display:"grid",gap:6}}>
             <span style={styles.detailEyebrow}>학생 맞춤 대학 상세</span>
             <h3 style={{fontSize:22}}>{selectedUniversity}</h3>
-            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}><span className="admission-sample-badge" title={sample.detail}>{sample.label}</span><RateBand rate={rate} total={selectedAll.length}/></div>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}><span className="admission-sample-badge" title={sample.detail}>{sample.label}</span><span className="admission-band-badge" title={fit.detail} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span><RateBand rate={rate} total={selectedAll.length}/></div>
           </div>
           <div style={styles.detailStudentCompare}>
-            <div><small>학생 9등급 비교값</small><b>{fmt(profile.converted)}</b></div>
-            <div><small>합격 사례 중앙값</small><b>{fmt(medianGrade)}</b></div>
-            <div><small>중앙값 비교</small><b style={{color:difference.color}}>{difference.label}</b></div>
+            <div><small>학생 비교 등급</small><b>{fmt(profile.converted)}</b></div>
+            <div><small>합격자 50%컷</small><b>{fmt(cut50)}</b></div>
+            <div><small>50%컷 대비</small><b className="admission-cut-arrow" title={difference.detail} style={{color:difference.color}}>{difference.label}</b></div>
           </div>
         </div>
         <div style={styles.detailMetricGrid}>
@@ -334,9 +364,10 @@ function StudentMatch({rows,profile}){
           <div><small>충원합격</small><b style={{color:COLORS.purple}}>{selectedAll.filter(x=>x.finalResultDetail==="충원합격").length}</b></div>
           <div><small>불합격</small><b style={{color:COLORS.red}}>{selectedAll.filter(x=>x.finalResult==="불합격").length}</b></div>
         </div>
+        {holistic&&<div className="admission-holistic-notice"><AlertTriangle size={15}/><span><b>학생부종합 참고</b> · 서류·활동·과목 선택 등이 함께 평가되므로 50%컷은 성적 위치를 확인하는 참고값으로만 활용하세요.</span></div>}
       </section>
-      <Section title="모집단위·전형별 결과" description="해당 대학의 모집단위와 전형을 지원 사례 수·합격률로 비교합니다.">
-        <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"24%"}}/><col style={{width:"25%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"12%"}}/><col style={{width:"7%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률·구간</th><th>중앙값</th></tr></thead><tbody>{detailRows.map(row=><tr key={`${row.department}|${row.type}`}><td style={{textAlign:"left",fontWeight:800}}>{row.department}</td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td></tr>)}</tbody></Table>
+      <Section title="모집단위·전형별 결과" description="해당 대학의 모집단위와 전형을 지원 사례 수와 합격자 50%컷으로 비교합니다.">
+        <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"24%"}}/><col style={{width:"25%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"11%"}}/><col style={{width:"8%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률</th><th>50%컷</th></tr></thead><tbody>{detailRows.map(row=><tr key={`${row.department}|${row.type}`}><td style={{textAlign:"left",fontWeight:800}}>{row.department}</td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td></tr>)}</tbody></Table>
       </Section>
       <Section title={`학생 유사 사례 ${selectedSimilar.length}건`} description={`현재 9등급 비교값 ${fmt(profile.converted)}에서 ±${range.toFixed(1)} 범위의 사례입니다.`}>
         {selectedSimilar.length?<Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"23%"}}/><col style={{width:"25%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"14%"}}/><col style={{width:"16%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>전교과</th><th>대학 환산</th><th>최종 결과</th><th>등록 여부</th></tr></thead><tbody>{selectedSimilar.slice(0,40).map(row=>{const registration=registrationDisplay(row);return <tr key={row.caseId}><td style={{textAlign:"left",fontWeight:800}}>{row.department}</td><td style={{textAlign:"left"}}>{row.detailType||row.admissionType}</td><td>{fmt(row.overallGrade)}</td><td>{fmt(row.universityGrade)}</td><td><span style={{...styles.badge,...resultStyle(row.finalResultDetail)}}>{row.finalResultDetail}</span></td><td><span style={{...styles.registrationBadge,color:registration.color,background:registration.background}}>{registration.label}</span></td></tr>})}</tbody></Table>:<Empty title="현재 범위의 유사 사례가 없습니다." text="대학 전체 지원 결과는 위 표에서 확인할 수 있습니다."/>}
@@ -345,7 +376,7 @@ function StudentMatch({rows,profile}){
   }
 
   return <div style={{display:"grid",gap:16}}>
-    <div style={styles.notice}><AlertTriangle size={16}/><span>과거 사례는 9등급제 자료입니다. 5등급제 학생은 9등급 환산값으로 비교하며, 결과는 합격 예측이 아닌 상담 참고자료입니다.</span></div>
+    <div style={styles.notice}><AlertTriangle size={16}/><span>과거 사례는 9등급제 자료입니다. 5등급제 학생은 9등급 환산값으로 비교하며, 상향·소신·적정·안정·하향은 <b>합격자 50%컷과의 차이</b>를 기준으로 표시합니다.</span></div>
     <div style={styles.matchPanel}>
       <div style={{display:"grid",gap:8}}><b style={{fontSize:13}}>성적 비교 범위</b><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-range-button ${range===value?"is-active":""}`} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div></div>
       <div style={{display:"grid",gap:8}}><b style={{fontSize:13}}>비교 계열</b><div className="admission-filter-options">{["전체",...fields].map(value=><button type="button" key={value} className={`admission-filter-chip ${field===value?"is-active":""}`} onClick={()=>setField(value)}>{value}</button>)}</div></div>
@@ -357,15 +388,16 @@ function StudentMatch({rows,profile}){
       <div><small>해당 지원 / 합격 사례</small><b><span style={{color:COLORS.blue}}>{similar.length}</span> / <span style={{color:COLORS.green}}>{accepted}</span></b></div>
     </div>
     <SummaryCards rows={similar}/>
-    <Section title="현재 성적 기준 대학별 지원 사례" description="상향·소신·적정·안정·하향은 현재 선택된 과거 사례의 합격 비율을 구간화한 상담 참고값이며 합격 예측값이 아닙니다.">
-      <div style={styles.bandLegend}>{[["상향","15% 미만"],["소신","15~29%"],["적정","30~49%"],["안정","50~69%"],["하향","70% 이상"]].map(([label,rangeText])=>{const meta=applicationBand(label==="상향"?0:label==="소신"?20:label==="적정"?40:label==="안정"?60:80);return <span key={label} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 8px",border:"1px solid",borderRadius:999,fontSize:10.5,fontWeight:750,color:meta.color,background:meta.background,borderColor:meta.border}}><b>{label}</b>{rangeText}</span>})}</div>
+    <Section title="현재 성적 기준 대학별 지원 사례" description="지원 구간은 합격 사례 비율이 아니라 학생의 9등급 비교값과 합격자 50%컷의 차이로 산출합니다.">
+      <div style={styles.bandLegend}>{[["상향","컷보다 0.5 초과 뒤"],["소신","0.2~0.5 뒤"],["적정","컷 ±0.2"],["안정","0.2~0.5 앞"],["하향","0.5 초과 앞"]].map(([label,rangeText])=>{const sampleGrade=label==="상향"?3:label==="소신"?2.4:label==="적정"?2:label==="안정"?1.7:1.3;const meta=applicationBand(sampleGrade,2);return <span key={label} title={meta.detail} style={{display:"inline-flex",alignItems:"center",gap:5,padding:"5px 8px",border:"1px solid",borderRadius:999,fontSize:10.5,fontWeight:750,color:meta.color,background:meta.background,borderColor:meta.border}}><b>{label}</b>{rangeText}</span>})}</div>
+      {hasHolistic&&<div className="admission-holistic-notice" style={{marginBottom:12}}><AlertTriangle size={15}/><span><b>학생부종합 전형</b>은 서류·활동·과목 선택 등을 종합 평가하므로 50%컷과 지원 구간을 참고용으로만 활용하세요.</span></div>}
       {stats.length?<div style={styles.caseCards}>{stats.map(stat=>{
-        const sample=caseSufficiency(stat.total),difference=gradeDifference(profile.converted,stat.median),rate=stat.total?stat.accepted/stat.total*100:0,band=applicationBand(rate,stat.total);
+        const sample=caseSufficiency(stat.total),difference=gradeDifference(profile.converted,stat.median),rate=stat.total?stat.accepted/stat.total*100:0,fit=applicationBand(profile.converted,stat.median);
         return <button type="button" className="admission-university-card" key={stat.label} style={styles.caseCard} onClick={()=>setSelectedUniversity(stat.label)}>
           <div style={styles.caseCardHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:15.5,color:"#222b36"}}>{stat.label}</b><span style={{fontSize:10.5,color:"#7b8491"}}>클릭하여 상세 보기</span></div><span className="admission-sample-badge" title={sample.detail}>{sample.label}</span></div>
-          <div className="admission-case-comparison"><div><small>학생 비교 등급</small><b style={{color:COLORS.blue}}>{fmt(profile.converted)}</b></div><div><small>합격 사례 중앙값</small><b style={{color:COLORS.green}}>{fmt(stat.median)}</b></div><div><small>중앙값 비교</small><b style={{fontSize:12.5,color:difference.color}}>{difference.label}</b></div></div>
+          <div className="admission-case-comparison"><div><small>학생 비교 등급</small><b style={{color:COLORS.blue}}>{fmt(profile.converted)}</b></div><div><small>합격자 50%컷</small><b style={{color:COLORS.green}}>{fmt(stat.median)}</b></div><div><small>50%컷 대비</small><b className="admission-cut-arrow" title={difference.detail} style={{fontSize:12.5,color:difference.color}}>{difference.label}</b></div></div>
           <div style={styles.caseCountRow}><span className="admission-case-count-pill support">지원 <b>{stat.total}</b></span><span className="admission-case-count-pill accept">합격 <b>{stat.accepted}</b></span><span className="admission-case-count-pill reject">불합격 <b>{stat.rejected}</b></span></div>
-          <div style={styles.caseFooter}><div style={{display:"flex",alignItems:"center",gap:7}}><span>합격 사례 비율</span><b style={{color:band.color}}>{fmt(rate,1)}%</b><span className="admission-band-badge" style={{color:band.color,background:band.background,borderColor:band.border}}>{band.label}</span></div><ChevronRight size={17} color="#7a8799"/></div>
+          <div style={styles.caseFooter}><div style={{display:"grid",gap:3}}><span style={{fontSize:10.5,color:"#777f8b"}}>합격 사례 비율 {fmt(rate,1)}%</span><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:800}}>50%컷 기준</span><span className="admission-band-badge" title={fit.detail} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span></div></div><ChevronRight size={17} color="#7a8799"/></div>
         </button>;
       })}</div>:<Empty title="선택한 범위의 유사 사례가 없습니다." text="성적 범위를 넓히거나 계열을 전체로 바꿔보세요."/>}
     </Section>
@@ -392,31 +424,36 @@ function Overview({rows}){
   return <div style={{display:"grid",gap:18}}>
     <SummaryCards rows={rows}/>
     <div className="admission-case-two" style={styles.twoColumns}><Section title="전형별 지원·합격 사례" description="파란색은 지원, 초록색은 합격 사례입니다."><Bars rows={types}/></Section><Section title="지역별 지원·합격 사례" description="사례 수와 합격 사례 수를 함께 비교합니다."><Bars rows={regions}/></Section></div>
-    <Section title="등급대별 결과" description="합격률과 지원 구간을 함께 확인합니다. 1·2등급대는 별도 색으로 강조했습니다.">
-      <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"14%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"12%"}}/><col style={{width:"11%"}}/><col style={{width:"20%"}}/><col style={{width:"10%"}}/></colgroup><thead><tr><th>등급대</th><th>지원</th><th>최초합</th><th>충원합</th><th>합격 합계</th><th>불합격</th><th>합격률·지원 구간</th><th>중앙값</th></tr></thead><tbody>{grades.map(row=>{const level=parseInt(row.label,10);return <tr key={row.label} className={level===1?"admission-grade-row-1":level===2?"admission-grade-row-2":""}><td><b>{row.label}</b></td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td><b style={{color:COLORS.green}}>{row.accepted}</b></td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td></tr>})}</tbody></Table>
+    <Section title="등급대별 결과" description="1·2등급대는 별도 색으로 강조하고, 각 등급대의 합격 사례 비율과 합격자 50%컷을 표시합니다.">
+      <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"15%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"12%"}}/><col style={{width:"11%"}}/><col style={{width:"16%"}}/><col style={{width:"13%"}}/></colgroup><thead><tr><th>등급대</th><th>지원</th><th>최초합</th><th>충원합</th><th>합격 합계</th><th>불합격</th><th>합격률</th><th>합격자 50%컷</th></tr></thead><tbody>{grades.map(row=>{const level=parseInt(row.label,10);return <tr key={row.label} className={level===1?"admission-grade-row-1":level===2?"admission-grade-row-2":""}><td><b>{row.label}</b></td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td><b style={{color:COLORS.green}}>{row.accepted}</b></td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td><b>{fmt(row.median)}</b></td></tr>})}</tbody></Table>
     </Section>
   </div>;
 }
 function UniversityAnalysis({rows}){
   const[query,setQuery]=useState("");
   const[selected,setSelected]=useState("");
-  const universities=useMemo(()=>groupStats(rows,x=>x.universityNormalized||x.university).filter(x=>x.label.toLowerCase().includes(query.toLowerCase())).slice(0,100),[rows,query]);
-  useEffect(()=>{if(!selected&&universities[0])setSelected(universities[0].label)},[universities,selected]);
+  const allUniversities=useMemo(()=>groupStats(rows,x=>x.universityNormalized||x.university),[rows]);
+  const universities=useMemo(()=>allUniversities.filter(x=>x.label.toLowerCase().includes(query.toLowerCase())).slice(0,100),[allUniversities,query]);
+  useEffect(()=>{if((!selected||!allUniversities.some(x=>x.label===selected))&&universities[0])setSelected(universities[0].label)},[universities,selected,allUniversities]);
   const selectedRows=useMemo(()=>selected?rows.filter(x=>(x.universityNormalized||x.university)===selected):[],[rows,selected]);
   const details=useMemo(()=>buildUniversityDetails(selectedRows),[selectedRows]);
   const acceptedGrades=selectedRows.filter(x=>x.finalResult==="합격").map(x=>x.universityGrade??x.overallGrade);
   const selectedAccepted=selectedRows.filter(x=>x.finalResult==="합격").length;
   const selectedRate=selectedRows.length?selectedAccepted/selectedRows.length*100:0;
-  return <div style={{display:"grid",gap:14}}>
+  const holistic=selectedRows.some(row=>String(row.admissionType||row.detailType||"").includes("종합"));
+  return <div style={{display:"grid",gap:12}}>
     <div style={styles.universitySearchPanel}>
-      <div style={{display:"grid",gap:3}}><b style={{fontSize:15}}>대학별 상세 조회</b><span style={{fontSize:11.5,color:"#737b87"}}>대학을 검색한 뒤 카드를 선택하면 전체 상세 결과가 아래에 표시됩니다.</span></div>
-      <div style={{...styles.searchBox,minWidth:280,flex:"0 1 410px"}}><Search size={17} color="#59677a"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="대학명 입력"/><span>{universities.length}개</span></div>
+      <div style={{display:"grid",gap:3}}><b style={{fontSize:15}}>대학별 상세 조회</b><span style={{fontSize:11.5,color:"#737b87"}}>검색하고 대학을 선택하면 바로 아래에서 모집단위·전형별 결과를 확인합니다.</span></div>
+      <div className="admission-university-picker">
+        <div style={{...styles.searchBox,minWidth:0}}><Search size={17} color="#59677a"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="대학명 검색"/><span>{universities.length}개</span></div>
+        <label style={{display:"grid",gap:5,fontSize:10.5,fontWeight:800,color:"#667180"}}>대학 선택<select value={selected} onChange={e=>setSelected(e.target.value)}>{universities.map(row=><option key={row.label} value={row.label}>{row.label} · 지원 {row.total} · 합격 {row.accepted}</option>)}</select></label>
+      </div>
     </div>
-    <div className="admission-university-choice-grid">{universities.map(row=>{const band=applicationBand(row.rate,row.total);return <button key={row.label} onClick={()=>setSelected(row.label)} style={{...styles.universityButton,...(selected===row.label?styles.universityButtonActive:{})}}><div style={{display:"flex",justifyContent:"space-between",gap:6,alignItems:"center"}}><b style={{fontSize:13.5,color:"#222b36",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{row.label}</b><ChevronRight size={14} color="#8390a0"/></div><div style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:5}}><span style={{fontSize:10.5,color:"#677385"}}>지원 <b style={{color:COLORS.blue}}>{row.total}</b> · 합격 <b style={{color:COLORS.green}}>{row.accepted}</b></span><span className="admission-band-badge" style={{color:band.color,background:band.background,borderColor:band.border,padding:"4px 7px",fontSize:9}}>{band.label}</span></div></button>})}</div>
-    <div style={styles.universityDetail}>{!selected?<Empty title="대학을 선택하세요." text="상단 대학 목록을 선택하면 모집단위·전형별 사례가 표시됩니다."/>:<>
+    <div style={styles.universityDetail}>{!selected?<Empty title="대학을 선택하세요." text="상단 검색과 대학 선택 메뉴를 이용하세요."/>:<>
       <div style={styles.universityHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:20,color:"#202a35"}}>{selected}</b><span style={{fontSize:12,color:"#737b87"}}>광덕고 2024~2026 통합 지원 사례</span></div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span className="admission-sample-badge">{caseSufficiency(selectedRows.length).label}</span><RateBand rate={selectedRate} total={selectedRows.length}/></div></div>
-      <div style={styles.universityMetrics}><div><small>지원 사례</small><b style={{color:COLORS.blue}}>{selectedRows.length}</b></div><div><small>합격 사례</small><b style={{color:COLORS.green}}>{selectedAccepted}</b></div><div><small>합격 중앙값</small><b>{fmt(median(acceptedGrades))}</b></div><div><small>합격 25~75%</small><b>{fmt(percentile(acceptedGrades,.25))}~{fmt(percentile(acceptedGrades,.75))}</b></div></div>
-      <div style={{marginTop:14}}><Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"23%"}}/><col style={{width:"25%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"13%"}}/><col style={{width:"7%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률·구간</th><th>중앙값</th></tr></thead><tbody>{details.map(row=><tr key={`${row.department}|${row.type}`}><td style={{textAlign:"left",fontWeight:800}}>{row.department}</td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td></tr>)}</tbody></Table></div>
+      <div style={styles.universityMetrics}><div><small>지원 사례</small><b style={{color:COLORS.blue}}>{selectedRows.length}</b></div><div><small>합격 사례</small><b style={{color:COLORS.green}}>{selectedAccepted}</b></div><div><small>합격자 50%컷</small><b>{fmt(median(acceptedGrades))}</b></div><div><small>합격자 25~75%</small><b>{fmt(percentile(acceptedGrades,.25))}~{fmt(percentile(acceptedGrades,.75))}</b></div></div>
+      {holistic&&<div className="admission-holistic-notice" style={{marginTop:12}}><AlertTriangle size={15}/><span><b>학생부종합 참고</b> · 학생부종합은 서류·활동·과목 선택 등을 종합 평가하므로 커트라인은 참고용으로만 활용하세요.</span></div>}
+      <div style={{marginTop:12}}><Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"24%"}}/><col style={{width:"26%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"10%"}}/><col style={{width:"8%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률</th><th>50%컷</th></tr></thead><tbody>{details.map(row=><tr key={`${row.department}|${row.type}`}><td style={{textAlign:"left",fontWeight:800}}>{row.department}</td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td></tr>)}</tbody></Table></div>
     </>}</div>
   </div>;
 }
@@ -427,7 +464,7 @@ function DimensionAnalysis({rows}){
   if(mode==="등급별")stats=[...stats].sort((a,b)=>(parseFloat(a.label)||99)-(parseFloat(b.label)||99));
   return <div style={{display:"grid",gap:15}}>
     <div style={styles.modePanel}><div style={{display:"grid",gap:3}}><b style={{fontSize:15}}>분석 기준</b><span style={{fontSize:11.5,color:"#737b87"}}>원하는 기준으로 지원·합격 결과를 비교하세요.</span></div><div style={styles.modeTabs}>{["등급별","지역별","계열별","전형별"].map(value=><button className="admission-mode-button" key={value} onClick={()=>setMode(value)} style={{...styles.modeButton,...(mode===value?styles.modeButtonActive:{})}}>{value}</button>)}</div></div>
-    <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"16%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"12%"}}/><col style={{width:"11%"}}/><col style={{width:"20%"}}/><col style={{width:"8%"}}/></colgroup><thead><tr><th>{mode.replace("별","")}</th><th>지원 사례</th><th>최초합</th><th>충원합</th><th>합격 합계</th><th>불합격</th><th>합격률·지원 구간</th><th>중앙값</th></tr></thead><tbody>{stats.map(row=>{const level=mode==="등급별"?parseInt(row.label,10):null;return <tr key={row.label} className={level===1?"admission-grade-row-1":level===2?"admission-grade-row-2":""}><td><b>{row.label}</b></td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td><b style={{color:COLORS.green}}>{row.accepted}</b></td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td></tr>})}</tbody></Table>
+    <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"16%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"12%"}}/><col style={{width:"11%"}}/><col style={{width:"20%"}}/><col style={{width:"8%"}}/></colgroup><thead><tr><th>{mode.replace("별","")}</th><th>지원 사례</th><th>최초합</th><th>충원합</th><th>합격 합계</th><th>불합격</th><th>합격률</th><th>50%컷</th></tr></thead><tbody>{stats.map(row=>{const level=mode==="등급별"?parseInt(row.label,10):null;return <tr key={row.label} className={level===1?"admission-grade-row-1":level===2?"admission-grade-row-2":""}><td><b>{row.label}</b></td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td><b style={{color:COLORS.green}}>{row.accepted}</b></td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td></tr>})}</tbody></Table>
   </div>;
 }
 function CaseSearch({rows}){
@@ -451,7 +488,7 @@ function CaseSearch({rows}){
         <td><span style={{...styles.registrationBadge,color:registration.color,background:registration.background}}>{registration.label}</span></td>
       </tr>;
     })}</tbody></Table>
-    <div style={styles.pagination}><button disabled={page<=1} onClick={()=>setPage(x=>x-1)}>이전</button><span>{page} / {max}</span><button disabled={page>=max} onClick={()=>setPage(x=>x+1)}>다음</button></div>
+    <div style={styles.pagination}><button style={styles.pageButton} disabled={page<=1} onClick={()=>setPage(x=>x-1)}><ArrowLeft size={14}/>이전</button><span style={styles.pageStatus}><b>{page}</b><em>/</em>{max}</span><button style={styles.pageButton} disabled={page>=max} onClick={()=>setPage(x=>x+1)}>다음<ChevronRight size={14}/></button></div>
   </div>;
 }
 
@@ -474,7 +511,7 @@ studentProfileIdentity:{display:"grid",gap:6,minWidth:0},
 studentProfileEyebrow:{fontSize:10.5,fontWeight:900,color:"#66758a",letterSpacing:".04em"},
 studentProfileTitle:{display:"flex",alignItems:"baseline",gap:8,flexWrap:"wrap",fontSize:18,color:"#202a35"},
 studentProfileBadges:{display:"flex",gap:6,flexWrap:"wrap"},
-studentMetrics:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:8},
+studentMetrics:{display:"grid",gridTemplateColumns:"repeat(5,minmax(74px,1fr))",gap:7},
 studentPlaceholder:{display:"grid",placeItems:"center",border:"1px dashed #d8d1c3",borderRadius:11,color:COLORS.muted,fontSize:12.5},
 tabs:{display:"flex",gap:7,flexWrap:"wrap",padding:7,background:"#f2f0eb",borderRadius:13},
 tab:{border:0,background:"transparent",borderRadius:9,padding:"10px 14px",fontWeight:800,color:"#655f55",cursor:"pointer",fontSize:13},
@@ -538,7 +575,9 @@ modeButtonActive:{background:"#233f68",borderColor:"#233f68",color:"#ffe06a",box
 badge:{display:"inline-flex",alignItems:"center",justifyContent:"center",border:"1px solid",borderRadius:999,padding:"5px 9px",fontSize:11,fontWeight:800,whiteSpace:"nowrap"},
 registrationBadge:{display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:45,borderRadius:999,padding:"5px 8px",fontSize:11,fontWeight:800},
 rateBadge:{display:"inline-flex",alignItems:"center",justifyContent:"center",minWidth:52,padding:"4px 7px",borderRadius:999,background:"#f6f4ef",fontWeight:800},
-pagination:{display:"flex",justifyContent:"center",alignItems:"center",gap:10},
+pagination:{display:"flex",justifyContent:"center",alignItems:"center",gap:10,paddingTop:4},
+pageButton:{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,minWidth:84,padding:"9px 13px",border:"1px solid #ccd5e1",borderRadius:10,background:"#fff",color:"#33445b",fontWeight:900,cursor:"pointer",boxShadow:"0 2px 6px rgba(44,58,78,.06)"},
+pageStatus:{display:"inline-flex",alignItems:"center",gap:7,minWidth:76,justifyContent:"center",padding:"8px 12px",borderRadius:10,background:"#eef3f9",color:"#5e6b7b",fontSize:12},
 adminTabs:{display:"flex",gap:6,flexWrap:"wrap",padding:6,background:"#f2f0eb",borderRadius:12},
 adminTab:{border:0,background:"transparent",padding:"9px 13px",borderRadius:8,fontWeight:800,cursor:"pointer"},
 adminTabActive:{background:"#2f4630",color:"#fff"},

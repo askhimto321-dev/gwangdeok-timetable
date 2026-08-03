@@ -1396,36 +1396,46 @@ const megaNavStyles = {
 };
 
 function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections, canViewStudentTools = true, allowedGrades = null, compact = false }) {
+  const navigation = <nav style={{ ...styles.nav, ...(compact ? styles.navCompact : {}) }}>
+    {onBackToSections && <NavBtn active={false} onClick={onBackToSections} icon={<ArrowRight size={15} style={{ transform: "rotate(180deg)" }} />} label="메뉴로" />}
+    {canViewStudentTools && <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />}
+    {canViewStudentTools && <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />}
+    {canViewStudentTools && <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />}
+    <NavBtn active={tab === "teacherZone"} onClick={() => setTab("teacherZone")} icon={<Lock size={15} />} label="선생님 ZONE" />
+  </nav>;
+  const scopes = <>
+    <ScopeGroup label="학년">{GRADES.map(g => {
+      const permissionDisabled = Array.isArray(allowedGrades) && !allowedGrades.map(String).includes(String(g));
+      const disabled = DISABLED_GRADES.includes(g) || permissionDisabled;
+      return <ScopeBtn key={g} active={grade === g} disabled={disabled} onClick={() => setGrade(g)}>{g}학년{DISABLED_GRADES.includes(g) ? " (준비중)" : permissionDisabled ? " (권한없음)" : ""}</ScopeBtn>;
+    })}</ScopeGroup>
+    <ScopeGroup label="학기"><ScopeBtn active={semester === "sem1"} onClick={() => setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={semester === "sem2"} onClick={() => setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>
+  </>;
+  if (compact) return (
+    <div style={{ ...styles.topbar, ...styles.topbarCompact }} className="no-print">
+      <div style={styles.compactToolbarSingle}>
+        <div style={styles.compactMenuGroup}>{navigation}</div>
+        <span style={styles.compactToolbarDivider} />
+        <div style={styles.compactScopeGroup}>{scopes}</div>
+      </div>
+    </div>
+  );
   return (
-    <div style={{ ...styles.topbar, ...(compact ? styles.topbarCompact : {}) }} className="no-print">
-      <div style={{ ...styles.topbarRow, ...(compact ? styles.topbarRowCompact : {}) }}>
-        {!compact && <div style={styles.brand}>
+    <div style={styles.topbar} className="no-print">
+      <div style={styles.topbarRow}>
+        <div style={styles.brand}>
           <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#315b38,#6f8e62)", boxShadow: "0 6px 14px rgba(49,91,56,0.20)" }}><Sparkles size={17} /></span>
           <div>
             <div style={{ ...styles.brandTitle, fontWeight: 900 }}>{SITE_TITLE}</div>
             <div style={styles.brandSub}>{meta?.updatedAt ? `최근 업데이트 · ${new Date(meta.updatedAt).toLocaleString("ko-KR")}` : "데이터 없음"}</div>
           </div>
-        </div>}
-        <nav style={{ ...styles.nav, ...(compact ? styles.navCompact : {}) }}>
-          {onBackToSections && <NavBtn active={false} onClick={onBackToSections} icon={<ArrowRight size={15} style={{ transform: "rotate(180deg)" }} />} label="메뉴로" />}
-          {canViewStudentTools && <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />}
-          {canViewStudentTools && <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />}
-          {canViewStudentTools && <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />}
-          <NavBtn active={tab === "teacherZone"} onClick={() => setTab("teacherZone")} icon={<Lock size={15} />} label="선생님 ZONE" />
-        </nav>
+        </div>
+        {navigation}
       </div>
-      <div style={styles.scopeRow}>
-        <ScopeGroup label="학년">{GRADES.map(g => {
-          const permissionDisabled = Array.isArray(allowedGrades) && !allowedGrades.map(String).includes(String(g));
-          const disabled = DISABLED_GRADES.includes(g) || permissionDisabled;
-          return <ScopeBtn key={g} active={grade === g} disabled={disabled} onClick={() => setGrade(g)}>{g}학년{DISABLED_GRADES.includes(g) ? " (준비중)" : permissionDisabled ? " (권한없음)" : ""}</ScopeBtn>;
-        })}</ScopeGroup>
-        <ScopeGroup label="학기"><ScopeBtn active={semester === "sem1"} onClick={() => setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={semester === "sem2"} onClick={() => setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>
-      </div>
+      <div style={styles.scopeRow}>{scopes}</div>
     </div>
   );
 }
-
 function AdminTemplateDownloads({ showToast }) {
   const [diagnosing, setDiagnosing] = useState(false);
   const [diagnosis, setDiagnosis] = useState(null);
@@ -4169,7 +4179,7 @@ const styles = {
   topbar: { background: "#fff", borderBottom: `1px solid ${COLORS.line}` },
   topbarCompact: { position: "relative", top: "auto", zIndex: 20, margin: "10px auto 0", maxWidth: 1080, border: "1px solid #e2ded3", borderRadius: 14, padding: "9px 12px", background: "linear-gradient(135deg,#fafbfc,#fff)" },
   topbarRowCompact: { justifyContent: "flex-start", gap: 10 },
-  navCompact: { flex: "1 1 auto", justifyContent: "flex-start" },
+  navCompact: { flex: "1 1 auto", justifyContent: "flex-start", flexWrap: "nowrap", gap: 4 },
   topbarRow: { maxWidth: 1040, margin: "0 auto", padding: "12px 20px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 },
   scopeRow: { maxWidth: 1040, margin: "0 auto", padding: "0 20px 12px", display: "flex", gap: 20, flexWrap: "wrap" },
   scopeGroup: { display: "flex", alignItems: "center", gap: 8 },
@@ -4186,6 +4196,10 @@ const styles = {
   nav: { display: "flex", gap: 4 },
   navBtn: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", padding: "8px 12px", borderRadius: 7, fontSize: 13, cursor: "pointer", color: "#8a8578", fontWeight: 700 },
   navBtnActive: { background: COLORS.accentSoft, color: COLORS.accent },
+  compactToolbarSingle: { maxWidth: 1040, margin: "0 auto", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0", flexWrap: "nowrap" },
+  compactMenuGroup: { display: "flex", alignItems: "center", minWidth: 0, flex: "1 1 auto", padding: 4, border: "1px solid #e1e5ea", borderRadius: 11, background: "#f7f9fb" },
+  compactScopeGroup: { display: "flex", alignItems: "center", gap: 14, flex: "0 0 auto", whiteSpace: "nowrap", padding: "6px 10px", border: "1px solid #e2ded3", borderRadius: 11, background: "#fffdf9" },
+  compactToolbarDivider: { width: 1, alignSelf: "stretch", minHeight: 38, background: "#d8dde4", flex: "0 0 1px" },
   body: { maxWidth: 1040, margin: "0 auto", padding: "28px 20px 60px" },
   h1: { fontSize: 18, fontWeight: 700, margin: "0 0 4px" },
   pMuted: { fontSize: 13, color: "#8a8578", margin: "0 0 12px" },
