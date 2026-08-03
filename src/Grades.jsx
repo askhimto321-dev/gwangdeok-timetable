@@ -163,10 +163,10 @@ function StudentGradeReport({ sid, gdb, mode = "both" }) {
               {availableSemesters.map(k => <button key={k} onClick={() => setSelSemKey(k)} style={{ ...btn.chip, ...(activeSemKey === k ? btn.chipActive : {}) }}>{SEMESTER_LABELS[k]}</button>)}
             </div>
             <table style={table.base}>
-              <thead><tr><th style={table.th}>과목</th><th style={table.th}>학점</th><th style={table.th}>원점수</th><th style={table.th}>성취도</th><th style={table.th}>석차등급</th></tr></thead>
+              <thead><tr><th style={table.th}>과목</th><th style={table.th}>학점</th><th style={table.th}>원점수</th><th style={table.th}>성취도</th><th style={table.th}>석차등급</th><th style={table.th}>석차</th><th style={table.th}>수강자수</th></tr></thead>
               <tbody>
                 {(activeSemSubjects || []).map((s, i) => (
-                  <tr key={i}><td style={table.tdLabel}>{s.subject}</td><td style={table.td}>{s.credit}</td><td style={table.td}>{s.score ?? "-"}</td><td style={table.td}>{s.achievement ?? "-"}</td><td style={table.td}>{s.grade5 ?? "-"}</td></tr>
+                  <tr key={i}><td style={table.tdLabel}>{s.subject}</td><td style={table.td}>{s.credit}</td><td style={table.td}>{s.score ?? "-"}</td><td style={table.td}>{s.achievement ?? "-"}</td><td style={table.td}>{s.grade5 ?? "-"}</td><td style={table.td}>{s.rank ?? "-"}</td><td style={table.td}>{s.classSize ?? "-"}</td></tr>
                 ))}
               </tbody>
             </table>
