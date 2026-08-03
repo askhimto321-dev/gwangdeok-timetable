@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles } from "lucide-react";
-import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
+import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
@@ -168,13 +168,14 @@ const NOTICE_CATEGORY_COLOR = {
 function classroomUploadErrorMessage(error) {
   const code = String(error?.code || "");
   const message = String(error?.message || error || "");
-  if (code.includes("storage/unauthorized")) return "첨부파일 업로드 권한이 없습니다. Firebase Storage 규칙을 확인해주세요.";
+  if (code.includes("storage/unauthorized")) return "첨부파일 업로드 권한이 없습니다. Firebase Authentication의 익명 로그인 제공업체와 Storage 규칙(request.auth != null)을 확인해주세요.";
   if (code.includes("storage/bucket-not-found") || code.includes("storage/unknown") || /bucket/i.test(message)) {
     return "Firebase Storage가 아직 활성화되지 않았거나 저장소 설정이 올바르지 않습니다.";
   }
   if (code.includes("storage/quota-exceeded")) return "Firebase Storage 사용량 한도를 초과했습니다.";
-  if (code.includes("storage/retry-limit-exceeded")) return "첨부파일 업로드 연결이 불안정합니다. 잠시 후 다시 시도해주세요.";
-  return message || "첨부파일 업로드 중 오류가 발생했습니다.";
+  if (code.includes("storage/retry-limit-exceeded")) return "첨부파일 업로드 연결이 중단되었습니다. 관리자 → 계정 관리 → 양식·연결 진단에서 Storage 연결을 확인해주세요.";
+  if (code.includes("auth/operation-not-allowed")) return "Firebase 익명 로그인이 비활성화되어 있습니다. Authentication → 로그인 방법에서 익명 로그인을 활성화해주세요.";
+  return message || "첨부파일 업로드 중 오류가 발생했습니다. 관리자 화면의 Storage 연결 진단을 실행해주세요.";
 }
 
 function describeNoticeTarget(targetKey, storedLabel = "") {
@@ -685,7 +686,11 @@ export default function App() {
     if (patch.admissionDocs) jobs.push(writeStorage("kd_grades_admission_docs", patch.admissionDocs));
     if (patch.cohortSettings) jobs.push(writeStorage("kd_grades_cohorts", patch.cohortSettings));
     const results = await Promise.all(jobs);
-    if (results.some(r => r && r.ok === false)) { showToast("저장에 실패했습니다.", "error"); return false; }
+    const failed = results.find(result => result && result.ok === false);
+    if (failed) {
+      showToast(`성적 데이터 저장에 실패했습니다. (${failed.error || "원인 미상"})`, "error");
+      return false;
+    }
     setGdb(d => ({ ...d, ...patch }));
     return true;
   }, [showToast]);
@@ -1310,6 +1315,84 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onB
     </div>
   );
 }
+
+function AdminTemplateDownloads({ showToast }) {
+  const [diagnosing, setDiagnosing] = useState(false);
+  const [diagnosis, setDiagnosis] = useState(null);
+
+  const downloadWorkbook = async (type) => {
+    try {
+      const XLSX = await loadXLSX();
+      const workbook = XLSX.utils.book_new();
+      const addSheet = (name, rows, widths = []) => {
+        const sheet = XLSX.utils.aoa_to_sheet(rows);
+        if (widths.length) sheet["!cols"] = widths.map(width => ({ wch: width }));
+        XLSX.utils.book_append_sheet(workbook, sheet, name.slice(0, 31));
+      };
+      let fileName = "광덕고_업로드양식.xlsx";
+      if (type === "teacher") {
+        fileName = "선생님_계정_업로드양식.xlsx";
+        addSheet("선생님 계정", [
+          ["이름", "아이디", "비밀번호", "학교역할", "담당학년", "담임반", "성적조회학년", "시간표조회학년", "담당과목", "대상반"],
+          ["홍길동", "teacher01", "kd2026", "그외", "2", "", "2", "2", "대수", "1,2,3"],
+          ["김담임", "teacher02", "kd2026", "학급담임", "2", "4", "", "", "", ""],
+        ], [14, 16, 14, 13, 10, 10, 16, 16, 18, 16]);
+        addSheet("작성 안내", [["학교역할", "학급담임 / 학년부장 / 그외 중 하나"], ["권한 학년", "여러 학년은 1,2처럼 쉼표로 구분"], ["담당과목·대상반", "여러 과목은 행을 나누어 등록하거나 홈페이지에서 추가 수정"]], [22, 58]);
+      } else if (type === "student") {
+        fileName = "학생_계정_업로드양식.xlsx";
+        addSheet("학생 계정", [["학번", "이름", "초기비밀번호", "학년", "반", "번호", "입학연도"], [20824, "김예환", "kd2026", 2, 8, 24, 2025]], [12, 14, 16, 9, 9, 9, 12]);
+      } else if (type === "roster") {
+        fileName = "이동수업_명단_업로드양식.xlsx";
+        addSheet("학생 명단", [["학번", "이름", "원소속반", "번호", "과목", "분반", "개설반"], [20824, "김예환", 8, 24, "대수", "A", 4]], [12, 14, 12, 9, 18, 10, 10]);
+      } else if (type === "grades") {
+        fileName = "성적_통합_업로드양식.xlsx";
+        addSheet("1-1 성적", [["학번", "이름", "반", "번호", "과목", "학점", "원점수", "성취도", "석차등급", "석차", "수강자수", "과목유형"], [10801, "학생예시", 8, 1, "공통수학1", 4, 92, "A", 1, 5, 238, "공통과목"]], [12, 14, 8, 8, 20, 8, 10, 10, 12, 9, 11, 13]);
+        addSheet("2학년 3월 모의고사", [["학번", "이름", "반", "번호", "국어 등급", "국어 원점수", "수학 등급", "수학 원점수", "영어 등급", "영어 원점수", "한국사 등급", "통합사회 등급", "통합과학 등급"], [20801, "학생예시", 8, 1, 2, 88, 3, 81, 2, 90, 2, 2, 3]], [12, 14, 8, 8, 12, 13, 12, 13, 12, 13, 13, 15, 15]);
+        addSheet("업로드 안내", [["시트명", "예: 1-1 성적, 2-1 성적, 2학년 3월 모의고사"], ["대용량 저장", "V20부터 Firestore 문서 제한을 피하도록 자동 분할 저장됩니다."]], [20, 64]);
+      } else if (type === "admission") {
+        fileName = "대입전형표_업로드양식.xlsx";
+        addSheet("대입 전형", [["대학교", "지역", "계열구분", "모집단위", "전형", "교과반영비율", "공통과목 반영여부", "일반선택 반영여부", "진로선택 반영여부", "융합선택 반영여부", "수능최저", "반영과목", "전형특이사항"], ["광덕대학교", "경기", "자연", "전체 모집단위", "지역균형", "교과 90% + 출결 10%", "석차등급", "석차등급", "성취도", "성취도", "2합 6", "국,수,영,(사,과)", "예시 문구"]], [18, 10, 12, 22, 18, 22, 18, 18, 18, 18, 13, 22, 38]);
+      }
+      XLSX.writeFile(workbook, fileName);
+      showToast(`${fileName} 다운로드를 시작했습니다.`, "success");
+    } catch (error) {
+      showToast(`양식 생성 실패: ${error?.message || error}`, "error");
+    }
+  };
+
+  const runDiagnosis = async () => {
+    setDiagnosing(true);
+    setDiagnosis(null);
+    const result = await diagnoseStorageConnection();
+    setDiagnosis(result);
+    showToast(result.ok ? "Firebase Storage 연결이 정상입니다." : `Storage 연결 실패: ${result.code || result.error}`, result.ok ? "success" : "error");
+    setDiagnosing(false);
+  };
+
+  const items = [
+    ["teacher", "선생님 계정", "교직원 계정과 역할·권한 일괄 등록"],
+    ["student", "학생 계정", "학번·이름·초기비밀번호·반·번호"],
+    ["roster", "이동수업 명단", "과목·분반·개설반 명단"],
+    ["grades", "성적·모의고사", "학기 성적과 모의고사 원점수·등급 예시"],
+    ["admission", "대입 전형표", "최저·반영과목·선택과목 반영 방식"],
+  ];
+  return (
+    <div>
+      <div style={accountConsole.panel}>
+        <div style={accountConsole.panelHeader}><div><div style={accountConsole.panelTitle}>엑셀 업로드 양식 다운로드</div><div style={accountConsole.panelDescription}>홈페이지에서 읽을 수 있는 열 이름이 포함된 기본 양식입니다. 예시 행을 삭제한 뒤 실제 자료를 입력하세요.</div></div></div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10 }}>
+          {items.map(([key, title, description]) => <button key={key} type="button" onClick={() => downloadWorkbook(key)} style={accountConsole.templateCard}><FileSpreadsheet size={20} color="#3d5c3a" /><span style={{ fontWeight: 900 }}>{title} 양식</span><small>{description}</small><span style={accountConsole.templateAction}><Download size={13} /> XLSX 다운로드</span></button>)}
+        </div>
+      </div>
+      <div style={accountConsole.panel}>
+        <div style={accountConsole.panelHeader}><div><div style={accountConsole.panelTitle}>첨부파일 저장소 연결 진단</div><div style={accountConsole.panelDescription}>작은 테스트 파일을 업로드한 뒤 즉시 삭제하여 Firebase Storage·익명 인증·규칙이 실제로 동작하는지 확인합니다.</div></div></div>
+        <button style={styles.primaryBtn} onClick={runDiagnosis} disabled={diagnosing}>{diagnosing ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} Storage 연결 테스트</button>
+        {diagnosis && <div style={{ ...(diagnosis.ok ? styles.okBanner : styles.warnBanner), marginTop: 12 }}>{diagnosis.ok ? <Check size={14} /> : <AlertTriangle size={14} />}{diagnosis.ok ? `정상 · ${diagnosis.bucket}${diagnosis.authenticated ? " · 익명 인증 연결" : ""}` : `${diagnosis.code || "오류"} · ${diagnosis.error}`}</div>}
+      </div>
+    </div>
+  );
+}
+
 function ScopeGroup({ label, children }) { return <div style={styles.scopeGroup}><span style={styles.scopeLabel}>{label}</span><div style={styles.scopeBtnRow}>{children}</div></div>; }
 function ScopeBtn({ active, onClick, children, disabled }) { return <button onClick={disabled ? undefined : onClick} disabled={disabled} style={{ ...styles.scopeBtn, ...(active && !disabled ? styles.scopeBtnActive : {}), ...(disabled ? styles.scopeBtnDisabled : {}) }}>{children}</button>; }
 function NavBtn({ active, onClick, icon, label }) { return <button onClick={onClick} style={{ ...styles.navBtn, ...(active ? styles.navBtnActive : {}) }}>{icon}<span>{label}</span></button>; }
@@ -2144,7 +2227,7 @@ function AttachmentLinks({ attachments }) {
   return (
     <div style={styles.attachmentList}>
       {files.map((file, index) => (
-        <a key={`${file.path || file.url || file.fileName}-${index}`} href={file.url} target="_blank" rel="noreferrer" style={styles.attachmentLink} title={file.fileName || "첨부파일"}>
+        <a key={`${file.path || file.url || file.fileName}-${index}`} href={file.url} target={file.download ? undefined : "_blank"} rel="noreferrer" download={file.download ? (file.fileName || "첨부파일") : undefined} style={styles.attachmentLink} title={file.fileName || "첨부파일"}>
           <>{file.isLink ? <Link2 size={12} /> : <Download size={12} />}</>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.fileName || (file.isLink ? "링크" : "첨부파일")}</span>
           {file.size ? <small>{formatAttachmentSize(file.size)}</small> : null}
@@ -2517,8 +2600,9 @@ function AdminAccountConsole(props) {
   return (
     <div>
       <div style={{ ...styles.adminTabs, marginBottom: 14 }}>
-        <button onClick={() => setSub("staff")} style={{ ...styles.adminTabBtn, ...(sub === "staff" ? styles.adminTabBtnActive : {}) }}><Users size={14} /> 선생님·관리자 계정</button>
+        <button onClick={() => setSub("staff")} style={{ ...styles.adminTabBtn, ...(sub === "staff" ? styles.adminTabBtnActive : {}) }}><Users size={14} /> 교직원 계정·권한</button>
         <button onClick={() => setSub("students")} style={{ ...styles.adminTabBtn, ...(sub === "students" ? styles.adminTabBtnActive : {}) }}><Users size={14} /> 학생 계정</button>
+        <button onClick={() => setSub("templates")} style={{ ...styles.adminTabBtn, ...(sub === "templates" ? styles.adminTabBtnActive : {}) }}><Download size={14} /> 양식·연결 진단</button>
       </div>
       {sub === "staff" && <AdminAccounts {...props} />}
       {sub === "students" && (
@@ -2532,6 +2616,7 @@ function AdminAccountConsole(props) {
           scopeKey={props.scopeKey}
         />
       )}
+      {sub === "templates" && <AdminTemplateDownloads showToast={props.showToast} />}
     </div>
   );
 }
@@ -3050,6 +3135,8 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
     timetableAccessGrades: normalizeGradeAccessList(item.timetableAccessGrades),
   })));
   const [teachers, setTeachers] = useState(() => normalizeTeachers(accounts.teacher));
+  const [teacherSearch, setTeacherSearch] = useState("");
+  const [teacherRoleFilter, setTeacherRoleFilter] = useState("all");
   useEffect(() => {
     setAdmins(accounts.admin);
     setDepartments((accounts.departments || []).map(item => ({
@@ -3169,28 +3256,68 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         showToast('"이름", "아이디", "비밀번호" 열을 모두 찾지 못했습니다.', "error");
         setTeacherUploadBusy(false); return;
       }
-      const existingIds = new Set(teachers.map(teacher => teacher.id));
-      const added = [];
+      const cellText = (row, ...headers) => {
+        const header = headers.find(name => indexes[name] != null);
+        return header ? String(row[indexes[header]] ?? "").trim() : "";
+      };
+      const parseGradeList = value => Array.from(new Set(String(value || "")
+        .split(/[,/\s]+/).map(item => item.replace(/학년/g, "").trim()).filter(item => GRADES.includes(item))));
+      const parseRole = value => {
+        const text = String(value || "").replace(/\s+/g, "");
+        if (text.includes("학급담임") || text === "담임") return "homeroom";
+        if (text.includes("학년부장") || text.includes("학년부")) return "gradeHead";
+        return "other";
+      };
+      const parseClass = value => String(value || "").replace(/반/g, "").trim();
+      const existingIds = new Set(teachers.map(teacher => String(teacher.id || "").trim()));
+      const pendingById = new Map();
       for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex++) {
         const row = rows[rowIndex]; if (!row) continue;
-        const name = row[indexes["이름"]], id = row[indexes["아이디"]], pw = row[indexes["비밀번호"]];
-        if (!name || !id || !pw) continue;
-        const idString = String(id).trim();
-        if (existingIds.has(idString)) continue;
-        existingIds.add(idString);
-        added.push(applyAutomaticTeacherAccess({
-          name: String(name).trim(), id: idString, pw: String(pw).trim(), teacherRole: "other", roleGrade: grade,
-          homeroomClass: "", gradeAccessGrades: [], timetableAccessGrades: [], assignments: [],
-        }, grade));
+        const name = cellText(row, "이름", "성명");
+        const idString = cellText(row, "아이디", "ID", "계정");
+        const pw = cellText(row, "비밀번호", "초기비밀번호", "패스워드");
+        if (!name || !idString || !pw || existingIds.has(idString)) continue;
+        const role = parseRole(cellText(row, "학교역할", "역할"));
+        const roleGrade = parseGradeList(cellText(row, "담당학년", "역할학년", "학년"))[0] || grade;
+        const subject = cellText(row, "담당과목", "과목");
+        const targets = cellText(row, "대상반", "담당반", "반");
+        const assignment = subject ? { kind: "elective", subject, targets: targets || "전체" } : null;
+        if (pendingById.has(idString)) {
+          const current = pendingById.get(idString);
+          if (assignment && !current.assignments.some(item => item.subject === assignment.subject && item.targets === assignment.targets)) {
+            current.assignments.push(assignment);
+          }
+          continue;
+        }
+        const teacher = applyAutomaticTeacherAccess({
+          name, id: idString, pw, teacherRole: role, roleGrade,
+          homeroomClass: role === "homeroom" ? parseClass(cellText(row, "담임반", "학급")) : "",
+          gradeAccessGrades: parseGradeList(cellText(row, "성적조회학년", "성적권한학년")),
+          timetableAccessGrades: parseGradeList(cellText(row, "시간표조회학년", "시간표권한학년")),
+          assignments: assignment ? [assignment] : [],
+        }, roleGrade);
+        pendingById.set(idString, teacher);
       }
-      if (!added.length) { showToast("추가할 새 계정을 찾지 못했습니다. (아이디 중복 또는 빈 값)", "error"); setTeacherUploadBusy(false); return; }
+      const added = Array.from(pendingById.values());
+      if (!added.length) { showToast("추가할 새 계정을 찾지 못했습니다. (아이디 중복 또는 필수값 누락)", "error"); setTeacherUploadBusy(false); return; }
       setTeachers(current => [...current, ...added]);
-      showToast(`${added.length}명의 선생님 계정을 추가했습니다. 역할과 접근 권한을 확인한 뒤 저장해주세요.`, "success");
+      showToast(`${added.length}명의 선생님 계정을 추가했습니다. 역할·학년·담당 과목을 확인한 뒤 저장해주세요.`, "success");
     } catch (error) {
       showToast(`파일 오류: ${error.message}`, "error");
     }
     setTeacherUploadBusy(false);
   };
+
+  const visibleTeachers = teachers
+    .map((teacher, index) => ({ teacher, index }))
+    .filter(({ teacher }) => {
+      const query = teacherSearch.trim().toLowerCase();
+      const role = normalizedTeacherRole(teacher);
+      if (teacherRoleFilter !== "all" && role !== teacherRoleFilter) return false;
+      if (!query) return true;
+      return [teacher.name, teacher.id, TEACHER_ROLE_LABELS[role], ...(teacher.assignments || []).map(item => item.subject)]
+        .filter(Boolean).join(" ").toLowerCase().includes(query);
+    });
 
   return (
     <div>
@@ -3286,20 +3413,32 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: 10, border: `1px dashed ${COLORS.line}`, borderRadius: 8 }}>
           <FileSpreadsheet size={18} color="#8a8578" />
-          <div style={{ fontSize: 11.5, color: "#8a8578", flex: 1 }}>엑셀 일괄 등록: 첫 행에 "이름", "아이디", "비밀번호" 열이 있는 파일을 올려주세요. 신규 계정은 기본적으로 학생정보 접근 권한이 없는 "그외" 역할로 등록됩니다.</div>
+          <div style={{ fontSize: 11.5, color: "#8a8578", flex: 1 }}>엑셀 일괄 등록: 이름·아이디·비밀번호는 필수이며, 학교역할·담당학년·권한학년·담당과목도 함께 읽습니다. 같은 아이디를 여러 행에 입력하면 담당과목을 합쳐 등록합니다.</div>
           <input ref={teacherFileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={event => event.target.files[0] && handleTeacherExcel(event.target.files[0])} />
           <button style={styles.secondaryBtn} onClick={() => teacherFileRef.current.click()} disabled={teacherUploadBusy}>{teacherUploadBusy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 엑셀 업로드</button>
         </div>
+        <div style={accountConsole.teacherToolbar}>
+          <div style={{ ...styles.searchBox, flex: "1 1 280px", marginBottom: 0 }}><Search size={15} color="#9a9589" /><input value={teacherSearch} onChange={event => setTeacherSearch(event.target.value)} placeholder="이름·아이디·담당과목 검색" style={styles.searchInput} /></div>
+          <select value={teacherRoleFilter} onChange={event => setTeacherRoleFilter(event.target.value)} style={{ ...styles.cellInput, width: 140, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 10px" }}><option value="all">전체 역할</option><option value="homeroom">학급담임</option><option value="gradeHead">학년부장</option><option value="other">그외</option></select>
+          <span style={accountConsole.count}>{visibleTeachers.length}/{teachers.length}명</span>
+        </div>
         {!teachers.length && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 선생님 계정이 없습니다.</div>}
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {teachers.map((teacher, index) => {
+        {!!teachers.length && !visibleTeachers.length && <div style={accountConsole.empty}>검색 조건에 맞는 선생님이 없습니다.</div>}
+        <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+          {visibleTeachers.map(({ teacher, index }) => {
             const role = normalizedTeacherRole(teacher);
             const roleGrade = teacherRoleGrade(teacher);
             const roleScopeKey = `${roleGrade}-${semester}`;
             const classOptions = extractClasses(db, roleScopeKey);
             const automatic = role === "homeroom" || role === "gradeHead";
             return (
-              <div key={teacher.id || index} style={accountConsole.teacherCard}>
+              <details key={`teacher-${index}`} style={accountConsole.teacherCard}>
+                <summary style={accountConsole.teacherSummary}>
+                  <span style={accountConsole.teacherAvatar}>{String(teacher.name || "?").slice(0, 1)}</span>
+                  <span style={{ minWidth: 0, flex: 1 }}><strong>{teacher.name || "이름 미입력"}</strong><small>{teacher.id || "아이디 미입력"} · {TEACHER_ROLE_LABELS[role]}{automatic ? ` · ${roleGrade}학년 자동 권한` : ""}</small></span>
+                  <span style={accountConsole.teacherSubjectSummary}>{(teacher.assignments || []).map(item => item.subject).filter(Boolean).slice(0, 3).join(" · ") || "담당과목 미지정"}</span>
+                </summary>
+                <div style={accountConsole.teacherBody}>
                 <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
                   <input value={teacher.name || ""} onChange={event => updateTeacherField(index, "name", event.target.value)} placeholder="이름" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
                   <input value={teacher.id || ""} onChange={event => updateTeacherField(index, "id", event.target.value)} placeholder="아이디" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
@@ -3347,7 +3486,8 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                   <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (선택사항, 여러 개 가능)</div>
                   <AssignmentsEditor assignments={teacher.assignments || []} setAssignments={assignments => updateTeacherField(index, "assignments", assignments)} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
                 </div>
-              </div>
+                </div>
+              </details>
             );
           })}
         </div>
@@ -3575,7 +3715,14 @@ const accountConsole = {
   count: { display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 38, borderRadius: 999, padding: "5px 8px", background: "#edf4eb", border: "1px solid #d1dfce", color: "#3d5c3a", fontSize: 10.5, fontWeight: 900 },
   cardGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(310px, 1fr))", gap: 10 },
   accountCard: { border: `1px solid ${COLORS.line}`, borderRadius: 11, padding: 12, background: "#fbfaf6" },
-  teacherCard: { border: `1px solid ${COLORS.line}`, borderRadius: 11, padding: 13, background: "linear-gradient(180deg, #fbfaf6 0%, #fff 100%)" },
+  teacherCard: { border: `1px solid ${COLORS.line}`, borderRadius: 12, background: "#fff", overflow: "hidden" },
+  teacherSummary: { display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", cursor: "pointer", listStyle: "none", background: "linear-gradient(135deg,#f7f8f4,#fff)", borderBottom: `1px solid ${COLORS.line}` },
+  teacherBody: { padding: 13 },
+  teacherAvatar: { width: 30, height: 30, borderRadius: 9, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#eaf0e8", color: "#315a35", fontWeight: 950 },
+  teacherSubjectSummary: { maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#746d61", fontSize: 11.5, fontWeight: 750 },
+  teacherToolbar: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: 10, marginBottom: 10, border: `1px solid ${COLORS.line}`, borderRadius: 10, background: "#faf9f5" },
+  templateCard: { border: `1px solid ${COLORS.line}`, borderRadius: 12, background: "linear-gradient(145deg,#fff,#f8faf6)", padding: 15, display: "grid", gridTemplateColumns: "26px 1fr", textAlign: "left", gap: "3px 8px", cursor: "pointer", color: COLORS.ink },
+  templateAction: { gridColumn: "2", display: "inline-flex", alignItems: "center", gap: 4, color: COLORS.accent, fontSize: 11, fontWeight: 850, marginTop: 6 },
   identityRow: { display: "flex", alignItems: "center", gap: 7, marginBottom: 9 },
   credentials: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 },
   field: { display: "grid", gap: 4, fontSize: 10.2, color: "#746d61", fontWeight: 800 },

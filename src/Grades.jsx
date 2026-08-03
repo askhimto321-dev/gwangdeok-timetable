@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap } from "lucide-react";
-import { readStorage, uploadAdmissionPdf, deleteAdmissionPdf } from "./storage.js";
+import { readStorage, uploadAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import {
   parseSemesterSheet,
@@ -46,14 +46,14 @@ const COMBINATION_META = {
 };
 
 const CATEGORY_META = {
-  국어: { short: "국", label: "국어", color: "#315a9b", background: "#eef3ff", row: "#f8faff" },
-  영어: { short: "영", label: "영어", color: "#9a4254", background: "#fff0f3", row: "#fff9fa" },
-  수학: { short: "수", label: "수학", color: "#5d4898", background: "#f1edff", row: "#faf8ff" },
-  사회: { short: "사", label: "사회", color: "#8a641d", background: "#fff5df", row: "#fffbf2" },
+  국어: { short: "국어", label: "국어", color: "#315a9b", background: "#eef3ff", row: "#f8faff" },
+  영어: { short: "영어", label: "영어", color: "#9a4254", background: "#fff0f3", row: "#fff9fa" },
+  수학: { short: "수학", label: "수학", color: "#5d4898", background: "#f1edff", row: "#faf8ff" },
+  사회: { short: "사회", label: "사회", color: "#8a641d", background: "#fff5df", row: "#fffbf2" },
   // 1등급·성취도 A의 초록색과 겹치지 않도록 과학은 청록-파랑 계열로 구분합니다.
-  과학: { short: "과", label: "과학", color: "#176b87", background: "#e6f5fa", row: "#f3fbfd" },
-  "기술가정/정보": { short: "기가·정보", label: "기가/정보", color: "#2f7770", background: "#e8f7f5", row: "#f5fbfa" },
-  "제2외국어/한문": { short: "제2외·한문", label: "제2외국어/한문", color: "#a35f26", background: "#fff1e4", row: "#fff9f3" },
+  과학: { short: "과학", label: "과학", color: "#176b87", background: "#e6f5fa", row: "#f3fbfd" },
+  "기술가정/정보": { short: "기가/정보", label: "기가/정보", color: "#2f7770", background: "#e8f7f5", row: "#f5fbfa" },
+  "제2외국어/한문": { short: "제2외국어/한문", label: "제2외국어/한문", color: "#a35f26", background: "#fff1e4", row: "#fff9f3" },
   기타: { short: "기타", label: "기타", color: "#716b5f", background: "#f1f0ec", row: "#fbfaf7" },
 };
 
@@ -308,6 +308,7 @@ export default function GradesSection({
           {loggedInTeacher && loggedInTeacher.homeroomClass && teacherHasGradeAccess && <TabBtn active={tab === "class"} onClick={() => setTab("class")} label="담임반 학생 계정" />}
           {loggedInAdmin && <TabBtn active={tab === "lookup"} onClick={() => setTab("lookup")} label="학생 성적 조회" />}
           {loggedInAdmin && <TabBtn active={tab === "lookupAdmission"} onClick={() => setTab("lookupAdmission")} label="학생별 입시전형 확인" />}
+          {loggedInAdmin && <TabBtn active={tab === "mockAnalysis"} onClick={() => setTab("mockAnalysis")} label="모의고사 성적 분석" />}
         </div>
 
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
@@ -343,7 +344,7 @@ export default function GradesSection({
             showViewTabs={false}
           />
         )}
-        {tab === "mockAnalysis" && loggedInTeacher && teacherHasGradeAccess && (
+        {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
@@ -1209,6 +1210,10 @@ function AchievementGuidancePanel({ analysis, universityCounts, gradeSystem }) {
   );
 }
 
+function admissionDocumentType(docItem) {
+  return docItem?.documentType === "reflection" ? "reflection" : "guide";
+}
+
 function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts, cohortSettings } = gdb;
   const legacySemesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
@@ -1262,6 +1267,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
       _index: index,
       evaluation,
       docs: docsByUniversity.get(universityKey(row.university)) || [],
+      guideDocs: (docsByUniversity.get(universityKey(row.university)) || []).filter(item => admissionDocumentType(item) === "guide"),
+      reflectionDocs: (docsByUniversity.get(universityKey(row.university)) || []).filter(item => admissionDocumentType(item) === "reflection"),
       region: String(row.region || (docsByUniversity.get(universityKey(row.university)) || [])[0]?.region || "미지정"),
       _fieldTags: admissionFieldTags(row),
     };
@@ -1620,9 +1627,9 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.statusCell }}><span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span></td>
                       <td style={admissionTable.td}>
-                        {row.docs.length ? (
+                        {row.guideDocs.length ? (
                           <div style={{ display: "flex", justifyContent: "center", gap: 4, flexWrap: "wrap" }}>
-                            {row.docs.map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />)}
+                            {row.guideDocs.map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />)}
                           </div>
                         ) : <span style={admissionTable.empty}>미등록</span>}
                       </td>
@@ -1660,7 +1667,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   <th style={admissionTable.th}>융합선택</th>
                   <th style={admissionTable.th}>교과 반영비율</th>
                   <th style={admissionTable.th}>전형 특이사항</th>
-                  <th style={admissionTable.th}>모집요강</th>
+                  <th style={admissionTable.th}>반영표 확인</th>
                 </tr>
               </thead>
               <tbody>
@@ -1691,9 +1698,9 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                         {specialNote ? <AdmissionSpecialNote value={specialNote} /> : <span style={admissionTable.empty}>-</span>}
                       </td>
                       <td style={admissionTable.td}>
-                        {row.docs.length ? (
+                        {row.reflectionDocs.length ? (
                           <div style={{ display: "flex", justifyContent: "center", gap: 4, flexWrap: "wrap" }}>
-                            {row.docs.map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />)}
+                            {row.reflectionDocs.map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />)}
                           </div>
                         ) : <span style={admissionTable.empty}>미등록</span>}
                       </td>
@@ -1708,7 +1715,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
 
       {docsWithoutRows.length > 0 && (
         <div style={card}>
-          <SectionHeading title="추가 모집요강" description="입시전형표에는 아직 없지만 관리자가 등록한 대학별 모집요강입니다." />
+          <SectionHeading title="추가 대학 자료" description="입시전형표에는 아직 없지만 관리자가 등록한 모집요강 또는 교과 반영표입니다." />
           <div style={admissionDocs.grid}>
             {docsWithoutRows.map(docItem => (
               <div key={docItem.id || docItem.url} style={admissionDocs.card}>
@@ -1739,15 +1746,17 @@ function admissionStatusMeta(status) {
 }
 
 function PdfLink({ docItem, compact = false }) {
+  const reflection = admissionDocumentType(docItem) === "reflection";
+  const fallback = reflection ? "교과 반영표" : "모집요강";
   return (
     <a
       href={docItem.url}
       target="_blank"
       rel="noreferrer"
       style={{ ...pdfLinkStyle, ...(compact ? pdfLinkCompactStyle : {}) }}
-      title={docItem.fileName || docItem.label || "모집요강 PDF"}
+      title={docItem.fileName || docItem.label || fallback}
     >
-      <FileText size={compact ? 11 : 13} /> {compact ? "보기" : (docItem.label || docItem.year || "PDF 보기")} <ExternalLink size={compact ? 9 : 11} />
+      <FileText size={compact ? 11 : 13} /> {compact ? (reflection ? "반영표" : "요강") : (docItem.label || docItem.year || `${fallback} 보기`)} <ExternalLink size={compact ? 9 : 11} />
     </a>
   );
 }
@@ -1893,9 +1902,11 @@ function GradeScaleSelector({ value, onChange }) {
 function CategoryBadge({ category, showLabel = false }) {
   const key = CATEGORY_META[category] ? category : resolveCategoryKey(category, category);
   const meta = CATEGORY_META[key] || CATEGORY_META.기타;
+  const label = showLabel ? meta.label : meta.short;
+  const parts = String(label).split("/");
   return (
     <span style={{ ...categoryBadgeBase, background: meta.background, color: meta.color, border: `1px solid ${meta.color}33` }}>
-      {showLabel ? meta.label : meta.short}
+      {parts.length > 1 ? <>{parts[0]}/<br />{parts.slice(1).join("/")}</> : label}
     </span>
   );
 }
@@ -2392,7 +2403,7 @@ export function AdminGradesUpload({ gdb, persistGrades, showToast }) {
         <TabBtn active={subtab === "semester"} onClick={() => setSubtab("semester")} label="학기별 성적표 (개별)" />
         <TabBtn active={subtab === "mock"} onClick={() => setSubtab("mock")} label="모의고사 (개별)" />
         <TabBtn active={subtab === "admission"} onClick={() => setSubtab("admission")} label="대입 전형표 (개별)" />
-        <TabBtn active={subtab === "admissionPdf"} onClick={() => setSubtab("admissionPdf")} label="대학별 모집요강 PDF" />
+        <TabBtn active={subtab === "admissionPdf"} onClick={() => setSubtab("admissionPdf")} label="모집요강·반영표 자료" />
         <TabBtn active={subtab === "cohorts"} onClick={() => setSubtab("cohorts")} label="학년·입학연도 관리" />
       </div>
       {subtab === "bulk" && <BulkUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
@@ -3199,6 +3210,8 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
 function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const fileRef = useRef(null);
   const zipRef = useRef(null);
+  const [documentType, setDocumentType] = useState("guide");
+  const [listFilter, setListFilter] = useState("all");
   const [university, setUniversity] = useState("");
   const [region, setRegion] = useState("미지정");
   const [label, setLabel] = useState("");
@@ -3209,12 +3222,15 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const [editingId, setEditingId] = useState(null);
   const [editUniversity, setEditUniversity] = useState("");
   const [editRegion, setEditRegion] = useState("미지정");
+  const [editType, setEditType] = useState("guide");
+  const [diagnosis, setDiagnosis] = useState(null);
 
-  const docs = (gdb.admissionDocs || []).slice().sort((a, b) => (
+  const allDocs = (gdb.admissionDocs || []).slice().sort((a, b) => (
     String(a.region || "미지정").localeCompare(String(b.region || "미지정"), "ko")
     || String(a.university || "").localeCompare(String(b.university || ""), "ko")
     || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
   ));
+  const docs = listFilter === "all" ? allDocs : allDocs.filter(item => admissionDocumentType(item) === listFilter);
   const universityOptions = Array.from(new Set([
     ...(gdb.admissionRows || []).map(row => String(row.university || "").trim()),
     ...(gdb.admissionDocs || []).map(docItem => String(docItem.university || "").trim()),
@@ -3224,45 +3240,52 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     if (item?.university && item?.region) regionByUniversity.set(universityKey(item.university), item.region);
   });
 
+  const typeLabel = type => type === "reflection" ? "교과 반영표" : "모집요강";
+  const defaultLabel = (type, valueYear) => `${valueYear ? `${valueYear}학년도 ` : ""}${typeLabel(type)}`;
   const makeDocumentItem = (uploaded, values) => ({
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     university: values.university.trim(),
     region: values.region || "미지정",
-    label: values.label.trim() || `${values.year ? `${values.year}학년도 ` : ""}모집요강`,
-    year: values.year.trim(),
+    documentType: values.documentType || uploaded.documentType || "guide",
+    label: String(values.label || "").trim() || defaultLabel(values.documentType || uploaded.documentType || "guide", String(values.year || "").trim()),
+    year: String(values.year || "").trim(),
     fileName: uploaded.fileName,
     size: uploaded.size,
+    contentType: uploaded.contentType,
     url: uploaded.url,
     storagePath: uploaded.path,
     updatedAt: new Date().toISOString(),
   });
 
-  const handleUpload = async file => {
+  const handleUpload = async files => {
+    const selectedFiles = Array.from(files || []);
     if (!university.trim()) {
       showToast("대학교명을 먼저 입력해주세요.", "error");
       if (fileRef.current) fileRef.current.value = "";
       return;
     }
+    if (!selectedFiles.length) return;
     setBusy(true);
-    let uploaded = null;
+    const uploadedItems = [];
     try {
-      uploaded = await uploadAdmissionPdf(file, university.trim());
-      const item = makeDocumentItem(uploaded, { university, region, label, year });
-      const ok = await persistGrades({ admissionDocs: [...(gdb.admissionDocs || []), item] });
-      if (!ok) {
-        await deleteAdmissionPdf(uploaded.path);
-        throw new Error("PDF 정보 저장에 실패했습니다.");
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        setBatchProgress(`${selectedFiles[index].name} 업로드 중 (${index + 1}/${selectedFiles.length})`);
+        const uploaded = await uploadAdmissionDocument(selectedFiles[index], university.trim(), documentType);
+        uploadedItems.push({ uploaded, doc: makeDocumentItem(uploaded, { university, region, label, year, documentType }) });
       }
-      showToast(`${item.university} 모집요강 PDF를 등록했습니다.`, "success");
+      const ok = await persistGrades({ admissionDocs: [...(gdb.admissionDocs || []), ...uploadedItems.map(item => item.doc)] });
+      if (!ok) {
+        await Promise.all(uploadedItems.map(item => deleteAdmissionPdf(item.uploaded.path)));
+        throw new Error("업로드된 자료의 목록 저장에 실패했습니다.");
+      }
+      showToast(`${university.trim()} ${typeLabel(documentType)} ${uploadedItems.length}건을 등록했습니다.`, "success");
       setLabel("");
     } catch (error) {
       const detail = error?.code || error?.message || String(error);
-      const guide = /storage\/(unauthorized|unknown|bucket-not-found|object-not-found)/.test(detail)
-        ? " Firebase Console에서 Storage 활성화 및 규칙을 확인해주세요."
-        : "";
-      showToast(`PDF 업로드 실패: ${detail}.${guide}`, "error");
+      showToast(`자료 업로드 실패: ${detail}`, "error");
     } finally {
       setBusy(false);
+      setBatchProgress("");
       if (fileRef.current) fileRef.current.value = "";
     }
   };
@@ -3279,27 +3302,25 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
         maxTotalBytes: 500 * 1024 * 1024,
         onProgress: (current, total) => setBatchProgress(`PDF를 읽는 중입니다. (${current}/${total})`),
       });
-
-      const items = [];
-      for (let index = 0; index < extracted.length; index += 1) {
-        const entry = extracted[index];
+      const items = extracted.map((entry, index) => {
         const fileName = entry.name;
         const file = new File([entry.blob], fileName, { type: "application/pdf", lastModified: zipFile.lastModified || Date.now() });
         const inferredUniversity = inferUniversityFromFileName(fileName, universityOptions);
         const knownRegion = regionByUniversity.get(universityKey(inferredUniversity)) || "";
-        items.push({
+        return {
           id: `${Date.now()}_${index}_${Math.random().toString(36).slice(2, 7)}`,
           file,
           fileName,
           university: inferredUniversity,
           region: inferRegionFromFileName(fileName, knownRegion),
-          label: `${year ? `${year}학년도 ` : ""}모집요강`,
+          label: defaultLabel("guide", year),
           year,
-        });
-      }
+          documentType: "guide",
+        };
+      });
       setBatchPreview(items);
       setBatchProgress("");
-      showToast(`${items.length}개의 PDF를 인식했습니다. 대학명과 지역을 확인한 뒤 일괄 업로드해주세요.`, "success");
+      showToast(`${items.length}개의 모집요강 PDF를 인식했습니다. 대학명과 지역을 확인해주세요.`, "success");
     } catch (error) {
       showToast(`ZIP 분석 실패: ${error?.message || error}`, "error");
       setBatchProgress("");
@@ -3309,13 +3330,8 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     }
   };
 
-  const updateBatchItem = (id, patch) => {
-    setBatchPreview(items => (items || []).map(item => item.id === id ? { ...item, ...patch } : item));
-  };
-
-  const removeBatchItem = id => {
-    setBatchPreview(items => (items || []).filter(item => item.id !== id));
-  };
+  const updateBatchItem = (id, patch) => setBatchPreview(items => (items || []).map(item => item.id === id ? { ...item, ...patch } : item));
+  const removeBatchItem = id => setBatchPreview(items => (items || []).filter(item => item.id !== id));
 
   const uploadBatch = async () => {
     const items = batchPreview || [];
@@ -3332,26 +3348,22 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
         const item = items[index];
         setBatchProgress(`${item.fileName} 업로드 중 (${index + 1}/${items.length})`);
         try {
-          const uploaded = await uploadAdmissionPdf(item.file, item.university.trim());
+          const uploaded = await uploadAdmissionDocument(item.file, item.university.trim(), "guide", { allowInlineFallback: false });
           uploadedItems.push({ uploaded, doc: makeDocumentItem(uploaded, item) });
         } catch (error) {
-          failures.push({ ...item, error: error?.message || String(error) });
+          failures.push({ ...item, error: error?.code || error?.message || String(error) });
         }
       }
-
       if (uploadedItems.length) {
-        const ok = await persistGrades({
-          admissionDocs: [...(gdb.admissionDocs || []), ...uploadedItems.map(item => item.doc)],
-        });
+        const ok = await persistGrades({ admissionDocs: [...(gdb.admissionDocs || []), ...uploadedItems.map(item => item.doc)] });
         if (!ok) {
           await Promise.all(uploadedItems.map(item => deleteAdmissionPdf(item.uploaded.path)));
           throw new Error("업로드된 PDF 목록을 저장하지 못했습니다.");
         }
       }
-
       if (failures.length) {
         setBatchPreview(failures);
-        showToast(`${uploadedItems.length}건 등록, ${failures.length}건 실패했습니다. 실패 항목을 확인해주세요.`, "error");
+        showToast(`${uploadedItems.length}건 등록, ${failures.length}건 실패했습니다.`, "error");
       } else {
         setBatchPreview(null);
         showToast(`${uploadedItems.length}개의 모집요강 PDF를 일괄 등록했습니다.`, "success");
@@ -3364,36 +3376,41 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     }
   };
 
+  const runDiagnosis = async () => {
+    setBusy(true);
+    setDiagnosis(null);
+    const result = await diagnoseStorageConnection();
+    setDiagnosis(result);
+    showToast(result.ok ? "Firebase Storage 업로드·삭제 진단에 성공했습니다." : `Storage 진단 실패: ${result.code || result.error}`, result.ok ? "success" : "error");
+    setBusy(false);
+  };
+
   const startEdit = docItem => {
     setEditingId(docItem.id || docItem.url);
     setEditUniversity(docItem.university || "");
     setEditRegion(docItem.region || "미지정");
+    setEditType(admissionDocumentType(docItem));
   };
 
   const saveEdit = async docItem => {
-    if (!editUniversity.trim()) {
-      showToast("대학교명을 입력해주세요.", "error");
-      return;
-    }
+    if (!editUniversity.trim()) { showToast("대학교명을 입력해주세요.", "error"); return; }
     setBusy(true);
     try {
       const key = docItem.id || docItem.url;
       const updated = (gdb.admissionDocs || []).map(item => (item.id || item.url) === key
-        ? { ...item, university: editUniversity.trim(), region: editRegion || "미지정", updatedAt: new Date().toISOString() }
+        ? { ...item, university: editUniversity.trim(), region: editRegion || "미지정", documentType: editType, updatedAt: new Date().toISOString() }
         : item);
       const ok = await persistGrades({ admissionDocs: updated });
-      if (!ok) throw new Error("PDF 정보 저장에 실패했습니다.");
+      if (!ok) throw new Error("자료 정보 저장에 실패했습니다.");
       setEditingId(null);
-      showToast("대학명과 지역을 수정했습니다.", "success");
+      showToast("대학 자료 정보를 수정했습니다.", "success");
     } catch (error) {
       showToast(`수정 실패: ${error?.message || error}`, "error");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
   const removeDoc = async docItem => {
-    if (!window.confirm(`${docItem.university}의 “${docItem.label || docItem.fileName}” PDF를 삭제할까요?`)) return;
+    if (!window.confirm(`${docItem.university}의 “${docItem.label || docItem.fileName}” 자료를 삭제할까요?`)) return;
     setBusy(true);
     try {
       const removed = await deleteAdmissionPdf(docItem.storagePath);
@@ -3401,152 +3418,65 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
       const targetKey = docItem.id || docItem.url;
       const updated = (gdb.admissionDocs || []).filter(item => (item.id || item.url) !== targetKey);
       const ok = await persistGrades({ admissionDocs: updated });
-      if (!ok) throw new Error("PDF 목록 저장에 실패했습니다.");
-      showToast("모집요강 PDF를 삭제했습니다.", "success");
+      if (!ok) throw new Error("자료 목록 저장에 실패했습니다.");
+      showToast("대학 자료를 삭제했습니다.", "success");
     } catch (error) {
       showToast(`삭제 실패: ${error?.message || error}`, "error");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   };
 
+  const accept = documentType === "reflection" ? "application/pdf,.pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" : "application/pdf,.pdf";
   return (
     <div>
       <div style={{ ...card, border: "1.5px dashed #d7dfd3", background: "#fbfdfb" }}>
-        <SectionHeading
-          title="대학별 모집요강 PDF 등록"
-          description="개별 PDF 또는 여러 PDF가 들어 있는 ZIP 파일을 등록할 수 있습니다. ZIP의 파일명에서 대학명을 우선 추정하며, 저장 전에 대학명과 지역을 직접 확인·수정합니다."
-        />
-
-        <div style={pdfAdmin.sectionTitle}>개별 PDF 업로드</div>
+        <SectionHeading title="대학별 모집요강·교과 반영표 관리" description="수능 최저 화면에는 모집요강 PDF를, 내신 반영 방식 화면에는 대학별 교과 반영표 PDF·이미지를 연결합니다." />
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 14 }}>
+          <button style={{ ...btn.tab, ...(documentType === "guide" ? btn.tabActive : {}) }} onClick={() => { setDocumentType("guide"); setLabel(""); }}>모집요강 PDF</button>
+          <button style={{ ...btn.tab, ...(documentType === "reflection" ? btn.tabActive : {}) }} onClick={() => { setDocumentType("reflection"); setLabel(""); }}>교과 반영표 PDF·이미지</button>
+          <button style={btn.secondary} onClick={runDiagnosis} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 저장소 연결 진단</button>
+        </div>
+        {diagnosis && (
+          <div style={{ ...pdfAdmin.notice, borderColor: diagnosis.ok ? "#bdd8bf" : "#ebc2b8", background: diagnosis.ok ? "#f1f8f0" : "#fff5f2", color: diagnosis.ok ? "#315a35" : "#9a3f2c" }}>
+            {diagnosis.ok ? `정상 연결 · 버킷 ${diagnosis.bucket}${diagnosis.authenticated ? " · 익명 인증 사용" : ""}` : `오류 ${diagnosis.code || "확인 필요"} · ${diagnosis.error} · Firebase Console에서 Storage 생성 여부와 익명 로그인/Storage 규칙을 확인하세요.`}
+          </div>
+        )}
         <div style={pdfAdmin.formGrid}>
-          <label style={pdfAdmin.label}>
-            <span>대학교</span>
-            <input list="admission-university-options" value={university} onChange={event => setUniversity(event.target.value)} placeholder="예: 광덕대학교" style={pdfAdmin.input} />
-            <datalist id="admission-university-options">{universityOptions.map(name => <option key={name} value={name} />)}</datalist>
-          </label>
-          <label style={pdfAdmin.label}>
-            <span>지역</span>
-            <select value={region} onChange={event => setRegion(event.target.value)} style={pdfAdmin.input}>
-              {ADMISSION_REGIONS.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
-            </select>
-          </label>
-          <label style={pdfAdmin.label}>
-            <span>학년도</span>
-            <input value={year} onChange={event => setYear(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} placeholder="2028" style={pdfAdmin.input} />
-          </label>
-          <label style={pdfAdmin.label}>
-            <span>표시 이름</span>
-            <input value={label} onChange={event => setLabel(event.target.value)} placeholder="비워두면 ‘2028학년도 모집요강’" style={pdfAdmin.input} />
-          </label>
+          <label style={pdfAdmin.label}><span>대학교</span><input list="admission-university-options" value={university} onChange={event => setUniversity(event.target.value)} placeholder="예: 광덕대학교" style={pdfAdmin.input} /><datalist id="admission-university-options">{universityOptions.map(name => <option key={name} value={name} />)}</datalist></label>
+          <label style={pdfAdmin.label}><span>지역</span><select value={region} onChange={event => setRegion(event.target.value)} style={pdfAdmin.input}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
+          <label style={pdfAdmin.label}><span>학년도</span><input value={year} onChange={event => setYear(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} placeholder="2028" style={pdfAdmin.input} /></label>
+          <label style={pdfAdmin.label}><span>표시 이름</span><input value={label} onChange={event => setLabel(event.target.value)} placeholder={`비워두면 ‘${defaultLabel(documentType, year)}’`} style={pdfAdmin.input} /></label>
         </div>
-        <input ref={fileRef} type="file" accept="application/pdf,.pdf" style={{ display: "none" }} onChange={event => event.target.files?.[0] && handleUpload(event.target.files[0])} />
-        <button style={btn.primary} onClick={() => fileRef.current?.click()} disabled={busy || !university.trim()}>
-          {busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} PDF 선택 및 업로드
-        </button>
-
-        <div style={pdfAdmin.divider} />
-        <div style={pdfAdmin.sectionTitle}>ZIP 일괄 업로드</div>
-        <div style={{ fontSize: 11.5, color: "#716b5f", lineHeight: 1.6, marginBottom: 10 }}>
-          ZIP 안의 PDF 파일명을 분석해 대학명을 자동 입력합니다. 자동 인식 결과는 바로 저장되지 않으며, 아래 미리보기에서 대학명과 지역을 수정한 후 업로드합니다.
-        </div>
-        <input ref={zipRef} type="file" accept="application/zip,.zip" style={{ display: "none" }} onChange={event => event.target.files?.[0] && handleZip(event.target.files[0])} />
-        <button style={btn.secondary} onClick={() => zipRef.current?.click()} disabled={busy}>
-          <Archive size={14} /> ZIP 파일 선택
-        </button>
+        <input ref={fileRef} type="file" multiple accept={accept} style={{ display: "none" }} onChange={event => event.target.files?.length && handleUpload(event.target.files)} />
+        <button style={btn.primary} onClick={() => fileRef.current?.click()} disabled={busy || !university.trim()}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {typeLabel(documentType)} 파일 선택</button>
         {batchProgress && <div style={pdfAdmin.progress}><Loader2 size={13} className="spin" />{batchProgress}</div>}
-
-        <div style={pdfAdmin.notice}>
-          <BookOpen size={14} /> Firebase Storage가 아직 활성화되지 않았거나 쓰기 규칙이 막혀 있으면 업로드가 실패합니다. 현재 앱의 자체 로그인은 Firebase Storage 규칙에서 관리자 여부를 확인할 수 없으므로, 실제 운영 시에는 Firebase Authentication 연동이 가장 안전합니다.
-        </div>
+        {documentType === "guide" && (
+          <>
+            <div style={pdfAdmin.divider} />
+            <div style={pdfAdmin.sectionTitle}>모집요강 ZIP 일괄 업로드</div>
+            <div style={{ fontSize: 11.5, color: "#716b5f", lineHeight: 1.6, marginBottom: 10 }}>ZIP 안의 PDF 파일명에서 대학명을 추정한 뒤 저장 전 확인할 수 있습니다.</div>
+            <input ref={zipRef} type="file" accept="application/zip,.zip" style={{ display: "none" }} onChange={event => event.target.files?.[0] && handleZip(event.target.files[0])} />
+            <button style={btn.secondary} onClick={() => zipRef.current?.click()} disabled={busy}><Archive size={14} /> ZIP 파일 선택</button>
+          </>
+        )}
       </div>
 
       {batchPreview && (
         <div style={card}>
-          <SectionHeading title={`ZIP 업로드 확인 (${batchPreview.length}건)`} description="대학명과 지역을 최종 확인하세요. 잘못 인식된 항목은 직접 수정하거나 목록에서 제외할 수 있습니다." />
-          <div style={table.scroll}>
-            <table style={{ ...table.base, minWidth: 860 }}>
-              <thead>
-                <tr><th style={table.th}>파일명</th><th style={table.th}>대학명</th><th style={table.th}>지역</th><th style={table.th}>표시 이름</th><th style={table.th}></th></tr>
-              </thead>
-              <tbody>
-                {batchPreview.map(item => (
-                  <tr key={item.id}>
-                    <td style={{ ...table.tdLabel, maxWidth: 220, whiteSpace: "normal", wordBreak: "break-all" }}>
-                      {item.fileName}
-                      {item.error && <div style={{ color: "#9a4242", fontSize: 10.5, marginTop: 4 }}>{item.error}</div>}
-                    </td>
-                    <td style={table.td}><input value={item.university} onChange={event => updateBatchItem(item.id, { university: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 160 }} /></td>
-                    <td style={table.td}>
-                      <select value={item.region || "미지정"} onChange={event => updateBatchItem(item.id, { region: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 105 }}>
-                        {ADMISSION_REGIONS.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
-                      </select>
-                    </td>
-                    <td style={table.td}><input value={item.label || ""} onChange={event => updateBatchItem(item.id, { label: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 150 }} /></td>
-                    <td style={table.td}><button style={pdfAdmin.deleteButton} onClick={() => removeBatchItem(item.id)} disabled={busy}><Trash2 size={12} /> 제외</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-            <button style={btn.primary} onClick={uploadBatch} disabled={busy || !batchPreview.length}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 확인한 PDF 일괄 업로드</button>
-            <button style={btn.secondary} onClick={() => setBatchPreview(null)} disabled={busy}>취소</button>
-          </div>
+          <SectionHeading title={`ZIP 업로드 확인 (${batchPreview.length}건)`} description="대학명과 지역을 최종 확인한 뒤 업로드하세요." />
+          <div style={table.scroll}><table style={{ ...table.base, minWidth: 760 }}><thead><tr><th style={table.th}>파일명</th><th style={table.th}>대학명</th><th style={table.th}>지역</th><th style={table.th}>표시 이름</th><th style={table.th}></th></tr></thead><tbody>
+            {batchPreview.map(item => <tr key={item.id}><td style={{ ...table.tdLabel, maxWidth: 220, whiteSpace: "normal", wordBreak: "break-all" }}>{item.fileName}{item.error && <div style={{ color: "#9a4242", fontSize: 10.5, marginTop: 4 }}>{item.error}</div>}</td><td style={table.td}><input value={item.university} onChange={event => updateBatchItem(item.id, { university: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 150 }} /></td><td style={table.td}><select value={item.region || "미지정"} onChange={event => updateBatchItem(item.id, { region: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 100 }}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select></td><td style={table.td}><input value={item.label || ""} onChange={event => updateBatchItem(item.id, { label: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 140 }} /></td><td style={table.td}><button style={pdfAdmin.deleteButton} onClick={() => removeBatchItem(item.id)} disabled={busy}><Trash2 size={12} /> 제외</button></td></tr>)}
+          </tbody></table></div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button style={btn.primary} onClick={uploadBatch} disabled={busy || !batchPreview.length}><Upload size={14} /> 확인한 PDF 일괄 업로드</button><button style={btn.secondary} onClick={() => setBatchPreview(null)} disabled={busy}>취소</button></div>
         </div>
       )}
 
       <div style={card}>
-        <SectionHeading title={`등록된 모집요강 (${docs.length}건)`} description="등록 후에도 대학명과 지역을 수정할 수 있습니다." />
-        {!docs.length ? (
-          <div style={chartEmpty}>등록된 모집요강 PDF가 없습니다.</div>
-        ) : (
-          <div style={admissionDocs.grid}>
-            {docs.map(docItem => {
-              const key = docItem.id || docItem.url;
-              const editing = editingId === key;
-              return (
-                <div key={key} style={admissionDocs.card}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    {editing ? (
-                      <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 1fr) 110px", gap: 7 }}>
-                        <input value={editUniversity} onChange={event => setEditUniversity(event.target.value)} style={pdfAdmin.input} />
-                        <select value={editRegion} onChange={event => setEditRegion(event.target.value)} style={pdfAdmin.input}>
-                          {ADMISSION_REGIONS.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
-                        </select>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                          <div style={{ fontWeight: 900, color: "#2b2620" }}>{docItem.university}</div>
-                          <span style={regionBadge}><MapPin size={10} />{docItem.region || "미지정"}</span>
-                        </div>
-                        <div style={{ fontSize: 11.5, color: "#716b5f", marginTop: 3 }}>{docItem.label || docItem.fileName}</div>
-                        <div style={{ fontSize: 10.5, color: "#a39d8c", marginTop: 3 }}>
-                          {docItem.fileName}{docItem.size ? ` · ${(docItem.size / 1024 / 1024).toFixed(1)}MB` : ""}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    {editing ? (
-                      <>
-                        <button style={btn.primary} onClick={() => saveEdit(docItem)} disabled={busy}>저장</button>
-                        <button style={btn.secondary} onClick={() => setEditingId(null)} disabled={busy}>취소</button>
-                      </>
-                    ) : (
-                      <>
-                        <PdfLink docItem={docItem} />
-                        <button style={btn.secondary} onClick={() => startEdit(docItem)} disabled={busy}>정보 수정</button>
-                        <button style={pdfAdmin.deleteButton} onClick={() => removeDoc(docItem)} disabled={busy}><Trash2 size={13} /> 삭제</button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}><SectionHeading title={`등록된 대학 자료 (${docs.length}/${allDocs.length}건)`} description="자료 유형·대학명·지역을 수정하거나 파일을 삭제할 수 있습니다." /><div style={{ display: "flex", gap: 5 }}>{[["all","전체"],["guide","모집요강"],["reflection","반영표"]].map(([key,name]) => <button key={key} style={{ ...btn.chip, ...(listFilter === key ? btn.chipActive : {}) }} onClick={() => setListFilter(key)}>{name}</button>)}</div></div>
+        {!docs.length ? <div style={chartEmpty}>해당 유형의 자료가 없습니다.</div> : <div style={admissionDocs.grid}>{docs.map(docItem => {
+          const key = docItem.id || docItem.url;
+          const editing = editingId === key;
+          return <div key={key} style={admissionDocs.card}><div style={{ minWidth: 0, flex: 1 }}>{editing ? <div style={{ display: "grid", gridTemplateColumns: "minmax(140px,1fr) 105px 115px", gap: 7 }}><input value={editUniversity} onChange={event => setEditUniversity(event.target.value)} style={pdfAdmin.input} /><select value={editRegion} onChange={event => setEditRegion(event.target.value)} style={pdfAdmin.input}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select><select value={editType} onChange={event => setEditType(event.target.value)} style={pdfAdmin.input}><option value="guide">모집요강</option><option value="reflection">반영표</option></select></div> : <><div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}><div style={{ fontWeight: 900 }}>{docItem.university}</div><span style={regionBadge}>{(docItem.region || "미지정") !== "미지정" && <MapPin size={10} />}{docItem.region || "미지정"}</span><span style={{ ...btn.chip, cursor: "default", padding: "3px 8px" }}>{typeLabel(admissionDocumentType(docItem))}</span></div><div style={{ fontSize: 11.5, color: "#716b5f", marginTop: 3 }}>{docItem.label || docItem.fileName}</div><div style={{ fontSize: 10.5, color: "#a39d8c", marginTop: 3 }}>{docItem.fileName}{docItem.size ? ` · ${(docItem.size / 1024 / 1024).toFixed(1)}MB` : ""}</div></>}</div><div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>{editing ? <><button style={btn.primary} onClick={() => saveEdit(docItem)} disabled={busy}>저장</button><button style={btn.secondary} onClick={() => setEditingId(null)} disabled={busy}>취소</button></> : <><PdfLink docItem={docItem} /><button style={btn.secondary} onClick={() => startEdit(docItem)} disabled={busy}>정보 수정</button><button style={pdfAdmin.deleteButton} onClick={() => removeDoc(docItem)} disabled={busy}><Trash2 size={13} /> 삭제</button></>}</div></div>;
+        })}</div>}
       </div>
     </div>
   );
@@ -3658,13 +3588,19 @@ const categoryBadgeBase = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  minWidth: 30,
+  maxWidth: "100%",
+  minWidth: 42,
   minHeight: 24,
-  padding: "4px 8px",
+  padding: "4px 7px",
   borderRadius: 999,
-  fontSize: 11.2,
+  fontSize: 10.6,
   fontWeight: 900,
-  lineHeight: 1.1,
+  lineHeight: 1.15,
+  whiteSpace: "normal",
+  wordBreak: "keep-all",
+  overflowWrap: "anywhere",
+  textAlign: "center",
+  boxSizing: "border-box",
 };
 const combinationLabel = {
   display: "inline-block",
