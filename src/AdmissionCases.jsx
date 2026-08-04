@@ -405,19 +405,28 @@ const CSS=`
 .admission-case-student-benchmark em{display:block;margin-top:5px;font-size:9px!important;line-height:1.3!important;white-space:normal!important}
 .admission-case-range-filter>span{font-weight:900!important;color:#3d5068!important;letter-spacing:-.025em}
 @media print{
+  @page{size:A4 landscape;margin:7mm}
+  body.print-admission-case-search{margin:0!important;background:#fff!important}
   body.print-admission-case-search *{visibility:hidden!important}
   body.print-admission-case-search .admission-case-print-root,
   body.print-admission-case-search .admission-case-print-root *{visibility:visible!important}
-  body.print-admission-case-search .admission-case-print-root{position:absolute!important;left:0!important;top:0!important;width:100%!important;max-width:none!important;margin:0!important;padding:0!important}
+  body.print-admission-case-search .admission-case-print-root{position:absolute!important;left:0!important;top:0!important;width:100%!important;max-width:100%!important;margin:0!important;padding:0!important;overflow:visible!important;box-sizing:border-box!important}
   body.print-admission-case-search .admission-case-print-root .no-print,
   body.print-admission-case-search .admission-case-print-root .screen-only{display:none!important}
-  body.print-admission-case-search .admission-case-print-root .print-only{display:block!important}
-  body.print-admission-case-search .admission-case-print-header{display:flex!important;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid #334f78}
-  body.print-admission-case-search .admission-case-print-header h2{font-size:17pt!important;color:#1f2c3c!important}
-  body.print-admission-case-search .admission-case-print-header span{font-size:8.5pt!important;color:#5f6874!important}
-  body.print-admission-case-search .admission-case-search-table{font-size:7.2pt!important;width:100%!important}
+  body.print-admission-case-search .admission-case-print-root .print-only{display:block!important;width:100%!important;max-width:100%!important;overflow:visible!important}
+  body.print-admission-case-search .admission-case-print-header{display:flex!important;align-items:flex-end;justify-content:space-between;gap:12px;margin-bottom:8px;padding-bottom:7px;border-bottom:2px solid #334f78;break-after:avoid-page}
+  body.print-admission-case-search .admission-case-print-header h2{font-size:15pt!important;line-height:1.2!important;color:#1f2c3c!important}
+  body.print-admission-case-search .admission-case-print-header span{font-size:7.8pt!important;line-height:1.35!important;color:#5f6874!important;text-align:right}
+  body.print-admission-case-search .admission-case-print-root [style*="overflow"]{overflow:visible!important}
+  body.print-admission-case-search .admission-case-search-table{font-size:6.7pt!important;width:100%!important;max-width:100%!important;min-width:0!important;table-layout:fixed!important;border-collapse:collapse!important}
+  body.print-admission-case-search .admission-case-search-table thead{display:table-header-group!important}
+  body.print-admission-case-search .admission-case-search-table tr{break-inside:avoid-page;page-break-inside:avoid}
   body.print-admission-case-search .admission-case-search-table th,
-  body.print-admission-case-search .admission-case-search-table td{padding:4px 3px!important;line-height:1.25!important}
+  body.print-admission-case-search .admission-case-search-table td{padding:3.5px 2px!important;line-height:1.22!important;white-space:normal!important;word-break:keep-all!important;overflow-wrap:anywhere!important;vertical-align:middle!important}
+  body.print-admission-case-search .admission-case-search-table th{font-size:6.5pt!important}
+  body.print-admission-case-search .admission-case-search-table td b{font-size:inherit!important}
+  body.print-admission-case-search .admission-case-search-table small{font-size:5.6pt!important;line-height:1.2!important}
+  body.print-admission-case-search .admission-case-search-table a{color:inherit!important;text-decoration:none!important}
 }
 @media(max-width:640px){
   .admission-case-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}

@@ -345,8 +345,15 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const performanceInputRef = useRef(null);
 
   const assignedSubjects = useMemo(() => teacherSubjectAssignments(teacher), [teacher]);
-  const hasAssignedSubjects = accessRole === "teacher" && assignedSubjects.length > 0;
-  const canEditSubject = subject => accessRole === "teacher" && teacherHandlesSubject(teacher, subject);
+  const editableSubjectNames = useMemo(() => Array.from(new Set(assignedSubjects.map(item => text(item.subject)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [assignedSubjects]);
+  const [draftSubject, setDraftSubject] = useState(() => editableSubjectNames[0] || "");
+  useEffect(() => {
+    if (accessRole !== "teacher") return;
+    if (!editableSubjectNames.length) { setDraftSubject(""); return; }
+    if (!editableSubjectNames.some(subject => normalizeSubjectName(subject) === normalizeSubjectName(draftSubject))) setDraftSubject(editableSubjectNames[0]);
+  }, [accessRole, editableSubjectNames, draftSubject]);
+  const canCreateWorkspace = accessRole === "admin" || (accessRole === "teacher" && editableSubjectNames.length > 0);
+  const canEditSubject = subject => accessRole === "admin" || (accessRole === "teacher" && teacherHandlesSubject(teacher, subject));
   const sharedWorkspaces = useMemo(() => Object.values(db?.teacherGradeWorkspaces || {})
     .filter(item => String(item?.grade || "") === String(grade))
     .filter(item => canViewAllSubjects || item?.ownerId === teacher?.id || teacherHandlesSubject(teacher, item?.subject))
@@ -382,8 +389,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const canonicalAreas = useMemo(() => performance[0]?.areas || [], [performance]);
   const context = written[0] || performance[0] || null;
   const workspaceId = workspaceIdFromContext(context, grade);
-  const canEditCurrentSubject = !!context && canEditSubject(context.subject);
-  const readOnlyWorkspace = context ? !canEditCurrentSubject : accessRole !== "teacher";
+  const canEditCurrentSubject = context ? canEditSubject(context.subject) : canCreateWorkspace;
+  const readOnlyWorkspace = !canEditCurrentSubject;
   const plannedWritten = useMemo(() => Array.isArray(settings.plannedWritten) ? settings.plannedWritten : [], [settings.plannedWritten]);
   const subjectCollaborators = useMemo(() => {
     if (!context?.subject) return [];
@@ -434,6 +441,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   };
   const applyWorkspace = item => {
     const normalized = normalizeWorkspaceSnapshot(item);
+    if (item?.subject) setDraftSubject(item.subject);
     setWritten(normalized.written);
     setPerformance(normalized.performance);
     setSettings(normalized.settings);
@@ -465,6 +473,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   };
   const startNewWorkspace = () => {
     const fresh = defaultWorkspace();
+    if (accessRole === "teacher" && editableSubjectNames.length) setDraftSubject(current => editableSubjectNames.some(subject => normalizeSubjectName(subject) === normalizeSubjectName(current)) ? current : editableSubjectNames[0]);
+    if (accessRole === "admin") setDraftSubject("");
     setSelectedLocalId(""); setSelectedSharedId(""); setWritten([]); setPerformance([]); setSettings(fresh.settings); setTieScores({});
     setActiveView("combined"); setClassFilter(homeroomClass ? String(homeroomClass) : "all"); setGradeFilter("all"); setMinimumFilter("all"); setSearch(""); setUploadMessages([]);
   };
@@ -570,6 +580,14 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       if (unauthorized) {
         addUploadMessage({ type: "error", text: `${unauthorized.subject}: 담당 과목으로 등록된 교사만 성적 파일을 올릴 수 있습니다.` });
         return;
+      }
+      if (accessRole === "teacher" && draftSubject) {
+        const selectedToken = normalizeSubjectName(draftSubject);
+        const mismatch = parsed.find(item => normalizeSubjectName(item.subject) !== selectedToken);
+        if (mismatch) {
+          addUploadMessage({ type: "error", text: `현재 담당과목은 ${draftSubject}입니다. ${mismatch.subject} 파일은 별도 과목 작업에서 올려주세요.` });
+          return;
+        }
       }
       const baseContext = contextKey(context || parsed[0]);
       const accepted = parsed.filter(item => {
@@ -961,13 +979,13 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   return (
     <div className="teacher-grade-analyzer" style={ui.root}>
       <style>{gradeAnalyzerCss}</style>
-      <div style={ui.hero}>
-        <div>
+      <div className="teacher-grade-hero" style={ui.hero}>
+        <div className="teacher-grade-hero-copy">
           <div style={ui.eyebrow}>선생님 ZONE · 성적 산출</div>
-          <h2 style={ui.heroTitle}>NEIS 파일을 그대로 불러와 지필·수행 성적을 검증합니다.</h2>
-          <p style={ui.heroDescription}>석차는 환산점수 소수 둘째 자리와 학교 동점자 처리 순서를 적용하고, 원점수·석차등급·성취도 분포를 따로 보여줍니다.</p>
+          <h2 style={ui.heroTitle}>NEIS 성적 파일로 지필·수행 결과를 검증합니다.</h2>
+          <p style={ui.heroDescription}>환산점수·석차·등급·성취도와 최소성취수준을 학교 규정에 맞춰 확인합니다.</p>
         </div>
-        <div style={ui.heroActions}>
+        <div className="teacher-grade-hero-actions" style={ui.heroActions}>
           <button type="button" style={ui.lightButton} onClick={saveLocalWorkspace} disabled={!canEditCurrentSubject}><Save size={15} /> 과목별 저장</button>
           <button type="button" style={ui.publishButton} onClick={publishWorkspace} disabled={!context || !canEditCurrentSubject}><Check size={15} /> 공동 작업 저장</button>
           <button type="button" style={ui.lightButton} onClick={exportWorkbook}><Download size={15} /> 결과 엑셀</button>
@@ -976,15 +994,16 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       </div>
 
       <div className="teacher-grade-workspace-browser" style={ui.workspaceBrowser}>
-        <div><b>과목별 성적 작업</b><span>{canViewAllSubjects ? `${grade}학년 전체 과목을 열람할 수 있습니다. 성적 수정은 담당 교사만 가능합니다.` : "같은 과목 담당 교사끼리 학교 공동 작업 화면을 함께 수정합니다."}</span></div>
+        <div style={ui.workspaceIntro}><b>과목별 공동 작업</b><span>{accessRole === "admin" ? `${grade}학년 모든 과목을 생성·수정할 수 있습니다.` : canViewAllSubjects ? `${grade}학년 전체 과목을 열람하며, 담당 과목만 수정합니다.` : "같은 과목 담당 교사가 하나의 화면을 함께 사용합니다."}</span></div>
         <select value={workspaceSelection} onChange={event => loadWorkspaceSelection(event.target.value)} style={ui.workspaceSelect}>
-          <option value="">현재 작업 / 새 과목</option>
+          <option value="">저장된 과목 작업 선택</option>
           {!!localWorkspaceList.length && <optgroup label="내 브라우저 저장 과목">{localWorkspaceList.map(item => <option key={`local-${item.id}`} value={`local:${item.id}`}>{item.subject} · {item.year || "-"}학년도 {item.semester || "-"}학기 · 저장본</option>)}</optgroup>}
-          {!!sharedWorkspaces.length && <optgroup label="학교에 반영된 과목">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
+          {!!sharedWorkspaces.length && <optgroup label="학교 공동 작업 과목">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
         </select>
-        <button type="button" style={ui.secondaryButton} onClick={startNewWorkspace}>새 과목 작업</button>
+        {accessRole === "teacher" ? <select value={draftSubject} onChange={event => { setDraftSubject(event.target.value); startNewWorkspace(); }} style={ui.subjectSelect} disabled={!editableSubjectNames.length}><option value="">담당과목 없음</option>{editableSubjectNames.map(subject => <option key={subject} value={subject}>{subject}</option>)}</select> : <span style={ui.adminEditBadge}>{accessRole === "admin" ? "관리자 · 전체 수정" : "열람 전용"}</span>}
+        <button type="button" style={ui.secondaryButton} onClick={startNewWorkspace} disabled={!canCreateWorkspace}>{accessRole === "admin" ? "새 과목 작업" : "담당과목 새 작업"}</button>
         {selectedLocalId && <button type="button" style={ui.deleteWorkspaceButton} onClick={deleteLocalWorkspace}>저장본 삭제</button>}
-        {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || "담당 교사"}</span>}{readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
+        {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || (accessRole === "admin" ? "관리자" : "담당 교사")}</span>}{context && readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
       </div>
 
       <section style={ui.section}>
@@ -1039,7 +1058,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             <div style={ui.choiceGroup}><span>과목 구분</span><Toggle disabled={readOnlyWorkspace} value={settings.courseType} options={[{ value: "common", label: "공통과목" }, { value: "elective", label: "선택과목" }]} onChange={courseType => setSettings(current => ({ ...current, courseType }))} /></div>
             <div style={ui.choiceGroup}><span>성취도</span><Toggle disabled={readOnlyWorkspace} value={settings.achievementMode} options={[{ value: "fixed", label: "고정분할" }, { value: "manual", label: "추정분할·수동 컷" }]} onChange={achievementMode => setSettings(current => ({ ...current, achievementMode }))} /></div>
             {settings.achievementMode === "manual" && <ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} />}
-            {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}<div style={ui.minimumCourseRule}><ShieldCheck size={14}/><div><b>{settings.courseType === "common" ? "공통과목 최성보 적용" : "선택과목 최성보 적용"}</b><span>{settings.courseType === "common" ? "출석률 2/3 이상 + 학업성취율 40% 이상" : "출석률 2/3 이상 · 학업성취율 40% 기준 미적용"}</span></div></div>
+            {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}<div className="minimum-course-rule" style={ui.minimumCourseRule}><span style={ui.minimumCourseIcon}><ShieldCheck size={13}/></span><b>{settings.courseType === "common" ? "공통과목" : "선택과목"}</b><span>{settings.courseType === "common" ? "최성보 · 출석률 2/3 이상 · 학업성취율 40% 이상" : "최성보 · 출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div>
           </div>
         </div>
         <div style={ui.tieRuleBox}><b>동점자 처리 순서</b><span>학기말 환산점수가 같은 경우: ① 정기시험 환산 합계 → ② 수행평가 → ③ 2차 지필 → ④ 1차 지필 → ⑤ 수행평가 NEIS 영역 순 → ⑥ 2차 고배점 문항(최대 3개) → ⑦ 1차 고배점 문항(최대 3개)</span><small>수행평가 100% 과목은 수행 영역 순서까지만 적용합니다. 모든 기준이 같은 학생은 동석차로 남기며, 등급 경계 인원에 걸린 동점자는 나누지 않고 모두 다음 등급으로 처리합니다.</small></div>
@@ -1146,7 +1165,7 @@ function WrittenTable({ rows, assessment }) {
 
 const gradeAnalyzerCss = `
 .teacher-grade-analyzer *{box-sizing:border-box}
-.teacher-grade-analyzer{color:#27364a;letter-spacing:-.025em}
+.teacher-grade-analyzer{color:#27364a;letter-spacing:-.025em}.teacher-grade-analyzer h2,.teacher-grade-analyzer p,.teacher-grade-analyzer b,.teacher-grade-analyzer span{word-break:keep-all}
 .teacher-grade-analyzer button,.teacher-grade-analyzer input,.teacher-grade-analyzer select{font-family:${FONT_STACK};letter-spacing:-.025em}
 .teacher-grade-analyzer button:disabled{opacity:.48;cursor:not-allowed}
 .teacher-grade-analyzer section{min-width:0}
@@ -1163,9 +1182,9 @@ const gradeAnalyzerCss = `
 .teacher-grade-analyzer .performance-area-name b{max-width:100%!important;overflow:visible!important;text-overflow:clip!important;white-space:normal!important;word-break:keep-all;overflow-wrap:anywhere;line-height:1.38}
 .teacher-grade-analyzer .planned-written-row{border:1px dashed #bcd0e5!important;border-radius:11px;padding:9px 10px!important;margin-top:7px;background:#f4f9fe}
 .teacher-grade-analyzer .planned-written-name input{width:min(190px,100%);border:0;border-bottom:1px solid #b9cce0;background:transparent;padding:4px 2px;color:#315d90;font-size:12.5px;font-weight:900}
-.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{display:grid;gap:3px;min-width:0}
+.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{display:grid;gap:3px;min-width:210px;flex:1 1 230px}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child b{font-size:13px;color:#2e435e}
-.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child span{font-size:10.5px;color:#738196;font-weight:700;line-height:1.35}
+.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child span{font-size:10.5px;color:#738196;font-weight:700;line-height:1.4}.teacher-grade-analyzer .minimum-course-rule{white-space:normal}.teacher-grade-analyzer .minimum-course-rule>span:last-child{min-width:0;line-height:1.35}
 .teacher-grade-analyzer table{border-collapse:separate!important;border-spacing:0;width:100%;font-family:${FONT_STACK};font-size:11.7px;line-height:1.42}
 .teacher-grade-analyzer table th{position:sticky;top:0;z-index:1;padding:11px 9px;border-right:1px solid #d7e0eb;border-bottom:1px solid #cbd6e4;color:#344b67;background:#edf3f9;text-align:center;white-space:nowrap;font-size:11px;font-weight:950}
 .teacher-grade-analyzer table th:last-child{border-right:0}
@@ -1182,7 +1201,7 @@ const gradeAnalyzerCss = `
 .teacher-grade-analyzer .teacher-grade-tie-student>div label{display:inline-flex;align-items:center;gap:2px}
 .teacher-grade-analyzer .teacher-grade-tie-student>div input[type="number"]{width:47px;padding:5px}
 .teacher-grade-analyzer details summary::-webkit-details-marker{display:none}
-@media(max-width:980px){.teacher-grade-analyzer .teacher-grade-workspace-browser{grid-template-columns:1fr 1fr!important}.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{grid-column:1/-1}}
+@media(max-width:980px){.teacher-grade-analyzer .teacher-grade-hero{grid-template-columns:1fr!important}.teacher-grade-analyzer .teacher-grade-hero-actions{justify-content:flex-start!important;max-width:none!important}.teacher-grade-analyzer .teacher-grade-workspace-browser{align-items:stretch!important}.teacher-grade-analyzer .teacher-grade-workspace-browser>select{flex:1 1 260px!important}}
 @media(max-width:720px){.teacher-grade-analyzer .teacher-grade-tie-student{grid-template-columns:1fr 1fr}.teacher-grade-analyzer .teacher-grade-workspace-browser{grid-template-columns:1fr!important}.teacher-grade-analyzer .teacher-grade-weight-row{align-items:flex-start!important;flex-direction:column}.teacher-grade-analyzer .teacher-grade-weight-row>span:last-child{width:100%;justify-content:flex-end}}
 @media print{
   body.print-teacher-minimum *{visibility:hidden!important}
@@ -1198,15 +1217,18 @@ const gradeAnalyzerCss = `
 
 const ui = {
   root: { fontFamily: FONT_STACK, display: "grid", gap: 16 },
-  hero: { display: "flex", justifyContent: "space-between", gap: 20, alignItems: "center", padding: "22px 24px", borderRadius: 20, color: "#fff", background: "linear-gradient(135deg,#285f9d 0%,#456fa9 50%,#7067b1 100%)", boxShadow: "0 16px 36px rgba(44,77,135,.18)" },
+  hero: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 18, alignItems: "center", padding: "20px 24px", borderRadius: 20, color: "#fff", background: "linear-gradient(135deg,#285f9d 0%,#456fa9 50%,#7067b1 100%)", boxShadow: "0 16px 36px rgba(44,77,135,.18)" },
   eyebrow: { fontSize: 12, fontWeight: 900, letterSpacing: ".04em", opacity: .78 },
-  heroTitle: { margin: "5px 0 7px", fontSize: 22, lineHeight: 1.35, letterSpacing: "-.04em" },
-  heroDescription: { margin: 0, fontSize: 12.5, lineHeight: 1.65, opacity: .86 },
-  heroActions: { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" },
+  heroTitle: { margin: "5px 0 6px", fontSize: 20, lineHeight: 1.25, letterSpacing: "-.04em", wordBreak: "keep-all" },
+  heroDescription: { margin: 0, fontSize: 12, lineHeight: 1.5, opacity: .88, wordBreak: "keep-all" },
+  heroActions: { display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 390 },
   lightButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid rgba(255,255,255,.35)", borderRadius: 10, padding: "9px 12px", color: "#fff", background: "rgba(255,255,255,.13)", fontFamily: FONT_STACK, fontWeight: 850, cursor: "pointer" },
   publishButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #fff", borderRadius: 10, padding: "9px 12px", color: "#315d90", background: "#fff", fontFamily: FONT_STACK, fontWeight: 900, cursor: "pointer" },
-  workspaceBrowser: { display:"grid", gridTemplateColumns:"minmax(220px,auto) minmax(280px,1fr) auto auto auto", gap:10, alignItems:"center", padding:"12px 14px", border:"1px solid #dbe4f0", borderRadius:14, background:"#f8fbff", boxShadow:"0 6px 18px rgba(55,72,110,.05)" },
-  workspaceSelect: { width:"100%", minWidth:0, border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", background:"#fff", color:"#34465d", fontFamily:FONT_STACK, fontWeight:800 },
+  workspaceBrowser: { display:"flex", flexWrap:"wrap", gap:9, alignItems:"center", padding:"11px 13px", border:"1px solid #dbe4f0", borderRadius:14, background:"#f8fbff", boxShadow:"0 6px 18px rgba(55,72,110,.05)" },
+  workspaceIntro: { display:"grid", gap:3, minWidth:210, flex:"1 1 230px" },
+  workspaceSelect: { minWidth:260, flex:"2 1 340px", border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", background:"#fff", color:"#34465d", fontFamily:FONT_STACK, fontWeight:800 },
+  subjectSelect: { minWidth:150, flex:"0 1 190px", border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", background:"#fff", color:"#315d90", fontFamily:FONT_STACK, fontWeight:900 },
+  adminEditBadge: { display:"inline-flex", alignItems:"center", minHeight:38, borderRadius:999, padding:"7px 10px", color:"#315d90", background:"#eaf3fc", border:"1px solid #c4d7eb", fontSize:10.5, fontWeight:950, whiteSpace:"nowrap" },
   secondaryButton: { border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", color:"#42617f", background:"#fff", fontFamily:FONT_STACK, fontWeight:850, cursor:"pointer", whiteSpace:"nowrap" },
   deleteWorkspaceButton: { border:"1px solid #e6c9c5", borderRadius:10, padding:"9px 11px", color:"#9b493f", background:"#fff7f5", fontFamily:FONT_STACK, fontWeight:850, cursor:"pointer", whiteSpace:"nowrap" },
   readOnlyBadge: { borderRadius:999, padding:"6px 9px", color:"#79591e", background:"#fff6df", border:"1px solid #ead2a2", fontSize:10.5, fontWeight:900 },
@@ -1251,7 +1273,8 @@ const ui = {
   manualCutNote: { marginTop: 5, borderRadius: 8, padding: "7px 8px", color: "#765b24", background: "#fff8e7", fontSize: 10.5, lineHeight: 1.45 },
   cutGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(82px,1fr))", gap: 7, marginTop: 8 },
   ruleNote: { borderRadius: 9, padding: "9px 10px", color: "#6c5a2a", background: "#fff8e8", fontSize: 11.3, lineHeight: 1.5 },
-  minimumCourseRule:{display:"flex",gap:8,alignItems:"flex-start",marginTop:9,padding:"9px 10px",border:"1px solid #c8ddec",borderRadius:10,color:"#315d78",background:"#f0f7fc"},
+  minimumCourseRule:{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap",marginTop:9,padding:"9px 10px",border:"1px solid #c8ddec",borderRadius:10,color:"#315d78",background:"#f0f7fc",fontSize:11.2},
+  minimumCourseIcon:{width:24,height:24,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:8,color:"#315d90",background:"#dfeefa",flex:"0 0 auto"},
   tieRuleBox: { display: "grid", gap: 4, marginTop: 12, border: "1px solid #d9e2ef", borderRadius: 12, padding: "11px 13px", color: "#526174", background: "#f7f9fc", fontSize: 11.5, lineHeight: 1.55 },
   roundingRuleBox: { display: "grid", gap: 4, marginTop: 8, border: "1px solid #d5e4dd", borderRadius: 12, padding: "10px 13px", color: "#456354", background: "#f3faf6", fontSize: 11.3, lineHeight: 1.5 },
   resultTabs: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 15, padding:"5px", border:"1px solid #e0e7f0", borderRadius:14, background:"#f7f9fc" },

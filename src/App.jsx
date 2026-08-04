@@ -10,7 +10,7 @@ const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d
 const DAYS = ["월", "화", "수", "목", "금"];
 const PERIODS = [1, 2, 3, 4, 5, 6, 7];
 const PERIOD_TIME = { 1: "08:40", 2: "09:40", 3: "10:40", 4: "11:40", 5: "13:30", 6: "14:30", 7: "15:30" };
-const FIXED_LABELS = { "자율": "자율학습", "진로": "진로활동" };
+const FIXED_LABELS = { "자율": "자율/자치 시간", "자율학습": "자율/자치 시간", "진로": "진로활동", "스과": "스포츠과학" };
 const GRADES = ["1", "2", "3"];
 const DISABLED_GRADES = [];
 const RESET_PASSWORD = "kd2026";
@@ -69,6 +69,10 @@ function applyAutomaticTeacherAccess(teacher, fallbackGrade = "2") {
 /* ---------- helpers ---------- */
 function isMoveSlot(cell) { if (!cell) return false; return /^[A-Z](\(\d\))?_[가-힣A-Za-z0-9]+$/.test(cell); }
 function moveSlotAbbrev(cell) { const m = cell.match(/^[A-Z](?:\(\d\))?_(.+)$/); return m ? m[1] : null; }
+function displaySubjectLabel(value) {
+  const subject = String(value || "").trim();
+  return FIXED_LABELS[subject] || subject;
+}
 function parseCompositeLabel(raw) {
   const m = raw.match(/^(.+?)\((.+)\)$/);
   if (m) return { subject: m[1].trim(), location: m[2].trim() };
@@ -98,7 +102,7 @@ function extractCommonSubjects(db, scopeKey) {
     DAYS.forEach(day => (grid[day] || []).forEach(cell => {
       if (!cell || isMoveSlot(cell)) return;
       const { subject } = parseCompositeLabel(cell);
-      const label = FIXED_LABELS[subject] || subject;
+      const label = displaySubjectLabel(subject);
       if (!IGNORED_COMMON_LABELS.has(label)) s.add(subject);
     }));
   });
@@ -963,11 +967,11 @@ export default function App() {
         if (!c) return;
         const bare = parseCompositeLabel(c).subject;
         const match = isMoveSlot(c) ? moveSlotAbbrev(c) === ab : bare === ab;
-        if (match) { grid[day][pi] = { type: "move", subject: course.subject, group: course.group, hostClass: course.hostClass, roomLabel: roomLabel(course.hostClass), moved: course.hostClass !== info.class }; placed++; }
+        if (match) { grid[day][pi] = { type: "move", subject: displaySubjectLabel(course.subject), group: course.group, hostClass: course.hostClass, roomLabel: roomLabel(course.hostClass), moved: course.hostClass !== info.class }; placed++; }
       }));
       if (placed === 0) warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${roomLabel(course.hostClass)} 시간표에서 찾지 못했습니다.`);
     });
-    DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: FIXED_LABELS[subject] || subject, location }; } return c; }); });
+    DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: displaySubjectLabel(subject), location }; } return c; }); });
     const seenCommon = new Set();
     DAYS.forEach(day => grid[day].forEach(c => {
       if (!c || c.type !== "fixed" || IGNORED_COMMON_LABELS.has(c.subject)) return;
@@ -1516,16 +1520,33 @@ function TeacherZoneWorkspace({
   grade, setGrade, semester, scopeKey, roster, allRosters, enrollments, allowedGrades,
   onUpdateTeacher, onTeacherLogout, onMonitorLogout,
 }) {
-  const canUseNotice = !!(loggedInAdmin || loggedInTeacher || loggedInMonitor || viewedTeacher);
-  const [workspaceMode, setWorkspaceMode] = useState("grades");
-  useEffect(() => { if (!canUseNotice && workspaceMode === "notice") setWorkspaceMode("grades"); }, [canUseNotice, workspaceMode]);
+  const actor = loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin || { id: "teacher-zone", name: "선생님" };
+  const canUseNotice = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor || viewedTeacher);
+  const modeStorageKey = `kd_teacher_zone_mode_${actor?.id || actor?.name || "shared"}`;
+  const [workspaceMode, setWorkspaceMode] = useState(() => {
+    try { return localStorage.getItem(modeStorageKey) === "notice" ? "notice" : "grades"; } catch { return "grades"; }
+  });
+  useEffect(() => {
+    if (!canUseNotice && workspaceMode === "notice") setWorkspaceMode("grades");
+  }, [canUseNotice, workspaceMode]);
+  useEffect(() => {
+    try { localStorage.setItem(modeStorageKey, workspaceMode); } catch { /* localStorage unavailable */ }
+  }, [modeStorageKey, workspaceMode]);
   const mergedRoster = useMemo(() => {
     const output = {};
     Object.values(allRosters || {}).forEach(value => Object.assign(output, value || {}));
     return Object.keys(output).length ? output : (roster || {});
   }, [allRosters, roster]);
-  const actor = loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin || { id: "teacher-zone", name: "선생님" };
   const visibleGrades = (allowedGrades?.length ? allowedGrades : [grade]).map(String).filter(item => GRADES.includes(item));
+  const noticeContent = loggedInMonitor
+    ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={onMonitorLogout} />
+    : (loggedInTeacher || viewedTeacher)
+      ? <TeacherZoneView key={scopeKey} teacher={viewedTeacher || loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={onUpdateTeacher} viewingAsAdmin={!!viewedTeacher} onLogout={onTeacherLogout} />
+      : loggedInAdmin
+        ? <AdminTeacherPicker accounts={accounts} onSelect={setViewedTeacher} />
+        : loggedInDepartment
+          ? <div style={styles.warnBanner}><AlertTriangle size={14} /> 부서 계정은 성적 자료와 최성보 현황을 열람할 수 있습니다. 과목 공지 작성은 담당 교사 계정에서 진행해주세요.</div>
+          : <div style={styles.warnBanner}><AlertTriangle size={14} /> 공지 관리 권한이 없습니다.</div>;
   return <div style={styles.body}>
     <div className="no-print" style={teacherZoneWorkspaceStyles.toolbar}>
       <div style={teacherZoneWorkspaceStyles.modeTabs}>
@@ -1534,20 +1555,16 @@ function TeacherZoneWorkspace({
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
-    {workspaceMode === "grades" ? <TeacherGradeAnalyzer key={`${actor.id || "account"}-${grade}`} teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} showToast={showToast} db={db} persist={persist}
-      accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : ((loggedInTeacher || viewedTeacher) && normalizedTeacherRole(loggedInTeacher || viewedTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
-      homeroomClass={loggedInTeacher?.homeroomClass || viewedTeacher?.homeroomClass || ""}
-      canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))) || (viewedTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(viewedTeacher))))} /> : (
-      loggedInMonitor
-        ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={onMonitorLogout} />
-        : (loggedInTeacher || viewedTeacher)
-          ? <TeacherZoneView key={scopeKey} teacher={viewedTeacher || loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={onUpdateTeacher} viewingAsAdmin={!!viewedTeacher} onLogout={onTeacherLogout} />
-          : loggedInAdmin
-            ? <AdminTeacherPicker accounts={accounts} onSelect={setViewedTeacher} />
-            : <div style={styles.warnBanner}><AlertTriangle size={14} /> 공지 관리 권한이 없습니다.</div>
-    )}
+    <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
+      <TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} showToast={showToast} db={db} persist={persist}
+        accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : ((loggedInTeacher || viewedTeacher) && normalizedTeacherRole(loggedInTeacher || viewedTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
+        homeroomClass={loggedInTeacher?.homeroomClass || viewedTeacher?.homeroomClass || ""}
+        canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))) || (viewedTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(viewedTeacher))))} />
+    </div>
+    {canUseNotice && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
   </div>;
 }
+
 const teacherZoneWorkspaceStyles = {
   toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14, padding: "10px 12px", border: "1px solid #dbe3ef", borderRadius: 14, background: "linear-gradient(135deg,#f7fbff,#faf8ff)", boxShadow: "0 7px 20px rgba(55,72,110,.06)", flexWrap: "wrap" },
   modeTabs: { display: "flex", gap: 7, flexWrap: "wrap" },
