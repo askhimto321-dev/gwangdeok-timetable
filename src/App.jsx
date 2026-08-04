@@ -702,6 +702,7 @@ export default function App() {
     if (patch.cohortSettings) jobs.push(writeStorage("kd_grades_cohorts", patch.cohortSettings));
     if (patch.admissionCaseSources) jobs.push(writeStorage("kd_grades_admission_case_sources", patch.admissionCaseSources));
     if (patch.admissionCases) jobs.push(writeStorage("kd_grades_admission_cases", patch.admissionCases));
+    if (patch.admissionFavorites) jobs.push(writeStorage("kd_grades_admission_favorites", patch.admissionFavorites));
     const results = await Promise.all(jobs);
     const failed = results.find(result => result && result.ok === false);
     if (failed) {
@@ -963,6 +964,7 @@ export default function App() {
           selectedStudentQuery={staffWorkspaceEnabled ? selectedStudentQuery : undefined}
           onSelectedStudentQueryChange={staffWorkspaceEnabled ? updateSelectedStudentQuery : undefined}
           requestedStudentView={studentWorkspaceView}
+          persistGrades={persistGrades}
         />
       ) : (loggedInStudent && !loggedInAdmin && !loggedInTeacher && !loggedInDepartment && !loggedInMonitor && !classAuthed) ? (
         <div style={styles.body}>
@@ -1660,8 +1662,8 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
       </div>
       <div id="print-area">
         {selected && (
-          <div style={styles.card}>
-            <div style={styles.cardTitle}>{sel}</div>
+          <div style={styles.subjectRosterCard}>
+            <div style={styles.subjectRosterHeader}><div style={{display:"grid",gap:3}}><span style={{fontSize:10.5,fontWeight:850,opacity:.78,letterSpacing:".04em"}}>이동수업 출석부</span><strong style={{fontSize:18}}>{sel}</strong></div><em style={{fontStyle:"normal",fontSize:13,fontWeight:900,padding:"5px 9px",borderRadius:999,background:"rgba(255,255,255,.16)",border:"1px solid rgba(255,255,255,.22)"}}>{selected.students.length}명</em></div>
             {notices.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
                 {notices.map((n, i) => {
@@ -1680,9 +1682,9 @@ function SubjectGroupView({ roster, enrollments, hasAnyData, announcements }) {
                 })}
               </div>
             )}
-            <table style={{ ...styles.editTable, marginTop: 14 }}>
-              <thead><tr><th style={styles.th}>학번</th><th style={styles.th}>이름</th><th style={styles.th}>원소속반</th><th style={styles.th}>번호</th></tr></thead>
-              <tbody>{selected.students.map(s => <tr key={s.sid}><td style={styles.tdReadonly}>{s.sid}</td><td style={styles.tdReadonly}>{s.name}</td><td style={styles.tdReadonly}>{s.class}반</td><td style={styles.tdReadonly}>{s.number}</td></tr>)}</tbody>
+            <table className="subject-roster-table" style={styles.subjectRosterTable}>
+              <thead><tr><th>학번</th><th>이름</th><th>원소속반</th><th>번호</th></tr></thead>
+              <tbody>{selected.students.map((student,index) => <tr key={student.sid}><td>{student.sid}</td><td><b>{student.name}</b></td><td><span>{student.class}반</span></td><td>{student.number}</td></tr>)}</tbody>
             </table>
           </div>
         )}
@@ -3867,7 +3869,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
               <details key={`teacher-${index}`} style={accountConsole.teacherCard}>
                 <summary style={accountConsole.teacherSummary}>
                   <span style={accountConsole.teacherAvatar}>{String(teacher.name || "?").slice(0, 1)}</span>
-                  <span style={{ minWidth: 0, flex: 1 }}><strong>{teacher.name || "이름 미입력"}</strong><small>{teacher.id || "아이디 미입력"} · {TEACHER_ROLE_LABELS[role]}{automatic ? ` · ${roleGrade}학년 자동 권한` : ""}</small></span>
+                  <span style={{ minWidth: 0, flex: 1, display:"grid", gap:3 }}><strong>{teacher.name || "이름 미입력"}</strong><small style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}><span style={accountConsole.idBadge}>{teacher.id || "아이디 미입력"}</span><span>{TEACHER_ROLE_LABELS[role]}</span>{automatic && <span style={accountConsole.autoBadge}>{roleGrade}학년 자동 권한</span>}</small></span>
                   <span style={accountConsole.teacherSubjectSummary}>{(teacher.assignments || []).map(item => item.subject).filter(Boolean).slice(0, 3).join(" · ") || "담당과목 미지정"}</span>
                 </summary>
                 <div style={accountConsole.teacherBody}>
@@ -4112,7 +4114,11 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap }) {
 const globalCss = `
   * { box-sizing: border-box; } body { margin: 0; } input, textarea, button { font-family: inherit; }
   label small { display: block; margin-top: 2px; color: #7d897a; font-weight: 500; line-height: 1.4; }
-  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; }
+.subject-roster-table th{padding:10px 12px;background:#eaf2fb;color:#294f7f;border:1px solid #d4e0ef;font-size:12px;font-weight:900}
+.subject-roster-table td{padding:10px 12px;border:1px solid #e0e7f0;text-align:center;color:#33445b}
+.subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
+.subject-roster-table tbody tr:hover{background:#eef5ff} @keyframes spin { to { transform: rotate(360deg); } }
   .print-only { display: none; }
   @media print {
     .no-print { display: none !important; }
@@ -4158,6 +4164,8 @@ const accountConsole = {
   teacherSummary: { display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", cursor: "pointer", listStyle: "none", background: "linear-gradient(135deg,#f7f8f4,#fff)", borderBottom: `1px solid ${COLORS.line}` },
   teacherBody: { padding: 13 },
   teacherAvatar: { width: 30, height: 30, borderRadius: 9, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#eaf0e8", color: "#315a35", fontWeight: 950 },
+  idBadge:{display:"inline-flex",alignItems:"center",borderRadius:6,padding:"2px 6px",background:"#eef2f7",color:"#4d5d70",fontWeight:800},
+  autoBadge:{display:"inline-flex",alignItems:"center",borderRadius:999,padding:"2px 7px",background:"#eaf4ec",color:"#356541",fontWeight:850},
   teacherSubjectSummary: { maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#746d61", fontSize: 11.5, fontWeight: 750 },
   teacherToolbar: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: 10, marginBottom: 10, border: `1px solid ${COLORS.line}`, borderRadius: 10, background: "#faf9f5" },
   templateCard: { border: `1px solid ${COLORS.line}`, borderRadius: 12, background: "linear-gradient(145deg,#fff,#f8faf6)", padding: 15, display: "grid", gridTemplateColumns: "26px 1fr", textAlign: "left", gap: "3px 8px", cursor: "pointer", color: COLORS.ink },
@@ -4170,6 +4178,10 @@ const accountConsole = {
 };
 
 const styles = {
+  subjectRosterCard: { border:"1px solid #c9d9ee", borderRadius:14, background:"#f7faff", overflow:"hidden", boxShadow:"0 7px 20px rgba(45,83,131,.08)" },
+  subjectRosterHeader: { display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, padding:"15px 18px", background:"linear-gradient(135deg,#294f7f,#4e78ad)", color:"#fff" },
+  subjectRosterTable: { width:"100%", borderCollapse:"collapse", background:"#fff", fontSize:13 },
+
   app: { minHeight: "100vh", background: COLORS.paper, color: COLORS.ink, fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif" },
   loadingScreen: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 },
   loadingText: { fontSize: 13.5, color: "#8a8578" },

@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
-import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert } from "lucide-react";
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert, Star } from "lucide-react";
 import { readStorage, uploadAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
@@ -251,12 +251,12 @@ function inferRegionFromFileName(fileName, knownRegion = "") {
 }
 
 export async function loadGradesDB() {
-  const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings, admissionCaseSources, admissionCases] = await Promise.all([
+  const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings, admissionCaseSources, admissionCases, admissionFavorites] = await Promise.all([
     readStorage("kd_grades_semesters", {}), readStorage("kd_grades_mocks", {}), readStorage("kd_grades_admission", []),
     readStorage("kd_grades_admission_docs", []), readStorage("kd_grades_students_meta", {}), readStorage("kd_grades_cohorts", DEFAULT_COHORT_SETTINGS),
-    readStorage("kd_grades_admission_case_sources", []), readStorage("kd_grades_admission_cases", []),
+    readStorage("kd_grades_admission_case_sources", []), readStorage("kd_grades_admission_cases", []), readStorage("kd_grades_admission_favorites", {}),
   ]);
-  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases };
+  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases, admissionFavorites: admissionFavorites || {} };
 }
 
 export default function GradesSection({
@@ -275,6 +275,7 @@ export default function GradesSection({
   selectedStudentQuery,
   onSelectedStudentQueryChange,
   requestedStudentView,
+  persistGrades,
 }) {
   const [tab, setTab] = useState(loggedInStudent ? "grades" : "lookup");
   const [localLookupSid, setLocalLookupSid] = useState(null);
@@ -285,6 +286,20 @@ export default function GradesSection({
   const setLookupSid = value => controlledLookup ? onSelectedStudentSidChange?.(value) : setLocalLookupSid(value);
   const setLookupQuery = value => selectedStudentQuery !== undefined ? onSelectedStudentQueryChange?.(value) : setLocalLookupQuery(value);
   const teacherHasGradeAccess = !loggedInTeacher || (teacherGradeAccess || []).map(String).includes(String(currentGrade));
+  const [linkedUniversity, setLinkedUniversity] = useState("");
+  const favoriteItemsFor = useCallback(targetSid => (gdb?.admissionFavorites?.[String(targetSid)] || []), [gdb]);
+  const toggleFavorite = useCallback(async (targetSid, item) => {
+    if (!targetSid || !persistGrades || !item?.university) return false;
+    const source = item.source || "admission";
+    const key = [source, universityKey(item.university), String(item.department || "전체").trim(), String(item.admissionType || "").trim()].join("|");
+    const current = favoriteItemsFor(targetSid);
+    const exists = current.some(value => value.id === key);
+    const nextList = exists ? current.filter(value => value.id !== key) : [...current, { ...item, id: key, source, addedAt: new Date().toISOString() }];
+    const next = { ...(gdb?.admissionFavorites || {}), [String(targetSid)]: nextList };
+    return persistGrades({ admissionFavorites: next });
+  }, [gdb, persistGrades, favoriteItemsFor]);
+  const openCaseUniversity = name => { setLinkedUniversity(name || ""); setTab("admissionCases"); };
+  const openAdmissionUniversity = name => { setLinkedUniversity(name || ""); setTab(loggedInStudent ? "admission" : "lookupAdmission"); };
 
   useEffect(() => {
     if (loggedInTeacher && !teacherHasGradeAccess && tab !== "class") setTab("lookup");
@@ -320,6 +335,7 @@ export default function GradesSection({
         {loggedInStudent && <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
           <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="내 성적 리포트" />
           <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학 지원 진단" />
+          <TabBtn active={tab === "favorites"} onClick={() => setTab("favorites")} label="관심 대학·학과" />
         </div>}
         {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <div style={staffToolNav.wrap}>
@@ -333,7 +349,8 @@ export default function GradesSection({
         )}
 
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
-        {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} />}
+        {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} focusUniversity={linkedUniversity} />}
+        {tab === "favorites" && loggedInStudent && <StudentFavoritesView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={openAdmissionUniversity} />}
 
         {loggedInTeacher && !teacherHasGradeAccess && (
           <EmptyBox text={`${currentGrade}학년 학생 성적 조회 권한이 없습니다. 관리자에게 역할 또는 성적 조회 권한을 요청해주세요.`} />
@@ -351,6 +368,10 @@ export default function GradesSection({
             onSharedQueryChange={setLookupQuery}
             showViewTabs={false}
             hideSearch={true}
+            favorites={favoriteItemsFor(lookupSid)}
+            onToggleFavorite={item => toggleFavorite(lookupSid,item)}
+            focusUniversity={linkedUniversity}
+            onOpenCases={openCaseUniversity}
           />
         )}
         {tab === "lookupAdmission" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
@@ -365,13 +386,17 @@ export default function GradesSection({
             onSharedQueryChange={setLookupQuery}
             showViewTabs={false}
             hideSearch={true}
+            favorites={favoriteItemsFor(lookupSid)}
+            onToggleFavorite={item => toggleFavorite(lookupSid,item)}
+            focusUniversity={linkedUniversity}
+            onOpenCases={openCaseUniversity}
           />
         )}
         {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
         )}
         {tab === "admissionCases" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
-          <AdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} />
+          <AdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} focusUniversity={linkedUniversity} />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
@@ -1409,7 +1434,7 @@ function admissionDocumentType(docItem) {
   return docItem?.documentType === "reflection" ? "reflection" : "guide";
 }
 
-function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
+function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], onToggleFavorite, onOpenCases, focusUniversity = "" }) {
   const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts, cohortSettings } = gdb;
   const legacySemesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
   const legacyLatestSemesterRecord = legacySemesterRecords.slice().reverse().find(Boolean) || null;
@@ -1443,6 +1468,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
   const [requirementFilter, setRequirementFilter] = useState("all");
   const [admissionViewMode, setAdmissionViewMode] = useState("mock");
   const [admissionTableView, setAdmissionTableView] = useState("focus");
+  useEffect(() => { if (focusUniversity) setQuery(focusUniversity); }, [focusUniversity]);
 
   const docsByUniversity = useMemo(() => {
     const map = new Map();
@@ -1470,6 +1496,16 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
     };
   }), [admissionRows, latestSums, latestMockGrades, docsByUniversity]);
 
+  const caseCountsByUniversity = useMemo(() => {
+    const map = new Map();
+    (gdb.admissionCases || []).forEach(item => {
+      const key = universityKey(item.universityNormalized || item.university);
+      if (key) map.set(key, (map.get(key) || 0) + 1);
+    });
+    return map;
+  }, [gdb.admissionCases]);
+  const favoriteIdFor = item => [item.source || "admission", universityKey(item.university), String(item.department || "전체").trim(), String(item.admissionType || "").trim()].join("|");
+  const favoriteActive = item => (favorites || []).some(value => value.id === favoriteIdFor(item));
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return evaluatedRows.filter(row => {
@@ -1753,12 +1789,12 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           <div style={chartEmpty}>검색 조건에 맞는 전형이 없습니다.</div>
         ) : admissionViewMode === "mock" ? (
           <div style={{ ...table.scroll, overflowX: "visible" }}>
-            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 9.3 : 10.2, minWidth:0 }}>
+            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 8.7 : 9.6, minWidth:0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "11%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "18%" }} /><col style={{ width: "12%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} /><col style={{ width: "13%" }} />
+                  <col style={{ width: "12%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "20%" }} /><col style={{ width: "13%" }} /><col style={{ width: "11%" }} /><col style={{ width: "10%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} />
                 </> : <>
-                  <col style={{ width: "8.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} /><col style={{ width: "20%" }} /><col style={{ width: "9%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "6.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "15%" }} />
+                  <col style={{ width: "9%" }} /><col style={{ width: "5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "10%" }} /><col style={{ width: "7%" }} /><col style={{ width: "21%" }} /><col style={{ width: "10%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "10%" }} />
                 </>}
               </colgroup>
               <thead>
@@ -1788,7 +1824,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
                   return (
                     <tr key={`${row.university}-${row._index}`}>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="관심 대학·학과에 저장"><Star size={12} fill="currentColor"/></button>}<span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university)}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="관심 대학·학과에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
@@ -1831,12 +1867,12 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
           </div>
         ) : (
           <div style={{ ...table.scroll, overflowX: "visible" }}>
-            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 9.1 : 9.8, minWidth:0 }}>
+            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 8.6 : 9.4, minWidth:0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "10%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "15%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "13%" }} /><col style={{ width: "14%" }} />
+                  <col style={{ width: "11%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "16%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "15%" }} /><col style={{ width: "11%" }} />
                 </> : <>
-                  <col style={{ width: "8.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "10.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "7.5%" }} /><col style={{ width: "8%" }} /><col style={{ width: "25%" }} /><col style={{ width: "7%" }} />
+                  <col style={{ width: "9%" }} /><col style={{ width: "5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "12%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "24%" }} /><col style={{ width: "9%" }} />
                 </>}
               </colgroup>
               <thead>
@@ -1862,7 +1898,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null }) {
                   const specialNote = admissionSpecialNote(row, reflection);
                   return (
                     <tr key={`school-${row.university}-${row._index}`}>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}>{row.university}</td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="관심 대학·학과에 저장"><Star size={12} fill="currentColor"/></button>}<span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university)}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="관심 대학·학과에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
@@ -1947,17 +1983,18 @@ function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYea
     number != null ? `${Number(number)}번` : null,
   ].filter(Boolean).join(" ");
   const admissionView = viewType === "admission";
+  const favoritesView = viewType === "favorites";
 
   return (
-    <div style={{ ...studentBanner.box, ...(admissionView ? studentBanner.admissionBox : {}) }}>
+    <div style={{ ...studentBanner.box, ...(admissionView || favoritesView ? studentBanner.admissionBox : {}) }}>
       <div style={studentBanner.topRow}>
         <div style={studentBanner.main}>
-          <div style={{ ...studentBanner.eyebrow, ...(admissionView ? studentBanner.admissionEyebrow : {}) }}>{admissionView ? "학생 대학 지원 진단" : "학생 성적 리포트"}</div>
+          <div style={{ ...studentBanner.eyebrow, ...(admissionView ? studentBanner.admissionEyebrow : {}) }}>{favoritesView ? "학생 관심 대학·학과" : admissionView ? "학생 대학 지원 진단" : "학생 성적 리포트"}</div>
           <div style={studentBanner.titleRow}>
             <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span>
-            <span style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : {}) }}>{admissionView ? "대학 지원" : "성적 분석"}</span>
+            <span style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : {}) }}>{favoritesView ? "즐겨찾기" : admissionView ? "대학 지원" : "성적 분석"}</span>
           </div>
-          <div style={studentBanner.subtitle}>{admissionView ? "현재 성적과 대학별 지원 기준을 비교한 상담용 진단입니다." : "학기별 내신 성적과 성취도 흐름을 확인합니다."}</div>
+          <div style={studentBanner.subtitle}>{favoritesView ? "저장한 대학·학과의 지원 기준과 광덕고 사례를 함께 확인합니다." : admissionView ? "현재 성적과 대학별 지원 기준을 비교한 상담용 진단입니다." : "학기별 내신 성적과 성취도 흐름을 확인합니다."}</div>
           <div style={studentBanner.badges}>
             {location && <span style={studentBanner.badge}>{location}</span>}
             <span style={studentBanner.badge}>{entryYear}학년도 입학생</span>
@@ -2271,6 +2308,10 @@ function StudentLookup({
   onSharedQueryChange,
   showViewTabs = true,
   hideSearch = false,
+  favorites = [],
+  onToggleFavorite,
+  focusUniversity = "",
+  onOpenCases,
 }) {
   const [localQuery, setLocalQuery] = useState("");
   const [localSid, setLocalSid] = useState(null);
@@ -2351,11 +2392,53 @@ function StudentLookup({
           )}
           {view === "grades"
             ? <StudentGradeReport key={`${sid}-grades`} sid={sid} gdb={gdb} mode="grades" studentInfo={roster?.[sid]} />
-            : <StudentAdmissionView key={`${sid}-admission`} sid={sid} gdb={gdb} studentInfo={roster?.[sid]} />}
+             : <StudentAdmissionView key={`${sid}-admission`} sid={sid} gdb={gdb} studentInfo={roster?.[sid]} favorites={favorites} onToggleFavorite={onToggleFavorite} focusUniversity={focusUniversity} onOpenCases={onOpenCases} />}
         </div>
       )}
     </div>
   );
+}
+
+function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleFavorite, onOpenAdmission }) {
+  const semesterCandidates = SEMESTER_KEYS.map(key => {
+    const legacy = gdb.semesterData?.[key]?.students?.[sid] || null;
+    return legacy;
+  }).filter(Boolean);
+  const latestSemesterRecord = semesterCandidates.slice().reverse()[0] || null;
+  const metaRecord = Array.isArray(gdb.studentAccounts)
+    ? gdb.studentAccounts.find(student => String(student.id) === String(sid))
+    : gdb.studentAccounts?.[sid];
+  const entryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord, cohortSettings: gdb.cohortSettings });
+  const grade = asNumber(studentInfo?.grade) ?? asNumber(String(sid).charAt(0)) ?? 1;
+  const gradeSystem = entryYear >= 2025 ? 5 : 9;
+  const groups = useMemo(() => {
+    const map = new Map();
+    (favorites || []).forEach(item => {
+      const key = universityKey(item.university);
+      if (!key) return;
+      if (!map.has(key)) map.set(key, { university: item.university, items: [] });
+      map.get(key).items.push(item);
+    });
+    return Array.from(map.values()).sort((a,b)=>a.university.localeCompare(b.university,"ko"));
+  }, [favorites]);
+  if (!groups.length) return <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 지원 진단 또는 광덕고 대입 결과의 별 아이콘을 눌러 저장하세요." />;
+  return <div style={{display:"grid",gap:14}}>
+    <StudentIdentityBanner sid={sid} name={studentInfo?.name||latestSemesterRecord?.name||metaRecord?.name||""} grade={grade} classNumber={studentInfo?.class??latestSemesterRecord?.class??metaRecord?.class} number={studentInfo?.number??latestSemesterRecord?.number??metaRecord?.number} entryYear={entryYear} gradeSystem={gradeSystem} viewType="favorites" />
+    <div style={card}><SectionHeading title="관심 대학·학과" description="대학 지원 기준과 광덕고 과거 지원 사례를 같은 대학 기준으로 연결해 확인합니다." />
+      <div style={favoriteView.grid}>{groups.map(group=>{
+        const admissions=(gdb.admissionRows||[]).filter(row=>universityKey(row.university)===universityKey(group.university));
+        const cases=(gdb.admissionCases||[]).filter(row=>universityKey(row.universityNormalized||row.university)===universityKey(group.university));
+        const accepted=cases.filter(row=>row.finalResult==="합격");
+        const cutValues=accepted.map(row=>asNumber(row.universityGrade??row.overallGrade)).filter(value=>value!=null).sort((a,b)=>a-b);
+        const cut50=cutValues.length?(cutValues.length%2?cutValues[(cutValues.length-1)/2]:(cutValues[cutValues.length/2-1]+cutValues[cutValues.length/2])/2):null;
+        return <article key={group.university} style={favoriteView.card}>
+          <div style={favoriteView.header}><div><b>{group.university}</b><span>{group.items.length}개 관심 항목</span></div>{onOpenAdmission&&admissions.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(group.university)}>지원 진단 보기 <ExternalLink size={12}/></button>}</div>
+          <div style={favoriteView.sourceGrid}><div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>대학 지원 진단</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div><div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>광덕고 대입 사례</small><b style={favoriteView.sourceValue}>{cases.length}건 · 합격 {accepted.length}건</b><span style={favoriteView.sourceDetail}>{cases.length?`합격자 50%컷 ${cut50==null?"-":Math.round(cut50*100)/100} · 합격 사례 ${Math.round(accepted.length/cases.length*1000)/10}%`:"연결 사례 없음"}</span></div></div>
+          <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></div>)}</div>
+        </article>
+      })}</div>
+    </div>
+  </div>;
 }
 
 /* ============================================================
@@ -3723,12 +3806,12 @@ const searchBox = {
 };
 const studentBanner = {
   box: {
-    background: "linear-gradient(135deg, #2f4630 0%, #466a43 100%)",
+    background: "linear-gradient(135deg, #274d6f 0%, #47779a 52%, #6378a5 100%)",
     color: "#fff",
     borderRadius: 16,
     padding: "20px 22px",
     marginBottom: 14,
-    boxShadow: "0 8px 22px rgba(47,70,48,0.16)",
+    boxShadow: "0 8px 22px rgba(39,77,111,0.18)",
   },
   topRow: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" },
   main: { flex: "1 1 520px", minWidth: 0 },
@@ -3745,7 +3828,7 @@ const studentBanner = {
   admissionGradeBadge: { background: "#fff", color: "#394c78", borderColor: "#fff" },
   badges: { display: "flex", flexWrap: "wrap", gap: 7, marginTop: 13 },
   badge: { display: "inline-flex", alignItems: "center", background: "rgba(255,255,255,0.13)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 999, padding: "5px 10px", fontSize: 11.5, fontWeight: 700 },
-  gradeBadge: { background: "#fff", color: "#315132", borderColor: "#fff" },
+  gradeBadge: { background: "#fff", color: "#315b84", borderColor: "#fff" },
 };
 const gradeScaleSelector = {
   box: {
@@ -3784,7 +3867,7 @@ const categoryBadgeBase = {
   minHeight: 24,
   padding: "4px 7px",
   borderRadius: 999,
-  fontSize: 10.6,
+  fontSize: 9.7,
   fontWeight: 900,
   lineHeight: 1.15,
   whiteSpace: "normal",
@@ -3826,10 +3909,10 @@ const topBadge = { marginTop: 3, fontSize: 9.5, fontWeight: 900, color: "#24613a
 const bestBadge = { fontSize: 9.5, fontWeight: 900, color: "#ffe9a6", background: "#30364d", border: "1px solid #30364d", borderRadius: 999, padding: "3px 7px", boxShadow: "0 1px 2px rgba(48,54,77,0.18)" };
 const mockSum = {
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))", gap: 10, marginTop: 14 },
-  card: { border: "1px solid #dfe7dc", background: "#f5faf4", borderRadius: 12, padding: "13px 14px", textAlign: "center" },
-  label: { fontSize: 13, fontWeight: 900, color: "#3d5c3a" },
-  value: { fontSize: 30, fontWeight: 900, lineHeight: 1.15, color: "#233523", margin: "4px 0 2px" },
-  caption: { fontSize: 10.5, color: "#7d897a" },
+  card: { border: "1px solid #d6e1ee", background: "#f4f8fc", borderRadius: 12, padding: "13px 14px", textAlign: "center" },
+  label: { fontSize: 13, fontWeight: 900, color: "#3d6288" },
+  value: { fontSize: 30, fontWeight: 900, lineHeight: 1.15, color: "#253d59", margin: "4px 0 2px" },
+  caption: { fontSize: 10.5, color: "#788697" },
 };
 const absoluteGradePill = {
   display: "inline-flex",
@@ -3992,7 +4075,27 @@ const admissionStatus = {
   noMinimum: { background: "#eef1ff", color: "#4f4a91", border: "1px solid #d3d1f2" },
   neutral: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
 };
+const favoriteView = {
+  grid:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12},
+  card:{border:"1px solid #dfe3eb",borderRadius:14,padding:14,background:"linear-gradient(135deg,#fff,#f8faff)",display:"grid",gap:12},
+  header:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10},
+  link:{display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #cfd9e7",background:"#fff",color:"#315a86",borderRadius:8,padding:"7px 9px",fontSize:11,fontWeight:850,cursor:"pointer"},
+  sourceGrid:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:8},
+  sourceBox:{display:"grid",gap:4,padding:"10px 11px",borderRadius:10,background:"#f7f9fc",border:"1px solid #e1e6ee",minWidth:0},
+  sourceLabel:{fontSize:10.3,fontWeight:900,color:"#687588"},
+  sourceValue:{fontSize:14,color:"#263a55"},
+  sourceDetail:{fontSize:10.5,color:"#788392",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"},
+  items:{display:"grid",gap:6},
+  item:{display:"flex",alignItems:"center",gap:7,padding:"8px 9px",borderRadius:9,background:"#fff",border:"1px solid #ece8df"},
+  itemText:{display:"grid",gap:2,flex:1,minWidth:0},
+  remove:{border:0,background:"#f2f3f5",color:"#777f8a",borderRadius:7,padding:"5px 7px",fontSize:10.5,fontWeight:800,cursor:"pointer"},
+};
 const admissionTable = {
+  universityWrap:{display:"grid",justifyItems:"center",gap:4,minWidth:0},
+  starButton:{display:"inline-flex",alignItems:"center",justifyContent:"center",width:22,height:22,borderRadius:7,border:"1px solid #dedfe4",background:"#fff",color:"#a0a5ad",cursor:"pointer"},
+  starButtonActive:{background:"#0f1a2e",borderColor:"#0f1a2e",color:"#ffd84d"},
+  caseLink:{border:0,background:"#eef3fa",color:"#315a86",borderRadius:999,padding:"3px 6px",fontSize:8.1,fontWeight:850,cursor:"pointer",whiteSpace:"nowrap"},
+  caseBadge:{display:"inline-flex",alignItems:"center",justifyContent:"center",background:"#eef3fa",color:"#315a86",borderRadius:999,padding:"3px 6px",fontSize:8.1,fontWeight:850,whiteSpace:"nowrap"},
   base: {
     width: "100%",
     borderCollapse: "collapse",
@@ -4005,7 +4108,7 @@ const admissionTable = {
     background: "#f6f4ee",
     color: "#332e27",
     fontWeight: 900,
-    fontSize: 9.8,
+    fontSize: 9.0,
     lineHeight: 1.18,
     textAlign: "center",
     whiteSpace: "normal",
@@ -4020,7 +4123,8 @@ const admissionTable = {
     wordBreak: "keep-all",
     overflowWrap: "break-word",
     lineHeight: 1.38,
-    fontSize: 9.9,
+    fontSize: 9.1,
+    overflow: "hidden",
   },
   stickyHead: { position: "sticky", left: 0, zIndex: 4, boxShadow: "3px 0 7px rgba(43,38,32,.06)" },
   university: {
@@ -4032,7 +4136,8 @@ const admissionTable = {
     background: "#fbfaf6",
     color: "#2b2620",
     lineHeight: 1.35,
-    fontSize: 10.2,
+    fontSize: 9.5,
+    overflowWrap: "anywhere",
     boxShadow: "3px 0 7px rgba(43,38,32,.045)",
   },
   text: { textAlign: "left", verticalAlign: "top" },
