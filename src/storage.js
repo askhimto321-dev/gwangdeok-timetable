@@ -186,7 +186,7 @@ function attachmentContentType(file) {
 async function ensureStorageIdentity() {
   if (auth.currentUser) return auth.currentUser;
   if (!anonymousAuthPromise) {
-    anonymousAuthPromise = signInAnonymously(auth)
+    anonymousAuthPromise = withTimeout(signInAnonymously(auth), 8000, "익명 인증")
       .then(result => result.user)
       .catch(error => {
         // 공개 Storage 규칙을 사용하는 기존 설치도 동작해야 하므로 인증 실패 자체로 업로드를 막지는 않습니다.
@@ -228,25 +228,20 @@ function uploadResumableWithTimeout(target, file, metadata, timeoutMs = STORAGE_
   });
 }
 
-async function uploadFile(path, file, metadata) {
+async function uploadFile(path, file, metadata, timeoutMs = STORAGE_UPLOAD_TIMEOUT_MS) {
   await ensureStorageIdentity();
   const target = storageRef(fileStorage, path);
-  // 기본 2분에, 용량이 클수록(1MB당 6초) 여유를 더 줍니다. 학교 네트워크처럼
-  // 업로드 대역폭이 느린 환경에서 큰 PDF가 진행 신호만 늦게 오다가
-  // 타임아웃으로 실패하는 것을 줄이기 위함입니다.
-  const sizeMb = (file?.size || 0) / (1024 * 1024);
-  const timeoutMs = Math.round(Math.max(STORAGE_UPLOAD_TIMEOUT_MS, 120000 + sizeMb * 6000));
   const snapshot = await uploadResumableWithTimeout(target, file, metadata, timeoutMs);
   const url = await withTimeout(getDownloadURL(snapshot.ref), 30000, "다운로드 주소 발급");
   return { snapshot, url };
 }
 
-export async function diagnoseStorageConnection() {
+export async function diagnoseStorageConnection(options = {}) {
   const body = new Blob([`storage test ${new Date().toISOString()}`], { type: "text/plain" });
   const file = new File([body], "storage-connection-test.txt", { type: "text/plain" });
   const path = `diagnostics/${Date.now()}_${Math.random().toString(36).slice(2, 7)}.txt`;
   try {
-    const { snapshot, url } = await uploadFile(path, file, { contentType: "text/plain", cacheControl: "no-store" });
+    const { snapshot, url } = await uploadFile(path, file, { contentType: "text/plain", cacheControl: "no-store" }, Number(options.timeoutMs || 12000));
     await deleteObject(snapshot.ref).catch(() => null);
     return { ok: true, url, authenticated: !!auth.currentUser, bucket: firebaseConfig.storageBucket };
   } catch (error) {
@@ -260,8 +255,102 @@ export async function diagnoseStorageConnection() {
   }
 }
 
-// 모집요강·교과 반영표 파일은 Firebase Storage에 저장하고,
-// Firestore에는 URL·대학명·문서 유형 등의 작은 메타데이터만 저장합니다.
+const ADMISSION_FIRESTORE_FILE_LIMIT_BYTES = 30 * 1024 * 1024;
+
+async function writeBinaryAttachment(key, file, metadata = {}) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const previousManifest = await readManifest(key).catch(() => null);
+  const batchId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  const chunks = [];
+  for (let offset = 0; offset < bytes.length; offset += CHUNK_RAW_BYTES) {
+    chunks.push(bytes.subarray(offset, Math.min(offset + CHUNK_RAW_BYTES, bytes.length)));
+  }
+  const concurrency = 3;
+  try {
+    for (let start = 0; start < chunks.length; start += concurrency) {
+      await Promise.all(chunks.slice(start, start + concurrency).map((chunk, localIndex) => {
+        const index = start + localIndex;
+        return withTimeout(setDoc(doc(db, COLLECTION, chunkDocumentId(key, batchId, index)), {
+          data: bytesToBase64(chunk),
+          index,
+          batchId,
+          key,
+          binary: true,
+        }), 45000, `파일 분할 저장 ${index + 1}/${chunks.length}`);
+      }));
+    }
+    await withTimeout(setDoc(doc(db, COLLECTION, key), {
+      binary: true,
+      chunked: true,
+      encoding: "base64-binary",
+      chunks: chunks.length,
+      batchId,
+      byteLength: bytes.length,
+      fileName: file.name || "document.pdf",
+      size: file.size || bytes.length,
+      contentType: metadata.contentType || attachmentContentType(file),
+      metadata,
+      updatedAt: new Date().toISOString(),
+    }), 30000, "파일 목록 저장");
+    await removeChunkBatch(key, previousManifest);
+    return { ok: true, chunks: chunks.length, bytes: bytes.length };
+  } catch (error) {
+    await removeChunkBatch(key, { chunked: true, batchId, chunks: chunks.length }).catch(() => null);
+    throw error;
+  }
+}
+
+async function readBinaryAttachment(key) {
+  const manifest = await readManifest(key);
+  if (!manifest?.binary || !manifest?.chunked || !manifest?.batchId || !Number(manifest?.chunks)) {
+    throw new Error("저장된 파일 정보를 찾지 못했습니다.");
+  }
+  const chunkCount = Number(manifest.chunks);
+  const snaps = await withTimeout(Promise.all(Array.from({ length: chunkCount }, (_, index) => (
+    getDoc(doc(db, COLLECTION, chunkDocumentId(key, manifest.batchId, index)))
+  ))), Math.max(30000, chunkCount * 7000), "저장 파일 읽기");
+  const parts = snaps.map((snap, index) => {
+    if (!snap.exists()) throw new Error(`저장 파일 ${index + 1}/${chunkCount} 누락`);
+    return base64ToBytes(snap.data()?.data || "");
+  });
+  const totalLength = parts.reduce((sum, bytes) => sum + bytes.length, 0);
+  const merged = new Uint8Array(totalLength);
+  let offset = 0;
+  parts.forEach(bytes => { merged.set(bytes, offset); offset += bytes.length; });
+  return new Blob([merged], { type: manifest.contentType || "application/pdf" });
+}
+
+async function saveAdmissionDocumentInFirestore(file, university, documentType, storageWarning = "") {
+  if (file.size > ADMISSION_FIRESTORE_FILE_LIMIT_BYTES) {
+    throw new Error("Firebase Storage 연결이 되지 않아 Firestore 대체 저장을 시도했지만, 파일이 30MB를 초과합니다.");
+  }
+  const dataKey = `kd_admission_document_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`;
+  const contentType = attachmentContentType(file);
+  await writeBinaryAttachment(dataKey, file, {
+    university: String(university || ""),
+    documentType,
+    contentType,
+    storageWarning,
+  });
+  return {
+    path: "",
+    dataKey,
+    url: "",
+    fileName: file.name,
+    size: file.size,
+    contentType,
+    documentType,
+    storageMode: "firestore-binary",
+    storageWarning,
+  };
+}
+
+export async function readAdmissionDocument(dataKey) {
+  return readBinaryAttachment(dataKey);
+}
+
+// 모집요강·교과 반영표는 Firebase Storage를 우선 사용하고,
+// Storage가 차단된 학교 네트워크에서는 파일별 Firestore 분할 저장으로 자동 전환합니다.
 export async function uploadAdmissionDocument(file, university, documentType = "guide", options = {}) {
   if (!file) throw new Error("파일을 선택해주세요.");
   const contentType = attachmentContentType(file);
@@ -277,29 +366,23 @@ export async function uploadAdmissionDocument(file, university, documentType = "
   const filePart = safeFilePart(file.name || "자료");
   const path = `${typePart}/${universityPart}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${filePart}`;
   const inline = isPdf || isImage;
+  const allowFirestoreFallback = options.allowFirestoreFallback !== false;
+  if (options.forceFirestoreFallback) {
+    return saveAdmissionDocumentInFirestore(file, university, documentType, options.storageWarning || "Storage 사전 진단 실패");
+  }
   try {
     const { snapshot, url } = await uploadFile(path, file, {
       contentType,
       contentDisposition: `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name || "document")}`,
       customMetadata: { university: String(university || ""), documentType },
-    });
+    }, Number(options.storageTimeoutMs || STORAGE_UPLOAD_TIMEOUT_MS));
     return { path: snapshot.ref.fullPath, url, fileName: file.name, size: file.size, contentType, documentType, storageMode: "firebase-storage" };
   } catch (error) {
-    if (options.allowInlineFallback !== false && file.size <= 6 * 1024 * 1024) {
-      const url = await fileToDataUrl(file);
-      return {
-        path: "",
-        url,
-        fileName: file.name,
-        size: file.size,
-        contentType,
-        documentType,
-        storageMode: "firestore-inline",
-        storageWarning: error?.code || error?.message || String(error),
-      };
-    }
     const detail = error?.code || error?.message || String(error);
-    throw new Error(`Firebase Storage 업로드 실패 (${detail}). 개별 6MB 이하 자료는 자동 대체 저장할 수 있지만 ZIP 일괄 업로드 또는 더 큰 파일은 Storage 설정이 필요합니다.`);
+    if (allowFirestoreFallback) {
+      return saveAdmissionDocumentInFirestore(file, university, documentType, detail);
+    }
+    throw new Error(`Firebase Storage 업로드 실패 (${detail}).`);
   }
 }
 
@@ -407,10 +490,20 @@ export async function deleteClassroomAttachment(identifier) {
   }
 }
 
-export async function deleteAdmissionPdf(path) {
-  if (!path) return { ok: true };
+export async function deleteAdmissionPdf(identifier) {
+  if (!identifier) return { ok: true };
+  if (String(identifier).startsWith("kd_admission_document_")) {
+    try {
+      const manifest = await readManifest(String(identifier)).catch(() => null);
+      await removeChunkBatch(String(identifier), manifest);
+      await deleteDoc(doc(db, COLLECTION, String(identifier)));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error?.code || error?.message || String(error) };
+    }
+  }
   try {
-    await deleteObject(storageRef(fileStorage, path));
+    await deleteObject(storageRef(fileStorage, identifier));
     return { ok: true };
   } catch (error) {
     if (error?.code === "storage/object-not-found") return { ok: true };
