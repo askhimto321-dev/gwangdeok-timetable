@@ -417,6 +417,32 @@ const CSS=`
 .admission-case-benchmark-companion b{font-size:12px;color:#365878;white-space:nowrap}
 .admission-case-student-benchmark em{display:block;margin-top:5px;font-size:9px!important;line-height:1.3!important;white-space:normal!important}
 .admission-case-range-filter>span{font-weight:900!important;color:#3d5068!important;letter-spacing:-.025em}
+
+/* Ver13: compact 9-grade-only student benchmark */
+.admission-case-search-actions{
+  grid-template-columns:minmax(150px,180px) minmax(300px,1fr) minmax(118px,132px) minmax(164px,178px)!important;
+}
+.admission-case-student-benchmark{
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  align-content:center;
+  min-width:0!important;
+  padding:8px 11px!important;
+  gap:5px!important;
+}
+.admission-case-benchmark-head{grid-column:auto!important}
+.admission-case-benchmark-head>small{font-size:9.2px;color:#6c7f96;font-weight:900;white-space:nowrap}
+.admission-case-benchmark-primary{display:flex!important;align-items:end;justify-content:space-between;gap:8px}
+.admission-case-benchmark-primary strong{font-size:22px!important}
+.admission-case-benchmark-primary small{padding-bottom:2px}
+.admission-case-benchmark-companion,.admission-grade-system-toggle,.admission-case-student-benchmark em{display:none!important}
+@media(max-width:1220px){
+  .admission-case-search-actions{grid-template-columns:minmax(150px,180px) minmax(290px,1fr) minmax(118px,132px) minmax(164px,178px)!important}
+}
+@media(max-width:760px){
+  .admission-case-search-actions{grid-template-columns:1fr 1fr!important}
+  .admission-case-student-benchmark,.admission-case-range-filter{grid-column:1/-1}
+}
 @media print{
   body.print-admission-case-search{margin:0!important;background:#fff!important}
   body.print-admission-case-search *{visibility:hidden!important}
@@ -658,7 +684,7 @@ function StudentConnector({profile,query,onQuery,onSelect,roster}){
     {profile?<div className="admission-student-profile" style={styles.studentProfile}>
       <div style={styles.studentProfileIdentity}><span style={styles.studentProfileEyebrow}>선택 학생</span><div style={styles.studentProfileTitle}><b>{profile.sid}</b><strong>{profile.name}</strong></div><div className="admission-student-profile-badges" style={styles.studentProfileBadges}><span>{profile.entryYear}학년도 입학생</span><span>{profile.grade}학년</span><span>{profile.gradeSystem}등급제</span></div></div>
       <div className="admission-student-score-groups">
-        <div className="admission-student-score-group is-school-group"><div className="admission-score-group-head"><strong>학생 비교 기준 내신</strong><span>학기 누적 기준</span></div><div className="admission-student-metrics is-school"><div className="is-current-grade"><small>{profile.gradeSystem}등급제 현재 내신</small><b>{fmt(profile.average)}</b></div><div className="is-converted-grade"><small>사례 비교용 9등급 환산</small><b>{fmt(profile.converted)}</b></div></div></div>
+        <div className="admission-student-score-group is-school-group"><div className="admission-score-group-head"><strong>학생 비교 기준 내신</strong><span>학기 누적 기준</span></div><div className="admission-student-metrics is-school"><div className="is-current-grade"><small>{profile.gradeSystem}등급제 현재 내신</small><b>{fmt(profile.average)}</b></div><div className="is-converted-grade"><small>9등급 환산</small><b>{fmt(profile.converted)}</b></div></div></div>
         <div className="admission-student-score-group is-mock-group"><div className="admission-score-group-head"><strong>모의고사 최저</strong><span>최신 회차 기준</span></div><div className="admission-student-metrics is-mock"><div><small>2합</small><b>{profile.sums?.sum2??"-"}</b></div><div><small>3합</small><b>{profile.sums?.sum3??"-"}</b></div><div className="is-four-sum"><small>4합</small><b>{profile.sums?.sum4??"-"}</b></div></div></div>
       </div>
     </div>:<div style={styles.studentPlaceholder}>학생을 선택하면 현재 성적과 과거 사례를 연결합니다.</div>}
@@ -945,14 +971,12 @@ function gradeScopeLabel(minGrade,maxGrade){
 function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorite,focusUniversity="",focusDepartment="",focusAdmissionType="",onClearLinkedFocus,globalMinGrade="",globalMaxGrade=""}){
   const[query,setQuery]=useState("");
   const[range,setRange]=useState(null);
-  const[gradeDisplayMode,setGradeDisplayMode]=useState("9");
   const[sortOrder,setSortOrder]=useState("default");
   const[printOrientation,setPrintOrientation]=useState("portrait");
   const[favoriteMode,setFavoriteMode]=useState("group");
   const[page,setPage]=useState(1);
   const linkedQuery=[focusUniversity,focusDepartment,focusAdmissionType].filter(Boolean).join(" ");
   useEffect(()=>{if(linkedQuery)setQuery(linkedQuery)},[linkedQuery]);
-  useEffect(()=>setGradeDisplayMode("9"),[profile?.sid]);
   const filtered=useMemo(()=>rows.filter(row=>{
     if(focusUniversity&&normalizeUniversityLink(row.universityNormalized||row.university,row.region)!==normalizeUniversityLink(focusUniversity))return false;
     if(focusDepartment&&!normalizeSearchText(row.department).includes(normalizeSearchText(focusDepartment)))return false;
@@ -1004,13 +1028,21 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
   const localScope=range!=null&&profile?.converted!=null?`9등급 환산 ${fmt(profile.converted)} ±${range.toFixed(1)}`:"";
   const scopeLabels=[globalScope,localScope].filter(Boolean);
   const sortLabel=sortOrder==="overallAsc"?"내신 오름차순":sortOrder==="overallDesc"?"내신 내림차순":"기본 정렬";
-  const studentPrintLabel=profile?`${profile.sid} ${profile.name||"학생"} · ${profile.gradeSystem}등급제 원내신 ${fmt(profile.average)} · 9등급 환산 ${fmt(profile.converted)}`:"학생 미선택";
+  const studentPrintLabel=profile?`${profile.sid} ${profile.name||"학생"} · 9등급 환산 ${fmt(profile.converted)}`:"학생 미선택";
   const printFilterLabel=[printContext,...scopeLabels,sortLabel].filter(Boolean).join(" · ");
-  const showOriginalGrade=profile?.gradeSystem===5&&gradeDisplayMode==="5";
-  const benchmarkGrade=showOriginalGrade?profile?.average:profile?.converted;
-  const benchmarkScale=showOriginalGrade?"5등급제 원내신":"9등급제 환산";
   return <div className="admission-case-search-root admission-case-print-root">
-    <div className="admission-case-search-controls no-print"><SearchBox value={query} onChange={setQuery} placeholder="예: 건국대 경영 · 대학/학과/전형 통합 검색" count={`${sorted.length.toLocaleString()}건`}/><div className="admission-case-search-actions">{profile&&<div className="admission-case-student-benchmark" title="과거 사례와 지원 구간은 모두 9등급 기준으로 비교합니다. 5등급제 버튼은 원내신 확인용입니다."><div className="admission-case-benchmark-head"><span>현재 학생 내신</span>{profile.gradeSystem===5&&<div className="admission-grade-system-toggle" aria-label="현재 내신 표시 기준"><button type="button" className={gradeDisplayMode==="9"?"is-active":""} onClick={()=>setGradeDisplayMode("9")}>9등급</button><button type="button" className={gradeDisplayMode==="5"?"is-active":""} onClick={()=>setGradeDisplayMode("5")}>5등급</button></div>}</div><div className="admission-case-benchmark-body"><div className="admission-case-benchmark-primary"><strong>{fmt(benchmarkGrade)}</strong><small>{benchmarkScale}</small></div><div className="admission-case-benchmark-companion"><span>{showOriginalGrade?"9등급 비교값":"원내신 확인"}</span><b>{showOriginalGrade?fmt(profile.converted):`${profile.gradeSystem}등급 ${fmt(profile.average)}`}</b></div></div><em>{showOriginalGrade?`사례 비교는 9등급 환산 ${fmt(profile.converted)} 사용`:(profile.gradeSystem===9?"사례와 동일한 9등급 기준":`지원 구간은 9등급 환산 ${fmt(profile.converted)} 기준`)}</em></div>}<div className="admission-case-range-filter"><span>사례 내신 비교 범위</span><button type="button" className={`admission-filter-chip ${range==null?"is-active":""}`} onClick={()=>setRange(null)}>전체</button>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-filter-chip ${range===value?"is-active":""}`} disabled={profile?.converted==null} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div><label className="admission-case-compact-control admission-case-sort-control"><span>정렬</span><select className="admission-case-sort-select" value={sortOrder} onChange={event=>setSortOrder(event.target.value)} aria-label="사례 정렬"><option value="default">기본 정렬</option><option value="overallAsc">내신 오름차순</option><option value="overallDesc">내신 내림차순</option></select></label><div className="admission-case-compact-control admission-case-print-control"><label><span>용지</span><select value={printOrientation} onChange={event=>setPrintOrientation(event.target.value)} aria-label="인쇄 방향"><option value="portrait">A4 세로</option><option value="landscape">A4 가로</option></select></label><button type="button" className="admission-case-print-button" onClick={()=>printAdmissionCaseSearch(printOrientation)} title="브라우저 인쇄 창에서 PDF로 저장할 수 있습니다."><Printer size={13}/>인쇄·PDF</button></div></div></div>
+    <div className="admission-case-search-controls no-print">
+      <SearchBox value={query} onChange={setQuery} placeholder="예: 건국대 경영 · 대학/학과/전형 통합 검색" count={`${sorted.length.toLocaleString()}건`}/>
+      <div className="admission-case-search-actions">
+        {profile&&<div className="admission-case-student-benchmark" title="과거 사례와 지원 구간은 모두 9등급 환산 기준으로 비교합니다.">
+          <div className="admission-case-benchmark-head"><span>현재 학생 내신</span><small>9등급 환산</small></div>
+          <div className="admission-case-benchmark-primary"><strong>{fmt(profile.converted)}</strong><small>9등급 환산값</small></div>
+        </div>}
+        <div className="admission-case-range-filter"><span>내신 비교 범위</span><button type="button" className={`admission-filter-chip ${range==null?"is-active":""}`} onClick={()=>setRange(null)}>전체</button>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-filter-chip ${range===value?"is-active":""}`} disabled={profile?.converted==null} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div>
+        <label className="admission-case-compact-control admission-case-sort-control"><span>정렬</span><select className="admission-case-sort-select" value={sortOrder} onChange={event=>setSortOrder(event.target.value)} aria-label="사례 정렬"><option value="default">기본 정렬</option><option value="overallAsc">내신 오름차순</option><option value="overallDesc">내신 내림차순</option></select></label>
+        <div className="admission-case-compact-control admission-case-print-control"><label><span>용지</span><select value={printOrientation} onChange={event=>setPrintOrientation(event.target.value)} aria-label="인쇄 방향"><option value="portrait">A4 세로</option><option value="landscape">A4 가로</option></select></label><button type="button" className="admission-case-print-button" onClick={()=>printAdmissionCaseSearch(printOrientation)} title="브라우저 인쇄 창에서 PDF로 저장할 수 있습니다."><Printer size={13}/>인쇄·PDF</button></div>
+      </div>
+    </div>
     <div className="admission-case-search-context no-print"><span>{focusUniversity?<><b>연결 조회</b> · {[focusUniversity,focusDepartment,focusAdmissionType].filter(Boolean).join(" › ")}</>:<><b>현재 조회</b> · {query?`“${query}” 검색 결과`:"전체 대학·학과·전형"}</>}</span><span className="admission-case-filter-status">{scopeLabels.length?scopeLabels.map(label=><b key={label}>{label}</b>):"성적 범위 제한 없음"}{sortOrder!=="default"&&<b>{sortOrder==="overallAsc"?"내신 오름차순":"내신 내림차순"}</b>}{(focusUniversity||focusDepartment||focusAdmissionType)&&<button type="button" className="admission-link-button" onClick={()=>{setQuery("");onClearLinkedFocus?.()}}>연결 필터 해제</button>}</span></div>
     <div className="admission-favorite-guide no-print"><span><strong>지원 구간 뱃지</strong> · 전교과 칸의 상향·소신·적정·안정·하향은 현재 학생의 9등급 환산과 화면에 표시된 해당 사례의 전교과 내신을 직접 비교한 값입니다. 대학별 자체 환산점수는 사용하지 않습니다.</span><div className="admission-favorite-mode"><button type="button" className={favoriteMode==="group"?"is-active":""} onClick={()=>setFavoriteMode("group")}>묶음 저장</button><button type="button" className={favoriteMode==="individual"?"is-active":""} onClick={()=>setFavoriteMode("individual")}>개별 저장</button></div></div>
     <div className="admission-case-print-header print-only"><div><h2>대입 사례 세부 검색 결과</h2><strong>{studentPrintLabel}</strong><span>{printFilterLabel}</span></div><span>{sorted.length.toLocaleString()}건<br/>{new Date().toLocaleDateString("ko-KR")}</span></div>
