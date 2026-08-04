@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
+import TeacherGradeAnalyzer from "./TeacherGradeAnalyzer.jsx";
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
 
@@ -901,8 +902,15 @@ export default function App() {
   }, [loggedInDepartment, departmentGradeAccessList, departmentTimetableAccessList, grade]);
 
   useEffect(() => {
-    if (loggedInTeacher && !teacherCanViewTimetable && tab !== "teacherZone") setTab("teacherZone");
-  }, [loggedInTeacher, teacherCanViewTimetable, tab]);
+    if (loggedInTeacher && !teacherCanViewTimetable && section !== "teacherZone") setSection("teacherZone");
+  }, [loggedInTeacher, teacherCanViewTimetable, section]);
+
+  useEffect(() => {
+    if (section === "timetable" && tab === "teacherZone" && (loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)) {
+      setSection("teacherZone");
+      setTab("student");
+    }
+  }, [section, tab, loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor]);
 
   const buildPersonalTimetable = useCallback((sid) => {
     const info = roster[sid];
@@ -1051,8 +1059,8 @@ export default function App() {
     <div style={styles.app}>
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
-      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} />
-      {staffWorkspaceEnabled && activeSection !== "admin" && <StaffStudentWorkspaceBar
+      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} />
+      {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
         allowedGrades={workspaceAllowedGrades}
         selectedSid={selectedStudentSid}
@@ -1068,6 +1076,18 @@ export default function App() {
           scopeKey={scopeKey} roster={roster} enrollments={enrollments} timetables={timetables} abbrevMap={abbrevMap} persistAbbrev={persistAbbrev}
           accounts={accounts} persistAccounts={persistAccounts} build={buildPersonalTimetable} loggedInAdmin={loggedInAdmin}
           gdb={gdb} persistGrades={persistGrades}
+        />
+      ) : activeSection === "teacherZone" ? (
+        <TeacherZoneWorkspace
+          loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInDepartment={loggedInDepartment} loggedInMonitor={loggedInMonitor}
+          viewedTeacher={viewedTeacher} setViewedTeacher={setViewedTeacher}
+          db={db} persist={persist} showToast={showToast} accounts={accounts} persistAccounts={persistAccounts}
+          grade={grade} setGrade={setGrade} semester={semester} scopeKey={scopeKey}
+          roster={roster} allRosters={db.roster} enrollments={enrollments}
+          allowedGrades={loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || []), grade]))}
+          onUpdateTeacher={(teacher) => { if (loggedInTeacher) setLoggedInTeacher(teacher); else setViewedTeacher(teacher); }}
+          onTeacherLogout={() => { if (viewedTeacher) setViewedTeacher(null); else { setLoggedInTeacher(null); saveSession({ teacherId: null }); } }}
+          onMonitorLogout={() => { setLoggedInMonitor(null); saveSession({ monitorId: null }); }}
         />
       ) : activeSection === "grades" ? (
         <GradesSection
@@ -1474,10 +1494,56 @@ function StaffStudentWorkspaceBar({
   </div>;
 }
 
-function MegaNav({ active, onSwitch, onLogout, showAdmin }) {
+function TeacherZoneWorkspace({
+  loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor,
+  viewedTeacher, setViewedTeacher, db, persist, showToast, accounts, persistAccounts,
+  grade, setGrade, semester, scopeKey, roster, allRosters, enrollments, allowedGrades,
+  onUpdateTeacher, onTeacherLogout, onMonitorLogout,
+}) {
+  const canUseNotice = !!(loggedInAdmin || loggedInTeacher || loggedInMonitor || viewedTeacher);
+  const [workspaceMode, setWorkspaceMode] = useState("grades");
+  useEffect(() => { if (!canUseNotice && workspaceMode === "notice") setWorkspaceMode("grades"); }, [canUseNotice, workspaceMode]);
+  const mergedRoster = useMemo(() => {
+    const output = {};
+    Object.values(allRosters || {}).forEach(value => Object.assign(output, value || {}));
+    return Object.keys(output).length ? output : (roster || {});
+  }, [allRosters, roster]);
+  const actor = loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin || { id: "teacher-zone", name: "선생님" };
+  const visibleGrades = (allowedGrades?.length ? allowedGrades : [grade]).map(String).filter(item => GRADES.includes(item));
+  return <div style={styles.body}>
+    <div className="no-print" style={teacherZoneWorkspaceStyles.toolbar}>
+      <div style={teacherZoneWorkspaceStyles.modeTabs}>
+        <button type="button" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
+        {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
+      </div>
+      <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
+    </div>
+    {workspaceMode === "grades" ? <TeacherGradeAnalyzer key={`${actor.id || "account"}-${grade}`} teacher={actor} roster={mergedRoster} grade={grade} showToast={showToast} /> : (
+      loggedInMonitor
+        ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={onMonitorLogout} />
+        : (loggedInTeacher || viewedTeacher)
+          ? <TeacherZoneView key={scopeKey} teacher={viewedTeacher || loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={onUpdateTeacher} viewingAsAdmin={!!viewedTeacher} onLogout={onTeacherLogout} />
+          : loggedInAdmin
+            ? <AdminTeacherPicker accounts={accounts} onSelect={setViewedTeacher} />
+            : <div style={styles.warnBanner}><AlertTriangle size={14} /> 공지 관리 권한이 없습니다.</div>
+    )}
+  </div>;
+}
+const teacherZoneWorkspaceStyles = {
+  toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14, padding: "10px 12px", border: "1px solid #dbe3ef", borderRadius: 14, background: "linear-gradient(135deg,#f7fbff,#faf8ff)", boxShadow: "0 7px 20px rgba(55,72,110,.06)", flexWrap: "wrap" },
+  modeTabs: { display: "flex", gap: 7, flexWrap: "wrap" },
+  modeButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d3ddea", borderRadius: 10, padding: "8px 12px", color: "#5d6b7e", background: "#fff", fontFamily: '"Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 12.2, fontWeight: 850, cursor: "pointer" },
+  modeButtonActive: { color: "#fff", background: "#3568a3", borderColor: "#3568a3", boxShadow: "0 6px 15px rgba(53,104,163,.2)" },
+  gradeGroup: { display: "flex", alignItems: "center", gap: 5, color: "#738095", fontSize: 11.5, fontWeight: 850 },
+  gradeButton: { border: "1px solid #d5dfeb", borderRadius: 999, padding: "6px 9px", color: "#5f6f82", background: "#fff", fontWeight: 850, cursor: "pointer" },
+  gradeButtonActive: { color: "#315d90", background: "#e9f2fc", borderColor: "#b8cde5" },
+};
+
+function MegaNav({ active, onSwitch, onLogout, showAdmin, showTeacherZone }) {
   const items = [
     { key: "grades", label: "성적", icon: "📊" },
     { key: "timetable", label: "시간표", icon: "🗓️" },
+    ...(showTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE", icon: "🧮" }] : []),
     ...(showAdmin ? [{ key: "admin", label: "관리자", icon: "⚙️" }] : []),
   ];
   return (
@@ -1518,7 +1584,6 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onB
     {canViewStudentTools && <NavBtn active={tab === "student"} onClick={() => setTab("student")} icon={<Search size={15} />} label="학생 조회" />}
     {canViewStudentTools && <NavBtn active={tab === "classPrint"} onClick={() => setTab("classPrint")} icon={<Users size={15} />} label="학급별 조회" />}
     {canViewStudentTools && <NavBtn active={tab === "subjectGroup"} onClick={() => setTab("subjectGroup")} icon={<ClipboardList size={15} />} label="이동수업반별 명단" />}
-    <NavBtn active={tab === "teacherZone"} onClick={() => setTab("teacherZone")} icon={<Lock size={15} />} label="선생님 ZONE" />
   </nav>;
   const scopes = <>
     <ScopeGroup label="학년">{GRADES.map(g => {
