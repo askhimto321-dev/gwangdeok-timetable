@@ -252,6 +252,7 @@ function defaultWorkspace() {
       workspaceMeta: { year: new Date().getFullYear(), semester: 1, grade: null, subject: "" },
     },
     tieScores: {},
+    studentOverrides: {},
   };
 }
 function normalizeWorkspaceSnapshot(parsed = {}) {
@@ -269,6 +270,7 @@ function normalizeWorkspaceSnapshot(parsed = {}) {
     written: Array.isArray(parsed.written) ? parsed.written : [],
     performance: Array.isArray(parsed.performance) ? parsed.performance : [],
     tieScores: parsed.tieScores || {},
+    studentOverrides: parsed.studentOverrides || {},
   };
 }
 function workspaceIdFromContext(item, fallbackGrade = "") {
@@ -348,6 +350,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const [performance, setPerformance] = useState(initialSnapshot.performance);
   const [settings, setSettings] = useState(initialSnapshot.settings);
   const [tieScores, setTieScores] = useState(initialSnapshot.tieScores);
+  const [studentOverrides, setStudentOverrides] = useState(initialSnapshot.studentOverrides || {});
+  const [studentEditor, setStudentEditor] = useState(null);
   const [activeView, setActiveView] = useState("combined");
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState(homeroomClass ? String(homeroomClass) : "all");
@@ -419,10 +423,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         performance,
         settings,
         tieScores,
+        studentOverrides,
         updatedAt: new Date().toISOString(),
       },
     }));
-  }, [selectedLocalId, written, performance, settings, tieScores, draftSubject, semester, grade]);
+  }, [selectedLocalId, written, performance, settings, tieScores, studentOverrides, draftSubject, semester, grade]);
 
   const sortedWritten = useMemo(() => [...written].sort((a, b) => writtenOrder(a) - writtenOrder(b) || text(a.title).localeCompare(text(b.title), "ko")), [written]);
   const uploadedAreas = useMemo(() => performance[0]?.areas || [], [performance]);
@@ -465,6 +470,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       performance,
       settings,
       tieScores,
+      studentOverrides,
       updatedAt: new Date().toISOString(),
     };
   };
@@ -513,6 +519,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setPerformance(normalized.performance);
     setSettings(normalized.settings);
     setTieScores(normalized.tieScores);
+    setStudentOverrides(normalized.studentOverrides || {});
+    setStudentEditor(null);
     setActiveView((normalized.written || []).slice().sort((a, b) => writtenOrder(a) - writtenOrder(b))[0]?.id || "combined");
     setClassFilter(homeroomClass ? String(homeroomClass) : "all");
     setGradeFilter("all");
@@ -551,7 +559,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       grade: Number(grade),
       subject: nextSubject,
     };
-    setSelectedLocalId(""); setSelectedSharedId(""); setWritten([]); setPerformance([]); setSettings(fresh.settings); setTieScores({});
+    setSelectedLocalId(""); setSelectedSharedId(""); setWritten([]); setPerformance([]); setSettings(fresh.settings); setTieScores({}); setStudentOverrides({}); setStudentEditor(null);
     setActiveView("combined"); setClassFilter(homeroomClass ? String(homeroomClass) : "all"); setGradeFilter("all"); setMinimumFilter("all"); setSearch(""); setUploadMessages([]);
   };
   const deleteLocalWorkspace = () => {
@@ -772,7 +780,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   }, [roster]);
 
   const combinedRows = useMemo(() => {
-    const studentIds = new Set();
+    const studentIds = new Set(Object.keys(studentOverrides || {}));
     sortedWritten.forEach(item => Object.keys(item.students || {}).forEach(sid => studentIds.add(sid)));
     performance.forEach(item => Object.keys(item.students || {}).forEach(sid => studentIds.add(sid)));
     const performanceStudentMap = {};
@@ -780,23 +788,30 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     const secondExam = sortedWritten.find(item => writtenOrder(item) === 2) || sortedWritten[1] || null;
     const firstExam = sortedWritten.find(item => writtenOrder(item) === 1) || sortedWritten[0] || null;
     const performanceOnly = weightTotal.written === 0 && Math.abs(weightTotal.performance - 100) < 1e-9;
+    const hasOverrideValue = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
     const rows = Array.from(studentIds).map(sid => {
+      const override = studentOverrides?.[sid] || {};
       const perfStudent = performanceStudentMap[sid];
       const info = rosterNames[sid] || {};
+      const enrollmentStatus = override.enrollmentStatus || "active";
+      const excluded = ["withdrawn", "transferred"].includes(enrollmentStatus);
       const writtenScores = {};
       let weightedWritten = 0;
       let completedWeight = 0;
       const currentMissing = [];
       sortedWritten.forEach(item => {
         const student = item.students?.[sid];
-        writtenScores[item.id] = student?.score ?? null;
-        if (student?.score == null) currentMissing.push(`${item.title}${student?.status && student.status !== "미입력" ? `(${student.status})` : ""}`);
-        else { const itemWeight=asNumber(item.weight) || 0; weightedWritten += (student.score / (item.maxScore || 100)) * itemWeight; completedWeight += itemWeight; }
+        const rawScore = hasOverrideValue(override.writtenScores, item.id) ? override.writtenScores[item.id] : student?.score;
+        const score = asNumber(rawScore);
+        writtenScores[item.id] = score;
+        if (score == null) currentMissing.push(`${item.title}${student?.status && student.status !== "미입력" ? `(${student.status})` : ""}`);
+        else { const itemWeight=asNumber(item.weight) || 0; weightedWritten += (score / (item.maxScore || 100)) * itemWeight; completedWeight += itemWeight; }
       });
       let weightedPerformance = 0;
       const areaScores = {};
       uploadedAreas.forEach(area => {
-        const score = perfStudent?.scores?.[area.id] ?? null;
+        const rawScore = hasOverrideValue(override.areaScores, area.id) ? override.areaScores[area.id] : perfStudent?.scores?.[area.id];
+        const score = asNumber(rawScore);
         areaScores[area.id] = score;
         if (score == null) currentMissing.push(area.name);
         else { const areaWeight=asNumber(area.weight) || 0; weightedPerformance += (score / (area.maxScore || 100)) * areaWeight; completedWeight += areaWeight; }
@@ -805,7 +820,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         ...plannedWritten.map(item => `${item.title || "미등록 정기시험"}(미등록)`),
         ...plannedPerformance.map(item => `${item.name || "수행평가 영역"}(미등록)`),
       ];
-      const complete = currentMissing.length === 0 && pendingAssessments.length === 0 && Math.abs(weightTotal.total - 100) < 1e-9;
+      const complete = !excluded && currentMissing.length === 0 && pendingAssessments.length === 0 && Math.abs(weightTotal.total - 100) < 1e-9;
       const convertedScore = complete ? roundTo(weightedWritten + weightedPerformance, 2) : null;
       const officialScore = convertedScore == null ? null : Math.round(convertedScore);
       const tie = tieScores[sid] || {};
@@ -813,8 +828,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         convertedScore,
         roundTo(weightedWritten, 2),
         roundTo(weightedPerformance, 2),
-        secondExam?.students?.[sid]?.score,
-        firstExam?.students?.[sid]?.score,
+        writtenScores[secondExam?.id],
+        writtenScores[firstExam?.id],
         ...uploadedAreas.map(area => areaScores[area.id]),
       ];
       const secondTieItems = Array.from({ length: 3 }, (_, index) => asNumber(tie.secondItems?.[index]));
@@ -824,10 +839,12 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       const fullVector = [...preManualVector, manualPriority == null ? null : 1000 - manualPriority];
       return {
         sid,
-        name: perfStudent?.name || info.name || "",
-        classNumber: perfStudent?.classNumber || Number(sid.slice(1, 3)) || info.class || null,
-        number: perfStudent?.number || Number(sid.slice(3, 5)) || info.number || null,
-        neisId: perfStudent?.neisId || "",
+        name: override.name || perfStudent?.name || info.name || "",
+        classNumber: asNumber(override.classNumber) || perfStudent?.classNumber || Number(sid.slice(1, 3)) || info.class || null,
+        number: asNumber(override.number) || perfStudent?.number || Number(sid.slice(3, 5)) || info.number || null,
+        neisId: override.neisId || perfStudent?.neisId || "",
+        enrollmentStatus,
+        excluded,
         writtenScores,
         areaScores,
         weightedWritten: roundTo(weightedWritten, 4),
@@ -839,14 +856,14 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         complete,
         currentMissing,
         pendingAssessments,
-        missing: [...currentMissing, ...pendingAssessments],
+        missing: excluded ? [enrollmentStatus === "withdrawn" ? "자퇴 처리" : "전출 처리"] : [...currentMissing, ...pendingAssessments],
         baseVector,
         preManualVector,
         manualPriority,
         fullVector,
       };
     });
-    const completeRows = rows.filter(row => row.complete).sort((a, b) => compareVectors(a.fullVector, b.fullVector) || a.sid.localeCompare(b.sid));
+    const completeRows = rows.filter(row => row.complete && !row.excluded).sort((a, b) => compareVectors(a.fullVector, b.fullVector) || a.sid.localeCompare(b.sid));
     let previousKey = null;
     let previousRank = 0;
     completeRows.forEach((row, index) => {
@@ -864,41 +881,45 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     completeRows.forEach(row => {
       row.achievement = achievementFromScore(settings.achievementMode === "fixed" ? row.officialScore : row.convertedScore, settings.courseType, settings.achievementMode, settings.manualCuts);
     });
-    return [...completeRows, ...rows.filter(row => !row.complete).sort((a, b) => a.sid.localeCompare(b.sid))];
-  }, [sortedWritten, performance, uploadedAreas, plannedWritten, plannedPerformance, weightTotal, tieScores, rosterNames, settings.gradeSystem, settings.courseType, settings.achievementMode, settings.manualCuts]);
+    return [...completeRows, ...rows.filter(row => !row.complete || row.excluded).sort((a, b) => Number(a.excluded) - Number(b.excluded) || a.sid.localeCompare(b.sid))];
+  }, [sortedWritten, performance, uploadedAreas, plannedWritten, plannedPerformance, weightTotal, tieScores, studentOverrides, rosterNames, settings.gradeSystem, settings.courseType, settings.achievementMode, settings.manualCuts]);
 
   const writtenCombinedRows = useMemo(() => {
-    const studentIds = new Set();
+    const studentIds = new Set(Object.keys(studentOverrides || {}));
     sortedWritten.forEach(item => Object.keys(item.students || {}).forEach(sid => studentIds.add(sid)));
     const secondExam = sortedWritten.find(item => writtenOrder(item) === 2) || sortedWritten[1] || null;
     const firstExam = sortedWritten.find(item => writtenOrder(item) === 1) || sortedWritten[0] || null;
+    const hasOverrideValue = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
     const rows = Array.from(studentIds).map(sid => {
+      const override = studentOverrides?.[sid] || {};
       const info = rosterNames[sid] || {};
+      const enrollmentStatus = override.enrollmentStatus || "active";
+      const excluded = ["withdrawn", "transferred"].includes(enrollmentStatus);
       const writtenScores = {};
       const missing = [];
       let converted = 0;
       sortedWritten.forEach(item => {
         const student = item.students?.[sid];
-        writtenScores[item.id] = student?.score ?? null;
-        if (student?.score == null) missing.push(`${item.title}${student?.status ? `(${student.status})` : ""}`);
-        else converted += (student.score / (item.maxScore || 100)) * (asNumber(item.weight) || 0);
+        const rawScore = hasOverrideValue(override.writtenScores, item.id) ? override.writtenScores[item.id] : student?.score;
+        const score = asNumber(rawScore);
+        writtenScores[item.id] = score;
+        if (score == null) missing.push(`${item.title}${student?.status ? `(${student.status})` : ""}`);
+        else converted += (score / (item.maxScore || 100)) * (asNumber(item.weight) || 0);
       });
-      const complete = sortedWritten.length > 0 && missing.length === 0 && weightTotal.written > 0;
+      const complete = !excluded && sortedWritten.length > 0 && missing.length === 0 && weightTotal.written > 0;
       const score = complete ? roundTo((converted / weightTotal.written) * 100, 2) : null;
-      const vector = [score, secondExam?.students?.[sid]?.score, firstExam?.students?.[sid]?.score];
+      const vector = [score, writtenScores[secondExam?.id], writtenScores[firstExam?.id]];
       return {
         sid,
-        name: info.name || "",
-        classNumber: Number(sid.slice(1, 3)) || info.class || null,
-        number: Number(sid.slice(3, 5)) || info.number || null,
-        writtenScores,
-        score,
-        complete,
-        missing,
+        name: override.name || info.name || "",
+        classNumber: asNumber(override.classNumber) || Number(sid.slice(1, 3)) || info.class || null,
+        number: asNumber(override.number) || Number(sid.slice(3, 5)) || info.number || null,
+        enrollmentStatus, excluded, writtenScores, score, complete,
+        missing: excluded ? [enrollmentStatus === "withdrawn" ? "자퇴 처리" : "전출 처리"] : missing,
         vector,
       };
     });
-    const completeRows = rows.filter(row => row.complete).sort((a, b) => compareVectors(a.vector, b.vector) || a.sid.localeCompare(b.sid));
+    const completeRows = rows.filter(row => row.complete && !row.excluded).sort((a, b) => compareVectors(a.vector, b.vector) || a.sid.localeCompare(b.sid));
     let prior = null;
     let rank = 0;
     completeRows.forEach((row, index) => {
@@ -913,21 +934,30 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       row.midRank = row.rank + (row.tieCount - 1) / 2;
     });
     assignQuotaGrades(completeRows, settings.gradeSystem);
-    return [...completeRows, ...rows.filter(row => !row.complete).sort((a, b) => a.sid.localeCompare(b.sid))];
-  }, [sortedWritten, rosterNames, weightTotal.written, settings.gradeSystem]);
+    return [...completeRows, ...rows.filter(row => !row.complete || row.excluded).sort((a, b) => Number(a.excluded) - Number(b.excluded) || a.sid.localeCompare(b.sid))];
+  }, [sortedWritten, rosterNames, studentOverrides, weightTotal.written, settings.gradeSystem]);
 
   const writtenRowsById = useMemo(() => {
     const result = {};
     sortedWritten.forEach(item => {
-      const rows = Object.values(item.students || {}).map(student => {
-        const info = rosterNames[student.sid] || {};
+      const ids = new Set([...Object.keys(item.students || {}), ...Object.keys(studentOverrides || {})]);
+      const rows = Array.from(ids).map(sid => {
+        const student = item.students?.[sid] || {};
+        const info = rosterNames[sid] || {};
+        const override = studentOverrides?.[sid] || {};
+        const enrollmentStatus = override.enrollmentStatus || "active";
+        const excluded = ["withdrawn", "transferred"].includes(enrollmentStatus);
+        const hasValue = Object.prototype.hasOwnProperty.call(override.writtenScores || {}, item.id);
+        const score = asNumber(hasValue ? override.writtenScores[item.id] : student.score);
         return {
-          sid: student.sid,
-          name: info.name || "",
-          classNumber: student.classNumber,
-          number: student.number,
-          score: student.score,
-          status: student.status,
+          sid,
+          name: override.name || info.name || student.name || "",
+          classNumber: asNumber(override.classNumber) || student.classNumber || Number(sid.slice(1,3)) || info.class || null,
+          number: asNumber(override.number) || student.number || Number(sid.slice(3,5)) || info.number || null,
+          score,
+          status: excluded ? (enrollmentStatus === "withdrawn" ? "자퇴" : "전출") : student.status,
+          enrollmentStatus,
+          excluded,
         };
       });
       rows.forEach(row => {
@@ -935,7 +965,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         row.manualPriority = priority;
         row.vector = [row.score, priority == null ? null : 1000 - priority];
       });
-      const complete = rows.filter(row => Number.isFinite(row.score)).sort((a, b) => compareVectors(a.vector, b.vector) || a.sid.localeCompare(b.sid));
+      const complete = rows.filter(row => Number.isFinite(row.score) && !row.excluded).sort((a, b) => compareVectors(a.vector, b.vector) || a.sid.localeCompare(b.sid));
       let priorKey = null;
       let rank = 0;
       complete.forEach((row, index) => {
@@ -950,15 +980,16 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         row.midRank = row.rank + (row.tieCount - 1) / 2;
       });
       assignQuotaGrades(complete, settings.gradeSystem);
-      result[item.id] = [...complete, ...rows.filter(row => !Number.isFinite(row.score))];
+      result[item.id] = [...complete, ...rows.filter(row => !Number.isFinite(row.score) || row.excluded).sort((a,b)=>Number(a.excluded)-Number(b.excluded)||a.sid.localeCompare(b.sid))];
     });
     return result;
-  }, [sortedWritten, rosterNames, settings.gradeSystem, tieScores]);
+  }, [sortedWritten, rosterNames, studentOverrides, settings.gradeSystem, tieScores]);
 
   const minimumSettings = useMemo(() => defaultMinimumSettings(settings, weightTotal.total), [settings, weightTotal.total]);
   const minimumRows = useMemo(() => {
     const attendance = db?.minimumAchievementAttendance?.[workspaceId] || {};
     return combinedRows.map(row => {
+      if (row.excluded) return { ...row, attendanceStatus: "제외", attendanceNote: "", needed: null, academicStatus: "not-applicable", academicLabel: row.enrollmentStatus === "withdrawn" ? "자퇴 학생 · 학기말 인원 제외" : "전출 학생 · 학기말 인원 제외", minimumStatus: "not-applicable", minimumLabel: "산출 제외", compactMissing: [] };
       const attend = attendance[row.sid] || {};
       const attendanceStatus = attend.status || "확인필요";
       const nextWeight = Math.max(0, asNumber(minimumSettings.nextExamWeight) || 0);
@@ -1000,7 +1031,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     if (!query) return true;
     return [row.sid, row.name, row.neisId].some(value => normalizeToken(value).includes(query));
   }), [activeRows, activeView, classFilter, gradeFilter, minimumFilter, search]);
-  const completeActiveRows = activeRows.filter(row => activeView === "combined" ? row.complete : activeView === "minimum" ? true : Number.isFinite(row.score));
+  const eligibleActiveRows = activeRows.filter(row => !row.excluded);
+  const completeActiveRows = eligibleActiveRows.filter(row => activeView === "combined" ? row.complete : activeView === "minimum" ? true : Number.isFinite(row.score));
   const classes = useMemo(() => Array.from(new Set(activeRows.map(row => row.classNumber).filter(Boolean))).sort((a, b) => a - b), [activeRows]);
   const activeStats = activeView === "combined"
     ? assessmentStats(completeActiveRows.map(row => row.convertedScore))
@@ -1027,18 +1059,18 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   }, [completeActiveRows, settings.gradeSystem, activeView]);
   const achievementDistribution = useMemo(() => {
     const labels = settings.courseType === "common" ? ["A", "B", "C", "D", "E", "미도달"] : ["A", "B", "C", "D", "E"];
-    return labels.map(label => ({ label, count: combinedRows.filter(row => row.complete && row.achievement === label).length }));
+    return labels.map(label => ({ label, count: combinedRows.filter(row => row.complete && !row.excluded && row.achievement === label).length }));
   }, [combinedRows, settings.courseType]);
   const minimumSummary = useMemo(() => ({
-    risk: minimumRows.filter(row => row.minimumStatus === "risk").length,
-    fail: minimumRows.filter(row => row.minimumStatus === "fail").length,
-    check: minimumRows.filter(row => row.minimumStatus === "check").length,
-    reached: minimumRows.filter(row => row.minimumStatus === "reached").length,
+    risk: minimumRows.filter(row => !row.excluded && row.minimumStatus === "risk").length,
+    fail: minimumRows.filter(row => !row.excluded && row.minimumStatus === "fail").length,
+    check: minimumRows.filter(row => !row.excluded && row.minimumStatus === "check").length,
+    reached: minimumRows.filter(row => !row.excluded && row.minimumStatus === "reached").length,
   }), [minimumRows]);
   const unresolvedTieGroups = useMemo(() => {
     if (activeView !== "combined" || (weightTotal.written === 0 && Math.abs(weightTotal.performance - 100) < 1e-9)) return [];
     const groups = new Map();
-    combinedRows.filter(row => row.complete).forEach(row => {
+    combinedRows.filter(row => row.complete && !row.excluded).forEach(row => {
       const key = vectorKey(row.baseVector);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(row);
@@ -1049,7 +1081,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const writtenTieGroups = useMemo(() => {
     if (!selectedWrittenForTie) return [];
     const groups = new Map();
-    (writtenRowsById[selectedWrittenForTie.id] || []).filter(row => Number.isFinite(row.score)).forEach(row => {
+    (writtenRowsById[selectedWrittenForTie.id] || []).filter(row => Number.isFinite(row.score) && !row.excluded).forEach(row => {
       const key = Number(row.score).toFixed(6);
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(row);
@@ -1081,87 +1113,84 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     const XLSX = await import("xlsx");
     const workbook = XLSX.utils.book_new();
     const headers = activeView === "combined"
-      ? ["학번", "성명", "반", "번호", ...sortedWritten.map(item => item.title), ...canonicalAreas.map(area => area.name), "수행 환산", "학기말 환산점수", "원점수", "석차", "동석차", "중간석차", "석차등급", "성취도", "확인사항"]
+      ? ["학번", "성명", "반", "번호", ...sortedWritten.map(item => item.title), ...canonicalAreas.map(area => area.name), "수행 환산", "학기말 환산점수", "원점수", "석차", "동석차", "중간석차", "석차등급", "성취도", "학적 상태", "확인사항"]
       : activeView === "minimum"
-        ? ["학번", "성명", "반", "번호", "과목구분", "현재 환산점수", "입력 완료 비율", "다음 정기시험 필요점수", "출결", "최성보 상태", "확인사항"]
-        : ["학번", "성명", "반", "번호", "점수", "석차", "동석차", "중간석차", "석차등급", "상태"];
-    const rows = activeRows.map(row => activeView === "combined"
-      ? [row.sid, row.name, row.classNumber, row.number, ...sortedWritten.map(item => row.writtenScores[item.id]), ...canonicalAreas.map(area => row.areaScores[area.id]), row.weightedPerformance, row.convertedScore, row.officialScore, row.rank, row.tieCount, row.midRank, row.grade, row.achievement, row.missing.join(", ")]
+        ? ["학번", "성명", "반", "번호", "과목 유형", "현재 환산", "입력 비율", "다음 시험 필요점수", "학업 상태", "과목 출결", "최성보 판정", "학적 상태", "확인사항"]
+        : ["학번", "성명", "반", "번호", selectedWritten?.title || "지필 점수", "석차", "동석차", "중간석차", "석차등급", "학적 상태", "상태"];
+    const data = activeRows.map(row => activeView === "combined"
+      ? [row.sid, row.name, row.classNumber, row.number, ...sortedWritten.map(item => row.writtenScores[item.id]), ...canonicalAreas.map(area => row.areaScores[area.id]), row.weightedPerformance, row.convertedScore, row.officialScore, row.rank, row.tieCount, row.midRank, row.grade, row.achievement, row.enrollmentStatus === "withdrawn" ? "자퇴" : row.enrollmentStatus === "transferred" ? "전출" : "재학", row.missing.join(", ")]
       : activeView === "minimum"
-        ? [row.sid, row.name, row.classNumber, row.number, settings.courseType === "common" ? "공통과목" : "선택과목", roundTo(Number(row.weightedWritten || 0) + Number(row.weightedPerformance || 0), 2), row.completedWeight, row.needed, row.attendanceStatus, row.minimumLabel, row.compactMissing.join(", ")]
-        : [row.sid, row.name, row.classNumber, row.number, row.score, row.rank, row.tieCount, row.midRank, row.grade, row.status]);
-    const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    sheet["!cols"] = headers.map((header, index) => ({ wch: index < 2 ? 14 : Math.min(28, Math.max(9, text(header).length + 3)) }));
+        ? [row.sid, row.name, row.classNumber, row.number, settings.courseType === "common" ? "공통" : "선택", row.convertedScore, row.completedWeight, row.needed, row.academicLabel, row.attendanceStatus, row.minimumLabel, row.enrollmentStatus === "withdrawn" ? "자퇴" : row.enrollmentStatus === "transferred" ? "전출" : "재학", row.compactMissing.join(", ")]
+        : [row.sid, row.name, row.classNumber, row.number, row.score, row.rank, row.tieCount, row.midRank, row.grade, row.enrollmentStatus === "withdrawn" ? "자퇴" : row.enrollmentStatus === "transferred" ? "전출" : "재학", row.status]);
+    const sheet = XLSX.utils.aoa_to_sheet([headers, ...data]);
     XLSX.utils.book_append_sheet(workbook, sheet, activeView === "combined" ? "학기말 성적" : activeView === "minimum" ? "최소성취수준" : "지필평가");
-    const summary = [
-      ["과목", context?.subject || ""], ["학년도", context?.year || ""], ["학기", context?.semester || ""], ["학년", context?.grade || grade],
+    const settingsSheet = XLSX.utils.aoa_to_sheet([
+      ["항목", "설정값"], ["과목", context?.subject || ""], ["학년도", context?.year || ""], ["학기", context?.semester || ""],
       ["등급제", `${settings.gradeSystem}등급제`], ["성취도 방식", settings.achievementMode === "fixed" ? "고정분할" : "수동 분할점수"],
       ["지필 반영비율", `${weightTotal.written}%`], ["수행 반영비율", `${weightTotal.performance}%`], ["합계", `${weightTotal.total}%`],
-      [], ["등급", "인원", "비율", "최저점"], ...gradeDistribution.map(item => [item.grade, item.count, completeActiveRows.length ? item.count / completeActiveRows.length : 0, item.min]),
-    ];
-    const summarySheet = XLSX.utils.aoa_to_sheet(summary);
-    summarySheet["!cols"] = [{ wch: 20 }, { wch: 20 }, { wch: 14 }, { wch: 14 }];
-    XLSX.utils.book_append_sheet(workbook, summarySheet, "요약");
-    XLSX.writeFile(workbook, `${context?.year || "성적"}_${context?.subject || "과목"}_${activeView === "combined" ? "학기말" : activeView === "minimum" ? "최성보" : "지필"}_산출결과.xlsx`);
-  };
-
-  const managedWorkspaceRows = useMemo(() => {
-    const local = Object.values(localWorkspaces || {}).map(item => ({ ...item, source: "local", sourceLabel: "개인 임시본" }));
-    const shared = sharedWorkspaces.map(item => ({ ...item, source: "shared", sourceLabel: "학교 공동본" }));
-    return [...local, ...shared].map(item => {
-      const classNumbers = Array.from(new Set([
-        ...(item.performance || []).flatMap(file => file.classes || []),
-        ...(item.written || []).flatMap(file => Object.values(file.students || {}).map(student => student.classNumber)),
-      ].filter(Boolean))).sort((a, b) => a - b);
-      const studentCount = new Set([
-        ...(item.written || []).flatMap(file => Object.keys(file.students || {})),
-        ...(item.performance || []).flatMap(file => Object.keys(file.students || {})),
-      ]).size;
-      return { ...item, classNumbers, studentCount };
-    });
-  }, [localWorkspaces, sharedWorkspaces]);
-  const dataSubjects = useMemo(() => Array.from(new Set(managedWorkspaceRows.map(item => item.subject).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"ko")), [managedWorkspaceRows]);
-  const dataClasses = useMemo(() => Array.from(new Set(managedWorkspaceRows.flatMap(item => item.classNumbers || []))).sort((a,b)=>a-b), [managedWorkspaceRows]);
-  const filteredManagedWorkspaces = useMemo(() => managedWorkspaceRows.filter(item => {
-    if (dataSubjectFilter !== "all" && item.subject !== dataSubjectFilter) return false;
-    if (dataClassFilter !== "all" && !(item.classNumbers || []).map(String).includes(String(dataClassFilter))) return false;
-    return true;
-  }), [managedWorkspaceRows, dataSubjectFilter, dataClassFilter]);
-  const deleteSharedWorkspace = async item => {
-    if (!item?.id || !(accessRole === "admin" || canEditSubject(item.subject))) return;
-    if (!window.confirm(`${item.subject || "이 과목"}의 학교 공동 저장본을 삭제할까요?`)) return;
-    const next = { ...(db?.teacherGradeWorkspaces || {}) };
-    delete next[item.id];
-    const ok = await persist?.({ teacherGradeWorkspaces: next });
-    if (ok !== false) { if (selectedSharedId === item.id) startNewWorkspace(item.subject); showToast?.("학교 공동 저장본을 삭제했습니다.", "success"); }
-  };
-  const deleteLocalWorkspaceById = item => {
-    if (!item?.id) return;
-    if (!window.confirm(`${item.subject || "이 과목"}의 개인 임시본을 삭제할까요?`)) return;
-    setLocalWorkspaces(current => { const next = { ...current }; delete next[item.id]; return next; });
-    if (selectedLocalId === item.id) startNewWorkspace(item.subject);
-    showToast?.("개인 임시본을 삭제했습니다.", "success");
-  };
-  const clearCurrentGradeLocalData = () => {
-    if (!Object.keys(localWorkspaces || {}).length) return;
-    if (!window.confirm(`${grade}학년 개인 임시 저장본을 모두 초기화할까요? 학교 공동 저장본은 유지됩니다.`)) return;
-    setLocalWorkspaces({});
-    setSelectedLocalId("");
-    try { localStorage.removeItem(storageKey); localStorage.removeItem(legacyStorageKey); } catch { /* ignore */ }
-    startNewWorkspace();
-    showToast?.(`${grade}학년 개인 임시 저장본을 초기화했습니다.`, "success");
-  };
-  const clearCurrentGradeSharedData = async () => {
-    if (accessRole !== "admin") return;
-    const gradeItems = Object.values(db?.teacherGradeWorkspaces || {}).filter(item => String(item?.grade || "") === String(grade));
-    if (!gradeItems.length) return;
-    if (!window.confirm(`${grade}학년 학교 공동 저장본 ${gradeItems.length}개를 모두 초기화할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
-    const next = Object.fromEntries(Object.entries(db?.teacherGradeWorkspaces || {}).filter(([, item]) => String(item?.grade || "") !== String(grade)));
-    const ok = await persist?.({ teacherGradeWorkspaces: next });
-    if (ok !== false) { setSelectedSharedId(""); startNewWorkspace(); showToast?.(`${grade}학년 학교 공동 저장본을 초기화했습니다.`, "success"); }
+      ["학기말 산출 인원", `${combinedRows.filter(row=>row.complete&&!row.excluded).length}명`], ["자퇴·전출 제외", `${combinedRows.filter(row=>row.excluded).length}명`],
+    ]);
+    XLSX.utils.book_append_sheet(workbook, settingsSheet, "산출 설정");
+    XLSX.writeFile(workbook, `${context?.subject || "과목"}_${activeView === "combined" ? "학기말성적" : activeView === "minimum" ? "최성보" : "지필결과"}.xlsx`);
   };
 
   const selectedWritten = sortedWritten.find(item => item.id === activeView) || null;
+  const openStudentEditor = (row = null) => {
+    const sid = String(row?.sid || "");
+    const base = combinedRows.find(item => item.sid === sid) || row || {};
+    const existing = studentOverrides?.[sid] || {};
+    setStudentEditor({
+      originalSid: sid,
+      sid,
+      name: existing.name || base.name || rosterNames[sid]?.name || "",
+      classNumber: existing.classNumber ?? base.classNumber ?? rosterNames[sid]?.class ?? "",
+      number: existing.number ?? base.number ?? rosterNames[sid]?.number ?? "",
+      enrollmentStatus: existing.enrollmentStatus || base.enrollmentStatus || "active",
+      writtenScores: { ...(base.writtenScores || {}), ...(existing.writtenScores || {}) },
+      areaScores: { ...(base.areaScores || {}), ...(existing.areaScores || {}) },
+    });
+  };
+  const hydrateStudentEditor = sidValue => {
+    const sid = String(sidValue || "").trim();
+    const info = rosterNames[sid] || {};
+    setStudentEditor(current => current ? ({
+      ...current,
+      sid,
+      name: current.name || info.name || "",
+      classNumber: current.classNumber || info.class || Number(sid.slice(1,3)) || "",
+      number: current.number || info.number || Number(sid.slice(3,5)) || "",
+    }) : current);
+  };
+  const saveStudentEditor = () => {
+    if (!studentEditor) return;
+    const sid = String(studentEditor.sid || "").trim();
+    if (!/^\d{5}$/.test(sid)) { showToast?.("학번은 5자리 숫자로 입력해주세요.", "error"); return; }
+    if (readOnlyWorkspace) { showToast?.("담당 과목 교사 또는 관리자만 학생 성적을 수정할 수 있습니다.", "error"); return; }
+    const normalizeScores = values => Object.fromEntries(Object.entries(values || {}).map(([key,value]) => [key, value === "" || value == null ? null : asNumber(value)]));
+    setStudentOverrides(current => {
+      const next = { ...current };
+      if (studentEditor.originalSid && studentEditor.originalSid !== sid) delete next[studentEditor.originalSid];
+      next[sid] = {
+        name: text(studentEditor.name),
+        classNumber: asNumber(studentEditor.classNumber),
+        number: asNumber(studentEditor.number),
+        enrollmentStatus: studentEditor.enrollmentStatus || "active",
+        writtenScores: normalizeScores(studentEditor.writtenScores),
+        areaScores: normalizeScores(studentEditor.areaScores),
+        updatedBy: teacher?.name || teacher?.id || accessRole,
+        updatedAt: new Date().toISOString(),
+      };
+      return next;
+    });
+    setStudentEditor(null);
+    showToast?.(`${sid} 학생 성적·학적 정보를 화면에 반영했습니다. 저장 버튼을 눌러 확정해주세요.`, "success");
+  };
+  const clearStudentOverride = sid => {
+    if (!studentOverrides?.[sid]) { setStudentEditor(null); return; }
+    if (!window.confirm(`${sid} 학생의 수기 수정값을 삭제하고 업로드 원본으로 되돌릴까요?`)) return;
+    setStudentOverrides(current => { const next = { ...current }; delete next[sid]; return next; });
+    setStudentEditor(null);
+  };
   return (
     <div className="teacher-grade-analyzer" style={ui.root}>
       <style>{gradeAnalyzerCss}</style>
@@ -1275,11 +1304,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
               <MetricCard label="미도달" value={`${minimumSummary.fail}명`} caption="학업성취율 또는 출결 미도달" danger={minimumSummary.fail > 0} />
               <MetricCard label="확인 필요" value={`${minimumSummary.check}명`} caption="출결·미입력 자료 확인" />
             </> : <>
-              <MetricCard label="산출 학생" value={`${activeStats.count}명`} caption={`전체 ${activeRows.length}명`} />
+              <MetricCard label="산출 학생" value={`${activeStats.count}명`} caption={`학기말 대상 ${eligibleActiveRows.length}명${activeRows.length>eligibleActiveRows.length?` · 자퇴·전출 ${activeRows.length-eligibleActiveRows.length}명 제외`:""}`} />
               <MetricCard label="평균" value={formatScore(activeStats.average, 1)} caption="소수 첫째 자리" />
               <MetricCard label="최고점" value={formatScore(activeStats.max, 2)} caption="정상 산출 학생" />
               <MetricCard label="최저점" value={formatScore(activeStats.min, 2)} caption="정상 산출 학생" />
-              {activeView === "combined" && <MetricCard label="미처리" value={`${activeRows.filter(row => !row.complete).length}명`} caption="공란·결시 확인 필요" danger={activeRows.some(row => !row.complete)} />}
+              {activeView === "combined" && <MetricCard label="미처리" value={`${eligibleActiveRows.filter(row => !row.complete).length}명`} caption="공란·결시 확인 필요" danger={eligibleActiveRows.some(row => !row.complete)} />}
             </>}
           </div>
           {activeView !== "minimum" && <div style={ui.summaryGrid}>
@@ -1309,10 +1338,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             <div style={ui.searchBox}><span style={ui.searchIcon}><Search size={15}/></span><div style={ui.searchField}><small style={ui.searchLabel}>학생 검색</small><input className="teacher-grade-analyzer-search-input" value={search} onChange={event => setSearch(event.target.value)} placeholder="학번 또는 이름을 입력하세요" /></div></div>
             <select value={classFilter} onChange={event => setClassFilter(event.target.value)} style={ui.select}><option value="all">전체 반</option>{classes.map(classNumber => <option key={classNumber} value={String(classNumber)}>{classNumber}반</option>)}</select>
             {activeView === "minimum" ? <select value={minimumFilter} onChange={event => setMinimumFilter(event.target.value)} style={ui.select}><option value="all">전체</option><option value="risk">주의 대상자</option><option value="fail">미도달</option><option value="check">확인 필요</option><option value="reached">도달</option></select> : <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={ui.select}><option value="all">전체 등급</option>{Array.from({length:Number(settings.gradeSystem)},(_,index)=><option key={index+1} value={String(index+1)}>{index+1}등급</option>)}</select>}
+            <button type="button" className="student-score-edit-launch" disabled={readOnlyWorkspace} onClick={()=>openStudentEditor()}><Plus size={13}/> 학생 성적 입력·수정</button>
             <span style={ui.resultCount}>{filteredRows.length}명 표시</span>
           </div>
           <div style={ui.tableScroll}>
-            {activeView === "combined" ? <CombinedTable rows={filteredRows} written={sortedWritten} areas={canonicalAreas} /> : activeView === "minimum" ? <MinimumTable rows={filteredRows} settings={settings} minimumSettings={minimumSettings} /> : <WrittenTable rows={filteredRows} assessment={selectedWritten} />}
+            {activeView === "combined" ? <CombinedTable rows={filteredRows} written={sortedWritten} areas={canonicalAreas} onEdit={readOnlyWorkspace?null:openStudentEditor} /> : activeView === "minimum" ? <MinimumTable rows={filteredRows} settings={settings} minimumSettings={minimumSettings} onEdit={readOnlyWorkspace?null:openStudentEditor} /> : <WrittenTable rows={filteredRows} assessment={selectedWritten} onEdit={readOnlyWorkspace?null:openStudentEditor} />}
           </div>
         </>}
       </section>
@@ -1324,6 +1354,23 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         <div style={ui.dataManagementGrid}>{filteredManagedWorkspaces.map(item=><article key={`${item.source}-${item.id}`} style={ui.dataWorkspaceCard}><div style={ui.dataWorkspaceHead}><div><span style={item.source==="shared"?ui.sharedSourceBadge:ui.localSourceBadge}>{item.sourceLabel}</span><b>{item.subject||"과목 미상"}</b></div><button type="button" style={ui.iconDangerButton} title="삭제" disabled={item.source==="shared"&&!(accessRole==="admin"||canEditSubject(item.subject))} onClick={()=>item.source==="shared"?deleteSharedWorkspace(item):deleteLocalWorkspaceById(item)}><Trash2 size={14}/></button></div><div style={ui.dataWorkspaceMeta}><span>{item.year||"-"}학년도 {item.semester||"-"}학기</span><span>{item.grade||grade}학년</span><span>{(item.classNumbers||[]).length?`${item.classNumbers.join(", ")}반`:"학급 미확인"}</span><span>학생 {item.studentCount||0}명</span></div><small>지필 {(item.written||[]).length}개 · 수행 {(item.performance||[]).length}개 · 마지막 저장 {item.updatedAt?new Date(item.updatedAt).toLocaleString("ko-KR"):"-"}</small></article>)}</div>
         {!filteredManagedWorkspaces.length&&<div style={ui.emptyState}><Database size={30}/><b>조건에 맞는 저장 자료가 없습니다.</b><span>성적 산출 화면에서 개인 임시 저장 또는 학교 공동 저장을 진행해주세요.</span></div>}
       </section>}
+      {studentEditor && <div className="student-score-editor-overlay" role="dialog" aria-modal="true" aria-label="학생 성적 입력·수정">
+        <div className="student-score-editor">
+          <div className="student-score-editor-head"><div><b>학생 성적 입력·수정</b><span>수기 입력값은 업로드 원본보다 우선 적용됩니다.</span></div><button type="button" onClick={()=>setStudentEditor(null)}>×</button></div>
+          <div className="student-score-editor-grid identity">
+            <label><span>학번</span><input list="teacher-grade-roster-sids" value={studentEditor.sid} onChange={event=>hydrateStudentEditor(event.target.value)} placeholder="5자리 학번"/></label>
+            <datalist id="teacher-grade-roster-sids">{Object.entries(rosterNames).map(([sid,info])=><option key={sid} value={sid}>{info?.name||""}</option>)}</datalist>
+            <label><span>성명</span><input value={studentEditor.name} onChange={event=>setStudentEditor(current=>({...current,name:event.target.value}))}/></label>
+            <label><span>반</span><input type="number" min="1" value={studentEditor.classNumber} onChange={event=>setStudentEditor(current=>({...current,classNumber:event.target.value}))}/></label>
+            <label><span>번호</span><input type="number" min="1" value={studentEditor.number} onChange={event=>setStudentEditor(current=>({...current,number:event.target.value}))}/></label>
+            <label><span>학적 상태</span><select value={studentEditor.enrollmentStatus} onChange={event=>setStudentEditor(current=>({...current,enrollmentStatus:event.target.value}))}><option value="active">재학</option><option value="withdrawn">자퇴</option><option value="transferred">전출</option></select></label>
+          </div>
+          <div className="student-score-editor-section"><b>지필평가</b><div className="student-score-editor-grid scores">{sortedWritten.map(item=><label key={item.id}><span>{item.title}<small>{item.maxScore||100}점 만점</small></span><input type="number" min="0" max={item.maxScore||100} step="0.1" value={studentEditor.writtenScores?.[item.id]??""} onChange={event=>setStudentEditor(current=>({...current,writtenScores:{...(current.writtenScores||{}),[item.id]:event.target.value}}))}/></label>)}</div>{!sortedWritten.length&&<small>등록된 지필평가가 없습니다.</small>}</div>
+          <div className="student-score-editor-section"><b>수행평가</b><div className="student-score-editor-grid scores">{canonicalAreas.map(area=><label key={area.id}><span>{area.name}<small>{area.maxScore||100}점 만점</small></span><input type="number" min="0" max={area.maxScore||100} step="0.1" value={studentEditor.areaScores?.[area.id]??""} onChange={event=>setStudentEditor(current=>({...current,areaScores:{...(current.areaScores||{}),[area.id]:event.target.value}}))}/></label>)}</div>{!canonicalAreas.length&&<small>등록된 수행평가 영역이 없습니다.</small>}</div>
+          <div className="student-score-editor-actions">{studentEditor.originalSid&&studentOverrides?.[studentEditor.originalSid]&&<button type="button" className="reset" onClick={()=>clearStudentOverride(studentEditor.originalSid)}>수기값 삭제</button>}<span/><button type="button" onClick={()=>setStudentEditor(null)}>취소</button><button type="button" className="save" onClick={saveStudentEditor}>화면에 적용</button></div>
+          <p className="student-score-editor-note">자퇴·전출 학생은 결과표에는 표시되지만 학기말 수강자수·등급·성취도 산출 인원에서는 제외됩니다.</p>
+        </div>
+      </div>}
     </div>
   );
 }
@@ -1336,8 +1383,9 @@ function AchievementDonut({ rows, total, mode }) {
   let cursor=0;
   const stops=rows.map((item,index)=>{const start=cursor;const size=total?item.count/total*100:0;cursor+=size;return `${colors[index%colors.length]} ${start}% ${cursor}%`});
   const background=total?`conic-gradient(${stops.join(",")})`:"#edf1f5";
-  return <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"수동 컷"}</span></div></div><div className="achievement-donut-legend">{rows.map((item,index)=><div key={item.label}><i style={{background:colors[index%colors.length]}}/><span>{item.label}</span><b>{ratioLabel(item.count,total)}</b></div>)}</div></div>;
+  return <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"수동 컷"}</span></div></div><div className="achievement-donut-legend">{rows.map((item,index)=>{const percent=total?item.count/total*100:0;return <div key={item.label}><i style={{background:colors[index%colors.length]}}/><span className="achievement-legend-label">{item.label}</span><b>{item.count}명</b><small>{percent.toFixed(1)}%</small></div>})}</div></div>;
 }
+
 
 function TieItemInputs({ label, values, onChange, disabled = false }) {
   return <div style={ui.tieItemSet}><b>{label}</b><div>{[0, 1, 2].map(index => <label key={index}><span>{index + 1}</span><input type="number" min="0" step="0.1" value={values[index] ?? ""} disabled={disabled} onChange={event => onChange(index, event.target.value)} /></label>)}</div></div>;
@@ -1368,15 +1416,17 @@ function GradeBadge({ grade }) {
   if (!grade) return "-";
   return <span style={grade === 1 ? ui.firstGradeMark : ui.tableGrade}>{grade}등급</span>;
 }
-function CombinedTable({ rows, written, areas }) {
-  return <table className="teacher-grade-result-table" style={ui.table}><thead><tr><th className="student-id-head">학번</th><th className="student-name-head">성명</th><th className="student-class-head">반</th><th className="student-number-head">번호</th>{written.map(item => <th className="score-head" key={item.id}>{item.title}</th>)}<th className="score-head">수행</th><th className="score-head">환산점수</th><th className="score-head">원점수</th><th className="rank-head">석차</th><th className="grade-head">등급</th><th className="achievement-head">성취도</th><th className="status-head">입력 상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={!row.complete ? ui.incompleteRow : undefined}><StudentIdentityCells row={row}/>{written.map(item => <td className="score-cell" key={item.id}>{formatScore(row.writtenScores[item.id], 1)}</td>)}<td className="score-cell"><b>{formatScore(row.weightedPerformance, 2)}</b><small>{areas.length ? areas.map(area => formatScore(row.areaScores[area.id], 1)).join(" / ") : "수행 없음"}</small></td><td className="score-cell"><b>{formatScore(row.convertedScore, 2)}</b></td><td className="score-cell">{row.officialScore ?? "-"}</td><td className="rank-cell">{row.rank ? <><b>{row.rank}</b><small>{row.tieCount > 1 ? `동석차 ${row.tieCount}명 · 중간 ${row.midRank}` : ""}</small></> : "-"}</td><td><GradeBadge grade={row.grade}/></td><td><span style={{ ...ui.achievementBadge, ...(row.achievement === "미도달" ? ui.achievementFail : {}) }}>{row.achievement || "-"}</span></td><td><MissingState missing={row.missing} complete={row.complete}/></td></tr>)}</tbody></table>;
+function CombinedTable({ rows, written, areas, onEdit }) {
+  return <table className="teacher-grade-result-table" style={ui.table}><thead><tr><th className="student-id-head">학번</th><th className="student-name-head">성명</th><th className="student-class-head">반</th><th className="student-number-head">번호</th>{written.map(item => <th className="score-head" key={item.id}>{item.title}</th>)}<th className="performance-score-head">수행</th><th className="score-head">환산점수</th><th className="score-head">원점수</th><th className="rank-head">석차</th><th className="grade-head">등급</th><th className="achievement-head">성취도</th><th className="status-head">입력·학적</th>{onEdit&&<th className="edit-head">수정</th>}</tr></thead><tbody>{rows.map(row => <tr key={row.sid} className={row.excluded?"is-excluded-student":""} style={!row.complete&&!row.excluded ? ui.incompleteRow : undefined}><StudentIdentityCells row={row}/>{written.map(item => <td className="score-cell" key={item.id}>{formatScore(row.writtenScores[item.id], 1)}</td>)}<td className="performance-score-cell"><b>{formatScore(row.weightedPerformance, 2)}</b><small>{areas.length ? areas.map(area => formatScore(row.areaScores[area.id], 1)).join(" / ") : "수행 없음"}</small></td><td className="score-cell"><b>{formatScore(row.convertedScore, 2)}</b></td><td className="score-cell">{row.officialScore ?? "-"}</td><td className="rank-cell">{row.rank ? <><b>{row.rank}</b><small>{row.tieCount > 1 ? `동석차 ${row.tieCount}명 · 중간 ${row.midRank}` : ""}</small></> : "-"}</td><td><GradeBadge grade={row.grade}/></td><td><span style={{ ...ui.achievementBadge, ...(row.achievement === "미도달" ? ui.achievementFail : {}) }}>{row.achievement || "-"}</span></td><td>{row.excluded?<span className="enrollment-status-badge">{row.enrollmentStatus==="withdrawn"?"자퇴":"전출"} · 산출 제외</span>:<MissingState missing={row.missing} complete={row.complete}/>}</td>{onEdit&&<td><button type="button" className="student-row-edit" onClick={()=>onEdit(row)}>수정</button></td>}</tr>)}</tbody></table>;
 }
-function MinimumTable({ rows, settings, minimumSettings }) {
-  return <table className="teacher-grade-result-table teacher-grade-minimum-table" style={{...ui.table,minWidth:930}}><thead><tr><th className="student-id-head">학번</th><th className="student-name-head">성명</th><th className="student-class-head">반</th><th className="student-number-head">번호</th><th>과목 유형</th><th className="score-head">현재 환산</th><th>입력 완료</th><th>다음 정기시험 필요점수</th><th>과목 출결</th><th>최성보 판정</th><th>확인 사항</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={row.minimumStatus === "fail" ? ui.minimumFailRow : row.minimumStatus === "risk" ? ui.minimumRiskRow : undefined}><StudentIdentityCells row={row}/><td><span style={ui.courseTypeBadge}>{settings.courseType === "common" ? "공통과목" : "선택과목"}</span></td><td className="score-cell"><b>{formatScore(Number(row.weightedWritten || 0)+Number(row.weightedPerformance || 0),2)}</b><small>{row.completedWeight}% 입력</small></td><td>{row.complete ? <span style={ui.okText}><Check size={12}/>완료</span> : <b>{row.completedWeight}%</b>}</td><td>{settings.courseType === "elective" ? <span style={ui.notApplicable}>적용 안 함</span> : row.needed == null ? "-" : row.needed <= 0 ? <span style={ui.okText}><Check size={12}/>현재 도달</span> : row.needed > Number(minimumSettings.nextExamMax) ? <span style={ui.failText}>미도달 확정</span> : <><b>{row.needed}점 이상</b><small>{minimumSettings.nextExamLabel}</small></>}</td><td><span style={row.attendanceStatus === "미도달" ? ui.failPill : row.attendanceStatus === "도달" ? ui.attendanceOk : ui.checkPill}>{row.attendanceStatus === "확인필요" ? "확인 필요" : row.attendanceStatus}</span></td><td><span style={{...ui.minimumStatusBadge,...(row.minimumStatus === "fail" ? ui.minimumStatusFail : row.minimumStatus === "risk" ? ui.minimumStatusRisk : row.minimumStatus === "reached" ? ui.minimumStatusReached : ui.minimumStatusCheck)}}>{row.minimumLabel}</span><small>{row.academicLabel}</small></td><td><MissingState missing={row.missing} complete={!row.missing.length}/></td></tr>)}</tbody></table>;
+
+function MinimumTable({ rows, settings, minimumSettings, onEdit }) {
+  return <table className="teacher-grade-result-table teacher-grade-minimum-table" style={{...ui.table,minWidth:930}}><thead><tr><th className="student-id-head">학번</th><th className="student-name-head">성명</th><th className="student-class-head">반</th><th className="student-number-head">번호</th><th>과목 유형</th><th className="score-head">현재 환산</th><th>입력 완료</th><th>다음 정기시험 필요점수</th><th>과목 출결</th><th>최성보 판정</th><th>확인 사항</th>{onEdit&&<th className="edit-head">수정</th>}</tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={row.minimumStatus === "fail" ? ui.minimumFailRow : row.minimumStatus === "risk" ? ui.minimumRiskRow : undefined}><StudentIdentityCells row={row}/><td><span style={ui.courseTypeBadge}>{settings.courseType === "common" ? "공통과목" : "선택과목"}</span></td><td className="score-cell"><b>{formatScore(Number(row.weightedWritten || 0)+Number(row.weightedPerformance || 0),2)}</b><small>{row.completedWeight}% 입력</small></td><td>{row.complete ? <span style={ui.okText}><Check size={12}/>완료</span> : <b>{row.completedWeight}%</b>}</td><td>{settings.courseType === "elective" ? <span style={ui.notApplicable}>적용 안 함</span> : row.needed == null ? "-" : row.needed <= 0 ? <span style={ui.okText}><Check size={12}/>현재 도달</span> : row.needed > Number(minimumSettings.nextExamMax) ? <span style={ui.failText}>미도달 확정</span> : <><b>{row.needed}점 이상</b><small>{minimumSettings.nextExamLabel}</small></>}</td><td><span style={row.attendanceStatus === "미도달" ? ui.failPill : row.attendanceStatus === "도달" ? ui.attendanceOk : ui.checkPill}>{row.attendanceStatus === "확인필요" ? "확인 필요" : row.attendanceStatus}</span></td><td><span style={{...ui.minimumStatusBadge,...(row.minimumStatus === "fail" ? ui.minimumStatusFail : row.minimumStatus === "risk" ? ui.minimumStatusRisk : row.minimumStatus === "reached" ? ui.minimumStatusReached : ui.minimumStatusCheck)}}>{row.minimumLabel}</span><small>{row.academicLabel}</small></td><td><MissingState missing={row.missing} complete={!row.missing.length}/></td>{onEdit&&<td><button type="button" className="student-row-edit" onClick={()=>onEdit(row)}>수정</button></td>}</tr>)}</tbody></table>;
 }
-function WrittenTable({ rows, assessment }) {
-  return <table className="teacher-grade-result-table" style={ui.table}><thead><tr><th className="student-id-head">학번</th><th className="student-name-head">성명</th><th className="student-class-head">반</th><th className="student-number-head">번호</th><th className="score-head">{assessment?.title || "지필"} 점수</th><th className="rank-head">석차</th><th className="rank-head">중간석차</th><th className="grade-head">등급</th><th className="status-head">상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid}><StudentIdentityCells row={row}/><td className="score-cell"><b>{formatScore(row.score, 1)}</b></td><td className="rank-cell">{row.rank || "-"}{row.tieCount > 1 && <small>동석차 {row.tieCount}명</small>}</td><td className="rank-cell">{row.midRank ?? "-"}</td><td><GradeBadge grade={row.grade}/></td><td>{row.score == null ? <span style={ui.warnText}>{row.status || "미입력"}</span> : <span style={ui.okText}><Check size={12} /> 정상</span>}</td></tr>)}</tbody></table>;
+function WrittenTable({ rows, assessment, onEdit }) {
+  return <table className="teacher-grade-result-table" style={ui.table}><thead><tr><th className="student-id-head">학번</th><th className="student-name-head">성명</th><th className="student-class-head">반</th><th className="student-number-head">번호</th><th className="score-head">{assessment?.title || "지필"} 점수</th><th className="rank-head">석차</th><th className="rank-head">중간석차</th><th className="grade-head">등급</th><th className="status-head">상태</th>{onEdit&&<th className="edit-head">수정</th>}</tr></thead><tbody>{rows.map(row => <tr key={row.sid} className={row.excluded?"is-excluded-student":""}><StudentIdentityCells row={row}/><td className="score-cell"><b>{formatScore(row.score, 1)}</b></td><td className="rank-cell">{row.rank || "-"}{row.tieCount > 1 && <small>동석차 {row.tieCount}명</small>}</td><td className="rank-cell">{row.midRank ?? "-"}</td><td><GradeBadge grade={row.grade}/></td><td>{row.excluded?<span className="enrollment-status-badge">{row.enrollmentStatus==="withdrawn"?"자퇴":"전출"} · 산출 제외</span>:row.score == null ? <span style={ui.warnText}>{row.status || "미입력"}</span> : <span style={ui.okText}><Check size={12} /> 정상</span>}</td>{onEdit&&<td><button type="button" className="student-row-edit" onClick={()=>onEdit(row)}>수정</button></td>}</tr>)}</tbody></table>;
 }
+
 
 
 const gradeAnalyzerCss = `
@@ -1471,6 +1521,18 @@ const gradeAnalyzerCss = `
 .teacher-grade-analyzer .teacher-grade-distribution-row:first-child{border-top-color:#292621!important}
 .teacher-grade-analyzer .performance-area-name b{font-size:clamp(10px,1.05vw,12px)!important;line-height:1.42!important}
 @media(max-width:760px){.teacher-grade-analyzer .setting-caption-break{display:none}}
+
+.teacher-grade-analyzer .student-score-edit-launch{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:38px;border:1px solid #b8cbe0;border-radius:10px;padding:7px 11px;background:#eef5fc;color:#315f92;font-size:11px;font-weight:900;white-space:nowrap;cursor:pointer}
+.teacher-grade-analyzer .student-row-edit{border:1px solid #cbd8e7;border-radius:8px;padding:5px 8px;background:#fff;color:#315f92;font-size:10px;font-weight:900;cursor:pointer}
+.teacher-grade-analyzer .edit-head{width:58px;min-width:58px}.teacher-grade-analyzer .performance-score-head,.teacher-grade-analyzer .performance-score-cell{width:108px;min-width:100px;max-width:118px}
+.teacher-grade-analyzer .performance-score-cell b{display:block}.teacher-grade-analyzer .performance-score-cell small{display:block;max-width:100%;white-space:normal!important;overflow-wrap:anywhere;word-break:break-word;line-height:1.28!important;font-size:9px!important}
+.teacher-grade-analyzer .is-excluded-student td{background:#f6f4f1!important;color:#8a8175!important}.teacher-grade-analyzer .enrollment-status-badge{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:5px 8px;background:#eee8df;color:#7a5b42;font-size:9.5px;font-weight:900;white-space:nowrap}
+.student-score-editor-overlay{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:18px;background:rgba(25,35,48,.42);backdrop-filter:blur(3px)}
+.student-score-editor{width:min(760px,96vw);max-height:90vh;overflow:auto;border-radius:18px;background:#fff;box-shadow:0 24px 70px rgba(28,42,62,.28);padding:18px;font-family:${FONT_STACK};color:#27384d}
+.student-score-editor-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-bottom:12px;border-bottom:1px solid #e1e7ee}.student-score-editor-head>div{display:grid;gap:3px}.student-score-editor-head b{font-size:18px}.student-score-editor-head span{font-size:11px;color:#728196;font-weight:700}.student-score-editor-head>button{width:34px;height:34px;border:1px solid #d7e0ea;border-radius:10px;background:#fff;color:#6f7d8f;font-size:22px;cursor:pointer}
+.student-score-editor-grid{display:grid;gap:10px}.student-score-editor-grid.identity{grid-template-columns:1.2fr 1.4fr .7fr .7fr 1fr;margin-top:14px}.student-score-editor-grid.scores{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:9px}.student-score-editor label{display:grid;gap:5px;min-width:0}.student-score-editor label>span{font-size:10.5px;font-weight:900;color:#586b82}.student-score-editor label small{display:block;margin-top:2px;font-size:8.8px;color:#8b97a7}.student-score-editor input,.student-score-editor select{width:100%;min-width:0;min-height:38px;border:1px solid #ced8e5;border-radius:9px;padding:7px 9px;background:#fff;color:#27384d;font-size:11.5px;font-weight:800;outline:none}.student-score-editor-section{margin-top:14px;padding:12px;border:1px solid #e0e7ef;border-radius:12px;background:#f9fbfd}.student-score-editor-section>b{font-size:13px}.student-score-editor-actions{display:flex;align-items:center;gap:8px;margin-top:14px}.student-score-editor-actions>span{flex:1}.student-score-editor-actions button{min-height:38px;border:1px solid #ced9e6;border-radius:10px;padding:8px 13px;background:#fff;color:#536579;font-weight:900;cursor:pointer}.student-score-editor-actions .save{background:#315f92;border-color:#315f92;color:#fff}.student-score-editor-actions .reset{color:#a24a3f;border-color:#efc8c1;background:#fff6f4}.student-score-editor-note{margin:10px 0 0;color:#7a8796;font-size:10px;font-weight:700;line-height:1.45}
+.teacher-grade-analyzer .achievement-donut-layout{grid-template-columns:126px minmax(0,1fr)!important;gap:14px!important}.teacher-grade-analyzer .achievement-donut{width:120px!important;height:120px!important}.teacher-grade-analyzer .achievement-donut>div{width:72px!important;height:72px!important}.teacher-grade-analyzer .achievement-donut b{font-size:17px!important}.teacher-grade-analyzer .achievement-donut-legend{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important;align-content:center}.teacher-grade-analyzer .achievement-donut-legend>div{grid-template-columns:10px 22px 1fr auto!important;gap:6px!important;padding:8px 9px!important;min-width:0}.teacher-grade-analyzer .achievement-donut-legend>div b{text-align:right!important;font-size:11px!important}.teacher-grade-analyzer .achievement-donut-legend>div small{margin:0!important;font-size:9px!important;color:#7c8a9d!important}.teacher-grade-analyzer .achievement-legend-label{font-weight:950;color:#334a65}
+@media(max-width:760px){.student-score-editor-grid.identity{grid-template-columns:1fr 1fr}.student-score-editor-grid.scores{grid-template-columns:1fr 1fr}.teacher-grade-analyzer .achievement-donut-legend{grid-template-columns:1fr!important}}
 @media print{
   body.print-teacher-minimum *{visibility:hidden!important}
   body.print-teacher-minimum .teacher-grade-analyzer .minimum-print-area,body.print-teacher-minimum .teacher-grade-analyzer .minimum-print-area *{visibility:visible!important}

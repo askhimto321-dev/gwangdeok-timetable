@@ -443,6 +443,26 @@ const CSS=`
   .admission-case-search-actions{grid-template-columns:1fr 1fr!important}
   .admission-case-student-benchmark,.admission-case-range-filter{grid-column:1/-1}
 }
+/* Ver15: 빠른 필터 겹침 방지와 전형명 중앙 정렬 */
+.admission-method-head,.admission-method-detail{display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important}
+.admission-method-head>span,.admission-method-detail>span{width:100%;text-align:center}
+.admission-quick-filter{grid-template-columns:minmax(330px,.8fr) minmax(500px,1.2fr)!important;gap:10px!important}
+.admission-quick-filter-group{grid-template-columns:minmax(88px,105px) minmax(0,1fr)!important;gap:9px!important;padding:9px!important}
+.admission-quick-filter-options{justify-content:flex-start!important;flex-wrap:wrap!important;overflow:visible!important}
+.admission-quick-filter .admission-filter-chip{flex:0 0 auto;min-width:58px;padding:7px 10px!important}
+.admission-support-filter{min-width:68px!important;flex:1 1 68px;max-width:92px}
+.admission-quick-filter-label span{white-space:normal!important;word-break:keep-all}
+.admission-vertical-chart{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:10px;align-items:end;min-height:300px;padding:18px 8px 6px;border-radius:14px;background:linear-gradient(180deg,#fbfdff,#f7f9fc);border:1px solid #e1e7ef}
+.admission-vertical-column{display:grid;grid-template-rows:210px auto auto;gap:7px;min-width:0;text-align:center}
+.admission-vertical-bars{height:210px;display:flex;align-items:flex-end;justify-content:center;gap:7px;padding:0 5px;border-bottom:1px solid #dbe3ec;background:repeating-linear-gradient(to top,transparent 0,transparent 41px,#e8edf3 42px)}
+.admission-vertical-bar{position:relative;width:min(24px,38%);min-height:2px;border-radius:7px 7px 2px 2px;box-shadow:0 2px 7px rgba(45,68,96,.10)}
+.admission-vertical-bar.support{background:linear-gradient(180deg,#6f94c8,#3f70ad)}
+.admission-vertical-bar.accept{background:linear-gradient(180deg,#72aa84,#43805a)}
+.admission-vertical-bar b{position:absolute;left:50%;top:-19px;transform:translateX(-50%);font-size:9.5px;color:#344a64;white-space:nowrap}
+.admission-vertical-label{min-height:36px;display:flex;align-items:flex-start;justify-content:center;font-size:10.5px;font-weight:900;line-height:1.25;word-break:keep-all}
+.admission-vertical-rate{font-size:9px;color:#718095;font-weight:800}
+@media(max-width:1180px){.admission-quick-filter{grid-template-columns:1fr!important}.admission-quick-filter-group{grid-template-columns:120px minmax(0,1fr)!important}}
+@media(max-width:680px){.admission-quick-filter-group{grid-template-columns:1fr!important}.admission-vertical-chart{grid-template-columns:repeat(3,minmax(76px,1fr));overflow-x:auto}.admission-vertical-column{min-width:76px}}
 @media print{
   body.print-admission-case-search{margin:0!important;background:#fff!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   body.print-admission-case-search *{visibility:hidden!important}
@@ -890,13 +910,17 @@ function Bars({rows}){
     </div>
   </div>)}</div>;
 }
+function VerticalBars({rows}){
+  const max=Math.max(1,...rows.map(row=>row.total));
+  return <div className="admission-vertical-chart">{rows.map(row=>{const supportHeight=Math.max(row.total?5:0,row.total/max*190);const acceptedHeight=Math.max(row.accepted?5:0,row.accepted/max*190);const rate=row.total?row.accepted/row.total*100:0;return <div className="admission-vertical-column" key={row.label}><div className="admission-vertical-bars"><div className="admission-vertical-bar support" style={{height:supportHeight}} title={`지원 ${row.total}건`}><b>{row.total}</b></div><div className="admission-vertical-bar accept" style={{height:acceptedHeight}} title={`합격 ${row.accepted}건`}><b>{row.accepted}</b></div></div><div className="admission-vertical-label">{row.label}</div><div className="admission-vertical-rate">합격률 {fmt(rate,1)}%</div></div>})}</div>;
+}
 function Overview({rows}){
   const types=useMemo(()=>groupStats(rows,x=>x.admissionType).slice(0,10),[rows]);
   const regions=useMemo(()=>groupStats(rows,x=>x.region).slice(0,12),[rows]);
   const grades=useMemo(()=>groupStats(rows.filter(x=>x.gradeBand),x=>`${x.gradeBand}등급대`).sort((a,b)=>parseFloat(a.label)-parseFloat(b.label)),[rows]);
   return <div style={{display:"grid",gap:18}}>
     <SummaryCards rows={rows}/>
-    <div className="admission-case-two" style={styles.twoColumns}><Section title="전형별 지원·합격 사례" description="파란색은 지원, 초록색은 합격 사례입니다."><Bars rows={types}/></Section><Section title="지역별 지원·합격 사례" description="사례 수와 합격 사례 수를 함께 비교합니다."><Bars rows={regions}/></Section></div>
+    <div className="admission-case-two" style={styles.twoColumns}><Section title="전형별 지원·합격 사례" description="전형별 지원 규모와 합격 규모를 세로 막대로 비교하고, 아래에 합격률을 표시합니다."><VerticalBars rows={types}/></Section><Section title="지역별 지원·합격 사례" description="사례 수와 합격 사례 수를 함께 비교합니다."><Bars rows={regions}/></Section></div>
     <Section title="등급대별 결과" description="1·2등급대는 별도 색으로 강조하고, 각 등급대의 합격 사례 비율과 합격자 50%컷을 표시합니다.">
       <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"15%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"12%"}}/><col style={{width:"11%"}}/><col style={{width:"16%"}}/><col style={{width:"13%"}}/></colgroup><thead><tr><th>등급대</th><th>지원</th><th>최초합</th><th>충원합</th><th>합격 합계</th><th>불합격</th><th>합격률</th><th>합격자 50%컷</th></tr></thead><tbody>{grades.map(row=>{const level=parseInt(row.label,10);return <tr key={row.label} className={level===1?"admission-grade-row-1":level===2?"admission-grade-row-2":""}><td><b>{row.label}</b></td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td><b style={{color:COLORS.green}}>{row.accepted}</b></td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td><b>{fmt(row.median)}</b></td></tr>})}</tbody></Table>
     </Section>

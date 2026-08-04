@@ -751,7 +751,7 @@ export default function App() {
     const adminMatch = adminList.find(a => a.id === id && a.pw === pw);
     if (adminMatch) { setLoggedInAdmin(adminMatch); saveSession({ adminId: adminMatch.id }); return "admin"; }
     const teacherMatch = (accounts.teacher || []).find(a => a.id === id && a.pw === pw);
-    if (teacherMatch) { setLoggedInTeacher(teacherMatch); saveSession({ teacherId: teacherMatch.id }); return "teacher"; }
+    if (teacherMatch) { setViewedTeacher(null); setLoggedInTeacher(teacherMatch); saveSession({ teacherId: teacherMatch.id }); return "teacher"; }
     const departmentMatch = (accounts.departments || []).find(a => a.id === id && a.pw === pw);
     if (departmentMatch) { setLoggedInDepartment(departmentMatch); saveSession({ departmentId: departmentMatch.id }); return "department"; }
     const monitorMatch = (accounts.monitors || []).find(a => a.id === id && a.pw === pw);
@@ -1008,7 +1008,7 @@ export default function App() {
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   const globalLogout = () => {
-    setLoggedInAdmin(null); setLoggedInTeacher(null); setLoggedInDepartment(null); setLoggedInMonitor(null); setClassAuthed(false); setLoggedInStudent(null);
+    setLoggedInAdmin(null); setLoggedInTeacher(null); setLoggedInDepartment(null); setLoggedInMonitor(null); setClassAuthed(false); setLoggedInStudent(null); setViewedTeacher(null);
     setSection(null);
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
@@ -1097,7 +1097,7 @@ export default function App() {
           roster={roster} allRosters={db.roster} enrollments={enrollments}
           allowedGrades={loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || []), grade]))}
           onUpdateTeacher={(teacher) => { if (loggedInTeacher) setLoggedInTeacher(teacher); else setViewedTeacher(teacher); }}
-          onTeacherLogout={() => { if (viewedTeacher) setViewedTeacher(null); else { setLoggedInTeacher(null); saveSession({ teacherId: null }); } }}
+          onTeacherLogout={() => { if (loggedInTeacher) { setLoggedInTeacher(null); setViewedTeacher(null); saveSession({ teacherId: null }); } else if (viewedTeacher) setViewedTeacher(null); }}
           onMonitorLogout={() => { setLoggedInMonitor(null); saveSession({ monitorId: null }); }}
         />
       ) : activeSection === "minimumAchievement" ? (
@@ -1160,7 +1160,7 @@ export default function App() {
               (loggedInTeacher || loggedInMonitor || viewedTeacher)
                 ? (loggedInMonitor
                     ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={() => { setLoggedInMonitor(null); saveSession({ monitorId: null }); }} />
-                    : <TeacherZoneView key={scopeKey} teacher={viewedTeacher || loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={(t) => { if (loggedInTeacher) setLoggedInTeacher(t); else setViewedTeacher(t); }} viewingAsAdmin={!!viewedTeacher} onLogout={() => { if (viewedTeacher) setViewedTeacher(null); else { setLoggedInTeacher(null); saveSession({ teacherId: null }); } }} />)
+                    : <TeacherZoneView key={`${scopeKey}-${(loggedInTeacher || viewedTeacher)?.id || "teacher"}`} teacher={loggedInTeacher || viewedTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={(t) => { if (loggedInTeacher) setLoggedInTeacher(t); else setViewedTeacher(t); }} viewingAsAdmin={!!viewedTeacher && !loggedInTeacher} onLogout={() => { if (loggedInTeacher) { setLoggedInTeacher(null); setViewedTeacher(null); saveSession({ teacherId: null }); } else if (viewedTeacher) setViewedTeacher(null); }} />)
                 : loggedInAdmin
                   ? <AdminTeacherPicker accounts={accounts} onSelect={(t) => setViewedTeacher(t)} />
                   : <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} attemptLogin={attemptLogin} onOk={() => {}} />
@@ -1522,7 +1522,8 @@ function TeacherZoneWorkspace({
   grade, setGrade, semester, scopeKey, roster, allRosters, enrollments, allowedGrades,
   onUpdateTeacher, onTeacherLogout, onMonitorLogout,
 }) {
-  const actor = loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin || { id: "teacher-zone", name: "선생님" };
+  const activeTeacher = loggedInTeacher || viewedTeacher || null;
+  const actor = activeTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin || { id: "teacher-zone", name: "선생님" };
   const canUseNotice = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor || viewedTeacher);
   const modeStorageKey = `kd_teacher_zone_mode_${actor?.id || actor?.name || "shared"}`;
   const [workspaceMode, setWorkspaceMode] = useState(() => {
@@ -1539,12 +1540,12 @@ function TeacherZoneWorkspace({
     Object.values(allRosters || {}).forEach(value => Object.assign(output, value || {}));
     return Object.keys(output).length ? output : (roster || {});
   }, [allRosters, roster]);
-  const hasSubjectAssignments = !!((loggedInTeacher || viewedTeacher)?.assignments || []).some(item => String(item?.subject || "").trim());
+  const hasSubjectAssignments = !!(activeTeacher?.assignments || []).some(item => String(item?.subject || "").trim());
   const visibleGrades = ((loggedInAdmin || loggedInDepartment || loggedInMonitor || hasSubjectAssignments) ? GRADES : (allowedGrades?.length ? allowedGrades : [grade])).map(String).filter(item => GRADES.includes(item));
   const noticeContent = loggedInMonitor
     ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={onMonitorLogout} />
-    : (loggedInTeacher || viewedTeacher)
-      ? <TeacherZoneView key={scopeKey} teacher={viewedTeacher || loggedInTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={onUpdateTeacher} viewingAsAdmin={!!viewedTeacher} onLogout={onTeacherLogout} />
+    : activeTeacher
+      ? <TeacherZoneView key={`${scopeKey}-${activeTeacher.id || activeTeacher.name}`} teacher={activeTeacher} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} grade={grade} roster={roster} enrollments={enrollments} accounts={accounts} persistAccounts={persistAccounts} onUpdateTeacher={onUpdateTeacher} viewingAsAdmin={!!viewedTeacher && !loggedInTeacher} onLogout={onTeacherLogout} />
       : loggedInAdmin
         ? <AdminTeacherPicker accounts={accounts} onSelect={setViewedTeacher} />
         : loggedInDepartment
@@ -1561,8 +1562,8 @@ function TeacherZoneWorkspace({
     <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
       <TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : ((loggedInTeacher || viewedTeacher) && normalizedTeacherRole(loggedInTeacher || viewedTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
-        homeroomClass={loggedInTeacher?.homeroomClass || viewedTeacher?.homeroomClass || ""}
-        canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))) || (viewedTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(viewedTeacher))))} />
+        homeroomClass={activeTeacher?.homeroomClass || ""}
+        canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (activeTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(activeTeacher))))} />
     </div>
     {canUseNotice && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
   </div>;

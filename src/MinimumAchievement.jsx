@@ -52,22 +52,26 @@ function analyzeWorkspace(workspace,roster={},storedSettings={},attendance={}){
   const areas=performance[0]?.areas||[];
   const perfMap={};
   performance.forEach(file=>Object.entries(file.students||{}).forEach(([sid,student])=>{perfMap[sid]=student}));
-  const ids=new Set();
+  const overrides=workspace?.studentOverrides||{};
+  const ids=new Set(Object.keys(overrides));
   written.forEach(item=>Object.keys(item.students||{}).forEach(sid=>ids.add(sid)));
   performance.forEach(item=>Object.keys(item.students||{}).forEach(sid=>ids.add(sid)));
   const configuredWeight=workspaceWeight(workspace);
   return Array.from(ids).map(sid=>{
+    const override=overrides[sid]||{};
+    if(["withdrawn","transferred"].includes(override.enrollmentStatus))return null;
     const perf=perfMap[sid];
     const info=roster[sid]||{};
+    const hasOverride=(object,key)=>Object.prototype.hasOwnProperty.call(object||{},key);
     let earned=0,completedWeight=0;
     const currentMissing=[];
     written.forEach(item=>{
-      const score=num(item.students?.[sid]?.score),weight=num(item.weight)||0,max=num(item.maxScore)||100;
+      const score=num(hasOverride(override.writtenScores,item.id)?override.writtenScores[item.id]:item.students?.[sid]?.score),weight=num(item.weight)||0,max=num(item.maxScore)||100;
       if(score==null){currentMissing.push(item.title||"지필평가");return}
       earned+=(score/max)*weight;completedWeight+=weight;
     });
     areas.forEach(area=>{
-      const score=num(perf?.scores?.[area.id]),weight=num(area.weight)||0,max=num(area.maxScore)||100;
+      const score=num(hasOverride(override.areaScores,area.id)?override.areaScores[area.id]:perf?.scores?.[area.id]),weight=num(area.weight)||0,max=num(area.maxScore)||100;
       if(score==null){currentMissing.push(area.name||"수행평가");return}
       earned+=(score/max)*weight;completedWeight+=weight;
     });
@@ -100,13 +104,13 @@ function analyzeWorkspace(workspace,roster={},storedSettings={},attendance={}){
     else if(attendanceStatus==="도달"&&(courseType==="elective"||academicStatus==="reached")){overallStatus="reached";overall="이수 기준 도달"}
     return {
       workspaceId:workspace.id,subject:workspace.subject,courseType,sid,
-      name:perf?.name||info.name||"",classNumber:perf?.classNumber||Number(String(sid).slice(1,3))||info.class||null,
-      number:perf?.number||Number(String(sid).slice(3,5))||info.number||null,
+      name:override.name||perf?.name||info.name||"",classNumber:num(override.classNumber)||perf?.classNumber||Number(String(sid).slice(1,3))||info.class||null,
+      number:num(override.number)||perf?.number||Number(String(sid).slice(3,5))||info.number||null,
       earned,completedWeight,officialScore,complete,currentMissing,pending,
       missing:compactMissing([...currentMissing,...pending]),needed,academicStatus,academicLabel,
       attendanceStatus,attendanceNote:attend.note||"",overall,overallStatus,settings,
     };
-  }).sort((a,b)=>(a.classNumber||99)-(b.classNumber||99)||(a.number||99)-(b.number||99)||a.sid.localeCompare(b.sid));
+  }).filter(Boolean).sort((a,b)=>(a.classNumber||99)-(b.classNumber||99)||(a.number||99)-(b.number||99)||a.sid.localeCompare(b.sid));
 }
 
 export default function MinimumAchievement({db={},persist,actor,accessRole="teacher",grade="2",setGrade,allowedGrades=["1","2","3"],roster={},allRosters={},homeroomClass="",showToast}){
