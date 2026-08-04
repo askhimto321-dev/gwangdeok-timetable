@@ -2443,12 +2443,22 @@ function MonitorManager({ targetKey, subject, group, label, roster, enrollments,
 function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistAccounts, showToast, onDone }) {
   const [homeroomClass, setHomeroomClass] = useState(teacher.homeroomClass || "");
   const [assignments, setAssignments] = useState(teacher.assignments && teacher.assignments.length ? teacher.assignments : [{ kind: "elective", subject: "", targets: "" }]);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const role = normalizedTeacherRole(teacher);
   const canEditHomeroom = role === "homeroom";
   const classOptions = useMemo(() => extractClasses(db, scopeKey), [db, scopeKey]);
 
   const save = async () => {
+    const wantsPasswordChange = currentPassword || newPassword || confirmPassword;
+    if (wantsPasswordChange) {
+      if (String(currentPassword) !== String(teacher.pw || "")) { showToast("현재 비밀번호가 올바르지 않습니다.", "error"); return; }
+      if (String(newPassword).length < 4) { showToast("새 비밀번호는 4자 이상 입력해주세요.", "error"); return; }
+      if (newPassword !== confirmPassword) { showToast("새 비밀번호 확인이 일치하지 않습니다.", "error"); return; }
+      if (newPassword === currentPassword) { showToast("새 비밀번호는 현재 비밀번호와 다르게 입력해주세요.", "error"); return; }
+    }
     setSaving(true);
     try {
       const cleanAssignments = assignments.filter(a => String(a.subject || "").trim()).map(a => ({ ...a, subject: String(a.subject).trim(), targets: String(a.targets || "").trim() || "전체" }));
@@ -2456,6 +2466,7 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
         ...teacher,
         homeroomClass: canEditHomeroom ? homeroomClass : teacher.homeroomClass,
         assignments: cleanAssignments,
+        ...(wantsPasswordChange ? { pw: newPassword } : {}),
       }, teacherRoleGrade(teacher));
       const newTeacherList = (accounts.teacher || []).map(t => t.id === teacher.id ? updatedTeacher : t);
       const ok = await persistAccounts({ ...accounts, teacher: newTeacherList });
@@ -2468,10 +2479,11 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
 
   return (
     <div>
+      <style>{`.teacher-profile-password-card{display:grid;gap:12px;margin-top:16px;padding:14px;border:1px solid #d9e2ed;border-radius:13px;background:#f8fafc}.teacher-profile-password-card>div:first-child{display:grid;gap:3px}.teacher-profile-password-card>div:first-child b{font-size:14px;color:#2c4058}.teacher-profile-password-card>div:first-child span,.teacher-profile-password-card>p{margin:0;color:#7a8797;font-size:10.5px;line-height:1.45}.teacher-profile-password-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}.teacher-profile-password-grid label{display:grid;gap:5px;color:#5f6d7d;font-size:10.5px;font-weight:850}.teacher-profile-password-grid input{min-width:0;border:1px solid #cfd9e5;border-radius:9px;padding:9px 10px;background:#fff;font:inherit;color:#2d4057;outline:none}.teacher-profile-password-grid input:focus{border-color:#6f8fb3;box-shadow:0 0 0 3px rgba(76,117,163,.10)}@media(max-width:760px){.teacher-profile-password-grid{grid-template-columns:1fr}}`}</style>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div>
           <h1 style={styles.h1}>내 정보 수정</h1>
-          <p style={styles.pMuted}>{teacher.name} 선생님의 담당 반/과목을 직접 설정합니다.</p>
+          <p style={styles.pMuted}>담임 학급·담당 과목을 확인하고 비밀번호를 변경합니다.</p>
         </div>
         <button style={styles.secondaryBtn} onClick={() => onDone(null)}>취소</button>
       </div>
@@ -2491,9 +2503,18 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
             </div>
           </>
         )}
-        <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (해당 시에만 추가)</div>
+        <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목</div>
         <AssignmentsEditor assignments={assignments} setAssignments={setAssignments} db={db} scopeKey={scopeKey} semesterLabel={null} />
-        <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 저장</button>
+        <div className="teacher-profile-password-card">
+          <div><b>비밀번호 변경</b><span>현재 비밀번호를 확인한 뒤 새 비밀번호를 입력하세요.</span></div>
+          <div className="teacher-profile-password-grid">
+            <label><span>현재 비밀번호</span><input type="password" autoComplete="current-password" value={currentPassword} onChange={event=>setCurrentPassword(event.target.value)} placeholder="현재 비밀번호"/></label>
+            <label><span>새 비밀번호</span><input type="password" autoComplete="new-password" value={newPassword} onChange={event=>setNewPassword(event.target.value)} placeholder="4자 이상"/></label>
+            <label><span>새 비밀번호 확인</span><input type="password" autoComplete="new-password" value={confirmPassword} onChange={event=>setConfirmPassword(event.target.value)} placeholder="한 번 더 입력"/></label>
+          </div>
+          <p>비밀번호를 잊은 경우 학교 관리자 또는 시스템 담당자에게 초기화를 요청하세요.</p>
+        </div>
+        <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 내 정보 저장</button>
       </div>
     </div>
   );

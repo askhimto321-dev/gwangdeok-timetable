@@ -1313,7 +1313,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           </div>
           {activeView !== "minimum" && <div style={ui.summaryGrid}>
             <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 등급컷</div><GradeCutoffTable rows={gradeDistribution} total={completeActiveRows.length}/><p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
-            {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><PieChart size={16} /> 성취도 분포</div><AchievementDonut rows={achievementDistribution} total={completeActiveRows.length} mode={settings.achievementMode}/></div>}
+            {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><PieChart size={16} /> 성취도 분포</div><AchievementDonut rows={achievementDistribution} total={completeActiveRows.length} mode={settings.achievementMode} settings={settings}/></div>}
           </div>}
 
           {activeView === "minimum" && <div style={ui.minimumControlPanel}>
@@ -1378,14 +1378,19 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
 function GradeCutoffTable({ rows, total }) {
   return <div className="grade-cutoff-table-wrap"><table className="grade-cutoff-table"><thead><tr><th>등급</th><th>기준 인원</th><th>실제 인원</th><th>비율</th><th>등급컷</th></tr></thead><tbody>{rows.map(item=><tr key={item.grade}><td><span style={{...ui.gradePill,...(item.grade===1?ui.gradePillFirst:{})}}>{item.grade}등급</span></td><td>{item.target}명</td><td><b>{item.count}명</b></td><td>{total?((item.count/total)*100).toFixed(1):"0.0"}%</td><td><strong className="grade-cutoff-text">{item.min==null?"-":formatScore(item.min,2)}</strong></td></tr>)}</tbody></table></div>;
 }
-function AchievementDonut({ rows, total, mode }) {
+function AchievementDonut({ rows, total, mode, settings }) {
   const colors=["#3568a3","#6c7fba","#7b69a8","#d59b49","#d87362","#9b4b43"];
   let cursor=0;
   const stops=rows.map((item,index)=>{const start=cursor;const size=total?item.count/total*100:0;cursor+=size;return `${colors[index%colors.length]} ${start}% ${cursor}%`});
   const background=total?`conic-gradient(${stops.join(",")})`:"#edf1f5";
-  return <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"수동 컷"}</span></div></div><div className="achievement-donut-legend">{rows.map((item,index)=>{const percent=total?item.count/total*100:0;return <div key={item.label}><i style={{background:colors[index%colors.length]}}/><span className="achievement-legend-label">{item.label}</span><b>{item.count}명</b><small>{percent.toFixed(1)}%</small></div>})}</div></div>;
+  const cuts=mode==="fixed"
+    ? (settings?.courseType==="common" ? [["A","90 이상"],["B","80 이상"],["C","70 이상"],["D","60 이상"],["E","40 이상"],["미도달","40 미만"]] : [["A","90 이상"],["B","80 이상"],["C","70 이상"],["D","60 이상"],["E","60 미만"]])
+    : [["A/B",settings?.manualCuts?.ab],["B/C",settings?.manualCuts?.bc],["C/D",settings?.manualCuts?.cd],["D/E",settings?.manualCuts?.de],...(settings?.courseType==="common"?[["E/미도달",settings?.manualCuts?.ei]]:[])].map(([label,value])=>[label,value!==""&&value!=null?`${value}점`:"미입력"]);
+  return <div className="achievement-donut-shell">
+    <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"수동 컷"}</span></div></div><div className="achievement-donut-legend">{rows.map((item,index)=>{const percent=total?item.count/total*100:0;return <div key={item.label}><i style={{background:colors[index%colors.length]}}/><span className="achievement-legend-label">{item.label}</span><b>{item.count}명</b><small>{percent.toFixed(1)}%</small></div>})}</div></div>
+    <div className="achievement-cut-guide"><strong>성취도 기준</strong><div>{cuts.map(([label,value])=><span key={label}><b>{label}</b><small>{value}</small></span>)}</div></div>
+  </div>;
 }
-
 
 function TieItemInputs({ label, values, onChange, disabled = false }) {
   return <div style={ui.tieItemSet}><b>{label}</b><div>{[0, 1, 2].map(index => <label key={index}><span>{index + 1}</span><input type="number" min="0" step="0.1" value={values[index] ?? ""} disabled={disabled} onChange={event => onChange(index, event.target.value)} /></label>)}</div></div>;
@@ -1533,6 +1538,21 @@ const gradeAnalyzerCss = `
 .student-score-editor-grid{display:grid;gap:10px}.student-score-editor-grid.identity{grid-template-columns:1.2fr 1.4fr .7fr .7fr 1fr;margin-top:14px}.student-score-editor-grid.scores{grid-template-columns:repeat(3,minmax(0,1fr));margin-top:9px}.student-score-editor label{display:grid;gap:5px;min-width:0}.student-score-editor label>span{font-size:10.5px;font-weight:900;color:#586b82}.student-score-editor label small{display:block;margin-top:2px;font-size:8.8px;color:#8b97a7}.student-score-editor input,.student-score-editor select{width:100%;min-width:0;min-height:38px;border:1px solid #ced8e5;border-radius:9px;padding:7px 9px;background:#fff;color:#27384d;font-size:11.5px;font-weight:800;outline:none}.student-score-editor-section{margin-top:14px;padding:12px;border:1px solid #e0e7ef;border-radius:12px;background:#f9fbfd}.student-score-editor-section>b{font-size:13px}.student-score-editor-actions{display:flex;align-items:center;gap:8px;margin-top:14px}.student-score-editor-actions>span{flex:1}.student-score-editor-actions button{min-height:38px;border:1px solid #ced9e6;border-radius:10px;padding:8px 13px;background:#fff;color:#536579;font-weight:900;cursor:pointer}.student-score-editor-actions .save{background:#315f92;border-color:#315f92;color:#fff}.student-score-editor-actions .reset{color:#a24a3f;border-color:#efc8c1;background:#fff6f4}.student-score-editor-note{margin:10px 0 0;color:#7a8796;font-size:10px;font-weight:700;line-height:1.45}
 .teacher-grade-analyzer .achievement-donut-layout{grid-template-columns:126px minmax(0,1fr)!important;gap:14px!important}.teacher-grade-analyzer .achievement-donut{width:120px!important;height:120px!important}.teacher-grade-analyzer .achievement-donut>div{width:72px!important;height:72px!important}.teacher-grade-analyzer .achievement-donut b{font-size:17px!important}.teacher-grade-analyzer .achievement-donut-legend{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important;align-content:center}.teacher-grade-analyzer .achievement-donut-legend>div{grid-template-columns:10px 22px 1fr auto!important;gap:6px!important;padding:8px 9px!important;min-width:0}.teacher-grade-analyzer .achievement-donut-legend>div b{text-align:right!important;font-size:11px!important}.teacher-grade-analyzer .achievement-donut-legend>div small{margin:0!important;font-size:9px!important;color:#7c8a9d!important}.teacher-grade-analyzer .achievement-legend-label{font-weight:950;color:#334a65}
 @media(max-width:760px){.student-score-editor-grid.identity{grid-template-columns:1fr 1fr}.student-score-editor-grid.scores{grid-template-columns:1fr 1fr}.teacher-grade-analyzer .achievement-donut-legend{grid-template-columns:1fr!important}}
+
+/* Ver16: 결과 요약 및 성취도 시각화 정돈 */
+.teacher-grade-analyzer .teacher-grade-metric-card{justify-items:center;text-align:center;padding:13px 12px!important;min-height:88px!important}
+.teacher-grade-analyzer .teacher-grade-metric-card>span{font-size:11.3px!important;line-height:1.25;font-weight:900!important}
+.teacher-grade-analyzer .teacher-grade-metric-card>strong{font-size:20px!important;line-height:1.05!important}
+.teacher-grade-analyzer .teacher-grade-metric-card>small{font-size:10px!important;line-height:1.35!important;text-align:center}
+.teacher-grade-analyzer .achievement-donut-shell{display:grid;grid-template-rows:minmax(132px,1fr) auto;gap:12px;min-height:0;height:calc(100% - 28px)}
+.teacher-grade-analyzer .achievement-donut-layout{align-items:center!important;min-height:132px}
+.teacher-grade-analyzer .achievement-cut-guide{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;padding:10px 11px;border-radius:11px;background:#f6f8fb;border:1px solid #e0e6ee}
+.teacher-grade-analyzer .achievement-cut-guide>strong{font-size:10.5px;color:#51657e;white-space:nowrap}
+.teacher-grade-analyzer .achievement-cut-guide>div{display:flex;gap:6px;flex-wrap:wrap;min-width:0}
+.teacher-grade-analyzer .achievement-cut-guide span{display:inline-flex;align-items:center;gap:4px;padding:5px 7px;border-radius:8px;background:#fff;border:1px solid #dde4ec;white-space:nowrap}
+.teacher-grade-analyzer .achievement-cut-guide b{font-size:10px;color:#294a70}.teacher-grade-analyzer .achievement-cut-guide small{margin:0!important;font-size:9px!important;color:#748398!important}
+.teacher-grade-analyzer .teacher-grade-result-table .student-id-cell,.teacher-grade-analyzer .teacher-grade-result-table .student-name-cell,.teacher-grade-analyzer .teacher-grade-result-table .student-class-cell,.teacher-grade-analyzer .teacher-grade-result-table .student-number-cell{text-align:center!important}
+@media(max-width:760px){.teacher-grade-analyzer .achievement-cut-guide{grid-template-columns:1fr}.teacher-grade-analyzer .achievement-cut-guide>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.teacher-grade-analyzer .achievement-cut-guide span{justify-content:space-between}}
 @media print{
   body.print-teacher-minimum *{visibility:hidden!important}
   body.print-teacher-minimum .teacher-grade-analyzer .minimum-print-area,body.print-teacher-minimum .teacher-grade-analyzer .minimum-print-area *{visibility:visible!important}
