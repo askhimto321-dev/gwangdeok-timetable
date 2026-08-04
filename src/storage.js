@@ -231,7 +231,12 @@ function uploadResumableWithTimeout(target, file, metadata, timeoutMs = STORAGE_
 async function uploadFile(path, file, metadata) {
   await ensureStorageIdentity();
   const target = storageRef(fileStorage, path);
-  const snapshot = await uploadResumableWithTimeout(target, file, metadata);
+  // 기본 2분에, 용량이 클수록(1MB당 6초) 여유를 더 줍니다. 학교 네트워크처럼
+  // 업로드 대역폭이 느린 환경에서 큰 PDF가 진행 신호만 늦게 오다가
+  // 타임아웃으로 실패하는 것을 줄이기 위함입니다.
+  const sizeMb = (file?.size || 0) / (1024 * 1024);
+  const timeoutMs = Math.round(Math.max(STORAGE_UPLOAD_TIMEOUT_MS, 120000 + sizeMb * 6000));
+  const snapshot = await uploadResumableWithTimeout(target, file, metadata, timeoutMs);
   const url = await withTimeout(getDownloadURL(snapshot.ref), 30000, "다운로드 주소 발급");
   return { snapshot, url };
 }

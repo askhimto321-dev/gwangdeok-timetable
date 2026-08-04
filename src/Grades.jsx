@@ -4005,13 +4005,13 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   });
 
   const typeLabel = type => type === "reflection" ? "교과 반영표" : "모집요강";
-  const defaultLabel = (type, valueYear) => `${valueYear ? `${valueYear}학년도 ` : ""}${typeLabel(type)}`;
+  const defaultLabel = (type, valueYear, valueUniversity) => `${valueYear ? `${valueYear}학년도 ` : ""}${String(valueUniversity || "").trim() ? `${String(valueUniversity).trim()} ` : ""}${typeLabel(type)}`;
   const makeDocumentItem = (uploaded, values) => ({
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     university: values.university.trim(),
     region: values.region || "미지정",
     documentType: values.documentType || uploaded.documentType || "guide",
-    label: String(values.label || "").trim() || defaultLabel(values.documentType || uploaded.documentType || "guide", String(values.year || "").trim()),
+    label: String(values.label || "").trim() || defaultLabel(values.documentType || uploaded.documentType || "guide", String(values.year || "").trim(), values.university),
     year: String(values.year || "").trim(),
     fileName: uploaded.fileName,
     size: uploaded.size,
@@ -4078,7 +4078,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
           fileName,
           university: inferredUniversity,
           region: inferRegionFromFileName(fileName, knownRegion),
-          label: defaultLabel("guide", year),
+          label: defaultLabel("guide", year, inferredUniversity),
           year,
           documentType: "guide",
         };
@@ -4095,7 +4095,14 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     }
   };
 
-  const updateBatchItem = (id, patch) => setBatchPreview(items => (items || []).map(item => item.id === id ? { ...item, ...patch } : item));
+  const updateBatchItem = (id, patch) => setBatchPreview(items => (items || []).map(item => {
+    if (item.id !== id) return item;
+    const next = { ...item, ...patch };
+    if (patch.university !== undefined && item.label === defaultLabel(item.documentType || "guide", item.year, item.university)) {
+      next.label = defaultLabel(next.documentType || "guide", next.year, next.university);
+    }
+    return next;
+  }));
   const removeBatchItem = id => setBatchPreview(items => (items || []).filter(item => item.id !== id));
 
   const uploadBatch = async () => {
@@ -4111,25 +4118,51 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     const itemKey = item => `${universityKey(item.university)}|${item.fileName}|${Number(item.size ?? item.file?.size ?? 0)}|${item.year || ""}`;
     const existingKeys = new Set(existingDocs.map(itemKey));
     const skipped = items.filter(item => existingKeys.has(itemKey(item)));
-    const queue = items.filter(item => !existingKeys.has(itemKey(item)));
+    // 용량이 작은 파일부터 먼저 올려서 체크포인트가 빨리, 자주 쌓이도록 하고
+    // 큰 파일이 뒤섞여 네트워크를 나눠먹지 않도록 정렬합니다.
+    const queue = items.filter(item => !existingKeys.has(itemKey(item)))
+      .slice().sort((a, b) => Number(a.file?.size ?? a.size ?? 0) - Number(b.file?.size ?? b.size ?? 0));
     const failures = [];
     const completedIds = new Set(skipped.map(item => item.id));
     let persistedDocs = existingDocs;
     let savedCount = 0;
-    const concurrency = 3;
+    // 한 웨이브에 담을 최대 용량(바이트)과 최대 파일 수. 작은 파일은 여러 개를 같이,
+    // 큰 파일은 혼자 또는 소수만 올려서 학교 네트워크의 업로드 대역폭을 나눠먹지 않게 합니다.
+    const WAVE_BYTE_BUDGET = 12 * 1024 * 1024;
+    const MAX_WAVE_FILES = 3;
+    const uploadOne = async item => {
+      const attempt = async () => uploadAdmissionDocument(item.file, item.university.trim(), "guide", { allowInlineFallback: false });
+      try {
+        return { ok: true, item, uploaded: await attempt(), doc: null };
+      } catch (firstError) {
+        // 타임아웃·일시적 네트워크 오류일 수 있으므로 한 번만 자동 재시도합니다.
+        try {
+          const uploaded = await attempt();
+          return { ok: true, item, uploaded, doc: null };
+        } catch (secondError) {
+          return { ok: false, item, error: secondError?.code || secondError?.message || String(secondError) };
+        }
+      }
+    };
     setBatchStats({ total: items.length, queued: queue.length, saved: 0, failed: 0, skipped: skipped.length, elapsed: 0 });
     try {
-      for (let startIndex = 0; startIndex < queue.length; startIndex += concurrency) {
-        const wave = queue.slice(startIndex, startIndex + concurrency);
-        setBatchProgress(`파일 업로드 중 ${startIndex + 1}~${Math.min(startIndex + wave.length, queue.length)} / ${queue.length} · 저장 완료 ${savedCount}건`);
-        const results = await Promise.all(wave.map(async item => {
-          try {
-            const uploaded = await uploadAdmissionDocument(item.file, item.university.trim(), "guide", { allowInlineFallback: false });
-            return { ok: true, item, uploaded, doc: makeDocumentItem(uploaded, item) };
-          } catch (error) {
-            return { ok: false, item, error: error?.code || error?.message || String(error) };
-          }
-        }));
+      let cursor = 0;
+      let waveNumber = 0;
+      while (cursor < queue.length) {
+        const wave = [];
+        let waveBytes = 0;
+        while (cursor < queue.length && wave.length < MAX_WAVE_FILES) {
+          const size = Number(queue[cursor].file?.size ?? queue[cursor].size ?? 0);
+          if (wave.length > 0 && waveBytes + size > WAVE_BYTE_BUDGET) break;
+          wave.push(queue[cursor]);
+          waveBytes += size;
+          cursor += 1;
+        }
+        waveNumber += 1;
+        const waveMb = (waveBytes / (1024 * 1024)).toFixed(1);
+        setBatchProgress(`파일 업로드 중 ${cursor - wave.length + 1}~${cursor} / ${queue.length} (약 ${waveMb}MB) · 저장 완료 ${savedCount}건`);
+        const results = await Promise.all(wave.map(uploadOne));
+        results.filter(result => result.ok).forEach(result => { result.doc = makeDocumentItem(result.uploaded, result.item); });
         const successful = results.filter(result => result.ok);
         results.filter(result => !result.ok).forEach(result => failures.push({ ...result.item, error: result.error }));
         if (successful.length) {
@@ -4150,7 +4183,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
       }
       if (failures.length) {
         setBatchPreview(failures);
-        showToast(`${savedCount}건 저장 완료 · ${failures.length}건 실패 · ${skipped.length}건 중복 제외`, "error");
+        showToast(`${savedCount}건 저장 완료 · ${failures.length}건 실패(자동 재시도 후) · ${skipped.length}건 중복 제외`, "error");
       } else {
         setBatchPreview(null);
         showToast(`${savedCount}건 저장 완료${skipped.length ? ` · ${skipped.length}건 중복 제외` : ""}`, "success");
@@ -4235,7 +4268,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
           <label style={pdfAdmin.label}><span>대학교</span><input list="admission-university-options" value={university} onChange={event => setUniversity(event.target.value)} placeholder="예: 광덕대학교" style={pdfAdmin.input} /><datalist id="admission-university-options">{universityOptions.map(name => <option key={name} value={name} />)}</datalist></label>
           <label style={pdfAdmin.label}><span>지역</span><select value={region} onChange={event => setRegion(event.target.value)} style={pdfAdmin.input}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
           <label style={pdfAdmin.label}><span>학년도</span><input value={year} onChange={event => setYear(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} placeholder="2028" style={pdfAdmin.input} /></label>
-          <label style={pdfAdmin.label}><span>표시 이름</span><input value={label} onChange={event => setLabel(event.target.value)} placeholder={`비워두면 ‘${defaultLabel(documentType, year)}’`} style={pdfAdmin.input} /></label>
+          <label style={pdfAdmin.label}><span>표시 이름</span><input value={label} onChange={event => setLabel(event.target.value)} placeholder={`비워두면 ‘${defaultLabel(documentType, year, university)}’`} style={pdfAdmin.input} /></label>
         </div>
         <input ref={fileRef} type="file" multiple accept={accept} style={{ display: "none" }} onChange={event => event.target.files?.length && handleUpload(event.target.files)} />
         <button style={btn.primary} onClick={() => fileRef.current?.click()} disabled={busy || !university.trim()}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {typeLabel(documentType)} 파일 선택</button>
@@ -4502,7 +4535,7 @@ const curriculumTypeSummary = {
   methodRow: { display: "grid", gap: 4 },
   method: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 0, minHeight: 31, borderRadius: 7, padding: "3px 2px", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(80,75,65,0.10)", color: "#625c52" },
   methodValue: { fontSize: 10.5, lineHeight: 1.05, color: "#3d3933" },
-  methodLabel: { marginTop: 2, fontSize: 7.8, lineHeight: 1.05, fontWeight: 800, whiteSpace: "normal",
+  methodLabel: { marginTop: 2, fontSize: 7.8, fontWeight: 800, whiteSpace: "normal",
     lineHeight: 1.18,
     overflowWrap: "anywhere", letterSpacing: "-0.15px" },
 };
@@ -4544,7 +4577,6 @@ const curriculumDataWarning = {
 };
 const curriculumMethodBadge = {
   base: { display: "inline-flex", flexDirection: "column", alignItems: "center", justifyContent: "center", width: "auto", minWidth: 48, maxWidth: "96%",
-    padding: "3px 5px",
     boxSizing: "border-box", minHeight: 20, padding: "3px 7px", borderRadius: 7, fontSize: 8.3, fontWeight: 900, lineHeight: 1.12, whiteSpace: "normal", wordBreak: "keep-all", letterSpacing: "-0.15px" },
   line: { display: "block", whiteSpace: "nowrap" },
   rank: { background: "#eaf2ee", color: "#416356", border: "1px solid #c8d9d2" },
