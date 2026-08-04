@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert, Star } from "lucide-react";
+import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert, Star, MessageSquare } from "lucide-react";
 import { readStorage, uploadAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
@@ -251,12 +251,12 @@ function inferRegionFromFileName(fileName, knownRegion = "") {
 }
 
 export async function loadGradesDB() {
-  const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings, admissionCaseSources, admissionCases, admissionFavorites] = await Promise.all([
+  const [semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings, admissionCaseSources, admissionCases, admissionFavorites, admissionCounseling] = await Promise.all([
     readStorage("kd_grades_semesters", {}), readStorage("kd_grades_mocks", {}), readStorage("kd_grades_admission", []),
     readStorage("kd_grades_admission_docs", []), readStorage("kd_grades_students_meta", {}), readStorage("kd_grades_cohorts", DEFAULT_COHORT_SETTINGS),
-    readStorage("kd_grades_admission_case_sources", []), readStorage("kd_grades_admission_cases", []), readStorage("kd_grades_admission_favorites", {}),
+    readStorage("kd_grades_admission_case_sources", []), readStorage("kd_grades_admission_cases", []), readStorage("kd_grades_admission_favorites", {}), readStorage("kd_grades_admission_counseling", {}),
   ]);
-  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases, admissionFavorites: admissionFavorites || {} };
+  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases, admissionFavorites: admissionFavorites || {}, admissionCounseling: admissionCounseling || {} };
 }
 
 export default function GradesSection({
@@ -309,6 +309,7 @@ export default function GradesSection({
     if (!requestedStudentView || loggedInStudent) return;
     if (requestedStudentView === "grades") setTab("lookup");
     if (requestedStudentView === "admission") setTab("lookupAdmission");
+    if (requestedStudentView === "consultation") setTab("consultation");
   }, [requestedStudentView, loggedInStudent]);
 
   if (!gdb) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
@@ -332,10 +333,10 @@ export default function GradesSection({
       </div>
 
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
-        {loggedInStudent && <div style={{ display: "flex", gap: 6, marginBottom: 18, flexWrap: "wrap" }}>
+        {loggedInStudent && <div style={{ display: "flex", gap: 7, marginBottom: 18, flexWrap: "wrap", padding:6, border:"1px solid #dfe5ef", borderRadius:12, background:"linear-gradient(135deg,#f7faff,#fbf9ff)" }}>
           <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="내 성적 리포트" />
           <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학 지원 진단" />
-          <TabBtn active={tab === "favorites"} onClick={() => setTab("favorites")} label="관심 대학·학과" />
+          <TabBtn active={tab === "consultation"} onClick={() => setTab("consultation")} label="상담·관심 대학" />
         </div>}
         {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <div style={staffToolNav.wrap}>
@@ -350,7 +351,7 @@ export default function GradesSection({
 
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
         {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} focusUniversity={linkedUniversity} />}
-        {tab === "favorites" && loggedInStudent && <StudentFavoritesView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={openAdmissionUniversity} />}
+        {tab === "consultation" && loggedInStudent && <StudentConsultationView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={openAdmissionUniversity} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} />}
 
         {loggedInTeacher && !teacherHasGradeAccess && (
           <EmptyBox text={`${currentGrade}학년 학생 성적 조회 권한이 없습니다. 관리자에게 역할 또는 성적 조회 권한을 요청해주세요.`} />
@@ -391,6 +392,23 @@ export default function GradesSection({
             focusUniversity={linkedUniversity}
             onOpenCases={openCaseUniversity}
           />
+        )}
+        {tab === "consultation" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && lookupSid && (
+          <StudentConsultationView
+            sid={lookupSid}
+            gdb={gdb}
+            studentInfo={roster?.[lookupSid]}
+            favorites={favoriteItemsFor(lookupSid)}
+            onToggleFavorite={item => toggleFavorite(lookupSid,item)}
+            onOpenAdmission={openAdmissionUniversity}
+            onOpenCases={openCaseUniversity}
+            persistGrades={persistGrades}
+            canEdit
+            authorName={loggedInAdmin ? "관리자" : (loggedInTeacher?.name || loggedInTeacher?.id || "선생님")}
+          />
+        )}
+        {tab === "consultation" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && !lookupSid && (
+          <EmptyBox text="상단 학생 통합 검색에서 상담할 학생을 선택하세요." />
         )}
         {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
@@ -1789,16 +1807,17 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
           <div style={chartEmpty}>검색 조건에 맞는 전형이 없습니다.</div>
         ) : admissionViewMode === "mock" ? (
           <div style={{ ...table.scroll, overflowX: "visible" }}>
-            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 8.7 : 9.6, minWidth:0 }}>
+            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 8.9 : 9.8, minWidth:0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "12%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "20%" }} /><col style={{ width: "13%" }} /><col style={{ width: "11%" }} /><col style={{ width: "10%" }} /><col style={{ width: "11%" }} /><col style={{ width: "11%" }} />
+                  <col style={{ width: "4%" }} /><col style={{ width: "12%" }} /><col style={{ width: "6%" }} /><col style={{ width: "6%" }} /><col style={{ width: "20%" }} /><col style={{ width: "12%" }} /><col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "12%" }} /><col style={{ width: "8%" }} />
                 </> : <>
-                  <col style={{ width: "9%" }} /><col style={{ width: "5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "10%" }} /><col style={{ width: "7%" }} /><col style={{ width: "21%" }} /><col style={{ width: "10%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "10%" }} />
+                  <col style={{ width: "4%" }} /><col style={{ width: "9%" }} /><col style={{ width: "4.5%" }} /><col style={{ width: "4.5%" }} /><col style={{ width: "11%" }} /><col style={{ width: "9%" }} /><col style={{ width: "20%" }} /><col style={{ width: "9%" }} /><col style={{ width: "8%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "6%" }} />
                 </>}
               </colgroup>
               <thead>
                 <tr>
+                  <th style={{ ...admissionTable.th, ...admissionTable.favoriteHead }}>★</th>
                   <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
                   {admissionTableView === "focus" && <th style={admissionTable.th}>지역</th>}
                   {admissionTableView === "focus" && <th style={admissionTable.th}>계열</th>}
@@ -1824,7 +1843,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                   const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
                   return (
                     <tr key={`${row.university}-${row._index}`}>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="관심 대학·학과에 저장"><Star size={12} fill="currentColor"/></button>}<span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university)}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="관심 대학·학과에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.favoriteCell }}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university)}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="상담·관심 대학에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
@@ -1867,16 +1887,17 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
           </div>
         ) : (
           <div style={{ ...table.scroll, overflowX: "visible" }}>
-            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 8.6 : 9.4, minWidth:0 }}>
+            <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 8.9 : 9.7, minWidth:0 }}>
               <colgroup>
                 {admissionTableView === "focus" ? <>
-                  <col style={{ width: "11%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "5.5%" }} /><col style={{ width: "16%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "15%" }} /><col style={{ width: "11%" }} />
+                  <col style={{ width: "4%" }} /><col style={{ width: "12%" }} /><col style={{ width: "5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "16%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "9%" }} /><col style={{ width: "16%" }} /><col style={{ width: "6%" }} />
                 </> : <>
-                  <col style={{ width: "9%" }} /><col style={{ width: "5%" }} /><col style={{ width: "5%" }} /><col style={{ width: "12%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "8%" }} /><col style={{ width: "24%" }} /><col style={{ width: "9%" }} />
+                  <col style={{ width: "4%" }} /><col style={{ width: "9%" }} /><col style={{ width: "4.5%" }} /><col style={{ width: "4.5%" }} /><col style={{ width: "11%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "7%" }} /><col style={{ width: "11%" }} /><col style={{ width: "22%" }} /><col style={{ width: "6%" }} />
                 </>}
               </colgroup>
               <thead>
                 <tr>
+                  <th style={{ ...admissionTable.th, ...admissionTable.favoriteHead }}>★</th>
                   <th style={{ ...admissionTable.th, ...admissionTable.stickyHead }}>대학교</th>
                   {admissionTableView === "focus" && <th style={admissionTable.th}>지역</th>}
                   {admissionTableView === "focus" && <th style={admissionTable.th}>계열</th>}
@@ -1898,7 +1919,8 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                   const specialNote = admissionSpecialNote(row, reflection);
                   return (
                     <tr key={`school-${row.university}-${row._index}`}>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="관심 대학·학과에 저장"><Star size={12} fill="currentColor"/></button>}<span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university)}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="관심 대학·학과에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.favoriteCell }}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university)}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="상담·관심 대학에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
@@ -1989,12 +2011,12 @@ function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYea
     <div style={{ ...studentBanner.box, ...(admissionView || favoritesView ? studentBanner.admissionBox : {}) }}>
       <div style={studentBanner.topRow}>
         <div style={studentBanner.main}>
-          <div style={{ ...studentBanner.eyebrow, ...(admissionView ? studentBanner.admissionEyebrow : {}) }}>{favoritesView ? "학생 관심 대학·학과" : admissionView ? "학생 대학 지원 진단" : "학생 성적 리포트"}</div>
+          <div style={{ ...studentBanner.eyebrow, ...(admissionView ? studentBanner.admissionEyebrow : {}) }}>{favoritesView ? "학생 상담·관심 대학" : admissionView ? "학생 대학 지원 진단" : "학생 성적 리포트"}</div>
           <div style={studentBanner.titleRow}>
             <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span>
-            <span style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : {}) }}>{favoritesView ? "즐겨찾기" : admissionView ? "대학 지원" : "성적 분석"}</span>
+            <span style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : {}) }}>{favoritesView ? "상담 기록" : admissionView ? "대학 지원" : "성적 분석"}</span>
           </div>
-          <div style={studentBanner.subtitle}>{favoritesView ? "저장한 대학·학과의 지원 기준과 광덕고 사례를 함께 확인합니다." : admissionView ? "현재 성적과 대학별 지원 기준을 비교한 상담용 진단입니다." : "학기별 내신 성적과 성취도 흐름을 확인합니다."}</div>
+          <div style={studentBanner.subtitle}>{favoritesView ? "상담 기록과 저장한 대학·학과의 지원 기준·광덕고 사례를 함께 확인합니다." : admissionView ? "현재 성적과 대학별 지원 기준을 비교한 상담용 진단입니다." : "학기별 내신 성적과 성취도 흐름을 확인합니다."}</div>
           <div style={studentBanner.badges}>
             {location && <span style={studentBanner.badge}>{location}</span>}
             <span style={studentBanner.badge}>{entryYear}학년도 입학생</span>
@@ -2399,11 +2421,9 @@ function StudentLookup({
   );
 }
 
-function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleFavorite, onOpenAdmission }) {
-  const semesterCandidates = SEMESTER_KEYS.map(key => {
-    const legacy = gdb.semesterData?.[key]?.students?.[sid] || null;
-    return legacy;
-  }).filter(Boolean);
+
+function studentViewIdentityMeta({ sid, gdb, studentInfo }) {
+  const semesterCandidates = SEMESTER_KEYS.map(key => gdb.semesterData?.[key]?.students?.[sid] || null).filter(Boolean);
   const latestSemesterRecord = semesterCandidates.slice().reverse()[0] || null;
   const metaRecord = Array.isArray(gdb.studentAccounts)
     ? gdb.studentAccounts.find(student => String(student.id) === String(sid))
@@ -2411,6 +2431,20 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
   const entryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord, cohortSettings: gdb.cohortSettings });
   const grade = asNumber(studentInfo?.grade) ?? asNumber(String(sid).charAt(0)) ?? 1;
   const gradeSystem = entryYear >= 2025 ? 5 : 9;
+  return {
+    latestSemesterRecord,
+    metaRecord,
+    entryYear,
+    grade,
+    gradeSystem,
+    name: studentInfo?.name || latestSemesterRecord?.name || metaRecord?.name || "",
+    classNumber: studentInfo?.class ?? latestSemesterRecord?.class ?? metaRecord?.class,
+    number: studentInfo?.number ?? latestSemesterRecord?.number ?? metaRecord?.number,
+  };
+}
+
+function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleFavorite, onOpenAdmission, onOpenCases, hideBanner = false }) {
+  const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
   const groups = useMemo(() => {
     const map = new Map();
     (favorites || []).forEach(item => {
@@ -2421,23 +2455,112 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
     });
     return Array.from(map.values()).sort((a,b)=>a.university.localeCompare(b.university,"ko"));
   }, [favorites]);
-  if (!groups.length) return <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 지원 진단 또는 광덕고 대입 결과의 별 아이콘을 눌러 저장하세요." />;
+
+  const favoriteContent = !groups.length
+    ? <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 지원 진단 또는 광덕고 대입 결과의 별 아이콘을 눌러 저장하세요." />
+    : <div style={card}>
+        <SectionHeading title="관심 대학·학과" description="대학 지원 기준과 광덕고 과거 지원 사례를 같은 대학 기준으로 연결해 확인합니다." />
+        <div style={favoriteView.grid}>{groups.map(group=>{
+          const admissions=(gdb.admissionRows||[]).filter(row=>universityKey(row.university)===universityKey(group.university));
+          const cases=(gdb.admissionCases||[]).filter(row=>universityKey(row.universityNormalized||row.university)===universityKey(group.university));
+          const accepted=cases.filter(row=>row.finalResult==="합격");
+          const cutValues=accepted.map(row=>asNumber(row.universityGrade??row.overallGrade)).filter(value=>value!=null).sort((a,b)=>a-b);
+          const cut50=cutValues.length?(cutValues.length%2?cutValues[(cutValues.length-1)/2]:(cutValues[cutValues.length/2-1]+cutValues[cutValues.length/2])/2):null;
+          return <article key={group.university} style={favoriteView.card}>
+            <div style={favoriteView.header}><div><b>{group.university}</b><span>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&admissions.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(group.university)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&cases.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenCases(group.university)}>광덕고 사례 <ExternalLink size={12}/></button>}</div></div>
+            <div style={favoriteView.sourceGrid}>
+              <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>대학 지원 진단</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div>
+              <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>광덕고 대입 사례</small><b style={favoriteView.sourceValue}>{cases.length}건 · 합격 {accepted.length}건</b><span style={favoriteView.sourceDetail}>{cases.length?`합격자 50%컷 ${cut50==null?"-":Math.round(cut50*100)/100} · 합격 사례 ${Math.round(accepted.length/cases.length*1000)/10}%`:"연결 사례 없음"}</span></div>
+            </div>
+            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></div>)}</div>
+          </article>
+        })}</div>
+      </div>;
+
   return <div style={{display:"grid",gap:14}}>
-    <StudentIdentityBanner sid={sid} name={studentInfo?.name||latestSemesterRecord?.name||metaRecord?.name||""} grade={grade} classNumber={studentInfo?.class??latestSemesterRecord?.class??metaRecord?.class} number={studentInfo?.number??latestSemesterRecord?.number??metaRecord?.number} entryYear={entryYear} gradeSystem={gradeSystem} viewType="favorites" />
-    <div style={card}><SectionHeading title="관심 대학·학과" description="대학 지원 기준과 광덕고 과거 지원 사례를 같은 대학 기준으로 연결해 확인합니다." />
-      <div style={favoriteView.grid}>{groups.map(group=>{
-        const admissions=(gdb.admissionRows||[]).filter(row=>universityKey(row.university)===universityKey(group.university));
-        const cases=(gdb.admissionCases||[]).filter(row=>universityKey(row.universityNormalized||row.university)===universityKey(group.university));
-        const accepted=cases.filter(row=>row.finalResult==="합격");
-        const cutValues=accepted.map(row=>asNumber(row.universityGrade??row.overallGrade)).filter(value=>value!=null).sort((a,b)=>a-b);
-        const cut50=cutValues.length?(cutValues.length%2?cutValues[(cutValues.length-1)/2]:(cutValues[cutValues.length/2-1]+cutValues[cutValues.length/2])/2):null;
-        return <article key={group.university} style={favoriteView.card}>
-          <div style={favoriteView.header}><div><b>{group.university}</b><span>{group.items.length}개 관심 항목</span></div>{onOpenAdmission&&admissions.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(group.university)}>지원 진단 보기 <ExternalLink size={12}/></button>}</div>
-          <div style={favoriteView.sourceGrid}><div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>대학 지원 진단</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div><div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>광덕고 대입 사례</small><b style={favoriteView.sourceValue}>{cases.length}건 · 합격 {accepted.length}건</b><span style={favoriteView.sourceDetail}>{cases.length?`합격자 50%컷 ${cut50==null?"-":Math.round(cut50*100)/100} · 합격 사례 ${Math.round(accepted.length/cases.length*1000)/10}%`:"연결 사례 없음"}</span></div></div>
-          <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></div>)}</div>
-        </article>
-      })}</div>
+    {!hideBanner && <StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" />}
+    {favoriteContent}
+  </div>;
+}
+
+function StudentConsultationView({
+  sid,
+  gdb,
+  studentInfo,
+  favorites = [],
+  onToggleFavorite,
+  onOpenAdmission,
+  onOpenCases,
+  persistGrades,
+  canEdit = false,
+  authorName = "선생님",
+}) {
+  const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
+  const [noteText, setNoteText] = useState("");
+  const [noteDate, setNoteDate] = useState(() => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(new Date()));
+  const [saving, setSaving] = useState(false);
+  const notes = useMemo(
+    () => [...(gdb?.admissionCounseling?.[String(sid)] || [])].sort((a,b)=>String(b.date||b.createdAt||"").localeCompare(String(a.date||a.createdAt||""))),
+    [gdb?.admissionCounseling, sid],
+  );
+
+  const saveNote = async () => {
+    const text = noteText.trim();
+    if (!text || !persistGrades || !sid) return;
+    setSaving(true);
+    const current = gdb?.admissionCounseling?.[String(sid)] || [];
+    const newNote = {
+      id: `consult_${Date.now().toString(36)}`,
+      date: noteDate,
+      text,
+      author: authorName,
+      createdAt: new Date().toISOString(),
+    };
+    try {
+      const ok = await persistGrades({
+        admissionCounseling: {
+          ...(gdb?.admissionCounseling || {}),
+          [String(sid)]: [newNote, ...current],
+        },
+      });
+      if (ok !== false) setNoteText("");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeNote = async noteId => {
+    if (!persistGrades || !sid) return;
+    const current = gdb?.admissionCounseling?.[String(sid)] || [];
+    await persistGrades({
+      admissionCounseling: {
+        ...(gdb?.admissionCounseling || {}),
+        [String(sid)]: current.filter(note => note.id !== noteId),
+      },
+    });
+  };
+
+  return <div style={{display:"grid",gap:14}}>
+    <StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" />
+    <div style={consultationView.card}>
+      <SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." />
+      {canEdit && <div style={consultationView.editor}>
+        <div style={consultationView.editorTop}>
+          <label style={consultationView.dateLabel}>상담일<input type="date" value={noteDate} onChange={event=>setNoteDate(event.target.value)} style={consultationView.dateInput}/></label>
+          <span style={consultationView.authorBadge}><MessageSquare size={12}/>{authorName}</span>
+        </div>
+        <textarea value={noteText} onChange={event=>setNoteText(event.target.value)} placeholder="상담한 대학·전형, 학생의 희망, 다음 상담 전 확인할 내용 등을 기록하세요." style={consultationView.textarea}/>
+        <button type="button" onClick={saveNote} disabled={saving || !noteText.trim()} style={consultationView.saveButton}>{saving?<Loader2 size={14} className="spin"/>:<Save size={14}/>}상담 기록 저장</button>
+      </div>}
+      {!canEdit && <div style={consultationView.readOnlyNotice}>상담 기록은 담임 선생님 또는 관리자가 작성합니다.</div>}
+      <div style={consultationView.notes}>
+        {notes.length ? notes.map(note=><article key={note.id} style={consultationView.note}>
+          <div style={consultationView.noteHeader}><div style={consultationView.noteMeta}><b>{note.date || "날짜 미입력"}</b><span>{note.author || "작성자 미입력"}</span></div>{canEdit&&<button type="button" onClick={()=>removeNote(note.id)} style={consultationView.deleteButton}>삭제</button>}</div>
+          <p style={consultationView.noteText}>{note.text}</p>
+        </article>) : <div style={consultationView.empty}>저장된 상담 기록이 없습니다.</div>}
+      </div>
     </div>
+    <StudentFavoritesView sid={sid} gdb={gdb} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} hideBanner />
   </div>;
 }
 
@@ -3806,12 +3929,12 @@ const searchBox = {
 };
 const studentBanner = {
   box: {
-    background: "linear-gradient(135deg, #274d6f 0%, #47779a 52%, #6378a5 100%)",
+    background: "linear-gradient(135deg, #2f77b7 0%, #4e88c4 48%, #716ab7 100%)",
     color: "#fff",
     borderRadius: 16,
     padding: "20px 22px",
     marginBottom: 14,
-    boxShadow: "0 8px 22px rgba(39,77,111,0.18)",
+    boxShadow: "0 10px 26px rgba(48,79,135,0.20)",
   },
   topRow: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" },
   main: { flex: "1 1 520px", minWidth: 0 },
@@ -3822,7 +3945,7 @@ const studentBanner = {
   identity: { fontWeight: 950, letterSpacing: "-0.03em" },
   titleTag: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "4px 9px", background: "rgba(255,255,255,.14)", border: "1px solid rgba(255,255,255,.22)", fontSize: 10.5, fontWeight: 900 },
   subtitle: { marginTop: 7, fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,.82)", fontWeight: 650 },
-  admissionBox: { background: "linear-gradient(135deg,#273f68 0%,#4b5f8e 52%,#65558b 100%)", boxShadow: "0 10px 25px rgba(45,59,103,.20)" },
+  admissionBox: { background: "linear-gradient(135deg,#315f9c 0%,#5e78b7 50%,#7e68ad 100%)", boxShadow: "0 10px 27px rgba(54,70,126,.22)" },
   admissionEyebrow: { color: "#dbe7ff", opacity: 1 },
   admissionTitleTag: { background: "#ffe071", borderColor: "#ffe071", color: "#28354f" },
   admissionGradeBadge: { background: "#fff", color: "#394c78", borderColor: "#fff" },
@@ -4075,6 +4198,24 @@ const admissionStatus = {
   noMinimum: { background: "#eef1ff", color: "#4f4a91", border: "1px solid #d3d1f2" },
   neutral: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
 };
+const consultationView = {
+  card:{border:"1px solid #dce3ee",borderRadius:15,padding:16,background:"linear-gradient(135deg,#ffffff,#f7f9fd)",display:"grid",gap:13},
+  editor:{display:"grid",gap:9,padding:12,borderRadius:12,background:"#f5f8fc",border:"1px solid #dce4ef"},
+  editorTop:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"},
+  dateLabel:{display:"inline-flex",alignItems:"center",gap:7,fontSize:11,fontWeight:900,color:"#5f6c7e"},
+  dateInput:{border:"1px solid #d4dce8",borderRadius:8,padding:"7px 9px",background:"#fff",fontSize:11.5},
+  authorBadge:{display:"inline-flex",alignItems:"center",gap:5,borderRadius:999,padding:"5px 9px",background:"#eaf0fa",color:"#345b8b",border:"1px solid #cfdaea",fontSize:10.5,fontWeight:900},
+  textarea:{width:"100%",minHeight:96,resize:"vertical",border:"1px solid #d4dce8",borderRadius:10,padding:"10px 11px",fontSize:12.5,lineHeight:1.55,outline:"none",boxSizing:"border-box",background:"#fff"},
+  saveButton:{justifySelf:"end",display:"inline-flex",alignItems:"center",gap:6,border:0,borderRadius:9,padding:"8px 12px",background:"#315f95",color:"#fff",fontSize:11.5,fontWeight:900,cursor:"pointer"},
+  readOnlyNotice:{padding:"9px 11px",borderRadius:9,background:"#f4f6f9",color:"#707a88",fontSize:11.5,border:"1px solid #e0e5ec"},
+  notes:{display:"grid",gap:8},
+  note:{border:"1px solid #e2e6ed",borderRadius:11,padding:"11px 12px",background:"#fff"},
+  noteHeader:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,marginBottom:7},
+  noteMeta:{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",fontSize:11,color:"#7b8491"},
+  noteText:{margin:0,whiteSpace:"pre-wrap",fontSize:12.2,lineHeight:1.6,color:"#354052"},
+  deleteButton:{border:0,borderRadius:7,padding:"5px 7px",background:"#f5eeee",color:"#985050",fontSize:10.5,fontWeight:850,cursor:"pointer"},
+  empty:{padding:"18px",borderRadius:10,background:"#fafafa",color:"#8a9099",textAlign:"center",fontSize:11.5,border:"1px dashed #dfe3e8"},
+};
 const favoriteView = {
   grid:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12},
   card:{border:"1px solid #dfe3eb",borderRadius:14,padding:14,background:"linear-gradient(135deg,#fff,#f8faff)",display:"grid",gap:12},
@@ -4091,6 +4232,8 @@ const favoriteView = {
   remove:{border:0,background:"#f2f3f5",color:"#777f8a",borderRadius:7,padding:"5px 7px",fontSize:10.5,fontWeight:800,cursor:"pointer"},
 };
 const admissionTable = {
+  favoriteHead:{width:34,padding:"6px 2px",color:"#b58a00",fontSize:12},
+  favoriteCell:{padding:"5px 2px",textAlign:"center",background:"#fbfcfe"},
   universityWrap:{display:"grid",justifyItems:"center",gap:4,minWidth:0},
   starButton:{display:"inline-flex",alignItems:"center",justifyContent:"center",width:22,height:22,borderRadius:7,border:"1px solid #dedfe4",background:"#fff",color:"#a0a5ad",cursor:"pointer"},
   starButtonActive:{background:"#0f1a2e",borderColor:"#0f1a2e",color:"#ffd84d"},
@@ -4167,16 +4310,16 @@ const reflectionBadge = {
   alignItems: "center",
   justifyContent: "center",
   width: "auto",
-  maxWidth: "88%",
-  padding: "2px 4px",
+  maxWidth: "98%",
+  padding: "5px 7px",
   borderRadius: 4,
   background: "#f7f8f8",
   border: "1px solid #e2e5e6",
   borderLeft: "1.5px solid #8d989f",
   color: "#4d565c",
-  fontSize: 7.9,
-  fontWeight: 820,
-  lineHeight: 1.05,
+  fontSize: 10.15,
+  fontWeight: 880,
+  lineHeight: 1.22,
   whiteSpace: "normal",
   wordBreak: "keep-all",
 };
@@ -4184,14 +4327,14 @@ const reflectionBadgeLine = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  minHeight: 8,
-  whiteSpace: "nowrap",
+  minHeight: 11,
+  whiteSpace: "normal",
 };
 const reflectionBadgePlus = {
   marginRight: 2,
   color: "#7d7467",
-  fontSize: 7.2,
-  fontWeight: 850,
+  fontSize: 9.3,
+  fontWeight: 900,
 };
 const specialNoteStyle = {
   box: {

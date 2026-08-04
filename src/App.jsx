@@ -623,7 +623,7 @@ export default function App() {
             if (GRADES.includes(selectedGrade) && !DISABLED_GRADES.includes(selectedGrade)) setGrade(selectedGrade);
           }
           if (saved.section) setSection(saved.section);
-          if (["grades", "admission", "timetable"].includes(saved.studentWorkspaceView)) setStudentWorkspaceView(saved.studentWorkspaceView);
+          if (["grades", "admission", "consultation", "timetable"].includes(saved.studentWorkspaceView)) setStudentWorkspaceView(saved.studentWorkspaceView);
         } catch { /* ignore malformed session */ }
       }
     })();
@@ -703,6 +703,7 @@ export default function App() {
     if (patch.admissionCaseSources) jobs.push(writeStorage("kd_grades_admission_case_sources", patch.admissionCaseSources));
     if (patch.admissionCases) jobs.push(writeStorage("kd_grades_admission_cases", patch.admissionCases));
     if (patch.admissionFavorites) jobs.push(writeStorage("kd_grades_admission_favorites", patch.admissionFavorites));
+    if (patch.admissionCounseling) jobs.push(writeStorage("kd_grades_admission_counseling", patch.admissionCounseling));
     const results = await Promise.all(jobs);
     const failed = results.find(result => result && result.ok === false);
     if (failed) {
@@ -1352,7 +1353,7 @@ function StaffStudentWorkspaceBar({
         {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
       </div>
       <div style={styles.workspaceViewTabs}>
-        {[['grades','성적 리포트'],['admission','대학 지원 진단'],['timetable','개인 시간표']].map(([key,label]) => <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceViewBtn, ...(activeView === key ? styles.workspaceViewBtnActive : {}) }}>{label}</button>)}
+        {[['grades','성적 리포트'],['admission','대학 지원 진단'],['consultation','상담·관심 대학'],['timetable','개인 시간표']].map(([key,label]) => <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceViewBtn, ...(activeView === key ? styles.workspaceViewBtnActive : {}) }}>{label}</button>)}
       </div>
       <div style={styles.workspaceStudentState}>{selectedSid ? <><span>선택 학생</span><strong>{selectedSid}</strong></> : <span>학생을 검색해 세 화면을 연속 조회하세요.</span>}</div>
     </div>
@@ -1369,7 +1370,7 @@ function MegaNav({ active, onSwitch, onLogout, showAdmin }) {
     <div className="no-print" style={megaNavStyles.wrap}>
       <div style={megaNavStyles.inner}>
         <div style={megaNavStyles.brand}>
-          <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#315b38,#6f8e62)", boxShadow: "0 6px 14px rgba(49,91,56,0.22)" }}><Sparkles size={17} /></span>
+          <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#2f6fb0,#7167b5)", boxShadow: "0 7px 18px rgba(55,83,150,0.24)" }}><Sparkles size={17} /></span>
           <span style={{ fontWeight: 900, fontSize: 14.5 }}>광덕고 성적/시간표</span>
         </div>
         <div style={megaNavStyles.tabs}>
@@ -1389,12 +1390,12 @@ function MegaNav({ active, onSwitch, onLogout, showAdmin }) {
   );
 }
 const megaNavStyles = {
-  wrap: { position: "sticky", top: 0, zIndex: 40, background: "rgba(255,255,255,0.92)", backdropFilter: "blur(16px)", borderBottom: "1px solid rgba(222,217,205,0.85)", boxShadow: "0 8px 26px rgba(53,67,52,0.06)" },
-  inner: { maxWidth: 1120, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", gap: 22, flexWrap: "wrap" },
+  wrap: { position: "sticky", top: 0, zIndex: 40, background: "linear-gradient(90deg,rgba(255,255,255,.96),rgba(246,249,255,.96),rgba(250,247,255,.96))", backdropFilter: "blur(16px)", borderBottom: "1px solid #dce4f0", boxShadow: "0 8px 28px rgba(55,72,110,0.09)" },
+  inner: { maxWidth: 1120, margin: "0 auto", padding: "9px 20px", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" },
   brand: { display: "flex", alignItems: "center", gap: 10, marginRight: 8, fontWeight: 900, letterSpacing: "-0.3px" },
   tabs: { display: "flex", gap: 6, flex: 1, alignItems: "center" },
-  tab: { border: "1px solid transparent", background: "transparent", padding: "9px 16px", borderRadius: 999, fontSize: 13.5, fontWeight: 850, color: "#817a6e", cursor: "pointer", transition: "all 0.16s ease" },
-  tabActive: { color: "#26482b", background: "linear-gradient(135deg,#edf5eb,#f5f8f2)", borderColor: "#d7e5d4", boxShadow: "0 4px 12px rgba(61,92,58,0.10)" },
+  tab: { border: "1px solid transparent", background: "transparent", padding: "9px 15px", borderRadius: 11, fontSize: 13.2, fontWeight: 850, color: "#677386", cursor: "pointer", transition: "all 0.16s ease" },
+  tabActive: { color: "#244f86", background: "linear-gradient(135deg,#e9f4ff,#f2edff)", borderColor: "#cbdcf2", boxShadow: "0 5px 15px rgba(55,83,150,0.14)" },
 };
 
 function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections, canViewStudentTools = true, allowedGrades = null, compact = false }) {
@@ -1426,7 +1427,7 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onB
     <div style={styles.topbar} className="no-print">
       <div style={styles.topbarRow}>
         <div style={styles.brand}>
-          <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#315b38,#6f8e62)", boxShadow: "0 6px 14px rgba(49,91,56,0.20)" }}><Sparkles size={17} /></span>
+          <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#2f6fb0,#7167b5)", boxShadow: "0 6px 14px rgba(49,91,56,0.20)" }}><Sparkles size={17} /></span>
           <div>
             <div style={{ ...styles.brandTitle, fontWeight: 900 }}>{SITE_TITLE}</div>
             <div style={styles.brandSub}>{meta?.updatedAt ? `최근 업데이트 · ${new Date(meta.updatedAt).toLocaleString("ko-KR")}` : "데이터 없음"}</div>
@@ -3869,7 +3870,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
               <details key={`teacher-${index}`} style={accountConsole.teacherCard}>
                 <summary style={accountConsole.teacherSummary}>
                   <span style={accountConsole.teacherAvatar}>{String(teacher.name || "?").slice(0, 1)}</span>
-                  <span style={{ minWidth: 0, flex: 1, display:"grid", gap:3 }}><strong>{teacher.name || "이름 미입력"}</strong><small style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}><span style={accountConsole.idBadge}>{teacher.id || "아이디 미입력"}</span><span>{TEACHER_ROLE_LABELS[role]}</span>{automatic && <span style={accountConsole.autoBadge}>{roleGrade}학년 자동 권한</span>}</small></span>
+                  <span style={{ minWidth: 0, flex: 1, display:"grid", gap:3 }}><strong>{teacher.name || "이름 미입력"}</strong><small style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}><span style={accountConsole.idBadge}><b>ID</b><span>{teacher.id || "아이디 미입력"}</span></span><span>{TEACHER_ROLE_LABELS[role]}</span>{automatic && <span style={accountConsole.autoBadge}>{roleGrade}학년 자동 권한</span>}</small></span>
                   <span style={accountConsole.teacherSubjectSummary}>{(teacher.assignments || []).map(item => item.subject).filter(Boolean).slice(0, 3).join(" · ") || "담당과목 미지정"}</span>
                 </summary>
                 <div style={accountConsole.teacherBody}>
@@ -4164,7 +4165,7 @@ const accountConsole = {
   teacherSummary: { display: "flex", alignItems: "center", gap: 10, padding: "11px 13px", cursor: "pointer", listStyle: "none", background: "linear-gradient(135deg,#f7f8f4,#fff)", borderBottom: `1px solid ${COLORS.line}` },
   teacherBody: { padding: 13 },
   teacherAvatar: { width: 30, height: 30, borderRadius: 9, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#eaf0e8", color: "#315a35", fontWeight: 950 },
-  idBadge:{display:"inline-flex",alignItems:"center",borderRadius:6,padding:"2px 6px",background:"#eef2f7",color:"#4d5d70",fontWeight:800},
+  idBadge:{display:"inline-flex",alignItems:"center",gap:5,borderRadius:7,padding:"3px 7px",background:"#eef3fa",color:"#40536b",fontWeight:800,border:"1px solid #d9e2ef"},
   autoBadge:{display:"inline-flex",alignItems:"center",borderRadius:999,padding:"2px 7px",background:"#eaf4ec",color:"#356541",fontWeight:850},
   teacherSubjectSummary: { maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#746d61", fontSize: 11.5, fontWeight: 750 },
   teacherToolbar: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: 10, marginBottom: 10, border: `1px solid ${COLORS.line}`, borderRadius: 10, background: "#faf9f5" },
@@ -4364,16 +4365,16 @@ const styles = {
   staffNoticeComposer: { border: "1px solid #d9dfec", borderRadius: 14, background: "linear-gradient(135deg,#f6f8fd,#ffffff)", padding: 17, boxShadow: "0 4px 18px rgba(68,84,120,.06)" },
   staffNoticeManageCard: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fff" },
   staffNoticeAudienceBadge: { display: "inline-flex", borderRadius: 999, padding: "3px 7px", background: "#edf1fa", color: "#4c628f", border: "1px solid #ced8eb", fontSize: 9.5, fontWeight: 900 },
-  workspaceBarWrap: { position: "sticky", top: 55, zIndex: 35, background: "rgba(248,247,243,.94)", backdropFilter: "blur(13px)", borderBottom: "1px solid #e5e0d6" },
+  workspaceBarWrap: { position: "sticky", top: 55, zIndex: 35, background: "rgba(248,251,255,.95)", backdropFilter: "blur(13px)", borderBottom: "1px solid #dbe4ef", boxShadow:"0 5px 18px rgba(55,74,104,.05)" },
   workspaceBarInner: { maxWidth: 1120, margin: "0 auto", padding: "9px 20px", display: "grid", gridTemplateColumns: "minmax(250px,1fr) auto minmax(150px,.45fr)", gap: 10, alignItems: "center" },
   workspaceSearchWrap: { position: "relative", minWidth: 0, height: 38, borderRadius: 12, border: "1px solid #d8dfe8", background: "#fff", display: "flex", alignItems: "center", gap: 8, padding: "0 11px", boxShadow: "0 3px 12px rgba(55,70,90,.05)" },
   workspaceSearchInput: { flex: 1, minWidth: 0, border: 0, outline: 0, fontSize: 12.5, fontWeight: 750, background: "transparent" },
   workspaceClearBtn: { border: 0, background: "transparent", color: "#8a909a", cursor: "pointer", padding: 3, display: "grid", placeItems: "center" },
   workspaceMatches: { position: "absolute", left: 0, right: 0, top: 43, zIndex: 70, background: "#fff", border: "1px solid #dce2ea", borderRadius: 12, padding: 6, boxShadow: "0 14px 32px rgba(46,56,72,.16)", display: "grid", gap: 3 },
   workspaceMatchItem: { border: 0, borderRadius: 8, background: "transparent", padding: "8px 10px", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, color: "#6b7280" },
-  workspaceViewTabs: { display: "flex", gap: 4, padding: 3, borderRadius: 12, background: "#e9edf3" },
+  workspaceViewTabs: { display: "flex", gap: 4, padding: 4, borderRadius: 13, background: "linear-gradient(135deg,#eaf1f9,#f0edf8)", border:"1px solid #dde4ee" },
   workspaceViewBtn: { border: 0, borderRadius: 9, background: "transparent", color: "#667085", padding: "7px 10px", fontSize: 11.5, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
-  workspaceViewBtnActive: { background: "#fff", color: "#274b7a", boxShadow: "0 2px 8px rgba(48,65,90,.12)" },
+  workspaceViewBtnActive: { background: "#fff", color: "#244f86", boxShadow: "0 3px 9px rgba(48,65,90,.13)", border:"1px solid #d6e1ef" },
   workspaceStudentState: { minWidth: 0, fontSize: 10.5, color: "#8a8578", textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 },
   staffNoticeDock: { position: "fixed", left: 18, top: 212, zIndex: 44, width: 300 },
   staffNoticeDockButton: { display: "inline-flex", alignItems: "center", gap: 7, borderRadius: 999, padding: "9px 12px", border: "1px solid #d2d5df", background: "#fff", color: "#526079", fontSize: 11.5, fontWeight: 900, cursor: "pointer", boxShadow: "0 7px 22px rgba(40,46,60,.12)" },
