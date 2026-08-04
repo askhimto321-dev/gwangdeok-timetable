@@ -2504,7 +2504,7 @@ function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYea
           <div style={{ ...studentBanner.eyebrow, ...(admissionView ? studentBanner.admissionEyebrow : {}) }}>{favoritesView ? "학생 상담·관심 대학" : admissionView ? "학생 대학 지원 진단" : "학생 성적 리포트"}</div>
           <div style={studentBanner.titleRow}>
             <span style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span>
-            <span style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : {}) }}>{favoritesView ? "상담 기록" : admissionView ? "대학 지원" : "성적 분석"}</span>
+            <span style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : favoritesView ? studentBanner.favoritesTitleTag : studentBanner.gradeTitleTag) }}>{favoritesView ? "상담 기록" : admissionView ? "대학 지원" : "성적 분석"}</span>
           </div>
           <div style={studentBanner.subtitle}>{favoritesView ? "상담 기록과 저장한 대학·학과의 지원 기준·광덕고 사례를 함께 확인합니다." : admissionView ? "현재 성적과 대학별 지원 기준을 비교한 상담용 진단입니다." : "학기별 내신 성적과 성취도 흐름을 확인합니다."}</div>
           <div style={studentBanner.badges}>
@@ -5244,11 +5244,13 @@ const studentBanner = {
   title: { fontSize: 21, fontWeight: 500, lineHeight: 1.35 },
   titleRow: { display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap", fontSize: 22, lineHeight: 1.25 },
   identity: { fontWeight: 950, letterSpacing: "-0.03em" },
-  titleTag: { display: "inline-flex", alignItems: "center", borderRadius: 999, padding: "4px 9px", background: "rgba(255,255,255,.14)", border: "1px solid rgba(255,255,255,.22)", fontSize: 10.5, fontWeight: 900 },
-  subtitle: { marginTop: 7, fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,.82)", fontWeight: 650 },
+  titleTag: { display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, padding: "5px 11px", background: "#fff", border: "1px solid rgba(255,255,255,.92)", color: "#315f95", fontSize: 11.5, lineHeight: 1.15, fontWeight: 950, letterSpacing: "-0.02em", boxShadow: "0 4px 12px rgba(28,55,93,.18)" },
+  gradeTitleTag: { background: "#fff", borderColor: "#fff", color: "#2d6497" },
+  favoritesTitleTag: { background: "#ffe480", borderColor: "#ffe480", color: "#2b3853", boxShadow: "0 4px 12px rgba(51,45,91,.20)" },
+  subtitle: { marginTop: 8, fontSize: 12, lineHeight: 1.5, color: "rgba(255,255,255,.86)", fontWeight: 700 },
   admissionBox: { background: "linear-gradient(135deg,#315f9c 0%,#5e78b7 50%,#7e68ad 100%)", boxShadow: "0 10px 27px rgba(54,70,126,.22)" },
   admissionEyebrow: { color: "#dbe7ff", opacity: 1 },
-  admissionTitleTag: { background: "#ffe071", borderColor: "#ffe071", color: "#28354f" },
+  admissionTitleTag: { background: "#ffe071", borderColor: "#ffe071", color: "#28354f", boxShadow: "0 4px 12px rgba(51,45,91,.20)" },
   admissionGradeBadge: { background: "#fff", color: "#394c78", borderColor: "#fff" },
   badges: { display: "flex", flexWrap: "wrap", gap: 7, marginTop: 13 },
   badge: { display: "inline-flex", alignItems: "center", background: "rgba(255,255,255,0.13)", border: "1px solid rgba(255,255,255,0.18)", borderRadius: 999, padding: "5px 10px", fontSize: 11.5, fontWeight: 700 },
