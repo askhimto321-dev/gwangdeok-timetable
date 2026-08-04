@@ -215,6 +215,28 @@ async function loadXLSX() {
   return _xlsxModule;
 }
 
+function yieldForUploadPaint() {
+  return new Promise(resolve => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => setTimeout(resolve, 0));
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+function workbookReadOptions() {
+  return {
+    type: "array",
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    cellStyles: false,
+    bookVBA: false,
+    bookFiles: false,
+  };
+}
+
 function cleanGuideBaseName(fileName) {
   return String(fileName || "")
     .replace(/^.*[\/]/, "")
@@ -3056,7 +3078,12 @@ function findReflectionInLookup(row, lookup) {
   for (const candidate of candidates) {
     if (lookup.has(candidate)) return lookup.get(candidate);
   }
-  const entries = Array.from(lookup.entries()).sort((a, b) => b[0].length - a[0].length);
+
+  // 예전에는 행 하나를 찾을 때마다 전체 lookup을 다시 배열화·정렬했습니다.
+  // 대입 전형 행이 많을수록 같은 정렬을 반복하게 되어 업로드 분석이 크게 느려졌습니다.
+  const entries = Array.isArray(lookup.sortedEntries)
+    ? lookup.sortedEntries
+    : Array.from(lookup.entries()).sort((a, b) => b[0].length - a[0].length);
   for (const candidate of candidates) {
     for (const [key, ratio] of entries) {
       if (key.length >= 3 && (candidate.includes(key) || key.includes(candidate))) return ratio;
@@ -3176,7 +3203,24 @@ function findCurriculumMethodsInLookup(row, lookup) {
   const track = normalizeAdmissionLookupKey(row?.track);
   const department = normalizeAdmissionLookupKey(row?.department);
   const admissionField = normalizeAdmissionLookupKey(row?.admissionField);
-  for (const [key, methods] of lookup.map.entries()) {
+
+  // 전체 전형 lookup을 매 행마다 전부 순회하지 않고 같은 대학 후보만 확인합니다.
+  let candidateEntries = [];
+  if (lookup.byUniversity instanceof Map) {
+    candidateEntries = lookup.byUniversity.get(university) || [];
+    if (!candidateEntries.length && university) {
+      for (const [candidateUniversity, entries] of lookup.byUniversity.entries()) {
+        if (candidateUniversity
+          && (university.includes(candidateUniversity) || candidateUniversity.includes(university))) {
+          candidateEntries.push(...entries);
+        }
+      }
+    }
+  } else {
+    candidateEntries = Array.from(lookup.map.entries());
+  }
+
+  for (const [key, methods] of candidateEntries) {
     const [candidateUniversity, candidateTrack, candidateDepartment, candidateAdmissionField] = key.split("|");
     const universityMatches = university && candidateUniversity
       && (university.includes(candidateUniversity) || candidateUniversity.includes(university));
@@ -3201,30 +3245,122 @@ function mergeCurriculumMethods(row, methods) {
   return Object.keys(patch).length ? { ...row, ...patch } : row;
 }
 
-function parseAdmissionWorkbook(workbook, XLSX) {
-  const sheetRows = (workbook?.SheetNames || []).map(name => ({
+function admissionSheetNamePriority(name) {
+  const text = String(name || "").replace(/\s+/g, "");
+  let score = 0;
+  if (/대입|입시/.test(text)) score += 8;
+  if (/전형/.test(text)) score += 6;
+  if (/반영비율|반영방법|교과/.test(text)) score += 4;
+  if (/선택|성취도|계획|요강/.test(text)) score += 2;
+  return score;
+}
+
+function sheetPreviewRows(sheet, XLSX, maxRows = 36) {
+  if (!sheet || !sheet["!ref"]) return [];
+  try {
+    const range = XLSX.utils.decode_range(sheet["!ref"]);
+    range.e.r = Math.min(range.e.r, Math.max(0, maxRows - 1));
+    range.e.c = Math.min(range.e.c, 120);
+    return XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      defval: null,
+      raw: true,
+      blankrows: false,
+      range,
+    });
+  } catch {
+    return [];
+  }
+}
+
+function inspectAdmissionSheet(name, sheet, XLSX) {
+  const previewRows = sheetPreviewRows(sheet, XLSX);
+  const basePreview = parseAdmissionRows(previewRows);
+  const reflectionPreview = parseReflectionLookup(previewRows);
+  const curriculumPreview = parseCurriculumMethodLookup(previewRows);
+  return {
     name,
-    rows: XLSX.utils.sheet_to_json(workbook.Sheets[name], { header: 1, defval: null }),
-  }));
-  const parsedCandidates = sheetRows
-    .map(item => ({ ...item, parsed: parseAdmissionRows(item.rows) }))
-    .filter(item => item.parsed && item.parsed.length);
+    namePriority: admissionSheetNamePriority(name),
+    hasBase: Boolean(basePreview?.length),
+    basePreviewCount: basePreview?.length || 0,
+    hasReflection: reflectionPreview.size > 0,
+    hasCurriculum: curriculumPreview.map.size > 0 || curriculumPreview.ordered.length > 0,
+  };
+}
+
+function parseAdmissionWorkbook(workbook, XLSX) {
+  const names = workbook?.SheetNames || [];
+  if (!names.length) return null;
+
+  // 과거 코드는 모든 시트를 처음부터 끝까지 배열로 변환하고,
+  // 각 시트에 대해 대입표·반영비율·선택과목 파서를 모두 실행했습니다.
+  // 성적 원본처럼 시트가 많은 파일에서는 실제 대입 시트 1개를 찾기 위해
+  // 수십만 셀을 불필요하게 읽는 것이 가장 큰 병목이었습니다.
+  const likelyNames = names.filter(name => admissionSheetNamePriority(name) > 0);
+  const firstPassNames = likelyNames.length ? likelyNames : names;
+  const inspected = new Map();
+
+  firstPassNames.forEach(name => {
+    inspected.set(name, inspectAdmissionSheet(name, workbook.Sheets[name], XLSX));
+  });
+
+  let baseCandidates = Array.from(inspected.values()).filter(item => item.hasBase);
+
+  // 이름만으로 후보를 찾지 못한 경우에만 나머지 시트의 앞부분을 확인합니다.
+  if (!baseCandidates.length && firstPassNames.length < names.length) {
+    names.filter(name => !inspected.has(name)).forEach(name => {
+      inspected.set(name, inspectAdmissionSheet(name, workbook.Sheets[name], XLSX));
+    });
+    baseCandidates = Array.from(inspected.values()).filter(item => item.hasBase);
+  }
+  if (!baseCandidates.length) return null;
+
+  const fullRowsCache = new Map();
+  const fullRows = name => {
+    if (!fullRowsCache.has(name)) {
+      fullRowsCache.set(name, XLSX.utils.sheet_to_json(workbook.Sheets[name], {
+        header: 1,
+        defval: null,
+        raw: true,
+        blankrows: false,
+      }));
+    }
+    return fullRowsCache.get(name);
+  };
+
+  const parsedCandidates = baseCandidates
+    .map(item => ({ ...item, parsed: parseAdmissionRows(fullRows(item.name)) }))
+    .filter(item => item.parsed?.length)
+    .sort((a, b) => (
+      b.parsed.length - a.parsed.length
+      || b.namePriority - a.namePriority
+      || b.basePreviewCount - a.basePreviewCount
+    ));
   if (!parsedCandidates.length) return null;
 
-  // 전형표 본문은 가장 많은 대학 전형 행을 가진 시트를 기준으로 사용합니다.
-  const base = parsedCandidates.sort((a, b) => b.parsed.length - a.parsed.length)[0].parsed;
+  const baseItem = parsedCandidates[0];
+  const base = baseItem.parsed;
   const reflectionLookup = new Map();
   let orderedReflectionLookup = [];
-  const curriculumLookup = { map: new Map(), ordered: [] };
+  const curriculumLookup = { map: new Map(), ordered: [], byUniversity: new Map() };
 
-  sheetRows.forEach(item => {
-    const sheetReflectionLookup = parseReflectionLookup(item.rows);
+  // 실제 lookup 후보와 본문 시트만 전체 변환합니다.
+  const lookupNames = Array.from(new Set([
+    baseItem.name,
+    ...Array.from(inspected.values())
+      .filter(item => item.hasReflection || item.hasCurriculum || /반영|교과|선택|전형/.test(String(item.name || "")))
+      .map(item => item.name),
+  ]));
+
+  lookupNames.forEach(name => {
+    const rows = fullRows(name);
+    const sheetReflectionLookup = parseReflectionLookup(rows);
     sheetReflectionLookup.forEach((ratio, key) => reflectionLookup.set(key, ratio));
     if ((sheetReflectionLookup.ordered || []).length > orderedReflectionLookup.length) {
       orderedReflectionLookup = sheetReflectionLookup.ordered || [];
     }
 
-    const sheetCurriculumLookup = parseCurriculumMethodLookup(item.rows);
+    const sheetCurriculumLookup = parseCurriculumMethodLookup(rows);
     sheetCurriculumLookup.map.forEach((methods, key) => {
       if (!curriculumLookup.map.has(key)) curriculumLookup.map.set(key, methods);
     });
@@ -3233,7 +3369,16 @@ function parseAdmissionWorkbook(workbook, XLSX) {
     }
   });
 
-  return base.map((baseRow, index) => {
+  reflectionLookup.sortedEntries = Array.from(reflectionLookup.entries())
+    .sort((a, b) => b[0].length - a[0].length);
+
+  curriculumLookup.map.forEach((methods, key) => {
+    const university = key.split("|")[0];
+    if (!curriculumLookup.byUniversity.has(university)) curriculumLookup.byUniversity.set(university, []);
+    curriculumLookup.byUniversity.get(university).push([key, methods]);
+  });
+
+  const merged = base.map((baseRow, index) => {
     let row = baseRow;
 
     if (!admissionReflectionText(row)) {
@@ -3251,6 +3396,19 @@ function parseAdmissionWorkbook(workbook, XLSX) {
     row = mergeCurriculumMethods(row, methods);
     return row;
   });
+
+  // 진단 UI에서 어떤 시트만 실제로 읽었는지 확인할 수 있도록 비열거 메타데이터를 붙입니다.
+  Object.defineProperty(merged, "_parseMeta", {
+    value: {
+      totalSheets: names.length,
+      inspectedSheets: inspected.size,
+      fullyReadSheets: fullRowsCache.size,
+      baseSheet: baseItem.name,
+      lookupSheets: lookupNames,
+    },
+    enumerable: false,
+  });
+  return merged;
 }
 
 function parseAdmissionRows(rows) {
@@ -3364,7 +3522,9 @@ function BulkUpload({ gdb, persistGrades, showToast }) {
     setPreview(null);
     try {
       const XLSX = await loadXLSX();
-      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const fileBuffer = await file.arrayBuffer();
+      await yieldForUploadPaint();
+      const wb = XLSX.read(fileBuffer, workbookReadOptions());
       const newSemesterData = { ...gdb.semesterData };
       const newMockData = { ...gdb.mockData };
       let newAdmissionRows = gdb.admissionRows;
@@ -3656,31 +3816,87 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);
   const [applying, setApplying] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const [diagnosis, setDiagnosis] = useState(null);
+
+  useEffect(() => {
+    // 파일을 고른 뒤 SheetJS 모듈을 처음 내려받느라 기다리는 시간을 줄입니다.
+    loadXLSX().catch(() => null);
+  }, []);
 
   const handleFile = async (file) => {
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     setBusy(true);
     setPreview(null);
+    setDiagnosis(null);
+    setProgress({ step: "파일 준비", detail: `${file.name} · ${(file.size / 1024).toFixed(0)}KB`, percent: 10 });
     try {
+      await yieldForUploadPaint();
       const XLSX = await loadXLSX();
-      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+
+      setProgress({ step: "파일 읽기", detail: "브라우저에서 엑셀 파일을 읽고 있습니다.", percent: 28 });
+      await yieldForUploadPaint();
+      const fileBuffer = await file.arrayBuffer();
+
+      setProgress({ step: "워크북 해석", detail: "시트 구조와 셀 데이터를 확인하고 있습니다.", percent: 48 });
+      await yieldForUploadPaint();
+      const wb = XLSX.read(fileBuffer, workbookReadOptions());
+
+      setProgress({ step: "관련 시트 선별", detail: `${wb.SheetNames.length}개 시트 중 대입 전형·반영비율 시트만 찾고 있습니다.`, percent: 68 });
+      await yieldForUploadPaint();
       const admissionRows = parseAdmissionWorkbook(wb, XLSX);
-      if (!admissionRows) { showToast('열 이름을 확인해주세요: "대학교/대학명", "수능최저 반영 과목수/반영 교과수", "수능최저 합/최저합 기준"', "error"); setBusy(false); return; }
-      setPreview(admissionRows);
+      if (!admissionRows) {
+        showToast('열 이름을 확인해주세요: "대학교/대학명", "수능최저 반영 과목수/반영 교과수", "수능최저 합/최저합 기준"', "error");
+        return;
+      }
+
+      setProgress({ step: "데이터 결합", detail: "대입 전형과 교과 반영 방식을 연결하고 있습니다.", percent: 88 });
+      await yieldForUploadPaint();
+
       const reflectionCount = admissionRows.filter(row => admissionReflectionText(row)).length;
       const curriculumCount = admissionRows.filter(row => (
         CURRICULUM_METHOD_FIELDS.some(([field]) => normalizeCurriculumMethod(row[field]) !== "미입력")
       )).length;
-      showToast(`${admissionRows.length}건을 인식했습니다. (반영비율 ${reflectionCount}건 · 내신반영 ${curriculumCount}건)`, (reflectionCount || curriculumCount) ? "success" : "info");
+      const elapsedMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt;
+      const parseMeta = admissionRows._parseMeta || {};
+      const serializedBytes = new TextEncoder().encode(JSON.stringify(admissionRows)).length;
+
+      setPreview(admissionRows);
+      setDiagnosis({
+        fileName: file.name,
+        fileSize: file.size,
+        elapsedMs,
+        totalSheets: parseMeta.totalSheets || wb.SheetNames.length,
+        inspectedSheets: parseMeta.inspectedSheets ?? wb.SheetNames.length,
+        fullyReadSheets: parseMeta.fullyReadSheets ?? wb.SheetNames.length,
+        baseSheet: parseMeta.baseSheet || "-",
+        lookupSheets: parseMeta.lookupSheets || [],
+        rowCount: admissionRows.length,
+        reflectionCount,
+        curriculumCount,
+        serializedBytes,
+      });
+      setProgress({ step: "분석 완료", detail: `${admissionRows.length}건을 인식했습니다.`, percent: 100 });
+      showToast(`${admissionRows.length}건을 인식했습니다. (반영비율 ${reflectionCount}건 · 내신반영 ${curriculumCount}건 · ${(elapsedMs / 1000).toFixed(1)}초)`, (reflectionCount || curriculumCount) ? "success" : "info");
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
+      setProgress({ step: "분석 실패", detail: e?.message || String(e), percent: 0, error: true });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
 
   const apply = async () => {
     setApplying(true);
+    const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
     const ok = await persistGrades({ admissionRows: preview });
-    if (ok) { showToast(`저장했습니다. (대입 전형표 ${preview.length}건)`, "success"); setPreview(null); }
+    const elapsedMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt;
+    if (ok) {
+      showToast(`저장했습니다. (대입 전형표 ${preview.length}건 · ${(elapsedMs / 1000).toFixed(1)}초)`, "success");
+      setPreview(null);
+      setProgress(null);
+      setDiagnosis(value => value ? { ...value, saveElapsedMs: elapsedMs } : value);
+    }
     setApplying(false);
   };
 
@@ -3691,42 +3907,68 @@ function AdmissionUpload({ gdb, persistGrades, showToast }) {
 
   return (
     <div>
-      <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
-        <FileSpreadsheet size={22} color="#8a8578" />
-        <div style={{ fontWeight: 700, marginTop: 8 }}>대입 전형표 업로드</div>
-        <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center", maxWidth: 560, lineHeight: 1.55 }}>
-          원본 엑셀 파일을 그대로 올려주세요. 대학 전형표 시트뿐 아니라 별도의 "전형 / 반영비율" 시트도 함께 검색하여 전형명에 맞는 반영비율을 자동 결합합니다.
+      <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #d7dfec`, background: "linear-gradient(135deg,#fbfdff,#faf9ff)" }}>
+        <FileSpreadsheet size={22} color="#58739a" />
+        <div style={{ fontWeight: 800, marginTop: 8 }}>대입 전형표 업로드</div>
+        <div style={{ fontSize: 12, color: "#758095", margin: "6px 0 12px", textAlign: "center", maxWidth: 620, lineHeight: 1.55 }}>
+          원본 엑셀 파일에서 대입 전형표와 전형·반영비율 시트만 선별하여 읽습니다. 성적·모의고사 시트는 전형표 분석에서 제외합니다.
         </div>
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 파일 선택</button>
+        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {busy ? "분석 중" : "파일 선택"}</button>
+        {progress && (
+          <div style={{ width: "min(620px,100%)", marginTop: 13, padding: "10px 12px", border: `1px solid ${progress.error ? "#efc5c2" : "#dbe4f1"}`, borderRadius: 10, background: progress.error ? "#fff6f5" : "#fff" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, fontSize: 11.5 }}>
+              <b style={{ color: progress.error ? "#a4433d" : "#3f587d" }}>{progress.step}</b>
+              <span style={{ color: "#7a8495", fontWeight: 800 }}>{progress.percent}%</span>
+            </div>
+            <div style={{ height: 6, marginTop: 7, borderRadius: 999, background: "#edf1f6", overflow: "hidden" }}><div style={{ width: `${Math.max(0, Math.min(100, progress.percent))}%`, height: "100%", background: progress.error ? "#c9625a" : "linear-gradient(90deg,#5578a7,#7465a7)", transition: "width .2s ease" }} /></div>
+            <div style={{ marginTop: 6, color: "#758095", fontSize: 10.5, lineHeight: 1.4 }}>{progress.detail}</div>
+          </div>
+        )}
       </div>
+
       {preview && (
-        <div style={card}>
-          <div style={{ fontWeight: 700, marginBottom: 6, color: "#3d5c3a" }}>{preview.length}건 인식됨 (아직 저장되지 않았습니다)</div>
-          <div style={{ fontSize: 12, color: preview.some(row => admissionReflectionText(row)) ? "#3d5c3a" : "#a3402b", marginBottom: 5 }}>
-            교과 반영비율 인식: {preview.filter(row => admissionReflectionText(row)).length}건
-            {!preview.some(row => admissionReflectionText(row)) && " · 전형/반영비율 시트의 열 이름과 전형명을 확인해주세요."}
+        <div style={{ ...card, borderTop: "4px solid #58739a" }}>
+          <div style={{ fontWeight: 800, marginBottom: 6, color: "#304c75" }}>{preview.length}건 인식됨 · 아직 저장되지 않았습니다</div>
+          <div style={{ fontSize: 12, color: diagnosis?.reflectionCount ? "#2f7149" : "#a3402b", marginBottom: 5 }}>
+            교과 반영비율 인식: {diagnosis?.reflectionCount ?? preview.filter(row => admissionReflectionText(row)).length}건
           </div>
-          <div style={{ fontSize: 12, color: preview.some(row => CURRICULUM_METHOD_FIELDS.some(([field]) => normalizeCurriculumMethod(row[field]) !== "미입력")) ? "#3d5c3a" : "#a3402b", marginBottom: 10 }}>
-            공통·일반·진로·융합선택 반영 방식 인식: {preview.filter(row => CURRICULUM_METHOD_FIELDS.some(([field]) => normalizeCurriculumMethod(row[field]) !== "미입력")).length}건
-            {!preview.some(row => CURRICULUM_METHOD_FIELDS.some(([field]) => normalizeCurriculumMethod(row[field]) !== "미입력")) && " · 공통과목/일반선택/진로선택/융합선택 반영여부 열을 확인해주세요."}
+          <div style={{ fontSize: 12, color: diagnosis?.curriculumCount ? "#2f7149" : "#a3402b", marginBottom: 10 }}>
+            공통·일반·진로·융합선택 반영 방식 인식: {diagnosis?.curriculumCount ?? preview.filter(row => CURRICULUM_METHOD_FIELDS.some(([field]) => normalizeCurriculumMethod(row[field]) !== "미입력")).length}건
           </div>
+          {diagnosis && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 7, margin: "10px 0 12px" }}>
+              {[
+                ["분석 시간", `${(diagnosis.elapsedMs / 1000).toFixed(1)}초`],
+                ["전체 시트", `${diagnosis.totalSheets}개`],
+                ["전체 읽은 시트", `${diagnosis.fullyReadSheets}개`],
+                ["저장 예상량", `${(diagnosis.serializedBytes / 1024).toFixed(0)}KB`],
+              ].map(([label, value]) => <div key={label} style={{ minWidth: 0, padding: "9px 10px", borderRadius: 9, background: "#f6f8fc", border: "1px solid #e0e6f0" }}><small style={{ display: "block", color: "#7a8495", fontSize: 9.5, fontWeight: 800 }}>{label}</small><b style={{ display: "block", marginTop: 3, color: "#304c75", fontSize: 13 }}>{value}</b></div>)}
+              <div style={{ gridColumn: "1 / -1", padding: "8px 10px", borderRadius: 9, background: "#fbfaf7", border: "1px solid #ebe5d8", fontSize: 10.5, color: "#716b5f" }}>
+                기준 시트 <b>{diagnosis.baseSheet}</b>
+                {diagnosis.lookupSheets?.length ? ` · 결합 시트 ${diagnosis.lookupSheets.join(", ")}` : ""}
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
-            <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 반영하기</button>
-            <button style={btn.secondary} onClick={() => setPreview(null)}>취소</button>
+            <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} {applying ? "Firestore 저장 중" : "반영하기"}</button>
+            <button style={btn.secondary} onClick={() => { setPreview(null); setProgress(null); setDiagnosis(null); }}>취소</button>
           </div>
         </div>
       )}
+
       <div style={card}>
         <div style={{ fontWeight: 700, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span>현재 등록: {gdb.admissionRows.length}건</span>
           {gdb.admissionRows.length > 0 && <button style={btn.link} onClick={removeAll}>전체 삭제</button>}
         </div>
+        <div style={{ fontSize: 10.5, color: "#8a8578", lineHeight: 1.5 }}>
+          파일 선택 후 오래 걸리면 <b>분석 시간·전체 읽은 시트</b>를 확인하세요. 반영하기 후 오래 걸리면 저장 예상량과 학교 네트워크의 Firestore 연결 상태를 확인할 수 있습니다.
+        </div>
       </div>
     </div>
   );
 }
-
 
 function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const fileRef = useRef(null);
