@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert, Star, MessageSquare, Paperclip, Download, X, ArrowLeft } from "lucide-react";
-import { readStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
+import { readStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, diagnoseAdmissionFileBackends, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
 import {
@@ -4021,6 +4021,25 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const [editType, setEditType] = useState("guide");
   const [diagnosis, setDiagnosis] = useState(null);
   const [batchStorageMode, setBatchStorageMode] = useState("");
+  const [batchErrors, setBatchErrors] = useState([]);
+  const uploadTimerRef = useRef(null);
+  const uploadStartedAtRef = useRef(0);
+  const fileInputIdRef = useRef(`admission-files-${Math.random().toString(36).slice(2, 9)}`);
+  const zipInputIdRef = useRef(`admission-zip-${Math.random().toString(36).slice(2, 9)}`);
+
+  const stopUploadTimer = useCallback(() => {
+    if (uploadTimerRef.current) clearInterval(uploadTimerRef.current);
+    uploadTimerRef.current = null;
+  }, []);
+  const startUploadTimer = useCallback(() => {
+    stopUploadTimer();
+    uploadStartedAtRef.current = performance.now();
+    uploadTimerRef.current = setInterval(() => {
+      const elapsed = Math.round(performance.now() - uploadStartedAtRef.current);
+      setBatchStats(current => current ? { ...current, elapsed } : current);
+    }, 250);
+  }, [stopUploadTimer]);
+  useEffect(() => () => stopUploadTimer(), [stopUploadTimer]);
 
   const allDocs = (gdb.admissionDocs || []).slice().sort((a, b) => (
     String(a.region || "미지정").localeCompare(String(b.region || "미지정"), "ko")
@@ -4053,36 +4072,96 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     storagePath: uploaded.path,
     dataKey: uploaded.dataKey || "",
     storageMode: uploaded.storageMode || "firebase-storage",
+    storageBucket: uploaded.storageBucket || "",
     updatedAt: new Date().toISOString(),
   });
 
   const handleUpload = async files => {
     const selectedFiles = Array.from(files || []);
-    if (!university.trim()) {
-      showToast("대학교명을 먼저 입력해주세요.", "error");
-      if (fileRef.current) fileRef.current.value = "";
-      return;
-    }
     if (!selectedFiles.length) return;
     setBusy(true);
+    setBatchErrors([]);
+    setBatchProgress("파일 저장 경로를 확인하고 있습니다.");
+    setBatchStats({ total: selectedFiles.length, queued: selectedFiles.length, saved: 0, failed: 0, skipped: 0, elapsed: 0, mode: "저장소 확인 중" });
+    startUploadTimer();
     const uploadedItems = [];
+    const errors = [];
     try {
+      const backend = await diagnoseAdmissionFileBackends({ storageTimeoutMs: 6000, firestoreTimeoutMs: 12000 });
+      setDiagnosis({
+        ok: backend.ok,
+        bucket: backend.selectedBucket || backend.storage?.bucket || "",
+        configuredBucket: backend.storage?.configuredBucket || "",
+        authenticated: backend.storage?.authenticated,
+        storage: backend.storage,
+        firestore: backend.firestore,
+        code: backend.storage?.code || backend.firestore?.code || "",
+        error: backend.ok ? "" : `Storage: ${backend.storage?.error || "실패"} / Firestore: ${backend.firestore?.error || "실패"}`,
+      });
+      if (!backend.ok) throw new Error(`파일 저장소를 사용할 수 없습니다. Storage: ${backend.storage?.error || "실패"} / Firestore: ${backend.firestore?.error || "실패"}`);
+      const useFirestoreFallback = backend.recommendedMode === "firestore-binary";
+      const modeName = useFirestoreFallback ? "Firestore 대체 저장" : `Firebase Storage${backend.selectedBucket ? ` · ${backend.selectedBucket}` : ""}`;
+      setBatchStorageMode(modeName);
+      setBatchStats(current => ({ ...current, mode: modeName }));
+
       for (let index = 0; index < selectedFiles.length; index += 1) {
-        setBatchProgress(`${selectedFiles[index].name} 업로드 중 (${index + 1}/${selectedFiles.length})`);
-        const uploaded = await uploadAdmissionDocument(selectedFiles[index], university.trim(), documentType, { allowFirestoreFallback: true, storageTimeoutMs: 15000 });
-        uploadedItems.push({ uploaded, doc: makeDocumentItem(uploaded, { university, region, label, year, documentType }) });
+        const file = selectedFiles[index];
+        const resolvedUniversity = university.trim() || inferUniversityFromFileName(file.name, universityOptions);
+        const resolvedYear = inferAdmissionYearFromFileName(file.name, year);
+        const resolvedRegion = region !== "미지정" ? region : inferRegionFromFileName(file.name, regionByUniversity.get(universityKey(resolvedUniversity)) || "");
+        setBatchProgress(`${file.name} 저장 중 (${index + 1}/${selectedFiles.length})`);
+        try {
+          const uploaded = await uploadAdmissionDocument(file, resolvedUniversity, documentType, {
+            forceFirestoreFallback: useFirestoreFallback,
+            allowFirestoreFallback: true,
+            storageBucket: backend.selectedBucket,
+            storageTimeoutMs: 20000,
+            storageWarning: backend.storage?.error || "Storage 진단 실패",
+            firestoreConcurrency: 1,
+            onProgress: progress => {
+              const percent = Number(progress?.percent || 0);
+              const detail = progress?.phase === "firestore-binary"
+                ? `분할 저장 ${progress.completedChunks || 0}/${progress.totalChunks || 0}`
+                : `전송 ${percent}%`;
+              setBatchProgress(`${file.name} · ${detail} (${index + 1}/${selectedFiles.length})`);
+            },
+          });
+          const doc = makeDocumentItem(uploaded, {
+            university: resolvedUniversity,
+            region: resolvedRegion,
+            label: selectedFiles.length === 1 ? label : "",
+            year: resolvedYear,
+            documentType,
+          });
+          const nextDocs = [...(gdb.admissionDocs || []), ...uploadedItems.map(item => item.doc), doc];
+          setBatchProgress(`${file.name} 파일 저장 완료 · 목록 저장 중`);
+          const ok = await persistGrades({ admissionDocs: nextDocs });
+          if (!ok) {
+            await deleteAdmissionPdf(uploaded.path || uploaded.dataKey, uploaded.storageBucket).catch(() => null);
+            throw new Error("파일은 저장됐지만 대학 자료 목록 저장에 실패했습니다.");
+          }
+          uploadedItems.push({ uploaded, doc });
+          setBatchStats(current => ({ ...current, saved: uploadedItems.length, failed: errors.length }));
+        } catch (error) {
+          const detail = error?.code || error?.message || String(error);
+          errors.push({ fileName: file.name, university: resolvedUniversity, error: detail });
+          setBatchErrors([...errors]);
+          setBatchStats(current => ({ ...current, saved: uploadedItems.length, failed: errors.length }));
+        }
       }
-      const ok = await persistGrades({ admissionDocs: [...(gdb.admissionDocs || []), ...uploadedItems.map(item => item.doc)] });
-      if (!ok) {
-        await Promise.all(uploadedItems.map(item => deleteAdmissionPdf(item.uploaded.path || item.uploaded.dataKey)));
-        throw new Error("업로드된 자료의 목록 저장에 실패했습니다.");
+      if (errors.length) {
+        showToast(`${uploadedItems.length}건 저장 · ${errors.length}건 실패. 아래 오류 내용을 확인해주세요.`, "error");
+      } else {
+        showToast(`${uploadedItems.length}건을 등록했습니다.`, "success");
+        setLabel("");
       }
-      showToast(`${university.trim()} ${typeLabel(documentType)} ${uploadedItems.length}건을 등록했습니다.`, "success");
-      setLabel("");
     } catch (error) {
       const detail = error?.code || error?.message || String(error);
+      setBatchErrors(current => [...current, { fileName: "저장소 진단", university: "", error: detail }]);
       showToast(`자료 업로드 실패: ${detail}`, "error");
     } finally {
+      stopUploadTimer();
+      setBatchStats(current => current ? { ...current, elapsed: Math.round(performance.now() - uploadStartedAtRef.current) } : current);
       setBusy(false);
       setBatchProgress("");
       if (fileRef.current) fileRef.current.value = "";
@@ -4142,7 +4221,8 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
       return;
     }
     setBusy(true);
-    const startedAt = performance.now();
+    setBatchErrors([]);
+    startUploadTimer();
     const existingDocs = [...(gdb.admissionDocs || [])];
     const itemKey = item => `${universityKey(item.university)}|${item.fileName}|${Number(item.size ?? item.file?.size ?? 0)}|${item.year || ""}`;
     const existingKeys = new Set(existingDocs.map(itemKey));
@@ -4152,49 +4232,64 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     const completedIds = new Set(skipped.map(item => item.id));
     let persistedDocs = existingDocs;
     let savedCount = 0;
-    setBatchProgress("파일 저장소 연결을 빠르게 확인하고 있습니다.");
-    const storageProbe = await diagnoseStorageConnection({ timeoutMs: 10000 });
-    const useFirestoreFallback = !storageProbe.ok;
-    const concurrency = useFirestoreFallback ? 2 : 3;
-    setBatchStorageMode(useFirestoreFallback ? "Firestore 대체 저장" : "Firebase Storage");
-    if (useFirestoreFallback) {
-      showToast(`Firebase Storage 연결 실패(${storageProbe.code || storageProbe.error || "응답 없음"}) · 파일별 Firestore 대체 저장으로 전환합니다.`, "error");
-    }
-    setBatchStats({ total: items.length, queued: queue.length, saved: 0, failed: 0, skipped: skipped.length, elapsed: 0, mode: useFirestoreFallback ? "Firestore 대체 저장" : "Firebase Storage" });
+    setBatchStats({ total: items.length, queued: queue.length, saved: 0, failed: 0, skipped: skipped.length, elapsed: 0, mode: "저장소 확인 중" });
+    setBatchProgress("Firebase Storage와 Firestore 파일 저장 경로를 동시에 진단하고 있습니다.");
     try {
-      for (let startIndex = 0; startIndex < queue.length; startIndex += concurrency) {
-        const wave = queue.slice(startIndex, startIndex + concurrency);
-        setBatchProgress(`파일 업로드 중 ${startIndex + 1}~${Math.min(startIndex + wave.length, queue.length)} / ${queue.length} · 저장 완료 ${savedCount}건`);
-        const results = await Promise.all(wave.map(async item => {
-          try {
-            const uploaded = await uploadAdmissionDocument(item.file, item.university.trim(), "guide", {
-              forceFirestoreFallback: useFirestoreFallback,
-              allowFirestoreFallback: true,
-              storageTimeoutMs: 15000,
-              storageWarning: storageProbe.code || storageProbe.error || "Storage 사전 진단 실패",
-            });
-            return { ok: true, item, uploaded, doc: makeDocumentItem(uploaded, item) };
-          } catch (error) {
-            return { ok: false, item, error: error?.code || error?.message || String(error) };
-          }
-        }));
-        const successful = results.filter(result => result.ok);
-        results.filter(result => !result.ok).forEach(result => failures.push({ ...result.item, error: result.error }));
-        if (successful.length) {
-          const checkpointDocs = [...persistedDocs, ...successful.map(result => result.doc)];
-          setBatchProgress(`업로드 ${successful.length}건 완료 · 목록 안전 저장 중 (${savedCount + successful.length}/${queue.length})`);
+      const backend = await diagnoseAdmissionFileBackends({ storageTimeoutMs: 6000, firestoreTimeoutMs: 12000 });
+      setDiagnosis({
+        ok: backend.ok,
+        bucket: backend.selectedBucket || backend.storage?.bucket || "",
+        configuredBucket: backend.storage?.configuredBucket || "",
+        authenticated: backend.storage?.authenticated,
+        storage: backend.storage,
+        firestore: backend.firestore,
+        code: backend.storage?.code || backend.firestore?.code || "",
+        error: backend.ok ? "" : `Storage: ${backend.storage?.error || "실패"} / Firestore: ${backend.firestore?.error || "실패"}`,
+      });
+      if (!backend.ok) throw new Error(`두 저장 경로가 모두 실패했습니다. Storage: ${backend.storage?.error || "실패"} / Firestore: ${backend.firestore?.error || "실패"}`);
+      const useFirestoreFallback = backend.recommendedMode === "firestore-binary";
+      const modeName = useFirestoreFallback ? "Firestore 대체 저장" : `Firebase Storage · ${backend.selectedBucket}`;
+      setBatchStorageMode(modeName);
+      setBatchStats(current => ({ ...current, mode: modeName }));
+
+      // 부분 저장의 신뢰성을 우선해 파일을 한 개씩 완료하고 즉시 목록에 반영합니다.
+      for (let index = 0; index < queue.length; index += 1) {
+        const item = queue[index];
+        setBatchProgress(`${item.fileName} 저장 준비 (${index + 1}/${queue.length}) · 완료 ${savedCount}건`);
+        try {
+          const uploaded = await uploadAdmissionDocument(item.file, item.university.trim(), "guide", {
+            forceFirestoreFallback: useFirestoreFallback,
+            allowFirestoreFallback: true,
+            storageBucket: backend.selectedBucket,
+            storageTimeoutMs: 20000,
+            storageWarning: backend.storage?.error || "Storage 사전 진단 실패",
+            firestoreConcurrency: 1,
+            onProgress: progress => {
+              const percent = Number(progress?.percent || 0);
+              const detail = progress?.phase === "firestore-binary"
+                ? `분할 저장 ${progress.completedChunks || 0}/${progress.totalChunks || 0}`
+                : `전송 ${percent}%`;
+              setBatchProgress(`${item.fileName} · ${detail} (${index + 1}/${queue.length}) · 완료 ${savedCount}건`);
+            },
+          });
+          const docItem = makeDocumentItem(uploaded, item);
+          const checkpointDocs = [...persistedDocs, docItem];
+          setBatchProgress(`${item.fileName} 파일 완료 · 대학 자료 목록 저장 중`);
           const checkpointOk = await persistGrades({ admissionDocs: checkpointDocs });
           if (!checkpointOk) {
-            await Promise.all(successful.map(result => deleteAdmissionPdf(result.uploaded.path || result.uploaded.dataKey).catch(() => null)));
-            successful.forEach(result => failures.push({ ...result.item, error: "목록 저장 실패" }));
-            throw new Error(`부분 저장 지점 ${savedCount}건 이후 목록 저장에 실패했습니다. 이전에 저장된 ${savedCount}건은 유지됩니다.`);
+            await deleteAdmissionPdf(uploaded.path || uploaded.dataKey, uploaded.storageBucket).catch(() => null);
+            throw new Error("파일은 저장됐지만 대학 자료 목록 저장에 실패했습니다.");
           }
           persistedDocs = checkpointDocs;
-          successful.forEach(result => completedIds.add(result.item.id));
-          savedCount += successful.length;
-          setBatchPreview(current => (current || []).filter(item => !completedIds.has(item.id)));
+          completedIds.add(item.id);
+          savedCount += 1;
+          setBatchPreview(current => (current || []).filter(currentItem => currentItem.id !== item.id));
+        } catch (error) {
+          const detail = error?.code || error?.message || String(error);
+          failures.push({ ...item, error: detail });
+          setBatchErrors([...failures.map(failure => ({ fileName: failure.fileName, university: failure.university, error: failure.error }))]);
         }
-        setBatchStats({ total: items.length, queued: queue.length, saved: savedCount, failed: failures.length, skipped: skipped.length, elapsed: Math.round(performance.now() - startedAt), mode: useFirestoreFallback ? "Firestore 대체 저장" : "Firebase Storage" });
+        setBatchStats(current => ({ ...current, saved: savedCount, failed: failures.length }));
       }
       if (failures.length) {
         setBatchPreview(failures);
@@ -4204,12 +4299,14 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
         showToast(`${savedCount}건 저장 완료${skipped.length ? ` · ${skipped.length}건 중복 제외` : ""}`, "success");
       }
     } catch (error) {
+      const detail = error?.code || error?.message || String(error);
       const remaining = items.filter(item => !completedIds.has(item.id));
-      const failedById = new Map(failures.map(item => [item.id, item]));
-      setBatchPreview(remaining.map(item => failedById.get(item.id) || item));
-      showToast(`일괄 업로드 중단: ${error?.message || error}`, "error");
+      setBatchPreview(remaining);
+      setBatchErrors(current => [...current, { fileName: "저장소 진단", university: "", error: detail }]);
+      showToast(`일괄 업로드 중단: ${detail}`, "error");
     } finally {
-      setBatchStats(stats => stats ? { ...stats, saved: savedCount, failed: failures.length, elapsed: Math.round(performance.now() - startedAt) } : stats);
+      stopUploadTimer();
+      setBatchStats(current => current ? { ...current, saved: savedCount, failed: failures.length, elapsed: Math.round(performance.now() - uploadStartedAtRef.current) } : current);
       setBusy(false);
       setBatchProgress("");
     }
@@ -4218,9 +4315,22 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const runDiagnosis = async () => {
     setBusy(true);
     setDiagnosis(null);
-    const result = await diagnoseStorageConnection();
-    setDiagnosis(result);
-    showToast(result.ok ? "Firebase Storage 업로드·삭제 진단에 성공했습니다." : `Storage 진단 실패: ${result.code || result.error}`, result.ok ? "success" : "error");
+    setBatchProgress("Firebase Storage와 Firestore 파일 경로를 진단하고 있습니다.");
+    const result = await diagnoseAdmissionFileBackends({ storageTimeoutMs: 6000, firestoreTimeoutMs: 12000 });
+    const normalized = {
+      ok: result.ok,
+      bucket: result.selectedBucket || result.storage?.bucket || "",
+      configuredBucket: result.storage?.configuredBucket || "",
+      authenticated: result.storage?.authenticated,
+      storage: result.storage,
+      firestore: result.firestore,
+      code: result.storage?.code || result.firestore?.code || "",
+      error: result.ok ? "" : `Storage: ${result.storage?.error || "실패"} / Firestore: ${result.firestore?.error || "실패"}`,
+      recommendedMode: result.recommendedMode,
+    };
+    setDiagnosis(normalized);
+    showToast(result.ok ? `파일 저장 진단 완료 · ${result.recommendedMode === "firebase-storage" ? `Storage ${result.selectedBucket}` : "Firestore 대체 저장"}` : `파일 저장 진단 실패: ${normalized.error}`, result.ok ? "success" : "error");
+    setBatchProgress("");
     setBusy(false);
   };
 
@@ -4252,7 +4362,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     if (!window.confirm(`${docItem.university}의 “${docItem.label || docItem.fileName}” 자료를 삭제할까요?`)) return;
     setBusy(true);
     try {
-      const removed = await deleteAdmissionPdf(docItem.storagePath || docItem.dataKey);
+      const removed = await deleteAdmissionPdf(docItem.storagePath || docItem.dataKey, docItem.storageBucket || "");
       if (!removed.ok) throw new Error(removed.error || "Storage 파일 삭제 실패");
       const targetKey = docItem.id || docItem.url;
       const updated = (gdb.admissionDocs || []).filter(item => (item.id || item.url) !== targetKey);
@@ -4275,8 +4385,13 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
           <button style={btn.secondary} onClick={runDiagnosis} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 저장소 연결 진단</button>
         </div>
         {diagnosis && (
-          <div style={{ ...pdfAdmin.notice, borderColor: diagnosis.ok ? "#bdd8bf" : "#ebc2b8", background: diagnosis.ok ? "#f1f8f0" : "#fff5f2", color: diagnosis.ok ? "#315a35" : "#9a3f2c" }}>
-            {diagnosis.ok ? `정상 연결 · 버킷 ${diagnosis.bucket}${diagnosis.authenticated ? " · 익명 인증 사용" : ""}` : `오류 ${diagnosis.code || "확인 필요"} · ${diagnosis.error} · Firebase Console에서 Storage 생성 여부와 익명 로그인/Storage 규칙을 확인하세요.`}
+          <div style={{ ...pdfAdmin.notice, borderColor: diagnosis.ok ? "#bdd8bf" : "#ebc2b8", background: diagnosis.ok ? "#f1f8f0" : "#fff5f2", color: diagnosis.ok ? "#315a35" : "#9a3f2c", display: "grid", gap: 5 }}>
+            <strong>{diagnosis.ok ? "파일 저장 경로 사용 가능" : "파일 저장 경로 오류"}</strong>
+            <span>설정 버킷: {diagnosis.configuredBucket || "미설정"}</span>
+            <span>Firebase Storage: {diagnosis.storage?.ok ? `정상 · ${diagnosis.storage.bucket}` : `실패 · ${diagnosis.storage?.code || diagnosis.storage?.error || "응답 없음"}`}</span>
+            <span>Firestore 파일 저장: {diagnosis.firestore?.ok ? "정상" : `실패 · ${diagnosis.firestore?.code || diagnosis.firestore?.error || "응답 없음"}`}</span>
+            <span>파일 경로: 모집요강 <code>admission-guides/대학명/파일명</code> · 반영표 <code>reflection-tables/대학명/파일명</code></span>
+            {diagnosis.ok && <span>권장 저장 방식: {diagnosis.recommendedMode === "firebase-storage" || diagnosis.storage?.ok ? "Firebase Storage" : "Firestore 대체 저장"}</span>}
           </div>
         )}
         <div style={pdfAdmin.formGrid}>
@@ -4285,17 +4400,25 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
           <label style={pdfAdmin.label}><span>학년도</span><input value={year} onChange={event => setYear(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} placeholder="2028" style={pdfAdmin.input} /></label>
           <label style={pdfAdmin.label}><span>표시 이름</span><input value={label} onChange={event => setLabel(event.target.value)} placeholder={`비워두면 ‘${defaultLabel(documentType, year, university || "OO대")}’`} style={pdfAdmin.input} /></label>
         </div>
-        <input ref={fileRef} type="file" multiple accept={accept} style={{ display: "none" }} onChange={event => event.target.files?.length && handleUpload(event.target.files)} />
-        <button style={btn.primary} onClick={() => fileRef.current?.click()} disabled={busy || !university.trim()}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {typeLabel(documentType)} 파일 선택</button>
+        <input id={fileInputIdRef.current} ref={fileRef} type="file" multiple accept={accept} style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }} disabled={busy} onChange={event => { const selected = Array.from(event.target.files || []); event.target.value = ""; if (selected.length) handleUpload(selected); }} />
+        <label htmlFor={fileInputIdRef.current} aria-disabled={busy} style={{ ...btn.primary, display: "inline-flex", width: "fit-content", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
+          {busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {typeLabel(documentType)} 파일 선택
+        </label>
+        {!university.trim() && <div style={{ marginTop: 7, fontSize: 11, color: "#716b5f" }}>대학교명을 입력하지 않아도 파일명에서 대학명과 학년도를 자동으로 추정합니다.</div>}
         {batchProgress && <div style={pdfAdmin.progress}><Loader2 size={13} className="spin" />{batchProgress}</div>}
         {batchStats && <div style={pdfAdmin.batchStatus}><span>저장 방식 <b style={{ color: batchStats.mode?.includes("대체") ? "#855c16" : "#315d8c" }}>{batchStats.mode || batchStorageMode || "확인 중"}</b></span><span>전체 <b>{batchStats.total}</b></span><span>저장 <b style={{ color: "#2f7347" }}>{batchStats.saved}</b></span><span>실패 <b style={{ color: "#a44444" }}>{batchStats.failed}</b></span><span>중복 제외 <b>{batchStats.skipped}</b></span><span>경과 <b>{(Number(batchStats.elapsed || 0) / 1000).toFixed(1)}초</b></span></div>}
+        {!!batchErrors.length && <div style={{ ...pdfAdmin.notice, marginTop: 8, borderColor: "#efc7c2", background: "#fff6f5", color: "#8f3838" }}>
+          <strong style={{ display: "block", marginBottom: 5 }}>업로드 오류 상세</strong>
+          {batchErrors.slice(0, 8).map((item, index) => <div key={`${item.fileName}-${index}`} style={{ marginTop: 3, overflowWrap: "anywhere" }}>{item.fileName}{item.university ? ` · ${item.university}` : ""}: {item.error}</div>)}
+          {batchErrors.length > 8 && <div style={{ marginTop: 4 }}>외 {batchErrors.length - 8}건</div>}
+        </div>}
         {documentType === "guide" && (
           <>
             <div style={pdfAdmin.divider} />
             <div style={pdfAdmin.sectionTitle}>모집요강 ZIP 일괄 업로드</div>
             <div style={{ fontSize: 11.5, color: "#716b5f", lineHeight: 1.6, marginBottom: 10 }}>ZIP 안의 PDF 파일명에서 대학명을 추정한 뒤 저장 전 확인할 수 있습니다.</div>
-            <input ref={zipRef} type="file" accept="application/zip,.zip" style={{ display: "none" }} onChange={event => event.target.files?.[0] && handleZip(event.target.files[0])} />
-            <button style={btn.secondary} onClick={() => zipRef.current?.click()} disabled={busy}><Archive size={14} /> ZIP 파일 선택</button>
+            <input id={zipInputIdRef.current} ref={zipRef} type="file" accept="application/zip,.zip" style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }} disabled={busy} onChange={event => { const selected = event.target.files?.[0]; event.target.value = ""; if (selected) handleZip(selected); }} />
+            <label htmlFor={zipInputIdRef.current} aria-disabled={busy} style={{ ...btn.secondary, display: "inline-flex", alignItems: "center", gap: 6, width: "fit-content", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}><Archive size={14} /> ZIP 파일 선택</label>
           </>
         )}
       </div>
