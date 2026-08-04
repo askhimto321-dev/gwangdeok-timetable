@@ -568,6 +568,46 @@ function AppHistoryEdgeControls({ depth = 0, maxDepth = 0 }) {
   );
 }
 
+function QuickLinksDock() {
+  const [open, setOpen] = useState(false);
+  const links = [
+    {
+      title: "2학년부 업무시트",
+      description: "학년부 공용 업무 자료",
+      href: "https://docs.google.com/spreadsheets/d/1cY_hmwPuFlFgsuAOr9MJnLSTvpR5vGnAv2t4XTKZUYw/edit?gid=0#gid=0",
+      icon: <FileSpreadsheet size={17} />,
+    },
+    {
+      title: "학생부 종합 전형 사례집",
+      description: "ID goejinhak_17160 · PW kd2026",
+      href: "https://goejinhak.kr/jinhak_login1.php",
+      icon: <BookOpen size={17} />,
+    },
+    {
+      title: "경기도교육청 클라우드서비스",
+      description: "교육청 업무용 클라우드",
+      href: "https://www.goedu.kr/",
+      icon: <Database size={17} />,
+    },
+  ];
+  return (
+    <aside className={`kd-quick-links no-print ${open ? "is-open" : ""}`} aria-label="업무 바로가기">
+      {open && <div className="kd-quick-links-panel">
+        <div className="kd-quick-links-head"><div><b>업무 바로가기</b><span>새 창에서 열립니다.</span></div><button type="button" onClick={() => setOpen(false)} aria-label="바로가기 닫기"><X size={15}/></button></div>
+        <div className="kd-quick-links-list">{links.map(item => <a key={item.href} href={item.href} target="_blank" rel="noreferrer">
+          <span className="kd-quick-links-icon">{item.icon}</span>
+          <span className="kd-quick-links-copy"><b>{item.title}</b><small>{item.description}</small></span>
+          <ArrowRight size={14}/>
+        </a>)}</div>
+      </div>}
+      <button type="button" className="kd-quick-links-trigger" onClick={() => setOpen(value => !value)} aria-expanded={open} title="업무 바로가기">
+        <Link2 size={19}/><span>바로가기</span>
+      </button>
+    </aside>
+  );
+}
+
+
 /* ============================================================ */
 export default function App() {
   const [section, setSection] = useState(null); // null = not chosen yet | "grades" | "timetable"
@@ -1070,6 +1110,7 @@ export default function App() {
     <div style={styles.app}>
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
+      <QuickLinksDock />
       <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
       {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
@@ -4495,6 +4536,18 @@ const globalCss = `
   .kd-history-edge-left{left:8px}.kd-history-edge-right{right:8px}
   .kd-history-edge:hover:not(:disabled){background:#315a86;color:#fff;border-color:#315a86}
   .kd-history-edge:disabled{opacity:.24;cursor:default;box-shadow:none}
+  .kd-quick-links{position:fixed;right:14px;bottom:18px;z-index:125;display:flex;align-items:flex-end;gap:9px;font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+  .kd-quick-links-trigger{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:9px 12px;border:1px solid #cfd9e7;border-radius:13px;background:linear-gradient(135deg,#315f95,#6c62a9);color:#fff;box-shadow:0 9px 26px rgba(42,63,94,.22);font-size:11px;font-weight:900;cursor:pointer;white-space:nowrap}
+  .kd-quick-links-trigger:hover{transform:translateY(-1px);filter:brightness(1.04)}
+  .kd-quick-links-panel{width:min(330px,calc(100vw - 82px));padding:11px;border:1px solid #d5deea;border-radius:15px;background:rgba(255,255,255,.98);box-shadow:0 15px 38px rgba(36,52,76,.20);backdrop-filter:blur(12px)}
+  .kd-quick-links-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:2px 2px 9px;border-bottom:1px solid #e5eaf0}
+  .kd-quick-links-head>div{display:grid;gap:1px}.kd-quick-links-head b{font-size:13px;color:#243a55}.kd-quick-links-head span{font-size:9.5px;color:#7a8797}
+  .kd-quick-links-head button{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:#f1f4f8;color:#617087;cursor:pointer}
+  .kd-quick-links-list{display:grid;gap:7px;margin-top:9px}
+  .kd-quick-links-list a{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:9px;min-width:0;padding:9px;border:1px solid #e0e6ee;border-radius:11px;background:#fbfcfe;color:#2d4058;text-decoration:none;transition:.15s}
+  .kd-quick-links-list a:hover{border-color:#aebfd4;background:#f1f6fc;transform:translateX(-2px)}
+  .kd-quick-links-icon{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:#eaf1fb;color:#315f95}
+  .kd-quick-links-copy{display:grid;gap:2px;min-width:0}.kd-quick-links-copy b{font-size:11.5px;line-height:1.25;white-space:normal;word-break:keep-all}.kd-quick-links-copy small{font-size:9.2px;line-height:1.35;color:#7a8797;white-space:normal;overflow-wrap:anywhere}
 .subject-roster-table th{padding:10px 12px;background:#eaf2fb;color:#294f7f;border:1px solid #d4e0ef;font-size:12px;font-weight:900}
 .subject-roster-table td{padding:10px 12px;border:1px solid #e0e7f0;text-align:center;color:#33445b}
 .subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
@@ -4548,6 +4601,7 @@ const globalCss = `
     .staff-notice-dock { left: 10px !important; top: auto !important; bottom: 74px !important; width: min(300px, calc(100vw - 20px)) !important; }
     .kd-history-edge{top:auto;bottom:12px;transform:none;width:40px;height:40px;border-radius:999px}
     .kd-history-edge-left{left:12px}.kd-history-edge-right{right:12px}
+    .kd-quick-links{right:12px;bottom:62px}.kd-quick-links-trigger span{display:none}.kd-quick-links-trigger{width:42px;height:42px;padding:0;border-radius:999px}.kd-quick-links-panel{width:min(310px,calc(100vw - 72px))}
   }
     @media (max-width: 720px) {
     .teacher-zone-target-row { grid-template-columns: 1fr !important; }

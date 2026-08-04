@@ -539,6 +539,106 @@ const CSS=`
   .admission-detail-options.is-grouped{grid-template-columns:1fr}
   .admission-student-metrics small{white-space:normal}
 }
+
+/* Ver17: browser-verified responsive layout */
+.admission-quick-filter{
+  grid-template-columns:minmax(0,.78fr) minmax(0,1.22fr)!important;
+  gap:10px!important;
+  padding:11px!important;
+  overflow:hidden!important;
+}
+.admission-quick-filter-group{
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  grid-template-rows:auto auto!important;
+  align-content:start!important;
+  gap:8px!important;
+  min-width:0!important;
+  min-height:0!important;
+  padding:10px 11px!important;
+}
+.admission-quick-filter-label{
+  display:flex!important;
+  align-items:baseline!important;
+  gap:8px!important;
+  min-width:0!important;
+}
+.admission-quick-filter-label b{flex:0 0 auto;font-size:14px!important}
+.admission-quick-filter-label span{min-width:0;font-size:10.3px!important;line-height:1.3!important;white-space:normal!important;color:#6a7b90!important}
+.admission-quick-filter-group:nth-child(2) .admission-quick-filter-label span{color:#955c20!important;font-weight:900!important}
+.admission-quick-filter-options{display:grid!important;align-items:stretch!important;gap:6px!important;width:100%!important;min-width:0!important;overflow:visible!important}
+.admission-quick-filter-group:first-child .admission-quick-filter-options{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+.admission-quick-filter-group:nth-child(2) .admission-quick-filter-options{grid-template-columns:repeat(6,minmax(0,1fr))!important}
+.admission-quick-filter-options>button{width:100%!important;min-width:0!important;max-width:none!important}
+.admission-quick-filter .admission-filter-chip{min-height:36px!important;padding:7px 6px!important;font-size:11.6px!important;white-space:nowrap!important}
+.admission-support-filter{min-width:0!important;max-width:none!important;min-height:42px!important;padding:5px 4px!important}
+.admission-support-filter b{font-size:11px!important}.admission-support-filter small{font-size:8.6px!important}
+.admission-quick-filter-note{font-size:10px!important;line-height:1.45!important;padding:0 3px!important}
+@media(max-width:1120px){
+  .admission-quick-filter{grid-template-columns:1fr!important}
+}
+@media(max-width:720px){
+  .admission-quick-filter-group:first-child .admission-quick-filter-options{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .admission-quick-filter-group:nth-child(2) .admission-quick-filter-options{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+  .admission-quick-filter-label{align-items:flex-start;flex-direction:column;gap:2px!important}
+}
+
+.admission-case-search-controls{display:grid!important;grid-template-columns:1fr!important;gap:9px!important}
+.admission-case-search-controls>.admission-search-shell{width:100%!important;min-width:0!important}
+.admission-case-search-actions{
+  width:100%!important;
+  display:grid!important;
+  grid-template-columns:minmax(200px,230px) minmax(300px,1fr) minmax(112px,126px) minmax(165px,180px)!important;
+  gap:8px!important;
+  align-items:stretch!important;
+  min-width:0!important;
+}
+.admission-case-search-actions>*{min-width:0!important;max-width:100%!important}
+.admission-case-student-benchmark{
+  width:100%!important;
+  min-width:0!important;
+  padding:9px 10px!important;
+  overflow:hidden!important;
+  border-width:1px!important;
+}
+.admission-case-benchmark-head{min-width:0!important;gap:6px!important}
+.admission-case-benchmark-head>span{font-size:10px!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap!important}
+.admission-grade-system-toggle{flex:0 0 auto!important}
+.admission-case-benchmark-primary{min-width:0!important}
+.admission-case-benchmark-primary strong{font-size:20px!important;white-space:nowrap}
+.admission-case-benchmark-primary small{font-size:9px!important;white-space:nowrap!important}
+.admission-case-student-benchmark em{display:none!important}
+.admission-case-range-filter{min-width:0!important;overflow:hidden!important;display:grid!important;grid-template-columns:auto repeat(4,minmax(48px,1fr))!important;align-items:center!important}
+.admission-case-range-filter>span{font-size:10.4px!important;white-space:nowrap!important}
+.admission-case-range-filter .admission-filter-chip{width:100%!important;min-width:0!important;padding:6px 5px!important}
+.admission-case-compact-control{height:100%!important;align-content:center!important}
+@media(max-width:980px){
+  .admission-case-search-actions{grid-template-columns:minmax(190px,.8fr) minmax(300px,1.2fr)!important}
+  .admission-case-sort-control,.admission-case-print-control{min-height:48px}
+}
+@media(max-width:680px){
+  .admission-case-search-actions{grid-template-columns:1fr!important}
+  .admission-case-range-filter{grid-template-columns:auto repeat(4,minmax(44px,1fr))!important}
+}
+
+.admission-type-performance-shell{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(180px,.55fr);gap:12px;align-items:stretch;min-height:0}
+.admission-type-performance-list{display:grid;gap:8px;align-content:start;padding:10px;border:1px solid #e0e7ef;border-radius:13px;background:linear-gradient(180deg,#fbfdff,#f7f9fc)}
+.admission-type-performance-row{display:grid;grid-template-columns:minmax(78px,118px) minmax(0,1fr) auto;gap:9px;align-items:center;min-width:0}
+.admission-type-performance-label{font-size:10.8px;font-weight:900;color:#263a51;line-height:1.25;word-break:keep-all;overflow-wrap:anywhere}
+.admission-type-performance-bars{display:grid;gap:4px;min-width:0}
+.admission-type-performance-track{height:7px;border-radius:999px;background:#ebe8e2;overflow:hidden}
+.admission-type-performance-track span{display:block;height:100%;border-radius:inherit}
+.admission-type-performance-track.support span{background:linear-gradient(90deg,#6f94c8,#4777b2)}
+.admission-type-performance-track.accept span{background:linear-gradient(90deg,#79ad8a,#4a845e)}
+.admission-type-performance-metrics{display:grid;grid-template-columns:auto auto;gap:4px;align-items:center;white-space:nowrap}
+.admission-type-performance-metrics span{font-size:9px;color:#718096;font-weight:850}
+.admission-type-performance-metrics b{font-size:11px;color:#2f5687;font-weight:950}
+.admission-type-performance-rate{min-width:55px;text-align:right;font-size:11.5px;font-weight:950;color:#2f6d4b}
+.admission-type-summary{display:grid;grid-template-columns:1fr;gap:7px;align-content:start;padding:10px;border:1px solid #dce4ee;border-radius:13px;background:#f5f8fc}
+.admission-type-summary>div{display:grid;gap:2px;padding:9px 10px;border-radius:9px;background:#fff;border:1px solid #e2e8ef;min-width:0}
+.admission-type-summary small{font-size:9.5px;color:#718197;font-weight:850}.admission-type-summary b{font-size:13px;color:#294969;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:760px){.admission-type-performance-shell{grid-template-columns:1fr}.admission-type-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 `
 
 function num(v){
@@ -945,15 +1045,32 @@ function VerticalBars({rows}){
   const acceptedTotal=rows.reduce((sum,row)=>sum+Number(row.accepted||0),0);
   const overallRate=supportTotal?acceptedTotal/supportTotal*100:0;
   const best=[...rows].filter(row=>row.total>0).sort((a,b)=>(b.accepted/b.total)-(a.accepted/a.total))[0];
-  return <div className="admission-vertical-shell"><div className="admission-vertical-chart">{rows.map(row=>{const supportHeight=Math.max(row.total?5:0,row.total/max*190);const acceptedHeight=Math.max(row.accepted?5:0,row.accepted/max*190);const rate=row.total?row.accepted/row.total*100:0;return <div className="admission-vertical-column" key={row.label}><div className="admission-vertical-bars"><div className="admission-vertical-bar support" style={{height:supportHeight}} title={`지원 ${row.total}건`}><b>{row.total}</b></div><div className="admission-vertical-bar accept" style={{height:acceptedHeight}} title={`합격 ${row.accepted}건`}><b>{row.accepted}</b></div></div><div className="admission-vertical-label">{row.label}</div><div className="admission-vertical-rate"><b>{fmt(rate,1)}%</b><span>합격률</span></div></div>})}</div><div className="admission-vertical-summary"><div><small>전체 지원</small><b>{supportTotal.toLocaleString()}건</b></div><div><small>전체 합격</small><b>{acceptedTotal.toLocaleString()}건</b></div><div><small>전체 합격률</small><b>{fmt(overallRate,1)}%</b></div><div><small>가장 높은 합격률</small><b>{best?`${best.label} ${fmt(best.accepted/best.total*100,1)}%`:"-"}</b></div></div></div>;
+  return <div className="admission-type-performance-shell">
+    <div className="admission-type-performance-list">{rows.map(row=>{const rate=row.total?row.accepted/row.total*100:0;return <div className="admission-type-performance-row" key={row.label}>
+      <div className="admission-type-performance-label">{row.label}</div>
+      <div className="admission-type-performance-bars">
+        <div className="admission-type-performance-track support" title={`지원 ${row.total}건`}><span style={{width:`${Math.max(row.total?2:0,row.total/max*100)}%`}}/></div>
+        <div className="admission-type-performance-track accept" title={`합격 ${row.accepted}건`}><span style={{width:`${Math.max(row.accepted?2:0,row.accepted/max*100)}%`}}/></div>
+        <div className="admission-type-performance-metrics"><span>지원 <b>{row.total}</b></span><span>합격 <b>{row.accepted}</b></span></div>
+      </div>
+      <div className="admission-type-performance-rate">{fmt(rate,1)}%</div>
+    </div>})}</div>
+    <div className="admission-type-summary">
+      <div><small>전체 지원</small><b>{supportTotal.toLocaleString()}건</b></div>
+      <div><small>전체 합격</small><b>{acceptedTotal.toLocaleString()}건</b></div>
+      <div><small>전체 합격률</small><b>{fmt(overallRate,1)}%</b></div>
+      <div><small>최고 합격률</small><b>{best?`${best.label} ${fmt(best.accepted/best.total*100,1)}%`:"-"}</b></div>
+    </div>
+  </div>;
 }
+
 function Overview({rows}){
   const types=useMemo(()=>groupStats(rows,x=>x.admissionType).slice(0,10),[rows]);
   const regions=useMemo(()=>groupStats(rows,x=>x.region).slice(0,12),[rows]);
   const grades=useMemo(()=>groupStats(rows.filter(x=>x.gradeBand),x=>`${x.gradeBand}등급대`).sort((a,b)=>parseFloat(a.label)-parseFloat(b.label)),[rows]);
   return <div style={{display:"grid",gap:18}}>
     <SummaryCards rows={rows}/>
-    <div className="admission-case-two" style={styles.twoColumns}><Section title="전형별 지원·합격 사례" description="전형별 지원 규모와 합격 규모를 세로 막대로 비교하고, 아래에 합격률을 표시합니다."><VerticalBars rows={types}/></Section><Section title="지역별 지원·합격 사례" description="사례 수와 합격 사례 수를 함께 비교합니다."><Bars rows={regions}/></Section></div>
+    <div className="admission-case-two" style={styles.twoColumns}><Section title="전형별 지원·합격 사례" description="전형별 지원·합격 규모와 합격률을 같은 행에서 비교합니다."><VerticalBars rows={types}/></Section><Section title="지역별 지원·합격 사례" description="사례 수와 합격 사례 수를 함께 비교합니다."><Bars rows={regions}/></Section></div>
     <Section title="등급대별 결과" description="1·2등급대는 별도 색으로 강조하고, 각 등급대의 합격 사례 비율과 합격자 50%컷을 표시합니다.">
       <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"15%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"12%"}}/><col style={{width:"11%"}}/><col style={{width:"16%"}}/><col style={{width:"13%"}}/></colgroup><thead><tr><th>등급대</th><th>지원</th><th>최초합</th><th>충원합</th><th>합격 합계</th><th>불합격</th><th>합격률</th><th>합격자 50%컷</th></tr></thead><tbody>{grades.map(row=>{const level=parseInt(row.label,10);return <tr key={row.label} className={level===1?"admission-grade-row-1":level===2?"admission-grade-row-2":""}><td><b>{row.label}</b></td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td><b style={{color:COLORS.green}}>{row.accepted}</b></td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td><b>{fmt(row.median)}</b></td></tr>})}</tbody></Table>
     </Section>
