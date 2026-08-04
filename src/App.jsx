@@ -3783,6 +3783,30 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
 
   const teacherFileRef = useRef(null);
   const [teacherUploadBusy, setTeacherUploadBusy] = useState(false);
+  const downloadTeacherAccountTemplate = async () => {
+    try {
+      const XLSX = await loadXLSX();
+      const workbook = XLSX.utils.book_new();
+      const sheet = XLSX.utils.aoa_to_sheet([
+        ["이름", "아이디", "비밀번호", "학교역할", "담당학년", "담임반", "성적조회학년", "시간표조회학년", "담당과목", "대상반"],
+        ["홍길동", "teacher01", "kd2026", "그외", "2", "", "2", "2", "대수", "1,2,3"],
+        ["김담임", "teacher02", "kd2026", "학급담임", "2", "4", "", "", "", ""],
+      ]);
+      sheet["!cols"] = [14,16,14,13,10,10,16,16,18,16].map(width => ({ wch: width }));
+      XLSX.utils.book_append_sheet(workbook, sheet, "선생님 계정");
+      const guide = XLSX.utils.aoa_to_sheet([
+        ["학교역할", "학급담임 / 학년부장 / 그외 중 하나"],
+        ["권한 학년", "여러 학년은 1,2처럼 쉼표로 구분"],
+        ["담당과목·대상반", "같은 아이디를 여러 행에 입력하면 담당과목을 합쳐 등록"],
+      ]);
+      guide["!cols"] = [{ wch: 22 }, { wch: 62 }];
+      XLSX.utils.book_append_sheet(workbook, guide, "작성 안내");
+      XLSX.writeFile(workbook, "선생님_계정_업로드양식.xlsx");
+      showToast("선생님 계정 업로드 양식 다운로드를 시작했습니다.", "success");
+    } catch (error) {
+      showToast(`양식 생성 실패: ${error?.message || error}`, "error");
+    }
+  };
   const handleTeacherExcel = async file => {
     setTeacherUploadBusy(true);
     try {
@@ -3956,7 +3980,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
           <FileSpreadsheet size={18} color="#8a8578" />
           <div style={{ fontSize: 11.5, color: "#8a8578", flex: 1 }}>엑셀 일괄 등록: 이름·아이디·비밀번호는 필수이며, 학교역할·담당학년·권한학년·담당과목도 함께 읽습니다. 같은 아이디를 여러 행에 입력하면 담당과목을 합쳐 등록합니다.</div>
           <input ref={teacherFileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={event => event.target.files[0] && handleTeacherExcel(event.target.files[0])} />
-          <button style={styles.secondaryBtn} onClick={() => teacherFileRef.current.click()} disabled={teacherUploadBusy}>{teacherUploadBusy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 엑셀 업로드</button>
+          <div style={{display:"flex",gap:7,flexWrap:"wrap"}}><button type="button" style={styles.secondaryBtn} onClick={downloadTeacherAccountTemplate} disabled={teacherUploadBusy}><Download size={14}/>양식 다운로드</button><button style={styles.secondaryBtn} onClick={() => teacherFileRef.current.click()} disabled={teacherUploadBusy}>{teacherUploadBusy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 엑셀 업로드</button></div>
         </div>
         <div style={accountConsole.teacherToolbar}>
           <div style={{ ...styles.searchBox, flex: "1 1 280px", marginBottom: 0 }}><Search size={15} color="#9a9589" /><input value={teacherSearch} onChange={event => setTeacherSearch(event.target.value)} placeholder="이름·아이디·담당과목 검색" style={styles.searchInput} /></div>
