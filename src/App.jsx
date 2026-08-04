@@ -2720,7 +2720,7 @@ function homeroomNoticeLabelFor(n) {
 
 function GridTable({ grid }) {
   return (
-    <table style={styles.table}>
+    <table className="student-timetable-table" style={styles.table}>
       <colgroup><col style={{ width: "13%" }} />{DAYS.map(d => <col key={d} style={{ width: "17.4%" }} />)}</colgroup>
       <thead><tr><th style={styles.thPeriod}>교시</th>{DAYS.map(d => <th key={d} style={styles.th}>{d}</th>)}</tr></thead>
       <tbody>{PERIODS.map((p, pi) => <tr key={p}><td style={styles.tdPeriod}><div>{p}교시</div><div style={styles.tdTime}>{PERIOD_TIME[p]}</div></td>{DAYS.map(day => { const c = grid[day][pi]; return <td key={day} style={{ ...styles.td, ...cellBg(c) }}>{renderCell(c)}</td>; })}</tr>)}</tbody>
@@ -2728,10 +2728,19 @@ function GridTable({ grid }) {
   );
 }
 function cellBg(c) { if (!c) return {}; if (c.type === "fixed") return { background: "#f4f6f2" }; if (c.type === "move") return { background: c.moved ? "#fbf0e6" : "#faf6e8" }; return {}; }
+function renderTimetableSubject(subject) {
+  const value = String(subject || "").trim();
+  const normalized = value.replace(/\s+/g, " ");
+  const compact = normalized.replace(/\s+/g, "");
+  if (compact === "역사로탐구하는현대세계") {
+    return <><span>역사로 탐구하는<span className="timetable-long-subject-space"> </span></span><br className="timetable-long-subject-break" /><span>현대 세계</span></>;
+  }
+  return value;
+}
 function renderCell(c) {
   if (!c) return <span style={{ color: "#d8d3c6" }}>–</span>;
-  if (c.type === "move") return <div><div style={styles.cellSubject}>{c.subject}</div><div style={styles.cellRow}><span style={styles.cellTag}>{c.group}</span>{c.moved ? <span style={styles.cellMoveTag}><ArrowRight size={9} /> {c.roomLabel}</span> : <span style={styles.cellStayTag}>{c.roomLabel}</span>}</div></div>;
-  if (c.type === "fixed") return <div><div style={styles.cellFixed}>{c.subject}</div>{c.location && <div style={styles.cellLocation}>{c.location}</div>}</div>;
+  if (c.type === "move") return <div className="student-timetable-cell"><div className="student-timetable-subject" style={styles.cellSubject}>{renderTimetableSubject(c.subject)}</div><div style={styles.cellRow}><span style={styles.cellTag}>{c.group}</span>{c.moved ? <span style={styles.cellMoveTag}><ArrowRight size={9} /> {c.roomLabel}</span> : <span style={styles.cellStayTag}>{c.roomLabel}</span>}</div></div>;
+  if (c.type === "fixed") return <div className="student-timetable-cell"><div className="student-timetable-subject" style={styles.cellFixed}>{renderTimetableSubject(c.subject)}</div>{c.location && <div style={styles.cellLocation}>{c.location}</div>}</div>;
   return null;
 }
 
@@ -4262,6 +4271,7 @@ const globalCss = `
 .subject-roster-table td{padding:10px 12px;border:1px solid #e0e7f0;text-align:center;color:#33445b}
 .subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
 .subject-roster-table tbody tr:hover{background:#eef5ff} @keyframes spin { to { transform: rotate(360deg); } }
+  .timetable-long-subject-break { display: none; }
   .print-only { display: none; }
   @media print {
     .no-print { display: none !important; }
@@ -4272,8 +4282,16 @@ const globalCss = `
     @page { size: A4; margin: 6mm 10mm; }
     body { margin: 0; }
     table tr { break-inside: avoid; page-break-inside: avoid; }
-    .print-card { padding: 8px 14px !important; margin-top: 0 !important; }
+    .print-card { width: 100% !important; max-width: none !important; padding: 8px 10px !important; margin: 0 !important; overflow: visible !important; }
     .print-header { margin-bottom: 4px !important; }
+    .student-timetable-table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; margin-top: 8px !important; font-size: 8.5pt !important; }
+    .student-timetable-table th,.student-timetable-table td { box-sizing: border-box !important; min-width: 0 !important; padding: 5px 3px !important; line-height: 1.18 !important; word-break: keep-all !important; overflow-wrap: anywhere !important; vertical-align: middle !important; }
+    .student-timetable-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
+    .student-timetable-table .student-timetable-cell { width: 100% !important; max-width: 100% !important; min-width: 0 !important; overflow: hidden !important; }
+    .student-timetable-table .student-timetable-subject { width: 100% !important; max-width: 100% !important; font-size: 8.2pt !important; line-height: 1.15 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: anywhere !important; }
+    .student-timetable-table .student-timetable-subject span { white-space: nowrap !important; }
+    .timetable-long-subject-break { display: initial !important; }
+    .timetable-long-subject-space { display: none !important; }
     .admission-print-root { width: 100% !important; max-width: none !important; }
     .admission-print-root table { font-size: 7pt !important; }
     .admission-print-root th, .admission-print-root td { padding: 3px 2px !important; }
