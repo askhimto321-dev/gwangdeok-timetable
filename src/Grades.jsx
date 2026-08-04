@@ -4022,10 +4022,9 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const [diagnosis, setDiagnosis] = useState(null);
   const [batchStorageMode, setBatchStorageMode] = useState("");
   const [batchErrors, setBatchErrors] = useState([]);
+  const [missingQuery, setMissingQuery] = useState("");
   const uploadTimerRef = useRef(null);
   const uploadStartedAtRef = useRef(0);
-  const fileInputIdRef = useRef(`admission-files-${Math.random().toString(36).slice(2, 9)}`);
-  const zipInputIdRef = useRef(`admission-zip-${Math.random().toString(36).slice(2, 9)}`);
 
   const stopUploadTimer = useCallback(() => {
     if (uploadTimerRef.current) clearInterval(uploadTimerRef.current);
@@ -4055,6 +4054,42 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   [...(gdb.admissionRows || []), ...(gdb.admissionDocs || [])].forEach(item => {
     if (item?.university && item?.region) regionByUniversity.set(universityKey(item.university), item.region);
   });
+  const admissionUniversities = Array.from(new Map(
+    (gdb.admissionRows || [])
+      .map(row => String(row.university || "").trim())
+      .filter(Boolean)
+      .map(name => [universityKey(name), name])
+  ).values()).sort((a, b) => a.localeCompare(b, "ko"));
+  const guideUniversityKeys = new Set(
+    allDocs
+      .filter(item => admissionDocumentType(item) === "guide")
+      .map(item => universityKey(item.university))
+      .filter(Boolean)
+  );
+  const missingGuideUniversities = admissionUniversities.filter(name => !guideUniversityKeys.has(universityKey(name)));
+  const visibleMissingGuideUniversities = missingGuideUniversities.filter(name => {
+    const query = String(missingQuery || "").trim().toLowerCase();
+    return !query || name.toLowerCase().includes(query);
+  });
+
+  const openFilePicker = useCallback((inputRef, pickerLabel) => {
+    if (busy) return;
+    const input = inputRef?.current;
+    if (!input) {
+      showToast(`${pickerLabel} 입력창을 찾지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해주세요.`, "error");
+      return;
+    }
+    try {
+      input.value = "";
+      if (typeof input.showPicker === "function") input.showPicker();
+      else input.click();
+    } catch (error) {
+      try { input.click(); }
+      catch (fallbackError) {
+        showToast(`${pickerLabel} 창을 열지 못했습니다. (${fallbackError?.message || error?.message || "브라우저 권한 오류"})`, "error");
+      }
+    }
+  }, [busy, showToast]);
 
   const typeLabel = type => type === "reflection" ? "교과 반영표" : "모집요강";
   const defaultLabel = (type, valueYear, universityName = university) => admissionDocumentDisplayLabel(type, valueYear, universityName);
@@ -4377,6 +4412,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const accept = documentType === "reflection" ? "application/pdf,.pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" : "application/pdf,.pdf";
   return (
     <div>
+      <style>{`.admission-docs-table th{padding:8px 6px;background:#f4f7fb;border-bottom:1px solid #dce3ec;color:#455369;font-size:10.5px;font-weight:900;text-align:center}.admission-docs-table td{padding:8px 6px;border-top:1px solid #e7eaf0;border-right:1px solid #eef0f4;text-align:center;vertical-align:middle}.admission-docs-table td:last-child,.admission-docs-table th:last-child{border-right:0}.admission-docs-table tbody tr:hover{background:#f8fbff}`}</style>
       <div style={{ ...card, border: "1.5px dashed #d7dfd3", background: "#fbfdfb" }}>
         <SectionHeading title="대학별 모집요강·교과 반영표 관리" description="수능 최저 화면에는 모집요강 PDF를, 내신 반영 방식 화면에는 대학별 교과 반영표 PDF·이미지를 연결합니다." />
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 14 }}>
@@ -4400,10 +4436,10 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
           <label style={pdfAdmin.label}><span>학년도</span><input value={year} onChange={event => setYear(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} placeholder="2028" style={pdfAdmin.input} /></label>
           <label style={pdfAdmin.label}><span>표시 이름</span><input value={label} onChange={event => setLabel(event.target.value)} placeholder={`비워두면 ‘${defaultLabel(documentType, year, university || "OO대")}’`} style={pdfAdmin.input} /></label>
         </div>
-        <input id={fileInputIdRef.current} ref={fileRef} type="file" multiple accept={accept} style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }} disabled={busy} onChange={event => { const selected = Array.from(event.target.files || []); event.target.value = ""; if (selected.length) handleUpload(selected); }} />
-        <label htmlFor={fileInputIdRef.current} aria-disabled={busy} style={{ ...btn.primary, display: "inline-flex", width: "fit-content", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        <input ref={fileRef} tabIndex={-1} aria-hidden="true" type="file" multiple accept={accept} style={pdfAdmin.hiddenFileInput} disabled={busy} onChange={event => { const selected = Array.from(event.target.files || []); event.target.value = ""; if (selected.length) handleUpload(selected); }} />
+        <button type="button" onClick={() => openFilePicker(fileRef, `${typeLabel(documentType)} 파일 선택`)} disabled={busy} style={{ ...btn.primary, display: "inline-flex", width: "fit-content", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
           {busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {typeLabel(documentType)} 파일 선택
-        </label>
+        </button>
         {!university.trim() && <div style={{ marginTop: 7, fontSize: 11, color: "#716b5f" }}>대학교명을 입력하지 않아도 파일명에서 대학명과 학년도를 자동으로 추정합니다.</div>}
         {batchProgress && <div style={pdfAdmin.progress}><Loader2 size={13} className="spin" />{batchProgress}</div>}
         {batchStats && <div style={pdfAdmin.batchStatus}><span>저장 방식 <b style={{ color: batchStats.mode?.includes("대체") ? "#855c16" : "#315d8c" }}>{batchStats.mode || batchStorageMode || "확인 중"}</b></span><span>전체 <b>{batchStats.total}</b></span><span>저장 <b style={{ color: "#2f7347" }}>{batchStats.saved}</b></span><span>실패 <b style={{ color: "#a44444" }}>{batchStats.failed}</b></span><span>중복 제외 <b>{batchStats.skipped}</b></span><span>경과 <b>{(Number(batchStats.elapsed || 0) / 1000).toFixed(1)}초</b></span></div>}
@@ -4417,8 +4453,8 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
             <div style={pdfAdmin.divider} />
             <div style={pdfAdmin.sectionTitle}>모집요강 ZIP 일괄 업로드</div>
             <div style={{ fontSize: 11.5, color: "#716b5f", lineHeight: 1.6, marginBottom: 10 }}>ZIP 안의 PDF 파일명에서 대학명을 추정한 뒤 저장 전 확인할 수 있습니다.</div>
-            <input id={zipInputIdRef.current} ref={zipRef} type="file" accept="application/zip,.zip" style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }} disabled={busy} onChange={event => { const selected = event.target.files?.[0]; event.target.value = ""; if (selected) handleZip(selected); }} />
-            <label htmlFor={zipInputIdRef.current} aria-disabled={busy} style={{ ...btn.secondary, display: "inline-flex", alignItems: "center", gap: 6, width: "fit-content", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}><Archive size={14} /> ZIP 파일 선택</label>
+            <input ref={zipRef} tabIndex={-1} aria-hidden="true" type="file" accept="application/zip,.zip" style={pdfAdmin.hiddenFileInput} disabled={busy} onChange={event => { const selected = event.target.files?.[0]; event.target.value = ""; if (selected) handleZip(selected); }} />
+            <button type="button" onClick={() => openFilePicker(zipRef, "ZIP 파일 선택")} disabled={busy} style={{ ...btn.secondary, display: "inline-flex", alignItems: "center", gap: 6, width: "fit-content", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}><Archive size={14} /> ZIP 파일 선택</button>
           </>
         )}
       </div>
@@ -4433,13 +4469,55 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
         </div>
       )}
 
+      <div style={{ ...card, borderColor: missingGuideUniversities.length ? "#e9d49b" : "#d7e5da", background: missingGuideUniversities.length ? "#fffdf7" : "#f8fcf8" }}>
+        <div style={pdfAdmin.missingHeader}>
+          <SectionHeading
+            title={`모집요강 미업로드 대학 ${missingGuideUniversities.length}개`}
+            description={`대입 전형표에 등록된 ${admissionUniversities.length}개 대학과 현재 모집요강 파일을 비교한 결과입니다.`}
+          />
+          <div style={pdfAdmin.missingSummary}>
+            <span>등록 완료 <b>{Math.max(0, admissionUniversities.length - missingGuideUniversities.length)}</b></span>
+            <span>미업로드 <b style={{ color: missingGuideUniversities.length ? "#a16a13" : "#2f7347" }}>{missingGuideUniversities.length}</b></span>
+          </div>
+        </div>
+        {missingGuideUniversities.length ? <>
+          <div style={pdfAdmin.missingSearch}><Search size={14} /><input value={missingQuery} onChange={event => setMissingQuery(event.target.value)} placeholder="미업로드 대학 검색" style={{ border: 0, outline: 0, flex: 1, minWidth: 0, fontSize: 11.5 }} /></div>
+          <div style={pdfAdmin.missingGrid}>
+            {visibleMissingGuideUniversities.map(name => <button type="button" key={name} style={pdfAdmin.missingUniversityButton} onClick={() => {
+              setDocumentType("guide");
+              setUniversity(name);
+              setRegion(regionByUniversity.get(universityKey(name)) || "미지정");
+              setLabel("");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}><span>{name}</span><small style={{ color: "#9a6d16", whiteSpace: "nowrap" }}>모집요강 등록</small></button>)}
+          </div>
+          {!visibleMissingGuideUniversities.length && <div style={chartEmpty}>검색 조건에 해당하는 미업로드 대학이 없습니다.</div>}
+        </> : <div style={pdfAdmin.completeNotice}><CheckCircle2 size={16} />대입 전형표에 있는 모든 대학의 모집요강이 등록되어 있습니다.</div>}
+      </div>
+
       <div style={card}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}><SectionHeading title={`등록된 대학 자료 (${docs.length}/${allDocs.length}건)`} description="자료 유형·대학명·지역을 수정하거나 파일을 삭제할 수 있습니다." /><div style={{ display: "flex", gap: 5 }}>{[["all","전체"],["guide","모집요강"],["reflection","반영표"]].map(([key,name]) => <button key={key} style={{ ...btn.chip, ...(listFilter === key ? btn.chipActive : {}) }} onClick={() => setListFilter(key)}>{name}</button>)}</div></div>
-        {!docs.length ? <div style={chartEmpty}>해당 유형의 자료가 없습니다.</div> : <div style={admissionDocs.grid}>{docs.map(docItem => {
-          const key = docItem.id || docItem.url;
-          const editing = editingId === key;
-          return <div key={key} style={admissionDocs.card}><div style={{ minWidth: 0, flex: 1 }}>{editing ? <div style={{ display: "grid", gridTemplateColumns: "minmax(140px,1fr) 105px 115px", gap: 7 }}><input value={editUniversity} onChange={event => setEditUniversity(event.target.value)} style={pdfAdmin.input} /><select value={editRegion} onChange={event => setEditRegion(event.target.value)} style={pdfAdmin.input}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select><select value={editType} onChange={event => setEditType(event.target.value)} style={pdfAdmin.input}><option value="guide">모집요강</option><option value="reflection">반영표</option></select></div> : <><div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}><div style={{ fontWeight: 900 }}>{docItem.university}</div><span style={regionBadge}>{(docItem.region || "미지정") !== "미지정" && <MapPin size={10} />}{docItem.region || "미지정"}</span><span style={{ ...btn.chip, cursor: "default", padding: "3px 8px" }}>{typeLabel(admissionDocumentType(docItem))}</span></div><div style={{ fontSize: 11.5, color: "#716b5f", marginTop: 3 }}>{docItem.label || docItem.fileName}</div><div style={{ fontSize: 10.5, color: "#a39d8c", marginTop: 3 }}>{docItem.fileName}{docItem.size ? ` · ${(docItem.size / 1024 / 1024).toFixed(1)}MB` : ""}{docItem.storageMode === "firestore-binary" ? " · 대체 저장" : ""}</div></>}</div><div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>{editing ? <><button style={btn.primary} onClick={() => saveEdit(docItem)} disabled={busy}>저장</button><button style={btn.secondary} onClick={() => setEditingId(null)} disabled={busy}>취소</button></> : <><PdfLink docItem={docItem} /><button style={btn.secondary} onClick={() => startEdit(docItem)} disabled={busy}>정보 수정</button><button style={pdfAdmin.deleteButton} onClick={() => removeDoc(docItem)} disabled={busy}><Trash2 size={13} /> 삭제</button></>}</div></div>;
-        })}</div>}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+          <SectionHeading title={`등록된 대학 자료 (${docs.length}/${allDocs.length}건)`} description="한 자료를 한 행으로 표시합니다. 표시 이름과 원본 파일명을 분리해 확인할 수 있습니다." />
+          <div style={{ display: "flex", gap: 5 }}>{[["all","전체"],["guide","모집요강"],["reflection","반영표"]].map(([key,name]) => <button key={key} style={{ ...btn.chip, ...(listFilter === key ? btn.chipActive : {}) }} onClick={() => setListFilter(key)}>{name}</button>)}</div>
+        </div>
+        {!docs.length ? <div style={chartEmpty}>해당 유형의 자료가 없습니다.</div> : <div style={admissionDocs.tableWrap}>
+          <table className="admission-docs-table" style={admissionDocs.table}>
+            <colgroup><col style={{ width: "17%" }} /><col style={{ width: "8%" }} /><col style={{ width: "11%" }} /><col style={{ width: "25%" }} /><col style={{ width: "21%" }} /><col style={{ width: "18%" }} /></colgroup>
+            <thead><tr><th>대학교</th><th>지역</th><th>자료 유형</th><th>표시 이름</th><th>원본 파일·저장 방식</th><th>관리</th></tr></thead>
+            <tbody>{docs.map(docItem => {
+              const key = docItem.id || docItem.url || docItem.dataKey;
+              const editing = editingId === key;
+              return <tr key={key}>
+                <td>{editing ? <input value={editUniversity} onChange={event => setEditUniversity(event.target.value)} style={pdfAdmin.input} /> : <b style={admissionDocs.university}>{docItem.university}</b>}</td>
+                <td>{editing ? <select value={editRegion} onChange={event => setEditRegion(event.target.value)} style={pdfAdmin.input}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select> : <span style={regionBadge}>{(docItem.region || "미지정") !== "미지정" && <MapPin size={10} />}{docItem.region || "미지정"}</span>}</td>
+                <td>{editing ? <select value={editType} onChange={event => setEditType(event.target.value)} style={pdfAdmin.input}><option value="guide">모집요강</option><option value="reflection">교과 반영표</option></select> : <span style={admissionDocs.typeBadge}>{typeLabel(admissionDocumentType(docItem))}</span>}</td>
+                <td><div style={admissionDocs.primaryText}>{docItem.label || admissionDocumentDisplayLabel(admissionDocumentType(docItem), docItem.year, docItem.university)}</div></td>
+                <td><div title={docItem.fileName} style={admissionDocs.fileName}>{docItem.fileName || "-"}</div><div style={admissionDocs.fileMeta}>{docItem.size ? `${(docItem.size / 1024 / 1024).toFixed(1)}MB` : "용량 미확인"} · {docItem.storageMode === "firestore-binary" ? "Firestore 대체 저장" : "Firebase Storage"}</div></td>
+                <td><div style={admissionDocs.actions}>{editing ? <><button style={btn.primary} onClick={() => saveEdit(docItem)} disabled={busy}>저장</button><button style={btn.secondary} onClick={() => setEditingId(null)} disabled={busy}>취소</button></> : <><PdfLink docItem={docItem} compact /><button style={btn.secondary} onClick={() => startEdit(docItem)} disabled={busy}>수정</button><button style={pdfAdmin.deleteButton} onClick={() => removeDoc(docItem)} disabled={busy}><Trash2 size={12} />삭제</button></>}</div></td>
+              </tr>;
+            })}</tbody>
+          </table>
+        </div>}
       </div>
     </div>
   );
@@ -5062,8 +5140,14 @@ const pdfLinkCompactStyle = {
   fontSize: 9.2,
 };
 const admissionDocs = {
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 9 },
-  card: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, border: "1px solid #e6e1d3", borderRadius: 11, background: "#fbfaf7", padding: "12px 13px" },
+  tableWrap: { width: "100%", overflowX: "auto", border: "1px solid #e2e5eb", borderRadius: 11, background: "#fff" },
+  table: { width: "100%", minWidth: 880, borderCollapse: "collapse", tableLayout: "fixed", fontSize: 11.2, color: "#344154" },
+  university: { display: "block", fontSize: 12, lineHeight: 1.35, color: "#24354b", wordBreak: "keep-all", overflowWrap: "anywhere" },
+  typeBadge: { display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, padding: "4px 7px", background: "#eef3fa", border: "1px solid #d4dfed", color: "#315a86", fontSize: 9.8, fontWeight: 900, whiteSpace: "nowrap" },
+  primaryText: { fontSize: 11.5, fontWeight: 850, lineHeight: 1.4, color: "#38495f", wordBreak: "keep-all", overflowWrap: "anywhere" },
+  fileName: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 10.8, color: "#5f6876" },
+  fileMeta: { marginTop: 3, fontSize: 9.7, color: "#9098a4" },
+  actions: { display: "flex", alignItems: "center", justifyContent: "center", gap: 5, flexWrap: "wrap" },
 };
 const pdfAdmin = {
   formGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(150px, 1fr))", gap: 10, marginBottom: 12 },
@@ -5075,6 +5159,13 @@ const pdfAdmin = {
   divider: { height: 1, background: "#e7e2d6", margin: "18px 0" },
   progress: { display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: "#3d5c3a", fontSize: 11.5, fontWeight: 800 },
   batchStatus: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 9, padding: "8px 10px", borderRadius: 9, background: "#f4f8fc", border: "1px solid #dce5ef", fontSize: 10.5, color: "#5f6d7d" },
+  hiddenFileInput: { position: "fixed", left: "-10000px", top: 0, width: 1, height: 1, opacity: 0.01, overflow: "hidden" },
+  missingHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
+  missingSummary: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 10.8, color: "#6c6a63" },
+  missingSearch: { display: "flex", alignItems: "center", gap: 7, maxWidth: 340, padding: "7px 9px", marginBottom: 10, borderRadius: 9, background: "#fff", border: "1px solid #e3dccb", color: "#7a7468" },
+  missingGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 7 },
+  missingUniversityButton: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minWidth: 0, padding: "8px 10px", border: "1px solid #ead9a9", borderRadius: 9, background: "#fff", color: "#4c463c", cursor: "pointer", textAlign: "left", fontSize: 11.2, fontWeight: 850 },
+  completeNotice: { display: "flex", alignItems: "center", gap: 7, padding: "10px 12px", borderRadius: 9, background: "#edf7ef", border: "1px solid #c8e2ce", color: "#2e6840", fontSize: 11.5, fontWeight: 850 },
 };
 const chartControlRow = { display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" };
 const chartControlLabel = { fontSize: 12, color: "#716b5f", fontWeight: 800 };

@@ -537,6 +537,31 @@ function clipboardToGrid(e) {
   return null;
 }
 
+function AppHistoryEdgeControls({ depth = 0, maxDepth = 0 }) {
+  const canBack = Number(depth) > 0;
+  const canForward = Number(depth) < Number(maxDepth);
+  return (
+    <>
+      <button
+        type="button"
+        className="kd-history-edge kd-history-edge-left no-print"
+        disabled={!canBack}
+        onClick={() => canBack && window.history.back()}
+        title={canBack ? "홈페이지 안의 이전 화면" : "이전 화면 기록 없음"}
+        aria-label="홈페이지 이전 화면"
+      >←</button>
+      <button
+        type="button"
+        className="kd-history-edge kd-history-edge-right no-print"
+        disabled={!canForward}
+        onClick={() => canForward && window.history.forward()}
+        title={canForward ? "홈페이지 안의 다음 화면" : "다음 화면 기록 없음"}
+        aria-label="홈페이지 다음 화면"
+      >→</button>
+    </>
+  );
+}
+
 /* ============================================================ */
 export default function App() {
   const [section, setSection] = useState(null); // null = not chosen yet | "grades" | "timetable"
@@ -561,6 +586,8 @@ export default function App() {
   const sessionRestoredRef = useRef(false);
   const [toast, setToast] = useState(null);
   const showToast = useCallback((msg, type = "info") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4200); }, []);
+  const historyApplyingRef = useRef(false);
+  const [historyMeta, setHistoryMeta] = useState({ depth: 0, maxDepth: 0 });
 
   useEffect(() => {
     (async () => {
@@ -628,6 +655,76 @@ export default function App() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const browserHistory = window.history;
+    const originalPushState = browserHistory.pushState.bind(browserHistory);
+    const originalReplaceState = browserHistory.replaceState.bind(browserHistory);
+    let currentDepth = Number(browserHistory.state?.kdDepth);
+    if (!Number.isFinite(currentDepth) || currentDepth < 0) {
+      currentDepth = 0;
+      originalReplaceState({ ...(browserHistory.state || {}), kdDepth: 0, kdAppInternal: true }, "", window.location.href);
+    }
+    let maxDepth = currentDepth;
+    const syncMeta = () => {
+      const depth = Math.max(0, Number(browserHistory.state?.kdDepth || 0));
+      setHistoryMeta({ depth, maxDepth });
+    };
+    browserHistory.pushState = function patchedPushState(state, title, url) {
+      const baseDepth = Math.max(0, Number(browserHistory.state?.kdDepth || 0));
+      const nextDepth = baseDepth + 1;
+      maxDepth = nextDepth;
+      originalPushState({ ...(state || {}), kdDepth: nextDepth, kdAppInternal: true }, title, url);
+      syncMeta();
+    };
+    const handlePopState = event => {
+      const depth = Math.max(0, Number(event.state?.kdDepth || 0));
+      maxDepth = Math.max(maxDepth, depth);
+      setHistoryMeta({ depth, maxDepth });
+      const route = event.state?.kdAppRoute;
+      if (!route) return;
+      historyApplyingRef.current = true;
+      if (route.section !== undefined) setSection(route.section);
+      if (route.tab !== undefined) setTab(route.tab);
+      if (route.studentWorkspaceView !== undefined) setStudentWorkspaceView(route.studentWorkspaceView);
+      if (route.grade !== undefined && GRADES.includes(String(route.grade))) setGrade(String(route.grade));
+      if (route.semester !== undefined) setSemester(route.semester);
+      queueMicrotask(() => { historyApplyingRef.current = false; });
+    };
+    window.addEventListener("popstate", handlePopState);
+    syncMeta();
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      browserHistory.pushState = originalPushState;
+      browserHistory.replaceState = originalReplaceState;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || historyApplyingRef.current || historyMeta.depth !== 0) return;
+    const current = window.history.state || {};
+    window.history.replaceState({
+      ...current,
+      kdDepth: 0,
+      kdAppInternal: true,
+      kdAppRoute: { section, tab, studentWorkspaceView, grade, semester },
+    }, "", window.location.href);
+  }, [section, tab, studentWorkspaceView, grade, semester, historyMeta.depth]);
+
+  const pushAppRoute = useCallback((patch = {}) => {
+    if (typeof window === "undefined" || historyApplyingRef.current) return;
+    const route = {
+      section: patch.section !== undefined ? patch.section : section,
+      tab: patch.tab !== undefined ? patch.tab : tab,
+      studentWorkspaceView: patch.studentWorkspaceView !== undefined ? patch.studentWorkspaceView : studentWorkspaceView,
+      grade: patch.grade !== undefined ? patch.grade : grade,
+      semester: patch.semester !== undefined ? patch.semester : semester,
+    };
+    const currentRoute = window.history.state?.kdAppRoute;
+    if (currentRoute && JSON.stringify(currentRoute) === JSON.stringify(route)) return;
+    window.history.pushState({ kdAppRoute: route }, "", window.location.href);
+  }, [section, tab, studentWorkspaceView, grade, semester]);
 
   const saveSession = (patch) => {
     try {
@@ -892,6 +989,9 @@ export default function App() {
   const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
   const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
   const changeStudentWorkspaceView = (view) => {
+    const nextSection = view === "timetable" ? "timetable" : "grades";
+    const nextTab = view === "timetable" ? "student" : tab;
+    pushAppRoute({ section: nextSection, studentWorkspaceView: view, tab: nextTab });
     setStudentWorkspaceView(view);
     if (view === "timetable") {
       setSection("timetable");
@@ -899,13 +999,18 @@ export default function App() {
     } else {
       setSection("grades");
     }
-    saveSession({ section: view === "timetable" ? "timetable" : "grades", studentWorkspaceView: view, selectedStudentSid, selectedStudentQuery });
+    saveSession({ section: nextSection, studentWorkspaceView: view, selectedStudentSid, selectedStudentQuery });
   };
   const switchSection = (s) => {
+    let nextWorkspaceView = studentWorkspaceView;
+    let nextTab = tab;
     if (staffWorkspaceEnabled) {
-      if (s === "timetable") setStudentWorkspaceView("timetable");
-      if (s === "grades" && studentWorkspaceView === "timetable") setStudentWorkspaceView("grades");
+      if (s === "timetable") nextWorkspaceView = "timetable";
+      if (s === "grades" && studentWorkspaceView === "timetable") nextWorkspaceView = "grades";
     }
+    if (staffWorkspaceEnabled && selectedStudentSid && s === "timetable") nextTab = "student";
+    pushAppRoute({ section: s, studentWorkspaceView: nextWorkspaceView, tab: nextTab });
+    if (staffWorkspaceEnabled) setStudentWorkspaceView(nextWorkspaceView);
     if (staffWorkspaceEnabled && selectedStudentSid) {
       const inferredGrade = String(selectedStudentSid).charAt(0);
       if (GRADES.includes(inferredGrade) && !DISABLED_GRADES.includes(inferredGrade)) setGrade(inferredGrade);
@@ -937,6 +1042,7 @@ export default function App() {
   return (
     <div style={styles.app}>
       <style>{globalCss}</style>
+      <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
       <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} />
       {staffWorkspaceEnabled && activeSection !== "admin" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
@@ -975,7 +1081,7 @@ export default function App() {
       ) : (
         <>
           <TopBar
-            tab={tab} setTab={setTab} grade={grade} setGrade={setGrade}
+            tab={tab} setTab={nextTab => { pushAppRoute({ section: "timetable", tab: nextTab }); setTab(nextTab); }} grade={grade} setGrade={setGrade}
             semester={semester} setSemester={setSemester} meta={db.meta[scopeKey]}
             canViewStudentTools={canViewStudentTimetableTools}
             allowedGrades={(loggedInTeacher || loggedInDepartment) ? staffTimetableAccessList : null}
@@ -4116,6 +4222,10 @@ const globalCss = `
   * { box-sizing: border-box; } body { margin: 0; } input, textarea, button { font-family: inherit; }
   label small { display: block; margin-top: 2px; color: #7d897a; font-weight: 500; line-height: 1.4; }
   .spin { animation: spin 1s linear infinite; }
+  .kd-history-edge{position:fixed;top:50%;z-index:120;width:36px;height:58px;transform:translateY(-50%);border:1px solid #cad5e5;background:rgba(255,255,255,.94);color:#315a86;border-radius:12px;box-shadow:0 8px 24px rgba(45,66,96,.15);font-size:20px;font-weight:900;cursor:pointer;backdrop-filter:blur(8px)}
+  .kd-history-edge-left{left:8px}.kd-history-edge-right{right:8px}
+  .kd-history-edge:hover:not(:disabled){background:#315a86;color:#fff;border-color:#315a86}
+  .kd-history-edge:disabled{opacity:.24;cursor:default;box-shadow:none}
 .subject-roster-table th{padding:10px 12px;background:#eaf2fb;color:#294f7f;border:1px solid #d4e0ef;font-size:12px;font-weight:900}
 .subject-roster-table td{padding:10px 12px;border:1px solid #e0e7f0;text-align:center;color:#33445b}
 .subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
@@ -4140,7 +4250,11 @@ const globalCss = `
   @media (max-width: 900px) {
     .teacher-composer-grid { grid-template-columns: 1fr !important; }
   }
-  @media (max-width: 900px) { .staff-notice-dock { left: 10px !important; top: auto !important; bottom: 74px !important; width: min(300px, calc(100vw - 20px)) !important; } }
+  @media (max-width: 900px) {
+    .staff-notice-dock { left: 10px !important; top: auto !important; bottom: 74px !important; width: min(300px, calc(100vw - 20px)) !important; }
+    .kd-history-edge{top:auto;bottom:12px;transform:none;width:40px;height:40px;border-radius:999px}
+    .kd-history-edge-left{left:12px}.kd-history-edge-right{right:12px}
+  }
     @media (max-width: 720px) {
     .teacher-zone-target-row { grid-template-columns: 1fr !important; }
     .teacher-workflow-steps { grid-template-columns: 1fr !important; }
