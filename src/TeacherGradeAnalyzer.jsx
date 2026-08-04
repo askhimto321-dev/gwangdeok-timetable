@@ -7,11 +7,12 @@ import {
   CircleAlert,
   Download,
   FileSpreadsheet,
+  Plus,
+  Printer,
   RotateCcw,
   Save,
   Search,
   Settings2,
-  Star,
   ShieldCheck,
   Upload,
   Users,
@@ -185,6 +186,20 @@ function gradeFromPercentile(percentile, system) {
   const index = thresholds.findIndex(limit => percentile <= limit + 1e-9);
   return index < 0 ? thresholds.length : index + 1;
 }
+function gradeQuotaCumulative(total, system) {
+  const thresholds = GRADE_CUMULATIVE[Number(system)] || GRADE_CUMULATIVE[5];
+  return thresholds.map(percent => Math.round((Number(total) || 0) * percent / 100));
+}
+function assignQuotaGrades(rows, system) {
+  const quotas = gradeQuotaCumulative(rows.length, system);
+  rows.forEach(row => {
+    const groupEnd = Number(row.rank || 0) + Math.max(1, Number(row.tieCount || 1)) - 1;
+    const index = quotas.findIndex(limit => groupEnd <= limit);
+    row.grade = index < 0 ? quotas.length : index + 1;
+    row.percentile = rows.length ? (Number(row.midRank || row.rank || 0) / rows.length) * 100 : null;
+  });
+  return quotas;
+}
 function achievementFromScore(score, courseType, mode, manualCuts) {
   if (!Number.isFinite(score)) return "-";
   const cuts = mode === "manual"
@@ -229,6 +244,7 @@ function defaultWorkspace() {
       achievementMode: "fixed",
       manualCuts: { ...FIXED_COMMON_CUTS },
       tieItemCount: 3,
+      plannedWritten: [],
     },
     tieScores: {},
   };
@@ -237,7 +253,12 @@ function normalizeWorkspaceSnapshot(parsed = {}) {
   return {
     ...defaultWorkspace(),
     ...parsed,
-    settings: { ...defaultWorkspace().settings, ...(parsed.settings || {}), manualCuts: { ...FIXED_COMMON_CUTS, ...(parsed.settings?.manualCuts || {}) } },
+    settings: {
+      ...defaultWorkspace().settings,
+      ...(parsed.settings || {}),
+      manualCuts: { ...FIXED_COMMON_CUTS, ...(parsed.settings?.manualCuts || {}) },
+      plannedWritten: Array.isArray(parsed.settings?.plannedWritten) ? parsed.settings.plannedWritten : [],
+    },
     written: Array.isArray(parsed.written) ? parsed.written : [],
     performance: Array.isArray(parsed.performance) ? parsed.performance : [],
     tieScores: parsed.tieScores || {},
@@ -292,10 +313,11 @@ function compactMissingLabels(values = []) {
 }
 function defaultMinimumSettings(settings, totalWeight = 0) {
   const stored = settings?.minimumAchievement || {};
+  const planned = Array.isArray(settings?.plannedWritten) ? settings.plannedWritten[0] : null;
   return {
-    nextExamLabel: stored.nextExamLabel || "다음 정기시험",
-    nextExamWeight: asNumber(stored.nextExamWeight) ?? Math.max(0, roundTo(100 - totalWeight, 2) || 0),
-    nextExamMax: asNumber(stored.nextExamMax) ?? 100,
+    nextExamLabel: stored.nextExamLabel || planned?.title || "다음 정기시험",
+    nextExamWeight: asNumber(stored.nextExamWeight) ?? asNumber(planned?.weight) ?? Math.max(0, roundTo(100 - totalWeight, 2) || 0),
+    nextExamMax: asNumber(stored.nextExamMax) ?? asNumber(planned?.maxScore) ?? 100,
   };
 }
 
@@ -361,7 +383,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const context = written[0] || performance[0] || null;
   const workspaceId = workspaceIdFromContext(context, grade);
   const canEditCurrentSubject = !!context && canEditSubject(context.subject);
-  const readOnlyWorkspace = context ? !canEditCurrentSubject : !hasAssignedSubjects;
+  const readOnlyWorkspace = context ? !canEditCurrentSubject : accessRole !== "teacher";
+  const plannedWritten = useMemo(() => Array.isArray(settings.plannedWritten) ? settings.plannedWritten : [], [settings.plannedWritten]);
   const subjectCollaborators = useMemo(() => {
     if (!context?.subject) return [];
     return (teacherAccounts || []).filter(account => teacherHandlesSubject(account, context.subject));
@@ -454,12 +477,71 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     showToast?.("과목별 브라우저 저장 자료를 삭제했습니다.", "success");
   };
   const weightTotal = useMemo(() => {
-    const writtenWeight = sortedWritten.reduce((sum, item) => sum + (asNumber(item.weight) || 0), 0);
+    const uploadedWritten = sortedWritten.reduce((sum, item) => sum + (asNumber(item.weight) || 0), 0);
+    const planned = plannedWritten.reduce((sum, item) => sum + (asNumber(item.weight) || 0), 0);
     const performanceWeight = canonicalAreas.reduce((sum, area) => sum + (asNumber(area.weight) || 0), 0);
-    return { written: roundTo(writtenWeight, 2), performance: roundTo(performanceWeight, 2), total: roundTo(writtenWeight + performanceWeight, 2) };
-  }, [sortedWritten, canonicalAreas]);
+    return {
+      uploadedWritten: roundTo(uploadedWritten, 2),
+      plannedWritten: roundTo(planned, 2),
+      written: roundTo(uploadedWritten + planned, 2),
+      performance: roundTo(performanceWeight, 2),
+      total: roundTo(uploadedWritten + planned + performanceWeight, 2),
+    };
+  }, [sortedWritten, plannedWritten, canonicalAreas]);
 
   const updateWrittenWeight = (id, value) => setWritten(current => current.map(item => item.id === id ? { ...item, weight: asNumber(value) ?? 0 } : item));
+  const addPlannedWritten = () => setSettings(current => {
+    const list = Array.isArray(current.plannedWritten) ? current.plannedWritten : [];
+    const usedOrders = new Set([...sortedWritten.map(writtenOrder), ...list.map(item => Number(item.order) || 99)]);
+    let order = 1;
+    while (usedOrders.has(order)) order += 1;
+    const item = { id: `planned-${Date.now()}`, title: `${order}차 정기시험`, order, maxScore: 100, weight: Math.max(0, roundTo(100 - weightTotal.total, 2) || 0) };
+    return {
+      ...current,
+      plannedWritten: [...list, item],
+      minimumAchievement: list.length ? current.minimumAchievement : { ...(current.minimumAchievement || {}), nextExamLabel: item.title, nextExamWeight: item.weight, nextExamMax: item.maxScore },
+    };
+  });
+  const updatePlannedWritten = (id, patch) => setSettings(current => {
+    const list = (Array.isArray(current.plannedWritten) ? current.plannedWritten : []).map(item => item.id === id ? { ...item, ...patch } : item);
+    const first = list[0];
+    return {
+      ...current,
+      plannedWritten: list,
+      minimumAchievement: first ? {
+        ...(current.minimumAchievement || {}),
+        nextExamLabel: first.title,
+        nextExamWeight: first.weight,
+        nextExamMax: first.maxScore,
+      } : current.minimumAchievement,
+    };
+  });
+  const removePlannedWritten = id => setSettings(current => {
+    const list = (Array.isArray(current.plannedWritten) ? current.plannedWritten : []).filter(item => item.id !== id);
+    const first = list[0];
+    return {
+      ...current,
+      plannedWritten: list,
+      minimumAchievement: first ? {
+        ...(current.minimumAchievement || {}),
+        nextExamLabel: first.title,
+        nextExamWeight: first.weight,
+        nextExamMax: first.maxScore,
+      } : { ...(current.minimumAchievement || {}), nextExamWeight: 0 },
+    };
+  });
+  const updateMinimumPlanning = patch => setSettings(current => {
+    const currentMinimum = defaultMinimumSettings(current, weightTotal.total);
+    const nextMinimum = { ...currentMinimum, ...patch };
+    const planned = Array.isArray(current.plannedWritten) ? [...current.plannedWritten] : [];
+    if (planned[0]) planned[0] = {
+      ...planned[0],
+      ...(Object.prototype.hasOwnProperty.call(patch, "nextExamLabel") ? { title: patch.nextExamLabel } : {}),
+      ...(Object.prototype.hasOwnProperty.call(patch, "nextExamWeight") ? { weight: asNumber(patch.nextExamWeight) ?? 0 } : {}),
+      ...(Object.prototype.hasOwnProperty.call(patch, "nextExamMax") ? { maxScore: asNumber(patch.nextExamMax) ?? 100 } : {}),
+    };
+    return { ...current, plannedWritten: planned, minimumAchievement: nextMinimum };
+  });
   const removeWritten = id => { setWritten(current => current.filter(item => item.id !== id)); if (activeView === id) setActiveView("combined"); };
   const removePerformance = id => setPerformance(current => current.filter(item => item.id !== id));
   const updateAreaWeight = (areaId, value) => {
@@ -501,17 +583,30 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         const ids = new Set(written.map(item => item.id));
         const next = [...written];
         const messages = [];
+        const matchedPlannedIds = new Set();
         accepted.forEach(item => {
           if (ids.has(item.id)) {
             messages.push({ type: "warn", text: `${item.fileName}: 같은 지필평가가 이미 등록되어 중복 저장하지 않았습니다.` });
             return;
           }
+          const order = writtenOrder(item);
+          const plannedMatch = plannedWritten.find(plan => !matchedPlannedIds.has(plan.id) && ((Number(plan.order) || 99) === order || normalizeToken(plan.title) === normalizeToken(item.title)));
           const existingCount = next.length;
-          next.push({ ...item, weight: existingCount < 2 ? 25 : 0 });
+          next.push({ ...item, weight: asNumber(plannedMatch?.weight) ?? (existingCount < 2 ? 25 : 0) });
+          if (plannedMatch) matchedPlannedIds.add(plannedMatch.id);
           ids.add(item.id);
           messages.push({ type: "ok", text: `${item.title} · ${Object.values(item.students).filter(student => student.score != null).length}명 점수를 불러왔습니다.` });
         });
         setWritten(next);
+        if (matchedPlannedIds.size) setSettings(current => {
+          const remaining = (Array.isArray(current.plannedWritten) ? current.plannedWritten : []).filter(item => !matchedPlannedIds.has(item.id));
+          const first = remaining[0];
+          return {
+            ...current,
+            plannedWritten: remaining,
+            minimumAchievement: first ? { ...(current.minimumAchievement || {}), nextExamLabel: first.title, nextExamWeight: first.weight, nextExamMax: first.maxScore } : { ...(current.minimumAchievement || {}), nextExamWeight: 0 },
+          };
+        });
         if (messages.length) setUploadMessages(current => [...messages.reverse(), ...current].slice(0, 10));
       } else {
         const occupiedClasses = new Set(performance.flatMap(item => item.classes.map(classNumber => `${contextKey(item)}:${classNumber}`)));
@@ -567,11 +662,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       const writtenScores = {};
       let weightedWritten = 0;
       let completedWeight = 0;
-      const missing = [];
+      const currentMissing = [];
       sortedWritten.forEach(item => {
         const student = item.students?.[sid];
         writtenScores[item.id] = student?.score ?? null;
-        if (student?.score == null) missing.push(`${item.title}${student?.status && student.status !== "미입력" ? `(${student.status})` : ""}`);
+        if (student?.score == null) currentMissing.push(`${item.title}${student?.status && student.status !== "미입력" ? `(${student.status})` : ""}`);
         else { const itemWeight=asNumber(item.weight) || 0; weightedWritten += (student.score / (item.maxScore || 100)) * itemWeight; completedWeight += itemWeight; }
       });
       let weightedPerformance = 0;
@@ -579,10 +674,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       canonicalAreas.forEach(area => {
         const score = perfStudent?.scores?.[area.id] ?? null;
         areaScores[area.id] = score;
-        if (score == null) missing.push(area.name);
+        if (score == null) currentMissing.push(area.name);
         else { const areaWeight=asNumber(area.weight) || 0; weightedPerformance += (score / (area.maxScore || 100)) * areaWeight; completedWeight += areaWeight; }
       });
-      const complete = missing.length === 0 && Math.abs(weightTotal.total - 100) < 1e-9;
+      const pendingAssessments = plannedWritten.map(item => `${item.title || "미등록 정기시험"}(미등록)`);
+      const complete = currentMissing.length === 0 && pendingAssessments.length === 0 && Math.abs(weightTotal.total - 100) < 1e-9;
       const convertedScore = complete ? roundTo(weightedWritten + weightedPerformance, 2) : null;
       const officialScore = convertedScore == null ? null : Math.round(convertedScore);
       const tie = tieScores[sid] || {};
@@ -612,7 +708,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         convertedScore,
         officialScore,
         complete,
-        missing,
+        currentMissing,
+        pendingAssessments,
+        missing: [...currentMissing, ...pendingAssessments],
         baseVector,
         fullVector,
       };
@@ -630,12 +728,13 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     completeRows.forEach(row => {
       row.tieCount = tieCounts.get(vectorKey(row.fullVector)) || 1;
       row.midRank = row.rank + (row.tieCount - 1) / 2;
-      row.percentile = (row.midRank / completeRows.length) * 100;
-      row.grade = gradeFromPercentile(row.percentile, settings.gradeSystem);
+    });
+    assignQuotaGrades(completeRows, settings.gradeSystem);
+    completeRows.forEach(row => {
       row.achievement = achievementFromScore(settings.achievementMode === "fixed" ? row.officialScore : row.convertedScore, settings.courseType, settings.achievementMode, settings.manualCuts);
     });
     return [...completeRows, ...rows.filter(row => !row.complete).sort((a, b) => a.sid.localeCompare(b.sid))];
-  }, [sortedWritten, performance, canonicalAreas, weightTotal, tieScores, rosterNames, settings.gradeSystem, settings.courseType, settings.achievementMode, settings.manualCuts]);
+  }, [sortedWritten, performance, canonicalAreas, plannedWritten, weightTotal, tieScores, rosterNames, settings.gradeSystem, settings.courseType, settings.achievementMode, settings.manualCuts]);
 
   const writtenCombinedRows = useMemo(() => {
     const studentIds = new Set();
@@ -681,9 +780,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     completeRows.forEach(row => {
       row.tieCount = counts.get(vectorKey(row.vector)) || 1;
       row.midRank = row.rank + (row.tieCount - 1) / 2;
-      row.percentile = (row.midRank / completeRows.length) * 100;
-      row.grade = gradeFromPercentile(row.percentile, settings.gradeSystem);
     });
+    assignQuotaGrades(completeRows, settings.gradeSystem);
     return [...completeRows, ...rows.filter(row => !row.complete).sort((a, b) => a.sid.localeCompare(b.sid))];
   }, [sortedWritten, rosterNames, weightTotal.written, settings.gradeSystem]);
 
@@ -713,9 +811,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       complete.forEach(row => {
         row.tieCount = counts.get(row.score) || 1;
         row.midRank = row.rank + (row.tieCount - 1) / 2;
-        row.percentile = (row.midRank / complete.length) * 100;
-        row.grade = gradeFromPercentile(row.percentile, settings.gradeSystem);
       });
+      assignQuotaGrades(complete, settings.gradeSystem);
       result[item.id] = [...complete, ...rows.filter(row => !Number.isFinite(row.score))];
     });
     return result;
@@ -736,13 +833,13 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         if (row.complete) {
           academicStatus = Number(row.officialScore) >= 40 ? "reached" : "fail";
           academicLabel = Number(row.officialScore) >= 40 ? `학업성취율 도달 · ${row.officialScore}점` : `학업성취율 미도달 · ${row.officialScore}점`;
-        } else if (row.missing?.length) {
+        } else if (row.currentMissing?.length) {
           academicStatus = "check";
-          academicLabel = "현재 평가의 미입력 점수를 먼저 확인해야 함";
+          academicLabel = "현재까지 실시한 평가의 미입력 점수를 먼저 확인해야 함";
         } else if (nextWeight > 0) {
           needed = roundTo(((40 - Number(row.weightedWritten || 0) - Number(row.weightedPerformance || 0)) / nextWeight) * nextMax, 1);
           if (needed <= 0) { academicStatus = "reached"; academicLabel = "현재 입력 점수만으로 40% 도달"; }
-          else if (needed > nextMax) { academicStatus = "risk"; academicLabel = `${minimumSettings.nextExamLabel} 만점으로도 40% 도달 어려움`; }
+          else if (needed > nextMax) { academicStatus = "fail"; academicLabel = `${minimumSettings.nextExamLabel} 만점으로도 40% 도달 불가`; }
           else { academicStatus = "risk"; academicLabel = `${minimumSettings.nextExamLabel} ${needed}점 이상 필요`; }
         } else {
           academicStatus = "check"; academicLabel = "미입력 평가 또는 다음 시험 반영비율 확인 필요";
@@ -776,12 +873,16 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
 
   const gradeDistribution = useMemo(() => {
     const maxGrade = Number(settings.gradeSystem);
+    const cumulative = gradeQuotaCumulative(completeActiveRows.length, settings.gradeSystem);
     return Array.from({ length: maxGrade }, (_, index) => {
       const gradeValue = index + 1;
       const rows = activeView === "minimum" ? [] : completeActiveRows.filter(row => row.grade === gradeValue);
+      const previousLimit = index > 0 ? cumulative[index - 1] : 0;
       return {
         grade: gradeValue,
         count: rows.length,
+        target: Math.max(0, (cumulative[index] || 0) - previousLimit),
+        cumulativeTarget: cumulative[index] || 0,
         min: rows.length ? Math.min(...rows.map(row => activeView === "combined" ? row.convertedScore : row.score)) : null,
         max: rows.length ? Math.max(...rows.map(row => activeView === "combined" ? row.convertedScore : row.score)) : null,
       };
@@ -807,6 +908,19 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     });
     return Array.from(groups.values()).filter(rows => rows.length > 1).sort((a, b) => compareVectors(a[0].baseVector, b[0].baseVector));
   }, [combinedRows, activeView, weightTotal]);
+
+  const printMinimum = () => {
+    document.body.classList.add("print-teacher-minimum");
+    let cleaned = false;
+    const cleanup = () => {
+      if (cleaned) return;
+      cleaned = true;
+      document.body.classList.remove("print-teacher-minimum");
+    };
+    window.addEventListener("afterprint", cleanup, { once: true });
+    window.setTimeout(() => window.print(), 60);
+    window.setTimeout(cleanup, 4000);
+  };
 
   const resetWorkspace = () => {
     if (!window.confirm("현재 화면의 지필·수행 자료와 설정을 비울까요? 저장된 다른 과목 자료는 유지됩니다.")) return;
@@ -907,14 +1021,16 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>2</span><strong style={ui.sectionTitle}>산출 기준 설정</strong><p style={ui.sectionHint}>반영비율 합계가 100%가 되어야 학기말 석차·등급을 확정합니다.</p></div><span style={{ ...ui.totalBadge, ...(Math.abs(weightTotal.total - 100) < 1e-9 ? ui.totalBadgeOk : ui.totalBadgeWarn) }}>반영비율 {weightTotal.total}%</span></div>
         <div style={ui.settingsGrid}>
           <div style={ui.settingCard}>
-            <div style={ui.settingTitle}>지필평가 반영비율</div>
-            {sortedWritten.length ? sortedWritten.map(item => <div key={item.id} className="teacher-grade-weight-row" style={ui.weightRow}><span><b>{item.title}</b><small>{item.maxScore}점 만점</small></span><span style={ui.weightActions}><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateWrittenWeight(item.id, event.target.value)} />%</span><button type="button" title="이 시험 제거" style={ui.removeFileButton} disabled={readOnlyWorkspace} onClick={() => removeWritten(item.id)}>×</button></span></div>) : <EmptyLine>지필평가 파일을 올려주세요.</EmptyLine>}
-            <div style={ui.subtotal}>지필 합계 <b>{weightTotal.written}%</b></div>
+            <div style={ui.settingTitleRow}><div><div style={ui.settingTitle}>지필평가 반영비율</div><small>성적 파일이 없어도 예정 시험을 먼저 등록할 수 있습니다.</small></div>{!readOnlyWorkspace&&<button type="button" style={ui.addAssessmentButton} onClick={addPlannedWritten}><Plus size={13}/> 미등록 시험 추가</button>}</div>
+            {sortedWritten.map(item => <div key={item.id} className="teacher-grade-weight-row" style={ui.weightRow}><span><b>{item.title}</b><small>{item.maxScore}점 만점 · 성적 등록 완료</small></span><span style={ui.weightActions}><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateWrittenWeight(item.id, event.target.value)} />%</span><button type="button" title="이 시험 제거" style={ui.removeFileButton} disabled={readOnlyWorkspace} onClick={() => removeWritten(item.id)}>×</button></span></div>)}
+            {plannedWritten.map(item => <div key={item.id} className="teacher-grade-weight-row planned-written-row" style={{...ui.weightRow,...ui.plannedWeightRow}}><span className="planned-written-name"><input type="text" value={item.title||""} disabled={readOnlyWorkspace} onChange={event=>updatePlannedWritten(item.id,{title:event.target.value})}/><small>성적 파일 미등록 · 최성보 필요점수 계산에 사용</small></span><span style={ui.weightActions}><label style={ui.compactScoreInput}><input type="number" min="1" step="1" value={item.maxScore??100} disabled={readOnlyWorkspace} onChange={event=>updatePlannedWritten(item.id,{maxScore:asNumber(event.target.value)??100})}/><small>만점</small></label><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={item.weight??0} disabled={readOnlyWorkspace} onChange={event=>updatePlannedWritten(item.id,{weight:asNumber(event.target.value)??0})}/>%</span><button type="button" title="예정 시험 제거" style={ui.removeFileButton} disabled={readOnlyWorkspace} onClick={()=>removePlannedWritten(item.id)}>×</button></span></div>)}
+            {!sortedWritten.length&&!plannedWritten.length&&<EmptyLine>지필평가 파일을 올리거나 ‘미등록 시험 추가’를 눌러주세요.</EmptyLine>}
+            <div style={ui.subtotal}><span>지필 합계</span><b>{weightTotal.written}%</b><small>등록 {weightTotal.uploadedWritten}% · 예정 {weightTotal.plannedWritten}%</small></div>
           </div>
           <div style={ui.settingCard}>
             <div style={ui.settingTitle}>수행평가 영역 반영비율</div>
             {!!performance.length && <div style={ui.fileChipRow}>{performance.map(file => <button key={file.id} type="button" disabled={readOnlyWorkspace} onClick={() => removePerformance(file.id)} style={ui.fileChip} title={`${file.fileName} 제거`}>{file.classes.join(", ")}반 <span>×</span></button>)}</div>}
-            {canonicalAreas.length ? canonicalAreas.map(area => <label key={area.id} className="teacher-grade-weight-row" style={ui.weightRow}><span><b title={area.name}>{area.name}</b><small>{area.maxScore}점 · 영역 {area.order + 1}</small></span><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={area.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateAreaWeight(area.id, event.target.value)} />%</span></label>) : <EmptyLine>수행평가 파일을 올려주세요.</EmptyLine>}
+            {canonicalAreas.length ? canonicalAreas.map(area => <label key={area.id} className="teacher-grade-weight-row performance-area-row" style={ui.weightRow}><span className="performance-area-name"><b title={area.name} style={{fontSize:area.name.length>30?11:area.name.length>20?11.7:12.5}}>{area.name}</b><small>{area.maxScore}점 · 수행 {area.order + 1}</small></span><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={area.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateAreaWeight(area.id, event.target.value)} />%</span></label>) : <EmptyLine>수행평가 파일을 올려주세요.</EmptyLine>}
             <div style={ui.subtotal}>수행 합계 <b>{weightTotal.performance}%</b></div>
           </div>
           <div style={ui.settingCard}>
@@ -926,12 +1042,12 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}<div style={ui.minimumCourseRule}><ShieldCheck size={14}/><div><b>{settings.courseType === "common" ? "공통과목 최성보 적용" : "선택과목 최성보 적용"}</b><span>{settings.courseType === "common" ? "출석률 2/3 이상 + 학업성취율 40% 이상" : "출석률 2/3 이상 · 학업성취율 40% 기준 미적용"}</span></div></div>
           </div>
         </div>
-        <div style={ui.tieRuleBox}><b>동점자 처리 순서</b><span>학기말 환산점수가 같은 경우: ① 정기시험 환산 합계 → ② 수행평가 → ③ 2차 지필 → ④ 1차 지필 → ⑤ 수행평가 NEIS 영역 순 → ⑥ 2차 고배점 문항(최대 3개) → ⑦ 1차 고배점 문항(최대 3개)</span><small>수행평가 100% 과목은 수행 영역 순서까지만 적용합니다. 모든 기준이 같으면 동석차로 남겨 중간석차백분율을 적용합니다.</small></div>
+        <div style={ui.tieRuleBox}><b>동점자 처리 순서</b><span>학기말 환산점수가 같은 경우: ① 정기시험 환산 합계 → ② 수행평가 → ③ 2차 지필 → ④ 1차 지필 → ⑤ 수행평가 NEIS 영역 순 → ⑥ 2차 고배점 문항(최대 3개) → ⑦ 1차 고배점 문항(최대 3개)</span><small>수행평가 100% 과목은 수행 영역 순서까지만 적용합니다. 모든 기준이 같은 학생은 동석차로 남기며, 등급 경계 인원에 걸린 동점자는 나누지 않고 모두 다음 등급으로 처리합니다.</small></div>
         <div style={ui.roundingRuleBox}><b>소수점 처리</b><span>영역별 환산점수 합계는 소수 셋째 자리에서 반올림해 둘째 자리까지 석차 산출에 사용합니다.</span><span>공식 원점수는 학기말 환산점수를 소수 첫째 자리에서 반올림한 정수로 표시하며, 평균과 분포 비율은 소수 첫째 자리까지 표시합니다.</span></div>
       </section>
 
-      <section style={ui.section}>
-        <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>3</span><strong style={ui.sectionTitle}>결과 확인</strong><p style={ui.sectionHint}>1차·2차 지필, 지필+수행 합본, 최소성취수준 예방지도를 한 화면에서 전환합니다.</p></div></div>
+      <section className={activeView === "minimum" ? "minimum-print-area" : ""} style={ui.section}>
+        <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>3</span><strong style={ui.sectionTitle}>결과 확인</strong><p style={ui.sectionHint}>지필평가, 지필+수행 합본과 최소성취수준 예방지도를 한 화면에서 전환합니다.</p></div>{activeView === "minimum"&&<button type="button" className="no-minimum-print" style={ui.printButton} onClick={printMinimum}><Printer size={14}/> 인쇄·PDF</button>}</div>
         <div style={ui.resultTabs}>
           {sortedWritten.map(item => <button key={item.id} type="button" onClick={() => setActiveView(item.id)} style={{ ...ui.resultTab, ...(activeView === item.id ? ui.resultTabActive : {}) }}>{item.title}</button>)}
           <button type="button" onClick={() => setActiveView("combined")} style={{ ...ui.resultTab, ...(activeView === "combined" ? ui.resultTabActive : {}) }}>지필+수행 합본</button>
@@ -939,6 +1055,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         </div>
         {!activeRows.length ? <div style={ui.emptyState}><FileSpreadsheet size={30} /><b>분석할 파일을 업로드해주세요.</b><span>지필평가 파일부터 올리면 전 학급 학생 구조가 자동으로 만들어집니다.</span></div> : <>
           {activeView === "combined" && Math.abs(weightTotal.total - 100) > 1e-9 && <div style={ui.warningBanner}><AlertTriangle size={16} /><span>반영비율 합계가 {weightTotal.total}%입니다. 100%로 맞추기 전 결과는 검토용입니다.</span></div>}
+          {activeView === "combined" && plannedWritten.length > 0 && <div style={ui.warningBanner}><AlertTriangle size={16}/><span>{plannedWritten.map(item=>item.title).join(", ")} 성적 파일이 아직 등록되지 않았습니다. 반영비율은 최성보 필요점수 계산에 먼저 적용됩니다.</span></div>}
           <div style={ui.metricGrid}>
             {activeView === "minimum" ? <>
               <MetricCard label="조회 학생" value={`${activeRows.length}명`} caption={settings.courseType === "common" ? "공통과목 기준" : "선택과목 기준"} />
@@ -954,16 +1071,16 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             </>}
           </div>
           {activeView !== "minimum" && <div style={ui.summaryGrid}>
-            <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 분포·등급컷</div><div style={ui.distributionList}>{gradeDistribution.map(item => <div key={item.grade} style={ui.distributionRow}><span style={ui.gradePill}>{item.grade}등급</span><b>{ratioLabel(item.count, completeActiveRows.length)}</b><small>{item.min == null ? "-" : `최저 ${formatScore(item.min, 2)}`}</small></div>)}</div></div>
+            <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 분포·등급컷</div><div style={ui.distributionList}>{gradeDistribution.map(item => <div key={item.grade} style={ui.distributionRow}><span style={{...ui.gradePill,...(item.grade===1?ui.gradePillFirst:{})}}>{item.grade}등급</span><b>{ratioLabel(item.count, completeActiveRows.length)}</b><small>기준 {item.target}명 · {item.min == null ? "컷 없음" : `최저 ${formatScore(item.min, 2)}`}</small></div>)}</div><p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
             {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><Users size={16} /> 성취도 분포</div><div style={ui.distributionList}>{achievementDistribution.map(item => <div key={item.label} style={ui.distributionRow}><span style={{ ...ui.gradePill, ...(item.label === "미도달" ? ui.failPill : {}) }}>{item.label}</span><b>{ratioLabel(item.count, completeActiveRows.length)}</b><small>{settings.achievementMode === "fixed" ? "고정분할" : "수동 컷"}</small></div>)}</div></div>}
           </div>}
 
           {activeView === "minimum" && <div style={ui.minimumControlPanel}>
             <div><span style={ui.courseTypeBadge}>{settings.courseType === "common" ? "공통과목" : "선택과목"}</span><b>{settings.courseType === "common" ? "출석률 2/3 + 학업성취율 40%" : "출석률 2/3 · 학업성취율 기준 미적용"}</b><small>과목 구분에 따라 최소성취수준 판정 기준을 자동 적용합니다.</small></div>
             {settings.courseType === "common" && <div style={ui.minimumInputRow}>
-              <label><span>다음 시험명</span><input type="text" value={minimumSettings.nextExamLabel} disabled={readOnlyWorkspace} onChange={event => setSettings(current => ({ ...current, minimumAchievement: { ...defaultMinimumSettings(current, weightTotal.total), nextExamLabel: event.target.value } }))}/></label>
-              <label><span>반영비율</span><div><input type="number" min="0" max="100" step="0.01" value={minimumSettings.nextExamWeight} disabled={readOnlyWorkspace} onChange={event => setSettings(current => ({ ...current, minimumAchievement: { ...defaultMinimumSettings(current, weightTotal.total), nextExamWeight: event.target.value } }))}/><b>%</b></div></label>
-              <label><span>만점</span><div><input type="number" min="1" step="1" value={minimumSettings.nextExamMax} disabled={readOnlyWorkspace} onChange={event => setSettings(current => ({ ...current, minimumAchievement: { ...defaultMinimumSettings(current, weightTotal.total), nextExamMax: event.target.value } }))}/><b>점</b></div></label>
+              <label><span>다음 시험명</span><input type="text" value={minimumSettings.nextExamLabel} disabled={readOnlyWorkspace} onChange={event => updateMinimumPlanning({ nextExamLabel: event.target.value })}/></label>
+              <label><span>반영비율</span><div><input type="number" min="0" max="100" step="0.01" value={minimumSettings.nextExamWeight} disabled={readOnlyWorkspace} onChange={event => updateMinimumPlanning({ nextExamWeight: event.target.value })}/><b>%</b></div></label>
+              <label><span>만점</span><div><input type="number" min="1" step="1" value={minimumSettings.nextExamMax} disabled={readOnlyWorkspace} onChange={event => updateMinimumPlanning({ nextExamMax: event.target.value })}/><b>점</b></div></label>
             </div>}
           </div>}
 
@@ -972,10 +1089,10 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             <div style={ui.tieBody}><p>정기시험 환산 합계부터 수행 영역 순서까지 같은 학생만 표시됩니다. 2차와 1차 정기시험의 고배점 문항을 배점이 높은 순서대로 최대 3개까지 입력하세요. 미입력 상태에서 모든 기준이 같으면 동석차로 처리합니다.</p>{unresolvedTieGroups.map((rows, groupIndex) => <div key={vectorKey(rows[0].baseVector)} style={ui.tieGroup}><div style={ui.tieGroupTitle}>동점 그룹 {groupIndex + 1} · 환산 {formatScore(rows[0].convertedScore, 2)}점</div>{rows.map(row => <div key={row.sid} className="teacher-grade-tie-student" style={ui.tieStudent}><span><b>{row.name || row.sid}</b><small>{row.sid} · {row.classNumber}반 {row.number}번</small></span><TieItemInputs label="2차 고배점" values={tieScores[row.sid]?.secondItems || []} disabled={readOnlyWorkspace} onChange={(index, value) => setTieScores(current => { const rowTie = current[row.sid] || {}; const nextItems = [...(rowTie.secondItems || [])]; nextItems[index] = value; return { ...current, [row.sid]: { ...rowTie, secondItems: nextItems } }; })} /><TieItemInputs label="1차 고배점" values={tieScores[row.sid]?.firstItems || []} disabled={readOnlyWorkspace} onChange={(index, value) => setTieScores(current => { const rowTie = current[row.sid] || {}; const nextItems = [...(rowTie.firstItems || [])]; nextItems[index] = value; return { ...current, [row.sid]: { ...rowTie, firstItems: nextItems } }; })} /></div>)}</div>)}</div>
           </details>}
 
-          <div style={ui.tableToolbar}>
-            <div style={ui.searchBox}><Search size={15} /><input className="teacher-grade-analyzer-search-input" value={search} onChange={event => setSearch(event.target.value)} placeholder="학번·이름 검색" /></div>
+          <div className="teacher-result-toolbar no-minimum-print" style={ui.tableToolbar}>
+            <div style={ui.searchBox}><span style={ui.searchIcon}><Search size={15}/></span><div style={ui.searchField}><small style={ui.searchLabel}>학생 검색</small><input className="teacher-grade-analyzer-search-input" value={search} onChange={event => setSearch(event.target.value)} placeholder="학번 또는 이름을 입력하세요" /></div></div>
             <select value={classFilter} onChange={event => setClassFilter(event.target.value)} style={ui.select}><option value="all">전체 반</option>{classes.map(classNumber => <option key={classNumber} value={String(classNumber)}>{classNumber}반</option>)}</select>
-            {activeView === "minimum" ? <select value={minimumFilter} onChange={event => setMinimumFilter(event.target.value)} style={ui.select}><option value="all">전체 최성보 상태</option><option value="risk">주의 대상자</option><option value="fail">미도달</option><option value="check">확인 필요</option><option value="reached">도달</option></select> : <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={ui.select}><option value="all">전체 등급</option>{Array.from({length:Number(settings.gradeSystem)},(_,index)=><option key={index+1} value={String(index+1)}>{index+1}등급</option>)}</select>}
+            {activeView === "minimum" ? <select value={minimumFilter} onChange={event => setMinimumFilter(event.target.value)} style={ui.select}><option value="all">전체</option><option value="risk">주의 대상자</option><option value="fail">미도달</option><option value="check">확인 필요</option><option value="reached">도달</option></select> : <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={ui.select}><option value="all">전체 등급</option>{Array.from({length:Number(settings.gradeSystem)},(_,index)=><option key={index+1} value={String(index+1)}>{index+1}등급</option>)}</select>}
             <span style={ui.resultCount}>{filteredRows.length}명 표시</span>
           </div>
           <div style={ui.tableScroll}>
@@ -1012,51 +1129,72 @@ function MissingState({ missing = [], complete = false }) {
   const labels = compactMissingLabels(missing);
   return <span style={ui.missingStack}>{labels.length ? labels.map(label => <small key={label}><CircleAlert size={11}/>{label}</small>) : <small><CircleAlert size={11}/>확인 필요</small>}</span>;
 }
+function GradeBadge({ grade }) {
+  if (!grade) return "-";
+  return <span style={grade === 1 ? ui.firstGradeMark : ui.tableGrade}>{grade}등급</span>;
+}
 function CombinedTable({ rows, written, areas }) {
-  return <table style={ui.table}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th>{written.map(item => <th key={item.id}>{item.title}</th>)}<th>수행</th><th>환산점수</th><th>원점수</th><th>석차</th><th>등급</th><th>성취도</th><th>입력 상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={!row.complete ? ui.incompleteRow : undefined}><StudentIdentityCells row={row}/>{written.map(item => <td key={item.id}>{formatScore(row.writtenScores[item.id], 1)}</td>)}<td><b>{formatScore(row.weightedPerformance, 2)}</b><small>{areas.length ? areas.map(area => formatScore(row.areaScores[area.id], 1)).join(" / ") : "수행 없음"}</small></td><td><b>{formatScore(row.convertedScore, 2)}</b></td><td>{row.officialScore ?? "-"}</td><td>{row.rank ? <><b>{row.rank}</b><small>{row.tieCount > 1 ? `동석차 ${row.tieCount}명 · 중간 ${row.midRank}` : ""}</small></> : "-"}</td><td>{row.grade ? (row.grade===1?<span style={ui.firstGradeMark}><Star size={11} fill="currentColor"/>1등급</span>:<span style={ui.tableGrade}>{row.grade}</span>) : "-"}</td><td><span style={{ ...ui.achievementBadge, ...(row.achievement === "미도달" ? ui.achievementFail : {}) }}>{row.achievement || "-"}</span></td><td><MissingState missing={row.missing} complete={row.complete}/></td></tr>)}</tbody></table>;
+  return <table style={ui.table}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th>{written.map(item => <th key={item.id}>{item.title}</th>)}<th>수행</th><th>환산점수</th><th>원점수</th><th>석차</th><th>등급</th><th>성취도</th><th>입력 상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={!row.complete ? ui.incompleteRow : undefined}><StudentIdentityCells row={row}/>{written.map(item => <td key={item.id}>{formatScore(row.writtenScores[item.id], 1)}</td>)}<td><b>{formatScore(row.weightedPerformance, 2)}</b><small>{areas.length ? areas.map(area => formatScore(row.areaScores[area.id], 1)).join(" / ") : "수행 없음"}</small></td><td><b>{formatScore(row.convertedScore, 2)}</b></td><td>{row.officialScore ?? "-"}</td><td>{row.rank ? <><b>{row.rank}</b><small>{row.tieCount > 1 ? `동석차 ${row.tieCount}명 · 중간 ${row.midRank}` : ""}</small></> : "-"}</td><td><GradeBadge grade={row.grade}/></td><td><span style={{ ...ui.achievementBadge, ...(row.achievement === "미도달" ? ui.achievementFail : {}) }}>{row.achievement || "-"}</span></td><td><MissingState missing={row.missing} complete={row.complete}/></td></tr>)}</tbody></table>;
 }
 function MinimumTable({ rows, settings, minimumSettings }) {
-  return <table style={{...ui.table,minWidth:1040}}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th><th>과목 유형</th><th>현재 환산</th><th>입력 완료</th><th>다음 정기시험 필요점수</th><th>과목 출결</th><th>최성보 판정</th><th>확인 사항</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={row.minimumStatus === "fail" ? ui.minimumFailRow : row.minimumStatus === "risk" ? ui.minimumRiskRow : undefined}><StudentIdentityCells row={row}/><td><span style={ui.courseTypeBadge}>{settings.courseType === "common" ? "공통과목" : "선택과목"}</span></td><td><b>{formatScore(Number(row.weightedWritten || 0)+Number(row.weightedPerformance || 0),2)}</b><small>{row.completedWeight}% 입력</small></td><td>{row.complete ? <span style={ui.okText}><Check size={12}/>완료</span> : <b>{row.completedWeight}%</b>}</td><td>{settings.courseType === "elective" ? <span style={ui.notApplicable}>적용 안 함</span> : row.needed == null ? "-" : row.needed <= 0 ? <span style={ui.okText}><Check size={12}/>현재 도달</span> : row.needed > Number(minimumSettings.nextExamMax) ? <span style={ui.failText}>만점 초과 필요</span> : <><b>{row.needed}점 이상</b><small>{minimumSettings.nextExamLabel}</small></>}</td><td><span style={row.attendanceStatus === "미도달" ? ui.failPill : row.attendanceStatus === "도달" ? ui.attendanceOk : ui.checkPill}>{row.attendanceStatus === "확인필요" ? "확인 필요" : row.attendanceStatus}</span></td><td><span style={{...ui.minimumStatusBadge,...(row.minimumStatus === "fail" ? ui.minimumStatusFail : row.minimumStatus === "risk" ? ui.minimumStatusRisk : row.minimumStatus === "reached" ? ui.minimumStatusReached : ui.minimumStatusCheck)}}>{row.minimumLabel}</span><small>{row.academicLabel}</small></td><td><MissingState missing={row.missing} complete={!row.missing.length}/></td></tr>)}</tbody></table>;
+  return <table style={{...ui.table,minWidth:1040}}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th><th>과목 유형</th><th>현재 환산</th><th>입력 완료</th><th>다음 정기시험 필요점수</th><th>과목 출결</th><th>최성보 판정</th><th>확인 사항</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={row.minimumStatus === "fail" ? ui.minimumFailRow : row.minimumStatus === "risk" ? ui.minimumRiskRow : undefined}><StudentIdentityCells row={row}/><td><span style={ui.courseTypeBadge}>{settings.courseType === "common" ? "공통과목" : "선택과목"}</span></td><td><b>{formatScore(Number(row.weightedWritten || 0)+Number(row.weightedPerformance || 0),2)}</b><small>{row.completedWeight}% 입력</small></td><td>{row.complete ? <span style={ui.okText}><Check size={12}/>완료</span> : <b>{row.completedWeight}%</b>}</td><td>{settings.courseType === "elective" ? <span style={ui.notApplicable}>적용 안 함</span> : row.needed == null ? "-" : row.needed <= 0 ? <span style={ui.okText}><Check size={12}/>현재 도달</span> : row.needed > Number(minimumSettings.nextExamMax) ? <span style={ui.failText}>미도달 확정</span> : <><b>{row.needed}점 이상</b><small>{minimumSettings.nextExamLabel}</small></>}</td><td><span style={row.attendanceStatus === "미도달" ? ui.failPill : row.attendanceStatus === "도달" ? ui.attendanceOk : ui.checkPill}>{row.attendanceStatus === "확인필요" ? "확인 필요" : row.attendanceStatus}</span></td><td><span style={{...ui.minimumStatusBadge,...(row.minimumStatus === "fail" ? ui.minimumStatusFail : row.minimumStatus === "risk" ? ui.minimumStatusRisk : row.minimumStatus === "reached" ? ui.minimumStatusReached : ui.minimumStatusCheck)}}>{row.minimumLabel}</span><small>{row.academicLabel}</small></td><td><MissingState missing={row.missing} complete={!row.missing.length}/></td></tr>)}</tbody></table>;
 }
 function WrittenTable({ rows, assessment }) {
-  return <table style={ui.table}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th><th>{assessment?.title || "지필"} 점수</th><th>석차</th><th>중간석차</th><th>등급</th><th>상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid}><StudentIdentityCells row={row}/><td><b>{formatScore(row.score, 1)}</b></td><td>{row.rank || "-"}{row.tieCount > 1 && <small>동석차 {row.tieCount}명</small>}</td><td>{row.midRank ?? "-"}</td><td>{row.grade ? (row.grade===1?<span style={ui.firstGradeMark}><Star size={11} fill="currentColor"/>1등급</span>:<span style={ui.tableGrade}>{row.grade}</span>) : "-"}</td><td>{row.score == null ? <span style={ui.warnText}>{row.status || "미입력"}</span> : <span style={ui.okText}><Check size={12} /> 정상</span>}</td></tr>)}</tbody></table>;
+  return <table style={ui.table}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th><th>{assessment?.title || "지필"} 점수</th><th>석차</th><th>중간석차</th><th>등급</th><th>상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid}><StudentIdentityCells row={row}/><td><b>{formatScore(row.score, 1)}</b></td><td>{row.rank || "-"}{row.tieCount > 1 && <small>동석차 {row.tieCount}명</small>}</td><td>{row.midRank ?? "-"}</td><td><GradeBadge grade={row.grade}/></td><td>{row.score == null ? <span style={ui.warnText}>{row.status || "미입력"}</span> : <span style={ui.okText}><Check size={12} /> 정상</span>}</td></tr>)}</tbody></table>;
 }
 
 
 const gradeAnalyzerCss = `
-.teacher-grade-analyzer * { box-sizing: border-box; }
-.teacher-grade-analyzer button, .teacher-grade-analyzer input, .teacher-grade-analyzer select { font-family: ${FONT_STACK}; }
-.teacher-grade-analyzer input[type="number"] { width: 70px; border: 1px solid #d5deea; border-radius: 8px; padding: 6px 7px; text-align: right; color: #27384e; background: #fff; font-weight: 800; }
-.teacher-grade-analyzer input[type="text"], .teacher-grade-analyzer .teacher-grade-search { outline: none; }
-.teacher-grade-analyzer label small, .teacher-grade-analyzer td small, .teacher-grade-analyzer .metric-card small { display: block; margin-top: 3px; color: #8b96a5; font-size: 9.8px; font-weight: 650; line-height: 1.35; }
-.teacher-grade-analyzer .teacher-grade-analyzer-upload p { margin: 3px 0; font-weight:750; color:#607087; }
-.teacher-grade-analyzer .teacher-grade-analyzer-upload small{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.teacher-grade-analyzer [style*="weightRow"] small{max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.teacher-grade-analyzer .teacher-grade-weight-row>span:first-child{min-width:0;flex:1;overflow:hidden}.teacher-grade-analyzer .teacher-grade-weight-row small{display:block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{display:grid;gap:3px;min-width:0}.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child b{font-size:13px;color:#2e435e}.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child span{font-size:10.5px;color:#738196;font-weight:700;line-height:1.35}
-.teacher-grade-analyzer .teacher-grade-risk-chips>span{display:grid;gap:2px;padding:6px 8px;border:1px solid #eed6d1;border-radius:9px;background:#fff;color:#6f473f}.teacher-grade-analyzer .teacher-grade-risk-chips>span b{font-size:10.5px}.teacher-grade-analyzer .teacher-grade-risk-chips>span small{font-size:9.3px;color:#97736c}
-.teacher-grade-analyzer button{letter-spacing:-.025em}
+.teacher-grade-analyzer *{box-sizing:border-box}
+.teacher-grade-analyzer{color:#27364a;letter-spacing:-.025em}
+.teacher-grade-analyzer button,.teacher-grade-analyzer input,.teacher-grade-analyzer select{font-family:${FONT_STACK};letter-spacing:-.025em}
+.teacher-grade-analyzer button:disabled{opacity:.48;cursor:not-allowed}
 .teacher-grade-analyzer section{min-width:0}
-.teacher-grade-analyzer table th { position: sticky; top: 0; z-index: 1; padding: 10px 9px; border-bottom: 1px solid #d8e0eb; color: #40516a; background: #f2f6fb; text-align: center; white-space: nowrap; font-size: 10.8px; font-weight: 900; }
-.teacher-grade-analyzer table td { padding: 9px; border-bottom: 1px solid #edf0f4; color: #344256; text-align: center; vertical-align: middle; white-space: nowrap; }
-.teacher-grade-analyzer table td:first-child { min-width: 130px; text-align: left; }
-.teacher-grade-analyzer table tbody tr:hover { background: #f8fbff; }
-.teacher-grade-analyzer .teacher-grade-analyzer-search-input { width: 100%; min-width: 0; border: 0; outline: 0; color: #334258; background: transparent; font-size: 12px; }
-.teacher-grade-analyzer .teacher-grade-tie-student > div > div { display: flex; gap: 4px; }
-.teacher-grade-analyzer .teacher-grade-tie-student > div label { display: inline-flex; align-items: center; gap: 2px; }
-.teacher-grade-analyzer .teacher-grade-tie-student > div input[type="number"] { width: 47px; padding: 5px; }
-.teacher-grade-analyzer details summary::-webkit-details-marker { display: none; }
-@media (max-width: 980px) {
-  .teacher-grade-analyzer .teacher-grade-workspace-browser { grid-template-columns:1fr 1fr!important; }
-  .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child { grid-column:1/-1; }
+.teacher-grade-analyzer input[type="number"]{width:70px;border:1px solid #cfd9e7;border-radius:9px;padding:7px 8px;text-align:right;color:#263a53;background:#fff;font-weight:850;font-variant-numeric:tabular-nums}
+.teacher-grade-analyzer input[type="text"]{outline:none}
+.teacher-grade-analyzer label small,.teacher-grade-analyzer td small,.teacher-grade-analyzer .metric-card small{display:block;margin-top:4px;color:#8290a3;font-size:10px;font-weight:650;line-height:1.42}
+.teacher-grade-analyzer .teacher-grade-analyzer-upload p{margin:4px 0;font-size:11.5px;font-weight:750;color:#607087}
+.teacher-grade-analyzer .teacher-grade-analyzer-upload small{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.teacher-grade-analyzer .teacher-grade-weight-row>span:first-child{min-width:0;flex:1;overflow:hidden}
+.teacher-grade-analyzer .teacher-grade-weight-row>span:first-child>b{display:block;color:#263a53;font-weight:900;line-height:1.42}
+.teacher-grade-analyzer .teacher-grade-weight-row small{font-size:9.8px!important}
+.teacher-grade-analyzer .performance-area-row{align-items:flex-start!important}
+.teacher-grade-analyzer .performance-area-name{padding-right:8px;overflow:visible!important}
+.teacher-grade-analyzer .performance-area-name b{max-width:100%!important;overflow:visible!important;text-overflow:clip!important;white-space:normal!important;word-break:keep-all;overflow-wrap:anywhere;line-height:1.38}
+.teacher-grade-analyzer .planned-written-row{border:1px dashed #bcd0e5!important;border-radius:11px;padding:9px 10px!important;margin-top:7px;background:#f4f9fe}
+.teacher-grade-analyzer .planned-written-name input{width:min(190px,100%);border:0;border-bottom:1px solid #b9cce0;background:transparent;padding:4px 2px;color:#315d90;font-size:12.5px;font-weight:900}
+.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{display:grid;gap:3px;min-width:0}
+.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child b{font-size:13px;color:#2e435e}
+.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child span{font-size:10.5px;color:#738196;font-weight:700;line-height:1.35}
+.teacher-grade-analyzer table{border-collapse:separate!important;border-spacing:0;width:100%;font-family:${FONT_STACK};font-size:11.7px;line-height:1.42}
+.teacher-grade-analyzer table th{position:sticky;top:0;z-index:1;padding:11px 9px;border-right:1px solid #d7e0eb;border-bottom:1px solid #cbd6e4;color:#344b67;background:#edf3f9;text-align:center;white-space:nowrap;font-size:11px;font-weight:950}
+.teacher-grade-analyzer table th:last-child{border-right:0}
+.teacher-grade-analyzer table td{padding:10px 9px;border-right:1px solid #e4eaf1;border-bottom:1px solid #e1e7ef;color:#314157;text-align:center;vertical-align:middle;white-space:nowrap;background:#fff}
+.teacher-grade-analyzer table td:last-child{border-right:0}
+.teacher-grade-analyzer table tbody tr:nth-child(even) td{background:#fbfcfe}
+.teacher-grade-analyzer table tbody tr:hover td{background:#f2f7fd}
+.teacher-grade-analyzer .student-id-cell,.teacher-grade-analyzer .student-name-cell{text-align:center!important;min-width:88px!important}
+.teacher-grade-analyzer .student-id-cell b{font-variant-numeric:tabular-nums;color:#315d90}
+.teacher-grade-analyzer .student-name-cell b{font-size:12px;color:#24384f}
+.teacher-grade-analyzer .teacher-grade-analyzer-search-input{width:100%;min-width:0;border:0;outline:0;color:#27394f;background:transparent;font-size:12.5px;font-weight:750;padding:0}
+.teacher-grade-analyzer .teacher-grade-analyzer-search-input::placeholder{color:#9aa6b5;font-weight:650}
+.teacher-grade-analyzer .teacher-grade-tie-student>div>div{display:flex;gap:4px}
+.teacher-grade-analyzer .teacher-grade-tie-student>div label{display:inline-flex;align-items:center;gap:2px}
+.teacher-grade-analyzer .teacher-grade-tie-student>div input[type="number"]{width:47px;padding:5px}
+.teacher-grade-analyzer details summary::-webkit-details-marker{display:none}
+@media(max-width:980px){.teacher-grade-analyzer .teacher-grade-workspace-browser{grid-template-columns:1fr 1fr!important}.teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{grid-column:1/-1}}
+@media(max-width:720px){.teacher-grade-analyzer .teacher-grade-tie-student{grid-template-columns:1fr 1fr}.teacher-grade-analyzer .teacher-grade-workspace-browser{grid-template-columns:1fr!important}.teacher-grade-analyzer .teacher-grade-weight-row{align-items:flex-start!important;flex-direction:column}.teacher-grade-analyzer .teacher-grade-weight-row>span:last-child{width:100%;justify-content:flex-end}}
+@media print{
+  body.print-teacher-minimum *{visibility:hidden!important}
+  body.print-teacher-minimum .teacher-grade-analyzer .minimum-print-area,body.print-teacher-minimum .teacher-grade-analyzer .minimum-print-area *{visibility:visible!important}
+  body.print-teacher-minimum .teacher-grade-analyzer .minimum-print-area{position:absolute;inset:0;width:100%;border:0!important;box-shadow:none!important;padding:0!important}
+  body.print-teacher-minimum .teacher-grade-analyzer .no-minimum-print{display:none!important}
+  body.print-teacher-minimum .teacher-grade-analyzer table{font-size:9.5pt;min-width:0!important}
+  body.print-teacher-minimum .teacher-grade-analyzer table th,body.print-teacher-minimum .teacher-grade-analyzer table td{padding:6px 5px!important}
+  body.print-teacher-minimum .teacher-grade-analyzer .teacher-result-toolbar{display:none!important}
 }
-@media (max-width: 720px) {
-  .teacher-grade-analyzer .teacher-grade-tie-student { grid-template-columns: 1fr 1fr; }
-  .teacher-grade-analyzer .teacher-grade-workspace-browser { grid-template-columns:1fr!important; }
-}
-.teacher-grade-analyzer .student-id-cell,.teacher-grade-analyzer .student-name-cell{text-align:center!important;min-width:92px!important}.teacher-grade-analyzer .student-id-cell b{font-variant-numeric:tabular-nums;color:#315d90}.teacher-grade-analyzer .student-name-cell b{font-size:12px}.teacher-grade-analyzer .teacher-grade-weight-row b{display:block;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.teacher-grade-analyzer .teacher-grade-weight-row small{font-size:9.5px!important}.teacher-grade-analyzer button:disabled{opacity:.48;cursor:not-allowed}.teacher-grade-analyzer .minimum-control input[type="text"]{width:150px}
-
 `;
+
 
 const ui = {
   root: { fontFamily: FONT_STACK, display: "grid", gap: 16 },
@@ -1090,15 +1228,19 @@ const ui = {
   messageWarn: { color: "#8a5f14", background: "#fff8e8", border: "1px solid #efd99e" },
   messageError: { color: "#a23a32", background: "#fff1ef", border: "1px solid #efc4c0" },
   settingsGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 12 },
-  settingCard: { border: "1px solid #e0e6ef", borderRadius: 14, padding: 14, background: "#fbfcfe" },
-  settingTitle: { marginBottom: 10, fontSize: 13.5, fontWeight: 900, color: "#2c3f58" },
-  weightRow: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: "8px 0", borderBottom: "1px solid #edf0f4" },
+  settingCard: { border: "1px solid #dce5ef", borderRadius: 16, padding: 15, background: "linear-gradient(180deg,#fcfdff,#f8fbfe)" },
+  settingTitleRow: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:8 },
+  settingTitle: { marginBottom: 4, fontSize: 14, fontWeight: 950, color: "#263b55", letterSpacing:"-.035em" },
+  addAssessmentButton:{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #bdd0e5",borderRadius:9,padding:"7px 9px",color:"#315d90",background:"#eef6fd",fontWeight:900,fontSize:10.8,cursor:"pointer",whiteSpace:"nowrap"},
+  weightRow: { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", padding: "10px 0", borderBottom: "1px solid #e7edf4" },
+  plannedWeightRow:{},
+  compactScoreInput:{display:"inline-grid",gap:2,color:"#768396",fontSize:9.5,textAlign:"center"},
   percentInput: { display: "inline-flex", alignItems: "center", gap: 4, color: "#586779", fontWeight: 800 },
   weightActions: { display: "inline-flex", alignItems: "center", gap: 6 },
   removeFileButton: { width: 25, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #e4c9c5", borderRadius: 7, color: "#a74a40", background: "#fff7f5", fontSize: 16, lineHeight: 1, cursor: "pointer" },
   fileChipRow: { display: "flex", gap: 5, flexWrap: "wrap", marginBottom: 7 },
   fileChip: { border: "1px solid #cbd9e8", borderRadius: 999, padding: "4px 8px", color: "#46637f", background: "#f3f7fb", fontSize: 10.5, fontWeight: 850, cursor: "pointer" },
-  subtotal: { display: "flex", justifyContent: "space-between", marginTop: 10, paddingTop: 8, color: "#526174", fontSize: 12 },
+  subtotal: { display: "grid", gridTemplateColumns:"1fr auto", gap:"2px 10px", alignItems:"center", marginTop: 10, paddingTop: 9, color: "#526174", fontSize: 12, borderTop:"1px solid #e5ebf2" },
   totalBadge: { borderRadius: 999, padding: "7px 12px", fontWeight: 900, fontSize: 12 },
   totalBadgeOk: { color: "#28633f", background: "#eaf7ee", border: "1px solid #bddfc8" },
   totalBadgeWarn: { color: "#9a5a1e", background: "#fff5e8", border: "1px solid #efd1a2" },
@@ -1112,9 +1254,9 @@ const ui = {
   minimumCourseRule:{display:"flex",gap:8,alignItems:"flex-start",marginTop:9,padding:"9px 10px",border:"1px solid #c8ddec",borderRadius:10,color:"#315d78",background:"#f0f7fc"},
   tieRuleBox: { display: "grid", gap: 4, marginTop: 12, border: "1px solid #d9e2ef", borderRadius: 12, padding: "11px 13px", color: "#526174", background: "#f7f9fc", fontSize: 11.5, lineHeight: 1.55 },
   roundingRuleBox: { display: "grid", gap: 4, marginTop: 8, border: "1px solid #d5e4dd", borderRadius: 12, padding: "10px 13px", color: "#456354", background: "#f3faf6", fontSize: 11.3, lineHeight: 1.5 },
-  resultTabs: { display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 14 },
-  resultTab: { border: "1px solid #d6dfeb", borderRadius: 999, padding: "8px 13px", color: "#59697b", background: "#fff", fontFamily: FONT_STACK, fontWeight: 850, cursor: "pointer" },
-  resultTabActive: { color: "#fff", background: "#3568a3", borderColor: "#3568a3" },
+  resultTabs: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 15, padding:"5px", border:"1px solid #e0e7f0", borderRadius:14, background:"#f7f9fc" },
+  resultTab: { border: "1px solid transparent", borderRadius: 10, padding: "9px 14px", color: "#54667a", background: "transparent", fontFamily: FONT_STACK, fontSize:12, fontWeight: 900, cursor: "pointer" },
+  resultTabActive: { color: "#fff", background: "#3568a3", borderColor: "#3568a3", boxShadow:"0 5px 14px rgba(53,104,163,.22)" },
   minimumResultTab:{display:"inline-flex",alignItems:"center",gap:5},
   minimumControlPanel:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:12,padding:"12px 14px",border:"1px solid #cdddeb",borderRadius:13,background:"linear-gradient(135deg,#f4f9fd,#f8f7fd)"},
   minimumInputRow:{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"},
@@ -1125,11 +1267,13 @@ const ui = {
   metricCard: { display: "grid", gap: 4, border: "1px solid #e0e6ef", borderRadius: 13, padding: 12, background: "#fbfcfe" },
   metricDanger: { borderColor: "#edc4bd", background: "#fff6f4" },
   summaryGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(310px,1fr))", gap: 12, marginBottom: 12 },
-  summaryPanel: { border: "1px solid #e0e6ef", borderRadius: 14, padding: 13, background: "#fff" },
+  summaryPanel: { border: "1px solid #dce5ef", borderRadius: 15, padding: 14, background: "#fff", boxShadow:"0 4px 14px rgba(47,70,103,.04)" },
   summaryTitle: { display: "flex", gap: 7, alignItems: "center", marginBottom: 10, fontSize: 13.5, fontWeight: 900 },
   distributionList: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(118px,1fr))", gap: 7 },
   distributionRow: { display: "grid", gap: 3, borderRadius: 10, padding: "8px 9px", background: "#f7f9fc", fontSize: 11.5 },
-  gradePill: { width: "fit-content", borderRadius: 999, padding: "3px 7px", color: "#315d90", background: "#e9f2fc", fontSize: 10.5, fontWeight: 900 },
+  gradePill: { width: "fit-content", borderRadius: 999, padding: "4px 8px", color: "#315d90", background: "#e9f2fc", fontSize: 10.5, fontWeight: 950 },
+  gradePillFirst:{color:"#ffd85a",background:"#26231f",border:"1px solid #26231f"},
+  quotaNote:{margin:"10px 0 0",color:"#7b8797",fontSize:10.5,lineHeight:1.5},
   failPill: { color: "#a33b35", background: "#fdeceb" },
   riskPanel: { marginBottom:12, border:"1px solid #efc8c3", borderRadius:14, padding:12, background:"linear-gradient(135deg,#fff8f6,#fffdf9)" },
   riskPanelHead: { display:"flex", justifyContent:"space-between", gap:12, alignItems:"center", color:"#8f453a" },
@@ -1141,15 +1285,18 @@ const ui = {
   tieGroupTitle: { marginBottom: 7, fontWeight: 900 },
   tieStudent: { display: "grid", gridTemplateColumns: "minmax(150px,1fr) minmax(205px,auto) minmax(205px,auto)", gap: 8, alignItems: "center", padding: "7px 0", borderTop: "1px solid #f0e9dc" },
   tieItemSet: { display: "grid", gap: 4, color: "#735f3e", fontSize: 10.5 },
-  tableToolbar: { display: "flex", gap: 8, alignItems: "center", marginBottom: 9, flexWrap: "wrap" },
-  searchBox: { flex: "1 1 240px", display: "flex", gap: 7, alignItems: "center", border: "1px solid #d6dfeb", borderRadius: 10, padding: "8px 10px", background: "#fff" },
-  select: { border: "1px solid #d6dfeb", borderRadius: 10, padding: "8px 10px", fontFamily: FONT_STACK, background: "#fff" },
+  tableToolbar: { display: "flex", gap: 9, alignItems: "stretch", marginBottom: 11, flexWrap: "wrap" },
+  searchBox: { flex: "1 1 300px", minHeight:46, display: "flex", gap: 10, alignItems: "center", border: "1.5px solid #c8d7e8", borderRadius: 14, padding: "7px 13px", background: "linear-gradient(180deg,#fff,#f8fbff)", boxShadow:"0 3px 10px rgba(47,75,113,.05)" },
+  searchIcon:{width:30,height:30,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:9,color:"#3568a3",background:"#e9f2fc",flex:"0 0 auto"},
+  searchField:{display:"grid",gap:1,flex:1,minWidth:0},
+  searchLabel:{fontSize:9.5,color:"#7e8b9c",fontWeight:850},
+  select: { minHeight:46, border: "1.5px solid #cfd9e6", borderRadius: 13, padding: "8px 12px", color:"#34485f", fontFamily: FONT_STACK, fontWeight:850, background: "#fff" },
   resultCount: { marginLeft: "auto", color: "#748195", fontSize: 11.5, fontWeight: 800 },
-  tableScroll: { overflowX: "auto", border: "1px solid #dfe5ee", borderRadius: 12 },
-  table: { width: "100%", minWidth: 940, borderCollapse: "collapse", fontSize: 11.5, fontFamily: FONT_STACK },
+  tableScroll: { overflowX: "auto", border: "1px solid #cfd9e5", borderRadius: 14, background:"#fff", boxShadow:"0 5px 16px rgba(47,70,103,.04)" },
+  table: { width: "100%", minWidth: 940, borderCollapse: "separate", borderSpacing:0, fontSize: 11.7, fontFamily: FONT_STACK },
   incompleteRow: { background: "#fff8f6" },
-  tableGrade: { display: "inline-flex", minWidth: 25, justifyContent: "center", borderRadius: 8, padding: "4px 6px", color: "#fff", background: "#3568a3", fontWeight: 900 },
-  firstGradeMark: { display:"inline-flex", alignItems:"center", justifyContent:"center", gap:3, borderRadius:999, padding:"4px 7px", color:"#7a5700", background:"linear-gradient(135deg,#fff5bd,#ffd95a)", border:"1px solid #e8bd35", fontWeight:950, whiteSpace:"nowrap" },
+  tableGrade: { display: "inline-flex", minWidth: 46, justifyContent: "center", borderRadius: 999, padding: "5px 8px", color: "#315d90", background: "#e8f1fb", border:"1px solid #cbdced", fontWeight: 950, whiteSpace:"nowrap" },
+  firstGradeMark: { display:"inline-flex", minWidth:46, alignItems:"center", justifyContent:"center", borderRadius:999, padding:"5px 8px", color:"#ffd85a", background:"#26231f", border:"1px solid #26231f", fontWeight:950, whiteSpace:"nowrap", boxShadow:"0 3px 8px rgba(38,35,31,.14)" },
   achievementBadge: { display: "inline-flex", borderRadius: 999, padding: "4px 7px", color: "#28633f", background: "#eaf7ee", fontWeight: 900 },
   achievementFail: { color: "#a23b34", background: "#fdeceb" },
   okText: { display: "inline-flex", gap: 4, alignItems: "center", color: "#327046", fontWeight: 800 },
@@ -1162,6 +1309,7 @@ const ui = {
   minimumStatusBadge:{display:"inline-flex",borderRadius:999,padding:"5px 8px",fontSize:10.5,fontWeight:950,whiteSpace:"nowrap"},
   minimumStatusFail:{color:"#a23b34",background:"#fdeceb"},minimumStatusRisk:{color:"#8a5d18",background:"#fff4dc"},minimumStatusReached:{color:"#28633f",background:"#eaf7ee"},minimumStatusCheck:{color:"#5f6875",background:"#eef1f5"},
   minimumFailRow:{background:"#fff5f3"},minimumRiskRow:{background:"#fffbf1"},
-  emptyLine: { color: "#98a2af", fontSize: 11.5, padding: "14px 0" },
+  printButton:{display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #bfd0e3",borderRadius:10,padding:"8px 11px",color:"#315d90",background:"#f3f8fd",fontWeight:900,cursor:"pointer"},
+  emptyLine: { color: "#8b98a8", fontSize: 11.5, padding: "16px 2px", lineHeight:1.5 },
 };
 
