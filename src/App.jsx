@@ -1188,7 +1188,7 @@ export default function App() {
 }
 
 function ClassMultiSelect({ value, onChange, classOptions, light, suffix = "반" }) {
-  const selected = new Set((value || "").split(",").map(s => s.trim()).filter(Boolean));
+  const selected = new Set((value || "").split(",").map(s => s.trim()).filter(item => item && item !== "전체"));
   const toggle = (c) => {
     const s = new Set(selected);
     if (s.has(c)) s.delete(c); else s.add(c);
@@ -1397,7 +1397,7 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
   };
 
   const submitSignup = async () => {
-    const validAssignments = assignments.filter(a => a.subject && a.targets.trim());
+    const validAssignments = assignments.filter(a => String(a.subject || "").trim()).map(a => ({ ...a, subject: String(a.subject).trim(), targets: String(a.targets || "").trim() || "전체" }));
     if (!name.trim() || !id.trim() || !pw) { showToast("이름·아이디·비밀번호를 입력해주세요.", "error"); return; }
     if (!homeroomClass && !validAssignments.length) { showToast("학급담임 반 또는 담당 과목을 하나 이상 선택해주세요.", "error"); return; }
     const idTaken = [...(accounts.teacher || []), ...(accounts.teacherPending || [])].some(a => a.id === id.trim());
@@ -1556,7 +1556,7 @@ function TeacherZoneWorkspace({
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
     <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
-      <TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} showToast={showToast} db={db} persist={persist}
+      <TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : ((loggedInTeacher || viewedTeacher) && normalizedTeacherRole(loggedInTeacher || viewedTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
         homeroomClass={loggedInTeacher?.homeroomClass || viewedTeacher?.homeroomClass || ""}
         canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))) || (viewedTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(viewedTeacher))))} />
@@ -1719,14 +1719,30 @@ function AdminTemplateDownloads({ showToast }) {
     <div>
       <div style={accountConsole.panel}>
         <div style={accountConsole.panelHeader}><div><div style={accountConsole.panelTitle}>엑셀 업로드 양식 다운로드</div><div style={accountConsole.panelDescription}>홈페이지에서 읽을 수 있는 열 이름이 포함된 기본 양식입니다. 예시 행을 삭제한 뒤 실제 자료를 입력하세요.</div></div></div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 10 }}>
-          {items.map(([key, title, description]) => <button key={key} type="button" onClick={() => downloadWorkbook(key)} style={accountConsole.templateCard}><FileSpreadsheet size={20} color="#3d5c3a" /><span style={{ fontWeight: 900 }}>{title} 양식</span><small>{description}</small><span style={accountConsole.templateAction}><Download size={13} /> XLSX 다운로드</span></button>)}
+        <div style={accountConsole.templateGrid}>
+          {items.map(([key, title, description]) => (
+            <button key={key} type="button" onClick={() => downloadWorkbook(key)} style={accountConsole.templateCard}>
+              <span style={accountConsole.templateIcon}><FileSpreadsheet size={19} /></span>
+              <span style={accountConsole.templateContent}>
+                <strong style={accountConsole.templateTitle}>{title}</strong>
+                <small style={accountConsole.templateDescription}>{description}</small>
+                <span style={accountConsole.templateAction}><Download size={13} /> XLSX 다운로드</span>
+              </span>
+            </button>
+          ))}
         </div>
       </div>
       <div style={accountConsole.panel}>
-        <div style={accountConsole.panelHeader}><div><div style={accountConsole.panelTitle}>첨부파일 저장소 연결 진단</div><div style={accountConsole.panelDescription}>작은 테스트 파일을 업로드한 뒤 즉시 삭제하여 Firebase Storage·익명 인증·규칙이 실제로 동작하는지 확인합니다.</div></div></div>
-        <button style={styles.primaryBtn} onClick={runDiagnosis} disabled={diagnosing}>{diagnosing ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} Storage 연결 테스트</button>
-        {diagnosis && <div style={{ ...(diagnosis.ok ? styles.okBanner : styles.warnBanner), marginTop: 12 }}>{diagnosis.ok ? <Check size={14} /> : <AlertTriangle size={14} />}{diagnosis.ok ? `정상 · ${diagnosis.bucket}${diagnosis.authenticated ? " · 익명 인증 연결" : ""}` : `${diagnosis.code || "오류"} · ${diagnosis.error}`}</div>}
+        <div style={accountConsole.panelHeader}><div><div style={accountConsole.panelTitle}>양식·첨부파일 연결 진단</div><div style={accountConsole.panelDescription}>버그리포트 이미지와 교과 반영표 등 첨부파일 저장 경로를 실제 업로드·삭제 방식으로 확인합니다.</div></div></div>
+        <div style={accountConsole.diagnosticCard}>
+          <span style={accountConsole.diagnosticIcon}>{diagnosis?.ok ? <Check size={19} /> : <Upload size={19} />}</span>
+          <div style={accountConsole.diagnosticCopy}>
+            <strong>Firebase Storage 연결 상태</strong>
+            <span>익명 인증, 업로드 권한, 삭제 권한을 한 번에 검사합니다. 테스트 파일은 확인 직후 자동 삭제됩니다.</span>
+          </div>
+          <button style={{ ...styles.primaryBtn, ...accountConsole.diagnosticButton }} onClick={runDiagnosis} disabled={diagnosing}>{diagnosing ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {diagnosing ? "진단 중" : "연결 테스트"}</button>
+        </div>
+        {diagnosis && <div style={{ ...(diagnosis.ok ? styles.okBanner : styles.warnBanner), marginTop: 10, lineHeight: 1.5 }}>{diagnosis.ok ? <Check size={14} /> : <AlertTriangle size={14} />}{diagnosis.ok ? `정상 연결 · ${diagnosis.bucket}${diagnosis.authenticated ? " · 익명 인증 확인" : ""}` : `${diagnosis.code || "연결 오류"} · ${diagnosis.error}`}</div>}
       </div>
     </div>
   );
@@ -2430,7 +2446,7 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
   const save = async () => {
     setSaving(true);
     try {
-      const cleanAssignments = assignments.filter(a => a.subject && a.targets.trim());
+      const cleanAssignments = assignments.filter(a => String(a.subject || "").trim()).map(a => ({ ...a, subject: String(a.subject).trim(), targets: String(a.targets || "").trim() || "전체" }));
       const updatedTeacher = applyAutomaticTeacherAccess({
         ...teacher,
         homeroomClass: canEditHomeroom ? homeroomClass : teacher.homeroomClass,
@@ -3910,7 +3926,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
           homeroomClass: normalized.homeroomClass || "",
           gradeAccessGrades: normalized.gradeAccessGrades,
           timetableAccessGrades: normalized.timetableAccessGrades,
-          assignments: (normalized.assignments || []).filter(assignment => assignment.subject && assignment.targets.trim()),
+          assignments: (normalized.assignments || []).filter(assignment => String(assignment?.subject || "").trim()).map(assignment => ({ ...assignment, subject: String(assignment.subject).trim(), targets: String(assignment.targets || "").trim() || "전체" })),
         };
       });
     const ok = await persistAccounts({
@@ -4535,8 +4551,17 @@ const accountConsole = {
   autoBadge:{display:"inline-flex",alignItems:"center",borderRadius:999,padding:"2px 7px",background:"#eaf4ec",color:"#356541",fontWeight:850},
   teacherSubjectSummary: { maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#746d61", fontSize: 11.5, fontWeight: 750 },
   teacherToolbar: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", padding: 10, marginBottom: 10, border: `1px solid ${COLORS.line}`, borderRadius: 10, background: "#faf9f5" },
-  templateCard: { border: `1px solid ${COLORS.line}`, borderRadius: 12, background: "linear-gradient(145deg,#fff,#f8faf6)", padding: 15, display: "grid", gridTemplateColumns: "26px 1fr", textAlign: "left", gap: "3px 8px", cursor: "pointer", color: COLORS.ink },
-  templateAction: { gridColumn: "2", display: "inline-flex", alignItems: "center", gap: 4, color: COLORS.accent, fontSize: 11, fontWeight: 850, marginTop: 6 },
+  templateGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 10 },
+  templateCard: { minWidth: 0, border: `1px solid ${COLORS.line}`, borderRadius: 13, background: "linear-gradient(145deg,#fff,#f8faf6)", padding: 13, display: "grid", gridTemplateColumns: "42px minmax(0,1fr)", alignItems: "start", textAlign: "left", gap: 11, cursor: "pointer", color: COLORS.ink, boxShadow: "0 3px 10px rgba(58,75,49,.035)" },
+  templateIcon: { width: 40, height: 40, borderRadius: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#eaf3e8", border: "1px solid #d3e2cf", color: "#3d653e" },
+  templateContent: { minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 },
+  templateTitle: { fontSize: 13, lineHeight: 1.3, fontWeight: 930, color: "#2f392d", wordBreak: "keep-all" },
+  templateDescription: { display: "block", width: "100%", fontSize: 10.8, lineHeight: 1.45, color: "#7d786e", fontWeight: 650, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  templateAction: { display: "inline-flex", alignItems: "center", gap: 4, borderRadius: 999, padding: "4px 7px", background: "#edf4eb", color: COLORS.accent, fontSize: 10.5, fontWeight: 880, marginTop: 4 },
+  diagnosticCard: { display: "grid", gridTemplateColumns: "46px minmax(0,1fr) auto", alignItems: "center", gap: 12, border: "1px solid #dbe4ef", borderRadius: 13, padding: 13, background: "linear-gradient(135deg,#f8fbff,#fff)" },
+  diagnosticIcon: { width: 44, height: 44, borderRadius: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#e9f2fc", border: "1px solid #cbdced", color: "#3568a3" },
+  diagnosticCopy: { minWidth: 0, display: "flex", flexDirection: "column", gap: 3, color: "#657286", fontSize: 10.8, lineHeight: 1.5 },
+  diagnosticButton: { whiteSpace: "nowrap", justifySelf: "end" },
   identityRow: { display: "flex", alignItems: "center", gap: 7, marginBottom: 9 },
   credentials: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 },
   field: { display: "grid", gap: 4, fontSize: 10.2, color: "#746d61", fontWeight: 800 },

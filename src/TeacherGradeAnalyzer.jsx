@@ -245,6 +245,8 @@ function defaultWorkspace() {
       manualCuts: { ...FIXED_COMMON_CUTS },
       tieItemCount: 3,
       plannedWritten: [],
+      plannedPerformance: [],
+      workspaceMeta: { year: new Date().getFullYear(), semester: 1, grade: null, subject: "" },
     },
     tieScores: {},
   };
@@ -258,6 +260,8 @@ function normalizeWorkspaceSnapshot(parsed = {}) {
       ...(parsed.settings || {}),
       manualCuts: { ...FIXED_COMMON_CUTS, ...(parsed.settings?.manualCuts || {}) },
       plannedWritten: Array.isArray(parsed.settings?.plannedWritten) ? parsed.settings.plannedWritten : [],
+      plannedPerformance: Array.isArray(parsed.settings?.plannedPerformance) ? parsed.settings.plannedPerformance : [],
+      workspaceMeta: { ...defaultWorkspace().settings.workspaceMeta, ...(parsed.settings?.workspaceMeta || {}) },
     },
     written: Array.isArray(parsed.written) ? parsed.written : [],
     performance: Array.isArray(parsed.performance) ? parsed.performance : [],
@@ -293,7 +297,15 @@ function formatScore(value, digits = 1) {
 function ratioLabel(count, total) { return total ? `${count}명 · ${((count / total) * 100).toFixed(1)}%` : "0명"; }
 function normalizeSubjectName(value) { return normalizeToken(value).replace(/과목$/g, ""); }
 function teacherSubjectAssignments(teacher) {
-  return (teacher?.assignments || []).map(item => ({ ...item, token: normalizeSubjectName(item?.subject) })).filter(item => item.token);
+  const raw = [
+    ...(Array.isArray(teacher?.assignments) ? teacher.assignments : []),
+    ...(Array.isArray(teacher?.subjects) ? teacher.subjects.map(subject => typeof subject === "string" ? { subject, targets: "전체" } : subject) : []),
+    ...(Array.isArray(teacher?.subjectPermissions) ? teacher.subjectPermissions.map(subject => typeof subject === "string" ? { subject, targets: "전체" } : subject) : []),
+  ];
+  return raw
+    .map(item => typeof item === "string" ? { subject: item, targets: "전체" } : item)
+    .map(item => ({ ...item, subject: text(item?.subject || item?.name || item?.course), targets: text(item?.targets || item?.classes || "전체") || "전체", token: normalizeSubjectName(item?.subject || item?.name || item?.course) }))
+    .filter(item => item.token);
 }
 function teacherHandlesSubject(teacher, subject) {
   const token = normalizeSubjectName(subject);
@@ -321,7 +333,7 @@ function defaultMinimumSettings(settings, totalWeight = 0) {
   };
 }
 
-export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], roster = {}, grade = "2", showToast, db = {}, persist, accessRole = "teacher", homeroomClass = "", canViewAllSubjects = false }) {
+export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], roster = {}, grade = "2", semester = "sem1", showToast, db = {}, persist, accessRole = "teacher", homeroomClass = "", canViewAllSubjects = false }) {
   const storageKey = `kd_teacher_grade_workspace_v2_${teacher?.id || "shared"}_${grade}`;
   const legacyStorageKey = `kd_teacher_grade_workspace_v1_${teacher?.id || "shared"}_${grade}`;
   const initialRef = useRef(null);
@@ -346,13 +358,15 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
 
   const assignedSubjects = useMemo(() => teacherSubjectAssignments(teacher), [teacher]);
   const editableSubjectNames = useMemo(() => Array.from(new Set(assignedSubjects.map(item => text(item.subject)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [assignedSubjects]);
-  const [draftSubject, setDraftSubject] = useState(() => editableSubjectNames[0] || "");
+  const allKnownSubjectNames = useMemo(() => Array.from(new Set((teacherAccounts || []).flatMap(account => teacherSubjectAssignments(account).map(item => text(item.subject))).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [teacherAccounts]);
+  const [draftSubject, setDraftSubject] = useState(() => initialSnapshot?.settings?.workspaceMeta?.subject || editableSubjectNames[0] || "");
   useEffect(() => {
     if (accessRole !== "teacher") return;
     if (!editableSubjectNames.length) { setDraftSubject(""); return; }
     if (!editableSubjectNames.some(subject => normalizeSubjectName(subject) === normalizeSubjectName(draftSubject))) setDraftSubject(editableSubjectNames[0]);
   }, [accessRole, editableSubjectNames, draftSubject]);
   const canCreateWorkspace = accessRole === "admin" || (accessRole === "teacher" && editableSubjectNames.length > 0);
+  const canStartSelectedSubject = canCreateWorkspace && (accessRole !== "admin" || !!text(draftSubject));
   const canEditSubject = subject => accessRole === "admin" || (accessRole === "teacher" && teacherHandlesSubject(teacher, subject));
   const sharedWorkspaces = useMemo(() => Object.values(db?.teacherGradeWorkspaces || {})
     .filter(item => String(item?.grade || "") === String(grade))
@@ -365,17 +379,35 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   }, [storageKey, selectedLocalId, localWorkspaces]);
 
   useEffect(() => {
+    setSettings(current => {
+      const nextMeta = {
+        ...(current.workspaceMeta || {}),
+        year: asNumber(current.workspaceMeta?.year) || new Date().getFullYear(),
+        semester: asNumber(current.workspaceMeta?.semester) || (semester === "sem2" ? 2 : 1),
+        grade: Number(grade),
+        subject: draftSubject || current.workspaceMeta?.subject || "",
+      };
+      return JSON.stringify(nextMeta) === JSON.stringify(current.workspaceMeta || {}) ? current : { ...current, workspaceMeta: nextMeta };
+    });
+  }, [draftSubject, grade, semester]);
+
+  useEffect(() => {
     if (!selectedLocalId || !localWorkspaces[selectedLocalId]) return;
-    const context = written[0] || performance[0] || null;
+    const saveContext = written[0] || performance[0] || (draftSubject ? {
+      year: asNumber(settings.workspaceMeta?.year) || new Date().getFullYear(),
+      semester: asNumber(settings.workspaceMeta?.semester) || (semester === "sem2" ? 2 : 1),
+      grade: asNumber(settings.workspaceMeta?.grade) || Number(grade),
+      subject: draftSubject,
+    } : null);
     setLocalWorkspaces(current => ({
       ...current,
       [selectedLocalId]: {
         ...current[selectedLocalId],
         id: selectedLocalId,
-        subject: context?.subject || current[selectedLocalId]?.subject,
-        year: context?.year || current[selectedLocalId]?.year,
-        semester: context?.semester || current[selectedLocalId]?.semester,
-        grade: context?.grade || current[selectedLocalId]?.grade || Number(grade),
+        subject: saveContext?.subject || current[selectedLocalId]?.subject,
+        year: saveContext?.year || current[selectedLocalId]?.year,
+        semester: saveContext?.semester || current[selectedLocalId]?.semester,
+        grade: saveContext?.grade || current[selectedLocalId]?.grade || Number(grade),
         written,
         performance,
         settings,
@@ -383,11 +415,20 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         updatedAt: new Date().toISOString(),
       },
     }));
-  }, [selectedLocalId, written, performance, settings, tieScores]);
+  }, [selectedLocalId, written, performance, settings, tieScores, draftSubject, semester, grade]);
 
   const sortedWritten = useMemo(() => [...written].sort((a, b) => writtenOrder(a) - writtenOrder(b) || text(a.title).localeCompare(text(b.title), "ko")), [written]);
-  const canonicalAreas = useMemo(() => performance[0]?.areas || [], [performance]);
-  const context = written[0] || performance[0] || null;
+  const uploadedAreas = useMemo(() => performance[0]?.areas || [], [performance]);
+  const plannedPerformance = useMemo(() => Array.isArray(settings.plannedPerformance) ? settings.plannedPerformance : [], [settings.plannedPerformance]);
+  const canonicalAreas = uploadedAreas.length ? uploadedAreas : plannedPerformance;
+  const currentSemesterNumber = semester === "sem2" ? 2 : 1;
+  const manualContext = draftSubject ? {
+    year: asNumber(settings.workspaceMeta?.year) || new Date().getFullYear(),
+    semester: asNumber(settings.workspaceMeta?.semester) || currentSemesterNumber,
+    grade: asNumber(settings.workspaceMeta?.grade) || Number(grade),
+    subject: draftSubject,
+  } : null;
+  const context = written[0] || performance[0] || manualContext;
   const workspaceId = workspaceIdFromContext(context, grade);
   const canEditCurrentSubject = context ? canEditSubject(context.subject) : canCreateWorkspace;
   const readOnlyWorkspace = !canEditCurrentSubject;
@@ -421,7 +462,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     };
   };
   const saveLocalWorkspace = () => {
-    if (!context || !workspaceId) { showToast?.("먼저 지필 또는 수행평가 파일을 업로드해주세요.", "error"); return; }
+    if (!context || !workspaceId) { showToast?.("담당 과목을 먼저 선택해주세요.", "error"); return; }
     if (!canEditCurrentSubject) { showToast?.("이 과목 담당 교사만 성적 산출 자료를 저장할 수 있습니다.", "error"); return; }
     const snapshot = currentSnapshot();
     setLocalWorkspaces(current => ({ ...current, [workspaceId]: snapshot }));
@@ -430,7 +471,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     showToast?.(`${context.subject} 성적 작업을 과목별로 저장했습니다.`, "success");
   };
   const publishWorkspace = async () => {
-    if (!context || !workspaceId) { showToast?.("먼저 지필 또는 수행평가 파일을 업로드해주세요.", "error"); return; }
+    if (!context || !workspaceId) { showToast?.("담당 과목을 먼저 선택해주세요.", "error"); return; }
     if (!canEditCurrentSubject) { showToast?.("해당 과목 담당 교사만 학교 공동 작업 화면을 수정·반영할 수 있습니다.", "error"); return; }
     const snapshot = currentSnapshot();
     setLocalWorkspaces(current => ({ ...current, [workspaceId]: snapshot }));
@@ -471,10 +512,19 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setSelectedLocalId("");
     applyWorkspace(item);
   };
-  const startNewWorkspace = () => {
+  const startNewWorkspace = subjectOverride => {
     const fresh = defaultWorkspace();
-    if (accessRole === "teacher" && editableSubjectNames.length) setDraftSubject(current => editableSubjectNames.some(subject => normalizeSubjectName(subject) === normalizeSubjectName(current)) ? current : editableSubjectNames[0]);
-    if (accessRole === "admin") setDraftSubject("");
+    const requested = text(subjectOverride);
+    const nextSubject = requested || (accessRole === "teacher"
+      ? (editableSubjectNames.some(subject => normalizeSubjectName(subject) === normalizeSubjectName(draftSubject)) ? draftSubject : editableSubjectNames[0] || "")
+      : draftSubject);
+    setDraftSubject(nextSubject);
+    fresh.settings.workspaceMeta = {
+      year: new Date().getFullYear(),
+      semester: semester === "sem2" ? 2 : 1,
+      grade: Number(grade),
+      subject: nextSubject,
+    };
     setSelectedLocalId(""); setSelectedSharedId(""); setWritten([]); setPerformance([]); setSettings(fresh.settings); setTieScores({});
     setActiveView("combined"); setClassFilter(homeroomClass ? String(homeroomClass) : "all"); setGradeFilter("all"); setMinimumFilter("all"); setSearch(""); setUploadMessages([]);
   };
@@ -554,9 +604,29 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   });
   const removeWritten = id => { setWritten(current => current.filter(item => item.id !== id)); if (activeView === id) setActiveView("combined"); };
   const removePerformance = id => setPerformance(current => current.filter(item => item.id !== id));
+  const addPlannedPerformance = () => setSettings(current => {
+    const list = Array.isArray(current.plannedPerformance) ? current.plannedPerformance : [];
+    const order = list.length;
+    return {
+      ...current,
+      plannedPerformance: [...list, { id: `planned-area-${Date.now()}`, name: `수행평가 영역 ${order + 1}`, maxScore: 20, weight: 0, order }],
+    };
+  });
+  const updatePlannedPerformance = (id, patch) => setSettings(current => ({
+    ...current,
+    plannedPerformance: (Array.isArray(current.plannedPerformance) ? current.plannedPerformance : []).map((area, index) => area.id === id ? { ...area, ...patch, order: index } : { ...area, order: index }),
+  }));
+  const removePlannedPerformance = id => setSettings(current => ({
+    ...current,
+    plannedPerformance: (Array.isArray(current.plannedPerformance) ? current.plannedPerformance : []).filter(area => area.id !== id).map((area, index) => ({ ...area, order: index })),
+  }));
   const updateAreaWeight = (areaId, value) => {
     const next = asNumber(value) ?? 0;
-    setPerformance(current => current.map(file => ({ ...file, areas: file.areas.map(area => area.id === areaId ? { ...area, weight: next } : area) })));
+    if (uploadedAreas.length) {
+      setPerformance(current => current.map(file => ({ ...file, areas: file.areas.map(area => area.id === areaId ? { ...area, weight: next } : area) })));
+    } else {
+      updatePlannedPerformance(areaId, { weight: next });
+    }
   };
 
   const addUploadMessage = message => setUploadMessages(current => [message, ...current].slice(0, 10));
@@ -630,6 +700,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         const occupiedClasses = new Set(performance.flatMap(item => item.classes.map(classNumber => `${contextKey(item)}:${classNumber}`)));
         const next = [...performance];
         const messages = [];
+        let registeredPerformance = false;
         accepted.forEach(item => {
           const duplicateClasses = item.classes.filter(classNumber => occupiedClasses.has(`${contextKey(item)}:${classNumber}`));
           if (duplicateClasses.length) {
@@ -644,12 +715,21 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
               return;
             }
             item.areas = item.areas.map((area, index) => ({ ...area, weight: next[0].areas[index]?.weight ?? area.weight }));
+          } else if (plannedPerformance.length) {
+            item.areas = item.areas.map((area, index) => ({
+              ...area,
+              weight: asNumber(plannedPerformance[index]?.weight) ?? area.weight,
+            }));
           }
           next.push(item);
+          registeredPerformance = true;
           item.classes.forEach(classNumber => occupiedClasses.add(`${contextKey(item)}:${classNumber}`));
           messages.push({ type: "ok", text: `${item.classes.join(", ")}반 수행평가 · ${Object.keys(item.students).length}명을 불러왔습니다.` });
         });
         setPerformance(next);
+        if (registeredPerformance && plannedPerformance.length) {
+          setSettings(current => ({ ...current, plannedPerformance: [] }));
+        }
         if (messages.length) setUploadMessages(current => [...messages.reverse(), ...current].slice(0, 10));
       }
     } finally {
@@ -689,13 +769,16 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       });
       let weightedPerformance = 0;
       const areaScores = {};
-      canonicalAreas.forEach(area => {
+      uploadedAreas.forEach(area => {
         const score = perfStudent?.scores?.[area.id] ?? null;
         areaScores[area.id] = score;
         if (score == null) currentMissing.push(area.name);
         else { const areaWeight=asNumber(area.weight) || 0; weightedPerformance += (score / (area.maxScore || 100)) * areaWeight; completedWeight += areaWeight; }
       });
-      const pendingAssessments = plannedWritten.map(item => `${item.title || "미등록 정기시험"}(미등록)`);
+      const pendingAssessments = [
+        ...plannedWritten.map(item => `${item.title || "미등록 정기시험"}(미등록)`),
+        ...plannedPerformance.map(item => `${item.name || "수행평가 영역"}(미등록)`),
+      ];
       const complete = currentMissing.length === 0 && pendingAssessments.length === 0 && Math.abs(weightTotal.total - 100) < 1e-9;
       const convertedScore = complete ? roundTo(weightedWritten + weightedPerformance, 2) : null;
       const officialScore = convertedScore == null ? null : Math.round(convertedScore);
@@ -706,7 +789,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         roundTo(weightedPerformance, 2),
         secondExam?.students?.[sid]?.score,
         firstExam?.students?.[sid]?.score,
-        ...canonicalAreas.map(area => areaScores[area.id]),
+        ...uploadedAreas.map(area => areaScores[area.id]),
       ];
       const secondTieItems = Array.from({ length: 3 }, (_, index) => asNumber(tie.secondItems?.[index]));
       const firstTieItems = Array.from({ length: 3 }, (_, index) => asNumber(tie.firstItems?.[index]));
@@ -752,7 +835,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       row.achievement = achievementFromScore(settings.achievementMode === "fixed" ? row.officialScore : row.convertedScore, settings.courseType, settings.achievementMode, settings.manualCuts);
     });
     return [...completeRows, ...rows.filter(row => !row.complete).sort((a, b) => a.sid.localeCompare(b.sid))];
-  }, [sortedWritten, performance, canonicalAreas, plannedWritten, weightTotal, tieScores, rosterNames, settings.gradeSystem, settings.courseType, settings.achievementMode, settings.manualCuts]);
+  }, [sortedWritten, performance, uploadedAreas, plannedWritten, plannedPerformance, weightTotal, tieScores, rosterNames, settings.gradeSystem, settings.courseType, settings.achievementMode, settings.manualCuts]);
 
   const writtenCombinedRows = useMemo(() => {
     const studentIds = new Set();
@@ -1000,8 +1083,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           {!!localWorkspaceList.length && <optgroup label="내 브라우저 저장 과목">{localWorkspaceList.map(item => <option key={`local-${item.id}`} value={`local:${item.id}`}>{item.subject} · {item.year || "-"}학년도 {item.semester || "-"}학기 · 저장본</option>)}</optgroup>}
           {!!sharedWorkspaces.length && <optgroup label="학교 공동 작업 과목">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
         </select>
-        {accessRole === "teacher" ? <select value={draftSubject} onChange={event => { setDraftSubject(event.target.value); startNewWorkspace(); }} style={ui.subjectSelect} disabled={!editableSubjectNames.length}><option value="">담당과목 없음</option>{editableSubjectNames.map(subject => <option key={subject} value={subject}>{subject}</option>)}</select> : <span style={ui.adminEditBadge}>{accessRole === "admin" ? "관리자 · 전체 수정" : "열람 전용"}</span>}
-        <button type="button" style={ui.secondaryButton} onClick={startNewWorkspace} disabled={!canCreateWorkspace}>{accessRole === "admin" ? "새 과목 작업" : "담당과목 새 작업"}</button>
+        {accessRole === "teacher" ? <select value={draftSubject} onChange={event => startNewWorkspace(event.target.value)} style={ui.subjectSelect} disabled={!editableSubjectNames.length}><option value="">담당과목 없음</option>{editableSubjectNames.map(subject => <option key={subject} value={subject}>{subject}</option>)}</select> : accessRole === "admin" ? <><input list="teacher-grade-known-subjects" value={draftSubject} onChange={event => setDraftSubject(event.target.value)} style={ui.subjectInput} placeholder="작업할 과목명 입력"/><datalist id="teacher-grade-known-subjects">{allKnownSubjectNames.map(subject => <option key={subject} value={subject}/>)}</datalist></> : <span style={ui.adminEditBadge}>열람 전용</span>}
+        <button type="button" style={ui.secondaryButton} onClick={() => startNewWorkspace(draftSubject)} disabled={!canStartSelectedSubject}>{accessRole === "admin" ? "과목 작업 시작" : "담당과목 작업 시작"}</button>
         {selectedLocalId && <button type="button" style={ui.deleteWorkspaceButton} onClick={deleteLocalWorkspace}>저장본 삭제</button>}
         {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || (accessRole === "admin" ? "관리자" : "담당 교사")}</span>}{context && readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
       </div>
@@ -1047,10 +1130,10 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             <div style={ui.subtotal}><span>지필 합계</span><b>{weightTotal.written}%</b><small>등록 {weightTotal.uploadedWritten}% · 예정 {weightTotal.plannedWritten}%</small></div>
           </div>
           <div style={ui.settingCard}>
-            <div style={ui.settingTitle}>수행평가 영역 반영비율</div>
+            <div style={ui.settingTitleRow}><div><div style={ui.settingTitle}>수행평가 영역 반영비율</div><small>파일 업로드 전에도 영역명·만점·반영비율을 먼저 등록할 수 있습니다.</small></div>{!readOnlyWorkspace&&!uploadedAreas.length&&<button type="button" style={ui.addAssessmentButton} onClick={addPlannedPerformance}><Plus size={13}/> 수행 영역 추가</button>}</div>
             {!!performance.length && <div style={ui.fileChipRow}>{performance.map(file => <button key={file.id} type="button" disabled={readOnlyWorkspace} onClick={() => removePerformance(file.id)} style={ui.fileChip} title={`${file.fileName} 제거`}>{file.classes.join(", ")}반 <span>×</span></button>)}</div>}
-            {canonicalAreas.length ? canonicalAreas.map(area => <label key={area.id} className="teacher-grade-weight-row performance-area-row" style={ui.weightRow}><span className="performance-area-name"><b title={area.name} style={{fontSize:area.name.length>30?11:area.name.length>20?11.7:12.5}}>{area.name}</b><small>{area.maxScore}점 · 수행 {area.order + 1}</small></span><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={area.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateAreaWeight(area.id, event.target.value)} />%</span></label>) : <EmptyLine>수행평가 파일을 올려주세요.</EmptyLine>}
-            <div style={ui.subtotal}>수행 합계 <b>{weightTotal.performance}%</b></div>
+            {uploadedAreas.length ? uploadedAreas.map(area => <label key={area.id} className="teacher-grade-weight-row performance-area-row" style={ui.weightRow}><span className="performance-area-name"><b title={area.name}>{area.name}</b><small>{area.maxScore}점 · 수행 {area.order + 1}</small></span><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={area.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateAreaWeight(area.id, event.target.value)} />%</span></label>) : plannedPerformance.length ? plannedPerformance.map(area => <div key={area.id} className="teacher-grade-weight-row planned-performance-row" style={{...ui.weightRow,...ui.plannedWeightRow}}><span className="planned-performance-name"><input type="text" value={area.name||""} disabled={readOnlyWorkspace} onChange={event=>updatePlannedPerformance(area.id,{name:event.target.value})}/><small>수행 {area.order+1} · 파일 미등록</small></span><span style={ui.weightActions}><label style={ui.compactScoreInput}><input type="number" min="1" step="1" value={area.maxScore??100} disabled={readOnlyWorkspace} onChange={event=>updatePlannedPerformance(area.id,{maxScore:asNumber(event.target.value)??100})}/><small>만점</small></label><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={area.weight??0} disabled={readOnlyWorkspace} onChange={event=>updatePlannedPerformance(area.id,{weight:asNumber(event.target.value)??0})}/>%</span><button type="button" title="예정 수행 영역 제거" style={ui.removeFileButton} disabled={readOnlyWorkspace} onClick={()=>removePlannedPerformance(area.id)}>×</button></span></div>) : <EmptyLine>수행평가 파일을 올리거나 ‘수행 영역 추가’를 눌러주세요.</EmptyLine>}
+            <div style={ui.subtotal}><span>수행 합계</span><b>{weightTotal.performance}%</b><small>{uploadedAreas.length?"성적 파일 등록":"예정 영역"}</small></div>
           </div>
           <div style={ui.settingCard}>
             <div style={ui.settingTitle}>등급·성취도 기준</div>
@@ -1074,7 +1157,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         </div>
         {!activeRows.length ? <div style={ui.emptyState}><FileSpreadsheet size={30} /><b>분석할 파일을 업로드해주세요.</b><span>지필평가 파일부터 올리면 전 학급 학생 구조가 자동으로 만들어집니다.</span></div> : <>
           {activeView === "combined" && Math.abs(weightTotal.total - 100) > 1e-9 && <div style={ui.warningBanner}><AlertTriangle size={16} /><span>반영비율 합계가 {weightTotal.total}%입니다. 100%로 맞추기 전 결과는 검토용입니다.</span></div>}
-          {activeView === "combined" && plannedWritten.length > 0 && <div style={ui.warningBanner}><AlertTriangle size={16}/><span>{plannedWritten.map(item=>item.title).join(", ")} 성적 파일이 아직 등록되지 않았습니다. 반영비율은 최성보 필요점수 계산에 먼저 적용됩니다.</span></div>}
+          {activeView === "combined" && (plannedWritten.length > 0 || plannedPerformance.length > 0) && <div style={ui.warningBanner}><AlertTriangle size={16}/><span>{[...plannedWritten.map(item=>item.title),...plannedPerformance.map(item=>item.name)].filter(Boolean).join(", ")} 성적 파일이 아직 등록되지 않았습니다. 예정 반영비율은 최성보 계산과 사전 점검에 먼저 적용됩니다.</span></div>}
           <div style={ui.metricGrid}>
             {activeView === "minimum" ? <>
               <MetricCard label="조회 학생" value={`${activeRows.length}명`} caption={settings.courseType === "common" ? "공통과목 기준" : "선택과목 기준"} />
@@ -1180,8 +1263,11 @@ const gradeAnalyzerCss = `
 .teacher-grade-analyzer .performance-area-row{align-items:flex-start!important}
 .teacher-grade-analyzer .performance-area-name{padding-right:8px;overflow:visible!important}
 .teacher-grade-analyzer .performance-area-name b{max-width:100%!important;overflow:visible!important;text-overflow:clip!important;white-space:normal!important;word-break:keep-all;overflow-wrap:anywhere;line-height:1.38}
-.teacher-grade-analyzer .planned-written-row{border:1px dashed #bcd0e5!important;border-radius:11px;padding:9px 10px!important;margin-top:7px;background:#f4f9fe}
-.teacher-grade-analyzer .planned-written-name input{width:min(190px,100%);border:0;border-bottom:1px solid #b9cce0;background:transparent;padding:4px 2px;color:#315d90;font-size:12.5px;font-weight:900}
+.teacher-grade-analyzer .planned-written-row,.teacher-grade-analyzer .planned-performance-row{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:8px!important;border:1px dashed #bcd0e5!important;border-radius:11px;padding:10px!important;margin-top:7px;background:#f4f9fe}
+.teacher-grade-analyzer .planned-written-name,.teacher-grade-analyzer .planned-performance-name{display:grid;gap:2px;min-width:0!important;overflow:visible!important}
+.teacher-grade-analyzer .planned-written-name input,.teacher-grade-analyzer .planned-performance-name input{width:100%;min-width:0;border:1px solid #c5d5e7;border-radius:8px;background:#fff;padding:7px 9px;color:#315d90;font-size:12px;font-weight:900}
+.teacher-grade-analyzer .planned-written-row>span:last-child,.teacher-grade-analyzer .planned-performance-row>span:last-child{width:100%;justify-content:flex-end;flex-wrap:wrap}
+.teacher-grade-analyzer .planned-written-row input[type="number"],.teacher-grade-analyzer .planned-performance-row input[type="number"]{width:72px}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{display:grid;gap:3px;min-width:210px;flex:1 1 230px}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child b{font-size:13px;color:#2e435e}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child span{font-size:10.5px;color:#738196;font-weight:700;line-height:1.4}.teacher-grade-analyzer .minimum-course-rule{white-space:normal}.teacher-grade-analyzer .minimum-course-rule>span:last-child{min-width:0;line-height:1.35}
@@ -1228,6 +1314,7 @@ const ui = {
   workspaceIntro: { display:"grid", gap:3, minWidth:210, flex:"1 1 230px" },
   workspaceSelect: { minWidth:260, flex:"2 1 340px", border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", background:"#fff", color:"#34465d", fontFamily:FONT_STACK, fontWeight:800 },
   subjectSelect: { minWidth:150, flex:"0 1 190px", border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", background:"#fff", color:"#315d90", fontFamily:FONT_STACK, fontWeight:900 },
+  subjectInput: { minWidth:170, flex:"0 1 210px", border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", background:"#fff", color:"#315d90", fontFamily:FONT_STACK, fontWeight:900, outline:"none" },
   adminEditBadge: { display:"inline-flex", alignItems:"center", minHeight:38, borderRadius:999, padding:"7px 10px", color:"#315d90", background:"#eaf3fc", border:"1px solid #c4d7eb", fontSize:10.5, fontWeight:950, whiteSpace:"nowrap" },
   secondaryButton: { border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", color:"#42617f", background:"#fff", fontFamily:FONT_STACK, fontWeight:850, cursor:"pointer", whiteSpace:"nowrap" },
   deleteWorkspaceButton: { border:"1px solid #e6c9c5", borderRadius:10, padding:"9px 11px", color:"#9b493f", background:"#fff7f5", fontFamily:FONT_STACK, fontWeight:850, cursor:"pointer", whiteSpace:"nowrap" },
@@ -1250,7 +1337,7 @@ const ui = {
   messageWarn: { color: "#8a5f14", background: "#fff8e8", border: "1px solid #efd99e" },
   messageError: { color: "#a23a32", background: "#fff1ef", border: "1px solid #efc4c0" },
   settingsGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 12 },
-  settingCard: { border: "1px solid #dce5ef", borderRadius: 16, padding: 15, background: "linear-gradient(180deg,#fcfdff,#f8fbfe)" },
+  settingCard: { minWidth: 0, border: "1px solid #dce5ef", borderRadius: 16, padding: 15, background: "linear-gradient(180deg,#fcfdff,#f8fbfe)" },
   settingTitleRow: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10, marginBottom:8 },
   settingTitle: { marginBottom: 4, fontSize: 14, fontWeight: 950, color: "#263b55", letterSpacing:"-.035em" },
   addAssessmentButton:{display:"inline-flex",alignItems:"center",gap:4,border:"1px solid #bdd0e5",borderRadius:9,padding:"7px 9px",color:"#315d90",background:"#eef6fd",fontWeight:900,fontSize:10.8,cursor:"pointer",whiteSpace:"nowrap"},
