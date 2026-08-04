@@ -794,8 +794,16 @@ export default function App() {
     const jobs = [];
     if (patch.semesterData) jobs.push(writeStorage("kd_grades_semesters", patch.semesterData));
     if (patch.mockData) jobs.push(writeStorage("kd_grades_mocks", patch.mockData));
-    if (patch.admissionRows) jobs.push(writeStorage("kd_grades_admission", patch.admissionRows));
-    if (patch.admissionDocs) jobs.push(writeStorage("kd_grades_admission_docs", patch.admissionDocs));
+    if (patch.admissionRows) {
+      const normalizedRows = (patch.admissionRows || []).map(item => ({ ...item, targetGrade: [1,2,3].includes(Number(item?.targetGrade)) ? Number(item.targetGrade) : 2 }));
+      jobs.push(writeStorage("kd_grades_admission", normalizedRows));
+      [1,2,3].forEach(gradeValue => jobs.push(writeStorage(`kd_grades_admission_grade_${gradeValue}`, normalizedRows.filter(item => Number(item.targetGrade) === gradeValue))));
+    }
+    if (patch.admissionDocs) {
+      const normalizedDocs = (patch.admissionDocs || []).map(item => ({ ...item, targetGrade: [1,2,3].includes(Number(item?.targetGrade)) ? Number(item.targetGrade) : 2 }));
+      jobs.push(writeStorage("kd_grades_admission_docs", normalizedDocs));
+      [1,2,3].forEach(gradeValue => jobs.push(writeStorage(`kd_grades_admission_docs_grade_${gradeValue}`, normalizedDocs.filter(item => Number(item.targetGrade) === gradeValue))));
+    }
     if (patch.cohortSettings) jobs.push(writeStorage("kd_grades_cohorts", patch.cohortSettings));
     if (patch.admissionCaseSources) jobs.push(writeStorage("kd_grades_admission_case_sources", patch.admissionCaseSources));
     if (patch.admissionCases) jobs.push(writeStorage("kd_grades_admission_cases", patch.admissionCases));

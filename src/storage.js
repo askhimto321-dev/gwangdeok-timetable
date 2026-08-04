@@ -399,6 +399,10 @@ async function saveAdmissionDocumentInFirestore(file, university, documentType, 
   await writeBinaryAttachment(dataKey, file, {
     university: String(university || ""),
     documentType,
+    targetGrade: [1,2,3].includes(Number(options.targetGrade)) ? Number(options.targetGrade) : 2,
+    admissionYear: String(options.admissionYear || ""),
+    campus: String(options.campus || ""),
+    region: String(options.region || ""),
     contentType,
     storageWarning,
   }, { onProgress: options.onProgress, concurrency: options.firestoreConcurrency || 1 });
@@ -474,8 +478,10 @@ export async function uploadAdmissionDocument(file, university, documentType = "
 
   const universityPart = safeFilePart(university || "대학");
   const typePart = documentType === "reflection" ? "reflection-tables" : "admission-guides";
+  const targetGrade = [1,2,3].includes(Number(options.targetGrade)) ? Number(options.targetGrade) : 2;
+  const gradePart = `grade-${targetGrade}`;
   const filePart = safeFilePart(file.name || "자료");
-  const path = `${typePart}/${universityPart}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${filePart}`;
+  const path = `${typePart}/${gradePart}/${universityPart}/${Date.now()}_${Math.random().toString(36).slice(2, 7)}_${filePart}`;
   const inline = isPdf || isImage;
   const allowFirestoreFallback = options.allowFirestoreFallback !== false;
   if (options.forceFirestoreFallback) {
@@ -492,7 +498,14 @@ export async function uploadAdmissionDocument(file, university, documentType = "
     const { snapshot, url } = await uploadFile(path, file, {
       contentType,
       contentDisposition: `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(file.name || "document")}`,
-      customMetadata: { university: String(university || ""), documentType },
+      customMetadata: {
+        university: String(university || ""),
+        documentType,
+        targetGrade: String(targetGrade),
+        admissionYear: String(options.admissionYear || ""),
+        campus: String(options.campus || ""),
+        region: String(options.region || ""),
+      },
     }, Number(options.storageTimeoutMs || STORAGE_UPLOAD_TIMEOUT_MS), { storageInstance, onProgress: options.onProgress });
     preferredAdmissionBucket = bucket;
     return { path: snapshot.ref.fullPath, url, fileName: file.name, size: file.size, contentType, documentType, storageMode: "firebase-storage", storageBucket: bucket };
