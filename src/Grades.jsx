@@ -85,8 +85,29 @@ const ADMISSION_FIELD_META = {
 
 function admissionFieldTags(row) {
   const explicit = String(row?.admissionField || row?.field || row?.series || "").trim();
-  const text = [explicit, row?.department, row?.track, row?.note]
-    .filter(Boolean).join(" ").replace(/\s+/g, "");
+  const collectTags = source => {
+    const text = String(source || "")
+      .replace(/간호(?:학과|학부|대학|계열)?(?:를|을|는|은)?\s*제외(?:한|하고|함)?/g, " ")
+      .replace(/제외(?:한|하고|함)?[^,.;\n]{0,18}간호(?:학과|학부|대학|계열)?/g, " ")
+      .replace(/\s+/g, "");
+    const tags = [];
+    if (/간호/.test(text)) tags.push("간호");
+    if (/(인문|사회계열|상경|경영|경제|어문|문과|법학|행정|교육계열)/.test(text)) tags.push("인문");
+    if (/(자연|이공|공학|과학계열|수학계열|자연과학|의약|의학|약학|수의|보건계열)/.test(text)) tags.push("자연");
+    if (/(공통계열|전계열|계열공통)/.test(text)) tags.push("공통");
+    return Array.from(new Set(tags));
+  };
+
+  // 계열구분 열이 있으면 학과명·비고보다 우선합니다. 예를 들어
+  // "인문·자연(간호학과 제외)"를 간호 계열로 잘못 분류하지 않습니다.
+  const explicitTags = collectTags(explicit);
+  if (explicitTags.length) return explicitTags;
+
+  const rawText = [row?.department, row?.track, row?.note].filter(Boolean).join(" ");
+  const text = rawText
+    .replace(/간호(?:학과|학부|대학|계열)?(?:를|을|는|은)?\s*제외(?:한|하고|함)?/g, " ")
+    .replace(/제외(?:한|하고|함)?[^,.;\n]{0,18}간호(?:학과|학부|대학|계열)?/g, " ")
+    .replace(/\s+/g, "");
   const tags = [];
   if (/간호/.test(text)) tags.push("간호");
   if (/(인문|사회계열|상경|경영|경제|어문|문과|법학|행정|교육계열)/.test(text)) tags.push("인문");
@@ -275,22 +296,23 @@ function inferUniversityFromFileName(fileName, knownUniversities = []) {
   )).filter(item => item.name).sort((a, b) => String(b.name).length - String(a.name).length);
   const fileCampus = explicitAdmissionCampusLabel(fileName) || inferCampusAliasFromText(fileName);
   const fileRegion = inferRegionFromFileName(fileName, "");
+  const base = cleanGuideBaseName(fileName);
+  const formalMatch = base.match(/([가-힣A-Za-z0-9·]+?(?:과학기술원|교육대학교|여자대학교|대학교|대학))/);
+  const formalUniversity = formalMatch ? formalMatch[1].trim() : "";
   const candidates = entries.filter(item => normalizedFile.includes(universityKey(item.name)));
   const campusMatched = fileCampus && candidates.find(item => admissionCampusLabel(item.name, item.region) === fileCampus);
-  if (campusMatched) return campusMatched.name;
+  if (campusMatched) return formalUniversity && universityKey(formalUniversity) === universityKey(campusMatched.name) ? formalUniversity : campusMatched.name;
   const regionCampus = fileRegion ? candidates.find(item => {
     const candidateCampus = admissionCampusLabel(item.name, item.region);
     return candidateCampus && candidateCampus === campusFromRegionForUniversity(item.name, fileRegion);
   }) : null;
-  if (regionCampus) return regionCampus.name;
-  if (candidates.length === 1) return candidates[0].name;
+  if (regionCampus) return formalUniversity && universityKey(formalUniversity) === universityKey(regionCampus.name) ? formalUniversity : regionCampus.name;
+  if (candidates.length === 1) return formalUniversity && universityKey(formalUniversity) === universityKey(candidates[0].name) ? formalUniversity : candidates[0].name;
   if (candidates.length > 1) {
     const exactText = candidates.find(item => normalizeUniversitySearchText(fileName).includes(normalizeUniversitySearchText(item.name)));
-    if (exactText) return exactText.name;
+    if (exactText) return formalUniversity && universityKey(formalUniversity) === universityKey(exactText.name) ? formalUniversity : exactText.name;
   }
 
-  const base = cleanGuideBaseName(fileName);
-  const formalMatch = base.match(/([가-힣A-Za-z0-9·]+?(?:과학기술원|교육대학교|대학교|대학))/);
   const inferredBase = formalMatch ? formalMatch[1].trim() : (base.split(/[\s()[\]{}]+/).find(part => part && part.length >= 2) || "대학명 확인 필요");
   return fileCampus ? universityNameWithCampus(inferredBase, fileCampus) : inferredBase;
 }
@@ -303,14 +325,22 @@ function inferAdmissionYearFromFileName(fileName, fallbackYear = "") {
   return anyYear?.[1] || String(fallbackYear || "").trim();
 }
 
-function compactUniversityName(value) {
-  return String(value || "대학").trim().replace(/대학교(?=($|[（(]))/g, "대");
+const UNIVERSITY_DISPLAY_NAME_ALIASES = {
+  덕성여대: "덕성여자대학교",
+};
+
+function admissionUniversityDisplayName(value) {
+  const source = String(value || "대학").trim();
+  const campus = explicitAdmissionCampusLabel(source);
+  const base = universityNameWithoutCampus(source);
+  const formal = UNIVERSITY_DISPLAY_NAME_ALIASES[base] || base;
+  return campus ? universityNameWithCampus(formal, campus) : formal;
 }
 
 function admissionDocumentDisplayLabel(type, valueYear, universityName) {
   const typeName = type === "reflection" ? "교과 반영표" : "모집요강";
   const yearPart = String(valueYear || "").trim() ? `${String(valueYear).trim()}학년도 ` : "";
-  return `${yearPart}${compactUniversityName(universityName)} ${typeName}`.replace(/\s+/g, " ").trim();
+  return `${yearPart}${admissionUniversityDisplayName(universityName)} ${typeName}`.replace(/\s+/g, " ").trim();
 }
 
 function inferRegionFromFileName(fileName, knownRegion = "") {
@@ -1259,6 +1289,8 @@ function universityKey(value) {
     // 대학 지원 진단은 캠퍼스를 괄호로 표기하고, 과거 사례는 지역 열로 분리되는 경우가 많습니다.
     // 연결용 키에서는 괄호 속 캠퍼스·지역 표기를 제거하여 같은 학교로 묶습니다.
     .replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g, "")
+    .replace(/여자대학교/g, "여대")
+    .replace(/여자대학/g, "여대")
     .replace(/대학교/g, "대")
     .replace(/(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|국제)캠퍼스/gi, "")
     .replace(/캠퍼스/g, "")
@@ -1333,6 +1365,16 @@ function regionForAdmissionCampus(universityName, campus = "", fallback = "미�
   if (["대전", "세종"].includes(region)) return "대전·세종";
   return region;
 }
+function singleCampusRegionForUniversity(entries = [], universityName = "") {
+  const baseKey = universityKey(universityName);
+  if (!baseKey || ADMISSION_MULTI_CAMPUS_BY_REGION[baseKey]) return "";
+  const regions = Array.from(new Set((entries || [])
+    .filter(item => universityKey(typeof item === "string" ? item : item?.name || item?.university) === baseKey)
+    .map(item => normalizeAdmissionRegion(typeof item === "string" ? "" : item?.region))
+    .filter(Boolean)));
+  if (regions.length !== 1) return "";
+  return regions[0];
+}
 function universityNameWithoutCampus(universityName) {
   return String(universityName || "").replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g, "").replace(/\s*(?:서울|세종|글로컬|글로벌|메디컬|ERICA|국제|죽전|천안|안성|수원|송도|미래|다빈치|용인)\s*(?:캠퍼스|캠)$/i, "").trim();
 }
@@ -1352,11 +1394,14 @@ function resolveAdmissionDocumentIdentity(fileName, knownEntries = [], manualUni
   const baseUniversity = String((inferredKnown ? inferredUniversity : manualUniversity) || inferredUniversity || "대학명 확인 필요").trim();
   const baseCampus = fileCampus || admissionCampusLabel(inferredUniversity, inferRegionFromFileName(fileName, inferredEntry?.region || "")) || admissionCampusLabel(baseUniversity, manualRegion);
   const university = universityNameWithCampus(baseUniversity, baseCampus);
+  const singleCampusRegion = singleCampusRegionForUniversity(knownEntries, baseUniversity);
   const regionFromFile = inferRegionFromFileName(fileName, "");
   const fileHasLocation = Boolean(fileCampus || (regionFromFile && regionFromFile !== "미지정"));
   const region = fileHasLocation
     ? regionForAdmissionCampus(university, baseCampus, regionFromFile || inferredEntry?.region || "미지정")
-    : (manualRegion && manualRegion !== "미지정" ? manualRegion : regionForAdmissionCampus(university, baseCampus, inferredEntry?.region || "미지정"));
+    : (manualRegion && manualRegion !== "미지정"
+      ? manualRegion
+      : regionForAdmissionCampus(university, baseCampus, singleCampusRegion || inferredEntry?.region || "미지정"));
   return { university, campus: baseCampus, region: region || "미지정" };
 }
 function universityDocumentKey(value, region = "", campus = "") {
@@ -1384,8 +1429,9 @@ function admissionDocumentsForRow(index, row) {
   if (rowCampus) return baseItems.filter(item => admissionItemCampus(item) === rowCampus);
   const noCampus = baseItems.filter(item => !admissionItemCampus(item));
   if (noCampus.length) return noCampus;
-  const campusGroups = new Set(baseItems.map(item => admissionItemCampus(item)).filter(Boolean));
-  return campusGroups.size <= 1 ? baseItems : [];
+  // 전형표가 대학 단위로 통합되어 있고 자료만 캠퍼스별인 경우(예: 명지대),
+  // 캠퍼스 자료를 모두 해당 대학 행에 연결해 추가 대학 자료로 중복 노출하지 않습니다.
+  return baseItems;
 }
 function admissionDocumentMatchesRow(docItem, row) {
   if (universityKey(docItem?.university) !== universityKey(row?.university || row?.name)) return false;
@@ -1779,7 +1825,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [regionFilter, setRegionFilter] = useState("all");
-  const [fieldFilter, setFieldFilter] = useState("all");
+  const [fieldFilters, setFieldFilters] = useState([]);
   const [requirementFilter, setRequirementFilter] = useState("all");
   const [admissionViewMode, setAdmissionViewMode] = useState("mock");
   const [admissionTableView, setAdmissionTableView] = useState("focus");
@@ -1834,7 +1880,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
       ].join(" ").toLowerCase();
       if (q && !haystack.includes(q)) return false;
       if (regionFilter !== "all" && String(row.region || "미지정") !== regionFilter) return false;
-      if (fieldFilter !== "all" && !(row._fieldTags || []).includes(fieldFilter)) return false;
+      if (fieldFilters.length && !fieldFilters.some(field => (row._fieldTags || []).includes(field))) return false;
       if (admissionViewMode === "mock") {
         if (requirementFilter === "none" && row.evaluation.status !== "no-minimum") return false;
         if (!["all", "none"].includes(requirementFilter) && Number(row.evaluation.count) !== Number(requirementFilter)) return false;
@@ -1844,7 +1890,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
       }
       return true;
     });
-  }, [evaluatedRows, query, statusFilter, regionFilter, fieldFilter, requirementFilter, admissionViewMode]);
+  }, [evaluatedRows, query, statusFilter, regionFilter, fieldFilters, requirementFilter, admissionViewMode]);
 
   const displayRows = useMemo(() => {
     const rows = filteredRows.slice();
@@ -1914,6 +1960,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
   }, [evaluatedRows]);
 
   const docsWithoutRows = useMemo(() => scopedAdmissionDocs.filter(docItem => {
+    if (admissionDocumentType(docItem) === "reflection") return false;
     const key = docItem.id || docItem.url || docItem.dataKey || docItem.storagePath;
     return !evaluatedRows.some(row => (row.docs || []).some(item => (item.id || item.url || item.dataKey || item.storagePath) === key));
   }), [scopedAdmissionDocs, evaluatedRows]);
@@ -2043,7 +2090,10 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
               <span style={admissionToolbar.filterLabel}>계열</span>
               <div style={admissionToolbar.filterGroup}>
                 {[["all", "전체"], ...ADMISSION_FIELD_FILTERS.map(field => [field, field])].map(([key, label]) => (
-                  <button key={key} onClick={() => setFieldFilter(key)} style={{ ...fieldFilterButton.base, ...(fieldFilter === key ? fieldFilterButton.active : {}) }}>
+                  <button key={key} onClick={() => setFieldFilters(current => {
+                    if (key === "all") return [];
+                    return current.includes(key) ? current.filter(value => value !== key) : [...current, key];
+                  })} style={{ ...fieldFilterButton.base, ...((key === "all" ? fieldFilters.length === 0 : fieldFilters.includes(key)) ? fieldFilterButton.active : {}) }}>
                     {label}<span style={fieldFilterButton.count}>{fieldCounts[key] || 0}</span>
                   </button>
                 ))}
@@ -2787,6 +2837,31 @@ function formatStoredFileSize(size) {
   return `${Math.round(value / 1024 / 102.4) / 10}MB`;
 }
 
+function printCounselingHistory() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  const className = "print-counseling-history";
+  const cleanup = () => document.body.classList.remove(className);
+  document.body.classList.add(className);
+  window.addEventListener("afterprint", cleanup, { once: true });
+  window.requestAnimationFrame(() => window.print());
+  window.setTimeout(cleanup, 15000);
+}
+
+const COUNSELING_PRINT_CSS = `
+@media print {
+  body.print-counseling-history * { visibility: hidden !important; }
+  body.print-counseling-history .counseling-print-root,
+  body.print-counseling-history .counseling-print-root * { visibility: visible !important; }
+  body.print-counseling-history .counseling-print-root {
+    position: absolute !important; left: 0 !important; top: 0 !important;
+    width: 100% !important; max-width: none !important; margin: 0 !important; padding: 0 !important;
+  }
+  body.print-counseling-history .counseling-print-root .no-print { display: none !important; }
+  body.print-counseling-history .counseling-print-root article { break-inside: avoid; page-break-inside: avoid; }
+  body.print-counseling-history .counseling-print-root button { border: 0 !important; background: transparent !important; color: #263448 !important; padding: 0 !important; }
+}
+`;
+
 function CounselingAttachmentList({ attachments = [] }) {
   const [opening, setOpening] = useState("");
   const openAttachment = async (file, index) => {
@@ -2944,10 +3019,12 @@ function StudentConsultationView({
   };
 
   return <div style={{display:"grid",gap:14}}>
+    <style>{COUNSELING_PRINT_CSS}</style>
+    <div className="counseling-print-root" style={{display:"grid",gap:14}}>
     <StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" />
     <div style={consultationView.card}>
-      <SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." />
-      {canEdit && <div style={consultationView.editor}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={printCounselingHistory} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="브라우저 인쇄 창에서 PDF로 저장할 수 있습니다."><Printer size={13}/>인쇄·PDF</button></div>
+      {canEdit && <div className="no-print" style={consultationView.editor}>
         <div style={consultationView.editorTop}>
           <label style={consultationView.dateLabel}>상담일<input type="date" value={noteDate} onChange={event=>setNoteDate(event.target.value)} style={consultationView.dateInput}/></label>
           <span style={consultationView.authorBadge}><MessageSquare size={12}/>{authorName}</span>
@@ -2961,15 +3038,15 @@ function StudentConsultationView({
         {fileError && <div style={consultationView.fileError}>{fileError}</div>}
         <button type="button" onClick={saveNote} disabled={saving || (!noteText.trim() && !noteFiles.length)} style={consultationView.saveButton}>{saving?<Loader2 size={14} className="spin"/>:<Save size={14}/>}상담 기록 저장</button>
       </div>}
-      {!canEdit && <div style={consultationView.readOnlyNotice}>상담 기록은 담임 선생님 또는 관리자가 작성합니다.</div>}
+      {!canEdit && <div className="no-print" style={consultationView.readOnlyNotice}>상담 기록은 담임 선생님 또는 관리자가 작성합니다.</div>}
       <div style={consultationView.notes}>
         {notes.length ? notes.map(note=><article key={note.id} style={consultationView.note}>
-          <div style={consultationView.noteHeader}><div style={consultationView.noteMeta}><b>{note.date || "날짜 미입력"}</b><span>{note.author || "작성자 미입력"}</span></div>{canEdit&&<button type="button" onClick={()=>removeNote(note.id)} style={consultationView.deleteButton}>삭제</button>}</div>
+          <div style={consultationView.noteHeader}><div style={consultationView.noteMeta}><b>{note.date || "날짜 미입력"}</b><span>{note.author || "작성자 미입력"}</span></div>{canEdit&&<button type="button" className="no-print" onClick={()=>removeNote(note.id)} style={consultationView.deleteButton}>삭제</button>}</div>
           {note.text && <p style={consultationView.noteText}>{note.text}</p>}
           <CounselingAttachmentList attachments={note.attachments || []} />
         </article>) : <div style={consultationView.empty}>저장된 상담 기록이 없습니다.</div>}
       </div>
-    </div>
+    </div></div>
     <StudentFavoritesView sid={sid} gdb={gdb} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} hideBanner />
   </div>;
 }
@@ -4748,7 +4825,19 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
           </div>
         )}
         <div style={{...pdfAdmin.formGrid,gridTemplateColumns:"repeat(3,minmax(0,1fr))"}}>
-          <label style={pdfAdmin.label}><span>대학교</span><input list="admission-university-options" value={university} onChange={event => { setUniversity(universityNameWithoutCampus(event.target.value)); const nextCampus=explicitAdmissionCampusLabel(event.target.value); if(nextCampus)setCampus(nextCampus); }} placeholder="예: 건국대학교" style={pdfAdmin.input} /><datalist id="admission-university-options">{universityOptions.map(name => <option key={name} value={name} />)}</datalist></label>
+          <label style={pdfAdmin.label}><span>대학교</span><input list="admission-university-options" value={university} onChange={event => {
+            const nextUniversity = universityNameWithoutCampus(event.target.value);
+            const nextCampus = explicitAdmissionCampusLabel(event.target.value);
+            setUniversity(nextUniversity);
+            if (nextCampus) {
+              setCampus(nextCampus);
+              setRegion(regionForAdmissionCampus(nextUniversity, nextCampus, region));
+            } else {
+              setCampus("");
+              const automaticRegion = singleCampusRegionForUniversity(universityEntryOptions, nextUniversity);
+              setRegion(automaticRegion || "미지정");
+            }
+          }} placeholder="예: 건국대학교" style={pdfAdmin.input} /><datalist id="admission-university-options">{universityOptions.map(name => <option key={name} value={name} />)}</datalist></label>
           <label style={pdfAdmin.label}><span>캠퍼스</span><select value={campus} onChange={event => { const next=event.target.value; setCampus(next); if(next && region==="미지정") setRegion(regionForAdmissionCampus(university,next,"미지정")); }} style={pdfAdmin.input}><option value="">단일 캠퍼스/미지정</option>{ADMISSION_CAMPUS_ALIASES.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
           <label style={pdfAdmin.label}><span>지역</span><select value={region} onChange={event => { const next=event.target.value; setRegion(next); const mapped=admissionCampusLabel(university,next); if(mapped)setCampus(mapped); }} style={pdfAdmin.input}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
           <label style={pdfAdmin.label}><span>학년도</span><input value={year} onChange={event => setYear(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} placeholder={String(admissionYearForGrade(targetGrade))} style={pdfAdmin.input} /></label>
