@@ -1066,7 +1066,7 @@ export default function App() {
     <div style={styles.app}>
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
-      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} />
+      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
       {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
         allowedGrades={workspaceAllowedGrades}
@@ -1101,7 +1101,7 @@ export default function App() {
           <MinimumAchievement
             db={db} persist={persist} showToast={showToast} grade={grade} roster={roster} allRosters={db.roster}
             actor={loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin}
-            accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : "teacher"}
+            accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : (loggedInTeacher && normalizedTeacherRole(loggedInTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
             homeroomClass={loggedInTeacher?.homeroomClass || ""}
           />
         </div>
@@ -1534,10 +1534,10 @@ function TeacherZoneWorkspace({
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
-    {workspaceMode === "grades" ? <TeacherGradeAnalyzer key={`${actor.id || "account"}-${grade}`} teacher={actor} roster={mergedRoster} grade={grade} showToast={showToast} db={db} persist={persist}
-      accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : "teacher"}
+    {workspaceMode === "grades" ? <TeacherGradeAnalyzer key={`${actor.id || "account"}-${grade}`} teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} showToast={showToast} db={db} persist={persist}
+      accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : ((loggedInTeacher || viewedTeacher) && normalizedTeacherRole(loggedInTeacher || viewedTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
       homeroomClass={loggedInTeacher?.homeroomClass || viewedTeacher?.homeroomClass || ""}
-      canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && normalizedTeacherRole(loggedInTeacher) === "homeroom") || (viewedTeacher && normalizedTeacherRole(viewedTeacher) === "homeroom"))} /> : (
+      canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))) || (viewedTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(viewedTeacher))))} /> : (
       loggedInMonitor
         ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={onMonitorLogout} />
         : (loggedInTeacher || viewedTeacher)
@@ -2838,43 +2838,90 @@ function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
   const [type, setType] = useState("버그 신고");
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
+  const [images, setImages] = useState([]);
   const [busy, setBusy] = useState(false);
+  const imageInputRef = useRef(null);
 
+  const clearImages = () => {
+    images.forEach(item => { try { URL.revokeObjectURL(item.preview); } catch { /* ignore */ } });
+    setImages([]);
+  };
   const close = () => {
     if (busy) return;
     setOpen(false);
   };
+  const addImages = files => {
+    const candidates = Array.from(files || []).filter(file => String(file.type || "").startsWith("image/"));
+    if (!candidates.length) { showToast("이미지 파일만 첨부할 수 있습니다.", "error"); return; }
+    setImages(current => {
+      const next = [...current];
+      candidates.forEach(file => {
+        if (next.length >= 5) return;
+        if (file.size > 10 * 1024 * 1024) { showToast(`${file.name || "이미지"}: 10MB 이하만 첨부할 수 있습니다.`, "error"); return; }
+        const duplicate = next.some(item => item.file.name === file.name && item.file.size === file.size && item.file.lastModified === file.lastModified);
+        if (!duplicate) next.push({ id: `IMG_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, file, preview: URL.createObjectURL(file) });
+      });
+      return next;
+    });
+  };
+  const handlePaste = event => {
+    const pasted = Array.from(event.clipboardData?.items || []).filter(item => item.kind === "file" && String(item.type || "").startsWith("image/")).map(item => item.getAsFile()).filter(Boolean);
+    if (!pasted.length) return;
+    event.preventDefault();
+    const stamped = pasted.map((file, index) => new File([file], `화면캡처_${new Date().toISOString().replace(/[:.]/g, "-")}_${index + 1}.${String(file.type).split("/")[1] || "png"}`, { type: file.type || "image/png" }));
+    addImages(stamped);
+    showToast("클립보드 화면 캡처를 첨부했습니다.", "success");
+  };
+  const removeImage = id => setImages(current => {
+    const target = current.find(item => item.id === id);
+    if (target) { try { URL.revokeObjectURL(target.preview); } catch { /* ignore */ } }
+    return current.filter(item => item.id !== id);
+  });
 
   const submit = async event => {
     event?.preventDefault?.();
     if (!title.trim()) { showToast("제목을 입력해주세요.", "error"); return; }
     if (!text.trim()) { showToast("내용을 입력해주세요.", "error"); return; }
     setBusy(true);
-    const entry = {
-      id: `FB_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      type,
-      title: title.trim(),
-      text: text.trim(),
-      status: "접수",
-      reporter: {
-        role: reporter?.role || "이용자",
-        id: reporter?.role === "관리자" ? "" : (reporter?.id || ""),
-        name: reporter?.role === "관리자" ? "관리자" : (reporter?.name || ""),
-      },
-      context: {
-        section: context?.section || "",
-        tab: context?.tab || "",
-        grade: context?.grade || "",
-        semester: context?.semester || "",
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
-      },
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const ok = await persist({ feedback: [...(feedback || []), entry] });
-    if (ok) {
+    const uploaded = [];
+    try {
+      for (const image of images) {
+        uploaded.push(await uploadClassroomAttachment(image.file, {
+          scopeKey: `feedback-${context?.grade || "school"}`,
+          subject: type,
+          target: reporter?.id || reporter?.name || "anonymous",
+          teacherName: reporter?.name || reporter?.id || "이용자",
+        }));
+      }
+      const entry = {
+        id: `FB_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        type,
+        title: title.trim(),
+        text: text.trim(),
+        attachments: uploaded,
+        status: "접수",
+        reporter: {
+          role: reporter?.role || "이용자",
+          id: reporter?.role === "관리자" ? "" : (reporter?.id || ""),
+          name: reporter?.role === "관리자" ? "관리자" : (reporter?.name || ""),
+        },
+        context: {
+          section: context?.section || "",
+          tab: context?.tab || "",
+          grade: context?.grade || "",
+          semester: context?.semester || "",
+          userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const ok = await persist({ feedback: [...(feedback || []), entry] });
+      if (!ok) throw new Error("제보 내용을 저장하지 못했습니다.");
       showToast("건의사항이 관리자에게 접수되었습니다.", "success");
-      setTitle(""); setText(""); setType("버그 신고"); setOpen(false);
+      setTitle(""); setText(""); setType("버그 신고"); clearImages(); setOpen(false);
+    } catch (error) {
+      await Promise.all(uploaded.map(file => deleteClassroomAttachment(file.path || file.dataKey)).filter(Boolean));
+      showToast(`접수 실패: ${error?.message || error}`, "error");
     }
     setBusy(false);
   };
@@ -2887,11 +2934,11 @@ function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
       </button>
       {open && (
         <div className="no-print" style={styles.feedbackOverlay} onMouseDown={event => { if (event.target === event.currentTarget) close(); }}>
-          <form onSubmit={submit} autoComplete="off" style={styles.feedbackModal}>
+          <form onSubmit={submit} onPaste={handlePaste} autoComplete="off" style={styles.feedbackModal}>
             <div style={styles.feedbackModalHeader}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 950 }}>건의사항·버그 제보</div>
-                <div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 3 }}>불편한 점이나 개선 아이디어를 관리자에게 바로 전달합니다.</div>
+                <div style={{ fontSize: 11.5, color: "#8a8578", marginTop: 3 }}>화면 캡처 후 Ctrl+V로 바로 이미지를 붙여넣을 수 있습니다.</div>
               </div>
               <button type="button" style={styles.iconBtn} onClick={close}><X size={17} /></button>
             </div>
@@ -2908,6 +2955,14 @@ function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
               <span>내용</span>
               <textarea name="feedback_body_text" autoComplete="new-password" data-lpignore="true" value={text} onChange={event => setText(event.target.value)} rows={7} maxLength={2000} placeholder="발생한 화면, 상황, 기대한 동작을 구체적으로 적어주세요." style={styles.textareaInput} />
             </label>
+            <div tabIndex={0} style={{ border: "1px dashed #b9c9dd", borderRadius: 12, padding: 11, background: "#f7faff", outline: "none" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <div style={{ display: "grid", gap: 2 }}><b style={{ fontSize: 12.5 }}>화면 캡처 첨부</b><small style={{ color: "#748195" }}>Win+Shift+S → 이 창에서 Ctrl+V · 최대 5장</small></div>
+                <input ref={imageInputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={event => { addImages(event.target.files); event.target.value = ""; }} />
+                <button type="button" style={styles.secondaryBtn} onClick={() => imageInputRef.current?.click()}><Paperclip size={14}/> 이미지 선택</button>
+              </div>
+              {!!images.length && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(105px,1fr))", gap: 7, marginTop: 9 }}>{images.map(item => <div key={item.id} style={{ position: "relative", border: "1px solid #d8e1ed", borderRadius: 9, overflow: "hidden", background: "#fff" }}><img src={item.preview} alt="첨부 미리보기" style={{ display: "block", width: "100%", height: 82, objectFit: "cover" }}/><button type="button" onClick={() => removeImage(item.id)} style={{ position: "absolute", top: 4, right: 4, width: 23, height: 23, display: "inline-flex", alignItems: "center", justifyContent: "center", border: 0, borderRadius: 999, color: "#fff", background: "rgba(25,31,42,.78)", cursor: "pointer" }}><X size={13}/></button></div>)}</div>}
+            </div>
             <div style={styles.feedbackReporterInfo}>
               <span>{reporter?.role || "이용자"}</span>
               <strong>{reporter?.name || reporter?.id || "이름 미확인"}</strong>
@@ -2915,13 +2970,33 @@ function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 13 }}>
               <button type="button" style={styles.secondaryBtn} onClick={close}>취소</button>
-              <button type="submit" style={styles.primaryBtn} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Send size={14} />} 접수하기</button>
+              <button type="submit" style={styles.primaryBtn} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Send size={14} />} {busy ? "이미지 저장 중" : "접수하기"}</button>
             </div>
           </form>
         </div>
       )}
     </>
   );
+}
+
+function FeedbackAttachmentGallery({ attachments = [] }) {
+  const [sources, setSources] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all((attachments || []).map(async (file, index) => {
+      if (!String(file?.contentType || "").startsWith("image/")) return null;
+      if (file.url) return [index, file.url];
+      if (file.dataKey) {
+        const stored = await readStorage(file.dataKey, null);
+        return stored?.dataUrl ? [index, stored.dataUrl] : null;
+      }
+      return null;
+    })).then(entries => { if (!cancelled) setSources(Object.fromEntries(entries.filter(Boolean))); });
+    return () => { cancelled = true; };
+  }, [attachments]);
+  const images = (attachments || []).map((file, index) => ({ file, index, src: sources[index] || file.url || "" })).filter(item => String(item.file?.contentType || "").startsWith("image/") && item.src);
+  if (!images.length) return attachments?.length ? <AttachmentLinks attachments={attachments}/> : null;
+  return <div><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 8, marginTop: 10 }}>{images.map(({ file, index, src }) => <a key={`${file.dataKey || file.path || index}`} href={src} target="_blank" rel="noreferrer" style={{ display: "block", border: "1px solid #dce3ed", borderRadius: 10, overflow: "hidden", background: "#f8fafc" }}><img src={src} alt={file.fileName || "첨부 화면"} style={{ width: "100%", height: 115, display: "block", objectFit: "cover" }}/><span style={{ display: "block", padding: "6px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#566579", fontSize: 10.5, fontWeight: 800 }}>{file.fileName || "화면 캡처"}</span></a>)}</div>{attachments.some(file => !String(file?.contentType || "").startsWith("image/")) && <AttachmentLinks attachments={attachments.filter(file => !String(file?.contentType || "").startsWith("image/"))}/>}</div>;
 }
 
 function FeedbackAdminPanel({ feedback, persist, showToast }) {
@@ -2940,9 +3015,13 @@ function FeedbackAdminPanel({ feedback, persist, showToast }) {
     if (ok) showToast(`처리 상태를 "${status}"로 변경했습니다.`, "success");
   };
   const remove = async id => {
+    const target = (feedback || []).find(item => item.id === id);
     const next = (feedback || []).filter(item => item.id !== id);
     const ok = await persist({ feedback: next });
-    if (ok) showToast("제보를 삭제했습니다.", "success");
+    if (ok) {
+      await Promise.all((target?.attachments || []).map(file => deleteClassroomAttachment(file.path || file.dataKey)).filter(Boolean));
+      showToast("제보를 삭제했습니다.", "success");
+    }
   };
 
   const count = status => (feedback || []).filter(item => status === "전체" || item.status === status).length;
@@ -2986,6 +3065,7 @@ function FeedbackAdminPanel({ feedback, persist, showToast }) {
                   <button type="button" style={styles.iconBtn} onClick={() => remove(item.id)}><Trash2 size={14} /></button>
                 </div>
                 <div style={{ whiteSpace: "pre-wrap", fontSize: 12.5, lineHeight: 1.65, color: "#4f493f", marginTop: 8 }}>{item.text}</div>
+                <FeedbackAttachmentGallery attachments={item.attachments || []} />
                 <div style={styles.feedbackAdminMeta}>
                   <span>{reporterLabel || "작성자 미상"}</span>
                   {contextLabel && <span>{contextLabel}</span>}

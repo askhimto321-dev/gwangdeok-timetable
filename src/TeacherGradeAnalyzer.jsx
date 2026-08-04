@@ -4,6 +4,7 @@ import {
   BarChart3,
   Check,
   ChevronDown,
+  CircleAlert,
   Download,
   FileSpreadsheet,
   RotateCcw,
@@ -11,6 +12,7 @@ import {
   Search,
   Settings2,
   Star,
+  ShieldCheck,
   Upload,
   Users,
 } from "lucide-react";
@@ -268,8 +270,36 @@ function formatScore(value, digits = 1) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "-";
 }
 function ratioLabel(count, total) { return total ? `${count}명 · ${((count / total) * 100).toFixed(1)}%` : "0명"; }
+function normalizeSubjectName(value) { return normalizeToken(value).replace(/과목$/g, ""); }
+function teacherSubjectAssignments(teacher) {
+  return (teacher?.assignments || []).map(item => ({ ...item, token: normalizeSubjectName(item?.subject) })).filter(item => item.token);
+}
+function teacherHandlesSubject(teacher, subject) {
+  const token = normalizeSubjectName(subject);
+  if (!token) return false;
+  return teacherSubjectAssignments(teacher).some(item => item.token === token || item.token.includes(token) || token.includes(item.token));
+}
+function compactMissingLabels(values = []) {
+  const list = values.filter(Boolean);
+  if (!list.length) return [];
+  const written = list.filter(value => /정기|지필|고사|시험/.test(value));
+  const performance = list.filter(value => !written.includes(value));
+  return [
+    ...written.slice(0, 2),
+    ...(written.length > 2 ? [`지필 ${written.length - 2}건 추가`] : []),
+    ...(performance.length ? [`수행 ${performance.length}개 미입력`] : []),
+  ];
+}
+function defaultMinimumSettings(settings, totalWeight = 0) {
+  const stored = settings?.minimumAchievement || {};
+  return {
+    nextExamLabel: stored.nextExamLabel || "다음 정기시험",
+    nextExamWeight: asNumber(stored.nextExamWeight) ?? Math.max(0, roundTo(100 - totalWeight, 2) || 0),
+    nextExamMax: asNumber(stored.nextExamMax) ?? 100,
+  };
+}
 
-export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2", showToast, db = {}, persist, accessRole = "teacher", homeroomClass = "", canViewAllSubjects = false }) {
+export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], roster = {}, grade = "2", showToast, db = {}, persist, accessRole = "teacher", homeroomClass = "", canViewAllSubjects = false }) {
   const storageKey = `kd_teacher_grade_workspace_v2_${teacher?.id || "shared"}_${grade}`;
   const legacyStorageKey = `kd_teacher_grade_workspace_v1_${teacher?.id || "shared"}_${grade}`;
   const initialRef = useRef(null);
@@ -285,18 +315,21 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
   const [search, setSearch] = useState("");
   const [classFilter, setClassFilter] = useState(homeroomClass ? String(homeroomClass) : "all");
   const [gradeFilter, setGradeFilter] = useState("all");
+  const [minimumFilter, setMinimumFilter] = useState("all");
   const [selectedSharedId, setSelectedSharedId] = useState("");
   const [uploadMessages, setUploadMessages] = useState([]);
   const [busy, setBusy] = useState(false);
   const writtenInputRef = useRef(null);
   const performanceInputRef = useRef(null);
 
+  const assignedSubjects = useMemo(() => teacherSubjectAssignments(teacher), [teacher]);
+  const hasAssignedSubjects = accessRole === "teacher" && assignedSubjects.length > 0;
+  const canEditSubject = subject => accessRole === "teacher" && teacherHandlesSubject(teacher, subject);
   const sharedWorkspaces = useMemo(() => Object.values(db?.teacherGradeWorkspaces || {})
     .filter(item => String(item?.grade || "") === String(grade))
-    .filter(item => canViewAllSubjects || item?.ownerId === teacher?.id)
-    .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [db?.teacherGradeWorkspaces, grade, canViewAllSubjects, teacher?.id]);
+    .filter(item => canViewAllSubjects || item?.ownerId === teacher?.id || teacherHandlesSubject(teacher, item?.subject))
+    .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [db?.teacherGradeWorkspaces, grade, canViewAllSubjects, teacher]);
   const selectedShared = sharedWorkspaces.find(item => item.id === selectedSharedId) || null;
-  const readOnlyShared = !!selectedShared && selectedShared.ownerId !== teacher?.id && !["admin", "department", "monitor"].includes(accessRole);
 
   useEffect(() => {
     try { localStorage.setItem(storageKey, JSON.stringify({ activeId: selectedLocalId, workspaces: localWorkspaces })); } catch { /* browser storage unavailable */ }
@@ -327,25 +360,39 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
   const canonicalAreas = useMemo(() => performance[0]?.areas || [], [performance]);
   const context = written[0] || performance[0] || null;
   const workspaceId = workspaceIdFromContext(context, grade);
+  const canEditCurrentSubject = !!context && canEditSubject(context.subject);
+  const readOnlyWorkspace = context ? !canEditCurrentSubject : !hasAssignedSubjects;
+  const subjectCollaborators = useMemo(() => {
+    if (!context?.subject) return [];
+    return (teacherAccounts || []).filter(account => teacherHandlesSubject(account, context.subject));
+  }, [teacherAccounts, context?.subject]);
   const localWorkspaceList = useMemo(() => Object.values(localWorkspaces || {})
     .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [localWorkspaces]);
   const workspaceSelection = selectedLocalId ? `local:${selectedLocalId}` : selectedSharedId ? `shared:${selectedSharedId}` : "";
-  const currentSnapshot = () => ({
-    id: workspaceId,
-    ownerId: teacher?.id || accessRole,
-    ownerName: teacher?.name || "관리자",
-    year: context?.year,
-    semester: context?.semester,
-    grade: context?.grade || Number(grade),
-    subject: context?.subject,
-    written,
-    performance,
-    settings,
-    tieScores,
-    updatedAt: new Date().toISOString(),
-  });
+  const currentSnapshot = () => {
+    const existing = db?.teacherGradeWorkspaces?.[workspaceId] || selectedShared || null;
+    return {
+      id: workspaceId,
+      ownerId: existing?.ownerId || teacher?.id || accessRole,
+      ownerName: existing?.ownerName || teacher?.name || "담당 교사",
+      editorIds: subjectCollaborators.map(item => item.id).filter(Boolean),
+      editorNames: subjectCollaborators.map(item => item.name).filter(Boolean),
+      lastEditedBy: teacher?.id || accessRole,
+      lastEditedName: teacher?.name || "담당 교사",
+      year: context?.year,
+      semester: context?.semester,
+      grade: context?.grade || Number(grade),
+      subject: context?.subject,
+      written,
+      performance,
+      settings,
+      tieScores,
+      updatedAt: new Date().toISOString(),
+    };
+  };
   const saveLocalWorkspace = () => {
     if (!context || !workspaceId) { showToast?.("먼저 지필 또는 수행평가 파일을 업로드해주세요.", "error"); return; }
+    if (!canEditCurrentSubject) { showToast?.("이 과목 담당 교사만 성적 산출 자료를 저장할 수 있습니다.", "error"); return; }
     const snapshot = currentSnapshot();
     setLocalWorkspaces(current => ({ ...current, [workspaceId]: snapshot }));
     setSelectedLocalId(workspaceId);
@@ -354,7 +401,7 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
   };
   const publishWorkspace = async () => {
     if (!context || !workspaceId) { showToast?.("먼저 지필 또는 수행평가 파일을 업로드해주세요.", "error"); return; }
-    if (readOnlyShared) { showToast?.("다른 교사가 반영한 과목은 열람만 가능합니다.", "error"); return; }
+    if (!canEditCurrentSubject) { showToast?.("해당 과목 담당 교사만 학교 공동 작업 화면을 수정·반영할 수 있습니다.", "error"); return; }
     const snapshot = currentSnapshot();
     setLocalWorkspaces(current => ({ ...current, [workspaceId]: snapshot }));
     setSelectedLocalId(workspaceId);
@@ -371,6 +418,7 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
     setActiveView((normalized.written || []).slice().sort((a, b) => writtenOrder(a) - writtenOrder(b))[0]?.id || "combined");
     setClassFilter(homeroomClass ? String(homeroomClass) : "all");
     setGradeFilter("all");
+    setMinimumFilter("all");
     setSearch("");
     setUploadMessages([]);
   };
@@ -395,7 +443,7 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
   const startNewWorkspace = () => {
     const fresh = defaultWorkspace();
     setSelectedLocalId(""); setSelectedSharedId(""); setWritten([]); setPerformance([]); setSettings(fresh.settings); setTieScores({});
-    setActiveView("combined"); setClassFilter(homeroomClass ? String(homeroomClass) : "all"); setGradeFilter("all"); setSearch(""); setUploadMessages([]);
+    setActiveView("combined"); setClassFilter(homeroomClass ? String(homeroomClass) : "all"); setGradeFilter("all"); setMinimumFilter("all"); setSearch(""); setUploadMessages([]);
   };
   const deleteLocalWorkspace = () => {
     if (!selectedLocalId || !localWorkspaces[selectedLocalId]) return;
@@ -436,6 +484,11 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
         }
       }
       if (!parsed.length) return;
+      const unauthorized = parsed.find(item => !canEditSubject(item.subject));
+      if (unauthorized) {
+        addUploadMessage({ type: "error", text: `${unauthorized.subject}: 담당 과목으로 등록된 교사만 성적 파일을 올릴 수 있습니다.` });
+        return;
+      }
       const baseContext = contextKey(context || parsed[0]);
       const accepted = parsed.filter(item => {
         if (contextKey(item) !== baseContext) {
@@ -529,7 +582,7 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
         if (score == null) missing.push(area.name);
         else { const areaWeight=asNumber(area.weight) || 0; weightedPerformance += (score / (area.maxScore || 100)) * areaWeight; completedWeight += areaWeight; }
       });
-      const complete = missing.length === 0 && weightTotal.total > 0;
+      const complete = missing.length === 0 && Math.abs(weightTotal.total - 100) < 1e-9;
       const convertedScore = complete ? roundTo(weightedWritten + weightedPerformance, 2) : null;
       const officialScore = convertedScore == null ? null : Math.round(convertedScore);
       const tie = tieScores[sid] || {};
@@ -668,25 +721,64 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
     return result;
   }, [sortedWritten, rosterNames, settings.gradeSystem]);
 
-  const activeRows = activeView === "combined" ? combinedRows : activeView === "writtenCombined" ? writtenCombinedRows : (writtenRowsById[activeView] || []);
+  const minimumSettings = useMemo(() => defaultMinimumSettings(settings, weightTotal.total), [settings, weightTotal.total]);
+  const minimumRows = useMemo(() => {
+    const attendance = db?.minimumAchievementAttendance?.[workspaceId] || {};
+    return combinedRows.map(row => {
+      const attend = attendance[row.sid] || {};
+      const attendanceStatus = attend.status || "확인필요";
+      const nextWeight = Math.max(0, asNumber(minimumSettings.nextExamWeight) || 0);
+      const nextMax = Math.max(1, asNumber(minimumSettings.nextExamMax) || 100);
+      let needed = null;
+      let academicStatus = "not-applicable";
+      let academicLabel = "선택과목은 학업성취율 40% 기준을 적용하지 않음";
+      if (settings.courseType === "common") {
+        if (row.complete) {
+          academicStatus = Number(row.officialScore) >= 40 ? "reached" : "fail";
+          academicLabel = Number(row.officialScore) >= 40 ? `학업성취율 도달 · ${row.officialScore}점` : `학업성취율 미도달 · ${row.officialScore}점`;
+        } else if (row.missing?.length) {
+          academicStatus = "check";
+          academicLabel = "현재 평가의 미입력 점수를 먼저 확인해야 함";
+        } else if (nextWeight > 0) {
+          needed = roundTo(((40 - Number(row.weightedWritten || 0) - Number(row.weightedPerformance || 0)) / nextWeight) * nextMax, 1);
+          if (needed <= 0) { academicStatus = "reached"; academicLabel = "현재 입력 점수만으로 40% 도달"; }
+          else if (needed > nextMax) { academicStatus = "risk"; academicLabel = `${minimumSettings.nextExamLabel} 만점으로도 40% 도달 어려움`; }
+          else { academicStatus = "risk"; academicLabel = `${minimumSettings.nextExamLabel} ${needed}점 이상 필요`; }
+        } else {
+          academicStatus = "check"; academicLabel = "미입력 평가 또는 다음 시험 반영비율 확인 필요";
+        }
+      }
+      let minimumStatus = "check";
+      let minimumLabel = "확인 필요";
+      if (attendanceStatus === "미도달") { minimumStatus = "fail"; minimumLabel = "출결 미도달"; }
+      else if (settings.courseType === "common" && academicStatus === "fail") { minimumStatus = "fail"; minimumLabel = "최소성취수준 미도달"; }
+      else if (settings.courseType === "common" && academicStatus === "risk") { minimumStatus = "risk"; minimumLabel = "최소성취수준 주의 대상자"; }
+      else if (attendanceStatus === "도달" && (settings.courseType === "elective" || academicStatus === "reached")) { minimumStatus = "reached"; minimumLabel = "이수 기준 도달"; }
+      return { ...row, attendanceStatus, attendanceNote: attend.note || "", needed, academicStatus, academicLabel, minimumStatus, minimumLabel, compactMissing: compactMissingLabels(row.missing) };
+    });
+  }, [combinedRows, db?.minimumAchievementAttendance, workspaceId, minimumSettings, settings.courseType]);
+
+  const activeRows = activeView === "combined" ? combinedRows : activeView === "minimum" ? minimumRows : (writtenRowsById[activeView] || []);
   const filteredRows = useMemo(() => activeRows.filter(row => {
     if (classFilter !== "all" && String(row.classNumber) !== classFilter) return false;
-    if (gradeFilter !== "all" && String(row.grade || "") !== gradeFilter) return false;
+    if (activeView === "minimum" ? (minimumFilter !== "all" && row.minimumStatus !== minimumFilter) : (gradeFilter !== "all" && String(row.grade || "") !== gradeFilter)) return false;
     const query = normalizeToken(search);
     if (!query) return true;
     return [row.sid, row.name, row.neisId].some(value => normalizeToken(value).includes(query));
-  }), [activeRows, classFilter, gradeFilter, search]);
-  const completeActiveRows = activeRows.filter(row => activeView === "combined" ? row.complete : Number.isFinite(row.score));
+  }), [activeRows, activeView, classFilter, gradeFilter, minimumFilter, search]);
+  const completeActiveRows = activeRows.filter(row => activeView === "combined" ? row.complete : activeView === "minimum" ? true : Number.isFinite(row.score));
   const classes = useMemo(() => Array.from(new Set(activeRows.map(row => row.classNumber).filter(Boolean))).sort((a, b) => a - b), [activeRows]);
   const activeStats = activeView === "combined"
     ? assessmentStats(completeActiveRows.map(row => row.convertedScore))
-    : assessmentStats(completeActiveRows.map(row => row.score));
+    : activeView === "minimum"
+      ? assessmentStats(completeActiveRows.map(row => row.needed).filter(Number.isFinite))
+      : assessmentStats(completeActiveRows.map(row => row.score));
 
   const gradeDistribution = useMemo(() => {
     const maxGrade = Number(settings.gradeSystem);
     return Array.from({ length: maxGrade }, (_, index) => {
       const gradeValue = index + 1;
-      const rows = completeActiveRows.filter(row => row.grade === gradeValue);
+      const rows = activeView === "minimum" ? [] : completeActiveRows.filter(row => row.grade === gradeValue);
       return {
         grade: gradeValue,
         count: rows.length,
@@ -699,10 +791,12 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
     const labels = settings.courseType === "common" ? ["A", "B", "C", "D", "E", "미도달"] : ["A", "B", "C", "D", "E"];
     return labels.map(label => ({ label, count: combinedRows.filter(row => row.complete && row.achievement === label).length }));
   }, [combinedRows, settings.courseType]);
-  const minimumRiskRows = useMemo(() => settings.courseType !== "common" ? [] : combinedRows.filter(row => {
-    if (row.complete) return Number(row.officialScore) < 40;
-    return row.progressRate != null && row.progressRate < 40;
-  }), [combinedRows, settings.courseType]);
+  const minimumSummary = useMemo(() => ({
+    risk: minimumRows.filter(row => row.minimumStatus === "risk").length,
+    fail: minimumRows.filter(row => row.minimumStatus === "fail").length,
+    check: minimumRows.filter(row => row.minimumStatus === "check").length,
+    reached: minimumRows.filter(row => row.minimumStatus === "reached").length,
+  }), [minimumRows]);
   const unresolvedTieGroups = useMemo(() => {
     if (activeView !== "combined" || (weightTotal.written === 0 && Math.abs(weightTotal.performance - 100) < 1e-9)) return [];
     const groups = new Map();
@@ -726,17 +820,17 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
     const workbook = XLSX.utils.book_new();
     const headers = activeView === "combined"
       ? ["학번", "성명", "반", "번호", ...sortedWritten.map(item => item.title), ...canonicalAreas.map(area => area.name), "수행 환산", "학기말 환산점수", "원점수", "석차", "동석차", "중간석차", "석차등급", "성취도", "확인사항"]
-      : activeView === "writtenCombined"
-        ? ["학번", "성명", "반", "번호", ...sortedWritten.map(item => item.title), "지필 환산(100점)", "석차", "동석차", "중간석차", "석차등급", "확인사항"]
+      : activeView === "minimum"
+        ? ["학번", "성명", "반", "번호", "과목구분", "현재 환산점수", "입력 완료 비율", "다음 정기시험 필요점수", "출결", "최성보 상태", "확인사항"]
         : ["학번", "성명", "반", "번호", "점수", "석차", "동석차", "중간석차", "석차등급", "상태"];
     const rows = activeRows.map(row => activeView === "combined"
       ? [row.sid, row.name, row.classNumber, row.number, ...sortedWritten.map(item => row.writtenScores[item.id]), ...canonicalAreas.map(area => row.areaScores[area.id]), row.weightedPerformance, row.convertedScore, row.officialScore, row.rank, row.tieCount, row.midRank, row.grade, row.achievement, row.missing.join(", ")]
-      : activeView === "writtenCombined"
-        ? [row.sid, row.name, row.classNumber, row.number, ...sortedWritten.map(item => row.writtenScores[item.id]), row.score, row.rank, row.tieCount, row.midRank, row.grade, row.missing.join(", ")]
+      : activeView === "minimum"
+        ? [row.sid, row.name, row.classNumber, row.number, settings.courseType === "common" ? "공통과목" : "선택과목", roundTo(Number(row.weightedWritten || 0) + Number(row.weightedPerformance || 0), 2), row.completedWeight, row.needed, row.attendanceStatus, row.minimumLabel, row.compactMissing.join(", ")]
         : [row.sid, row.name, row.classNumber, row.number, row.score, row.rank, row.tieCount, row.midRank, row.grade, row.status]);
     const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows]);
     sheet["!cols"] = headers.map((header, index) => ({ wch: index < 2 ? 14 : Math.min(28, Math.max(9, text(header).length + 3)) }));
-    XLSX.utils.book_append_sheet(workbook, sheet, activeView === "combined" ? "지필+수행 합본" : activeView === "writtenCombined" ? "지필 종합" : "지필평가");
+    XLSX.utils.book_append_sheet(workbook, sheet, activeView === "combined" ? "지필+수행 합본" : activeView === "minimum" ? "최소성취수준" : "지필평가");
     const summary = [
       ["과목", context?.subject || ""], ["학년도", context?.year || ""], ["학기", context?.semester || ""], ["학년", context?.grade || grade],
       ["등급제", `${settings.gradeSystem}등급제`], ["성취도 방식", settings.achievementMode === "fixed" ? "고정분할" : "수동 분할점수"],
@@ -746,7 +840,7 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
     const summarySheet = XLSX.utils.aoa_to_sheet(summary);
     summarySheet["!cols"] = [{ wch: 20 }, { wch: 20 }, { wch: 14 }, { wch: 14 }];
     XLSX.utils.book_append_sheet(workbook, summarySheet, "요약");
-    XLSX.writeFile(workbook, `${context?.year || "성적"}_${context?.subject || "과목"}_${activeView === "combined" ? "학기말" : activeView === "writtenCombined" ? "지필종합" : "지필"}_산출결과.xlsx`);
+    XLSX.writeFile(workbook, `${context?.year || "성적"}_${context?.subject || "과목"}_${activeView === "combined" ? "학기말" : activeView === "minimum" ? "최성보" : "지필"}_산출결과.xlsx`);
   };
 
   const selectedWritten = sortedWritten.find(item => item.id === activeView) || null;
@@ -760,23 +854,23 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
           <p style={ui.heroDescription}>석차는 환산점수 소수 둘째 자리와 학교 동점자 처리 순서를 적용하고, 원점수·석차등급·성취도 분포를 따로 보여줍니다.</p>
         </div>
         <div style={ui.heroActions}>
-          <button type="button" style={ui.lightButton} onClick={saveLocalWorkspace}><Save size={15} /> 과목별 저장</button>
-          <button type="button" style={ui.publishButton} onClick={publishWorkspace} disabled={!context || readOnlyShared}><Check size={15} /> 학교 자료에 반영</button>
+          <button type="button" style={ui.lightButton} onClick={saveLocalWorkspace} disabled={!canEditCurrentSubject}><Save size={15} /> 과목별 저장</button>
+          <button type="button" style={ui.publishButton} onClick={publishWorkspace} disabled={!context || !canEditCurrentSubject}><Check size={15} /> 공동 작업 저장</button>
           <button type="button" style={ui.lightButton} onClick={exportWorkbook}><Download size={15} /> 결과 엑셀</button>
           <button type="button" style={ui.lightButton} onClick={resetWorkspace}><RotateCcw size={15} /> 초기화</button>
         </div>
       </div>
 
       <div className="teacher-grade-workspace-browser" style={ui.workspaceBrowser}>
-        <div><b>과목별 성적 작업</b><span>{canViewAllSubjects ? `${grade}학년 전체 과목을 열람할 수 있습니다.` : "과목마다 업로드 파일·반영비율·산출 결과가 따로 저장됩니다."}</span></div>
+        <div><b>과목별 성적 작업</b><span>{canViewAllSubjects ? `${grade}학년 전체 과목을 열람할 수 있습니다. 성적 수정은 담당 교사만 가능합니다.` : "같은 과목 담당 교사끼리 학교 공동 작업 화면을 함께 수정합니다."}</span></div>
         <select value={workspaceSelection} onChange={event => loadWorkspaceSelection(event.target.value)} style={ui.workspaceSelect}>
           <option value="">현재 작업 / 새 과목</option>
           {!!localWorkspaceList.length && <optgroup label="내 브라우저 저장 과목">{localWorkspaceList.map(item => <option key={`local-${item.id}`} value={`local:${item.id}`}>{item.subject} · {item.year || "-"}학년도 {item.semester || "-"}학기 · 저장본</option>)}</optgroup>}
-          {!!sharedWorkspaces.length && <optgroup label="학교에 반영된 과목">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · {item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
+          {!!sharedWorkspaces.length && <optgroup label="학교에 반영된 과목">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
         </select>
         <button type="button" style={ui.secondaryButton} onClick={startNewWorkspace}>새 과목 작업</button>
         {selectedLocalId && <button type="button" style={ui.deleteWorkspaceButton} onClick={deleteLocalWorkspace}>저장본 삭제</button>}
-        {readOnlyShared && <span style={ui.readOnlyBadge}>열람 전용</span>}
+        {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || "담당 교사"}</span>}{readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
       </div>
 
       <section style={ui.section}>
@@ -789,11 +883,11 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
             title="지필평가"
             description="1차·2차 정기시험 전 학급 일람표"
             count={written.length}
-            detail={sortedWritten.map(item => item.title).join(" · ") || "등록된 시험 없음"}
+            detail={sortedWritten.length ? `${sortedWritten.length}개 시험 등록 · ${sortedWritten.map(item => item.title).join(" · ")}` : "등록된 시험 없음"}
             inputRef={writtenInputRef}
             onFiles={files => parseFiles(files, "written")}
             busy={busy}
-            readOnly={readOnlyShared}
+            readOnly={readOnlyWorkspace}
           />
           <UploadCard
             title="수행평가"
@@ -803,7 +897,7 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
             inputRef={performanceInputRef}
             onFiles={files => parseFiles(files, "performance")}
             busy={busy}
-            readOnly={readOnlyShared}
+            readOnly={readOnlyWorkspace}
           />
         </div>
         {!!uploadMessages.length && <div style={ui.messageList}>{uploadMessages.map((message, index) => <div key={`${message.text}-${index}`} style={{ ...ui.message, ...(message.type === "error" ? ui.messageError : message.type === "warn" ? ui.messageWarn : ui.messageOk) }}>{message.type === "ok" ? <Check size={13} /> : <AlertTriangle size={13} />}{message.text}</div>)}</div>}
@@ -814,22 +908,22 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
         <div style={ui.settingsGrid}>
           <div style={ui.settingCard}>
             <div style={ui.settingTitle}>지필평가 반영비율</div>
-            {sortedWritten.length ? sortedWritten.map(item => <div key={item.id} className="teacher-grade-weight-row" style={ui.weightRow}><span><b>{item.title}</b><small>{item.maxScore}점 만점 · {item.fileName}</small></span><span style={ui.weightActions}><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyShared} onChange={event => updateWrittenWeight(item.id, event.target.value)} />%</span><button type="button" title="이 시험 제거" style={ui.removeFileButton} disabled={readOnlyShared} onClick={() => removeWritten(item.id)}>×</button></span></div>) : <EmptyLine>지필평가 파일을 올려주세요.</EmptyLine>}
+            {sortedWritten.length ? sortedWritten.map(item => <div key={item.id} className="teacher-grade-weight-row" style={ui.weightRow}><span><b>{item.title}</b><small>{item.maxScore}점 만점</small></span><span style={ui.weightActions}><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateWrittenWeight(item.id, event.target.value)} />%</span><button type="button" title="이 시험 제거" style={ui.removeFileButton} disabled={readOnlyWorkspace} onClick={() => removeWritten(item.id)}>×</button></span></div>) : <EmptyLine>지필평가 파일을 올려주세요.</EmptyLine>}
             <div style={ui.subtotal}>지필 합계 <b>{weightTotal.written}%</b></div>
           </div>
           <div style={ui.settingCard}>
             <div style={ui.settingTitle}>수행평가 영역 반영비율</div>
-            {!!performance.length && <div style={ui.fileChipRow}>{performance.map(file => <button key={file.id} type="button" disabled={readOnlyShared} onClick={() => removePerformance(file.id)} style={ui.fileChip} title={`${file.fileName} 제거`}>{file.classes.join(", ")}반 <span>×</span></button>)}</div>}
-            {canonicalAreas.length ? canonicalAreas.map(area => <label key={area.id} className="teacher-grade-weight-row" style={ui.weightRow}><span><b>{area.name}</b><small>{area.maxScore}점 만점 · NEIS 영역 순서 {area.order + 1}</small></span><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={area.weight ?? 0} disabled={readOnlyShared} onChange={event => updateAreaWeight(area.id, event.target.value)} />%</span></label>) : <EmptyLine>수행평가 파일을 올려주세요.</EmptyLine>}
+            {!!performance.length && <div style={ui.fileChipRow}>{performance.map(file => <button key={file.id} type="button" disabled={readOnlyWorkspace} onClick={() => removePerformance(file.id)} style={ui.fileChip} title={`${file.fileName} 제거`}>{file.classes.join(", ")}반 <span>×</span></button>)}</div>}
+            {canonicalAreas.length ? canonicalAreas.map(area => <label key={area.id} className="teacher-grade-weight-row" style={ui.weightRow}><span><b title={area.name}>{area.name}</b><small>{area.maxScore}점 · 영역 {area.order + 1}</small></span><span style={ui.percentInput}><input type="number" min="0" max="100" step="0.01" value={area.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateAreaWeight(area.id, event.target.value)} />%</span></label>) : <EmptyLine>수행평가 파일을 올려주세요.</EmptyLine>}
             <div style={ui.subtotal}>수행 합계 <b>{weightTotal.performance}%</b></div>
           </div>
           <div style={ui.settingCard}>
             <div style={ui.settingTitle}>등급·성취도 기준</div>
-            <div style={ui.choiceGroup}><span>석차등급</span><Toggle disabled={readOnlyShared} value={String(settings.gradeSystem)} options={[{ value: "5", label: "5등급제" }, { value: "9", label: "9등급제" }]} onChange={value => setSettings(current => ({ ...current, gradeSystem: Number(value) }))} /></div>
-            <div style={ui.choiceGroup}><span>과목 구분</span><Toggle disabled={readOnlyShared} value={settings.courseType} options={[{ value: "common", label: "공통과목" }, { value: "elective", label: "선택과목" }]} onChange={courseType => setSettings(current => ({ ...current, courseType }))} /></div>
-            <div style={ui.choiceGroup}><span>성취도</span><Toggle disabled={readOnlyShared} value={settings.achievementMode} options={[{ value: "fixed", label: "고정분할" }, { value: "manual", label: "추정분할·수동 컷" }]} onChange={achievementMode => setSettings(current => ({ ...current, achievementMode }))} /></div>
-            {settings.achievementMode === "manual" && <ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyShared} />}
-            {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}
+            <div style={ui.choiceGroup}><span>석차등급</span><Toggle disabled={readOnlyWorkspace} value={String(settings.gradeSystem)} options={[{ value: "5", label: "5등급제" }, { value: "9", label: "9등급제" }]} onChange={value => setSettings(current => ({ ...current, gradeSystem: Number(value) }))} /></div>
+            <div style={ui.choiceGroup}><span>과목 구분</span><Toggle disabled={readOnlyWorkspace} value={settings.courseType} options={[{ value: "common", label: "공통과목" }, { value: "elective", label: "선택과목" }]} onChange={courseType => setSettings(current => ({ ...current, courseType }))} /></div>
+            <div style={ui.choiceGroup}><span>성취도</span><Toggle disabled={readOnlyWorkspace} value={settings.achievementMode} options={[{ value: "fixed", label: "고정분할" }, { value: "manual", label: "추정분할·수동 컷" }]} onChange={achievementMode => setSettings(current => ({ ...current, achievementMode }))} /></div>
+            {settings.achievementMode === "manual" && <ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} />}
+            {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}<div style={ui.minimumCourseRule}><ShieldCheck size={14}/><div><b>{settings.courseType === "common" ? "공통과목 최성보 적용" : "선택과목 최성보 적용"}</b><span>{settings.courseType === "common" ? "출석률 2/3 이상 + 학업성취율 40% 이상" : "출석률 2/3 이상 · 학업성취율 40% 기준 미적용"}</span></div></div>
           </div>
         </div>
         <div style={ui.tieRuleBox}><b>동점자 처리 순서</b><span>학기말 환산점수가 같은 경우: ① 정기시험 환산 합계 → ② 수행평가 → ③ 2차 지필 → ④ 1차 지필 → ⑤ 수행평가 NEIS 영역 순 → ⑥ 2차 고배점 문항(최대 3개) → ⑦ 1차 고배점 문항(최대 3개)</span><small>수행평가 100% 과목은 수행 영역 순서까지만 적용합니다. 모든 기준이 같으면 동석차로 남겨 중간석차백분율을 적용합니다.</small></div>
@@ -837,44 +931,55 @@ export default function TeacherGradeAnalyzer({ teacher, roster = {}, grade = "2"
       </section>
 
       <section style={ui.section}>
-        <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>3</span><strong style={ui.sectionTitle}>결과 확인</strong><p style={ui.sectionHint}>지필만 따로 보거나 지필+수행 합본을 전환할 수 있습니다.</p></div></div>
+        <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>3</span><strong style={ui.sectionTitle}>결과 확인</strong><p style={ui.sectionHint}>1차·2차 지필, 지필+수행 합본, 최소성취수준 예방지도를 한 화면에서 전환합니다.</p></div></div>
         <div style={ui.resultTabs}>
           {sortedWritten.map(item => <button key={item.id} type="button" onClick={() => setActiveView(item.id)} style={{ ...ui.resultTab, ...(activeView === item.id ? ui.resultTabActive : {}) }}>{item.title}</button>)}
           <button type="button" onClick={() => setActiveView("combined")} style={{ ...ui.resultTab, ...(activeView === "combined" ? ui.resultTabActive : {}) }}>지필+수행 합본</button>
-          <button type="button" onClick={() => setActiveView("writtenCombined")} style={{ ...ui.resultTab, ...(activeView === "writtenCombined" ? ui.resultTabActive : {}) }}>지필 종합</button>
+          <button type="button" onClick={() => setActiveView("minimum")} style={{ ...ui.resultTab, ...ui.minimumResultTab, ...(activeView === "minimum" ? ui.resultTabActive : {}) }}><ShieldCheck size={14}/> 최성보</button>
         </div>
         {!activeRows.length ? <div style={ui.emptyState}><FileSpreadsheet size={30} /><b>분석할 파일을 업로드해주세요.</b><span>지필평가 파일부터 올리면 전 학급 학생 구조가 자동으로 만들어집니다.</span></div> : <>
           {activeView === "combined" && Math.abs(weightTotal.total - 100) > 1e-9 && <div style={ui.warningBanner}><AlertTriangle size={16} /><span>반영비율 합계가 {weightTotal.total}%입니다. 100%로 맞추기 전 결과는 검토용입니다.</span></div>}
           <div style={ui.metricGrid}>
-            <MetricCard label="산출 학생" value={`${activeStats.count}명`} caption={`전체 ${activeRows.length}명`} />
-            <MetricCard label="평균" value={formatScore(activeStats.average, 1)} caption="소수 첫째 자리" />
-            <MetricCard label="최고점" value={formatScore(activeStats.max, 2)} caption="정상 산출 학생" />
-            <MetricCard label="최저점" value={formatScore(activeStats.min, 2)} caption="정상 산출 학생" />
-            {activeView === "combined" && <MetricCard label="미처리" value={`${activeRows.filter(row => !row.complete).length}명`} caption="공란·결시 확인 필요" danger={activeRows.some(row => !row.complete)} />}
+            {activeView === "minimum" ? <>
+              <MetricCard label="조회 학생" value={`${activeRows.length}명`} caption={settings.courseType === "common" ? "공통과목 기준" : "선택과목 기준"} />
+              <MetricCard label="주의 대상자" value={`${minimumSummary.risk}명`} caption="예방지도·다음 시험 점수 확인" danger={minimumSummary.risk > 0} />
+              <MetricCard label="미도달" value={`${minimumSummary.fail}명`} caption="학업성취율 또는 출결 미도달" danger={minimumSummary.fail > 0} />
+              <MetricCard label="확인 필요" value={`${minimumSummary.check}명`} caption="출결·미입력 자료 확인" />
+            </> : <>
+              <MetricCard label="산출 학생" value={`${activeStats.count}명`} caption={`전체 ${activeRows.length}명`} />
+              <MetricCard label="평균" value={formatScore(activeStats.average, 1)} caption="소수 첫째 자리" />
+              <MetricCard label="최고점" value={formatScore(activeStats.max, 2)} caption="정상 산출 학생" />
+              <MetricCard label="최저점" value={formatScore(activeStats.min, 2)} caption="정상 산출 학생" />
+              {activeView === "combined" && <MetricCard label="미처리" value={`${activeRows.filter(row => !row.complete).length}명`} caption="공란·결시 확인 필요" danger={activeRows.some(row => !row.complete)} />}
+            </>}
           </div>
-          <div style={ui.summaryGrid}>
+          {activeView !== "minimum" && <div style={ui.summaryGrid}>
             <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 분포·등급컷</div><div style={ui.distributionList}>{gradeDistribution.map(item => <div key={item.grade} style={ui.distributionRow}><span style={ui.gradePill}>{item.grade}등급</span><b>{ratioLabel(item.count, completeActiveRows.length)}</b><small>{item.min == null ? "-" : `최저 ${formatScore(item.min, 2)}`}</small></div>)}</div></div>
             {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><Users size={16} /> 성취도 분포</div><div style={ui.distributionList}>{achievementDistribution.map(item => <div key={item.label} style={ui.distributionRow}><span style={{ ...ui.gradePill, ...(item.label === "미도달" ? ui.failPill : {}) }}>{item.label}</span><b>{ratioLabel(item.count, completeActiveRows.length)}</b><small>{settings.achievementMode === "fixed" ? "고정분할" : "수동 컷"}</small></div>)}</div></div>}
-          </div>
+          </div>}
 
-          {settings.courseType === "common" && minimumRiskRows.length > 0 && <div style={ui.riskPanel}>
-            <div style={ui.riskPanelHead}><div><b>최소 성취수준 주의 대상</b><span>현재까지 입력된 평가의 환산 성취율이 40% 미만이거나 학기말 원점수가 40점 미만인 학생입니다.</span></div><strong>{minimumRiskRows.length}명</strong></div>
-            <div className="teacher-grade-risk-chips" style={ui.riskChips}>{minimumRiskRows.slice(0,24).map(row => <span key={row.sid}><b>{row.classNumber}반 {row.number}번 {row.name || row.sid}</b><small>{row.complete ? `학기말 ${row.officialScore}점` : `진행 성취율 ${formatScore(row.progressRate,1)}%`}</small></span>)}</div>
+          {activeView === "minimum" && <div style={ui.minimumControlPanel}>
+            <div><span style={ui.courseTypeBadge}>{settings.courseType === "common" ? "공통과목" : "선택과목"}</span><b>{settings.courseType === "common" ? "출석률 2/3 + 학업성취율 40%" : "출석률 2/3 · 학업성취율 기준 미적용"}</b><small>과목 구분에 따라 최소성취수준 판정 기준을 자동 적용합니다.</small></div>
+            {settings.courseType === "common" && <div style={ui.minimumInputRow}>
+              <label><span>다음 시험명</span><input type="text" value={minimumSettings.nextExamLabel} disabled={readOnlyWorkspace} onChange={event => setSettings(current => ({ ...current, minimumAchievement: { ...defaultMinimumSettings(current, weightTotal.total), nextExamLabel: event.target.value } }))}/></label>
+              <label><span>반영비율</span><div><input type="number" min="0" max="100" step="0.01" value={minimumSettings.nextExamWeight} disabled={readOnlyWorkspace} onChange={event => setSettings(current => ({ ...current, minimumAchievement: { ...defaultMinimumSettings(current, weightTotal.total), nextExamWeight: event.target.value } }))}/><b>%</b></div></label>
+              <label><span>만점</span><div><input type="number" min="1" step="1" value={minimumSettings.nextExamMax} disabled={readOnlyWorkspace} onChange={event => setSettings(current => ({ ...current, minimumAchievement: { ...defaultMinimumSettings(current, weightTotal.total), nextExamMax: event.target.value } }))}/><b>점</b></div></label>
+            </div>}
           </div>}
 
           {activeView === "combined" && unresolvedTieGroups.length > 0 && <details style={ui.tieDetails} open>
             <summary style={ui.tieSummary}><span><AlertTriangle size={15} /> 추가 동점자 문항 점수 입력</span><b>{unresolvedTieGroups.reduce((sum, rows) => sum + rows.length, 0)}명</b></summary>
-            <div style={ui.tieBody}><p>정기시험 환산 합계부터 수행 영역 순서까지 같은 학생만 표시됩니다. 2차와 1차 정기시험의 고배점 문항을 배점이 높은 순서대로 최대 3개까지 입력하세요. 미입력 상태에서 모든 기준이 같으면 동석차로 처리합니다.</p>{unresolvedTieGroups.map((rows, groupIndex) => <div key={vectorKey(rows[0].baseVector)} style={ui.tieGroup}><div style={ui.tieGroupTitle}>동점 그룹 {groupIndex + 1} · 환산 {formatScore(rows[0].convertedScore, 2)}점</div>{rows.map(row => <div key={row.sid} className="teacher-grade-tie-student" style={ui.tieStudent}><span><b>{row.name || row.sid}</b><small>{row.sid} · {row.classNumber}반 {row.number}번</small></span><TieItemInputs label="2차 고배점" values={tieScores[row.sid]?.secondItems || []} disabled={readOnlyShared} onChange={(index, value) => setTieScores(current => { const rowTie = current[row.sid] || {}; const nextItems = [...(rowTie.secondItems || [])]; nextItems[index] = value; return { ...current, [row.sid]: { ...rowTie, secondItems: nextItems } }; })} /><TieItemInputs label="1차 고배점" values={tieScores[row.sid]?.firstItems || []} disabled={readOnlyShared} onChange={(index, value) => setTieScores(current => { const rowTie = current[row.sid] || {}; const nextItems = [...(rowTie.firstItems || [])]; nextItems[index] = value; return { ...current, [row.sid]: { ...rowTie, firstItems: nextItems } }; })} /></div>)}</div>)}</div>
+            <div style={ui.tieBody}><p>정기시험 환산 합계부터 수행 영역 순서까지 같은 학생만 표시됩니다. 2차와 1차 정기시험의 고배점 문항을 배점이 높은 순서대로 최대 3개까지 입력하세요. 미입력 상태에서 모든 기준이 같으면 동석차로 처리합니다.</p>{unresolvedTieGroups.map((rows, groupIndex) => <div key={vectorKey(rows[0].baseVector)} style={ui.tieGroup}><div style={ui.tieGroupTitle}>동점 그룹 {groupIndex + 1} · 환산 {formatScore(rows[0].convertedScore, 2)}점</div>{rows.map(row => <div key={row.sid} className="teacher-grade-tie-student" style={ui.tieStudent}><span><b>{row.name || row.sid}</b><small>{row.sid} · {row.classNumber}반 {row.number}번</small></span><TieItemInputs label="2차 고배점" values={tieScores[row.sid]?.secondItems || []} disabled={readOnlyWorkspace} onChange={(index, value) => setTieScores(current => { const rowTie = current[row.sid] || {}; const nextItems = [...(rowTie.secondItems || [])]; nextItems[index] = value; return { ...current, [row.sid]: { ...rowTie, secondItems: nextItems } }; })} /><TieItemInputs label="1차 고배점" values={tieScores[row.sid]?.firstItems || []} disabled={readOnlyWorkspace} onChange={(index, value) => setTieScores(current => { const rowTie = current[row.sid] || {}; const nextItems = [...(rowTie.firstItems || [])]; nextItems[index] = value; return { ...current, [row.sid]: { ...rowTie, firstItems: nextItems } }; })} /></div>)}</div>)}</div>
           </details>}
 
           <div style={ui.tableToolbar}>
             <div style={ui.searchBox}><Search size={15} /><input className="teacher-grade-analyzer-search-input" value={search} onChange={event => setSearch(event.target.value)} placeholder="학번·이름 검색" /></div>
             <select value={classFilter} onChange={event => setClassFilter(event.target.value)} style={ui.select}><option value="all">전체 반</option>{classes.map(classNumber => <option key={classNumber} value={String(classNumber)}>{classNumber}반</option>)}</select>
-            <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={ui.select}><option value="all">전체 등급</option>{Array.from({length:Number(settings.gradeSystem)},(_,index)=><option key={index+1} value={String(index+1)}>{index+1}등급</option>)}</select>
+            {activeView === "minimum" ? <select value={minimumFilter} onChange={event => setMinimumFilter(event.target.value)} style={ui.select}><option value="all">전체 최성보 상태</option><option value="risk">주의 대상자</option><option value="fail">미도달</option><option value="check">확인 필요</option><option value="reached">도달</option></select> : <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={ui.select}><option value="all">전체 등급</option>{Array.from({length:Number(settings.gradeSystem)},(_,index)=><option key={index+1} value={String(index+1)}>{index+1}등급</option>)}</select>}
             <span style={ui.resultCount}>{filteredRows.length}명 표시</span>
           </div>
           <div style={ui.tableScroll}>
-            {activeView === "combined" ? <CombinedTable rows={filteredRows} written={sortedWritten} areas={canonicalAreas} /> : activeView === "writtenCombined" ? <WrittenCombinedTable rows={filteredRows} written={sortedWritten} /> : <WrittenTable rows={filteredRows} assessment={selectedWritten} />}
+            {activeView === "combined" ? <CombinedTable rows={filteredRows} written={sortedWritten} areas={canonicalAreas} /> : activeView === "minimum" ? <MinimumTable rows={filteredRows} settings={settings} minimumSettings={minimumSettings} /> : <WrittenTable rows={filteredRows} assessment={selectedWritten} />}
           </div>
         </>}
       </section>
@@ -899,14 +1004,22 @@ function ManualCutInputs({ settings, setSettings, disabled = false }) {
 }
 function EmptyLine({ children }) { return <div style={ui.emptyLine}>{children}</div>; }
 function MetricCard({ label, value, caption, danger }) { return <div style={{ ...ui.metricCard, ...(danger ? ui.metricDanger : {}) }}><span>{label}</span><strong>{value}</strong><small>{caption}</small></div>; }
-function CombinedTable({ rows, written, areas }) {
-  return <table style={ui.table}><thead><tr><th>학번·성명</th><th>반</th>{written.map(item => <th key={item.id}>{item.title}</th>)}<th>수행</th><th>환산점수</th><th>원점수</th><th>석차</th><th>등급</th><th>성취도</th><th>확인</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={!row.complete ? ui.incompleteRow : undefined}><td><b>{row.name || "이름 미연결"}</b><small>{row.sid}</small></td><td>{row.classNumber}반 {row.number}번</td>{written.map(item => <td key={item.id}>{formatScore(row.writtenScores[item.id], 1)}</td>)}<td><b>{formatScore(row.weightedPerformance, 2)}</b><small>{areas.map(area => formatScore(row.areaScores[area.id], 1)).join(" / ")}</small></td><td><b>{formatScore(row.convertedScore, 2)}</b></td><td>{row.officialScore ?? "-"}</td><td>{row.rank ? <><b>{row.rank}</b><small>{row.tieCount > 1 ? `동석차 ${row.tieCount}명 · 중간 ${row.midRank}` : ""}</small></> : "-"}</td><td>{row.grade ? (row.grade===1?<span style={ui.firstGradeMark}><Star size={11} fill="currentColor"/>1등급</span>:<span style={ui.tableGrade}>{row.grade}</span>) : "-"}</td><td><span style={{ ...ui.achievementBadge, ...(row.achievement === "미도달" ? ui.achievementFail : {}) }}>{row.achievement || "-"}</span></td><td>{row.complete ? <span style={ui.okText}><Check size={12} /> 정상</span> : <span style={ui.warnText}>{row.missing.join(", ")}</span>}</td></tr>)}</tbody></table>;
+function StudentIdentityCells({ row }) {
+  return <><td className="student-id-cell"><b>{row.sid}</b></td><td className="student-name-cell"><b>{row.name || "이름 미연결"}</b></td><td>{row.classNumber}반<br/><small>{row.number}번</small></td></>;
 }
-function WrittenCombinedTable({ rows, written }) {
-  return <table style={ui.table}><thead><tr><th>학번·성명</th><th>반</th>{written.map(item => <th key={item.id}>{item.title}</th>)}<th>지필 환산</th><th>석차</th><th>중간석차</th><th>등급</th><th>상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={!row.complete ? ui.incompleteRow : undefined}><td><b>{row.name || "이름 미연결"}</b><small>{row.sid}</small></td><td>{row.classNumber}반 {row.number}번</td>{written.map(item => <td key={item.id}>{formatScore(row.writtenScores[item.id], 1)}</td>)}<td><b>{formatScore(row.score, 2)}</b><small>100점 환산</small></td><td>{row.rank || "-"}{row.tieCount > 1 && <small>동석차 {row.tieCount}명</small>}</td><td>{row.midRank ?? "-"}</td><td>{row.grade ? (row.grade===1?<span style={ui.firstGradeMark}><Star size={11} fill="currentColor"/>1등급</span>:<span style={ui.tableGrade}>{row.grade}</span>) : "-"}</td><td>{row.complete ? <span style={ui.okText}><Check size={12} /> 정상</span> : <span style={ui.warnText}>{row.missing.join(", ")}</span>}</td></tr>)}</tbody></table>;
+function MissingState({ missing = [], complete = false }) {
+  if (complete) return <span style={ui.okText}><Check size={12} /> 입력 완료</span>;
+  const labels = compactMissingLabels(missing);
+  return <span style={ui.missingStack}>{labels.length ? labels.map(label => <small key={label}><CircleAlert size={11}/>{label}</small>) : <small><CircleAlert size={11}/>확인 필요</small>}</span>;
+}
+function CombinedTable({ rows, written, areas }) {
+  return <table style={ui.table}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th>{written.map(item => <th key={item.id}>{item.title}</th>)}<th>수행</th><th>환산점수</th><th>원점수</th><th>석차</th><th>등급</th><th>성취도</th><th>입력 상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={!row.complete ? ui.incompleteRow : undefined}><StudentIdentityCells row={row}/>{written.map(item => <td key={item.id}>{formatScore(row.writtenScores[item.id], 1)}</td>)}<td><b>{formatScore(row.weightedPerformance, 2)}</b><small>{areas.length ? areas.map(area => formatScore(row.areaScores[area.id], 1)).join(" / ") : "수행 없음"}</small></td><td><b>{formatScore(row.convertedScore, 2)}</b></td><td>{row.officialScore ?? "-"}</td><td>{row.rank ? <><b>{row.rank}</b><small>{row.tieCount > 1 ? `동석차 ${row.tieCount}명 · 중간 ${row.midRank}` : ""}</small></> : "-"}</td><td>{row.grade ? (row.grade===1?<span style={ui.firstGradeMark}><Star size={11} fill="currentColor"/>1등급</span>:<span style={ui.tableGrade}>{row.grade}</span>) : "-"}</td><td><span style={{ ...ui.achievementBadge, ...(row.achievement === "미도달" ? ui.achievementFail : {}) }}>{row.achievement || "-"}</span></td><td><MissingState missing={row.missing} complete={row.complete}/></td></tr>)}</tbody></table>;
+}
+function MinimumTable({ rows, settings, minimumSettings }) {
+  return <table style={{...ui.table,minWidth:1040}}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th><th>과목 유형</th><th>현재 환산</th><th>입력 완료</th><th>다음 정기시험 필요점수</th><th>과목 출결</th><th>최성보 판정</th><th>확인 사항</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid} style={row.minimumStatus === "fail" ? ui.minimumFailRow : row.minimumStatus === "risk" ? ui.minimumRiskRow : undefined}><StudentIdentityCells row={row}/><td><span style={ui.courseTypeBadge}>{settings.courseType === "common" ? "공통과목" : "선택과목"}</span></td><td><b>{formatScore(Number(row.weightedWritten || 0)+Number(row.weightedPerformance || 0),2)}</b><small>{row.completedWeight}% 입력</small></td><td>{row.complete ? <span style={ui.okText}><Check size={12}/>완료</span> : <b>{row.completedWeight}%</b>}</td><td>{settings.courseType === "elective" ? <span style={ui.notApplicable}>적용 안 함</span> : row.needed == null ? "-" : row.needed <= 0 ? <span style={ui.okText}><Check size={12}/>현재 도달</span> : row.needed > Number(minimumSettings.nextExamMax) ? <span style={ui.failText}>만점 초과 필요</span> : <><b>{row.needed}점 이상</b><small>{minimumSettings.nextExamLabel}</small></>}</td><td><span style={row.attendanceStatus === "미도달" ? ui.failPill : row.attendanceStatus === "도달" ? ui.attendanceOk : ui.checkPill}>{row.attendanceStatus === "확인필요" ? "확인 필요" : row.attendanceStatus}</span></td><td><span style={{...ui.minimumStatusBadge,...(row.minimumStatus === "fail" ? ui.minimumStatusFail : row.minimumStatus === "risk" ? ui.minimumStatusRisk : row.minimumStatus === "reached" ? ui.minimumStatusReached : ui.minimumStatusCheck)}}>{row.minimumLabel}</span><small>{row.academicLabel}</small></td><td><MissingState missing={row.missing} complete={!row.missing.length}/></td></tr>)}</tbody></table>;
 }
 function WrittenTable({ rows, assessment }) {
-  return <table style={ui.table}><thead><tr><th>학번·성명</th><th>반</th><th>{assessment?.title || "지필"} 점수</th><th>석차</th><th>중간석차</th><th>등급</th><th>상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid}><td><b>{row.name || "이름 미연결"}</b><small>{row.sid}</small></td><td>{row.classNumber}반 {row.number}번</td><td><b>{formatScore(row.score, 1)}</b></td><td>{row.rank || "-"}{row.tieCount > 1 && <small>동석차 {row.tieCount}명</small>}</td><td>{row.midRank ?? "-"}</td><td>{row.grade ? (row.grade===1?<span style={ui.firstGradeMark}><Star size={11} fill="currentColor"/>1등급</span>:<span style={ui.tableGrade}>{row.grade}</span>) : "-"}</td><td>{row.score == null ? <span style={ui.warnText}>{row.status || "미입력"}</span> : <span style={ui.okText}><Check size={12} /> 정상</span>}</td></tr>)}</tbody></table>;
+  return <table style={ui.table}><thead><tr><th>학번</th><th>성명</th><th>반·번호</th><th>{assessment?.title || "지필"} 점수</th><th>석차</th><th>중간석차</th><th>등급</th><th>상태</th></tr></thead><tbody>{rows.map(row => <tr key={row.sid}><StudentIdentityCells row={row}/><td><b>{formatScore(row.score, 1)}</b></td><td>{row.rank || "-"}{row.tieCount > 1 && <small>동석차 {row.tieCount}명</small>}</td><td>{row.midRank ?? "-"}</td><td>{row.grade ? (row.grade===1?<span style={ui.firstGradeMark}><Star size={11} fill="currentColor"/>1등급</span>:<span style={ui.tableGrade}>{row.grade}</span>) : "-"}</td><td>{row.score == null ? <span style={ui.warnText}>{row.status || "미입력"}</span> : <span style={ui.okText}><Check size={12} /> 정상</span>}</td></tr>)}</tbody></table>;
 }
 
 
@@ -941,6 +1054,8 @@ const gradeAnalyzerCss = `
   .teacher-grade-analyzer .teacher-grade-tie-student { grid-template-columns: 1fr 1fr; }
   .teacher-grade-analyzer .teacher-grade-workspace-browser { grid-template-columns:1fr!important; }
 }
+.teacher-grade-analyzer .student-id-cell,.teacher-grade-analyzer .student-name-cell{text-align:center!important;min-width:92px!important}.teacher-grade-analyzer .student-id-cell b{font-variant-numeric:tabular-nums;color:#315d90}.teacher-grade-analyzer .student-name-cell b{font-size:12px}.teacher-grade-analyzer .teacher-grade-weight-row b{display:block;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.teacher-grade-analyzer .teacher-grade-weight-row small{font-size:9.5px!important}.teacher-grade-analyzer button:disabled{opacity:.48;cursor:not-allowed}.teacher-grade-analyzer .minimum-control input[type="text"]{width:150px}
+
 `;
 
 const ui = {
@@ -957,6 +1072,7 @@ const ui = {
   secondaryButton: { border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", color:"#42617f", background:"#fff", fontFamily:FONT_STACK, fontWeight:850, cursor:"pointer", whiteSpace:"nowrap" },
   deleteWorkspaceButton: { border:"1px solid #e6c9c5", borderRadius:10, padding:"9px 11px", color:"#9b493f", background:"#fff7f5", fontFamily:FONT_STACK, fontWeight:850, cursor:"pointer", whiteSpace:"nowrap" },
   readOnlyBadge: { borderRadius:999, padding:"6px 9px", color:"#79591e", background:"#fff6df", border:"1px solid #ead2a2", fontSize:10.5, fontWeight:900 },
+  collaborationBadge: { borderRadius:999, padding:"6px 9px", color:"#276044", background:"#eaf7ef", border:"1px solid #bfdfcb", fontSize:10.5, fontWeight:900, maxWidth:260, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" },
   section: { border: "1px solid #dde4ef", borderRadius: 18, background: "#fff", padding: 18, boxShadow: "0 8px 24px rgba(55,72,110,.06)" },
   sectionHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14, flexWrap: "wrap" },
   stepBadge: { width: 26, height: 26, borderRadius: 9, display: "inline-flex", justifyContent: "center", alignItems: "center", marginRight: 9, color: "#fff", background: "#3568a3", fontSize: 12, fontWeight: 900 },
@@ -993,11 +1109,16 @@ const ui = {
   manualCutNote: { marginTop: 5, borderRadius: 8, padding: "7px 8px", color: "#765b24", background: "#fff8e7", fontSize: 10.5, lineHeight: 1.45 },
   cutGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(82px,1fr))", gap: 7, marginTop: 8 },
   ruleNote: { borderRadius: 9, padding: "9px 10px", color: "#6c5a2a", background: "#fff8e8", fontSize: 11.3, lineHeight: 1.5 },
+  minimumCourseRule:{display:"flex",gap:8,alignItems:"flex-start",marginTop:9,padding:"9px 10px",border:"1px solid #c8ddec",borderRadius:10,color:"#315d78",background:"#f0f7fc"},
   tieRuleBox: { display: "grid", gap: 4, marginTop: 12, border: "1px solid #d9e2ef", borderRadius: 12, padding: "11px 13px", color: "#526174", background: "#f7f9fc", fontSize: 11.5, lineHeight: 1.55 },
   roundingRuleBox: { display: "grid", gap: 4, marginTop: 8, border: "1px solid #d5e4dd", borderRadius: 12, padding: "10px 13px", color: "#456354", background: "#f3faf6", fontSize: 11.3, lineHeight: 1.5 },
   resultTabs: { display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 14 },
   resultTab: { border: "1px solid #d6dfeb", borderRadius: 999, padding: "8px 13px", color: "#59697b", background: "#fff", fontFamily: FONT_STACK, fontWeight: 850, cursor: "pointer" },
   resultTabActive: { color: "#fff", background: "#3568a3", borderColor: "#3568a3" },
+  minimumResultTab:{display:"inline-flex",alignItems:"center",gap:5},
+  minimumControlPanel:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:12,padding:"12px 14px",border:"1px solid #cdddeb",borderRadius:13,background:"linear-gradient(135deg,#f4f9fd,#f8f7fd)"},
+  minimumInputRow:{display:"flex",gap:8,alignItems:"end",flexWrap:"wrap"},
+  courseTypeBadge:{display:"inline-flex",width:"fit-content",borderRadius:999,padding:"4px 8px",color:"#315d90",background:"#e9f2fc",fontSize:10.5,fontWeight:950,whiteSpace:"nowrap"},
   emptyState: { minHeight: 190, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, color: "#7a8798", background: "#fafbfd", border: "1px dashed #d4deea", borderRadius: 14 },
   warningBanner: { display: "flex", gap: 8, alignItems: "center", marginBottom: 12, padding: "9px 11px", color: "#8a5d18", background: "#fff7e7", border: "1px solid #ead194", borderRadius: 10, fontSize: 11.8, fontWeight: 750 },
   metricGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(135px,1fr))", gap: 10, marginBottom: 12 },
@@ -1033,6 +1154,14 @@ const ui = {
   achievementFail: { color: "#a23b34", background: "#fdeceb" },
   okText: { display: "inline-flex", gap: 4, alignItems: "center", color: "#327046", fontWeight: 800 },
   warnText: { color: "#a14935", fontSize: 10.5, fontWeight: 750 },
+  failText:{color:"#a33b35",fontWeight:900},
+  notApplicable:{color:"#68778a",background:"#eef1f5",borderRadius:999,padding:"4px 7px",fontSize:10.5,fontWeight:850},
+  attendanceOk:{color:"#28633f",background:"#eaf7ee",borderRadius:999,padding:"4px 7px",fontSize:10.5,fontWeight:900},
+  checkPill:{color:"#5f6875",background:"#eef1f5",borderRadius:999,padding:"4px 7px",fontSize:10.5,fontWeight:900},
+  missingStack:{display:"grid",gap:3,whiteSpace:"normal"},
+  minimumStatusBadge:{display:"inline-flex",borderRadius:999,padding:"5px 8px",fontSize:10.5,fontWeight:950,whiteSpace:"nowrap"},
+  minimumStatusFail:{color:"#a23b34",background:"#fdeceb"},minimumStatusRisk:{color:"#8a5d18",background:"#fff4dc"},minimumStatusReached:{color:"#28633f",background:"#eaf7ee"},minimumStatusCheck:{color:"#5f6875",background:"#eef1f5"},
+  minimumFailRow:{background:"#fff5f3"},minimumRiskRow:{background:"#fffbf1"},
   emptyLine: { color: "#98a2af", fontSize: 11.5, padding: "14px 0" },
 };
 
