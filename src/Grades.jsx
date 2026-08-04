@@ -327,15 +327,22 @@ export default function GradesSection({
   const setLookupQuery = value => selectedStudentQuery !== undefined ? onSelectedStudentQueryChange?.(value) : setLocalLookupQuery(value);
   const teacherHasGradeAccess = !loggedInTeacher || (teacherGradeAccess || []).map(String).includes(String(currentGrade));
   const [linkedUniversity, setLinkedUniversity] = useState("");
+  const [linkedDepartment, setLinkedDepartment] = useState("");
+  const [linkedAdmissionType, setLinkedAdmissionType] = useState("");
   const [returnToConsultation, setReturnToConsultation] = useState(false);
   const favoriteItemsFor = useCallback(targetSid => (gdb?.admissionFavorites?.[String(targetSid)] || []), [gdb]);
   const toggleFavorite = useCallback(async (targetSid, item) => {
     if (!targetSid || !persistGrades || !item?.university) return false;
     const source = item.source || "admission";
-    const key = [source, universityKey(item.university), String(item.department || "전체").trim(), String(item.admissionType || "").trim()].join("|");
+    const scope = item.favoriteKind === "개별사례" || item.caseId ? `case:${String(item.caseId || "")}` : "group";
+    const key = [source, universityKey(item.university), String(item.department || "전체").trim(), String(item.admissionType || "").trim(), scope].join("|");
     const current = favoriteItemsFor(targetSid);
-    const exists = current.some(value => value.id === key);
-    const nextList = exists ? current.filter(value => value.id !== key) : [...current, { ...item, id: key, source, addedAt: new Date().toISOString() }];
+    const semanticKey = value => {
+      const valueScope = value?.favoriteKind === "개별사례" || value?.caseId ? `case:${String(value?.caseId || "")}` : "group";
+      return [value?.source || "admission", universityKey(value?.university), String(value?.department || "전체").trim(), String(value?.admissionType || "").trim(), valueScope].join("|");
+    };
+    const exists = current.some(value => semanticKey(value) === key);
+    const nextList = exists ? current.filter(value => semanticKey(value) !== key) : [...current, { ...item, id: key, source, addedAt: new Date().toISOString() }];
     const next = { ...(gdb?.admissionFavorites || {}), [String(targetSid)]: nextList };
     return persistGrades({ admissionFavorites: next });
   }, [gdb, persistGrades, favoriteItemsFor]);
@@ -343,18 +350,24 @@ export default function GradesSection({
     if (typeof window === "undefined" || window.history.state?.kdConsultationLink) return;
     window.history.pushState({ ...(window.history.state || {}), kdConsultationLink: true }, "");
   };
-  const openCaseUniversity = (name, fromConsultation = false) => {
+  const openCaseUniversity = (name, fromConsultation = false, department = "", admissionType = "") => {
     setLinkedUniversity(name || "");
+    setLinkedDepartment(department || "");
+    setLinkedAdmissionType(admissionType || "");
     if (fromConsultation) { setReturnToConsultation(true); markConsultationHistory(); }
     setTab("admissionCases");
   };
   const openAdmissionUniversity = (name, fromConsultation = false) => {
     setLinkedUniversity(name || "");
+    setLinkedDepartment("");
+    setLinkedAdmissionType("");
     if (fromConsultation) { setReturnToConsultation(true); markConsultationHistory(); }
     setTab(loggedInStudent ? "admission" : "lookupAdmission");
   };
   const finishReturnToConsultation = () => {
     setLinkedUniversity("");
+    setLinkedDepartment("");
+    setLinkedAdmissionType("");
     setReturnToConsultation(false);
     setTab("consultation");
   };
@@ -362,7 +375,7 @@ export default function GradesSection({
     if (typeof window !== "undefined" && window.history.state?.kdConsultationLink) window.history.back();
     else finishReturnToConsultation();
   };
-  const clearLinkedUniversity = () => setLinkedUniversity("");
+  const clearLinkedUniversity = () => { setLinkedUniversity(""); setLinkedDepartment(""); setLinkedAdmissionType(""); };
 
   useEffect(() => {
     const handlePopState = () => { if (returnToConsultation) finishReturnToConsultation(); };
@@ -373,6 +386,8 @@ export default function GradesSection({
   useEffect(() => {
     if (!["admission", "lookupAdmission", "admissionCases"].includes(tab)) {
       setLinkedUniversity("");
+      setLinkedDepartment("");
+      setLinkedAdmissionType("");
       setReturnToConsultation(false);
       if (typeof window !== "undefined" && window.history.state?.kdConsultationLink) {
         const next = { ...(window.history.state || {}) };
@@ -431,8 +446,8 @@ export default function GradesSection({
         )}
 
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
-        {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} focusUniversity={linkedUniversity} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />}
-        {tab === "consultation" && loggedInStudent && <StudentConsultationView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={name => openAdmissionUniversity(name, true)} onOpenCases={name => openCaseUniversity(name, true)} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} />}
+        {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenCases={(name,department,admissionType)=>openCaseUniversity(name,false,department,admissionType)} focusUniversity={linkedUniversity} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />}
+        {tab === "consultation" && loggedInStudent && <StudentConsultationView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={name => openAdmissionUniversity(name, true)} onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} />}
 
         {loggedInTeacher && !teacherHasGradeAccess && (
           <EmptyBox text={`${currentGrade}학년 학생 성적 조회 권한이 없습니다. 관리자에게 역할 또는 성적 조회 권한을 요청해주세요.`} />
@@ -453,7 +468,7 @@ export default function GradesSection({
             favorites={favoriteItemsFor(lookupSid)}
             onToggleFavorite={item => toggleFavorite(lookupSid,item)}
             focusUniversity={linkedUniversity}
-            onOpenCases={openCaseUniversity}
+            onOpenCases={(name,department,admissionType)=>openCaseUniversity(name,false,department,admissionType)}
             onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined}
             onClearFocus={clearLinkedUniversity}
           />
@@ -473,7 +488,7 @@ export default function GradesSection({
             favorites={favoriteItemsFor(lookupSid)}
             onToggleFavorite={item => toggleFavorite(lookupSid,item)}
             focusUniversity={linkedUniversity}
-            onOpenCases={openCaseUniversity}
+            onOpenCases={(name,department,admissionType)=>openCaseUniversity(name,false,department,admissionType)}
             onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined}
             onClearFocus={clearLinkedUniversity}
           />
@@ -486,7 +501,7 @@ export default function GradesSection({
             favorites={favoriteItemsFor(lookupSid)}
             onToggleFavorite={item => toggleFavorite(lookupSid,item)}
             onOpenAdmission={name => openAdmissionUniversity(name, true)}
-            onOpenCases={name => openCaseUniversity(name, true)}
+            onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)}
             persistGrades={persistGrades}
             canEdit
             authorName={loggedInAdmin ? "관리자" : (loggedInTeacher?.name || loggedInTeacher?.id || "선생님")}
@@ -499,7 +514,7 @@ export default function GradesSection({
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
         )}
         {tab === "admissionCases" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
-          <AdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} focusUniversity={linkedUniversity} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />
+          <AdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
@@ -1210,6 +1225,54 @@ function universityKey(value) {
 }
 
 
+const ADMISSION_CAMPUS_ALIASES = ["서울","세종","글로컬","글로벌","메디컬","ERICA","국제","죽전","천안","안성","수원","송도"];
+function admissionCampusLabel(value, region = "") {
+  const source = String(value || "").normalize("NFKC");
+  const bracket = source.match(/[（(\[]\s*([^）)\]]+)\s*[）)\]]/);
+  const suffix = ADMISSION_CAMPUS_ALIASES.find(name => new RegExp(`${name}\\s*(?:캠퍼스)?`, "i").test(source));
+  const candidate = String(bracket?.[1] || suffix || "").replace(/캠퍼스/gi, "").trim();
+  if (candidate) return candidate.toUpperCase() === "ERICA" ? "ERICA" : candidate;
+  const fallback = String(region || "").trim();
+  return fallback && fallback !== "미지정" && fallback !== "공통" ? fallback : "";
+}
+function universityDocumentKey(value, region = "") {
+  return `${universityKey(value)}|${admissionCampusLabel(value, region)}`;
+}
+function buildAdmissionDocumentIndex(documents = []) {
+  const exact = new Map();
+  const base = new Map();
+  documents.forEach(item => {
+    const baseKey = universityKey(item?.university);
+    const exactKey = universityDocumentKey(item?.university, item?.region);
+    if (!baseKey) return;
+    if (!base.has(baseKey)) base.set(baseKey, []);
+    base.get(baseKey).push(item);
+    if (!exact.has(exactKey)) exact.set(exactKey, []);
+    exact.get(exactKey).push(item);
+  });
+  const sorter = items => items.sort((a,b)=>String(b.updatedAt||"").localeCompare(String(a.updatedAt||"")));
+  exact.forEach(sorter);base.forEach(sorter);
+  return { exact, base };
+}
+function admissionDocumentsForRow(index, row) {
+  const exact = index?.exact?.get(universityDocumentKey(row?.university, row?.region)) || [];
+  if (exact.length) return exact;
+  const baseItems = index?.base?.get(universityKey(row?.university)) || [];
+  if (!baseItems.length) return [];
+  const campusGroups = new Set(baseItems.map(item => admissionCampusLabel(item?.university, item?.region)).filter(Boolean));
+  const noCampus = baseItems.filter(item => !admissionCampusLabel(item?.university, item?.region));
+  if (noCampus.length) return noCampus;
+  return campusGroups.size <= 1 ? baseItems : [];
+}
+function admissionDocumentMatchesRow(docItem, row) {
+  if (universityKey(docItem?.university) !== universityKey(row?.university)) return false;
+  const docCampus = admissionCampusLabel(docItem?.university, docItem?.region);
+  const rowCampus = admissionCampusLabel(row?.university, row?.region);
+  if (docCampus && rowCampus) return docCampus === rowCampus;
+  return !docCampus || !rowCampus;
+}
+
+
 function normalizeReflectionText(value) {
   const text = String(value ?? "").trim();
   if (!text || text === "-") return "";
@@ -1579,31 +1642,22 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
     if (focusUniversity) setQuery(String(focusUniversity).replace(/\([^)]*\)|\[[^\]]*\]/g, "").trim());
   }, [focusUniversity]);
 
-  const docsByUniversity = useMemo(() => {
-    const map = new Map();
-    (admissionDocs || []).forEach(docItem => {
-      const key = universityKey(docItem.university);
-      if (!key) return;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key).push(docItem);
-    });
-    map.forEach(items => items.sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))));
-    return map;
-  }, [admissionDocs]);
+  const admissionDocumentIndex = useMemo(() => buildAdmissionDocumentIndex(admissionDocs || []), [admissionDocs]);
 
   const evaluatedRows = useMemo(() => (admissionRows || []).map((row, index) => {
     const evaluation = evaluateAdmissionRequirement(row, latestSums, latestMockGrades);
+    const rowDocs = admissionDocumentsForRow(admissionDocumentIndex, row);
     return {
       ...row,
       _index: index,
       evaluation,
-      docs: docsByUniversity.get(universityKey(row.university)) || [],
-      guideDocs: (docsByUniversity.get(universityKey(row.university)) || []).filter(item => admissionDocumentType(item) === "guide"),
-      reflectionDocs: (docsByUniversity.get(universityKey(row.university)) || []).filter(item => admissionDocumentType(item) === "reflection"),
-      region: String(row.region || (docsByUniversity.get(universityKey(row.university)) || [])[0]?.region || "미지정"),
+      docs: rowDocs,
+      guideDocs: rowDocs.filter(item => admissionDocumentType(item) === "guide"),
+      reflectionDocs: rowDocs.filter(item => admissionDocumentType(item) === "reflection"),
+      region: String(row.region || rowDocs[0]?.region || "미지정"),
       _fieldTags: admissionFieldTags(row),
     };
-  }), [admissionRows, latestSums, latestMockGrades, docsByUniversity]);
+  }), [admissionRows, latestSums, latestMockGrades, admissionDocumentIndex]);
 
   const caseCountsByUniversity = useMemo(() => {
     const map = new Map();
@@ -1713,7 +1767,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
   }, [evaluatedRows]);
 
   const docsWithoutRows = useMemo(() => (admissionDocs || []).filter(docItem => (
-    !evaluatedRows.some(row => universityKey(row.university) === universityKey(docItem.university))
+    !evaluatedRows.some(row => admissionDocumentMatchesRow(docItem, row))
   )), [admissionDocs, evaluatedRows]);
 
   return (
@@ -1939,7 +1993,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.favoriteCell }}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",favoriteKind:"전형",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university)}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="상담·관심 대학에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university,row.department||"",row.track||"")}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="상담·관심 대학에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
@@ -2015,7 +2069,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                   return (
                     <tr key={`school-${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.favoriteCell }}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",favoriteKind:"전형",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university)}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="상담·관심 대학에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{(caseCountsByUniversity.get(universityKey(row.university))||0)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(row.university,row.department||"",row.track||"")}>사례 {caseCountsByUniversity.get(universityKey(row.university))}건</button>:<span style={admissionTable.caseBadge} title="상담·관심 대학에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountsByUniversity.get(universityKey(row.university))}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
@@ -2048,17 +2102,12 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
       {docsWithoutRows.length > 0 && (
         <div style={card}>
           <SectionHeading title="추가 대학 자료" description="입시전형표에는 아직 없지만 관리자가 등록한 모집요강 또는 교과 반영표입니다." />
-          <div style={admissionDocs.grid}>
-            {docsWithoutRows.map(docItem => (
-              <div key={docItem.id || docItem.url} style={admissionDocs.card}>
-                <div>
-                  <div style={{ fontWeight: 900 }}>{docItem.university}</div>
-                  <div style={{ marginTop: 4 }}><span style={regionBadge}><MapPin size={10} />{docItem.region || "미지정"}</span></div>
-                  <div style={{ fontSize: 11, color: "#8a8578", marginTop: 4 }}>{docItem.label || docItem.fileName}</div>
-                </div>
-                <PdfLink docItem={docItem} />
-              </div>
-            ))}
+          <div style={admissionDocs.tableWrap}>
+            <table className="admission-extra-docs-table" style={{...admissionDocs.table,minWidth:0}}>
+              <colgroup><col style={{width:"24%"}}/><col style={{width:"12%"}}/><col style={{width:"16%"}}/><col style={{width:"34%"}}/><col style={{width:"14%"}}/></colgroup>
+              <thead><tr>{["대학교","지역","자료 유형","표시 이름","자료 열기"].map(label=><th key={label} style={admissionTable.th}>{label}</th>)}</tr></thead>
+              <tbody>{docsWithoutRows.map(docItem => <tr key={docItem.id || docItem.url || docItem.dataKey}><td style={admissionTable.td}><b style={admissionDocs.university}>{docItem.university}</b></td><td style={admissionTable.td}><span style={regionBadge}>{docItem.region || "미지정"}</span></td><td style={admissionTable.td}><span style={admissionDocs.typeBadge}>{admissionDocumentType(docItem)==="reflection"?"교과 반영표":"모집요강"}</span></td><td style={admissionTable.td}><div style={admissionDocs.primaryText}>{docItem.label || admissionDocumentDisplayLabel(admissionDocumentType(docItem), docItem.year, docItem.university)}</div></td><td style={admissionTable.td}><PdfLink docItem={docItem} compact /></td></tr>)}</tbody>
+            </table>
           </div>
         </div>
       )}
@@ -2628,12 +2677,12 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
           const cutValues=accepted.map(row=>asNumber(row.universityGrade??row.overallGrade)).filter(value=>value!=null).sort((a,b)=>a-b);
           const cut50=cutValues.length?(cutValues.length%2?cutValues[(cutValues.length-1)/2]:(cutValues[cutValues.length/2-1]+cutValues[cutValues.length/2])/2):null;
           return <article key={group.university} style={favoriteView.card}>
-            <div style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b style={favoriteView.universityTitle}>{group.university}</b><span style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&admissions.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(group.university)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&cases.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenCases(group.university)}>광덕고 사례 <ExternalLink size={12}/></button>}</div></div>
+            <div style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b style={favoriteView.universityTitle}>{group.university}</b><span style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&admissions.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(group.university)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&cases.length>0&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(group.university,target?.department||"",target?.admissionType||"")}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"학교 전체 사례"} <ExternalLink size={12}/></button>}</div></div>
             <div style={favoriteView.sourceGrid}>
               <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>대학 지원 진단</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div>
               <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>광덕고 대입 사례</small><div style={favoriteView.sourceHeadline}><span>지원 <b>{cases.length}건</b></span><span>합격 <b>{accepted.length}건</b></span></div>{cases.length?<div style={favoriteView.sourceMetrics}><span style={favoriteView.sourceMetric}><small>합격자 50%컷</small><b>{cut50==null?"-":Math.round(cut50*100)/100}</b></span><span style={favoriteView.sourceMetric}><small>합격 사례 비율</small><b>{Math.round(accepted.length/cases.length*1000)/10}%</b></span></div>:<span style={favoriteView.sourceDetail}>연결 사례 없음</span>}</div>
             </div>
-            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><span style={favoriteView.kindBadge}>{favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></div>)}</div>
+            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><span style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><span style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(group.university,item.department||"",item.admissionType||"")}>광덕고 사례 <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>)}</div>
           </article>
         })}</div>}
       </div>;
@@ -4023,6 +4072,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const [batchStorageMode, setBatchStorageMode] = useState("");
   const [batchErrors, setBatchErrors] = useState([]);
   const [missingQuery, setMissingQuery] = useState("");
+  const [pendingFiles, setPendingFiles] = useState([]);
   const uploadTimerRef = useRef(null);
   const uploadStartedAtRef = useRef(0);
 
@@ -4052,24 +4102,26 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   ].filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko"));
   const regionByUniversity = new Map();
   [...(gdb.admissionRows || []), ...(gdb.admissionDocs || [])].forEach(item => {
-    if (item?.university && item?.region) regionByUniversity.set(universityKey(item.university), item.region);
+    if (!item?.university || !item?.region) return;
+    regionByUniversity.set(universityDocumentKey(item.university, item.region), item.region);
+    if (!regionByUniversity.has(universityKey(item.university))) regionByUniversity.set(universityKey(item.university), item.region);
   });
-  const admissionUniversities = Array.from(new Map(
+  const admissionUniversityEntries = Array.from(new Map(
     (gdb.admissionRows || [])
-      .map(row => String(row.university || "").trim())
-      .filter(Boolean)
-      .map(name => [universityKey(name), name])
-  ).values()).sort((a, b) => a.localeCompare(b, "ko"));
+      .map(row => ({ name:String(row.university || "").trim(), region:String(row.region || "미지정") }))
+      .filter(item => item.name)
+      .map(item => [universityDocumentKey(item.name,item.region), item])
+  ).values()).sort((a,b)=>a.name.localeCompare(b.name,"ko")||a.region.localeCompare(b.region,"ko"));
   const guideUniversityKeys = new Set(
     allDocs
       .filter(item => admissionDocumentType(item) === "guide")
-      .map(item => universityKey(item.university))
+      .map(item => universityDocumentKey(item.university,item.region))
       .filter(Boolean)
   );
-  const missingGuideUniversities = admissionUniversities.filter(name => !guideUniversityKeys.has(universityKey(name)));
-  const visibleMissingGuideUniversities = missingGuideUniversities.filter(name => {
+  const missingGuideUniversities = admissionUniversityEntries.filter(item => !guideUniversityKeys.has(universityDocumentKey(item.name,item.region)));
+  const visibleMissingGuideUniversities = missingGuideUniversities.filter(item => {
     const query = String(missingQuery || "").trim().toLowerCase();
-    return !query || name.toLowerCase().includes(query);
+    return !query || `${item.name} ${item.region}`.toLowerCase().includes(query);
   });
 
   const openFilePicker = useCallback((inputRef, pickerLabel) => {
@@ -4111,9 +4163,9 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
     updatedAt: new Date().toISOString(),
   });
 
-  const handleUpload = async files => {
+  const handleUpload = async (files, options = {}) => {
     const selectedFiles = Array.from(files || []);
-    if (!selectedFiles.length) return;
+    if (!selectedFiles.length) return { saved: 0, failed: 0 };
     setBusy(true);
     setBatchErrors([]);
     setBatchProgress("파일 저장 경로를 확인하고 있습니다.");
@@ -4189,9 +4241,15 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
       } else {
         showToast(`${uploadedItems.length}건을 등록했습니다.`, "success");
         setLabel("");
+        if (options.resetForm) {
+          setUniversity("");
+          setRegion("미지정");
+          setPendingFiles([]);
+        }
       }
     } catch (error) {
       const detail = error?.code || error?.message || String(error);
+      errors.push({ fileName: "저장소 진단", university: "", error: detail });
       setBatchErrors(current => [...current, { fileName: "저장소 진단", university: "", error: detail }]);
       showToast(`자료 업로드 실패: ${detail}`, "error");
     } finally {
@@ -4201,6 +4259,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
       setBatchProgress("");
       if (fileRef.current) fileRef.current.value = "";
     }
+    return { saved: uploadedItems.length, failed: errors.length };
   };
 
   const handleZip = async zipFile => {
@@ -4412,12 +4471,12 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const accept = documentType === "reflection" ? "application/pdf,.pdf,image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp" : "application/pdf,.pdf";
   return (
     <div>
-      <style>{`.admission-docs-table th{padding:8px 6px;background:#f4f7fb;border-bottom:1px solid #dce3ec;color:#455369;font-size:10.5px;font-weight:900;text-align:center}.admission-docs-table td{padding:8px 6px;border-top:1px solid #e7eaf0;border-right:1px solid #eef0f4;text-align:center;vertical-align:middle}.admission-docs-table td:last-child,.admission-docs-table th:last-child{border-right:0}.admission-docs-table tbody tr:hover{background:#f8fbff}`}</style>
+      <style>{`.admission-docs-table th,.admission-extra-docs-table th{padding:8px 6px;background:#f4f7fb;border-bottom:1px solid #dce3ec;color:#455369;font-size:10.5px;font-weight:900;text-align:center}.admission-docs-table td,.admission-extra-docs-table td{padding:8px 6px;border-top:1px solid #e7eaf0;border-right:1px solid #eef0f4;text-align:center;vertical-align:middle}.admission-docs-table td:last-child,.admission-docs-table th:last-child,.admission-extra-docs-table td:last-child,.admission-extra-docs-table th:last-child{border-right:0}.admission-docs-table tbody tr:hover,.admission-extra-docs-table tbody tr:hover{background:#f8fbff}`}</style>
       <div style={{ ...card, border: "1.5px dashed #d7dfd3", background: "#fbfdfb" }}>
         <SectionHeading title="대학별 모집요강·교과 반영표 관리" description="수능 최저 화면에는 모집요강 PDF를, 내신 반영 방식 화면에는 대학별 교과 반영표 PDF·이미지를 연결합니다." />
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 14 }}>
-          <button style={{ ...btn.tab, ...(documentType === "guide" ? btn.tabActive : {}) }} onClick={() => { setDocumentType("guide"); setLabel(""); }}>모집요강 PDF</button>
-          <button style={{ ...btn.tab, ...(documentType === "reflection" ? btn.tabActive : {}) }} onClick={() => { setDocumentType("reflection"); setLabel(""); }}>교과 반영표 PDF·이미지</button>
+          <button style={{ ...btn.tab, ...(documentType === "guide" ? btn.tabActive : {}) }} onClick={() => { setDocumentType("guide"); setLabel(""); setPendingFiles([]); }}>모집요강 PDF</button>
+          <button style={{ ...btn.tab, ...(documentType === "reflection" ? btn.tabActive : {}) }} onClick={() => { setDocumentType("reflection"); setLabel(""); setPendingFiles([]); }}>교과 반영표 PDF·이미지</button>
           <button style={btn.secondary} onClick={runDiagnosis} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 저장소 연결 진단</button>
         </div>
         {diagnosis && (
@@ -4436,10 +4495,22 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
           <label style={pdfAdmin.label}><span>학년도</span><input value={year} onChange={event => setYear(event.target.value.replace(/[^0-9]/g, "").slice(0, 4))} placeholder="2028" style={pdfAdmin.input} /></label>
           <label style={pdfAdmin.label}><span>표시 이름</span><input value={label} onChange={event => setLabel(event.target.value)} placeholder={`비워두면 ‘${defaultLabel(documentType, year, university || "OO대")}’`} style={pdfAdmin.input} /></label>
         </div>
-        <input ref={fileRef} tabIndex={-1} aria-hidden="true" type="file" multiple accept={accept} style={pdfAdmin.hiddenFileInput} disabled={busy} onChange={event => { const selected = Array.from(event.target.files || []); event.target.value = ""; if (selected.length) handleUpload(selected); }} />
+        <input ref={fileRef} tabIndex={-1} aria-hidden="true" type="file" multiple accept={accept} style={pdfAdmin.hiddenFileInput} disabled={busy} onChange={event => {
+          const selected = Array.from(event.target.files || []); event.target.value = ""; if (!selected.length) return;
+          if (documentType === "reflection") {
+            setPendingFiles(selected);
+            const first = selected[0];
+            const inferredUniversity = inferUniversityFromFileName(first.name, universityOptions) || university.trim();
+            const inferredYear = inferAdmissionYearFromFileName(first.name, year);
+            if (inferredUniversity) setUniversity(inferredUniversity);
+            if (inferredYear) setYear(inferredYear);
+            if (region === "미지정" && inferredUniversity) setRegion(inferRegionFromFileName(first.name, regionByUniversity.get(universityKey(inferredUniversity)) || "") || "미지정");
+          } else handleUpload(selected);
+        }} />
         <button type="button" onClick={() => openFilePicker(fileRef, `${typeLabel(documentType)} 파일 선택`)} disabled={busy} style={{ ...btn.primary, display: "inline-flex", width: "fit-content", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
           {busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {typeLabel(documentType)} 파일 선택
         </button>
+        {documentType === "reflection" && pendingFiles.length > 0 && <div style={pdfAdmin.pendingUploadBox}><div style={{display:"grid",gap:3,minWidth:0}}><b>{pendingFiles.length}개 파일 선택됨</b><span>{pendingFiles.map(file=>file.name).join(" · ")}</span></div><div style={{display:"flex",gap:7,flexWrap:"wrap"}}><button type="button" style={btn.primary} disabled={busy} onClick={()=>handleUpload(pendingFiles,{resetForm:true})}><Save size={14}/>교과 반영표 저장</button><button type="button" style={btn.secondary} disabled={busy} onClick={()=>setPendingFiles([])}>선택 취소</button></div></div>}
         {!university.trim() && <div style={{ marginTop: 7, fontSize: 11, color: "#716b5f" }}>대학교명을 입력하지 않아도 파일명에서 대학명과 학년도를 자동으로 추정합니다.</div>}
         {batchProgress && <div style={pdfAdmin.progress}><Loader2 size={13} className="spin" />{batchProgress}</div>}
         {batchStats && <div style={pdfAdmin.batchStatus}><span>저장 방식 <b style={{ color: batchStats.mode?.includes("대체") ? "#855c16" : "#315d8c" }}>{batchStats.mode || batchStorageMode || "확인 중"}</b></span><span>전체 <b>{batchStats.total}</b></span><span>저장 <b style={{ color: "#2f7347" }}>{batchStats.saved}</b></span><span>실패 <b style={{ color: "#a44444" }}>{batchStats.failed}</b></span><span>중복 제외 <b>{batchStats.skipped}</b></span><span>경과 <b>{(Number(batchStats.elapsed || 0) / 1000).toFixed(1)}초</b></span></div>}
@@ -4473,23 +4544,23 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
         <div style={pdfAdmin.missingHeader}>
           <SectionHeading
             title={`모집요강 미업로드 대학 ${missingGuideUniversities.length}개`}
-            description={`대입 전형표에 등록된 ${admissionUniversities.length}개 대학과 현재 모집요강 파일을 비교한 결과입니다.`}
+            description={`대입 전형표에 등록된 ${admissionUniversityEntries.length}개 대학과 현재 모집요강 파일을 비교한 결과입니다.`}
           />
           <div style={pdfAdmin.missingSummary}>
-            <span>등록 완료 <b>{Math.max(0, admissionUniversities.length - missingGuideUniversities.length)}</b></span>
+            <span>등록 완료 <b>{Math.max(0, admissionUniversityEntries.length - missingGuideUniversities.length)}</b></span>
             <span>미업로드 <b style={{ color: missingGuideUniversities.length ? "#a16a13" : "#2f7347" }}>{missingGuideUniversities.length}</b></span>
           </div>
         </div>
         {missingGuideUniversities.length ? <>
           <div style={pdfAdmin.missingSearch}><Search size={14} /><input value={missingQuery} onChange={event => setMissingQuery(event.target.value)} placeholder="미업로드 대학 검색" style={{ border: 0, outline: 0, flex: 1, minWidth: 0, fontSize: 11.5 }} /></div>
           <div style={pdfAdmin.missingGrid}>
-            {visibleMissingGuideUniversities.map(name => <button type="button" key={name} style={pdfAdmin.missingUniversityButton} onClick={() => {
+            {visibleMissingGuideUniversities.map(item => <button type="button" key={universityDocumentKey(item.name,item.region)} style={pdfAdmin.missingUniversityButton} onClick={() => {
               setDocumentType("guide");
-              setUniversity(name);
-              setRegion(regionByUniversity.get(universityKey(name)) || "미지정");
+              setUniversity(item.name);
+              setRegion(item.region || "미지정");
               setLabel("");
               window.scrollTo({ top: 0, behavior: "smooth" });
-            }}><span>{name}</span><small style={{ color: "#9a6d16", whiteSpace: "nowrap" }}>모집요강 등록</small></button>)}
+            }}><span style={{display:"grid",gap:2,minWidth:0}}><b>{item.name}</b><small style={{color:"#7c7568"}}>{item.region}</small></span><small style={{ color: "#9a6d16", whiteSpace: "nowrap" }}>모집요강 등록</small></button>)}
           </div>
           {!visibleMissingGuideUniversities.length && <div style={chartEmpty}>검색 조건에 해당하는 미업로드 대학이 없습니다.</div>}
         </> : <div style={pdfAdmin.completeNotice}><CheckCircle2 size={16} />대입 전형표에 있는 모든 대학의 모집요강이 등록되어 있습니다.</div>}
@@ -4899,6 +4970,7 @@ const favoriteView = {
   universityCount:{fontSize:10.2,color:"#7a8492"},
   kindBadge:{display:"inline-flex",justifySelf:"start",borderRadius:999,padding:"2px 6px",background:"#eef3fa",color:"#315a86",fontSize:8.8,fontWeight:900},
   itemText:{display:"grid",gap:3,flex:1,minWidth:0,fontSize:11.5},
+  itemLink:{display:"inline-flex",alignItems:"center",gap:3,border:"1px solid #d5deea",background:"#fff",color:"#315a86",borderRadius:7,padding:"5px 7px",fontSize:9.8,fontWeight:850,cursor:"pointer",whiteSpace:"nowrap"},
   remove:{border:0,background:"#f2f3f5",color:"#777f8a",borderRadius:7,padding:"5px 7px",fontSize:10.5,fontWeight:800,cursor:"pointer"},
 };
 const admissionTable = {
@@ -5160,6 +5232,7 @@ const pdfAdmin = {
   progress: { display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: "#3d5c3a", fontSize: 11.5, fontWeight: 800 },
   batchStatus: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 9, padding: "8px 10px", borderRadius: 9, background: "#f4f8fc", border: "1px solid #dce5ef", fontSize: 10.5, color: "#5f6d7d" },
   hiddenFileInput: { position: "fixed", left: "-10000px", top: 0, width: 1, height: 1, opacity: 0.01, overflow: "hidden" },
+  pendingUploadBox: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "#f4f8fc", border: "1px solid #d7e2ef", color: "#40546e", fontSize: 11.2, overflowWrap: "anywhere" },
   missingHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
   missingSummary: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", fontSize: 10.8, color: "#6c6a63" },
   missingSearch: { display: "flex", alignItems: "center", gap: 7, maxWidth: 340, padding: "7px 9px", marginBottom: 10, borderRadius: 9, background: "#fff", border: "1px solid #e3dccb", color: "#7a7468" },
