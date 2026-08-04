@@ -3982,6 +3982,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const [busy, setBusy] = useState(false);
   const [batchPreview, setBatchPreview] = useState(null);
   const [batchProgress, setBatchProgress] = useState("");
+  const [batchStats, setBatchStats] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editUniversity, setEditUniversity] = useState("");
   const [editRegion, setEditRegion] = useState("미지정");
@@ -4056,6 +4057,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
   const handleZip = async zipFile => {
     setBusy(true);
     setBatchPreview(null);
+    setBatchStats(null);
     setBatchProgress("압축파일을 분석하고 있습니다.");
     try {
       if (!/\.zip$/i.test(zipFile.name || "")) throw new Error("ZIP 압축파일만 선택할 수 있습니다.");
@@ -4104,36 +4106,62 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
       return;
     }
     setBusy(true);
-    const uploadedItems = [];
+    const startedAt = performance.now();
+    const existingDocs = [...(gdb.admissionDocs || [])];
+    const itemKey = item => `${universityKey(item.university)}|${item.fileName}|${Number(item.size ?? item.file?.size ?? 0)}|${item.year || ""}`;
+    const existingKeys = new Set(existingDocs.map(itemKey));
+    const skipped = items.filter(item => existingKeys.has(itemKey(item)));
+    const queue = items.filter(item => !existingKeys.has(itemKey(item)));
     const failures = [];
+    const completedIds = new Set(skipped.map(item => item.id));
+    let persistedDocs = existingDocs;
+    let savedCount = 0;
+    const concurrency = 3;
+    setBatchStats({ total: items.length, queued: queue.length, saved: 0, failed: 0, skipped: skipped.length, elapsed: 0 });
     try {
-      for (let index = 0; index < items.length; index += 1) {
-        const item = items[index];
-        setBatchProgress(`${item.fileName} 업로드 중 (${index + 1}/${items.length})`);
-        try {
-          const uploaded = await uploadAdmissionDocument(item.file, item.university.trim(), "guide", { allowInlineFallback: false });
-          uploadedItems.push({ uploaded, doc: makeDocumentItem(uploaded, item) });
-        } catch (error) {
-          failures.push({ ...item, error: error?.code || error?.message || String(error) });
+      for (let startIndex = 0; startIndex < queue.length; startIndex += concurrency) {
+        const wave = queue.slice(startIndex, startIndex + concurrency);
+        setBatchProgress(`파일 업로드 중 ${startIndex + 1}~${Math.min(startIndex + wave.length, queue.length)} / ${queue.length} · 저장 완료 ${savedCount}건`);
+        const results = await Promise.all(wave.map(async item => {
+          try {
+            const uploaded = await uploadAdmissionDocument(item.file, item.university.trim(), "guide", { allowInlineFallback: false });
+            return { ok: true, item, uploaded, doc: makeDocumentItem(uploaded, item) };
+          } catch (error) {
+            return { ok: false, item, error: error?.code || error?.message || String(error) };
+          }
+        }));
+        const successful = results.filter(result => result.ok);
+        results.filter(result => !result.ok).forEach(result => failures.push({ ...result.item, error: result.error }));
+        if (successful.length) {
+          const checkpointDocs = [...persistedDocs, ...successful.map(result => result.doc)];
+          setBatchProgress(`업로드 ${successful.length}건 완료 · 목록 안전 저장 중 (${savedCount + successful.length}/${queue.length})`);
+          const checkpointOk = await persistGrades({ admissionDocs: checkpointDocs });
+          if (!checkpointOk) {
+            await Promise.all(successful.map(result => deleteAdmissionPdf(result.uploaded.path).catch(() => null)));
+            successful.forEach(result => failures.push({ ...result.item, error: "목록 저장 실패" }));
+            throw new Error(`부분 저장 지점 ${savedCount}건 이후 목록 저장에 실패했습니다. 이전에 저장된 ${savedCount}건은 유지됩니다.`);
+          }
+          persistedDocs = checkpointDocs;
+          successful.forEach(result => completedIds.add(result.item.id));
+          savedCount += successful.length;
+          setBatchPreview(current => (current || []).filter(item => !completedIds.has(item.id)));
         }
-      }
-      if (uploadedItems.length) {
-        const ok = await persistGrades({ admissionDocs: [...(gdb.admissionDocs || []), ...uploadedItems.map(item => item.doc)] });
-        if (!ok) {
-          await Promise.all(uploadedItems.map(item => deleteAdmissionPdf(item.uploaded.path)));
-          throw new Error("업로드된 PDF 목록을 저장하지 못했습니다.");
-        }
+        setBatchStats({ total: items.length, queued: queue.length, saved: savedCount, failed: failures.length, skipped: skipped.length, elapsed: Math.round(performance.now() - startedAt) });
       }
       if (failures.length) {
         setBatchPreview(failures);
-        showToast(`${uploadedItems.length}건 등록, ${failures.length}건 실패했습니다.`, "error");
+        showToast(`${savedCount}건 저장 완료 · ${failures.length}건 실패 · ${skipped.length}건 중복 제외`, "error");
       } else {
         setBatchPreview(null);
-        showToast(`${uploadedItems.length}개의 모집요강 PDF를 일괄 등록했습니다.`, "success");
+        showToast(`${savedCount}건 저장 완료${skipped.length ? ` · ${skipped.length}건 중복 제외` : ""}`, "success");
       }
     } catch (error) {
-      showToast(`일괄 업로드 실패: ${error?.message || error}`, "error");
+      const remaining = items.filter(item => !completedIds.has(item.id));
+      const failedById = new Map(failures.map(item => [item.id, item]));
+      setBatchPreview(remaining.map(item => failedById.get(item.id) || item));
+      showToast(`일괄 업로드 중단: ${error?.message || error}`, "error");
     } finally {
+      setBatchStats(stats => stats ? { ...stats, saved: savedCount, failed: failures.length, elapsed: Math.round(performance.now() - startedAt) } : stats);
       setBusy(false);
       setBatchProgress("");
     }
@@ -4212,6 +4240,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
         <input ref={fileRef} type="file" multiple accept={accept} style={{ display: "none" }} onChange={event => event.target.files?.length && handleUpload(event.target.files)} />
         <button style={btn.primary} onClick={() => fileRef.current?.click()} disabled={busy || !university.trim()}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {typeLabel(documentType)} 파일 선택</button>
         {batchProgress && <div style={pdfAdmin.progress}><Loader2 size={13} className="spin" />{batchProgress}</div>}
+        {batchStats && <div style={pdfAdmin.batchStatus}><span>전체 <b>{batchStats.total}</b></span><span>저장 <b style={{ color: "#2f7347" }}>{batchStats.saved}</b></span><span>실패 <b style={{ color: "#a44444" }}>{batchStats.failed}</b></span><span>중복 제외 <b>{batchStats.skipped}</b></span><span>경과 <b>{(Number(batchStats.elapsed || 0) / 1000).toFixed(1)}초</b></span></div>}
         {documentType === "guide" && (
           <>
             <div style={pdfAdmin.divider} />
@@ -4225,7 +4254,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast }) {
 
       {batchPreview && (
         <div style={card}>
-          <SectionHeading title={`ZIP 업로드 확인 (${batchPreview.length}건)`} description="대학명과 지역을 최종 확인한 뒤 업로드하세요." />
+          <SectionHeading title={`ZIP 업로드 확인 (${batchPreview.length}건)`} description="3개씩 병렬 업로드하며, 완료된 묶음은 즉시 저장됩니다. 중간에 실패해도 이전 저장분은 유지됩니다." />
           <div style={table.scroll}><table style={{ ...table.base, minWidth: 760 }}><thead><tr><th style={table.th}>파일명</th><th style={table.th}>대학명</th><th style={table.th}>지역</th><th style={table.th}>표시 이름</th><th style={table.th}></th></tr></thead><tbody>
             {batchPreview.map(item => <tr key={item.id}><td style={{ ...table.tdLabel, maxWidth: 220, whiteSpace: "normal", wordBreak: "break-all" }}>{item.fileName}{item.error && <div style={{ color: "#9a4242", fontSize: 10.5, marginTop: 4 }}>{item.error}</div>}</td><td style={table.td}><input value={item.university} onChange={event => updateBatchItem(item.id, { university: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 150 }} /></td><td style={table.td}><select value={item.region || "미지정"} onChange={event => updateBatchItem(item.id, { region: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 100 }}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select></td><td style={table.td}><input value={item.label || ""} onChange={event => updateBatchItem(item.id, { label: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 140 }} /></td><td style={table.td}><button style={pdfAdmin.deleteButton} onClick={() => removeBatchItem(item.id)} disabled={busy}><Trash2 size={12} /> 제외</button></td></tr>)}
           </tbody></table></div>
@@ -4874,6 +4903,7 @@ const pdfAdmin = {
   sectionTitle: { fontSize: 12.5, fontWeight: 900, color: "#3d5c3a", marginBottom: 9 },
   divider: { height: 1, background: "#e7e2d6", margin: "18px 0" },
   progress: { display: "flex", alignItems: "center", gap: 7, marginTop: 10, color: "#3d5c3a", fontSize: 11.5, fontWeight: 800 },
+  batchStatus: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 9, padding: "8px 10px", borderRadius: 9, background: "#f4f8fc", border: "1px solid #dce5ef", fontSize: 10.5, color: "#5f6d7d" },
 };
 const chartControlRow = { display: "flex", alignItems: "center", gap: 10, marginBottom: 12, flexWrap: "wrap" };
 const chartControlLabel = { fontSize: 12, color: "#716b5f", fontWeight: 800 };

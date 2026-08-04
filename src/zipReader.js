@@ -91,16 +91,27 @@ export async function extractPdfFilesFromZip(file, options = {}) {
 
   if (!entries.length) throw new Error("ZIP 안에서 PDF 파일을 찾지 못했습니다.");
 
-  const results = [];
-  for (let index = 0; index < entries.length; index += 1) {
-    options.onProgress?.(index + 1, entries.length, entries[index].name);
-    const bytes = await extractEntry(data, view, entries[index]);
-    const fileName = entries[index].name.split("/").pop() || `모집요강_${index + 1}.pdf`;
-    results.push({
-      name: fileName,
-      fullName: entries[index].name,
-      blob: new Blob([bytes], { type: "application/pdf" }),
-    });
-  }
+  const results = new Array(entries.length);
+  const concurrency = Math.max(1, Math.min(3, Number(options.concurrency || 3)));
+  let cursor = 0;
+  let completed = 0;
+  const worker = async () => {
+    while (true) {
+      const index = cursor;
+      cursor += 1;
+      if (index >= entries.length) return;
+      const entry = entries[index];
+      const bytes = await extractEntry(data, view, entry);
+      const fileName = entry.name.split("/").pop() || `모집요강_${index + 1}.pdf`;
+      results[index] = {
+        name: fileName,
+        fullName: entry.name,
+        blob: new Blob([bytes], { type: "application/pdf" }),
+      };
+      completed += 1;
+      options.onProgress?.(completed, entries.length, entry.name);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, entries.length) }, () => worker()));
   return results;
 }

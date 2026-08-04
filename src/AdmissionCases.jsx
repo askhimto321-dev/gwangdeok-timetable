@@ -132,6 +132,12 @@ const CSS=`
 .admission-detail-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;max-height:176px;overflow-y:auto;padding-right:3px}
 .admission-detail-options button{display:flex;align-items:center;justify-content:flex-start;min-width:0;text-align:left;padding:7px 8px;border:1px solid #dbe2ec;border-radius:9px;background:#fff;color:#48576a;font-size:10.5px;font-weight:750;line-height:1.3;cursor:pointer;word-break:keep-all;overflow-wrap:anywhere}
 .admission-detail-options button.is-active{background:#2f557f;border-color:#2f557f;color:#fff}
+.admission-detail-options.is-grouped{grid-template-columns:repeat(4,minmax(0,1fr));max-height:none}
+.admission-detail-options.is-grouped button{justify-content:space-between;gap:8px;text-align:left;padding:9px 10px}
+.admission-detail-options.is-grouped button small{flex:0 0 auto;padding:2px 6px;border-radius:999px;background:#eef3f8;color:#596b80;font-size:9.5px;font-weight:900}
+.admission-detail-options.is-grouped button.is-active small{background:rgba(255,255,255,.2);color:#fff}
+.admission-range-panel{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:13px 15px;background:#fff;border:1px solid #e2ded3;border-radius:13px}
+.admission-range-panel>div:first-child{display:grid;gap:3px}.admission-range-panel b{font-size:13px}.admission-range-panel span{font-size:10.5px;color:#747e8c}
 .admission-internal-nav{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid #d7e1ee;border-radius:11px;background:linear-gradient(135deg,#f7faff,#fbf9ff);color:#526177;font-size:11.5px}
 .admission-internal-nav button{display:inline-flex;align-items:center;gap:5px;border:1px solid #cbd7e6;background:#fff;color:#2f537f;border-radius:8px;padding:7px 10px;font-weight:900;cursor:pointer}
 .admission-case-search-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center}
@@ -140,8 +146,10 @@ const CSS=`
 .admission-case-search-context{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px;border-radius:10px;background:#f3f7fc;border:1px solid #dbe4f0;color:#425675;font-size:11px}
 .admission-case-search-table{font-size:10.5px!important}
 .admission-case-search-table th,.admission-case-search-table td{padding:7px 4px!important;line-height:1.3}
-.admission-case-grade-stack{display:grid;gap:2px;font-size:9.5px;line-height:1.25}
-.admission-case-grade-stack span{display:flex;justify-content:space-between;gap:4px;white-space:nowrap}
+.admission-case-grade-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.admission-case-grade-grid span{display:grid;gap:3px;padding:5px 3px;border-radius:7px;background:#f7f9fc;border:1px solid #e1e6ed;text-align:center;min-width:0}
+.admission-case-grade-grid small{font-size:8.7px;color:#6f7b8b;font-weight:850;white-space:nowrap}
+.admission-case-grade-grid b{font-size:11.5px;color:#26364c;white-space:nowrap}
 
 @media(max-width:1000px){
   .admission-filter-group.is-region .admission-filter-options{grid-template-columns:repeat(6,minmax(0,1fr))}
@@ -152,13 +160,14 @@ const CSS=`
 .admission-stat-strip>div{display:grid;gap:4px;padding:10px 11px;border-radius:10px;background:#fbfcfe;border:1px solid #e2e7ef;min-width:0}
 .admission-stat-strip small{display:block;font-size:10px;font-weight:850;color:#6f7c8d;line-height:1.25}
 .admission-stat-strip b{display:block;font-size:15px;line-height:1.2;color:#26364c;white-space:normal}
-.admission-case-search-table{table-layout:fixed;min-width:0!important;font-size:11.5px!important}
-.admission-case-search-table th,.admission-case-search-table td{padding:8px 6px!important;overflow-wrap:anywhere;word-break:keep-all}
+.admission-case-search-table{table-layout:fixed;min-width:0!important;font-size:11px!important}
+.admission-case-search-table th,.admission-case-search-table td{padding:7px 5px!important;overflow-wrap:anywhere;word-break:keep-all;vertical-align:middle}
 .admission-linked-focus{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid #d6e0ed;border-radius:10px;background:#f4f8fd;color:#315a86;font-size:11.5px}
 @media(max-width:760px){.admission-stat-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:900px){
   .admission-student-score-groups{grid-template-columns:1fr}
   .admission-detail-options{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .admission-detail-options.is-grouped{grid-template-columns:repeat(2,minmax(0,1fr))}
   .admission-case-search-controls{grid-template-columns:1fr}
   .admission-case-summary{grid-template-columns:repeat(3,minmax(0,1fr))!important}
   .admission-case-two{grid-template-columns:1fr!important}
@@ -178,6 +187,7 @@ const CSS=`
   .admission-filter-priority{grid-template-columns:1fr}
   .admission-filter-secondary-options{grid-template-columns:repeat(2,minmax(0,1fr))}
   .admission-detail-options{grid-template-columns:1fr}
+  .admission-detail-options.is-grouped{grid-template-columns:1fr}
   .admission-student-metrics small{white-space:normal}
 }
 `
@@ -238,22 +248,54 @@ function acceptanceRateMeta(rate){
 function registrationDisplay(row){if(row?.finalResult==="불합격")return{label:"-",color:"#8a857a",background:"transparent"};if(row?.registered==="등록")return{label:"등록",color:"#2f7347",background:"#edf8f0"};if(row?.registered==="미등록")return{label:"미등록",color:"#8a641d",background:"#fff6df"};return{label:"미입력",color:"#777167",background:"#f3f1ed"}}
 function buildUniversityDetails(rows){const map=new Map();for(const row of rows){const department=row.department||"모집단위 미입력";const type=row.detailType&&row.detailType!=="미지정"?row.detailType:(row.admissionType||"전형 미입력");const key=`${department}|||${type}`;if(!map.has(key))map.set(key,{department,type,items:[]});map.get(key).items.push(row)}return Array.from(map.values()).map(group=>{const accepted=group.items.filter(x=>x.finalResult==="합격");return{department:group.department,type:group.type,total:group.items.length,accepted:accepted.length,first:group.items.filter(x=>x.finalResultDetail==="최초합격").length,waitlist:group.items.filter(x=>x.finalResultDetail==="충원합격").length,rejected:group.items.filter(x=>x.finalResult==="불합격").length,rate:group.items.length?accepted.length/group.items.length*100:null,median:median(accepted.map(x=>x.universityGrade??x.overallGrade))}}).sort((a,b)=>b.total-a.total||a.department.localeCompare(b.department,"ko"))}
 function textMatch(row,query){const q=String(query||"").trim().toLowerCase();return!q||[row.university,row.universityNormalized,row.department,row.detailType,row.admissionType,row.region].filter(Boolean).join(" ").toLowerCase().includes(q)}
-function applyFilters(rows,filters){
+function detailTypeGroup(row){
+  const type=String(row?.admissionType||"").normalize("NFKC").replace(/\s+/g,"");
+  const raw=String(row?.detailType||"").normalize("NFKC").replace(/[\[\](){}]/g," ").replace(/\s+/g," ").trim();
+  const text=`${type} ${raw}`;
+  const opportunity=/기회|고른|사회|농어촌|저소득|보훈|특별|배려|기초생활|차상위/.test(text);
+  const recommendation=/지역|균형|학교장|교장|고교추천|학교추천|추천전형|추천자/.test(text);
+  if(/학생부종합|학종|서류위주/.test(text)){
+    if(opportunity)return"종합·기회균형";
+    if(/면접|단계|1단계|2단계/.test(text))return"종합·면접형";
+    if(/서류/.test(text))return"종합·서류형";
+    return"종합·일반";
+  }
+  if(/학생부교과|교과위주|학생부위주|교과100|교과전형/.test(text)){
+    if(opportunity)return"교과·기회균형";
+    if(recommendation)return"교과·지역균형/추천";
+    if(/우수|성적|교과100/.test(text))return"교과·성적우수";
+    return"교과·일반";
+  }
+  if(/논술/.test(text))return /교과/.test(text)?"논술·교과반영":"논술·일반";
+  if(/실기|실적/.test(text))return /특기/.test(text)?"실기·특기자":"실기·실적";
+  if(/면접/.test(text))return"면접 중심";
+  if(/서류/.test(text))return"서류 중심";
+  return type||raw||"기타";
+}
+function universityCutMap(rows){
+  const groups=new Map();
+  (rows||[]).forEach(row=>{if(row.finalResult!=="합격")return;const grade=row.universityGrade??row.overallGrade;if(grade==null)return;const key=row.universityNormalized||row.university;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(Number(grade))});
+  return new Map(Array.from(groups.entries()).map(([key,grades])=>[key,median(grades)]));
+}
+function applyFilters(rows,filters,profile=null){
   const source=Array.isArray(rows)?rows:[];
   const min=num(filters?.minGrade);
   const max=num(filters?.maxGrade);
-  return source.filter(row=>{
+  const basic=source.filter(row=>{
     if(!textMatch(row,filters?.query))return false;
     if(filters?.regions?.length&&!filters.regions.includes(row.region))return false;
     if(filters?.fields?.length&&!filters.fields.includes(row.field))return false;
     if(filters?.schoolTypes?.length&&!filters.schoolTypes.includes(row.schoolType))return false;
     if(filters?.admissionTypes?.length&&!filters.admissionTypes.includes(row.admissionType))return false;
-    if(filters?.detailTypes?.length&&!filters.detailTypes.includes(row.detailType))return false;
+    if(filters?.detailTypes?.length&&!filters.detailTypes.includes(detailTypeGroup(row)))return false;
     if(filters?.results?.length&&!filters.results.includes(row.finalResultDetail))return false;
     if(min!=null&&(row.overallGrade==null||Number(row.overallGrade)<min))return false;
     if(max!=null&&(row.overallGrade==null||Number(row.overallGrade)>max))return false;
     return true;
   });
+  if(!filters?.bands?.length||profile?.converted==null)return basic;
+  const cutMap=universityCutMap(basic);
+  return basic.filter(row=>{const cut=cutMap.get(row.universityNormalized||row.university);return cut!=null&&filters.bands.includes(applicationBand(profile.converted,cut).label)});
 }
 
 function SummaryCards({rows}){const summary=useMemo(()=>summarizeAdmissionCases(rows),[rows]);const cards=[["지원 사례",summary.total,COLORS.blue],["합격 사례",summary.accepted,COLORS.green],["최초합격",summary.firstAccepted,COLORS.blue],["충원합격",summary.waitlistAccepted,COLORS.purple],["불합격",summary.rejected,COLORS.red],["등록 확인",summary.registered,COLORS.gold]];return <div className="admission-case-summary" style={styles.summary}>{cards.map(([label,value,color])=><div key={label} style={{...styles.summaryCard,borderTopColor:color}}><b style={{color}}>{value.toLocaleString()}</b><span>{label}</span></div>)}</div>}
@@ -307,27 +349,37 @@ function FilterChipGroup({label,options,value,onChange,compact=false,kind="defau
 
 function DetailTypeFilter({cases,admissionTypes=[],value=[],onChange}){
   const[query,setQuery]=useState("");
-  const options=useMemo(()=>unique((cases||[]).filter(row=>!admissionTypes.length||admissionTypes.includes(row.admissionType)).map(row=>row.detailType).filter(item=>item&&item!=="미지정")).sort((a,b)=>a.localeCompare(b,"ko")),[cases,admissionTypes]);
-  useEffect(()=>{const valid=value.filter(item=>options.includes(item));if(valid.length!==value.length)onChange(valid)},[options.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
-  const visible=useMemo(()=>{const q=query.trim().toLowerCase();return options.filter(item=>!q||item.toLowerCase().includes(q)).slice(0,80)},[options,query]);
+  const groups=useMemo(()=>{
+    const map=new Map();
+    (cases||[]).filter(row=>!admissionTypes.length||admissionTypes.includes(row.admissionType)).forEach(row=>{
+      const label=detailTypeGroup(row);if(!label||label==="미지정")return;
+      if(!map.has(label))map.set(label,{label,count:0,examples:new Set()});
+      const item=map.get(label);item.count+=1;if(row.detailType&&item.examples.size<4)item.examples.add(row.detailType);
+    });
+    const order=["교과·지역균형/추천","교과·성적우수","교과·일반","교과·기회균형","종합·서류형","종합·면접형","종합·일반","종합·기회균형","논술·일반","논술·교과반영","실기·실적","실기·특기자","면접 중심","서류 중심"];
+    return Array.from(map.values()).map(item=>({...item,examples:Array.from(item.examples)})).sort((a,b)=>{const ai=order.indexOf(a.label),bi=order.indexOf(b.label);return(ai<0?99:ai)-(bi<0?99:bi)||a.label.localeCompare(b.label,"ko")});
+  },[cases,admissionTypes]);
+  const labels=groups.map(item=>item.label);
+  useEffect(()=>{const valid=value.filter(item=>labels.includes(item));if(valid.length!==value.length)onChange(valid)},[labels.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const visible=useMemo(()=>{const q=query.trim().toLowerCase();return groups.filter(item=>!q||item.label.toLowerCase().includes(q)||item.examples.some(example=>String(example).toLowerCase().includes(q)))},[groups,query]);
   return <div className="admission-detail-filter">
     <div className="admission-detail-filter-head">
-      <div style={{display:"grid",gap:2}}><b style={{fontSize:13,color:"#354052"}}>세부전형</b><span style={{fontSize:10.5,color:"#778291"}}>{admissionTypes.length?"선택한 전형유형 안에서 복수 선택":"전형유형을 먼저 선택하면 세부전형이 좁혀집니다."}</span></div>
-      <div className="admission-detail-filter-search"><Search size={13} color="#728095"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="세부전형 검색"/>{query&&<button type="button" onClick={()=>setQuery("")} style={{border:0,background:"transparent",cursor:"pointer",color:"#718096"}}>×</button>}</div>
+      <div style={{display:"grid",gap:2}}><b style={{fontSize:13,color:"#354052"}}>세부전형 묶음</b><span style={{fontSize:10.5,color:"#778291"}}>명칭이 달라도 평가 방식이 비슷한 전형은 하나로 묶었습니다.</span></div>
+      <div className="admission-detail-filter-search"><Search size={13} color="#728095"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="묶음·원본 전형명 검색"/>{query&&<button type="button" onClick={()=>setQuery("")} style={{border:0,background:"transparent",cursor:"pointer",color:"#718096"}}>×</button>}</div>
     </div>
     {value.length>0&&<div className="admission-detail-selected">{value.map(item=><button type="button" key={item} onClick={()=>onChange(value.filter(x=>x!==item))}>{item} ×</button>)}<button type="button" onClick={()=>onChange([])}>전체 해제</button></div>}
-    <div className="admission-detail-options">{visible.length?visible.map(item=><button type="button" key={item} className={value.includes(item)?"is-active":""} onClick={()=>onChange(toggleSelection(value,item))}>{item}</button>):<span style={{gridColumn:"1/-1",padding:12,textAlign:"center",color:"#7a8390",fontSize:11}}>검색되는 세부전형이 없습니다.</span>}</div>
+    <div className="admission-detail-options is-grouped">{visible.length?visible.map(item=><button type="button" key={item.label} title={item.examples.join(" · ")} className={value.includes(item.label)?"is-active":""} onClick={()=>onChange(toggleSelection(value,item.label))}><span>{item.label}</span><small>{item.count.toLocaleString()}건</small></button>):<span style={{gridColumn:"1/-1",padding:12,textAlign:"center",color:"#7a8390",fontSize:11}}>검색되는 전형 묶음이 없습니다.</span>}</div>
   </div>;
 }
 
-function FilterPanel({cases,filters,setFilters,filteredCount}){
+function FilterPanel({cases,filters,setFilters,filteredCount,profile}){
   const[advanced,setAdvanced]=useState(false);
   const regions=useMemo(()=>unique(cases.map(x=>x.region)).sort((a,b)=>a.localeCompare(b,"ko")),[cases]);
   const fields=useMemo(()=>unique(cases.map(x=>x.field)).sort((a,b)=>a.localeCompare(b,"ko")),[cases]);
   const schoolTypes=useMemo(()=>unique(cases.map(x=>x.schoolType)).sort((a,b)=>a.localeCompare(b,"ko")),[cases]);
   const admissionTypes=useMemo(()=>{const priority=["학생부교과","학생부종합","논술","학생부위주","서류위주","면접","실기"];const values=unique(cases.map(x=>x.admissionType));return [...priority.filter(x=>values.includes(x)),...values.filter(x=>!priority.includes(x)).sort((a,b)=>a.localeCompare(b,"ko"))]},[cases]);
-  const reset=()=>setFilters({query:"",regions:[],fields:[],schoolTypes:[],admissionTypes:[],detailTypes:[],results:[],minGrade:"",maxGrade:""});
-  const selectedCount=(filters.regions?.length||0)+(filters.fields?.length||0)+(filters.schoolTypes?.length||0)+(filters.admissionTypes?.length||0)+(filters.detailTypes?.length||0)+(filters.results?.length||0)+(filters.minGrade!==""?1:0)+(filters.maxGrade!==""?1:0);
+  const reset=()=>setFilters({query:"",regions:[],fields:[],schoolTypes:[],admissionTypes:[],detailTypes:[],results:[],bands:[],minGrade:"",maxGrade:""});
+  const selectedCount=(filters.regions?.length||0)+(filters.fields?.length||0)+(filters.schoolTypes?.length||0)+(filters.admissionTypes?.length||0)+(filters.detailTypes?.length||0)+(filters.results?.length||0)+(filters.bands?.length||0)+(filters.minGrade!==""?1:0)+(filters.maxGrade!==""?1:0);
 
   return <div style={{...styles.filters,padding:16}}>
     <div style={{...styles.filterHeader,marginBottom:14}}>
@@ -346,6 +398,7 @@ function FilterPanel({cases,filters,setFilters,filteredCount}){
     {advanced&&<div style={{display:"grid",gap:12,marginTop:12,paddingTop:12,borderTop:"1px solid #e7e9ed"}}>
       <FilterChipGroup label="지역" kind="region" options={regions} value={filters.regions} onChange={v=>setFilters(x=>({...x,regions:v}))} compact/>
       <div className="admission-filter-secondary"><FilterChipGroup label="학교유형" options={schoolTypes} value={filters.schoolTypes} onChange={v=>setFilters(x=>({...x,schoolTypes:v}))} compact/><FilterChipGroup label="최종 결과" options={["최초합격","충원합격","불합격"]} value={filters.results} onChange={v=>setFilters(x=>({...x,results:v}))} compact/></div>
+      {profile?.converted!=null&&<FilterChipGroup label="지원 구간 · 학생 환산등급 기준" options={["상향","소신","적정","안정","하향"]} value={filters.bands||[]} onChange={v=>setFilters(x=>({...x,bands:v}))} compact/>}
       <div style={{display:"grid",gap:9,padding:13,border:"1px solid #e1e6ec",borderRadius:13,background:"#fafcfe"}}><b style={{fontSize:13,color:"#354052"}}>전교과 등급 범위</b><div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto minmax(0,1fr)",gap:9,alignItems:"center"}}><input style={styles.input} type="number" min="1" max="9" step="0.1" value={filters.minGrade} onChange={e=>setFilters(x=>({...x,minGrade:e.target.value}))} placeholder="최소 등급"/><span style={{color:"#8a929d",fontWeight:800}}>~</span><input style={styles.input} type="number" min="1" max="9" step="0.1" value={filters.maxGrade} onChange={e=>setFilters(x=>({...x,maxGrade:e.target.value}))} placeholder="최대 등급"/></div></div>
     </div>}
   </div>;
@@ -353,33 +406,31 @@ function FilterPanel({cases,filters,setFilters,filteredCount}){
 
 function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmission,admissionRows=[],selectedUniversity="",onSelectUniversity,onBackUniversity}){
   const[range,setRange]=useState(0.5);
-  const[field,setField]=useState("전체");
-  const fields=useMemo(()=>unique(rows.map(x=>x.field)).sort((a,b)=>a.localeCompare(b,"ko")),[rows]);
   const similar=useMemo(()=>{
     if(profile?.converted==null)return[];
     return rows.filter(row=>{
       const grade=row.universityGrade??row.overallGrade;
-      return grade!=null&&Math.abs(grade-profile.converted)<=range&&(field==="전체"||row.field===field);
+      return grade!=null&&Math.abs(grade-profile.converted)<=range;
     });
-  },[rows,profile,range,field]);
+  },[rows,profile,range]);
   const stats=useMemo(()=>{
     const labels=unique(similar.map(row=>row.universityNormalized||row.university));
     return labels.map(label=>{
       const similarRows=similar.filter(row=>(row.universityNormalized||row.university)===label);
-      const allRows=rows.filter(row=>(row.universityNormalized||row.university)===label&&(field==="전체"||row.field===field));
+      const allRows=rows.filter(row=>(row.universityNormalized||row.university)===label);
       const acceptedAll=allRows.filter(row=>row.finalResult==="합격");
       return{label,total:similarRows.length,accepted:similarRows.filter(row=>row.finalResult==="합격").length,rejected:similarRows.filter(row=>row.finalResult==="불합격").length,median:median(acceptedAll.map(row=>row.universityGrade??row.overallGrade)),allTotal:allRows.length,allAccepted:acceptedAll.length};
     }).sort((a,b)=>b.total-a.total||a.label.localeCompare(b.label,"ko")).slice(0,30);
-  },[similar,rows,field]);
+  },[similar,rows]);
   const hasHolistic=useMemo(()=>similar.some(row=>String(row.admissionType||row.detailType||"").includes("종합")),[similar]);
-  useEffect(()=>{if(selectedUniversity)onSelectUniversity?.("")},[range,field,profile?.sid]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(selectedUniversity)onSelectUniversity?.("")},[range,profile?.sid]); // eslint-disable-line react-hooks/exhaustive-deps
   if(!profile)return <Empty title="학생을 먼저 선택하세요." text="학번을 연동하면 현재 성적과 가까운 과거 지원 사례를 보여줍니다." icon={<GraduationCap size={28}/>}/>;
   if(profile.converted==null)return <Empty title="비교할 내신 성적이 없습니다." text="학생의 학기 성적을 먼저 업로드하세요." icon={<AlertTriangle size={28}/>}/>;
 
   const accepted=similar.filter(x=>x.finalResult==="합격").length;
   if(selectedUniversity){
     const selectedSimilar=similar.filter(row=>(row.universityNormalized||row.university)===selectedUniversity);
-    const selectedAll=rows.filter(row=>(row.universityNormalized||row.university)===selectedUniversity&&(field==="전체"||row.field===field));
+    const selectedAll=rows.filter(row=>(row.universityNormalized||row.university)===selectedUniversity);
     const acceptedAll=selectedAll.filter(row=>row.finalResult==="합격");
     const detailRows=buildUniversityDetails(selectedAll);
     const cut50=median(acceptedAll.map(row=>row.universityGrade??row.overallGrade));
@@ -423,9 +474,9 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
 
   return <div style={{display:"grid",gap:16}}>
     <div style={styles.notice}><AlertTriangle size={16}/><span>과거 사례는 9등급제 자료입니다. 5등급제 학생은 9등급 환산값으로 비교하며, 상향·소신·적정·안정·하향은 <b>합격자 50%컷과의 차이</b>를 기준으로 표시합니다.</span></div>
-    <div style={styles.matchPanel}>
-      <div style={{display:"grid",gap:8}}><b style={{fontSize:13}}>성적 비교 범위</b><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-range-button ${range===value?"is-active":""}`} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div></div>
-      <div style={{display:"grid",gap:8}}><b style={{fontSize:13}}>비교 계열</b><div className="admission-filter-options">{["전체",...fields].map(value=><button type="button" key={value} className={`admission-filter-chip ${field===value?"is-active":""}`} onClick={()=>setField(value)}>{value}</button>)}</div></div>
+    <div className="admission-range-panel">
+      <div><b>성적 비교 범위</b><span>계열·전형 조건은 위의 분석 조건을 그대로 사용합니다.</span></div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-range-button ${range===value?"is-active":""}`} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div>
     </div>
     <div className="admission-comparison-summary" style={styles.studentComparisonHeader}>
       <div><small>내신 평균 · {profile.gradeSystem}등급제</small><b>{fmt(profile.average)}</b></div>
@@ -445,7 +496,7 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
           <div style={styles.caseCountRow}><span className="admission-case-count-pill support">지원 <b>{stat.total}</b></span><span className="admission-case-count-pill accept">합격 <b>{stat.accepted}</b></span><span className="admission-case-count-pill reject">불합격 <b>{stat.rejected}</b></span></div>
           <div style={styles.caseFooter}><div style={{display:"grid",gap:3}}><span style={{fontSize:10.5,color:"#777f8b"}}>합격 사례 비율 {fmt(rate,1)}%</span><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:800}}>50%컷 기준</span><span className="admission-band-badge" title={fit.detail} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span></div></div><ChevronRight size={17} color="#7a8799"/></div>
         </button>;
-      })}</div>:<Empty title="선택한 범위의 유사 사례가 없습니다." text="성적 범위를 넓히거나 계열을 전체로 바꿔보세요."/>}
+      })}</div>:<Empty title="선택한 범위의 유사 사례가 없습니다." text="성적 범위를 넓히거나 위의 분석 조건을 완화해보세요."/>}
     </Section>
   </div>;
 }
@@ -520,7 +571,7 @@ function CaseSearch({rows,profile,favorites=[],onToggleFavorite,focusUniversity=
   return <div style={{display:"grid",gap:12}}>
     <div className="admission-case-search-controls"><SearchBox value={query} onChange={setQuery} placeholder="대학·학과·전형명 통합 검색" count={`${filtered.length.toLocaleString()}건`}/><div className="admission-case-range-filter"><span>내 환산 등급 기준</span><button type="button" className={`admission-filter-chip ${range==null?"is-active":""}`} onClick={()=>setRange(null)}>전체</button>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-filter-chip ${range===value?"is-active":""}`} disabled={profile?.converted==null} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div></div>
     <div className="admission-case-search-context"><span>{focusUniversity?<><b>현재 연결 대학</b> · {focusUniversity}</>:<><b>현재 조회</b> · {query?`“${query}” 검색 결과`:"전체 대학·학과·전형"}</>}</span><span>{range!=null&&profile?.converted!=null?`9등급 환산 ${fmt(profile.converted)} ±${range.toFixed(1)}`:"성적 범위 제한 없음"}</span></div>
-    <Table className="admission-case-search-table" wrapStyle={{overflowX:"hidden"}}><colgroup><col style={{width:"4%"}}/><col style={{width:"16%"}}/><col style={{width:"14%"}}/><col style={{width:"9%"}}/><col style={{width:"24%"}}/><col style={{width:"15%"}}/><col style={{width:"11%"}}/><col style={{width:"7%"}}/></colgroup><thead><tr><th>★</th><th>대학</th><th>모집단위</th><th>지역·계열</th><th>전형</th><th>성적</th><th>최종 결과</th><th>등록</th></tr></thead><tbody>{visible.map(row=>{const registration=registrationDisplay(row);const favoriteItem={source:"case",favoriteKind:"학과",university:row.university,department:row.department,admissionType:row.detailType||row.admissionType,label:`${row.university} ${row.department}`};return <tr key={row.caseId}><td>{onToggleFavorite&&<button type="button" className={`admission-favorite-button ${isFavorite(favorites,favoriteItem)?"is-active":""}`} onClick={()=>onToggleFavorite(favoriteItem)} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td><td><b style={{fontSize:11.2}}>{row.university}</b></td><td style={{textAlign:"center",fontWeight:780,whiteSpace:"normal",wordBreak:"keep-all"}}>{row.department}</td><td>{row.region}<br/><small style={{color:"#727b86"}}>{row.field}</small></td><td style={{textAlign:"left"}}><b style={{fontSize:11.2}}>{row.admissionType}</b><br/><small style={{color:"#727b86"}}>{row.detailType}</small></td><td><div className="admission-case-grade-stack"><span><small>전교과</small><b>{fmt(row.overallGrade)}</b></span><span><small>대학환산</small><b>{fmt(row.universityGrade)}</b></span><span><small>수능</small><b>{fmt(row.csatAverage)}</b></span></div></td><td><span style={{...styles.badge,...resultStyle(row.finalResultDetail)}}>{row.finalResultDetail}</span></td><td><span style={{...styles.registrationBadge,color:registration.color,background:registration.background}}>{registration.label}</span></td></tr>})}</tbody></Table>
+    <Table className="admission-case-search-table" wrapStyle={{overflowX:"hidden"}}><colgroup><col style={{width:"4%"}}/><col style={{width:"16%"}}/><col style={{width:"14%"}}/><col style={{width:"9%"}}/><col style={{width:"24%"}}/><col style={{width:"15%"}}/><col style={{width:"11%"}}/><col style={{width:"7%"}}/></colgroup><thead><tr><th>★</th><th>대학</th><th>모집단위</th><th>지역·계열</th><th>전형</th><th>성적</th><th>최종 결과</th><th>등록</th></tr></thead><tbody>{visible.map(row=>{const registration=registrationDisplay(row);const favoriteItem={source:"case",favoriteKind:"학과",university:row.university,department:row.department,admissionType:row.detailType||row.admissionType,label:`${row.university} ${row.department}`};return <tr key={row.caseId}><td>{onToggleFavorite&&<button type="button" className={`admission-favorite-button ${isFavorite(favorites,favoriteItem)?"is-active":""}`} onClick={()=>onToggleFavorite(favoriteItem)} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td><td><b style={{fontSize:11.2}}>{row.university}</b></td><td style={{textAlign:"center",fontWeight:780,whiteSpace:"normal",wordBreak:"keep-all"}}>{row.department}</td><td>{row.region}<br/><small style={{color:"#727b86"}}>{row.field}</small></td><td style={{textAlign:"left"}}><b style={{fontSize:11.2}}>{row.admissionType}</b><br/><small style={{color:"#727b86"}}>{row.detailType}</small></td><td><div className="admission-case-grade-grid"><span><small>전교과</small><b>{fmt(row.overallGrade)}</b></span><span><small>대학환산</small><b>{fmt(row.universityGrade)}</b></span><span><small>수능평균</small><b>{fmt(row.csatAverage)}</b></span></div></td><td><span style={{...styles.badge,...resultStyle(row.finalResultDetail)}}>{row.finalResultDetail}</span></td><td><span style={{...styles.registrationBadge,color:registration.color,background:registration.background}}>{registration.label}</span></td></tr>})}</tbody></Table>
     <div style={styles.pagination}><button style={styles.pageButton} disabled={page<=1} onClick={()=>setPage(x=>x-1)}><ArrowLeft size={14}/>이전</button><span style={styles.pageStatus}><b>{page}</b><em>/</em>{max}</span><button style={styles.pageButton} disabled={page>=max} onClick={()=>setPage(x=>x+1)}>다음<ChevronRight size={14}/></button></div>
   </div>;
 }
@@ -540,8 +591,8 @@ export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedS
   const setSid=value=>selectedStudentSid!==undefined?onSelectedStudentSidChange?.(value):setLocalSid(value);
   const setQuery=value=>selectedStudentQuery!==undefined?onSelectedStudentQueryChange?.(value):setLocalQuery(value);
   const profile=useMemo(()=>studentProfile(sid,roster,gdb,currentGrade),[sid,roster,gdb,currentGrade]);
-  const[filters,setFilters]=useState({query:"",regions:[],fields:[],schoolTypes:[],admissionTypes:[],detailTypes:[],results:[],minGrade:"",maxGrade:""});
-  const filtered=useMemo(()=>applyFilters(cases,filters),[cases,filters]);
+  const[filters,setFilters]=useState({query:"",regions:[],fields:[],schoolTypes:[],admissionTypes:[],detailTypes:[],results:[],bands:[],minGrade:"",maxGrade:""});
+  const filtered=useMemo(()=>applyFilters(cases,filters,profile),[cases,filters,profile?.converted]);
   useEffect(()=>{currentView.current={tab,studentUniversity,universitySelection}},[tab,studentUniversity,universitySelection]);
   useEffect(()=>{navStack.current=[];setNavDepth(0);setStudentUniversity("");if(typeof window!=="undefined"&&window.history.state?.kdAdmissionCaseNav){const next={...(window.history.state||{})};delete next.kdAdmissionCaseNav;window.history.replaceState(next,"")}},[sid]);
   const applyView=view=>{setTab(view.tab||"student");setStudentUniversity(view.studentUniversity||"");setUniversitySelection(view.universitySelection||"")};
@@ -559,7 +610,7 @@ export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedS
     {(navDepth>0||onBackToConsultation||focusUniversity)&&<div className="admission-internal-nav"><div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>{navDepth>0&&<button type="button" onClick={goBack}><ArrowLeft size={14}/>이전 화면</button>}{onBackToConsultation&&<button type="button" onClick={onBackToConsultation}><ArrowLeft size={14}/>상담·관심 대학으로</button>}<span>{breadcrumb}</span></div>{focusUniversity&&<span>연결 대학 <b>{focusUniversity}</b> <button type="button" style={{marginLeft:6}} onClick={()=>{setUniversitySelection("");onClearFocus?.()}}>연결 해제</button></span>}</div>}
     <StudentConnector profile={profile} query={query} onQuery={setQuery} onSelect={setSid} roster={roster}/>
     <div style={styles.tabs}>{[["student","학생 맞춤 분석"],["overview","전체 현황"],["university","대학·전형별"],["dimension","등급·지역별"],["search","사례 검색"]].map(([key,label])=><button key={key} onClick={()=>selectTab(key)} style={{...styles.tab,...(tab===key?styles.tabActive:{})}}>{label}</button>)}</div>
-    <FilterPanel cases={cases} filters={filters} setFilters={setFilters} filteredCount={filtered.length}/><div style={styles.filteredCount}><Filter size={13}/>전체 {cases.length.toLocaleString()}건 중 현재 조건에 해당하는 사례 <b>{filtered.length.toLocaleString()}건</b></div>{filtered.length===0&&<div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",borderRadius:11,background:"#fff4ed",border:"1px solid #f1cfb7",color:"#8a4f25",fontSize:12}}><AlertTriangle size={16}/><span>조건에 해당하는 사례가 없습니다. 상단의 <b>전체 초기화</b>를 누르거나 선택 범위를 넓혀보세요.</span></div>}
+    <FilterPanel cases={cases} filters={filters} setFilters={setFilters} filteredCount={filtered.length} profile={profile}/><div style={styles.filteredCount}><Filter size={13}/>전체 {cases.length.toLocaleString()}건 중 현재 조건에 해당하는 사례 <b>{filtered.length.toLocaleString()}건</b></div>{filtered.length===0&&<div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",borderRadius:11,background:"#fff4ed",border:"1px solid #f1cfb7",color:"#8a4f25",fontSize:12}}><AlertTriangle size={16}/><span>조건에 해당하는 사례가 없습니다. 상단의 <b>전체 초기화</b>를 누르거나 선택 범위를 넓혀보세요.</span></div>}
     {tab==="student"&&<StudentMatch rows={filtered} profile={profile} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} admissionRows={gdb?.admissionRows||[]} selectedUniversity={studentUniversity} onSelectUniversity={value=>value?navigate({tab:"student",studentUniversity:value}):setStudentUniversity("")} onBackUniversity={goBack}/>} {tab==="overview"&&<Overview rows={filtered}/>} {tab==="university"&&<UniversityAnalysis rows={filtered} focusUniversity={focusUniversity} selectedUniversity={universitySelection} onSelectedUniversityChange={setUniversitySelection}/>} {tab==="dimension"&&<DimensionAnalysis rows={filtered}/>} {tab==="search"&&<CaseSearch rows={filtered} profile={profile} favorites={favorites} onToggleFavorite={onToggleFavorite} focusUniversity={focusUniversity}/>} 
   </div>;
 }
