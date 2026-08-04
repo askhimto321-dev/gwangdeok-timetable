@@ -3,6 +3,7 @@ import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, Fi
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
 import TeacherGradeAnalyzer from "./TeacherGradeAnalyzer.jsx";
+import MinimumAchievement from "./MinimumAchievement.jsx";
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
 
@@ -570,7 +571,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
-  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [] });
+  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {} });
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] });
@@ -592,7 +593,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -606,8 +607,11 @@ export default function App() {
         readStorage("kd_materials", {}),
         readStorage("kd_feedback", []),
         readStorage("kd_staff_notices", []),
+        readStorage("kd_teacher_grade_workspaces", {}),
+        readStorage("kd_minimum_achievement_settings", {}),
+        readStorage("kd_minimum_achievement_attendance", {}),
       ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices });
+      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance });
       loadGradesDB().then(setGdb);
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
@@ -772,6 +776,9 @@ export default function App() {
     if (patch.materials) jobs.push(writeStorage("kd_materials", patch.materials));
     if (patch.feedback) jobs.push(writeStorage("kd_feedback", patch.feedback));
     if (patch.staffNotices) jobs.push(writeStorage("kd_staff_notices", patch.staffNotices));
+    if (patch.teacherGradeWorkspaces) jobs.push(writeStorage("kd_teacher_grade_workspaces", patch.teacherGradeWorkspaces));
+    if (patch.minimumAchievementSettings) jobs.push(writeStorage("kd_minimum_achievement_settings", patch.minimumAchievementSettings));
+    if (patch.minimumAchievementAttendance) jobs.push(writeStorage("kd_minimum_achievement_attendance", patch.minimumAchievementAttendance));
     const results = await Promise.all(jobs);
     const failed = results.find(r => r && r.ok === false);
     if (failed) { showToast(`실패했습니다. (${failed.error})`, "error"); return false; }
@@ -1059,8 +1066,8 @@ export default function App() {
     <div style={styles.app}>
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
-      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} />
-      {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && <StaffStudentWorkspaceBar
+      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} />
+      {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
         allowedGrades={workspaceAllowedGrades}
         selectedSid={selectedStudentSid}
@@ -1089,6 +1096,15 @@ export default function App() {
           onTeacherLogout={() => { if (viewedTeacher) setViewedTeacher(null); else { setLoggedInTeacher(null); saveSession({ teacherId: null }); } }}
           onMonitorLogout={() => { setLoggedInMonitor(null); saveSession({ monitorId: null }); }}
         />
+      ) : activeSection === "minimumAchievement" ? (
+        <div style={styles.body}>
+          <MinimumAchievement
+            db={db} persist={persist} showToast={showToast} grade={grade} roster={roster} allRosters={db.roster}
+            actor={loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin}
+            accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : "teacher"}
+            homeroomClass={loggedInTeacher?.homeroomClass || ""}
+          />
+        </div>
       ) : activeSection === "grades" ? (
         <GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
@@ -1518,7 +1534,10 @@ function TeacherZoneWorkspace({
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
-    {workspaceMode === "grades" ? <TeacherGradeAnalyzer key={`${actor.id || "account"}-${grade}`} teacher={actor} roster={mergedRoster} grade={grade} showToast={showToast} /> : (
+    {workspaceMode === "grades" ? <TeacherGradeAnalyzer key={`${actor.id || "account"}-${grade}`} teacher={actor} roster={mergedRoster} grade={grade} showToast={showToast} db={db} persist={persist}
+      accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : "teacher"}
+      homeroomClass={loggedInTeacher?.homeroomClass || viewedTeacher?.homeroomClass || ""}
+      canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && normalizedTeacherRole(loggedInTeacher) === "homeroom") || (viewedTeacher && normalizedTeacherRole(viewedTeacher) === "homeroom"))} /> : (
       loggedInMonitor
         ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={onMonitorLogout} />
         : (loggedInTeacher || viewedTeacher)
@@ -1539,11 +1558,12 @@ const teacherZoneWorkspaceStyles = {
   gradeButtonActive: { color: "#315d90", background: "#e9f2fc", borderColor: "#b8cde5" },
 };
 
-function MegaNav({ active, onSwitch, onLogout, showAdmin, showTeacherZone }) {
+function MegaNav({ active, onSwitch, onLogout, showAdmin, showTeacherZone, showMinimumAchievement }) {
   const items = [
     { key: "grades", label: "성적", icon: "📊" },
     { key: "timetable", label: "시간표", icon: "🗓️" },
     ...(showTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE", icon: "🧮" }] : []),
+    ...(showMinimumAchievement ? [{ key: "minimumAchievement", label: "최소성취수준", icon: "🛡️" }] : []),
     ...(showAdmin ? [{ key: "admin", label: "관리자", icon: "⚙️" }] : []),
   ];
   return (

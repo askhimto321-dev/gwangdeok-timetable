@@ -2685,9 +2685,9 @@ function MockSumCards({ sums }) {
 }
 
 function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
-  const width = 920;
-  const height = 350;
-  const margin = { top: 38, right: 28, bottom: 66, left: 54 };
+  const width = 960;
+  const height = 372;
+  const margin = { top: 38, right: 54, bottom: 88, left: 58 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const labels = xLabels || [];
@@ -2758,12 +2758,20 @@ function GradeTrendChart({ title, xLabels, series, maxGrade, emptyText }) {
           })}
           <text x="15" y={margin.top + plotHeight / 2} transform={`rotate(-90 15 ${margin.top + plotHeight / 2})`} textAnchor="middle" fontSize="11" fill="#8a8578">등급</text>
 
-          {labels.map((label, index) => (
-            <g key={`${label}-${index}`}>
-              <line x1={xAt(index)} y1={margin.top} x2={xAt(index)} y2={margin.top + plotHeight} stroke="#f2efe7" strokeWidth="1" />
-              <text x={xAt(index)} y={height - 27} textAnchor="middle" fontSize="10.5" fill="#716b5f">{label}</text>
-            </g>
-          ))}
+          {labels.map((label, index) => {
+            const parts=String(label||"").split("·").map(item=>item.trim()).filter(Boolean);
+            const anchor=index===0?"start":index===labels.length-1?"end":"middle";
+            const x=index===0?xAt(index)-2:index===labels.length-1?xAt(index)+2:xAt(index);
+            return (
+              <g key={`${label}-${index}`}>
+                <line x1={xAt(index)} y1={margin.top} x2={xAt(index)} y2={margin.top + plotHeight} stroke="#f2efe7" strokeWidth="1" />
+                <text x={x} y={height - 43} textAnchor={anchor} fontSize="10.5" fill="#716b5f" fontWeight="650">
+                  <tspan x={x} dy="0">{parts[0]||label}</tspan>
+                  {parts.length>1&&<tspan x={x} dy="15">{parts.slice(1).join(" · ")}</tspan>}
+                </text>
+              </g>
+            );
+          })}
 
           {usableSeries.map((item, seriesIndex) => {
             const color = item.color || palette[seriesIndex % palette.length];
