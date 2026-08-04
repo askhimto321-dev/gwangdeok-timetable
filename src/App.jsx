@@ -2509,8 +2509,12 @@ function TimetableCard({ result, sid }) {
   const [view, setView] = useState("timetable");
   return (
     <div style={styles.card} className="print-card student-timetable-card">
-      <div style={styles.printHeader} className="print-header">
-        <div><div style={styles.cardTitle}>{student.name} <span style={styles.cardSub}>{student.class}반 {student.number}번</span></div><div style={styles.cardMeta}>학번 {sid}</div></div>
+      <div style={styles.printHeader} className="print-header timetable-print-header">
+        <div className="timetable-print-identity">
+          <div className="timetable-print-kicker print-only">광덕고등학교 · 개인 시간표</div>
+          <div style={styles.cardTitle} className="timetable-print-title">{student.name} <span style={styles.cardSub} className="timetable-print-class">{student.class}반 {student.number}번</span></div>
+          <div style={styles.cardMeta} className="timetable-print-meta">학번 {sid}</div>
+        </div>
         <button type="button" className="no-print" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> 인쇄 / PDF</button>
       </div>
       <div className="no-print" style={styles.studentViewTabs}>
@@ -2521,7 +2525,7 @@ function TimetableCard({ result, sid }) {
         <>
           {!hasTimetable && <div style={styles.warnBanner}><AlertTriangle size={14} /> {student.class}반 시간표 데이터가 없습니다.</div>}
           <GridTable grid={grid} />
-          <div style={styles.legend}>
+          <div style={styles.legend} className="timetable-legend">
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#c7d2c4" }} /> 공통수업</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e3c6ae" }} /> 이동수업 (교실 이동)</span>
@@ -4272,6 +4276,11 @@ const globalCss = `
 .subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
 .subject-roster-table tbody tr:hover{background:#eef5ff} @keyframes spin { to { transform: rotate(360deg); } }
   .student-timetable-card { font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; letter-spacing: -0.014em; }
+  .timetable-print-header { padding: 2px 2px 13px; margin-bottom: 3px; border-bottom: 1px solid #dfe5ed; }
+  .timetable-print-identity { display: grid; gap: 3px; min-width: 0; }
+  .timetable-print-title { color: #1f2d3d; letter-spacing: -0.028em; }
+  .timetable-print-class { display: inline-flex; align-items: center; margin-left: 7px; padding: 3px 7px; border-radius: 999px; background: #f0f4f9; border: 1px solid #d8e1ec; color: #52647b; font-weight: 800; vertical-align: middle; }
+  .timetable-print-meta { letter-spacing: .01em; }
   .student-timetable-table { font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; letter-spacing: -0.012em; line-height: 1.36; }
   .student-timetable-table th { letter-spacing: -0.018em; }
   .student-timetable-subject { text-wrap: balance; }
@@ -4286,10 +4295,17 @@ const globalCss = `
     @page { size: A4; margin: 6mm 10mm; }
     body { margin: 0; }
     table tr { break-inside: avoid; page-break-inside: avoid; }
-    .print-card { width: 100% !important; max-width: none !important; padding: 8px 10px !important; margin: 0 !important; overflow: visible !important; }
-    .print-header { margin-bottom: 4px !important; }
-    .student-timetable-table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; margin-top: 8px !important; font-size: 8.4pt !important; font-family: 'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif !important; letter-spacing: -0.012em !important; }
-    .student-timetable-table th,.student-timetable-table td { box-sizing: border-box !important; min-width: 0 !important; padding: 5px 3px !important; line-height: 1.22 !important; word-break: keep-all !important; overflow-wrap: anywhere !important; vertical-align: middle !important; }
+    .print-card { width: 100% !important; max-width: none !important; padding: 3mm 4mm 4mm !important; margin: 0 !important; overflow: visible !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+    .print-header { margin-bottom: 0 !important; }
+    .timetable-print-header { align-items: flex-end !important; padding: 2mm 1mm 4mm !important; margin-bottom: 5mm !important; border-bottom: 2px solid #315f95 !important; }
+    .timetable-print-kicker { margin-bottom: 2mm !important; color: #315f95 !important; font-size: 8.5pt !important; font-weight: 900 !important; letter-spacing: .08em !important; }
+    .timetable-print-title { font-size: 19pt !important; line-height: 1.08 !important; font-weight: 900 !important; color: #17283d !important; letter-spacing: -0.04em !important; }
+    .timetable-print-class { margin-left: 3mm !important; padding: 1.2mm 2.4mm !important; border: 1px solid #c9d7e8 !important; background: #edf4fc !important; color: #315a86 !important; font-size: 9pt !important; font-weight: 900 !important; }
+    .timetable-print-meta { margin-top: 1.6mm !important; color: #6c7888 !important; font-size: 8.5pt !important; font-weight: 700 !important; }
+    .student-timetable-table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; margin-top: 0 !important; font-size: 8.4pt !important; font-family: 'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif !important; letter-spacing: -0.012em !important; border: 1.2px solid #aebdce !important; }
+    .student-timetable-table th { background: #eaf1f8 !important; color: #29445f !important; border-color: #becbd8 !important; font-weight: 900 !important; }
+    .student-timetable-table th,.student-timetable-table td { box-sizing: border-box !important; min-width: 0 !important; padding: 5.5px 3px !important; line-height: 1.24 !important; word-break: keep-all !important; overflow-wrap: anywhere !important; vertical-align: middle !important; border-color: #cfd7df !important; }
+    .timetable-legend { margin-top: 4mm !important; padding-top: 2.5mm !important; border-top: 1px solid #dce3ea !important; gap: 5mm !important; }
     .student-timetable-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
     .student-timetable-table .student-timetable-cell { width: 100% !important; max-width: 100% !important; min-width: 0 !important; overflow: hidden !important; }
     .student-timetable-table .student-timetable-subject { width: 100% !important; max-width: 100% !important; font-size: 8.2pt !important; line-height: 1.2 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: anywhere !important; text-wrap: balance !important; }

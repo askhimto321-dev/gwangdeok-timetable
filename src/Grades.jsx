@@ -114,7 +114,18 @@ function admissionFieldTags(row) {
   if (/(자연|이공|공학|과학계열|수학계열|자연과학|의약|의학|약학|수의|보건계열)/.test(text)) tags.push("자연");
   if (/(공통계열|전계열|계열공통)/.test(text)) tags.push("공통");
   const unique = Array.from(new Set(tags));
-  return unique.length ? unique : ["공통"];
+  if (unique.length) return unique;
+
+  // Ver3 이전에 "계열(학과)" 헤더를 읽지 못한 채 저장된 행도 화면에서 복구합니다.
+  // 가톨릭대 지역균형은 제공 원본 기준으로 2개 영역 최저가 인문·자연,
+  // 3개 영역 최저가 간호학과이므로 기존 저장 데이터도 다시 구분합니다.
+  const legacyUniversity = universityKey(row?.university);
+  const legacyCount = Number(row?.requiredSubjectCount);
+  if (legacyUniversity === "가톨릭대" && /지역균형/.test(String(row?.track || ""))) {
+    if (legacyCount >= 3) return ["간호"];
+    if (legacyCount === 2) return ["인문", "자연"];
+  }
+  return ["공통"];
 }
 
 function AdmissionFieldBadges({ tags }) {
@@ -1433,6 +1444,24 @@ function admissionCampusLabel(value, region = "") {
 function normalizeUniversitySearchText(value) {
   return String(value || "").normalize("NFKC").replace(/대학교/g, "대").replace(/\s+/g, "").replace(/[·ㆍ.,_\-–—]/g, "").toLowerCase();
 }
+function admissionCaseCampusForItem(item) {
+  const rawUniversity = String(item?.university || "").trim();
+  const normalizedUniversity = String(item?.universityNormalized || "").trim();
+  const rawExplicit = explicitAdmissionCampusLabel(rawUniversity);
+  if (rawExplicit) return rawExplicit;
+
+  // 원본 대학명에 캠퍼스가 없을 때는 지역 열을 우선합니다.
+  // 과거 사례의 보조 대학명(대학2)이 잘못 ERICA로 정규화된 경우에도
+  // 서울 지역 사례가 ERICA로 연결되지 않도록 합니다.
+  const baseUniversity = universityNameWithoutCampus(rawUniversity || normalizedUniversity);
+  const campusFromRegion = admissionCampusLabel(baseUniversity, item?.region);
+  if (campusFromRegion) return campusFromRegion;
+
+  const normalizedExplicit = explicitAdmissionCampusLabel(normalizedUniversity);
+  if (normalizedExplicit) return normalizedExplicit;
+  return admissionCampusLabel(normalizedUniversity || rawUniversity, item?.region);
+}
+
 function inferCampusAliasFromText(value) {
   const source = String(value || "").normalize("NFKC");
   const explicit = explicitAdmissionCampusLabel(source);
@@ -1531,10 +1560,10 @@ function admissionCaseItemsForRow(caseIndex, row) {
   const baseItems = caseIndex?.get(universityKey(row?.university)) || [];
   if (!baseItems.length) return [];
   const rowCampus = admissionCampusLabel(row?.university, row?.region);
-  if (rowCampus) return baseItems.filter(item => admissionCampusLabel(item?.universityNormalized || item?.university, item?.region) === rowCampus);
-  const noCampus = baseItems.filter(item => !admissionCampusLabel(item?.universityNormalized || item?.university, item?.region));
+  if (rowCampus) return baseItems.filter(item => admissionCaseCampusForItem(item) === rowCampus);
+  const noCampus = baseItems.filter(item => !admissionCaseCampusForItem(item));
   if (noCampus.length) return noCampus;
-  const groups = new Set(baseItems.map(item => admissionCampusLabel(item?.universityNormalized || item?.university, item?.region)).filter(Boolean));
+  const groups = new Set(baseItems.map(item => admissionCaseCampusForItem(item)).filter(Boolean));
   return groups.size <= 1 ? baseItems : [];
 }
 function admissionCaseFocusUniversity(row) {
@@ -2992,6 +3021,10 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
     });
     return map;
   }, [gdb.admissionCases]);
+  const favoriteAdmissionRows = useMemo(
+    () => admissionItemsForGrade(gdb.admissionRows || [], identity.grade),
+    [gdb.admissionRows, identity.grade],
+  );
   const groups = useMemo(() => {
     const map = new Map();
     visibleFavorites.forEach(item => {
@@ -3009,18 +3042,38 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
         <SectionHeading title="관심 대학·학과" description="대학·학과·전형별로 저장한 항목을 분류하고, 지원 진단과 광덕고 사례를 같은 학교 기준으로 연결합니다." />
         <div style={favoriteView.filters}>{["전체","대학","학과","전형"].map(value=><button key={value} type="button" onClick={()=>setFavoriteFilter(value)} style={{...favoriteView.filterButton,...(favoriteFilter===value?favoriteView.filterActive:{})}}>{value}<span>{categoryCounts[value]||0}</span></button>)}</div>
         {!groups.length ? <div style={favoriteView.filteredEmpty}>선택한 분류에 저장된 관심 항목이 없습니다.</div> : <div style={favoriteView.grid}>{groups.map(group=>{
-          const admissions=admissionItemsForGrade(gdb.admissionRows||[],identity.grade).filter(row=>universityDocumentKey(row.university,row.region)===universityDocumentKey(group.university,group.region));
-          const cases=admissionCaseItemsForRow(favoriteCaseIndex,{university:group.university,region:group.region});
+          const baseKey = universityKey(group.university);
+          const baseAdmissions = favoriteAdmissionRows.filter(row => universityKey(row.university) === baseKey);
+          const baseCases = favoriteCaseIndex.get(baseKey) || [];
+          const storedCampus = admissionCampusLabel(group.university, group.region);
+          const favoriteDepartments = group.items.map(item => normalizeAdmissionLookupKey(item.department)).filter(value => value && !["전체","대학전체"].includes(value));
+          const favoriteTypes = group.items.map(item => normalizeAdmissionLookupKey(item.admissionType)).filter(Boolean);
+          const contextualCases = baseCases.filter(caseRow => {
+            const department = normalizeAdmissionLookupKey(caseRow.department);
+            const type = normalizeAdmissionLookupKey(`${caseRow.admissionType || ""}${caseRow.detailType || ""}`);
+            const departmentMatched = !favoriteDepartments.length || favoriteDepartments.some(value => department.includes(value) || value.includes(department));
+            const typeMatched = !favoriteTypes.length || favoriteTypes.some(value => type.includes(value) || value.includes(type));
+            return departmentMatched && typeMatched;
+          });
+          const contextualCampuses = Array.from(new Set(contextualCases.map(admissionCaseCampusForItem).filter(Boolean)));
+          const admissionCampuses = Array.from(new Set(baseAdmissions.map(row => admissionCampusLabel(row.university, row.region)).filter(Boolean)));
+          const resolvedCampus = storedCampus
+            || (contextualCampuses.length === 1 ? contextualCampuses[0] : "")
+            || (admissionCampuses.includes("서울") ? "서울" : (admissionCampuses.length === 1 ? admissionCampuses[0] : ""));
+          const resolvedUniversity = resolvedCampus ? universityNameWithCampus(group.university, resolvedCampus) : group.university;
+          const resolvedRegion = resolvedCampus ? regionForAdmissionCampus(resolvedUniversity, resolvedCampus, group.region || "미지정") : group.region;
+          const admissions=favoriteAdmissionRows.filter(row=>universityDocumentKey(row.university,row.region)===universityDocumentKey(resolvedUniversity,resolvedRegion));
+          const cases=admissionCaseItemsForRow(favoriteCaseIndex,{university:resolvedUniversity,region:resolvedRegion});
           const accepted=cases.filter(row=>row.finalResult==="합격");
           const cutValues=accepted.map(row=>asNumber(row.universityGrade??row.overallGrade)).filter(value=>value!=null).sort((a,b)=>a-b);
           const cut50=cutValues.length?(cutValues.length%2?cutValues[(cutValues.length-1)/2]:(cutValues[cutValues.length/2-1]+cutValues[cutValues.length/2])/2):null;
-          return <article key={group.university} style={favoriteView.card}>
-            <div style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b style={favoriteView.universityTitle}>{group.university}</b><span style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&admissions.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(admissionCaseFocusUniversity({university:group.university,region:group.region}))}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&cases.length>0&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(admissionCaseFocusUniversity({university:group.university,region:group.region}),target?.department||"",target?.admissionType||"")}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"학교 전체 사례"} <ExternalLink size={12}/></button>}</div></div>
+          return <article key={`${group.university}-${resolvedCampus || "common"}`} style={favoriteView.card}>
+            <div style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b style={favoriteView.universityTitle}>{resolvedUniversity}</b><span style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&admissions.length>0&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(resolvedUniversity)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&cases.length>0&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(resolvedUniversity,target?.department||"",target?.admissionType||"")}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"학교 전체 사례"} <ExternalLink size={12}/></button>}</div></div>
             <div style={favoriteView.sourceGrid}>
               <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>대학 지원 진단</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div>
               <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>광덕고 대입 사례</small><div style={favoriteView.sourceHeadline}><span>지원 <b>{cases.length}건</b></span><span>합격 <b>{accepted.length}건</b></span></div>{cases.length?<div style={favoriteView.sourceMetrics}><span style={favoriteView.sourceMetric}><small>합격자 50%컷</small><b>{cut50==null?"-":Math.round(cut50*100)/100}</b></span><span style={favoriteView.sourceMetric}><small>합격 사례 비율</small><b>{Math.round(accepted.length/cases.length*1000)/10}%</b></span></div>:<span style={favoriteView.sourceDetail}>연결 사례 없음</span>}</div>
             </div>
-            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><span style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><span style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(admissionCaseFocusUniversity({university:group.university,region:group.region}),item.department||"",item.admissionType||"")}>광덕고 사례 <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>)}</div>
+            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><span style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><span style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",item.admissionType||"")}>광덕고 사례 <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>)}</div>
           </article>
         })}</div>}
       </div>;
@@ -3465,7 +3518,10 @@ function classifySheetName(name) {
 }
 
 function normalizeHeader(v) {
-  return String(v ?? "").replace(/\s+/g, "").trim();
+  return String(v ?? "")
+    .normalize("NFKC")
+    .replace(/[\s()[\]{}·ㆍ/_\-–—]+/g, "")
+    .trim();
 }
 function normalizeAdmissionLookupKey(value) {
   return String(value ?? "")
@@ -3576,11 +3632,13 @@ function parseCurriculumMethodLookup(rows) {
 
   const universityIndex = findIndex(["대학교", "대학명", "대학"]);
   const trackIndex = findIndex(["전형명", "전형", "전형유형", "전형구분"]);
-  const explicitDepartmentIndex = findIndex(["계열학과", "모집단위", "학과", "학부"]);
+  const combinedFieldDepartmentIndex = findIndex(["계열학과", "지원계열학과", "모집계열학과"]);
+  const explicitDepartmentIndex = combinedFieldDepartmentIndex >= 0 ? combinedFieldDepartmentIndex : findIndex(["모집단위", "학과", "학부"]);
   const genericSeriesIndex = findIndex(["계열"]);
-  const admissionFieldIndex = findIndex(["계열구분", "지원계열", "모집계열", "대학계열", "계열유형", "인문자연구분", "인문자연간호구분"])
-    >= 0 ? findIndex(["계열구분", "지원계열", "모집계열", "대학계열", "계열유형", "인문자연구분", "인문자연간호구분"])
-    : (explicitDepartmentIndex >= 0 ? genericSeriesIndex : -1);
+  const namedAdmissionFieldIndex = findIndex(["계열구분", "지원계열", "모집계열", "대학계열", "계열유형", "인문자연구분", "인문자연간호구분"]);
+  const admissionFieldIndex = namedAdmissionFieldIndex >= 0
+    ? namedAdmissionFieldIndex
+    : (combinedFieldDepartmentIndex >= 0 ? combinedFieldDepartmentIndex : (explicitDepartmentIndex >= 0 ? genericSeriesIndex : -1));
   const departmentIndex = explicitDepartmentIndex >= 0 ? explicitDepartmentIndex : genericSeriesIndex;
   const map = new Map();
   const ordered = [];
@@ -3875,9 +3933,11 @@ function parseAdmissionRows(rows) {
   const sumIndex = firstIndex(["수능최저합", "최저합기준", "최저합", "수능최저등급합"]);
   if (universityIndex == null || countIndex == null || sumIndex == null) return null;
 
-  const explicitDepartmentIndex = firstIndex(["계열학과", "모집단위", "학과", "학부"]);
+  const combinedFieldDepartmentIndex = firstIndex(["계열학과", "지원계열학과", "모집계열학과"]);
+  const explicitDepartmentIndex = combinedFieldDepartmentIndex ?? firstIndex(["모집단위", "학과", "학부"]);
   const genericSeriesIndex = idx["계열"] != null ? idx["계열"] : null;
   const admissionFieldIndex = firstIndex(["계열구분", "지원계열", "모집계열", "대학계열", "계열유형", "인문자연구분", "인문자연간호구분"])
+    ?? combinedFieldDepartmentIndex
     ?? (explicitDepartmentIndex != null ? genericSeriesIndex : null);
   const departmentIndex = explicitDepartmentIndex ?? genericSeriesIndex;
   const trackIndex = firstIndex(["전형명", "전형", "전형유형"]);

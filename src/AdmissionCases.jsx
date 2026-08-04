@@ -274,6 +274,82 @@ const CSS=`
   .admission-university-choice-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
   .admission-university-picker{grid-template-columns:1fr}
 }
+/* Ver4: 사례검색 도구와 빠른 필터를 잘리지 않는 한 줄 구조로 재배치 */
+.admission-quick-filter{
+  display:flex!important;
+  align-items:center;
+  gap:18px;
+  padding:10px 12px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  flex-wrap:nowrap;
+  scrollbar-width:thin;
+}
+.admission-quick-filter-group{
+  display:flex!important;
+  grid-template-columns:none!important;
+  align-items:center;
+  gap:10px;
+  min-width:max-content;
+  flex:0 0 auto;
+}
+.admission-quick-filter-label{
+  display:grid;
+  gap:1px;
+  min-width:86px;
+}
+.admission-quick-filter-label b{font-size:14px;line-height:1.2}
+.admission-quick-filter-label span{font-size:10.2px;line-height:1.25}
+.admission-quick-filter-options{display:flex;align-items:center;gap:6px;flex-wrap:nowrap}
+.admission-quick-filter .admission-filter-chip{min-height:36px;padding:7px 11px;font-size:12px}
+
+.admission-case-search-controls{
+  display:flex;
+  align-items:stretch;
+  gap:10px;
+  flex-wrap:wrap;
+  width:100%;
+  min-width:0;
+}
+.admission-case-search-controls>.admission-search-shell{
+  flex:1 1 240px;
+  width:auto;
+  min-width:240px;
+  overflow:hidden;
+}
+.admission-case-search-actions{
+  flex:1 1 790px;
+  display:grid;
+  grid-template-columns:minmax(205px,235px) minmax(315px,auto) minmax(138px,150px) auto;
+  align-items:stretch;
+  justify-content:end;
+  gap:8px;
+  min-width:0;
+}
+.admission-case-student-benchmark{
+  min-width:0;
+  width:100%;
+  padding:8px 10px;
+}
+.admission-case-range-filter{
+  flex-wrap:nowrap;
+  min-width:0;
+  padding:7px 8px;
+  gap:5px;
+}
+.admission-case-range-filter>span{font-size:10.5px}
+.admission-case-range-filter .admission-filter-chip{min-height:34px;padding:6px 10px;font-size:11.5px}
+.admission-case-sort-select,.admission-case-print-button{width:100%;min-height:40px}
+@media(max-width:1080px){
+  .admission-case-search-controls>.admission-search-shell{flex-basis:100%}
+  .admission-case-search-actions{flex-basis:100%;grid-template-columns:minmax(205px,1fr) auto minmax(138px,150px) auto}
+}
+@media(max-width:760px){
+  .admission-case-search-actions{grid-template-columns:1fr 1fr}
+  .admission-case-range-filter{overflow-x:auto}
+  .admission-case-print-button,.admission-case-sort-select{min-width:0}
+}
+
 @media print{
   body.print-admission-case-search *{visibility:hidden!important}
   body.print-admission-case-search .admission-case-print-root,
@@ -347,11 +423,32 @@ function caseUniversityBase(value){return String(value||"").normalize("NFKC").re
 function caseRegion(value){const text=String(value||"").normalize("NFKC").replace(/특별시|광역시|특별자치시|특별자치도|도$/g,"").trim();if(!text||text==="미지정"||text==="공통")return"";const aliases={경기도:"경기",충청남도:"충남",충청북도:"충북",전라남도:"전남",전라북도:"전북",경상남도:"경남",경상북도:"경북",제주도:"제주"};return aliases[text]||text}
 function explicitCaseCampus(value){const source=String(value||"").normalize("NFKC");const bracket=source.match(/[（(\[]\s*([^）)\]]+)\s*[）)\]]/);const bracketValue=String(bracket?.[1]||"").replace(/캠퍼스/gi,"").trim();if(bracketValue&&(CASE_CAMPUS_ALIASES.some(name=>bracketValue.toUpperCase()===name.toUpperCase())||/캠퍼스/i.test(String(bracket?.[1]||""))))return bracketValue.toUpperCase()==="ERICA"?"ERICA":bracketValue;const suffix=CASE_CAMPUS_ALIASES.find(name=>new RegExp(`${name}\\s*캠퍼스`,"i").test(source));return suffix?(suffix.toUpperCase()==="ERICA"?"ERICA":suffix):""}
 function caseCampusLabel(value,region=""){const explicit=explicitCaseCampus(value);if(explicit)return explicit;return CASE_MULTI_CAMPUS_BY_REGION[caseUniversityBase(value)]?.[caseRegion(region)]||""}
+function caseCampusForRow(row){
+  const raw=String(row?.university||"").trim();
+  const normalized=String(row?.universityNormalized||"").trim();
+  const rawExplicit=explicitCaseCampus(raw);
+  if(rawExplicit)return rawExplicit;
+  const base=caseUniversityBase(raw||normalized);
+  const regionCampus=CASE_MULTI_CAMPUS_BY_REGION[base]?.[caseRegion(row?.region)]||"";
+  if(regionCampus)return regionCampus;
+  const normalizedExplicit=explicitCaseCampus(normalized);
+  if(normalizedExplicit)return normalizedExplicit;
+  return caseCampusLabel(normalized||raw,row?.region);
+}
 function normalizeUniversityLink(value,region=""){return `${caseUniversityBase(value)}|${caseCampusLabel(value,region)}`}
 function prepareAdmissionCaseRows(rows=[]){
   const locations=new Map();
-  rows.forEach(row=>{const raw=row?.universityNormalized||row?.university;const base=caseUniversityBase(raw);const campus=caseCampusLabel(raw,row?.region);if(!base)return;if(!locations.has(base))locations.set(base,new Set());if(campus)locations.get(base).add(campus)});
-  return rows.map(row=>{const raw=String(row?.universityNormalized||row?.university||"").trim();const base=caseUniversityBase(raw);const campus=caseCampusLabel(raw,row?.region);const explicit=explicitCaseCampus(raw);const baseDisplay=raw.replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g,"").trim();const showCampus=Boolean(campus);const display=showCampus&&!explicit?`${baseDisplay}(${campus})`:raw;return{...row,_sourceUniversity:row?.university,_universityBase:base,_universityCampus:campus,university:display,universityNormalized:display}})
+  rows.forEach(row=>{const source=row?.university||row?.universityNormalized;const base=caseUniversityBase(source);const campus=caseCampusForRow(row);if(!base)return;if(!locations.has(base))locations.set(base,new Set());if(campus)locations.get(base).add(campus)});
+  return rows.map(row=>{
+    const raw=String(row?.university||"").trim();
+    const normalized=String(row?.universityNormalized||"").trim();
+    const source=raw||normalized;
+    const base=caseUniversityBase(source);
+    const campus=caseCampusForRow(row);
+    const baseDisplay=source.replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g,"").trim();
+    const display=campus?`${baseDisplay}(${campus})`:source;
+    return{...row,_sourceUniversity:raw,_sourceUniversityNormalized:normalized,_universityBase:base,_universityCampus:campus,university:display,universityNormalized:display};
+  })
 }
 function favoriteId(item){
   const caseScope=item?.favoriteKind==="개별사례"||item?.caseId?`case:${String(item?.caseId||"")}`:"group";
