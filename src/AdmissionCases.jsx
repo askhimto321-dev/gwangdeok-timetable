@@ -12,7 +12,7 @@ function printAdmissionCaseSearch(orientation="portrait"){
   const orientationClass=orientation==="landscape"?"print-admission-landscape":"print-admission-portrait";
   let pageStyle=document.getElementById("admission-case-dynamic-page");
   if(!pageStyle){pageStyle=document.createElement("style");pageStyle.id="admission-case-dynamic-page";document.head.appendChild(pageStyle)}
-  pageStyle.textContent=`@page{size:A4 ${orientation==="landscape"?"landscape":"portrait"};margin:${orientation==="landscape"?"7mm":"8mm"}}`;
+  pageStyle.textContent=`@page{size:A4 ${orientation==="landscape"?"landscape":"portrait"};margin:${orientation==="landscape"?"7mm":"10mm 11mm"}}`;
   const cleanup=()=>{document.body.classList.remove(className,"print-admission-landscape","print-admission-portrait");pageStyle?.remove()};
   document.body.classList.add(className,orientationClass);
   window.addEventListener("afterprint",cleanup,{once:true});
@@ -444,7 +444,7 @@ const CSS=`
   .admission-case-student-benchmark,.admission-case-range-filter{grid-column:1/-1}
 }
 @media print{
-  body.print-admission-case-search{margin:0!important;background:#fff!important}
+  body.print-admission-case-search{margin:0!important;background:#fff!important;-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
   body.print-admission-case-search *{visibility:hidden!important}
   body.print-admission-case-search .admission-case-print-root,
   body.print-admission-case-search .admission-case-print-root *{visibility:visible!important}
@@ -472,10 +472,10 @@ const CSS=`
   body.print-admission-case-search .admission-case-search-table td b{font-size:inherit!important}
   body.print-admission-case-search .admission-case-search-table small{font-size:5.6pt!important;line-height:1.2!important}
   body.print-admission-case-search .admission-case-search-table a{color:inherit!important;text-decoration:none!important}
-  body.print-admission-portrait .admission-case-search-table{font-size:7.4pt!important}
-  body.print-admission-portrait .admission-case-search-table th{font-size:7.1pt!important}
+  body.print-admission-portrait .admission-case-print-root{width:calc(100% - 2mm)!important;margin:0 auto!important}body.print-admission-portrait .admission-case-search-table{font-size:7pt!important}
+  body.print-admission-portrait .admission-case-search-table th{font-size:6.8pt!important}
   body.print-admission-portrait .admission-case-search-table th,
-  body.print-admission-portrait .admission-case-search-table td{padding:4.2px 3px!important}
+  body.print-admission-portrait .admission-case-search-table td{padding:3.6px 2.5px!important}
   body.print-admission-portrait .admission-case-portrait-table td>small{display:block;margin-top:2px}
   body.print-admission-portrait .admission-case-row-band{font-size:5.8pt!important;padding:1px 3px!important}
 }

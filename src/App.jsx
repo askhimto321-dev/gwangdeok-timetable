@@ -1107,6 +1107,8 @@ export default function App() {
             actor={loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin}
             accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : (loggedInTeacher && normalizedTeacherRole(loggedInTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
             homeroomClass={loggedInTeacher?.homeroomClass || ""}
+            setGrade={setGrade}
+            allowedGrades={(loggedInAdmin || loggedInDepartment || loggedInMonitor) ? GRADES : [teacherRoleGrade(loggedInTeacher || {})]}
           />
         </div>
       ) : activeSection === "grades" ? (
@@ -1537,7 +1539,8 @@ function TeacherZoneWorkspace({
     Object.values(allRosters || {}).forEach(value => Object.assign(output, value || {}));
     return Object.keys(output).length ? output : (roster || {});
   }, [allRosters, roster]);
-  const visibleGrades = (allowedGrades?.length ? allowedGrades : [grade]).map(String).filter(item => GRADES.includes(item));
+  const hasSubjectAssignments = !!((loggedInTeacher || viewedTeacher)?.assignments || []).some(item => String(item?.subject || "").trim());
+  const visibleGrades = ((loggedInAdmin || loggedInDepartment || loggedInMonitor || hasSubjectAssignments) ? GRADES : (allowedGrades?.length ? allowedGrades : [grade])).map(String).filter(item => GRADES.includes(item));
   const noticeContent = loggedInMonitor
     ? <MonitorZoneView monitor={loggedInMonitor} db={db} persist={persist} showToast={showToast} scopeKey={scopeKey} onLogout={onMonitorLogout} />
     : (loggedInTeacher || viewedTeacher)
@@ -1577,11 +1580,11 @@ const teacherZoneWorkspaceStyles = {
 
 function MegaNav({ active, onSwitch, onLogout, showAdmin, showTeacherZone, showMinimumAchievement }) {
   const items = [
-    { key: "grades", label: "성적", icon: "📊" },
-    { key: "timetable", label: "시간표", icon: "🗓️" },
-    ...(showTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE", icon: "🧮" }] : []),
-    ...(showMinimumAchievement ? [{ key: "minimumAchievement", label: "최소성취수준", icon: "🛡️" }] : []),
-    ...(showAdmin ? [{ key: "admin", label: "관리자", icon: "⚙️" }] : []),
+    { key: "grades", label: "성적", icon: "📊", activeBg:"linear-gradient(135deg,#e9f3ff,#eef4ff)", activeColor:"#2d5f96" },
+    { key: "timetable", label: "시간표", icon: "🗓️", activeBg:"linear-gradient(135deg,#eef8f4,#e7f5ee)", activeColor:"#34705a" },
+    ...(showTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE", icon: "🧮", activeBg:"linear-gradient(135deg,#fff3e8,#fbe9df)", activeColor:"#8a5740" }] : []),
+    ...(showMinimumAchievement ? [{ key: "minimumAchievement", label: "최소성취수준", icon: "🛡️", activeBg:"linear-gradient(135deg,#f7eef8,#f1e9f7)", activeColor:"#765285" }] : []),
+    ...(showAdmin ? [{ key: "admin", label: "관리자", icon: "⚙️", activeBg:"linear-gradient(135deg,#f0f2f8,#e8edf7)", activeColor:"#4f6387" }] : []),
   ];
   return (
     <div className="no-print" style={megaNavStyles.wrap}>
@@ -1595,7 +1598,7 @@ function MegaNav({ active, onSwitch, onLogout, showAdmin, showTeacherZone, showM
             <button
               key={it.key}
               onClick={() => onSwitch(it.key)}
-              style={{ ...megaNavStyles.tab, ...(active === it.key ? megaNavStyles.tabActive : {}) }}
+              style={{ ...megaNavStyles.tab, ...(active === it.key ? { ...megaNavStyles.tabActive, background:it.activeBg, color:it.activeColor, borderColor:`${it.activeColor}33` } : {}) }}
             >
               <span style={{ marginRight: 6 }}>{it.icon}</span>{it.label}
             </button>
@@ -1607,12 +1610,12 @@ function MegaNav({ active, onSwitch, onLogout, showAdmin, showTeacherZone, showM
   );
 }
 const megaNavStyles = {
-  wrap: { position: "sticky", top: 0, zIndex: 40, background: "linear-gradient(90deg,rgba(255,255,255,.96),rgba(246,249,255,.96),rgba(250,247,255,.96))", backdropFilter: "blur(16px)", borderBottom: "1px solid #dce4f0", boxShadow: "0 8px 28px rgba(55,72,110,0.09)" },
-  inner: { maxWidth: 1120, margin: "0 auto", padding: "9px 20px", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" },
+  wrap: { position: "sticky", top: 0, zIndex: 40, background: "rgba(250,251,253,.94)", backdropFilter: "blur(18px)", borderBottom: "1px solid #e4e9f0", boxShadow: "0 8px 28px rgba(55,72,110,0.08)" },
+  inner: { maxWidth: 1160, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" },
   brand: { display: "flex", alignItems: "center", gap: 10, marginRight: 8, fontWeight: 900, letterSpacing: "-0.3px" },
-  tabs: { display: "flex", gap: 6, flex: 1, alignItems: "center" },
-  tab: { border: "1px solid transparent", background: "transparent", padding: "9px 15px", borderRadius: 11, fontSize: 13.2, fontWeight: 850, color: "#677386", cursor: "pointer", transition: "all 0.16s ease" },
-  tabActive: { color: "#244f86", background: "linear-gradient(135deg,#e9f4ff,#f2edff)", borderColor: "#cbdcf2", boxShadow: "0 5px 15px rgba(55,83,150,0.14)" },
+  tabs: { display: "flex", gap: 7, flex: 1, alignItems: "center", flexWrap:"wrap" },
+  tab: { border: "1px solid #e0e6ee", background: "rgba(255,255,255,.9)", padding: "9px 14px", borderRadius: 13, fontSize: 13, fontWeight: 850, color: "#667386", cursor: "pointer", transition: "all 0.16s ease", boxShadow:"0 3px 10px rgba(55,72,110,.04)" },
+  tabActive: { boxShadow: "0 7px 18px rgba(55,83,150,0.13)", transform:"translateY(-1px)" },
 };
 
 function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections, canViewStudentTools = true, allowedGrades = null, compact = false }) {

@@ -7,11 +7,14 @@ import {
   CircleAlert,
   Download,
   FileSpreadsheet,
+  Database,
   Plus,
   Printer,
   RotateCcw,
   Save,
   Search,
+  Trash2,
+  PieChart,
   Settings2,
   ShieldCheck,
   Upload,
@@ -354,6 +357,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const [uploadMessages, setUploadMessages] = useState([]);
   const [busy, setBusy] = useState(false);
   const [criteriaSaving, setCriteriaSaving] = useState(false);
+  const [panelMode, setPanelMode] = useState("analysis");
+  const [dataSubjectFilter, setDataSubjectFilter] = useState("all");
+  const [dataClassFilter, setDataClassFilter] = useState("all");
   const writtenInputRef = useRef(null);
   const performanceInputRef = useRef(null);
 
@@ -469,7 +475,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setLocalWorkspaces(current => ({ ...current, [workspaceId]: snapshot }));
     setSelectedLocalId(workspaceId);
     setSelectedSharedId("");
-    showToast?.(`${context.subject} 성적 작업을 과목별로 저장했습니다.`, "success");
+    showToast?.(`${context.subject} 개인 임시본을 저장했습니다.`, "success");
   };
   const publishWorkspace = async () => {
     if (!context || !workspaceId) { showToast?.("담당 과목을 먼저 선택해주세요.", "error"); return; }
@@ -479,7 +485,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setSelectedLocalId(workspaceId);
     const next = { ...(db?.teacherGradeWorkspaces || {}), [workspaceId]: snapshot };
     const ok = await persist?.({ teacherGradeWorkspaces: next });
-    if (ok !== false) { setSelectedSharedId(workspaceId); setSelectedLocalId(""); showToast?.(`${context.subject} 성적 자료를 학교 공용 자료에 반영했습니다.`, "success"); }
+    if (ok !== false) { setSelectedSharedId(workspaceId); setSelectedLocalId(""); showToast?.(`${context.subject} 자료를 학교 공동 저장본으로 반영했습니다.`, "success"); }
   };
   const saveCriteriaSettings = async () => {
     if (!context || !workspaceId) { showToast?.("담당 과목을 먼저 선택해주세요.", "error"); return; }
@@ -551,10 +557,10 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const deleteLocalWorkspace = () => {
     if (!selectedLocalId || !localWorkspaces[selectedLocalId]) return;
     const item = localWorkspaces[selectedLocalId];
-    if (!window.confirm(`${item.subject || "이 과목"}의 브라우저 저장 자료를 삭제할까요? 학교에 반영된 자료는 삭제되지 않습니다.`)) return;
+    if (!window.confirm(`${item.subject || "이 과목"}의 개인 임시본을 삭제할까요? 학교 공동 저장본은 삭제되지 않습니다.`)) return;
     setLocalWorkspaces(current => { const next = { ...current }; delete next[selectedLocalId]; return next; });
     startNewWorkspace();
-    showToast?.("과목별 브라우저 저장 자료를 삭제했습니다.", "success");
+    showToast?.("개인 임시본을 삭제했습니다.", "success");
   };
   const weightTotal = useMemo(() => {
     const uploadedWritten = sortedWritten.reduce((sum, item) => sum + (asNumber(item.weight) || 0), 0);
@@ -1099,6 +1105,62 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     XLSX.writeFile(workbook, `${context?.year || "성적"}_${context?.subject || "과목"}_${activeView === "combined" ? "학기말" : activeView === "minimum" ? "최성보" : "지필"}_산출결과.xlsx`);
   };
 
+  const managedWorkspaceRows = useMemo(() => {
+    const local = Object.values(localWorkspaces || {}).map(item => ({ ...item, source: "local", sourceLabel: "개인 임시본" }));
+    const shared = sharedWorkspaces.map(item => ({ ...item, source: "shared", sourceLabel: "학교 공동본" }));
+    return [...local, ...shared].map(item => {
+      const classNumbers = Array.from(new Set([
+        ...(item.performance || []).flatMap(file => file.classes || []),
+        ...(item.written || []).flatMap(file => Object.values(file.students || {}).map(student => student.classNumber)),
+      ].filter(Boolean))).sort((a, b) => a - b);
+      const studentCount = new Set([
+        ...(item.written || []).flatMap(file => Object.keys(file.students || {})),
+        ...(item.performance || []).flatMap(file => Object.keys(file.students || {})),
+      ]).size;
+      return { ...item, classNumbers, studentCount };
+    });
+  }, [localWorkspaces, sharedWorkspaces]);
+  const dataSubjects = useMemo(() => Array.from(new Set(managedWorkspaceRows.map(item => item.subject).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"ko")), [managedWorkspaceRows]);
+  const dataClasses = useMemo(() => Array.from(new Set(managedWorkspaceRows.flatMap(item => item.classNumbers || []))).sort((a,b)=>a-b), [managedWorkspaceRows]);
+  const filteredManagedWorkspaces = useMemo(() => managedWorkspaceRows.filter(item => {
+    if (dataSubjectFilter !== "all" && item.subject !== dataSubjectFilter) return false;
+    if (dataClassFilter !== "all" && !(item.classNumbers || []).map(String).includes(String(dataClassFilter))) return false;
+    return true;
+  }), [managedWorkspaceRows, dataSubjectFilter, dataClassFilter]);
+  const deleteSharedWorkspace = async item => {
+    if (!item?.id || !(accessRole === "admin" || canEditSubject(item.subject))) return;
+    if (!window.confirm(`${item.subject || "이 과목"}의 학교 공동 저장본을 삭제할까요?`)) return;
+    const next = { ...(db?.teacherGradeWorkspaces || {}) };
+    delete next[item.id];
+    const ok = await persist?.({ teacherGradeWorkspaces: next });
+    if (ok !== false) { if (selectedSharedId === item.id) startNewWorkspace(item.subject); showToast?.("학교 공동 저장본을 삭제했습니다.", "success"); }
+  };
+  const deleteLocalWorkspaceById = item => {
+    if (!item?.id) return;
+    if (!window.confirm(`${item.subject || "이 과목"}의 개인 임시본을 삭제할까요?`)) return;
+    setLocalWorkspaces(current => { const next = { ...current }; delete next[item.id]; return next; });
+    if (selectedLocalId === item.id) startNewWorkspace(item.subject);
+    showToast?.("개인 임시본을 삭제했습니다.", "success");
+  };
+  const clearCurrentGradeLocalData = () => {
+    if (!Object.keys(localWorkspaces || {}).length) return;
+    if (!window.confirm(`${grade}학년 개인 임시 저장본을 모두 초기화할까요? 학교 공동 저장본은 유지됩니다.`)) return;
+    setLocalWorkspaces({});
+    setSelectedLocalId("");
+    try { localStorage.removeItem(storageKey); localStorage.removeItem(legacyStorageKey); } catch { /* ignore */ }
+    startNewWorkspace();
+    showToast?.(`${grade}학년 개인 임시 저장본을 초기화했습니다.`, "success");
+  };
+  const clearCurrentGradeSharedData = async () => {
+    if (accessRole !== "admin") return;
+    const gradeItems = Object.values(db?.teacherGradeWorkspaces || {}).filter(item => String(item?.grade || "") === String(grade));
+    if (!gradeItems.length) return;
+    if (!window.confirm(`${grade}학년 학교 공동 저장본 ${gradeItems.length}개를 모두 초기화할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
+    const next = Object.fromEntries(Object.entries(db?.teacherGradeWorkspaces || {}).filter(([, item]) => String(item?.grade || "") !== String(grade)));
+    const ok = await persist?.({ teacherGradeWorkspaces: next });
+    if (ok !== false) { setSelectedSharedId(""); startNewWorkspace(); showToast?.(`${grade}학년 학교 공동 저장본을 초기화했습니다.`, "success"); }
+  };
+
   const selectedWritten = sortedWritten.find(item => item.id === activeView) || null;
   return (
     <div className="teacher-grade-analyzer" style={ui.root}>
@@ -1110,23 +1172,30 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           <p style={ui.heroDescription}>지필·수행 성적을 검증하고 학기말 결과를 확인합니다.</p>
         </div>
         <div className="teacher-grade-hero-actions" style={ui.heroActions}>
-          <button type="button" style={ui.lightButton} onClick={saveLocalWorkspace} disabled={!canEditCurrentSubject}><Save size={15} /> 과목별 저장</button>
-          <button type="button" style={ui.publishButton} onClick={publishWorkspace} disabled={!context || !canEditCurrentSubject}><Check size={15} /> 공동 작업 저장</button>
+          <button type="button" style={ui.lightButton} onClick={saveLocalWorkspace} disabled={!canEditCurrentSubject}><Save size={15} /> 개인 임시 저장</button>
+          <button type="button" style={ui.publishButton} onClick={publishWorkspace} disabled={!context || !canEditCurrentSubject}><Check size={15} /> 학교 공동 저장</button>
           <button type="button" style={ui.lightButton} onClick={exportWorkbook}><Download size={15} /> 결과 엑셀</button>
           <button type="button" style={ui.lightButton} onClick={resetWorkspace}><RotateCcw size={15} /> 초기화</button>
         </div>
       </div>
 
+      <div className="teacher-grade-module-tabs no-print" style={ui.moduleTabs}>
+        <button type="button" onClick={()=>setPanelMode("analysis")} style={{...ui.moduleTab,...(panelMode==="analysis"?ui.moduleTabActive:{})}}><FileSpreadsheet size={14}/> 성적 산출</button>
+        <button type="button" onClick={()=>setPanelMode("data")} style={{...ui.moduleTab,...(panelMode==="data"?ui.moduleTabActive:{})}}><Database size={14}/> 데이터 관리</button>
+      </div>
+
+      <div style={{display:panelMode==="analysis"?"contents":"none"}}>
       <div className="teacher-grade-workspace-browser" style={ui.workspaceBrowser}>
         <div style={ui.workspaceIntro}><b>과목별 공동 작업</b><span>{accessRole === "admin" ? `${grade}학년 모든 과목을 생성·수정할 수 있습니다.` : canViewAllSubjects ? `${grade}학년 전체 과목을 열람하며, 담당 과목만 수정합니다.` : "같은 과목 담당 교사가 하나의 화면을 함께 사용합니다."}</span></div>
+        <div style={ui.saveTypeLegend}><span><i style={ui.localDot}/>개인 임시본</span><span><i style={ui.sharedDot}/>학교 공동본</span></div>
         <select value={workspaceSelection} onChange={event => loadWorkspaceSelection(event.target.value)} style={ui.workspaceSelect}>
           <option value="">저장된 과목 작업 선택</option>
-          {!!localWorkspaceList.length && <optgroup label="내 브라우저 저장 과목">{localWorkspaceList.map(item => <option key={`local-${item.id}`} value={`local:${item.id}`}>{item.subject} · {item.year || "-"}학년도 {item.semester || "-"}학기 · 저장본</option>)}</optgroup>}
-          {!!sharedWorkspaces.length && <optgroup label="학교 공동 작업 과목">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
+          {!!localWorkspaceList.length && <optgroup label="개인 임시 저장본">{localWorkspaceList.map(item => <option key={`local-${item.id}`} value={`local:${item.id}`}>{item.subject} · {item.year || "-"}학년도 {item.semester || "-"}학기 · 저장본</option>)}</optgroup>}
+          {!!sharedWorkspaces.length && <optgroup label="학교 공동 저장본">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
         </select>
         {accessRole === "teacher" ? <select value={draftSubject} onChange={event => startNewWorkspace(event.target.value)} style={ui.subjectSelect} disabled={!editableSubjectNames.length}><option value="">담당과목 없음</option>{editableSubjectNames.map(subject => <option key={subject} value={subject}>{subject}</option>)}</select> : accessRole === "admin" ? <><input list="teacher-grade-known-subjects" value={draftSubject} onChange={event => setDraftSubject(event.target.value)} style={ui.subjectInput} placeholder="작업할 과목명 입력"/><datalist id="teacher-grade-known-subjects">{allKnownSubjectNames.map(subject => <option key={subject} value={subject}/>)}</datalist></> : <span style={ui.adminEditBadge}>열람 전용</span>}
         <button type="button" style={ui.secondaryButton} onClick={() => startNewWorkspace(draftSubject)} disabled={!canStartSelectedSubject}>{accessRole === "admin" ? "과목 작업 시작" : "담당과목 작업 시작"}</button>
-        {selectedLocalId && <button type="button" style={ui.deleteWorkspaceButton} onClick={deleteLocalWorkspace}>저장본 삭제</button>}
+        {selectedLocalId && <button type="button" style={ui.deleteWorkspaceButton} onClick={deleteLocalWorkspace}>임시본 삭제</button>}
         {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || (accessRole === "admin" ? "관리자" : "담당 교사")}</span>}{context && readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
       </div>
 
@@ -1182,7 +1251,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             <div style={ui.choiceGroup}><span>과목 구분</span><Toggle disabled={readOnlyWorkspace} value={settings.courseType} options={[{ value: "common", label: "공통과목" }, { value: "elective", label: "선택과목" }]} onChange={courseType => setSettings(current => ({ ...current, courseType }))} /></div>
             <div style={ui.choiceGroup}><span>성취도</span><Toggle disabled={readOnlyWorkspace} value={settings.achievementMode} options={[{ value: "fixed", label: "고정분할" }, { value: "manual", label: "추정분할·수동 컷" }]} onChange={achievementMode => setSettings(current => ({ ...current, achievementMode }))} /></div>
             {settings.achievementMode === "manual" && <ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} />}
-            {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}<div className="minimum-course-rule" style={ui.minimumCourseRule}><span style={ui.minimumCourseIcon}><ShieldCheck size={13}/></span><b>{settings.courseType === "common" ? "공통과목" : "선택과목"}</b><span>{settings.courseType === "common" ? "최성보 · 출석률 2/3 이상 · 학업성취율 40% 이상" : "최성보 · 출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div>
+            {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}<div className="minimum-course-rule" style={ui.minimumCourseRule}><span style={ui.minimumCourseIcon}><ShieldCheck size={13}/></span><div style={ui.minimumCourseCopy}><b>{settings.courseType === "common" ? "공통과목 최성보" : "선택과목 최성보"}</b><span>{settings.courseType === "common" ? "출석률 2/3 이상 · 학업성취율 40% 이상" : "출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div></div>
           </div>
         </div>
         <div style={ui.tieRuleBox}><b>동점자 처리 순서</b><span>학기말 환산점수가 같은 경우: ① 정기시험 환산 합계 → ② 수행평가 → ③ 2차 지필 → ④ 1차 지필 → ⑤ 수행평가 NEIS 영역 순 → ⑥ 2차 고배점 문항(최대 3개) → ⑦ 1차 고배점 문항(최대 3개)</span><small>수행평가 100% 과목은 수행 영역 순서까지만 적용합니다. 모든 기준이 같은 학생은 동석차로 남기며, 등급 경계 인원에 걸린 동점자는 나누지 않고 모두 다음 등급으로 처리합니다.</small></div>
@@ -1214,8 +1283,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             </>}
           </div>
           {activeView !== "minimum" && <div style={ui.summaryGrid}>
-            <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 분포·등급컷</div><div style={ui.distributionList}>{gradeDistribution.map(item => <div key={item.grade} className="teacher-grade-distribution-row" style={ui.distributionRow}><span style={{...ui.gradePill,...(item.grade===1?ui.gradePillFirst:{})}}>{item.grade}등급</span><b>{ratioLabel(item.count, completeActiveRows.length)}</b><small><span className="grade-target-count">기준 {item.target}명</span><strong className="grade-cutoff-text">{item.min == null ? "컷 없음" : `등급컷 ${formatScore(item.min, 2)}`}</strong></small></div>)}</div><p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
-            {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><Users size={16} /> 성취도 분포</div><div style={ui.distributionList}>{achievementDistribution.map(item => <div key={item.label} className="teacher-grade-distribution-row" style={ui.distributionRow}><span style={{ ...ui.gradePill, ...(item.label === "미도달" ? ui.failPill : {}) }}>{item.label}</span><b>{ratioLabel(item.count, completeActiveRows.length)}</b><small>{settings.achievementMode === "fixed" ? "고정분할" : "수동 컷"}</small></div>)}</div></div>}
+            <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 등급컷</div><GradeCutoffTable rows={gradeDistribution} total={completeActiveRows.length}/><p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
+            {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><PieChart size={16} /> 성취도 분포</div><AchievementDonut rows={achievementDistribution} total={completeActiveRows.length} mode={settings.achievementMode}/></div>}
           </div>}
 
           {activeView === "minimum" && <div style={ui.minimumControlPanel}>
@@ -1247,8 +1316,27 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           </div>
         </>}
       </section>
+      </div>
+
+      {panelMode==="data" && <section className="teacher-grade-data-management" style={ui.section}>
+        <div style={ui.sectionHeader}><div><span style={ui.stepBadge}><Database size={13}/></span><strong style={ui.sectionTitle}>{grade}학년 성적 데이터 관리</strong><p style={ui.sectionHint}>과목·학급별 저장 상태를 확인하고 개인 임시본 또는 학교 공동본을 정리합니다.</p></div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}><button type="button" style={ui.dangerOutlineButton} onClick={clearCurrentGradeLocalData} disabled={!Object.keys(localWorkspaces||{}).length}><Trash2 size={14}/> 개인 임시본 전체 초기화</button>{accessRole==="admin"&&<button type="button" style={ui.dangerOutlineButton} onClick={clearCurrentGradeSharedData} disabled={!sharedWorkspaces.length}><Trash2 size={14}/> 학교 공동본 전체 초기화</button>}</div></div>
+        <div style={ui.dataFilterBar}><label>과목<select value={dataSubjectFilter} onChange={event=>setDataSubjectFilter(event.target.value)}><option value="all">전체 과목</option>{dataSubjects.map(subject=><option key={subject} value={subject}>{subject}</option>)}</select></label><label>학급<select value={dataClassFilter} onChange={event=>setDataClassFilter(event.target.value)}><option value="all">전체 학급</option>{dataClasses.map(value=><option key={value} value={String(value)}>{value}반</option>)}</select></label><span>{filteredManagedWorkspaces.length}개 저장본</span></div>
+        <div style={ui.dataManagementGrid}>{filteredManagedWorkspaces.map(item=><article key={`${item.source}-${item.id}`} style={ui.dataWorkspaceCard}><div style={ui.dataWorkspaceHead}><div><span style={item.source==="shared"?ui.sharedSourceBadge:ui.localSourceBadge}>{item.sourceLabel}</span><b>{item.subject||"과목 미상"}</b></div><button type="button" style={ui.iconDangerButton} title="삭제" disabled={item.source==="shared"&&!(accessRole==="admin"||canEditSubject(item.subject))} onClick={()=>item.source==="shared"?deleteSharedWorkspace(item):deleteLocalWorkspaceById(item)}><Trash2 size={14}/></button></div><div style={ui.dataWorkspaceMeta}><span>{item.year||"-"}학년도 {item.semester||"-"}학기</span><span>{item.grade||grade}학년</span><span>{(item.classNumbers||[]).length?`${item.classNumbers.join(", ")}반`:"학급 미확인"}</span><span>학생 {item.studentCount||0}명</span></div><small>지필 {(item.written||[]).length}개 · 수행 {(item.performance||[]).length}개 · 마지막 저장 {item.updatedAt?new Date(item.updatedAt).toLocaleString("ko-KR"):"-"}</small></article>)}</div>
+        {!filteredManagedWorkspaces.length&&<div style={ui.emptyState}><Database size={30}/><b>조건에 맞는 저장 자료가 없습니다.</b><span>성적 산출 화면에서 개인 임시 저장 또는 학교 공동 저장을 진행해주세요.</span></div>}
+      </section>}
     </div>
   );
+}
+
+function GradeCutoffTable({ rows, total }) {
+  return <div className="grade-cutoff-table-wrap"><table className="grade-cutoff-table"><thead><tr><th>등급</th><th>기준 인원</th><th>실제 인원</th><th>비율</th><th>등급컷</th></tr></thead><tbody>{rows.map(item=><tr key={item.grade}><td><span style={{...ui.gradePill,...(item.grade===1?ui.gradePillFirst:{})}}>{item.grade}등급</span></td><td>{item.target}명</td><td><b>{item.count}명</b></td><td>{total?((item.count/total)*100).toFixed(1):"0.0"}%</td><td><strong className="grade-cutoff-text">{item.min==null?"-":formatScore(item.min,2)}</strong></td></tr>)}</tbody></table></div>;
+}
+function AchievementDonut({ rows, total, mode }) {
+  const colors=["#3568a3","#6c7fba","#7b69a8","#d59b49","#d87362","#9b4b43"];
+  let cursor=0;
+  const stops=rows.map((item,index)=>{const start=cursor;const size=total?item.count/total*100:0;cursor+=size;return `${colors[index%colors.length]} ${start}% ${cursor}%`});
+  const background=total?`conic-gradient(${stops.join(",")})`:"#edf1f5";
+  return <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"수동 컷"}</span></div></div><div className="achievement-donut-legend">{rows.map((item,index)=><div key={item.label}><i style={{background:colors[index%colors.length]}}/><span>{item.label}</span><b>{ratioLabel(item.count,total)}</b></div>)}</div></div>;
 }
 
 function TieItemInputs({ label, values, onChange, disabled = false }) {
@@ -1355,6 +1443,23 @@ const gradeAnalyzerCss = `
 .teacher-grade-analyzer .teacher-grade-tie-student>div label{display:inline-flex;align-items:center;gap:2px}
 .teacher-grade-analyzer .teacher-grade-tie-student>div input[type="number"]{width:47px;padding:5px}
 .teacher-grade-analyzer details summary::-webkit-details-marker{display:none}
+
+.teacher-grade-analyzer .grade-cutoff-table-wrap{width:100%;overflow-x:auto;border:1px solid #d9e3ee;border-radius:12px}
+.teacher-grade-analyzer .grade-cutoff-table{width:100%;border-collapse:collapse;min-width:430px}
+.teacher-grade-analyzer .grade-cutoff-table th{padding:8px 7px;background:#f1f5f9;color:#52657c;font-size:10px;font-weight:900;border-bottom:1px solid #d8e1eb}
+.teacher-grade-analyzer .grade-cutoff-table td{padding:8px 7px;text-align:center;font-size:11px;border-bottom:1px solid #e7edf3}
+.teacher-grade-analyzer .grade-cutoff-table tr:last-child td{border-bottom:0}
+.teacher-grade-analyzer .grade-cutoff-table .grade-cutoff-text{font-size:13px;color:#183f6a;font-weight:950;font-variant-numeric:tabular-nums}
+.teacher-grade-analyzer .achievement-donut-layout{display:grid;grid-template-columns:150px minmax(0,1fr);gap:16px;align-items:center}
+.teacher-grade-analyzer .achievement-donut{width:138px;height:138px;border-radius:50%;display:grid;place-items:center;box-shadow:inset 0 0 0 1px rgba(44,63,89,.08)}
+.teacher-grade-analyzer .achievement-donut>div{width:83px;height:83px;border-radius:50%;display:grid;place-content:center;text-align:center;background:#fff;box-shadow:0 4px 14px rgba(47,70,103,.12)}
+.teacher-grade-analyzer .achievement-donut b{font-size:18px;color:#263f5e;font-weight:950}.teacher-grade-analyzer .achievement-donut span{font-size:9px;color:#8090a3;font-weight:800}
+.teacher-grade-analyzer .achievement-donut-legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.teacher-grade-analyzer .achievement-donut-legend>div{display:grid;grid-template-columns:10px 32px 1fr;gap:6px;align-items:center;padding:7px 8px;border:1px solid #e1e7ee;border-radius:9px;background:#fafbfd;font-size:10.5px}
+.teacher-grade-analyzer .achievement-donut-legend i{width:9px;height:9px;border-radius:50%}.teacher-grade-analyzer .achievement-donut-legend b{text-align:right;font-size:10px;color:#344b67}
+.teacher-grade-analyzer .teacher-grade-data-management label{display:grid;gap:5px;color:#65758a;font-size:10px;font-weight:900}.teacher-grade-analyzer .teacher-grade-data-management select{min-height:38px;border:1px solid #d1dce8;border-radius:9px;padding:7px 9px;background:#fff;color:#344a63;font-weight:850}
+.teacher-grade-analyzer .teacher-grade-data-management article small{color:#7d8998;font-size:9.8px;line-height:1.45}.teacher-grade-analyzer .teacher-grade-data-management article>div:nth-child(2)>span{padding:4px 7px;border-radius:999px;background:#f1f4f8;color:#5e6f82;font-size:9.5px;font-weight:850}
+@media(max-width:760px){.teacher-grade-analyzer .achievement-donut-layout{grid-template-columns:1fr;justify-items:center}.teacher-grade-analyzer .achievement-donut-legend{width:100%}}
 @media(max-width:1180px){.teacher-grade-analyzer .teacher-grade-tie-student{grid-template-columns:minmax(150px,1fr) minmax(180px,1fr)!important}.teacher-grade-analyzer .teacher-grade-tie-student>label:last-child{grid-column:1/-1!important}}
 @media(max-width:980px){.teacher-grade-analyzer .teacher-grade-hero{grid-template-columns:1fr!important}.teacher-grade-analyzer .teacher-grade-hero-actions{justify-content:flex-start!important;max-width:none!important}.teacher-grade-analyzer .teacher-grade-workspace-browser{align-items:stretch!important}.teacher-grade-analyzer .teacher-grade-workspace-browser>select{flex:1 1 260px!important}}
 @media(max-width:720px){.teacher-grade-analyzer .teacher-grade-tie-student{grid-template-columns:1fr 1fr}.teacher-grade-analyzer .teacher-grade-workspace-browser{grid-template-columns:1fr!important}.teacher-grade-analyzer .teacher-grade-weight-row{align-items:flex-start!important;flex-direction:column}.teacher-grade-analyzer .teacher-grade-weight-row>span:last-child{width:100%;justify-content:flex-end}}
@@ -1385,9 +1490,14 @@ const ui = {
   heroTitle: { margin: "4px 0 4px", fontSize: 21, lineHeight: 1.2, letterSpacing: "-.04em", wordBreak: "keep-all" },
   heroDescription: { margin: 0, fontSize: 12.2, lineHeight: 1.45, opacity: .9, wordBreak: "keep-all" },
   heroActions: { display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end", maxWidth: 390 },
+  moduleTabs:{display:"flex",gap:7,padding:5,border:"1px solid #ded5cf",borderRadius:13,background:"#fffaf7",width:"fit-content",maxWidth:"100%"},
+  moduleTab:{display:"inline-flex",alignItems:"center",gap:6,border:"1px solid transparent",borderRadius:9,padding:"8px 12px",color:"#78675d",background:"transparent",fontFamily:FONT_STACK,fontSize:11.5,fontWeight:900,cursor:"pointer"},
+  moduleTabActive:{color:"#fff",background:"#8a5c4b",borderColor:"#8a5c4b",boxShadow:"0 5px 13px rgba(138,92,75,.2)"},
   lightButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid rgba(255,255,255,.35)", borderRadius: 10, padding: "9px 12px", color: "#fff", background: "rgba(255,255,255,.13)", fontFamily: FONT_STACK, fontWeight: 850, cursor: "pointer" },
   publishButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #fff", borderRadius: 10, padding: "9px 12px", color: "#315d90", background: "#fff", fontFamily: FONT_STACK, fontWeight: 900, cursor: "pointer" },
   workspaceBrowser: { display:"flex", flexWrap:"wrap", gap:9, alignItems:"center", padding:"11px 13px", border:"1px solid #dbe4f0", borderRadius:14, background:"#f8fbff", boxShadow:"0 6px 18px rgba(55,72,110,.05)" },
+  saveTypeLegend:{display:"flex",gap:8,alignItems:"center",fontSize:9.8,color:"#718096",fontWeight:850},
+  localDot:{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#d58f54",marginRight:4},sharedDot:{display:"inline-block",width:8,height:8,borderRadius:"50%",background:"#4f7fae",marginRight:4},
   workspaceIntro: { display:"grid", gap:3, minWidth:210, flex:"1 1 230px" },
   workspaceSelect: { minWidth:260, flex:"2 1 340px", border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", background:"#fff", color:"#34465d", fontFamily:FONT_STACK, fontWeight:800 },
   subjectSelect: { minWidth:150, flex:"0 1 190px", border:"1px solid #cfdbe9", borderRadius:10, padding:"9px 11px", background:"#fff", color:"#315d90", fontFamily:FONT_STACK, fontWeight:900 },
@@ -1439,8 +1549,9 @@ const ui = {
   manualCutNote: { marginTop: 5, borderRadius: 8, padding: "7px 8px", color: "#765b24", background: "#fff8e7", fontSize: 10.5, lineHeight: 1.45 },
   cutGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(82px,1fr))", gap: 7, marginTop: 8 },
   ruleNote: { borderRadius: 9, padding: "9px 10px", color: "#6c5a2a", background: "#fff8e8", fontSize: 11.3, lineHeight: 1.5 },
-  minimumCourseRule:{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap",marginTop:9,padding:"9px 10px",border:"1px solid #c8ddec",borderRadius:10,color:"#315d78",background:"#f0f7fc",fontSize:11.2},
-  minimumCourseIcon:{width:24,height:24,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:8,color:"#315d90",background:"#dfeefa",flex:"0 0 auto"},
+  minimumCourseRule:{display:"grid",gridTemplateColumns:"28px minmax(0,1fr)",gap:8,alignItems:"center",marginTop:9,padding:"10px 11px",border:"1px solid #c8ddec",borderRadius:10,color:"#315d78",background:"#f0f7fc",fontSize:11.2},
+  minimumCourseIcon:{width:28,height:28,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:8,color:"#315d90",background:"#dfeefa",flex:"0 0 auto"},
+  minimumCourseCopy:{display:"grid",gap:2,minWidth:0,lineHeight:1.35},
   tieRuleBox: { display: "grid", gap: 4, marginTop: 12, border: "1px solid #d9e2ef", borderRadius: 12, padding: "11px 13px", color: "#526174", background: "#f7f9fc", fontSize: 11.5, lineHeight: 1.55 },
   roundingRuleBox: { display: "grid", gap: 4, marginTop: 8, border: "1px solid #d5e4dd", borderRadius: 12, padding: "10px 13px", color: "#456354", background: "#f3faf6", fontSize: 11.3, lineHeight: 1.5 },
   resultTabs: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 15, padding:"5px", border:"1px solid #e0e7f0", borderRadius:14, background:"#f7f9fc" },
@@ -1501,6 +1612,15 @@ const ui = {
   minimumStatusFail:{color:"#a23b34",background:"#fdeceb"},minimumStatusRisk:{color:"#8a5d18",background:"#fff4dc"},minimumStatusReached:{color:"#28633f",background:"#eaf7ee"},minimumStatusCheck:{color:"#5f6875",background:"#eef1f5"},
   minimumFailRow:{background:"#fff5f3"},minimumRiskRow:{background:"#fffbf1"},
   printButton:{display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #bfd0e3",borderRadius:10,padding:"8px 11px",color:"#315d90",background:"#f3f8fd",fontWeight:900,cursor:"pointer"},
+  dataFilterBar:{display:"flex",alignItems:"end",gap:9,flexWrap:"wrap",marginBottom:12,padding:"10px 11px",border:"1px solid #e0e6ed",borderRadius:12,background:"#fafbfd"},
+  dataManagementGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(250px,1fr))",gap:10},
+  dataWorkspaceCard:{display:"grid",gap:9,padding:"13px",border:"1px solid #dbe3ec",borderRadius:13,background:"linear-gradient(180deg,#fff,#fafbfd)"},
+  dataWorkspaceHead:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:8},
+  dataWorkspaceMeta:{display:"flex",gap:5,flexWrap:"wrap"},
+  localSourceBadge:{display:"inline-flex",marginRight:6,padding:"3px 6px",borderRadius:999,color:"#8a5a31",background:"#fff1e5",fontSize:9,fontWeight:950},
+  sharedSourceBadge:{display:"inline-flex",marginRight:6,padding:"3px 6px",borderRadius:999,color:"#315d90",background:"#e8f1fb",fontSize:9,fontWeight:950},
+  iconDangerButton:{display:"inline-flex",alignItems:"center",justifyContent:"center",width:31,height:31,border:"1px solid #e5c7c0",borderRadius:9,color:"#a34b3f",background:"#fff7f5",cursor:"pointer"},
+  dangerOutlineButton:{display:"inline-flex",alignItems:"center",gap:6,border:"1px solid #dfb9b1",borderRadius:10,padding:"8px 10px",color:"#9d463b",background:"#fff8f6",fontFamily:FONT_STACK,fontSize:10.5,fontWeight:900,cursor:"pointer"},
   emptyLine: { color: "#8b98a8", fontSize: 11.5, padding: "16px 2px", lineHeight:1.5 },
 };
 
