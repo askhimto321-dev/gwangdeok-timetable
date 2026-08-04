@@ -53,7 +53,9 @@ const CSS=`
 .admission-student-metrics.is-school>div.is-converted-grade{background:#315f95;border-color:#315f95}
 .admission-student-metrics small{font-size:9.5px;color:#6f7d90;font-weight:850;white-space:nowrap;line-height:1.2}
 .admission-student-metrics b{font-size:15.5px;color:#263345;white-space:nowrap;line-height:1.15}
-.admission-student-metrics.is-school b{font-size:23px;font-weight:950;letter-spacing:-.035em}
+.admission-student-metrics.is-school b{font-size:18px;font-weight:950;letter-spacing:-.025em}
+.admission-student-metrics.is-mock b{font-size:20.5px;font-weight:950;letter-spacing:-.03em}
+.admission-student-metrics.is-mock small{font-size:10px;color:#738094;font-weight:850;white-space:nowrap}
 .admission-student-metrics.is-school>div.is-converted-grade small,.admission-student-metrics.is-school>div.is-converted-grade b{color:#fff!important}
 .admission-case-search button{display:block;width:100%;padding:9px 11px;border:0;background:#fff;text-align:left;cursor:pointer;font-size:13px}
 .admission-case-search button:hover{background:#edf3ff}
@@ -165,18 +167,22 @@ const CSS=`
 .admission-case-search-controls{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;min-width:0}
 .admission-case-search-controls>*{min-width:0}
 .admission-case-search-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;flex-wrap:wrap}
-.admission-case-student-benchmark{display:grid;grid-template-columns:auto auto;align-items:center;gap:3px 10px;min-width:164px;padding:8px 11px;border:2px solid #7e9fc6;border-radius:12px;background:linear-gradient(135deg,#edf5ff,#f8fbff);box-shadow:0 4px 12px rgba(49,95,149,.10)}
-.admission-case-student-benchmark>span{grid-column:1/-1;font-size:9.5px;font-weight:900;color:#5f7188;letter-spacing:.02em}
-.admission-case-student-benchmark strong{font-size:23px;line-height:1;color:#203f66;font-weight:950;letter-spacing:-.04em}
-.admission-case-student-benchmark small{font-size:9.5px;color:#65758a;font-weight:850;white-space:nowrap}
-.admission-case-student-benchmark em{grid-column:1/-1;font-style:normal;font-size:10px;color:#315f95;font-weight:900}
+.admission-case-student-benchmark{display:grid;grid-template-columns:auto auto;align-items:center;gap:4px 10px;min-width:218px;padding:9px 11px;border:2px solid #7e9fc6;border-radius:12px;background:linear-gradient(135deg,#edf5ff,#f8fbff);box-shadow:0 4px 12px rgba(49,95,149,.10)}
+.admission-case-benchmark-head{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+.admission-case-benchmark-head>span{font-size:10.5px;font-weight:950;color:#4d617d;letter-spacing:.01em;white-space:nowrap}
+.admission-case-student-benchmark strong{font-size:21px;line-height:1;color:#203f66;font-weight:950;letter-spacing:-.035em}
+.admission-case-student-benchmark small{font-size:10px;color:#5d6f86;font-weight:900;white-space:nowrap}
+.admission-case-student-benchmark em{grid-column:1/-1;font-style:normal;font-size:9.8px;color:#315f95;font-weight:900;line-height:1.35}
+.admission-grade-system-toggle{display:inline-flex;gap:2px;padding:2px;border:1px solid #c9d6e6;border-radius:8px;background:#fff;flex:0 0 auto}
+.admission-grade-system-toggle button{border:0;border-radius:6px;padding:3px 6px;background:transparent;color:#66778d;font-size:9px;font-weight:900;line-height:1.2;cursor:pointer;white-space:nowrap}
+.admission-grade-system-toggle button.is-active{background:#315f95;color:#fff}
 .admission-case-range-filter{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 10px;border:1px solid #dce3ed;border-radius:12px;background:#f8faff}
-.admission-case-range-filter>span{font-size:10.5px;font-weight:850;color:#66758a;white-space:nowrap}
-.admission-case-print-button{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:38px;padding:8px 11px;border:1px solid #cbd7e6;border-radius:10px;background:#fff;color:#2f537f;font-size:11px;font-weight:900;white-space:nowrap;cursor:pointer}
+.admission-case-range-filter>span{font-size:11px;font-weight:900;color:#5f7087;white-space:nowrap}
+.admission-case-print-button{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:38px;padding:8px 11px;border:1px solid #cbd7e6;border-radius:10px;background:#fff;color:#2f537f;font-size:11.5px;font-weight:900;white-space:nowrap;cursor:pointer}
 .admission-case-print-button:hover{background:#edf3fb;border-color:#9eb3ce}
-.admission-case-sort-select{min-height:38px;padding:7px 28px 7px 10px;border:1px solid #cbd7e6;border-radius:10px;background:#fff;color:#33465e;font-size:11px;font-weight:900;outline:none;cursor:pointer}
+.admission-case-sort-select{min-height:38px;padding:7px 28px 7px 10px;border:1px solid #cbd7e6;border-radius:10px;background:#fff;color:#33465e;font-size:11.5px;font-weight:900;outline:none;cursor:pointer}
 .admission-case-sort-select:focus{border-color:#7f9fc3;box-shadow:0 0 0 3px rgba(49,95,149,.10)}
-.admission-case-search-context{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px;border-radius:10px;background:#f3f7fc;border:1px solid #dbe4f0;color:#425675;font-size:11px}
+.admission-case-search-context{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 10px;border-radius:10px;background:#f3f7fc;border:1px solid #dbe4f0;color:#425675;font-size:11.5px}
 .admission-case-filter-status{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;font-weight:850}
 .admission-case-filter-status b{padding:3px 7px;border-radius:999px;background:#fff;border:1px solid #cad8e9;color:#315a86}
 .admission-case-search-table{font-size:10.5px!important}
@@ -190,7 +196,7 @@ const CSS=`
 /* V27.15 filter and case-search refinements */
 .admission-filter-group,.admission-filter-group *,.admission-method-filter,.admission-method-filter *,.admission-quick-filter,.admission-quick-filter *{font-family:inherit!important;letter-spacing:-.015em}
 .admission-filter-group>b,.admission-filter-group>div>b{font-size:12.5px!important;font-weight:850!important}
-.admission-filter-chip{font-size:12px;font-weight:800;line-height:1.2}
+.admission-filter-chip{font-size:12.4px;font-weight:850;line-height:1.2}
 .admission-filter-group.is-field .admission-filter-chip{font-size:12.2px}
 .admission-method-filter{display:grid;gap:12px;padding:14px;border:1px solid #dfe5ed;border-radius:15px;background:linear-gradient(135deg,#fbfdff,#f7f9fd)}
 .admission-method-filter-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -215,9 +221,10 @@ const CSS=`
 .admission-quick-filter{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:12px;border:1px solid #dfe5ed;border-radius:13px;background:#fff}
 .admission-quick-filter-group{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;min-width:0}
 .admission-quick-filter-label{display:grid;gap:2px;min-width:105px}
-.admission-quick-filter-label b{font-size:13.5px;color:#26384f;font-weight:950}
-.admission-quick-filter-label span{font-size:10px;color:#7b8797;font-weight:700}
-.admission-quick-filter-options{display:flex;gap:6px;flex-wrap:wrap}
+.admission-quick-filter-label b{font-size:15px;color:#22364f;font-weight:950;letter-spacing:-.025em}
+.admission-quick-filter-label span{font-size:11px;color:#68788e;font-weight:800;line-height:1.35}
+.admission-quick-filter-options{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.admission-quick-filter .admission-filter-chip{min-height:38px;padding:8px 14px;font-size:13px;font-weight:900}
 .admission-case-search-table .grade-overall{background:#f2f6fd;color:#2d5482}
 .admission-case-search-table .grade-university{background:#f1f8f2;color:#2f7048}
 .admission-case-search-table .grade-csat{background:#f7f3fb;color:#654d87}
@@ -467,7 +474,7 @@ function StudentConnector({profile,query,onQuery,onSelect,roster}){
     {profile?<div className="admission-student-profile" style={styles.studentProfile}>
       <div style={styles.studentProfileIdentity}><span style={styles.studentProfileEyebrow}>선택 학생</span><div style={styles.studentProfileTitle}><b>{profile.sid}</b><strong>{profile.name}</strong></div><div className="admission-student-profile-badges" style={styles.studentProfileBadges}><span>{profile.entryYear}학년도 입학생</span><span>{profile.grade}학년</span><span>{profile.gradeSystem}등급제</span></div></div>
       <div className="admission-student-score-groups">
-        <div className="admission-student-score-group is-school-group"><div className="admission-score-group-head"><strong>학생 비교 기준 내신</strong><span>학기 누적 기준</span></div><div className="admission-student-metrics is-school"><div className="is-current-grade"><small>현재 내신 · {profile.gradeSystem}등급제</small><b>{fmt(profile.average)}</b></div><div className="is-converted-grade"><small>사례 비교용 9등급 환산</small><b>{fmt(profile.converted)}</b></div></div></div>
+        <div className="admission-student-score-group is-school-group"><div className="admission-score-group-head"><strong>학생 비교 기준 내신</strong><span>학기 누적 기준</span></div><div className="admission-student-metrics is-school"><div className="is-current-grade"><small>{profile.gradeSystem}등급제 현재 내신</small><b>{fmt(profile.average)}</b></div><div className="is-converted-grade"><small>사례 비교용 9등급 환산</small><b>{fmt(profile.converted)}</b></div></div></div>
         <div className="admission-student-score-group is-mock-group"><div className="admission-score-group-head"><strong>모의고사 최저</strong><span>최신 회차 기준</span></div><div className="admission-student-metrics is-mock"><div><small>2합</small><b>{profile.sums?.sum2??"-"}</b></div><div><small>3합</small><b>{profile.sums?.sum3??"-"}</b></div><div><small>4합</small><b>{profile.sums?.sum4??"-"}</b></div></div></div>
       </div>
     </div>:<div style={styles.studentPlaceholder}>학생을 선택하면 현재 성적과 과거 사례를 연결합니다.</div>}
@@ -746,11 +753,13 @@ function gradeScopeLabel(minGrade,maxGrade){
 function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorite,focusUniversity="",focusDepartment="",focusAdmissionType="",onClearLinkedFocus,globalMinGrade="",globalMaxGrade=""}){
   const[query,setQuery]=useState("");
   const[range,setRange]=useState(null);
+  const[gradeDisplayMode,setGradeDisplayMode]=useState("9");
   const[sortOrder,setSortOrder]=useState("default");
   const[favoriteMode,setFavoriteMode]=useState("group");
   const[page,setPage]=useState(1);
   const linkedQuery=[focusUniversity,focusDepartment,focusAdmissionType].filter(Boolean).join(" ");
   useEffect(()=>{if(linkedQuery)setQuery(linkedQuery)},[linkedQuery]);
+  useEffect(()=>setGradeDisplayMode("9"),[profile?.sid]);
   const filtered=useMemo(()=>rows.filter(row=>{
     if(focusUniversity&&normalizeUniversityLink(row.universityNormalized||row.university,row.region)!==normalizeUniversityLink(focusUniversity))return false;
     if(focusDepartment&&!normalizeSearchText(row.department).includes(normalizeSearchText(focusDepartment)))return false;
@@ -789,8 +798,11 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
   const globalScope=gradeScopeLabel(globalMinGrade,globalMaxGrade);
   const localScope=range!=null&&profile?.converted!=null?`9등급 환산 ${fmt(profile.converted)} ±${range.toFixed(1)}`:"";
   const scopeLabels=[globalScope,localScope].filter(Boolean);
+  const showOriginalGrade=profile?.gradeSystem===5&&gradeDisplayMode==="5";
+  const benchmarkGrade=showOriginalGrade?profile?.average:profile?.converted;
+  const benchmarkScale=showOriginalGrade?"5등급제 원내신":"9등급제 환산";
   return <div className="admission-case-search-root admission-case-print-root">
-    <div className="admission-case-search-controls no-print"><SearchBox value={query} onChange={setQuery} placeholder="예: 건국대 경영 · 대학/학과/전형 통합 검색" count={`${sorted.length.toLocaleString()}건`}/><div className="admission-case-search-actions">{profile&&<div className="admission-case-student-benchmark" title="대학별 반영점수는 학교마다 달라 직접 비교하지 않고, 학생과 사례의 전교과 내신을 같은 9등급 기준으로 비교합니다."><span>현재 학생 내신</span><strong>{fmt(profile.average)}</strong><small>{profile.gradeSystem}등급제</small><em>전교과 비교용 9등급 환산 {fmt(profile.converted)}</em></div>}<div className="admission-case-range-filter"><span>내 환산 등급 기준</span><button type="button" className={`admission-filter-chip ${range==null?"is-active":""}`} onClick={()=>setRange(null)}>전체</button>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-filter-chip ${range===value?"is-active":""}`} disabled={profile?.converted==null} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div><select className="admission-case-sort-select" value={sortOrder} onChange={event=>setSortOrder(event.target.value)} aria-label="사례 정렬"><option value="default">기본 정렬</option><option value="overallAsc">내신 오름차순</option><option value="overallDesc">내신 내림차순</option></select><button type="button" className="admission-case-print-button" onClick={printAdmissionCaseSearch} title="브라우저 인쇄 창에서 PDF로 저장할 수 있습니다."><Printer size={13}/>인쇄·PDF</button></div></div>
+    <div className="admission-case-search-controls no-print"><SearchBox value={query} onChange={setQuery} placeholder="예: 건국대 경영 · 대학/학과/전형 통합 검색" count={`${sorted.length.toLocaleString()}건`}/><div className="admission-case-search-actions">{profile&&<div className="admission-case-student-benchmark" title="과거 사례와 지원 구간은 모두 9등급 기준으로 비교합니다. 5등급제 버튼은 원내신 확인용입니다."><div className="admission-case-benchmark-head"><span>현재 학생 내신</span>{profile.gradeSystem===5&&<div className="admission-grade-system-toggle" aria-label="현재 내신 표시 기준"><button type="button" className={gradeDisplayMode==="9"?"is-active":""} onClick={()=>setGradeDisplayMode("9")}>9등급</button><button type="button" className={gradeDisplayMode==="5"?"is-active":""} onClick={()=>setGradeDisplayMode("5")}>5등급</button></div>}</div><strong>{fmt(benchmarkGrade)}</strong><small>{benchmarkScale}</small><em>{showOriginalGrade?`사례 비교·지원 구간은 9등급 환산 ${fmt(profile.converted)} 사용`:(profile.gradeSystem===9?"사례와 동일한 9등급 기준":`5등급제 원내신 ${fmt(profile.average)} · 비교는 9등급 기준`)}</em></div>}<div className="admission-case-range-filter"><span>9등급 환산 기준</span><button type="button" className={`admission-filter-chip ${range==null?"is-active":""}`} onClick={()=>setRange(null)}>전체</button>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-filter-chip ${range===value?"is-active":""}`} disabled={profile?.converted==null} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div><select className="admission-case-sort-select" value={sortOrder} onChange={event=>setSortOrder(event.target.value)} aria-label="사례 정렬"><option value="default">기본 정렬</option><option value="overallAsc">내신 오름차순</option><option value="overallDesc">내신 내림차순</option></select><button type="button" className="admission-case-print-button" onClick={printAdmissionCaseSearch} title="브라우저 인쇄 창에서 PDF로 저장할 수 있습니다."><Printer size={13}/>인쇄·PDF</button></div></div>
     <div className="admission-case-search-context no-print"><span>{focusUniversity?<><b>연결 조회</b> · {[focusUniversity,focusDepartment,focusAdmissionType].filter(Boolean).join(" › ")}</>:<><b>현재 조회</b> · {query?`“${query}” 검색 결과`:"전체 대학·학과·전형"}</>}</span><span className="admission-case-filter-status">{scopeLabels.length?scopeLabels.map(label=><b key={label}>{label}</b>):"성적 범위 제한 없음"}{sortOrder!=="default"&&<b>{sortOrder==="overallAsc"?"내신 오름차순":"내신 내림차순"}</b>}{(focusUniversity||focusDepartment||focusAdmissionType)&&<button type="button" className="admission-link-button" onClick={()=>{setQuery("");onClearLinkedFocus?.()}}>연결 필터 해제</button>}</span></div>
     <div className="admission-favorite-guide no-print"><span><strong>지원 구간 뱃지</strong> · 전교과 칸의 상향·소신·적정·안정·하향은 해당 대학·학과·전형 합격 사례의 전교과 50%컷과 학생의 9등급 환산을 비교한 값입니다. 대학별 자체 환산점수는 사용하지 않습니다.</span><div className="admission-favorite-mode"><button type="button" className={favoriteMode==="group"?"is-active":""} onClick={()=>setFavoriteMode("group")}>묶음 저장</button><button type="button" className={favoriteMode==="individual"?"is-active":""} onClick={()=>setFavoriteMode("individual")}>개별 저장</button></div></div>
     <div className="admission-case-print-header print-only"><div><h2>대입 사례 검색 결과</h2><span>{printContext}{scopeLabels.length?` · ${scopeLabels.join(" · ")}`:""}</span></div><span>{sorted.length.toLocaleString()}건 · {new Date().toLocaleDateString("ko-KR")}</span></div>

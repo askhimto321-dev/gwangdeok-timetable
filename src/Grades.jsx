@@ -301,20 +301,20 @@ function inferUniversityFromFileName(fileName, knownUniversities = []) {
   const formalUniversity = formalMatch ? formalMatch[1].trim() : "";
   const candidates = entries.filter(item => normalizedFile.includes(universityKey(item.name)));
   const campusMatched = fileCampus && candidates.find(item => admissionCampusLabel(item.name, item.region) === fileCampus);
-  if (campusMatched) return formalUniversity && universityKey(formalUniversity) === universityKey(campusMatched.name) ? formalUniversity : campusMatched.name;
+  if (campusMatched) return resolveKnownUniversityBaseName(formalUniversity && universityKey(formalUniversity) === universityKey(campusMatched.name) ? formalUniversity : campusMatched.name, entries);
   const regionCampus = fileRegion ? candidates.find(item => {
     const candidateCampus = admissionCampusLabel(item.name, item.region);
     return candidateCampus && candidateCampus === campusFromRegionForUniversity(item.name, fileRegion);
   }) : null;
-  if (regionCampus) return formalUniversity && universityKey(formalUniversity) === universityKey(regionCampus.name) ? formalUniversity : regionCampus.name;
-  if (candidates.length === 1) return formalUniversity && universityKey(formalUniversity) === universityKey(candidates[0].name) ? formalUniversity : candidates[0].name;
+  if (regionCampus) return resolveKnownUniversityBaseName(formalUniversity && universityKey(formalUniversity) === universityKey(regionCampus.name) ? formalUniversity : regionCampus.name, entries);
+  if (candidates.length === 1) return resolveKnownUniversityBaseName(formalUniversity && universityKey(formalUniversity) === universityKey(candidates[0].name) ? formalUniversity : candidates[0].name, entries);
   if (candidates.length > 1) {
     const exactText = candidates.find(item => normalizeUniversitySearchText(fileName).includes(normalizeUniversitySearchText(item.name)));
-    if (exactText) return formalUniversity && universityKey(formalUniversity) === universityKey(exactText.name) ? formalUniversity : exactText.name;
+    if (exactText) return resolveKnownUniversityBaseName(formalUniversity && universityKey(formalUniversity) === universityKey(exactText.name) ? formalUniversity : exactText.name, entries);
   }
 
   const inferredBase = formalMatch ? formalMatch[1].trim() : (base.split(/[\s()[\]{}]+/).find(part => part && part.length >= 2) || "대학명 확인 필요");
-  return fileCampus ? universityNameWithCampus(inferredBase, fileCampus) : inferredBase;
+  return fileCampus ? universityNameWithCampus(resolveKnownUniversityBaseName(inferredBase, entries), fileCampus) : resolveKnownUniversityBaseName(inferredBase, entries);
 }
 
 function inferAdmissionYearFromFileName(fileName, fallbackYear = "") {
@@ -325,16 +325,50 @@ function inferAdmissionYearFromFileName(fileName, fallbackYear = "") {
   return anyYear?.[1] || String(fallbackYear || "").trim();
 }
 
-const UNIVERSITY_DISPLAY_NAME_ALIASES = {
-  덕성여대: "덕성여자대학교",
-  덕성여자대: "덕성여자대학교",
-  덕성여자대학교: "덕성여자대학교",
-};
+function formalizeUniversityBaseName(value) {
+  const base = universityNameWithoutCampus(String(value || "").normalize("NFKC").trim()).replace(/\s+/g, "");
+  if (!base) return "";
+  if (/(?:대학교|교육대학교|여자대학교|과학기술원|대학)$/.test(base)) return base;
+  if (/여자대$/.test(base)) return `${base.slice(0, -3)}여자대학교`;
+  if (/교육대$/.test(base)) return `${base.slice(0, -3)}교육대학교`;
+  if (/여대$/.test(base)) return `${base.slice(0, -2)}여자대학교`;
+  if (/교대$/.test(base)) return `${base.slice(0, -2)}교육대학교`;
+  return base;
+}
+
+function universityDisplayNamePriority(value) {
+  const name = String(value || "");
+  if (/여자대학교$/.test(name)) return 500 + name.length;
+  if (/교육대학교$/.test(name)) return 480 + name.length;
+  if (/대학교$/.test(name)) return 450 + name.length;
+  if (/과학기술원$/.test(name)) return 440 + name.length;
+  if (/대학$/.test(name)) return 350 + name.length;
+  if (/여대$/.test(name)) return 200 + name.length;
+  if (/교대$/.test(name)) return 190 + name.length;
+  if (/대$/.test(name)) return 180 + name.length;
+  return name.length;
+}
 
 function canonicalAdmissionUniversityBase(value) {
-  const base = universityNameWithoutCampus(String(value || "").normalize("NFKC").trim());
-  const compact = base.replace(/\s+/g, "");
-  return UNIVERSITY_DISPLAY_NAME_ALIASES[compact] || UNIVERSITY_DISPLAY_NAME_ALIASES[universityKey(base)] || base;
+  return formalizeUniversityBaseName(value);
+}
+
+function resolveKnownUniversityBaseName(value, knownEntries = []) {
+  const fallback = canonicalAdmissionUniversityBase(value);
+  const targetKey = universityKey(fallback || value);
+  if (!targetKey) return fallback;
+  const candidates = Array.from(new Set((knownEntries || []).map(item => {
+    const raw = typeof item === "string" ? item : item?.name || item?.university || "";
+    return canonicalAdmissionUniversityBase(raw);
+  }).filter(Boolean))).sort((a, b) => universityDisplayNamePriority(b) - universityDisplayNamePriority(a) || a.localeCompare(b, "ko"));
+  const exact = candidates.find(name => universityKey(name) === targetKey);
+  if (exact) return exact;
+  const normalizedTarget = normalizeUniversitySearchText(fallback || value);
+  const similar = candidates.filter(name => {
+    const normalizedName = normalizeUniversitySearchText(name);
+    return normalizedName && normalizedTarget && (normalizedName.includes(normalizedTarget) || normalizedTarget.includes(normalizedName));
+  }).sort((a, b) => universityDisplayNamePriority(b) - universityDisplayNamePriority(a) || String(b).length - String(a).length);
+  return similar[0] || fallback;
 }
 
 function admissionUniversityDisplayName(value) {
@@ -344,17 +378,28 @@ function admissionUniversityDisplayName(value) {
   return campus ? `${formal}(${campus})` : formal;
 }
 
+function normalizeAdmissionDocumentLabel(label, universityName, type, year) {
+  const university = admissionUniversityDisplayName(universityName || "대학명 확인 필요");
+  const formalBase = canonicalAdmissionUniversityBase(university);
+  const raw = String(label || "").normalize("NFKC").trim();
+  if (!raw) return admissionDocumentDisplayLabel(type, year, university);
+  const normalized = raw.replace(/([가-힣A-Za-z0-9·]+?(?:여자대학교|교육대학교|대학교|과학기술원|여대|교대|대학|대))/g, token => (
+    universityKey(token) === universityKey(formalBase) ? formalBase : token
+  ));
+  return normalized.replace(/\s+/g, " ").trim();
+}
+
 function normalizeAdmissionDocumentRecord(item) {
   if (!item || typeof item !== "object") return item;
   const university = admissionUniversityDisplayName(item.university || "대학명 확인 필요");
   const year = String(item.year || inferAdmissionYearFromFileName(`${item.fileName || ""} ${item.label || ""}`, "")).trim();
-  const label = String(item.label || "").replace(/덕성여대/g, "덕성여자대학교");
+  const type = admissionDocumentType(item);
   return {
     ...item,
     university,
     year,
     campus: item.campus || admissionCampusLabel(university, item.region) || "",
-    label: label || admissionDocumentDisplayLabel(admissionDocumentType(item), year, university),
+    label: normalizeAdmissionDocumentLabel(item.label, university, type, year),
   };
 }
 
@@ -1433,7 +1478,7 @@ function resolveAdmissionDocumentIdentity(fileName, knownEntries = [], manualUni
   )).find(item => item.name && universityDocumentKey(item.name,item.region) === universityDocumentKey(inferredUniversity,item.region))
     || (knownEntries || []).map(item => (typeof item === "string" ? { name:item,region:"미지정" } : {name:item?.name||item?.university||"",region:item?.region||"미지정"})).find(item => item.name && universityKey(item.name) === universityKey(inferredUniversity));
   const inferredKnown = Boolean(inferredEntry);
-  const baseUniversity = canonicalAdmissionUniversityBase((inferredKnown ? inferredUniversity : manualUniversity) || inferredUniversity || "대학명 확인 필요");
+  const baseUniversity = resolveKnownUniversityBaseName((inferredKnown ? inferredUniversity : manualUniversity) || inferredUniversity || "대학명 확인 필요", knownEntries);
   const baseCampus = fileCampus || admissionCampusLabel(inferredUniversity, inferRegionFromFileName(fileName, inferredEntry?.region || "")) || admissionCampusLabel(baseUniversity, manualRegion);
   const university = universityNameWithCampus(baseUniversity, baseCampus);
   const singleCampusRegion = singleCampusRegionForUniversity(knownEntries, baseUniversity);
@@ -4444,11 +4489,16 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
   }, [targetGrade]);
 
   const selectedAdmissionRows = admissionItemsForGrade(gdb.admissionRows || [], targetGrade);
-  const allDocs = admissionItemsForGrade(gdb.admissionDocs || [], targetGrade).slice().sort((a, b) => (
-    String(a.region || "미지정").localeCompare(String(b.region || "미지정"), "ko")
-    || String(a.university || "").localeCompare(String(b.university || ""), "ko")
-    || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
-  ));
+  const allDocs = admissionItemsForGrade(gdb.admissionDocs || [], targetGrade)
+    .map(item => normalizeAdmissionDocumentRecord({
+      ...item,
+      university: admissionUniversityDisplayName(resolveKnownUniversityBaseName(item?.university || "", selectedAdmissionRows)),
+    }))
+    .slice().sort((a, b) => (
+      String(a.region || "미지정").localeCompare(String(b.region || "미지정"), "ko")
+      || String(a.university || "").localeCompare(String(b.university || ""), "ko")
+      || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))
+    ));
   const docs = listFilter === "all" ? allDocs : allDocs.filter(item => admissionDocumentType(item) === listFilter);
   const universityEntryOptions = [...selectedAdmissionRows, ...allDocs]
     .map(item => ({ name: String(item?.university || "").trim(), region: String(item?.region || "미지정") }))
@@ -4500,7 +4550,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
   const typeLabel = type => type === "reflection" ? "교과 반영표" : "모집요강";
   const defaultLabel = (type, valueYear, universityName = university) => admissionDocumentDisplayLabel(type, valueYear, universityName);
   const makeDocumentItem = (uploaded, values) => {
-    const normalizedUniversity = admissionUniversityDisplayName(values.university);
+    const normalizedUniversity = admissionUniversityDisplayName(resolveKnownUniversityBaseName(values.university, universityEntryOptions));
     const normalizedRegion = values.region || "미지정";
     const normalizedType = values.documentType || uploaded.documentType || "guide";
     return normalizeAdmissionDocumentRecord({
@@ -4510,7 +4560,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
       campus: values.campus || admissionCampusLabel(normalizedUniversity, normalizedRegion) || "",
       targetGrade: normalizeAdmissionTargetGrade(values.targetGrade, targetGrade),
       documentType: normalizedType,
-      label: String(values.label || "").trim() || defaultLabel(normalizedType, String(values.year || "").trim(), normalizedUniversity),
+      label: normalizeAdmissionDocumentLabel(values.label, normalizedUniversity, normalizedType, String(values.year || "").trim()),
       year: String(values.year || "").trim(),
       fileName: uploaded.fileName,
       size: uploaded.size,
@@ -4735,7 +4785,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
     items.forEach(item => {
       const normalizedItem = {
         ...item,
-        university: admissionUniversityDisplayName(item.university),
+        university: admissionUniversityDisplayName(resolveKnownUniversityBaseName(item.university, universityEntryOptions)),
         region: item.region || "미지정",
         documentType: item.documentType || "guide",
       };
@@ -4858,17 +4908,19 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
 
   const startEdit = docItem => {
     setEditingId(docItem.id || docItem.url || docItem.dataKey);
-    setEditUniversity(admissionUniversityDisplayName(docItem.university || ""));
+    const normalizedUniversity = admissionUniversityDisplayName(resolveKnownUniversityBaseName(docItem.university || "", universityEntryOptions));
+    const normalizedType = admissionDocumentType(docItem);
+    setEditUniversity(normalizedUniversity);
     setEditRegion(docItem.region || "미지정");
-    setEditType(admissionDocumentType(docItem));
-    setEditLabel(String(docItem.label || admissionDocumentDisplayLabel(admissionDocumentType(docItem), docItem.year, docItem.university)).replace(/덕성여대/g,"덕성여자대학교"));
+    setEditType(normalizedType);
+    setEditLabel(normalizeAdmissionDocumentLabel(docItem.label, normalizedUniversity, normalizedType, docItem.year));
     setEditTargetGrade(normalizeAdmissionTargetGrade(docItem?.targetGrade, targetGrade));
   };
 
   const saveEdit = async docItem => {
     if (!editUniversity.trim()) { showToast("대학교명을 입력해주세요.", "error"); return; }
     const key = docItem.id || docItem.url || docItem.dataKey;
-    const normalizedUniversity = admissionUniversityDisplayName(editUniversity.trim());
+    const normalizedUniversity = admissionUniversityDisplayName(resolveKnownUniversityBaseName(editUniversity.trim(), universityEntryOptions));
     const candidate = normalizeAdmissionDocumentRecord({
       ...docItem,
       university: normalizedUniversity,
@@ -4876,7 +4928,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
       campus: admissionCampusLabel(normalizedUniversity,editRegion),
       targetGrade: editTargetGrade,
       documentType: editType,
-      label: editLabel.trim().replace(/덕성여대/g,"덕성여자대학교") || admissionDocumentDisplayLabel(editType,docItem.year,normalizedUniversity),
+      label: normalizeAdmissionDocumentLabel(editLabel, normalizedUniversity, editType, docItem.year),
       updatedAt: new Date().toISOString(),
     });
     const candidateKey = admissionDocumentSemanticKey(candidate, editTargetGrade);
@@ -4941,7 +4993,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
         )}
         <div style={{...pdfAdmin.formGrid,gridTemplateColumns:"repeat(3,minmax(0,1fr))"}}>
           <label style={pdfAdmin.label}><span>대학교</span><input list="admission-university-options" value={university} onChange={event => {
-            const nextUniversity = canonicalAdmissionUniversityBase(event.target.value);
+            const nextUniversity = resolveKnownUniversityBaseName(event.target.value, universityEntryOptions);
             const nextCampus = explicitAdmissionCampusLabel(event.target.value);
             setUniversity(nextUniversity);
             if (nextCampus) {
@@ -4966,7 +5018,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
             const first = selected[0];
             const identity = resolveAdmissionDocumentIdentity(first.name, universityEntryOptions, universityNameWithCampus(university,campus), region);
             const inferredYear = inferAdmissionYearFromFileName(first.name, year);
-            if (identity.university) setUniversity(canonicalAdmissionUniversityBase(identity.university));
+            if (identity.university) setUniversity(resolveKnownUniversityBaseName(identity.university, universityEntryOptions));
             setCampus(identity.campus || "");
             setRegion(identity.region || "미지정");
             if (inferredYear) setYear(inferredYear);
@@ -4999,7 +5051,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
         <div style={card}>
           <SectionHeading title={`ZIP 업로드 확인 (${batchPreview.length}건)`} description="Storage를 10초 안에 확인한 뒤, 연결되지 않으면 파일별 Firestore 분할 저장으로 자동 전환합니다. 완료된 묶음은 즉시 저장됩니다." />
           <div style={table.scroll}><table style={{ ...table.base, minWidth: 920 }}><thead><tr><th style={table.th}>파일명</th><th style={table.th}>대학명</th><th style={table.th}>캠퍼스</th><th style={table.th}>지역</th><th style={table.th}>표시 이름</th><th style={table.th}></th></tr></thead><tbody>
-            {batchPreview.map(item => <tr key={item.id}><td style={{ ...table.tdLabel, maxWidth: 210, whiteSpace: "normal", wordBreak: "break-all" }}>{item.fileName}{item.error && <div style={{ color: "#9a4242", fontSize: 10.5, marginTop: 4 }}>{item.error}</div>}</td><td style={table.td}><input value={canonicalAdmissionUniversityBase(item.university)} onChange={event => { const base=canonicalAdmissionUniversityBase(event.target.value); const nextUniversity=universityNameWithCampus(base,item.campus); updateBatchItem(item.id, { university: nextUniversity, label: admissionDocumentDisplayLabel("guide", item.year, nextUniversity) }); }} style={{ ...pdfAdmin.input, minWidth: 145 }} /></td><td style={table.td}><select value={item.campus || ""} onChange={event => { const nextCampus=event.target.value; const nextUniversity=universityNameWithCampus(item.university,nextCampus); const nextRegion=nextCampus?regionForAdmissionCampus(nextUniversity,nextCampus,item.region||"미지정"):(item.region||"미지정"); updateBatchItem(item.id,{campus:nextCampus,university:nextUniversity,region:nextRegion,label:admissionDocumentDisplayLabel("guide",item.year,nextUniversity)}); }} style={{ ...pdfAdmin.input, minWidth: 92 }}><option value="">미지정</option>{ADMISSION_CAMPUS_ALIASES.map(name=><option key={name} value={name}>{name}</option>)}</select></td><td style={table.td}><select value={item.region || "미지정"} onChange={event => { const nextRegion=event.target.value; const mapped=admissionCampusLabel(item.university,nextRegion); const nextUniversity=mapped?universityNameWithCampus(item.university,mapped):item.university; updateBatchItem(item.id, { region: nextRegion, campus:mapped||item.campus||"", university:nextUniversity, label:admissionDocumentDisplayLabel("guide",item.year,nextUniversity) }); }} style={{ ...pdfAdmin.input, minWidth: 100 }}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select></td><td style={table.td}><input value={item.label || ""} onChange={event => updateBatchItem(item.id, { label: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 165 }} /></td><td style={table.td}><button style={pdfAdmin.deleteButton} onClick={() => removeBatchItem(item.id)} disabled={busy}><Trash2 size={12} /> 제외</button></td></tr>)}
+            {batchPreview.map(item => <tr key={item.id}><td style={{ ...table.tdLabel, maxWidth: 210, whiteSpace: "normal", wordBreak: "break-all" }}>{item.fileName}{item.error && <div style={{ color: "#9a4242", fontSize: 10.5, marginTop: 4 }}>{item.error}</div>}</td><td style={table.td}><input value={resolveKnownUniversityBaseName(item.university, universityEntryOptions)} onChange={event => { const base=resolveKnownUniversityBaseName(event.target.value, universityEntryOptions); const nextUniversity=universityNameWithCampus(base,item.campus); updateBatchItem(item.id, { university: nextUniversity, label: admissionDocumentDisplayLabel("guide", item.year, nextUniversity) }); }} style={{ ...pdfAdmin.input, minWidth: 145 }} /></td><td style={table.td}><select value={item.campus || ""} onChange={event => { const nextCampus=event.target.value; const nextUniversity=universityNameWithCampus(item.university,nextCampus); const nextRegion=nextCampus?regionForAdmissionCampus(nextUniversity,nextCampus,item.region||"미지정"):(item.region||"미지정"); updateBatchItem(item.id,{campus:nextCampus,university:nextUniversity,region:nextRegion,label:admissionDocumentDisplayLabel("guide",item.year,nextUniversity)}); }} style={{ ...pdfAdmin.input, minWidth: 92 }}><option value="">미지정</option>{ADMISSION_CAMPUS_ALIASES.map(name=><option key={name} value={name}>{name}</option>)}</select></td><td style={table.td}><select value={item.region || "미지정"} onChange={event => { const nextRegion=event.target.value; const mapped=admissionCampusLabel(item.university,nextRegion); const nextUniversity=mapped?universityNameWithCampus(item.university,mapped):item.university; updateBatchItem(item.id, { region: nextRegion, campus:mapped||item.campus||"", university:nextUniversity, label:admissionDocumentDisplayLabel("guide",item.year,nextUniversity) }); }} style={{ ...pdfAdmin.input, minWidth: 100 }}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select></td><td style={table.td}><input value={item.label || ""} onChange={event => updateBatchItem(item.id, { label: event.target.value })} style={{ ...pdfAdmin.input, minWidth: 165 }} /></td><td style={table.td}><button style={pdfAdmin.deleteButton} onClick={() => removeBatchItem(item.id)} disabled={busy}><Trash2 size={12} /> 제외</button></td></tr>)}
           </tbody></table></div>
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button style={btn.primary} onClick={uploadBatch} disabled={busy || !batchPreview.length}><Upload size={14} /> 확인한 PDF 일괄 업로드</button><button style={btn.secondary} onClick={() => setBatchPreview(null)} disabled={busy}>취소</button></div>
         </div>
@@ -5021,7 +5073,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
           <div style={pdfAdmin.missingGrid}>
             {visibleMissingDocumentUniversities.map(item => <button type="button" key={universityDocumentKey(item.name,item.region)} style={pdfAdmin.missingUniversityButton} onClick={() => {
               setDocumentType(requiredDocumentType);
-              setUniversity(canonicalAdmissionUniversityBase(item.name));
+              setUniversity(resolveKnownUniversityBaseName(item.name, universityEntryOptions));
               setCampus(admissionCampusLabel(item.name,item.region));
               setRegion(item.region || "미지정");
               setLabel("");
@@ -5049,7 +5101,7 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
                 <td>{editing ? <input value={editUniversity} onChange={event => setEditUniversity(event.target.value)} style={pdfAdmin.input} /> : <><b style={admissionDocs.university}>{admissionUniversityDisplayName(docItem.university)}</b>{admissionCampusLabel(docItem.university,docItem.region)&&<div style={{fontSize:9.5,color:"#55739a",fontWeight:850,marginTop:3}}>{admissionCampusLabel(docItem.university,docItem.region)}캠퍼스</div>}</>}</td>
                 <td>{editing ? <select value={editRegion} onChange={event => setEditRegion(event.target.value)} style={pdfAdmin.input}>{ADMISSION_REGIONS.map(name => <option key={name} value={name}>{name}</option>)}</select> : <span style={regionBadge}>{(docItem.region || "미지정") !== "미지정" && <MapPin size={10} />}{docItem.region || "미지정"}</span>}</td>
                 <td>{editing ? <div style={{display:"grid",gap:5}}><select value={editTargetGrade} onChange={event => setEditTargetGrade(Number(event.target.value))} style={pdfAdmin.input}>{[1,2,3].map(value=><option key={value} value={value}>{value}학년</option>)}</select><select value={editType} onChange={event => setEditType(event.target.value)} style={pdfAdmin.input}><option value="guide">모집요강</option><option value="reflection">교과 반영표</option></select></div> : <div style={{display:"grid",gap:4,justifyItems:"center"}}><span style={{fontSize:9.5,fontWeight:900,color:"#526681"}}>{normalizeAdmissionTargetGrade(docItem?.targetGrade,2)}학년</span><span style={admissionDocs.typeBadge}>{typeLabel(admissionDocumentType(docItem))}</span></div>}</td>
-                <td>{editing ? <input value={editLabel} onChange={event=>setEditLabel(event.target.value)} style={pdfAdmin.input}/> : <div style={admissionDocs.primaryText}>{String(docItem.label || admissionDocumentDisplayLabel(admissionDocumentType(docItem), docItem.year, docItem.university)).replace(/덕성여대/g,"덕성여자대학교")}</div>}</td>
+                <td>{editing ? <input value={editLabel} onChange={event=>setEditLabel(event.target.value)} style={pdfAdmin.input}/> : <div style={admissionDocs.primaryText}>{normalizeAdmissionDocumentLabel(docItem.label, docItem.university, admissionDocumentType(docItem), docItem.year)}</div>}</td>
                 <td><div title={docItem.fileName} style={admissionDocs.fileName}>{docItem.fileName || "-"}</div><div style={admissionDocs.fileMeta}>{docItem.size ? `${(docItem.size / 1024 / 1024).toFixed(1)}MB` : "용량 미확인"} · {docItem.storageMode === "firestore-binary" ? "Firestore 대체 저장" : "Firebase Storage"}</div></td>
                 <td><div style={admissionDocs.actions}>{editing ? <><button style={btn.primary} onClick={() => saveEdit(docItem)} disabled={busy}>저장</button><button style={btn.secondary} onClick={() => setEditingId(null)} disabled={busy}>취소</button></> : <><PdfLink docItem={docItem} compact /><button style={btn.secondary} onClick={() => startEdit(docItem)} disabled={busy}>수정</button><button style={pdfAdmin.deleteButton} onClick={() => removeDoc(docItem)} disabled={busy}><Trash2 size={12} />삭제</button></>}</div></td>
               </tr>;

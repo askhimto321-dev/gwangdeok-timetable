@@ -2508,7 +2508,7 @@ function TimetableCard({ result, sid }) {
   const hasNotices = (notices && notices.length > 0) || (homeroomNotices && homeroomNotices.length > 0);
   const [view, setView] = useState("timetable");
   return (
-    <div style={styles.card} className="print-card">
+    <div style={styles.card} className="print-card student-timetable-card">
       <div style={styles.printHeader} className="print-header">
         <div><div style={styles.cardTitle}>{student.name} <span style={styles.cardSub}>{student.class}반 {student.number}번</span></div><div style={styles.cardMeta}>학번 {sid}</div></div>
         <button type="button" className="no-print" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> 인쇄 / PDF</button>
@@ -4271,6 +4271,10 @@ const globalCss = `
 .subject-roster-table td{padding:10px 12px;border:1px solid #e0e7f0;text-align:center;color:#33445b}
 .subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
 .subject-roster-table tbody tr:hover{background:#eef5ff} @keyframes spin { to { transform: rotate(360deg); } }
+  .student-timetable-card { font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; letter-spacing: -0.014em; }
+  .student-timetable-table { font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; letter-spacing: -0.012em; line-height: 1.36; }
+  .student-timetable-table th { letter-spacing: -0.018em; }
+  .student-timetable-subject { text-wrap: balance; }
   .timetable-long-subject-break { display: none; }
   .print-only { display: none; }
   @media print {
@@ -4284,11 +4288,11 @@ const globalCss = `
     table tr { break-inside: avoid; page-break-inside: avoid; }
     .print-card { width: 100% !important; max-width: none !important; padding: 8px 10px !important; margin: 0 !important; overflow: visible !important; }
     .print-header { margin-bottom: 4px !important; }
-    .student-timetable-table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; margin-top: 8px !important; font-size: 8.5pt !important; }
-    .student-timetable-table th,.student-timetable-table td { box-sizing: border-box !important; min-width: 0 !important; padding: 5px 3px !important; line-height: 1.18 !important; word-break: keep-all !important; overflow-wrap: anywhere !important; vertical-align: middle !important; }
+    .student-timetable-table { width: 100% !important; max-width: 100% !important; table-layout: fixed !important; border-collapse: collapse !important; margin-top: 8px !important; font-size: 8.4pt !important; font-family: 'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif !important; letter-spacing: -0.012em !important; }
+    .student-timetable-table th,.student-timetable-table td { box-sizing: border-box !important; min-width: 0 !important; padding: 5px 3px !important; line-height: 1.22 !important; word-break: keep-all !important; overflow-wrap: anywhere !important; vertical-align: middle !important; }
     .student-timetable-table tr { break-inside: avoid !important; page-break-inside: avoid !important; }
     .student-timetable-table .student-timetable-cell { width: 100% !important; max-width: 100% !important; min-width: 0 !important; overflow: hidden !important; }
-    .student-timetable-table .student-timetable-subject { width: 100% !important; max-width: 100% !important; font-size: 8.2pt !important; line-height: 1.15 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: anywhere !important; }
+    .student-timetable-table .student-timetable-subject { width: 100% !important; max-width: 100% !important; font-size: 8.2pt !important; line-height: 1.2 !important; white-space: normal !important; word-break: keep-all !important; overflow-wrap: anywhere !important; text-wrap: balance !important; }
     .student-timetable-table .student-timetable-subject span { white-space: nowrap !important; }
     .timetable-long-subject-break { display: initial !important; }
     .timetable-long-subject-space { display: none !important; }
@@ -4393,25 +4397,25 @@ const styles = {
   cardMeta: { fontSize: 12, color: "#a39d8c", marginTop: 2 },
   printBtn: { display: "flex", alignItems: "center", gap: 6, border: `1px solid ${COLORS.line}`, background: "#fff", padding: "7px 13px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700 },
   printBar: { display: "flex", justifyContent: "space-between", alignItems: "center", margin: "12px 0" },
-  table: { width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: 12.5, marginTop: 14 },
+  table: { width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: 12.8, marginTop: 14 },
   editTable: { width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: 12.5, marginTop: 10 },
-  th: { border: `1px solid ${COLORS.line}`, padding: "8px 4px", background: "#f6f4ee", fontWeight: 700, fontSize: 12, wordBreak: "keep-all" },
-  thPeriod: { border: `1px solid ${COLORS.line}`, padding: "8px 4px", background: "#f6f4ee", fontWeight: 700, fontSize: 12 },
-  td: { border: `1px solid ${COLORS.line}`, padding: "8px 4px", textAlign: "center", verticalAlign: "middle", wordBreak: "keep-all", overflowWrap: "break-word" },
+  th: { border: `1px solid ${COLORS.line}`, padding: "8px 4px", background: "#f8f5ef", color: "#4c4336", fontWeight: 800, fontSize: 12.1, letterSpacing: "-0.01em", wordBreak: "keep-all" },
+  thPeriod: { border: `1px solid ${COLORS.line}`, padding: "8px 4px", background: "#f8f5ef", color: "#4c4336", fontWeight: 800, fontSize: 12.1, letterSpacing: "-0.01em" },
+  td: { border: `1px solid ${COLORS.line}`, padding: "9px 5px", textAlign: "center", verticalAlign: "middle", color: "#2f2a23", wordBreak: "keep-all", overflowWrap: "break-word" },
   tdEdit: { border: `1px solid ${COLORS.line}`, padding: 2 },
   tdReadonly: { border: `1px solid ${COLORS.line}`, padding: "7px 4px", textAlign: "center", fontSize: 11.5, wordBreak: "keep-all" },
   cellInput: { width: "100%", border: "none", outline: "none", padding: "6px 4px", fontSize: 12, textAlign: "center", background: "transparent" },
-  tdPeriod: { border: `1px solid ${COLORS.line}`, padding: "6px 4px", textAlign: "center", background: "#fbfaf6", fontSize: 11 },
-  tdTime: { fontSize: 9, color: "#a39d8c" },
-  cellSubject: { fontWeight: 700, fontSize: 11.5, lineHeight: 1.3 },
+  tdPeriod: { border: `1px solid ${COLORS.line}`, padding: "6px 4px", textAlign: "center", background: "#fcfaf5", color: "#5d5648", fontSize: 11, fontWeight: 700 },
+  tdTime: { fontSize: 9.2, color: "#9e9687", letterSpacing: "-0.01em" },
+  cellSubject: { fontWeight: 800, fontSize: 12.1, lineHeight: 1.34, letterSpacing: "-0.01em", color: "#2f2a23" },
   cellRow: { display: "flex", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 4, flexWrap: "wrap" },
-  cellTag: { fontSize: 9, background: "#efece1", color: "#6b6754", padding: "1px 5px", borderRadius: 4, fontWeight: 700 },
-  cellMoveTag: { display: "flex", alignItems: "center", gap: 2, fontSize: 9, background: "#f3ded0", color: "#9c4a1f", padding: "1px 5px", borderRadius: 4, fontWeight: 700 },
-  cellStayTag: { fontSize: 9, background: COLORS.accentSoft, color: COLORS.accent, padding: "1px 5px", borderRadius: 4, fontWeight: 700 },
-  cellFixed: { fontSize: 12, color: "#2b2620", fontWeight: 600, lineHeight: 1.3 },
-  cellLocation: { fontSize: 10.5, color: "#5c574a", fontWeight: 600, marginTop: 2 },
+  cellTag: { fontSize: 9, background: "#f1eee4", color: "#6b6754", padding: "1px 5px", borderRadius: 999, fontWeight: 700 },
+  cellMoveTag: { display: "flex", alignItems: "center", gap: 2, fontSize: 9, background: "#f3ded0", color: "#9c4a1f", padding: "1px 5px", borderRadius: 999, fontWeight: 700 },
+  cellStayTag: { fontSize: 9, background: COLORS.accentSoft, color: COLORS.accent, padding: "1px 5px", borderRadius: 999, fontWeight: 700 },
+  cellFixed: { fontSize: 12.1, color: "#2f2a23", fontWeight: 700, lineHeight: 1.34, letterSpacing: "-0.01em" },
+  cellLocation: { fontSize: 10.4, color: "#645d4f", fontWeight: 600, marginTop: 3 },
   legend: { display: "flex", gap: 14, marginTop: 12, flexWrap: "wrap" },
-  legendItem: { display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#8a8578" },
+  legendItem: { display: "flex", alignItems: "center", gap: 5, fontSize: 11.2, color: "#7f786a" },
   legendDot: { width: 9, height: 9, borderRadius: 3, display: "inline-block" },
   warnBanner: { display: "flex", alignItems: "center", gap: 8, background: "#fdf3e9", border: "1px solid #ecd3b1", color: "#8a4d1f", padding: "8px 12px", borderRadius: 8, fontSize: 12, margin: "10px 0" },
   okBanner: { display: "flex", alignItems: "center", gap: 8, background: "#eef4ec", border: "1px solid #c7d9c2", color: COLORS.accent, padding: "10px 14px", borderRadius: 8, fontSize: 13, marginTop: 12 },
