@@ -2166,14 +2166,15 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
-        <div>
-          <h1 style={styles.h1}>선생님 ZONE {viewingAsAdmin && <span style={{ fontSize: 12, fontWeight: 700, color: "#8a6d1f", background: "#fff8e6", border: "1px solid #f0dca0", borderRadius: 5, padding: "2px 8px", marginLeft: 6 }}>관리자로 보는 중</span>}</h1>
-          <p style={styles.pMuted}>{teacher.name} 선생님{teacher.homeroomClass && ` · ${teacher.homeroomClass}반 담임`}</p>
+      <div style={styles.noticeHero}>
+        <div style={{minWidth:0}}>
+          <span style={styles.noticeHeroEyebrow}>공지·수업자료</span>
+          <h1 style={styles.noticeHeroTitle}>공지 관리</h1>
+          <p style={styles.noticeHeroText}>{teacher.name} 선생님{teacher.homeroomClass ? ` · ${teacher.homeroomClass}반 담임` : ""}{viewingAsAdmin ? " · 관리자 열람" : ""}</p>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button style={styles.secondaryBtn} onClick={() => setEditingProfile(true)}>내 정보 수정</button>
-          <button style={styles.secondaryBtn} onClick={onLogout}>{viewingAsAdmin ? "돌아가기" : "로그아웃"}</button>
+        <div style={{ display: "flex", gap: 8, flexWrap:"wrap" }}>
+          <button style={styles.noticeHeroButton} onClick={() => setEditingProfile(true)}>내 정보 수정</button>
+          <button style={styles.noticeHeroButton} onClick={onLogout}>{viewingAsAdmin ? "돌아가기" : "로그아웃"}</button>
         </div>
       </div>
 
@@ -4705,6 +4706,11 @@ const styles = {
   teacherWorkflowStepActive: { background: "#eef4ec", color: "#2f5134", borderColor: "#b9cfb8", boxShadow: "0 3px 12px rgba(47,81,52,.08)" },
   teacherWorkflowStepDone: { background: "#f7faf6", color: "#59705b", borderColor: "#d4dfd2" },
   teacherWorkflowNumber: { width: 24, height: 24, flex: "0 0 auto", display: "grid", placeItems: "center", borderRadius: 8, background: "#fff", border: `1px solid ${COLORS.line}`, fontSize: 11, fontWeight: 950 },
+  noticeHero:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:14,flexWrap:"wrap",marginBottom:14,padding:"17px 20px",borderRadius:18,color:"#fff",background:"linear-gradient(135deg,#8a6543,#a06f50 55%,#9c625e)",boxShadow:"0 12px 28px rgba(120,78,57,.18)"},
+  noticeHeroEyebrow:{display:"block",fontSize:10.5,fontWeight:900,opacity:.82,letterSpacing:".05em"},
+  noticeHeroTitle:{margin:"3px 0 2px",fontSize:21,fontWeight:950,letterSpacing:"-.04em",lineHeight:1.2},
+  noticeHeroText:{margin:0,fontSize:11.5,fontWeight:750,opacity:.9},
+  noticeHeroButton:{border:"1px solid rgba(255,255,255,.42)",borderRadius:10,padding:"8px 11px",color:"#fff",background:"rgba(255,255,255,.12)",fontWeight:900,cursor:"pointer"},
   teacherZoneNav: { border: `1px solid ${COLORS.line}`, borderRadius: 12, background: "#fff", padding: 11, marginBottom: 14, boxShadow: "0 2px 10px rgba(43,38,32,0.035)" },
   teacherZoneModeRow: { display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" },
   teacherZoneModeBtn: { display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${COLORS.line}`, background: "#fff", color: "#6f695d", borderRadius: 9, padding: "8px 12px", fontSize: 12, fontWeight: 850, cursor: "pointer" },

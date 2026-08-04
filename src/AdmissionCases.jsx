@@ -41,7 +41,7 @@ const CSS=`
 .admission-case-ui [style*="studentMetrics"]{}
 .admission-case-ui small{line-height:1.35}
 .admission-student-profile-badges span{display:inline-flex;align-items:center;border-radius:999px;padding:4px 8px;background:#fff;border:1px solid #dbe3ef;color:#5b6879;font-size:10.5px;font-weight:800;white-space:nowrap}
-.admission-student-score-groups{display:grid;grid-template-columns:minmax(250px,.92fr) minmax(300px,1.08fr);gap:10px;min-width:0;width:100%;max-width:100%;align-items:stretch}
+.admission-student-score-groups{display:grid;grid-template-columns:minmax(210px,.9fr) minmax(245px,1.1fr);gap:9px;min-width:0;width:100%;max-width:100%;align-items:stretch}
 .admission-student-score-group{display:grid;grid-template-rows:auto minmax(0,1fr);gap:8px;padding:10px;border-radius:13px;border:1px solid #d7e1ee;background:linear-gradient(145deg,#ffffff,#f7faff);min-width:0;max-width:100%;overflow:hidden}
 .admission-student-score-group.is-school-group{border:2px solid #8da9cc;background:linear-gradient(145deg,#f7fbff,#edf4ff);box-shadow:0 7px 18px rgba(49,95,149,.10)}
 .admission-student-score-group.is-mock-group{background:linear-gradient(145deg,#ffffff,#f9f7ff);border-color:#ddd9ee}
@@ -50,7 +50,7 @@ const CSS=`
 .admission-score-group-head span{font-size:9.5px;color:#7a8798;font-weight:800;white-space:nowrap}
 .admission-student-metrics{display:grid;gap:7px;min-width:0}
 .admission-student-metrics.is-school{grid-template-columns:repeat(2,minmax(0,1fr))}
-.admission-student-metrics.is-mock{grid-template-columns:repeat(3,minmax(0,1fr))}
+.admission-student-metrics.is-mock{grid-template-columns:repeat(3,minmax(56px,1fr));gap:5px}
 .admission-student-metrics>div{display:grid;gap:4px;align-content:center;min-height:54px;padding:7px 6px;border-radius:10px;background:#fff;border:1px solid #e0e6ef;text-align:center;min-width:0;overflow:hidden}
 .admission-student-metrics.is-school>div{min-height:68px;border-color:#ccd9ea}
 .admission-student-metrics.is-school>div.is-current-grade{background:#fff}
@@ -58,8 +58,8 @@ const CSS=`
 .admission-student-metrics small{font-size:9.5px;color:#6f7d90;font-weight:850;white-space:normal;word-break:keep-all;line-height:1.28}
 .admission-student-metrics b{font-size:15.5px;color:#263345;white-space:nowrap;line-height:1.12}
 .admission-student-metrics.is-school b{font-size:17px;font-weight:950;letter-spacing:-.025em}
-.admission-student-metrics.is-mock b{font-size:20.5px;font-weight:950;letter-spacing:-.03em}
-.admission-student-metrics.is-mock small{font-size:10px;color:#738094;font-weight:850;white-space:nowrap}
+.admission-student-metrics.is-mock b{font-size:18.5px;font-weight:950;letter-spacing:-.03em}
+.admission-student-metrics.is-mock small{font-size:9.5px;color:#738094;font-weight:850;white-space:nowrap}.admission-student-metrics.is-mock .is-four-sum{padding-left:4px;padding-right:4px}.admission-student-metrics.is-mock .is-four-sum b{font-size:18px}
 .admission-student-metrics.is-school>div.is-converted-grade small,.admission-student-metrics.is-school>div.is-converted-grade b{color:#fff!important}
 .admission-case-search button{display:block;width:100%;padding:9px 11px;border:0;background:#fff;text-align:left;cursor:pointer;font-size:13px}
 .admission-case-search button:hover{background:#edf3ff}
@@ -270,6 +270,7 @@ const CSS=`
 .admission-case-print-header{display:none}
 .admission-linked-focus{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid #d6e0ed;border-radius:10px;background:#f4f8fd;color:#315a86;font-size:11.5px}
 @media(max-width:760px){.admission-stat-strip{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1080px){.admission-student-profile{grid-template-columns:minmax(125px,.42fr) minmax(0,1.58fr)!important}.admission-student-score-groups{grid-template-columns:minmax(200px,.9fr) minmax(230px,1.1fr)}}
 @media(max-width:900px){
   .admission-student-score-groups{grid-template-columns:1fr}
   .admission-detail-options{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -658,7 +659,7 @@ function StudentConnector({profile,query,onQuery,onSelect,roster}){
       <div style={styles.studentProfileIdentity}><span style={styles.studentProfileEyebrow}>선택 학생</span><div style={styles.studentProfileTitle}><b>{profile.sid}</b><strong>{profile.name}</strong></div><div className="admission-student-profile-badges" style={styles.studentProfileBadges}><span>{profile.entryYear}학년도 입학생</span><span>{profile.grade}학년</span><span>{profile.gradeSystem}등급제</span></div></div>
       <div className="admission-student-score-groups">
         <div className="admission-student-score-group is-school-group"><div className="admission-score-group-head"><strong>학생 비교 기준 내신</strong><span>학기 누적 기준</span></div><div className="admission-student-metrics is-school"><div className="is-current-grade"><small>{profile.gradeSystem}등급제 현재 내신</small><b>{fmt(profile.average)}</b></div><div className="is-converted-grade"><small>사례 비교용 9등급 환산</small><b>{fmt(profile.converted)}</b></div></div></div>
-        <div className="admission-student-score-group is-mock-group"><div className="admission-score-group-head"><strong>모의고사 최저</strong><span>최신 회차 기준</span></div><div className="admission-student-metrics is-mock"><div><small>2합</small><b>{profile.sums?.sum2??"-"}</b></div><div><small>3합</small><b>{profile.sums?.sum3??"-"}</b></div><div><small>4합</small><b>{profile.sums?.sum4??"-"}</b></div></div></div>
+        <div className="admission-student-score-group is-mock-group"><div className="admission-score-group-head"><strong>모의고사 최저</strong><span>최신 회차 기준</span></div><div className="admission-student-metrics is-mock"><div><small>2합</small><b>{profile.sums?.sum2??"-"}</b></div><div><small>3합</small><b>{profile.sums?.sum3??"-"}</b></div><div className="is-four-sum"><small>4합</small><b>{profile.sums?.sum4??"-"}</b></div></div></div>
       </div>
     </div>:<div style={styles.studentPlaceholder}>학생을 선택하면 현재 성적과 과거 사례를 연결합니다.</div>}
   </div>;

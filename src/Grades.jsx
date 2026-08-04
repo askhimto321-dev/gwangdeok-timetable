@@ -5342,10 +5342,10 @@ const achievementPill = {
 const topBadge = { marginTop: 3, fontSize: 9.5, fontWeight: 900, color: "#24613a", background: "#e7f5ea", borderRadius: 999, padding: "2px 5px", display: "inline-block" };
 const bestBadge = { fontSize: 9.5, fontWeight: 900, color: "#ffe9a6", background: "#30364d", border: "1px solid #30364d", borderRadius: 999, padding: "3px 7px", boxShadow: "0 1px 2px rgba(48,54,77,0.18)" };
 const mockSum = {
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))", gap: 10, marginTop: 14 },
-  card: { border: "1px solid #d6e1ee", background: "#f4f8fc", borderRadius: 12, padding: "13px 14px", textAlign: "center" },
-  label: { fontSize: 13, fontWeight: 900, color: "#3d6288" },
-  value: { fontSize: 30, fontWeight: 900, lineHeight: 1.15, color: "#253d59", margin: "4px 0 2px" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(96px, 1fr))", gap: 8, marginTop: 14, minWidth: 0 },
+  card: { border: "1px solid #d6e1ee", background: "#f4f8fc", borderRadius: 12, padding: "11px 8px", textAlign: "center", minWidth: 0, overflow: "hidden" },
+  label: { fontSize: 12.2, fontWeight: 900, color: "#3d6288", whiteSpace: "nowrap" },
+  value: { fontSize: 27, fontWeight: 900, lineHeight: 1.12, color: "#253d59", margin: "4px 0 2px", whiteSpace: "nowrap" },
   caption: { fontSize: 10.5, color: "#788697" },
 };
 const absoluteGradePill = {
