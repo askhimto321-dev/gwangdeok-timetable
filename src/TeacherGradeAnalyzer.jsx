@@ -328,6 +328,43 @@ function compactMissingLabels(values = []) {
     ...(performance.length ? [`수행 ${performance.length}개 미입력`] : []),
   ];
 }
+function summarizeManagedWorkspace(item, source, fallbackGrade) {
+  const studentIds = new Set();
+  const classNumbers = new Set();
+  (item?.written || []).forEach(assessment => {
+    Object.entries(assessment?.students || {}).forEach(([sid, student]) => {
+      studentIds.add(String(sid));
+      const classNumber = asNumber(student?.classNumber) ?? asNumber(String(sid).slice(1, 3));
+      if (classNumber != null) classNumbers.add(Number(classNumber));
+    });
+  });
+  (item?.performance || []).forEach(file => {
+    (file?.classes || []).forEach(value => { const number = asNumber(value); if (number != null) classNumbers.add(Number(number)); });
+    Object.entries(file?.students || {}).forEach(([sid, student]) => {
+      studentIds.add(String(sid));
+      const classNumber = asNumber(student?.classNumber) ?? asNumber(String(sid).slice(1, 3));
+      if (classNumber != null) classNumbers.add(Number(classNumber));
+    });
+  });
+  Object.entries(item?.studentOverrides || {}).forEach(([sid, student]) => {
+    studentIds.add(String(sid));
+    const classNumber = asNumber(student?.classNumber) ?? asNumber(String(sid).slice(1, 3));
+    if (classNumber != null) classNumbers.add(Number(classNumber));
+  });
+  return {
+    ...item,
+    id: item?.id || contextKey(item),
+    source,
+    sourceLabel: source === "shared" ? "학교 공동본" : "개인 임시본",
+    grade: asNumber(item?.grade) ?? asNumber(item?.settings?.workspaceMeta?.grade) ?? Number(fallbackGrade),
+    year: asNumber(item?.year) ?? asNumber(item?.settings?.workspaceMeta?.year),
+    semester: asNumber(item?.semester) ?? asNumber(item?.settings?.workspaceMeta?.semester),
+    subject: text(item?.subject || item?.settings?.workspaceMeta?.subject),
+    classNumbers: Array.from(classNumbers).sort((a, b) => a - b),
+    studentCount: studentIds.size,
+  };
+}
+
 function defaultMinimumSettings(settings, totalWeight = 0) {
   const stored = settings?.minimumAchievement || {};
   const planned = Array.isArray(settings?.plannedWritten) ? settings.plannedWritten[0] : null;
@@ -451,6 +488,17 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   }, [teacherAccounts, context?.subject]);
   const localWorkspaceList = useMemo(() => Object.values(localWorkspaces || {})
     .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [localWorkspaces]);
+  const managedWorkspaces = useMemo(() => [
+    ...localWorkspaceList.map(item => summarizeManagedWorkspace(item, "local", grade)),
+    ...sharedWorkspaces.map(item => summarizeManagedWorkspace(item, "shared", grade)),
+  ], [localWorkspaceList, sharedWorkspaces, grade]);
+  const dataSubjects = useMemo(() => Array.from(new Set(managedWorkspaces.map(item => item.subject).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [managedWorkspaces]);
+  const dataClasses = useMemo(() => Array.from(new Set(managedWorkspaces.flatMap(item => item.classNumbers || []))).sort((a, b) => a - b), [managedWorkspaces]);
+  const filteredManagedWorkspaces = useMemo(() => managedWorkspaces.filter(item => {
+    if (dataSubjectFilter !== "all" && item.subject !== dataSubjectFilter) return false;
+    if (dataClassFilter !== "all" && !(item.classNumbers || []).map(String).includes(String(dataClassFilter))) return false;
+    return true;
+  }), [managedWorkspaces, dataSubjectFilter, dataClassFilter]);
   const workspaceSelection = selectedLocalId ? `local:${selectedLocalId}` : selectedSharedId ? `shared:${selectedSharedId}` : "";
   const currentSnapshot = () => {
     const existing = db?.teacherGradeWorkspaces?.[workspaceId] || selectedShared || null;
@@ -569,6 +617,47 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setLocalWorkspaces(current => { const next = { ...current }; delete next[selectedLocalId]; return next; });
     startNewWorkspace();
     showToast?.("개인 임시본을 삭제했습니다.", "success");
+  };
+  const deleteLocalWorkspaceById = item => {
+    const id = item?.id;
+    if (!id || !localWorkspaces[id]) return;
+    if (!window.confirm(`${item.subject || "이 과목"} 개인 임시본을 삭제할까요?`)) return;
+    setLocalWorkspaces(current => { const next = { ...current }; delete next[id]; return next; });
+    if (selectedLocalId === id) startNewWorkspace();
+    showToast?.("개인 임시본을 삭제했습니다.", "success");
+  };
+  const deleteSharedWorkspace = async item => {
+    const id = item?.id;
+    if (!id || !db?.teacherGradeWorkspaces?.[id]) return;
+    if (!(accessRole === "admin" || canEditSubject(item.subject))) { showToast?.("이 과목 담당 교사 또는 관리자만 학교 공동본을 삭제할 수 있습니다.", "error"); return; }
+    if (!window.confirm(`${item.subject || "이 과목"} 학교 공동본을 삭제할까요? 같은 과목 담당 교사 화면에서도 제거됩니다.`)) return;
+    const next = { ...(db?.teacherGradeWorkspaces || {}) };
+    delete next[id];
+    const ok = await persist?.({ teacherGradeWorkspaces: next });
+    if (ok === false) return;
+    if (selectedSharedId === id) startNewWorkspace();
+    showToast?.("학교 공동본을 삭제했습니다.", "success");
+  };
+  const clearCurrentGradeLocalData = () => {
+    const count = Object.keys(localWorkspaces || {}).length;
+    if (!count) return;
+    if (!window.confirm(`${grade}학년 개인 임시본 ${count}개를 모두 삭제할까요? 학교 공동본은 유지됩니다.`)) return;
+    setLocalWorkspaces({});
+    startNewWorkspace();
+    showToast?.(`${grade}학년 개인 임시본을 모두 초기화했습니다.`, "success");
+  };
+  const clearCurrentGradeSharedData = async () => {
+    if (accessRole !== "admin") return;
+    const source = db?.teacherGradeWorkspaces || {};
+    const targetIds = Object.entries(source).filter(([, item]) => String(item?.grade || item?.settings?.workspaceMeta?.grade || "") === String(grade)).map(([id]) => id);
+    if (!targetIds.length) return;
+    if (!window.confirm(`${grade}학년 학교 공동본 ${targetIds.length}개를 모두 삭제할까요? 이 작업은 모든 담당 교사에게 적용됩니다.`)) return;
+    const next = { ...source };
+    targetIds.forEach(id => delete next[id]);
+    const ok = await persist?.({ teacherGradeWorkspaces: next });
+    if (ok === false) return;
+    if (targetIds.includes(selectedSharedId)) startNewWorkspace();
+    showToast?.(`${grade}학년 학교 공동본을 모두 초기화했습니다.`, "success");
   };
   const weightTotal = useMemo(() => {
     const uploadedWritten = sortedWritten.reduce((sum, item) => sum + (asNumber(item.weight) || 0), 0);
@@ -1230,8 +1319,12 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
 
       <section style={ui.section}>
         <div style={ui.sectionHeader}>
-          <div><span style={ui.stepBadge}>1</span><strong style={ui.sectionTitle}>NEIS 파일 업로드</strong><p style={ui.sectionHint}>지필평가는 전 학급 파일, 수행평가는 반별 파일을 여러 개 선택할 수 있습니다.</p></div>
+          <div><span style={ui.stepBadge}>1</span><strong style={ui.sectionTitle}>NEIS 파일 업로드</strong><p style={ui.sectionHint}>아래 경로에서 내려받은 XLSX Data 파일을 그대로 올려주세요.</p></div>
           {context && <span style={ui.contextBadge}>{context.year}학년도 {context.semester}학기 · {context.grade}학년 · {context.subject}</span>}
+        </div>
+        <div className="neis-download-guide" aria-label="NEIS 성적 파일 다운로드 경로">
+          <article><span>정기시험</span><div><b>교과담임 → 지필평가조회</b><p>교과목별일람표조회(전체 학급) → XLSX Data 다운로드</p></div></article>
+          <article><span>수행평가</span><div><b>교과담임 → 수행평가조회</b><p>강의실별일람표조회(전체 영역) → XLSX Data 다운로드</p></div></article>
         </div>
         <div style={ui.uploadGrid}>
           <UploadCard
@@ -1563,6 +1656,9 @@ const gradeAnalyzerCss = `
   body.print-teacher-minimum .teacher-grade-analyzer table th,body.print-teacher-minimum .teacher-grade-analyzer table td{padding:6px 5px!important}
   body.print-teacher-minimum .teacher-grade-analyzer .teacher-result-toolbar{display:none!important}
 }
+.neis-download-guide{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0 14px}.neis-download-guide article{display:grid;grid-template-columns:72px minmax(0,1fr);align-items:center;gap:11px;min-width:0;padding:11px 13px;border:1px solid #d8e2ee;border-radius:12px;background:#f8fbff}.neis-download-guide article>span{display:inline-flex;align-items:center;justify-content:center;min-height:34px;border-radius:9px;background:#e8f1fb;color:#2f5f93;font-size:11px;font-weight:950;white-space:nowrap}.neis-download-guide article>div{display:grid;gap:3px;min-width:0}.neis-download-guide b{font-size:11.5px;line-height:1.35;color:#283d56}.neis-download-guide p{margin:0;font-size:10px;line-height:1.45;color:#6d7d90;font-weight:750;word-break:keep-all;overflow-wrap:anywhere}
+@media(max-width:760px){.neis-download-guide{grid-template-columns:1fr}.neis-download-guide article{grid-template-columns:66px minmax(0,1fr);padding:10px}.neis-download-guide b{font-size:10.8px}.neis-download-guide p{font-size:9.5px}}
+
 `;
 
 
