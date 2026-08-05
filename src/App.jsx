@@ -4,6 +4,7 @@ import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAt
 import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
 import TeacherGradeAnalyzer from "./TeacherGradeAnalyzer.jsx";
 import MinimumAchievement from "./MinimumAchievement.jsx";
+import GradeDepartmentTools from "./GradeDepartmentTools.jsx";
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
 
@@ -615,7 +616,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
-  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], siteAnnouncements: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {} });
+  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], siteAnnouncements: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {}, gradeDepartmentData: {} });
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] });
@@ -638,7 +639,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -656,8 +657,9 @@ export default function App() {
         readStorage("kd_teacher_grade_workspaces", {}),
         readStorage("kd_minimum_achievement_settings", {}),
         readStorage("kd_minimum_achievement_attendance", {}),
+        readStorage("kd_grade_department_data", {}),
       ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance });
+      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData });
       loadGradesDB().then(setGdb);
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
@@ -834,6 +836,7 @@ export default function App() {
     if (patch.teacherGradeWorkspaces) jobs.push(writeStorage("kd_teacher_grade_workspaces", patch.teacherGradeWorkspaces));
     if (patch.minimumAchievementSettings) jobs.push(writeStorage("kd_minimum_achievement_settings", patch.minimumAchievementSettings));
     if (patch.minimumAchievementAttendance) jobs.push(writeStorage("kd_minimum_achievement_attendance", patch.minimumAchievementAttendance));
+    if (patch.gradeDepartmentData) jobs.push(writeStorage("kd_grade_department_data", patch.gradeDepartmentData));
     const results = await Promise.all(jobs);
     const failed = results.find(r => r && r.ok === false);
     if (failed) { showToast(`실패했습니다. (${failed.error})`, "error"); return false; }
@@ -1582,13 +1585,21 @@ function TeacherZoneWorkspace({
   const activeTeacher = loggedInTeacher || viewedTeacher || null;
   const actor = activeTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin || { id: "teacher-zone", name: "선생님" };
   const canUseNotice = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor || viewedTeacher);
+  const activeAccessRole = loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : (activeTeacher && normalizedTeacherRole(activeTeacher) === "gradeHead") ? "gradeHead" : "teacher";
+  const activeTeacherIsSecondGradeStaff = !!(activeTeacher && teacherRoleGrade(activeTeacher) === "2" && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(activeTeacher)));
+  const departmentGrades = loggedInDepartment ? departmentGradeAccess(loggedInDepartment) : [];
+  const departmentCanUseSecondGradeTools = !!(loggedInDepartment && (!departmentGrades.length || departmentGrades.includes("2")));
+  const canUseGradeDepartmentTools = String(grade) === "2" && !!(loggedInAdmin || departmentCanUseSecondGradeTools || activeTeacherIsSecondGradeStaff);
   const modeStorageKey = `kd_teacher_zone_mode_${actor?.id || actor?.name || "shared"}`;
   const [workspaceMode, setWorkspaceMode] = useState(() => {
-    try { return localStorage.getItem(modeStorageKey) === "notice" ? "notice" : "grades"; } catch { return "grades"; }
+    try {
+      const saved = localStorage.getItem(modeStorageKey);
+      return ["grades", "notice", "contacts", "records"].includes(saved) ? saved : "grades";
+    } catch { return "grades"; }
   });
   useEffect(() => {
-    if (!canUseNotice && workspaceMode === "notice") setWorkspaceMode("grades");
-  }, [canUseNotice, workspaceMode]);
+    if ((!canUseNotice && workspaceMode === "notice") || (!canUseGradeDepartmentTools && ["contacts", "records"].includes(workspaceMode))) setWorkspaceMode("grades");
+  }, [canUseNotice, canUseGradeDepartmentTools, workspaceMode]);
   useEffect(() => {
     try { localStorage.setItem(modeStorageKey, workspaceMode); } catch { /* localStorage unavailable */ }
   }, [modeStorageKey, workspaceMode]);
@@ -1613,16 +1624,21 @@ function TeacherZoneWorkspace({
       <div style={teacherZoneWorkspaceStyles.modeTabs}>
         <button type="button" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
         {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
+        {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 연락처</button>}
+        {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무</button>}
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
     <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
       <TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
-        accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : ((loggedInTeacher || viewedTeacher) && normalizedTeacherRole(loggedInTeacher || viewedTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
+        accessRole={activeAccessRole}
         homeroomClass={activeTeacher?.homeroomClass || ""}
         canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (activeTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(activeTeacher))))} />
     </div>
     {canUseNotice && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
+    {canUseGradeDepartmentTools && <div style={{ display: ["contacts", "records"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records"].includes(workspaceMode))}>
+      <GradeDepartmentTools view={workspaceMode} db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} />
+    </div>}
   </div>;
 }
 
