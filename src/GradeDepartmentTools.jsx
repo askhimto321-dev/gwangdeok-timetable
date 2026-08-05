@@ -9,6 +9,8 @@ import {
 
 const FONT = '"Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif';
 const IAM_TEACHER_URL = "https://id.iamservice.net/login";
+const ACADEMIC_STATUS_OPTIONS = ["재학", "전입", "전출", "자퇴"];
+const LEADERSHIP_ROLE_OPTIONS = ["없음", "학급자치회장", "학급자치부회장", "학생자치회장", "학생자치부회장"];
 
 function cleanText(value) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
@@ -80,6 +82,39 @@ function normalizeSid(value) {
   return /^\d{5}$/.test(digits) ? digits : "";
 }
 
+function normalizeAcademicStatus(value) {
+  const text = cleanText(value);
+  if (text.includes("자퇴")) return "자퇴";
+  if (text.includes("전출")) return "전출";
+  if (text.includes("전입")) return "전입";
+  return "재학";
+}
+
+function normalizeLeadershipRole(value) {
+  const text = cleanText(value).replace(/\s/g, "");
+  if (/학생자치.*부회장/.test(text)) return "학생자치부회장";
+  if (/학생자치.*회장/.test(text)) return "학생자치회장";
+  if (/학급자치.*부회장/.test(text) || /학급.*부회장/.test(text)) return "학급자치부회장";
+  if (/학급자치.*회장/.test(text) || /학급.*회장/.test(text)) return "학급자치회장";
+  return "없음";
+}
+
+function normalizeContactItem(item) {
+  const sid = normalizeSid(item?.sid);
+  return {
+    ...item,
+    sid,
+    name: cleanText(item?.name),
+    classNumber: Number(item?.classNumber) || Number(sid.slice(1, 3)) || null,
+    number: Number(item?.number) || Number(sid.slice(3, 5)) || null,
+    studentPhone: normalizePhone(item?.studentPhone),
+    guardianPhone: normalizePhone(item?.guardianPhone),
+    note: cleanText(item?.note),
+    enrollmentStatus: normalizeAcademicStatus(item?.enrollmentStatus),
+    leadershipRole: normalizeLeadershipRole(item?.leadershipRole),
+  };
+}
+
 function parseContacts(workbook) {
   const sheetName = workbook.SheetNames.find(name => cleanText(name) === "2학년명렬") || workbook.SheetNames.find(name => /2학년.*명렬/.test(name));
   if (!sheetName) return [];
@@ -94,22 +129,26 @@ function parseContacts(workbook) {
   const studentPhoneIndex = columnIndex(header, ["휴대폰(학생)", "학생휴대폰", "학생전화"]);
   const guardianPhoneIndex = columnIndex(header, ["휴대폰(학부모)", "학부모휴대폰", "보호자휴대폰", "보호자전화"]);
   const noteIndex = columnIndex(header, ["비고(특이사항)", "특이사항", "비고"]);
+  const statusIndex = columnIndex(header, ["학적 상태", "학적", "재학 상태"]);
+  const roleIndex = columnIndex(header, ["학생회 역할", "자치회 역할", "역할"]);
   const seen = new Set();
   return rows.slice(headerIndex + 1).map(row => {
     const sid = normalizeSid(row[sidIndex]);
     const name = cleanText(row[nameIndex]);
     if (!sid || !name || seen.has(sid)) return null;
     seen.add(sid);
-    return {
+    return normalizeContactItem({
       sid,
       name,
       classNumber: Number(row[classIndex]) || Number(sid.slice(1, 3)) || null,
       number: Number(row[numberIndex]) || Number(sid.slice(3, 5)) || null,
-      studentPhone: normalizePhone(row[studentPhoneIndex]),
-      guardianPhone: normalizePhone(row[guardianPhoneIndex]),
-      note: cleanText(row[noteIndex]),
-    };
-  }).filter(Boolean).sort((a, b) => Number(a.sid) - Number(b.sid));
+      studentPhone: row[studentPhoneIndex],
+      guardianPhone: row[guardianPhoneIndex],
+      note: row[noteIndex],
+      enrollmentStatus: statusIndex >= 0 ? row[statusIndex] : "재학",
+      leadershipRole: roleIndex >= 0 ? row[roleIndex] : "없음",
+    });
+  }).filter(Boolean).sort((a, b) => Number(a.classNumber) - Number(b.classNumber) || Number(a.number) - Number(b.number) || Number(a.sid) - Number(b.sid));
 }
 
 function parseActivitySheet(workbook, sheetName, category) {
@@ -281,8 +320,9 @@ function normalizeReflectionItem(item) {
     sid,
     activity: reflectionActivityName(rawActivity || sourceSheet),
     date: cleanText(item?.date) || reflectionDate(sourceSheet) || reflectionDate(rawActivity),
-    classNumber: Number(item?.classNumber) || Number(sid.slice(1, 3)) || null,
-    number: Number(item?.number) || Number(sid.slice(3, 5)) || null,
+    // Google Forms의 반 응답에는 오입력이 있을 수 있어 학번의 반·번호를 우선 사용합니다.
+    classNumber: Number(sid.slice(1, 3)) || Number(item?.classNumber) || null,
+    number: Number(sid.slice(3, 5)) || Number(item?.number) || null,
     name: cleanText(item?.name),
     response: cleanMultiline(item?.response),
   };
@@ -520,7 +560,10 @@ function DataManagementWorkspace({ appliedData, draft, setDraft, canManage, acto
 }
 
 function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdateData }) {
-  const contacts = data?.contacts || [];
+  const contacts = useMemo(
+    () => (data?.contacts || []).map(normalizeContactItem).filter(item => item.sid && item.name),
+    [data?.contacts],
+  );
   const canViewAll = ["admin", "department", "gradeHead"].includes(accessRole);
   const lockedClass = !canViewAll ? String(homeroomClass || "") : "";
   const [classFilter, setClassFilter] = useState(lockedClass || "전체");
@@ -532,7 +575,7 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
   const effectiveClass = lockedClass || classFilter;
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return contacts.filter(item => (effectiveClass === "전체" || String(item.classNumber) === String(effectiveClass)) && (!q || item.sid.includes(q) || item.name.toLowerCase().includes(q) || formatPhone(item.studentPhone).includes(q) || formatPhone(item.guardianPhone).includes(q)));
+    return contacts.filter(item => (effectiveClass === "전체" || String(item.classNumber) === String(effectiveClass)) && (!q || item.sid.includes(q) || item.name.toLowerCase().includes(q) || formatPhone(item.studentPhone).includes(q) || formatPhone(item.guardianPhone).includes(q) || item.enrollmentStatus.includes(q) || item.leadershipRole.includes(q)));
   }, [contacts, effectiveClass, query]);
   const selectedRows = contacts.filter(item => selected.includes(item.sid));
   const toggle = sid => setSelected(prev => prev.includes(sid) ? prev.filter(value=>value!==sid) : [...prev,sid]);
@@ -546,10 +589,12 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
     const ok = openPrintDocument({
       title: "2학년 학생 비상연락망",
       subtitle: `${effectiveClass === "전체" ? "전체 학급" : `${effectiveClass}반`} · 조회 ${filtered.length}명`,
-      headers: ["반", "번호", "학번", "성명", "학생 연락처", "보호자 연락처", "비고"],
-      columnWidths: ["7%", "7%", "10%", "12%", "17%", "17%", "30%"],
+      headers: ["반", "번호", "학번", "성명", "학적", "학생회 역할", "학생 연락처", "보호자 연락처", "비고"],
+      columnWidths: ["5%", "5%", "8%", "11%", "7%", "12%", "14%", "14%", "24%"],
       rows: filtered.map(item => [
         `${item.classNumber}반`, `${item.number}번`, item.sid, item.name,
+        item.enrollmentStatus,
+        item.leadershipRole === "없음" ? "-" : item.leadershipRole,
         formatPhone(item.studentPhone) || "미등록",
         formatPhone(item.guardianPhone) || "미등록",
         { value: item.note || "-", className: "text" },
@@ -557,69 +602,131 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
     });
     if (!ok) showToast("인쇄 창을 열지 못했습니다. 브라우저의 팝업 차단을 확인해주세요.", "error");
   };
+  const emptyRow = () => ({
+    sid: "",
+    name: "",
+    classNumber: lockedClass || (classFilter !== "전체" ? classFilter : ""),
+    number: "",
+    studentPhone: "",
+    guardianPhone: "",
+    note: "",
+    enrollmentStatus: "전입",
+    leadershipRole: "없음",
+  });
+  const startAdd = () => { setEditingSid("__new__"); setEditRow(emptyRow()); };
   const startEdit = item => { setEditingSid(item.sid); setEditRow({ ...item }); };
   const cancelEdit = () => { setEditingSid(""); setEditRow(null); };
   const saveEdit = async () => {
     const sid = normalizeSid(editRow?.sid);
     if (!sid || !cleanText(editRow?.name)) return showToast("학번과 성명을 확인해주세요.", "error");
-    const duplicate = contacts.some(item => item.sid === sid && item.sid !== editingSid);
+    const adding = editingSid === "__new__";
+    const duplicate = contacts.some(item => item.sid === sid && (adding || item.sid !== editingSid));
     if (duplicate) return showToast("이미 등록된 학번입니다.", "error");
-    const nextContact = {
+    const nextContact = normalizeContactItem({
       ...editRow,
       sid,
       name: cleanText(editRow.name),
       classNumber: Number(editRow.classNumber) || Number(sid.slice(1, 3)),
       number: Number(editRow.number) || Number(sid.slice(3, 5)),
-      studentPhone: normalizePhone(editRow.studentPhone),
-      guardianPhone: normalizePhone(editRow.guardianPhone),
-      note: cleanText(editRow.note),
-    };
-    const nextContacts = contacts.map(item => item.sid === editingSid ? nextContact : item).sort((a,b)=>Number(a.sid)-Number(b.sid));
-    const ok = await onUpdateData({ ...data, contacts: nextContacts }, "학생 비상연락망을 수정했습니다.");
+      studentPhone: editRow.studentPhone,
+      guardianPhone: editRow.guardianPhone,
+      note: editRow.note,
+      enrollmentStatus: editRow.enrollmentStatus,
+      leadershipRole: editRow.leadershipRole,
+    });
+    const nextContacts = (adding ? [...contacts, nextContact] : contacts.map(item => item.sid === editingSid ? nextContact : item))
+      .sort((a,b)=>Number(a.classNumber)-Number(b.classNumber)||Number(a.number)-Number(b.number)||Number(a.sid)-Number(b.sid));
+    const ok = await onUpdateData({ ...data, contacts: nextContacts }, adding ? "전입·추가 학생을 등록했습니다." : "학생 비상연락망을 수정했습니다.");
     if (ok) cancelEdit();
   };
+  const renderEditorCells = () => <>
+    <td><span className="gdt-muted">신규</span></td>
+    <td><input className="mini" value={editRow.classNumber ?? ""} onChange={event=>setEditRow({...editRow,classNumber:event.target.value})}/></td>
+    <td><input className="mini" value={editRow.number ?? ""} onChange={event=>setEditRow({...editRow,number:event.target.value})}/></td>
+    <td><input value={editRow.sid} onChange={event=>setEditRow({...editRow,sid:event.target.value})} placeholder="20101"/></td>
+    <td><input value={editRow.name} onChange={event=>setEditRow({...editRow,name:event.target.value})} placeholder="성명"/></td>
+    <td><select value={editRow.enrollmentStatus || "재학"} onChange={event=>setEditRow({...editRow,enrollmentStatus:event.target.value})}>{ACADEMIC_STATUS_OPTIONS.map(value=><option key={value}>{value}</option>)}</select></td>
+    <td><select value={editRow.leadershipRole || "없음"} onChange={event=>setEditRow({...editRow,leadershipRole:event.target.value})}>{LEADERSHIP_ROLE_OPTIONS.map(value=><option key={value}>{value}</option>)}</select></td>
+    <td><input value={formatPhone(editRow.studentPhone)} onChange={event=>setEditRow({...editRow,studentPhone:event.target.value})} placeholder="학생 연락처"/></td>
+    <td><input value={formatPhone(editRow.guardianPhone)} onChange={event=>setEditRow({...editRow,guardianPhone:event.target.value})} placeholder="보호자 연락처"/></td>
+    <td className="gdt-note"><textarea value={editRow.note || ""} onChange={event=>setEditRow({...editRow,note:event.target.value})} placeholder="비고"/></td>
+    <td><div className="gdt-edit-actions"><button type="button" onClick={saveEdit}><Save size={12}/>저장</button><button type="button" onClick={cancelEdit}><X size={12}/></button></div></td>
+  </>;
   if (!canViewAll && !lockedClass) return <EmptyState title="담임 학급이 지정되지 않았습니다." description="내 정보 수정 또는 관리자 계정관리에서 담당 학급을 먼저 지정해주세요."/>;
   return <div className="gdt-contact-workspace">
-    <div className="gdt-section-heading"><div><UserRound size={18}/><span><b>학생 비상연락망</b><small>학생·보호자 연락처를 확인하고 필요한 셀을 바로 복사합니다.</small></span></div><div className="gdt-heading-actions"><button type="button" onClick={printContacts}><Printer size={14}/>인쇄·PDF</button><a href={IAM_TEACHER_URL} target="_blank" rel="noreferrer"><ExternalLink size={14}/>아이엠티처</a></div></div>
+    <div className="gdt-section-heading"><div><UserRound size={18}/><span><b>학생 비상연락망</b><small>전입·전출 등 학적과 학생회 역할을 함께 관리하고 연락처를 셀별로 복사합니다.</small></span></div><div className="gdt-heading-actions"><button type="button" onClick={startAdd} disabled={Boolean(editingSid)}><UsersRound size={14}/>학생 추가</button><button type="button" onClick={printContacts}><Printer size={14}/>인쇄·PDF</button><a href={IAM_TEACHER_URL} target="_blank" rel="noreferrer"><ExternalLink size={14}/>아이엠티처</a></div></div>
     <div className="gdt-toolbar">
-      <div className="gdt-search"><Search size={16}/><span>학생 검색</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="학번·이름·전화번호"/></div>
+      <div className="gdt-search"><Search size={16}/><span>학생 검색</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="학번·이름·전화번호·학적·역할"/></div>
       {canViewAll && <select value={classFilter} onChange={event=>{setClassFilter(event.target.value);setSelected([])}}><option value="전체">전체 학급</option>{classes.map(value=><option key={value} value={value}>{value}반</option>)}</select>}
       <button type="button" className="gdt-secondary" onClick={()=>setSelected(filtered.map(item=>item.sid))}><Check size={14}/>조회 학생 선택</button>
       <button type="button" className="gdt-secondary" onClick={()=>setSelected([])}><X size={14}/>선택 해제</button>
     </div>
-    <div className="gdt-contact-actions"><span><b>{filtered.length}명</b> 조회 · <b>{selected.length}명</b> 선택</span><button type="button" onClick={copySelectedGuardians}><Copy size={14}/>선택 보호자 번호 복사</button></div>
-    <div className="gdt-table-wrap"><table className="gdt-table contacts"><thead><tr><th>선택</th><th>반</th><th>번호</th><th>학번</th><th>성명</th><th>학생 연락처</th><th>보호자 연락처</th><th>비고</th><th>수정</th></tr></thead><tbody>{filtered.map(item => {
-      const editing = editingSid === item.sid && editRow;
-      return <tr key={item.sid} className={editing ? "editing" : ""}>
-        <td><input type="checkbox" checked={selected.includes(item.sid)} onChange={()=>toggle(item.sid)}/></td>
-        <td>{editing ? <input className="mini" value={editRow.classNumber ?? ""} onChange={event=>setEditRow({...editRow,classNumber:event.target.value})}/> : <b>{item.classNumber}반</b>}</td>
-        <td>{editing ? <input className="mini" value={editRow.number ?? ""} onChange={event=>setEditRow({...editRow,number:event.target.value})}/> : <b>{item.number}번</b>}</td>
-        <td>{editing ? <input value={editRow.sid} onChange={event=>setEditRow({...editRow,sid:event.target.value})}/> : item.sid}</td>
-        <td>{editing ? <input value={editRow.name} onChange={event=>setEditRow({...editRow,name:event.target.value})}/> : <strong>{item.name}</strong>}</td>
-        <td>{editing ? <input value={formatPhone(editRow.studentPhone)} onChange={event=>setEditRow({...editRow,studentPhone:event.target.value})}/> : <ContactCell value={item.studentPhone} label="학생" showToast={showToast}/>}</td>
-        <td>{editing ? <input value={formatPhone(editRow.guardianPhone)} onChange={event=>setEditRow({...editRow,guardianPhone:event.target.value})}/> : <ContactCell value={item.guardianPhone} label="보호자" showToast={showToast}/>}</td>
-        <td className="gdt-note">{editing ? <textarea value={editRow.note || ""} onChange={event=>setEditRow({...editRow,note:event.target.value})}/> : (item.note || "-")}</td>
-        <td>{editing ? <div className="gdt-edit-actions"><button type="button" onClick={saveEdit}><Save size={13}/>저장</button><button type="button" onClick={cancelEdit}><X size={13}/></button></div> : <button type="button" className="gdt-icon-button" onClick={()=>startEdit(item)}><Pencil size={14}/></button>}</td>
-      </tr>;
-    })}</tbody></table></div>
+    <div className="gdt-contact-actions"><span><b>{filtered.length}명</b> 조회 · <b>{selected.length}명</b> 선택</span><button type="button" onClick={copySelectedGuardians}><Copy size={13}/>선택 보호자 번호 복사</button></div>
+    <div className="gdt-table-wrap"><table className="gdt-table contacts"><thead><tr><th>선택</th><th>반</th><th>번호</th><th>학번</th><th>성명</th><th>학적</th><th>학생회 역할</th><th>학생 연락처</th><th>보호자 연락처</th><th>비고</th><th>수정</th></tr></thead><tbody>
+      {editingSid === "__new__" && editRow && <tr className="editing add-row">{renderEditorCells()}</tr>}
+      {filtered.map(item => {
+        const editing = editingSid === item.sid && editRow;
+        return <tr key={item.sid} className={editing ? "editing" : ""}>
+          {editing ? <>
+            <td><input type="checkbox" checked={selected.includes(item.sid)} onChange={()=>toggle(item.sid)}/></td>
+            <td><input className="mini" value={editRow.classNumber ?? ""} onChange={event=>setEditRow({...editRow,classNumber:event.target.value})}/></td>
+            <td><input className="mini" value={editRow.number ?? ""} onChange={event=>setEditRow({...editRow,number:event.target.value})}/></td>
+            <td><input value={editRow.sid} onChange={event=>setEditRow({...editRow,sid:event.target.value})}/></td>
+            <td><input value={editRow.name} onChange={event=>setEditRow({...editRow,name:event.target.value})}/></td>
+            <td><select value={editRow.enrollmentStatus || "재학"} onChange={event=>setEditRow({...editRow,enrollmentStatus:event.target.value})}>{ACADEMIC_STATUS_OPTIONS.map(value=><option key={value}>{value}</option>)}</select></td>
+            <td><select value={editRow.leadershipRole || "없음"} onChange={event=>setEditRow({...editRow,leadershipRole:event.target.value})}>{LEADERSHIP_ROLE_OPTIONS.map(value=><option key={value}>{value}</option>)}</select></td>
+            <td><input value={formatPhone(editRow.studentPhone)} onChange={event=>setEditRow({...editRow,studentPhone:event.target.value})}/></td>
+            <td><input value={formatPhone(editRow.guardianPhone)} onChange={event=>setEditRow({...editRow,guardianPhone:event.target.value})}/></td>
+            <td className="gdt-note"><textarea value={editRow.note || ""} onChange={event=>setEditRow({...editRow,note:event.target.value})}/></td>
+            <td><div className="gdt-edit-actions"><button type="button" onClick={saveEdit}><Save size={12}/>저장</button><button type="button" onClick={cancelEdit}><X size={12}/></button></div></td>
+          </> : <>
+            <td><input type="checkbox" checked={selected.includes(item.sid)} onChange={()=>toggle(item.sid)}/></td>
+            <td><b>{item.classNumber}반</b></td><td><b>{item.number}번</b></td><td>{item.sid}</td><td><strong>{item.name}</strong></td>
+            <td><span className={`gdt-academic-status ${item.enrollmentStatus}`}>{item.enrollmentStatus}</span></td>
+            <td>{item.leadershipRole !== "없음" ? <span className="gdt-role-pill">{item.leadershipRole}</span> : <span className="gdt-muted">-</span>}</td>
+            <td><ContactCell value={item.studentPhone} label="학생" showToast={showToast}/></td>
+            <td><ContactCell value={item.guardianPhone} label="보호자" showToast={showToast}/></td>
+            <td className="gdt-note">{item.note || "-"}</td>
+            <td><button type="button" className="gdt-icon-button" onClick={()=>startEdit(item)} disabled={Boolean(editingSid)}><Pencil size={13}/></button></td>
+          </>}
+        </tr>;
+      })}
+    </tbody></table></div>
   </div>;
 }
 
 function ContactCell({ value, label, showToast }) {
   const formatted = formatPhone(value);
   if (!formatted) return <span className="gdt-muted">미등록</span>;
-  return <div className="gdt-contact-cell"><span>{formatted}</span><button type="button" title={`${label} 연락처 복사`} onClick={async()=>{await copyText(formatted);showToast(`${label} 연락처를 복사했습니다.`,"success")}}><Copy size={13}/></button></div>;
+  return <div className="gdt-contact-cell"><span>{formatted}</span><button type="button" title={`${label} 연락처 복사`} onClick={async()=>{await copyText(formatted);showToast(`${label} 연락처를 복사했습니다.`,"success")}}><Copy size={11}/></button></div>;
 }
 
 function RecordsWorkspace({ data, showToast, canManage, onUpdateData }) {
   const activities = data?.records?.activities || [];
   const activityLinks = data?.records?.activityLinks || [];
   const assignments = data?.records?.assignments || [];
-  const reflections = useMemo(
-    () => (data?.records?.reflections || []).map(normalizeReflectionItem),
-    [data?.records?.reflections],
+  const contacts = useMemo(
+    () => (data?.contacts || []).map(normalizeContactItem).filter(item => item.sid && item.name),
+    [data?.contacts],
   );
-  const contacts = data?.contacts || [];
+  const contactBySid = useMemo(() => new Map(contacts.map(item => [item.sid, item])), [contacts]);
+  const reflections = useMemo(() => {
+    const deduped = new Map();
+    (data?.records?.reflections || []).map(normalizeReflectionItem).forEach(item => {
+      if (!item.sid || !item.activity) return;
+      const roster = contactBySid.get(item.sid);
+      const normalized = {
+        ...item,
+        name: roster?.name || item.name,
+        classNumber: roster?.classNumber || item.classNumber,
+        number: roster?.number || item.number,
+      };
+      const key = `${normalized.activity}::${normalized.sid}`;
+      const previous = deduped.get(key);
+      if (!previous || normalized.response.length >= previous.response.length) deduped.set(key, normalized);
+    });
+    return Array.from(deduped.values());
+  }, [data?.records?.reflections, contactBySid]);
   const [tab, setTab] = useState("activities");
   const [category, setCategory] = useState("전체");
   const [activityQuery, setActivityQuery] = useState("");
@@ -645,23 +752,40 @@ function RecordsWorkspace({ data, showToast, canManage, onUpdateData }) {
   const reflectionRows = useMemo(() => {
     const q = reflectionQuery.trim().toLowerCase();
     const selectedClass = classFilter === "전체" ? null : Number(classFilter);
-    const matchesClass = item => selectedClass == null || Number(item.classNumber) === selectedClass;
-    const matchesQuery = item => !q || item.sid.includes(q) || item.name.toLowerCase().includes(q) || item.response.toLowerCase().includes(q);
-    if (reflectionActivity === "전체") {
-      return reflections
-        .filter(item => matchesClass(item) && matchesQuery(item) && reflectionStatus !== "미제출")
-        .map(item=>({...item,submitted:true}))
-        .sort((a,b)=>Number(a.classNumber)-Number(b.classNumber)||Number(a.number)-Number(b.number)||a.activity.localeCompare(b.activity,"ko"));
-    }
-    const bySid = new Map(reflections.filter(item=>item.activity===reflectionActivity).map(item=>[item.sid,item]));
-    const base = contacts.length ? contacts : reflections.filter(item=>item.activity===reflectionActivity);
-    const activityMeta = reflections.find(item => item.activity === reflectionActivity);
-    return base.map(student => {
-      const item = bySid.get(student.sid);
-      return item ? { ...item, submitted: true } : { id:`missing-${reflectionActivity}-${student.sid}`,activity:reflectionActivity,date:activityMeta?.date || "",classNumber:student.classNumber,number:student.number,sid:student.sid,name:student.name,response:"",submitted:false };
-    }).filter(item => matchesClass(item) && matchesQuery(item) && (reflectionStatus === "전체" || (reflectionStatus === "제출" ? item.submitted : !item.submitted)))
-      .sort((a,b)=>Number(a.classNumber)-Number(b.classNumber)||Number(a.number)-Number(b.number));
-  }, [reflections, contacts, reflectionActivity, reflectionStatus, classFilter, reflectionQuery]);
+    const selectedActivities = reflectionActivity === "전체" ? reflectionActivities : [reflectionActivity];
+    const activityMeta = new Map();
+    reflections.forEach(item => {
+      const previous = activityMeta.get(item.activity);
+      if (!previous || (!previous.date && item.date)) activityMeta.set(item.activity, { date: item.date || "" });
+    });
+    const submittedByKey = new Map(reflections.map(item => [`${item.activity}::${item.sid}`, item]));
+    const activeContacts = contacts.filter(item => !["전출", "자퇴"].includes(item.enrollmentStatus));
+    const fallbackStudents = Array.from(new Map(reflections.map(item => [item.sid, { sid:item.sid, name:item.name, classNumber:item.classNumber, number:item.number, enrollmentStatus:"재학" }])).values());
+    const students = activeContacts.length ? activeContacts : fallbackStudents;
+    const rows = [];
+    selectedActivities.forEach(activity => {
+      students.forEach(student => {
+        const submitted = submittedByKey.get(`${activity}::${student.sid}`);
+        rows.push(submitted ? { ...submitted, submitted: true } : {
+          id: `missing-${activity}-${student.sid}`,
+          activity,
+          date: activityMeta.get(activity)?.date || "",
+          classNumber: student.classNumber,
+          number: student.number,
+          sid: student.sid,
+          name: student.name,
+          response: "",
+          submitted: false,
+        });
+      });
+    });
+    return rows.filter(item => {
+      const matchesClass = selectedClass == null || Number(item.classNumber) === selectedClass;
+      const matchesQuery = !q || item.sid.includes(q) || item.name.toLowerCase().includes(q) || item.activity.toLowerCase().includes(q) || item.response.toLowerCase().includes(q);
+      const matchesStatus = reflectionStatus === "전체" || (reflectionStatus === "제출" ? item.submitted : !item.submitted);
+      return matchesClass && matchesQuery && matchesStatus;
+    }).sort((a,b)=>Number(a.classNumber)-Number(b.classNumber)||Number(a.number)-Number(b.number)||a.activity.localeCompare(b.activity,"ko"));
+  }, [reflections, contacts, reflectionActivities, reflectionActivity, reflectionStatus, classFilter, reflectionQuery]);
 
   const startLinkEdit = item => { setEditingLinkId(item.id); setLinkDraft({ ...item }); };
   const saveLinkEdit = async () => {
@@ -688,7 +812,7 @@ function RecordsWorkspace({ data, showToast, canManage, onUpdateData }) {
   const printReflections = () => {
     const activityLabel = reflectionActivity === "전체" ? "전체 활동" : reflectionActivity;
     const classLabel = classFilter === "전체" ? "전체 학급" : `${classFilter}반`;
-    const statusLabel = reflectionActivity === "전체" ? "제출 자료" : `${reflectionStatus === "전체" ? "제출·미제출 전체" : reflectionStatus}`;
+    const statusLabel = reflectionStatus === "전체" ? "제출·미제출 전체" : reflectionStatus;
     const ok = openPrintDocument({
       title: "2학년 학생 활동 소감문",
       subtitle: `${classLabel} · ${activityLabel} · ${statusLabel} · ${reflectionRows.length}건`,
@@ -717,8 +841,8 @@ function RecordsWorkspace({ data, showToast, canManage, onUpdateData }) {
       })}</div>}
     </>}
     {tab === "reflections" && <>
-      <div className="gdt-toolbar reflection-filters"><div className="gdt-search"><Search size={16}/><span>학생·소감 검색</span><input value={reflectionQuery} onChange={event=>setReflectionQuery(event.target.value)} placeholder="학번·이름·소감문"/></div><select value={classFilter} onChange={event=>setClassFilter(event.target.value)}><option value="전체">전체 학급</option>{classes.map(value=><option key={value} value={value}>{value}반</option>)}</select><select value={reflectionActivity} onChange={event=>setReflectionActivity(event.target.value)}><option value="전체">전체 활동</option>{reflectionActivities.map(value=><option key={value}>{value}</option>)}</select><select value={reflectionStatus} onChange={event=>setReflectionStatus(event.target.value)} disabled={reflectionActivity==="전체"}><option value="전체">제출 전체</option><option value="제출">제출</option><option value="미제출">미제출</option></select><button type="button" className="gdt-secondary" onClick={printReflections}><Printer size={14}/>인쇄·PDF</button></div>
-      <div className="gdt-reflection-summary"><span className="total"><b>{reflectionRows.length}</b><small>조회</small></span><span className="submitted"><CheckCircle2 size={14}/><b>{reflectionRows.filter(item=>item.submitted).length}</b><small>제출</small></span>{reflectionActivity!=="전체"&&<span className="missing"><CircleDashed size={14}/><b>{reflectionRows.filter(item=>!item.submitted).length}</b><small>미제출</small></span>}</div>
+      <div className="gdt-toolbar reflection-filters"><div className="gdt-search"><Search size={16}/><span>학생·소감 검색</span><input value={reflectionQuery} onChange={event=>setReflectionQuery(event.target.value)} placeholder="학번·이름·소감문"/></div><select value={classFilter} onChange={event=>setClassFilter(event.target.value)}><option value="전체">전체 학급</option>{classes.map(value=><option key={value} value={value}>{value}반</option>)}</select><select value={reflectionActivity} onChange={event=>setReflectionActivity(event.target.value)}><option value="전체">전체 활동</option>{reflectionActivities.map(value=><option key={value}>{value}</option>)}</select><select value={reflectionStatus} onChange={event=>setReflectionStatus(event.target.value)}><option value="전체">제출·미제출 전체</option><option value="제출">제출</option><option value="미제출">미제출</option></select><button type="button" className="gdt-secondary" onClick={printReflections}><Printer size={14}/>인쇄·PDF</button></div>
+      <div className="gdt-reflection-summary"><span className="total"><b>{reflectionRows.length}</b><small>조회</small></span><span className="submitted"><CheckCircle2 size={14}/><b>{reflectionRows.filter(item=>item.submitted).length}</b><small>제출</small></span><span className="missing"><CircleDashed size={14}/><b>{reflectionRows.filter(item=>!item.submitted).length}</b><small>미제출</small></span></div>
       <div className="gdt-table-wrap reflection-wrap"><table className="gdt-table reflections"><thead><tr><th>반</th><th>번호</th><th>학번</th><th>성명</th><th>활동</th><th>상태</th><th>소감문</th><th>복사</th></tr></thead><tbody>{reflectionRows.map(item=><tr key={item.id}><td>{item.classNumber}반</td><td>{item.number}번</td><td>{item.sid}</td><td><b>{item.name}</b></td><td><strong>{item.activity}</strong>{item.date&&<small>{item.date}</small>}</td><td>{item.submitted?<span className="status submitted"><CheckCircle2 size={11}/>제출</span>:<span className="status missing"><CircleDashed size={11}/>미제출</span>}</td><td className="reflection-text">{item.submitted?<details><summary>{item.response.slice(0,110)}{item.response.length>110?"…":""}</summary><p>{item.response}</p></details>:<span className="gdt-muted">소감문 미제출</span>}</td><td>{item.submitted&&<button type="button" className="gdt-copy-button" title="소감문 복사" onClick={async()=>{await copyText(item.response);showToast("학생 소감문을 복사했습니다.","success")}}><Copy size={12}/></button>}</td></tr>)}</tbody></table></div>
     </>}
     {tab === "assignments" && <><div className="gdt-toolbar"><div className="gdt-search"><Search size={16}/><span>학생 검색</span><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="학번 또는 이름"/></div><select value={classFilter} onChange={event=>setClassFilter(event.target.value)}><option value="전체">전체 학급</option>{classes.map(value=><option key={value} value={value}>{value}반</option>)}</select></div><div className="gdt-table-wrap"><table className="gdt-table assignments"><thead><tr><th>학생</th><th>동아리</th><th>프로젝트 봉사활동</th><th>학생주도 프로젝트</th></tr></thead><tbody>{filteredAssignments.map(item=><tr key={item.sid}><td><b>{item.name}</b><small>{item.classNumber}반 {item.number}번 · {item.sid}</small></td><td><strong>{item.club||"-"}</strong><small>{item.clubTeacher||""}</small></td><td><strong>{item.service||"-"}</strong><small>{item.serviceTeacher||""}</small></td><td><strong>{item.studentProject||"-"}</strong><small>{item.studentProjectTeacher||""}</small></td></tr>)}</tbody></table></div></>}
@@ -756,5 +880,5 @@ export default function GradeDepartmentTools({ view, db, persist, showToast, act
 }
 
 const GRADE_DEPARTMENT_CSS = `
-.grade-department-tools{font-family:${FONT};color:#273b55;display:grid;gap:14px}.grade-department-tools *{box-sizing:border-box}.gdt-empty{min-height:280px;display:grid;place-items:center;align-content:center;gap:8px;border:1px dashed #cbd8e6;border-radius:16px;background:#fafcff;color:#7b899b;text-align:center;padding:24px}.gdt-empty b{font-size:14px;color:#52657c}.gdt-empty span{font-size:11px;line-height:1.55;max-width:640px}.gdt-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid #d6e1ec;border-radius:13px;background:linear-gradient(135deg,#f7fbff,#fbfcff)}.gdt-section-heading>div:first-child{display:flex;align-items:center;gap:9px}.gdt-section-heading span{display:grid;gap:3px}.gdt-section-heading b{font-size:13px}.gdt-section-heading small{font-size:10px;color:#738397}.gdt-heading-actions{display:flex!important;align-items:center;gap:7px}.gdt-heading-actions>a,.gdt-heading-actions>button{display:inline-flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid #cbd8e5;border-radius:8px;background:#fff;color:#426991;text-decoration:none;font:850 10px ${FONT};cursor:pointer;white-space:nowrap}.gdt-section-heading.compact{padding:0;border:0;background:none}.gdt-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.gdt-search{flex:1 1 330px;min-width:240px;display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:8px;border:1px solid #ccd8e6;border-radius:11px;background:#fff;padding:5px 7px 5px 10px}.gdt-search>span{font-size:10.5px;font-weight:900;color:#60738a;padding-right:8px;border-right:1px solid #e2e8ef}.gdt-search input{min-width:0;border:0;outline:0;padding:6px 8px;font:750 11px ${FONT};color:#2c4058}.gdt-toolbar select{min-height:39px;border:1px solid #ccd8e6;border-radius:10px;background:#fff;padding:7px 30px 7px 10px;color:#435970;font:850 11px ${FONT}}.gdt-secondary,.gdt-contact-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #bfcfe1;border-radius:9px;padding:8px 10px;background:#fff;color:#35628f;font:800 11px ${FONT};cursor:pointer;white-space:nowrap}.gdt-contact-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border-radius:11px;background:#f3f7fb;color:#6b7b8e;font-size:10.5px}.gdt-table-wrap{overflow:auto;border:1px solid #d6e0eb;border-radius:13px;background:#fff;max-width:100%}.gdt-table{width:100%;min-width:900px;border-collapse:separate;border-spacing:0;table-layout:fixed}.gdt-table th{position:sticky;top:0;z-index:1;background:#edf4fb;color:#435b74;padding:10px 7px;border-right:1px solid #d6e0ea;border-bottom:1px solid #c8d6e5;font-size:10px;font-weight:950;text-align:center}.gdt-table td{padding:9px 7px;border-right:1px solid #e0e7ef;border-bottom:1px solid #e0e7ef;font-size:10.5px;text-align:center;vertical-align:middle;overflow-wrap:anywhere}.gdt-table tr:last-child td{border-bottom:0}.gdt-table th:last-child,.gdt-table td:last-child{border-right:0}.gdt-table tr.editing td{background:#fffaf0}.gdt-table input,.gdt-table textarea,.gdt-link-manager input,.gdt-activity-link-editor input{width:100%;min-width:0;border:1px solid #cbd8e5;border-radius:7px;padding:6px 7px;font:750 10.5px ${FONT};color:#30465f}.gdt-table input.mini{max-width:52px;text-align:center}.gdt-table textarea{min-height:52px;resize:vertical}.gdt-table td small,.gdt-table.assignments td small{display:block;margin-top:3px;color:#8190a2;font-size:9px;line-height:1.35}.gdt-table .gdt-note{text-align:left;white-space:normal;word-break:break-word;line-height:1.45}.gdt-muted{color:#9aa5b2}.gdt-unregistered{display:inline-block;color:#9aa5b2;font-size:9px}.gdt-icon-button,.gdt-copy-button{display:inline-grid;place-items:center;border:1px solid #cdd9e6;background:#fff;color:#356493;cursor:pointer}.gdt-icon-button{width:28px;height:28px;border-radius:8px}.gdt-copy-button{width:24px;height:24px;border-radius:7px}.gdt-mini-action{display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:5px 6px;border:1px solid #c8d7e6;border-radius:7px;background:#fff;color:#426b94;font:850 9px ${FONT};cursor:pointer;white-space:nowrap}.gdt-edit-actions{display:flex;gap:4px;justify-content:center}.gdt-edit-actions button{display:inline-flex;align-items:center;gap:3px;border:1px solid #cad7e5;border-radius:7px;background:#fff;color:#356493;padding:5px;font:800 9px ${FONT}}.gdt-table.contacts{min-width:900px}.gdt-table.contacts th:nth-child(1){width:40px}.gdt-table.contacts th:nth-child(2),.gdt-table.contacts th:nth-child(3){width:50px}.gdt-table.contacts th:nth-child(4){width:68px}.gdt-table.contacts th:nth-child(5){width:74px}.gdt-table.contacts th:nth-child(6),.gdt-table.contacts th:nth-child(7){width:132px}.gdt-table.contacts th:nth-child(8){width:auto}.gdt-table.contacts th:nth-child(9){width:54px}.gdt-contact-cell{display:flex;align-items:center;justify-content:center;gap:5px}.gdt-contact-cell span{white-space:nowrap}.gdt-contact-cell button{display:grid;place-items:center;width:22px;height:22px;border:1px solid #d2dce8;border-radius:6px;background:#fff;color:#47709a;cursor:pointer}.gdt-record-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.gdt-record-metrics>div{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;align-items:center;padding:12px;border:1px solid #d9e2ec;border-radius:12px;background:#fff}.gdt-record-metrics svg{grid-row:1/3;color:#47739d}.gdt-record-metrics span{font-size:10px;color:#75869a;font-weight:850}.gdt-record-metrics b{font-size:18px}.gdt-subtabs{display:flex;gap:7px;flex-wrap:wrap}.gdt-subtabs button{display:inline-flex;align-items:center;gap:6px;border:1px solid #d1dce8;border-radius:9px;padding:8px 11px;background:#fff;color:#68778a;font:850 11px ${FONT};cursor:pointer}.gdt-subtabs button.active{background:#3d6998;color:#fff;border-color:#3d6998}.gdt-table.activities{min-width:980px}.gdt-table.activities th:nth-child(1){width:76px}.gdt-table.activities th:nth-child(2){width:70px}.gdt-table.activities th:nth-child(3){width:56px}.gdt-table.activities th:nth-child(4){width:66px}.gdt-table.activities th:nth-child(5){width:auto}.gdt-table.activities th:nth-child(6),.gdt-table.activities th:nth-child(7){width:78px}.gdt-table.activities th:nth-child(8){width:70px}.gdt-table.activities th:nth-child(9){width:45px}.gdt-table.activities td.record{text-align:left;line-height:1.5;word-break:keep-all}.gdt-type-pill{display:inline-block;padding:4px 7px;border-radius:999px;background:#eaf2fb;color:#38658f;font-size:9px;font-weight:900;white-space:nowrap}.gdt-link-button{display:inline-flex;align-items:center;gap:4px;padding:5px 7px;border:1px solid #bfd0e2;border-radius:7px;color:#356493;text-decoration:none;font-size:9px;font-weight:900}.gdt-link-button.response{color:#3d765f;border-color:#bfdccb}.gdt-activity-link-editor{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(180px,1fr) minmax(180px,1fr) auto;gap:9px;align-items:end;padding:12px;border:1px solid #cfddea;border-radius:12px;background:#f8fbff}.gdt-activity-link-editor>div:first-child{display:flex;align-items:flex-start;gap:8px;min-width:0}.gdt-activity-link-editor>div:first-child span{display:grid;gap:3px;min-width:0}.gdt-activity-link-editor b{font-size:11px}.gdt-activity-link-editor small{font-size:9px;color:#738397;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gdt-activity-link-editor label{display:grid;gap:4px;color:#6d7e91;font-size:9px;font-weight:850}.gdt-link-manager{display:grid;gap:8px;padding:13px;border:1px solid #d8e2ed;border-radius:13px;background:#fafcff}.gdt-link-manager article{display:grid;grid-template-columns:minmax(160px,1.2fr) minmax(130px,.8fr) minmax(130px,.8fr) auto;gap:8px;align-items:center;padding:9px 10px;border:1px solid #e0e7ef;border-radius:10px;background:#fff}.gdt-link-manager article>a,.gdt-link-manager article span a{display:inline-flex;align-items:center;gap:4px;color:#416b94;text-decoration:none;font-size:10px;font-weight:850}.gdt-link-manager article em{font-size:9.5px;color:#9aa5b2}.gdt-link-manager article>button,.gdt-link-manager article>div button{display:inline-flex;align-items:center;gap:4px;border:1px solid #cad7e4;border-radius:7px;background:#fff;padding:6px 8px;color:#426991;font:850 9.5px ${FONT}}.gdt-link-manager article label{display:grid;gap:3px;font-size:9px;color:#748397}.reflection-wrap{overflow-x:hidden}.gdt-table.reflections{min-width:0;width:100%}.gdt-table.reflections th:nth-child(1),.gdt-table.reflections th:nth-child(2){width:5%}.gdt-table.reflections th:nth-child(3){width:8%}.gdt-table.reflections th:nth-child(4){width:9%}.gdt-table.reflections th:nth-child(5){width:15%}.gdt-table.reflections th:nth-child(6){width:8%}.gdt-table.reflections th:nth-child(7){width:auto}.gdt-table.reflections th:nth-child(8){width:44px}.gdt-table.reflections td.reflection-text{text-align:left;line-height:1.58;white-space:normal;word-break:break-word;overflow-wrap:anywhere}.gdt-table.reflections details{max-width:100%}.gdt-table.reflections details summary{cursor:pointer;color:#435a72;font-weight:780;white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.55}.gdt-table.reflections details p{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;margin:8px 0 0;padding:9px;border-radius:8px;background:#f7f9fc;color:#42566d;max-width:100%}.status{display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:5px 8px;border-radius:999px;font-size:9.5px;font-weight:950;white-space:nowrap;border:1px solid transparent}.status.submitted{background:#e7f6ed;color:#25734d;border-color:#cbe8d6}.status.missing{background:#fff0ed;color:#aa493f;border-color:#f2d0ca}.gdt-reflection-summary{display:flex;align-items:stretch;gap:7px;flex-wrap:wrap;padding:0;background:transparent}.gdt-reflection-summary span{display:grid;grid-template-columns:auto auto;align-items:center;justify-content:start;gap:2px 5px;min-width:92px;padding:8px 10px;border:1px solid #d8e2ed;border-radius:10px;background:#f7f9fc;color:#64768b}.gdt-reflection-summary span svg{grid-row:1/3}.gdt-reflection-summary span b{font-size:14px;line-height:1}.gdt-reflection-summary span small{font-size:9px;font-weight:850}.gdt-reflection-summary .submitted{background:#f0faf4;border-color:#cee8d8;color:#2c7752}.gdt-reflection-summary .missing{background:#fff5f2;border-color:#efd3cd;color:#a64e43}.gdt-table.assignments{min-width:920px}.gdt-table.assignments th:first-child{width:135px}.gdt-table.assignments td{text-align:left;line-height:1.45}.gdt-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.gdt-guide-grid article{display:grid;grid-template-columns:auto 1fr;gap:5px 9px;padding:14px;border:1px solid #d9e2ec;border-radius:12px;background:#fff}.gdt-guide-grid svg{grid-row:1/3;color:#48739f}.gdt-guide-grid b{font-size:12px}.gdt-guide-grid p{margin:0;color:#738297;font-size:10.5px;line-height:1.55}.gdt-contact-workspace,.gdt-records-workspace,.gdt-data-workspace{display:grid;gap:12px}.gdt-data-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.gdt-data-card{display:grid;gap:11px;padding:15px;border:1px solid #d8e2ed;border-radius:14px;background:#fff}.gdt-data-card.applied{background:linear-gradient(135deg,#f6fbf8,#fbfdfc)}.gdt-data-card.draft{background:linear-gradient(135deg,#f7faff,#fbfcff)}.gdt-data-card header{display:flex;align-items:center;gap:9px}.gdt-data-card header div{display:grid;gap:3px}.gdt-data-card header b{font-size:13px}.gdt-data-card header span,.gdt-data-card small{font-size:9.5px;color:#7a899b}.gdt-data-card dl{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0}.gdt-data-card dl div{padding:9px;border-radius:9px;background:rgba(255,255,255,.75);border:1px solid #e0e7ef;text-align:center}.gdt-data-card dt{font-size:9px;color:#7a899b}.gdt-data-card dd{margin:3px 0 0;font-size:17px;font-weight:950}.gdt-upload-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.gdt-upload-grid>button{display:flex;align-items:center;gap:10px;padding:15px;border:1px dashed #b8cbe0;border-radius:13px;background:#f8fbff;color:#356493;text-align:left;cursor:pointer}.gdt-upload-grid button span{display:grid;gap:3px}.gdt-upload-grid button b{font-size:12px}.gdt-upload-grid button small{font-size:9.5px;color:#738397}.gdt-source-list{display:grid;gap:7px;padding:13px;border:1px solid #d8e2ed;border-radius:13px;background:#fff}.gdt-source-list>div{display:grid;gap:3px}.gdt-source-list>div b{font-size:12px}.gdt-source-list>div span{font-size:9.5px;color:#778699}.gdt-source-list article{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:9px;border:1px solid #e0e7ef;border-radius:9px;background:#fafcff}.gdt-source-list article span{display:grid;gap:3px;min-width:0}.gdt-source-list article b{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gdt-source-list article small{font-size:9px;color:#8190a2}.gdt-source-list article button{display:inline-flex;align-items:center;gap:4px;border:1px solid #efd0cb;border-radius:7px;background:#fff7f5;color:#a05248;padding:5px 7px;font:850 9px ${FONT}}.gdt-source-list em{font-size:10px;color:#98a3b0}.gdt-save-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}.gdt-save-actions button{display:inline-flex;align-items:center;gap:6px;padding:9px 11px;border-radius:9px;font:900 10.5px ${FONT};cursor:pointer}.gdt-save-actions .secondary{border:1px solid #cbd8e5;background:#fff;color:#506b87}.gdt-save-actions .primary{border:1px solid #376a9f;background:#376a9f;color:#fff}.gdt-info{display:flex;align-items:flex-start;gap:8px;padding:11px 12px;border-radius:11px;background:#fff8e9;border:1px solid #edd9ad;color:#7b6331;font-size:10.5px;line-height:1.5}@media(max-width:800px){.gdt-contact-actions{align-items:stretch;flex-direction:column}.gdt-record-metrics,.gdt-guide-grid,.gdt-data-grid,.gdt-upload-grid{grid-template-columns:1fr}.gdt-link-manager article,.gdt-activity-link-editor{grid-template-columns:1fr}.gdt-data-card dl{grid-template-columns:repeat(3,1fr)}.gdt-section-heading{align-items:flex-start;flex-direction:column}.gdt-heading-actions{width:100%;justify-content:flex-end}.gdt-table.reflections{min-width:760px}.reflection-wrap{overflow-x:auto}}
+.grade-department-tools{font-family:${FONT};color:#273b55;display:grid;gap:14px}.grade-department-tools *{box-sizing:border-box}.gdt-empty{min-height:280px;display:grid;place-items:center;align-content:center;gap:8px;border:1px dashed #cbd8e6;border-radius:16px;background:#fafcff;color:#7b899b;text-align:center;padding:24px}.gdt-empty b{font-size:14px;color:#52657c}.gdt-empty span{font-size:11px;line-height:1.55;max-width:640px}.gdt-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border:1px solid #d6e1ec;border-radius:13px;background:linear-gradient(135deg,#f7fbff,#fbfcff)}.gdt-section-heading>div:first-child{display:flex;align-items:center;gap:9px}.gdt-section-heading span{display:grid;gap:3px}.gdt-section-heading b{font-size:13px}.gdt-section-heading small{font-size:10px;color:#738397}.gdt-heading-actions{display:flex!important;align-items:center;gap:7px}.gdt-heading-actions>a,.gdt-heading-actions>button{display:inline-flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid #cbd8e5;border-radius:8px;background:#fff;color:#426991;text-decoration:none;font:850 10px ${FONT};cursor:pointer;white-space:nowrap}.gdt-section-heading.compact{padding:0;border:0;background:none}.gdt-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.gdt-search{flex:1 1 330px;min-width:240px;display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;gap:8px;border:1px solid #ccd8e6;border-radius:11px;background:#fff;padding:5px 7px 5px 10px}.gdt-search>span{font-size:10.5px;font-weight:900;color:#60738a;padding-right:8px;border-right:1px solid #e2e8ef}.gdt-search input{min-width:0;border:0;outline:0;padding:6px 8px;font:750 11px ${FONT};color:#2c4058}.gdt-toolbar select{min-height:39px;border:1px solid #ccd8e6;border-radius:10px;background:#fff;padding:7px 30px 7px 10px;color:#435970;font:850 11px ${FONT}}.gdt-secondary,.gdt-contact-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #bfcfe1;border-radius:9px;padding:8px 10px;background:#fff;color:#35628f;font:800 11px ${FONT};cursor:pointer;white-space:nowrap}.gdt-contact-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border-radius:11px;background:#f3f7fb;color:#6b7b8e;font-size:10.5px}.gdt-table-wrap{overflow:auto;border:1px solid #d6e0eb;border-radius:13px;background:#fff;max-width:100%}.gdt-table{width:100%;min-width:900px;border-collapse:separate;border-spacing:0;table-layout:fixed}.gdt-table th{position:sticky;top:0;z-index:1;background:#edf4fb;color:#435b74;padding:10px 7px;border-right:1px solid #d6e0ea;border-bottom:1px solid #c8d6e5;font-size:10px;font-weight:950;text-align:center}.gdt-table td{padding:9px 7px;border-right:1px solid #e0e7ef;border-bottom:1px solid #e0e7ef;font-size:10.5px;text-align:center;vertical-align:middle;overflow-wrap:anywhere}.gdt-table tr:last-child td{border-bottom:0}.gdt-table th:last-child,.gdt-table td:last-child{border-right:0}.gdt-table tr.editing td{background:#fffaf0}.gdt-table input,.gdt-table textarea,.gdt-table select,.gdt-link-manager input,.gdt-activity-link-editor input{width:100%;min-width:0;border:1px solid #cbd8e5;border-radius:7px;padding:6px 7px;font:750 10px ${FONT};color:#30465f;background:#fff}.gdt-table input.mini{max-width:52px;text-align:center}.gdt-table textarea{min-height:52px;resize:vertical}.gdt-table td small,.gdt-table.assignments td small{display:block;margin-top:3px;color:#8190a2;font-size:9px;line-height:1.35}.gdt-table .gdt-note{text-align:left;white-space:normal;word-break:break-word;line-height:1.45}.gdt-muted{color:#9aa5b2}.gdt-unregistered{display:inline-block;color:#9aa5b2;font-size:9px}.gdt-icon-button,.gdt-copy-button{display:inline-grid;place-items:center;border:1px solid #cdd9e6;background:#fff;color:#356493;cursor:pointer}.gdt-icon-button{width:28px;height:28px;border-radius:8px}.gdt-copy-button{width:24px;height:24px;border-radius:7px}.gdt-mini-action{display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:5px 6px;border:1px solid #c8d7e6;border-radius:7px;background:#fff;color:#426b94;font:850 9px ${FONT};cursor:pointer;white-space:nowrap}.gdt-edit-actions{display:flex;gap:4px;justify-content:center}.gdt-edit-actions button{display:inline-flex;align-items:center;gap:3px;border:1px solid #cad7e5;border-radius:7px;background:#fff;color:#356493;padding:5px;font:800 9px ${FONT}}.gdt-table.contacts{min-width:1110px;table-layout:fixed}.gdt-table.contacts th:nth-child(1){width:38px}.gdt-table.contacts th:nth-child(2),.gdt-table.contacts th:nth-child(3){width:45px}.gdt-table.contacts th:nth-child(4){width:68px}.gdt-table.contacts th:nth-child(5){width:100px}.gdt-table.contacts th:nth-child(6){width:66px}.gdt-table.contacts th:nth-child(7){width:112px}.gdt-table.contacts th:nth-child(8),.gdt-table.contacts th:nth-child(9){width:130px}.gdt-table.contacts th:nth-child(10){width:108px}.gdt-table.contacts th:nth-child(11){width:50px}.gdt-table.contacts td{padding:7px 5px}.gdt-table.contacts td:nth-child(5){font-size:11px}.gdt-table.contacts .gdt-note{font-size:9.5px}.gdt-contact-cell{display:flex;align-items:center;justify-content:center;gap:4px}.gdt-contact-cell span{white-space:nowrap}.gdt-contact-cell button{display:grid;place-items:center;width:19px;height:19px;border:1px solid #d2dce8;border-radius:5px;background:#fff;color:#47709a;cursor:pointer;flex:0 0 auto}.gdt-academic-status,.gdt-role-pill{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:4px 7px;font-size:9px;font-weight:900;white-space:nowrap}.gdt-academic-status{background:#eef4fa;color:#486782}.gdt-academic-status.전입{background:#e9f6ee;color:#27704c}.gdt-academic-status.전출,.gdt-academic-status.자퇴{background:#fff0ed;color:#aa493f}.gdt-role-pill{background:#fff6df;color:#886414;border:1px solid #eedca8}.gdt-table.contacts tr.add-row td{background:#f5f9fe}.gdt-heading-actions button:disabled,.gdt-icon-button:disabled{opacity:.45;cursor:not-allowed}.gdt-record-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.gdt-record-metrics>div{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;align-items:center;padding:12px;border:1px solid #d9e2ec;border-radius:12px;background:#fff}.gdt-record-metrics svg{grid-row:1/3;color:#47739d}.gdt-record-metrics span{font-size:10px;color:#75869a;font-weight:850}.gdt-record-metrics b{font-size:18px}.gdt-subtabs{display:flex;gap:7px;flex-wrap:wrap}.gdt-subtabs button{display:inline-flex;align-items:center;gap:6px;border:1px solid #d1dce8;border-radius:9px;padding:8px 11px;background:#fff;color:#68778a;font:850 11px ${FONT};cursor:pointer}.gdt-subtabs button.active{background:#3d6998;color:#fff;border-color:#3d6998}.gdt-table.activities{min-width:980px}.gdt-table.activities th:nth-child(1){width:76px}.gdt-table.activities th:nth-child(2){width:70px}.gdt-table.activities th:nth-child(3){width:56px}.gdt-table.activities th:nth-child(4){width:66px}.gdt-table.activities th:nth-child(5){width:auto}.gdt-table.activities th:nth-child(6),.gdt-table.activities th:nth-child(7){width:78px}.gdt-table.activities th:nth-child(8){width:70px}.gdt-table.activities th:nth-child(9){width:45px}.gdt-table.activities td.record{text-align:center;line-height:1.55;word-break:keep-all}.gdt-type-pill{display:inline-block;padding:4px 7px;border-radius:999px;background:#eaf2fb;color:#38658f;font-size:9px;font-weight:900;white-space:nowrap}.gdt-link-button{display:inline-flex;align-items:center;gap:4px;padding:5px 7px;border:1px solid #bfd0e2;border-radius:7px;color:#356493;text-decoration:none;font-size:9px;font-weight:900}.gdt-link-button.response{color:#3d765f;border-color:#bfdccb}.gdt-activity-link-editor{display:grid;grid-template-columns:minmax(180px,1.2fr) minmax(180px,1fr) minmax(180px,1fr) auto;gap:9px;align-items:end;padding:12px;border:1px solid #cfddea;border-radius:12px;background:#f8fbff}.gdt-activity-link-editor>div:first-child{display:flex;align-items:flex-start;gap:8px;min-width:0}.gdt-activity-link-editor>div:first-child span{display:grid;gap:3px;min-width:0}.gdt-activity-link-editor b{font-size:11px}.gdt-activity-link-editor small{font-size:9px;color:#738397;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gdt-activity-link-editor label{display:grid;gap:4px;color:#6d7e91;font-size:9px;font-weight:850}.gdt-link-manager{display:grid;gap:8px;padding:13px;border:1px solid #d8e2ed;border-radius:13px;background:#fafcff}.gdt-link-manager article{display:grid;grid-template-columns:minmax(160px,1.2fr) minmax(130px,.8fr) minmax(130px,.8fr) auto;gap:8px;align-items:center;padding:9px 10px;border:1px solid #e0e7ef;border-radius:10px;background:#fff}.gdt-link-manager article>a,.gdt-link-manager article span a{display:inline-flex;align-items:center;gap:4px;color:#416b94;text-decoration:none;font-size:10px;font-weight:850}.gdt-link-manager article em{font-size:9.5px;color:#9aa5b2}.gdt-link-manager article>button,.gdt-link-manager article>div button{display:inline-flex;align-items:center;gap:4px;border:1px solid #cad7e4;border-radius:7px;background:#fff;padding:6px 8px;color:#426991;font:850 9.5px ${FONT}}.gdt-link-manager article label{display:grid;gap:3px;font-size:9px;color:#748397}.reflection-wrap{overflow-x:hidden}.gdt-table.reflections{min-width:0;width:100%}.gdt-table.reflections th:nth-child(1),.gdt-table.reflections th:nth-child(2){width:5%}.gdt-table.reflections th:nth-child(3){width:8%}.gdt-table.reflections th:nth-child(4){width:9%}.gdt-table.reflections th:nth-child(5){width:13%}.gdt-table.reflections th:nth-child(6){width:9%}.gdt-table.reflections th:nth-child(7){width:auto}.gdt-table.reflections th:nth-child(8){width:44px}.gdt-table.reflections td.reflection-text{text-align:left;line-height:1.58;white-space:normal;word-break:break-word;overflow-wrap:anywhere}.gdt-table.reflections details{max-width:100%}.gdt-table.reflections details summary{cursor:pointer;color:#435a72;font-weight:780;white-space:normal;word-break:break-word;overflow-wrap:anywhere;line-height:1.55}.gdt-table.reflections details p{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;margin:8px 0 0;padding:9px;border-radius:8px;background:#f7f9fc;color:#42566d;max-width:100%}.status{display:inline-flex;align-items:center;justify-content:center;gap:3px;padding:5px 8px;border-radius:999px;font-size:9.5px;font-weight:950;white-space:nowrap;border:1px solid transparent}.status.submitted{background:#e7f6ed;color:#25734d;border-color:#cbe8d6}.status.missing{background:#fff0ed;color:#aa493f;border-color:#f2d0ca}.gdt-reflection-summary{display:flex;align-items:stretch;gap:7px;flex-wrap:wrap;padding:0;background:transparent}.gdt-reflection-summary span{display:grid;grid-template-columns:auto auto;align-items:center;justify-content:start;gap:2px 5px;min-width:92px;padding:8px 10px;border:1px solid #d8e2ed;border-radius:10px;background:#f7f9fc;color:#64768b}.gdt-reflection-summary span svg{grid-row:1/3}.gdt-reflection-summary span b{font-size:14px;line-height:1}.gdt-reflection-summary span small{font-size:9px;font-weight:850}.gdt-reflection-summary .submitted{background:#f0faf4;border-color:#cee8d8;color:#2c7752}.gdt-reflection-summary .missing{background:#fff5f2;border-color:#efd3cd;color:#a64e43}.gdt-table.assignments{min-width:920px}.gdt-table.assignments th:first-child{width:135px}.gdt-table.assignments td{text-align:left;line-height:1.45}.gdt-guide-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.gdt-guide-grid article{display:grid;grid-template-columns:auto 1fr;gap:5px 9px;padding:14px;border:1px solid #d9e2ec;border-radius:12px;background:#fff}.gdt-guide-grid svg{grid-row:1/3;color:#48739f}.gdt-guide-grid b{font-size:12px}.gdt-guide-grid p{margin:0;color:#738297;font-size:10.5px;line-height:1.55}.gdt-contact-workspace,.gdt-records-workspace,.gdt-data-workspace{display:grid;gap:12px}.gdt-data-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.gdt-data-card{display:grid;gap:11px;padding:15px;border:1px solid #d8e2ed;border-radius:14px;background:#fff}.gdt-data-card.applied{background:linear-gradient(135deg,#f6fbf8,#fbfdfc)}.gdt-data-card.draft{background:linear-gradient(135deg,#f7faff,#fbfcff)}.gdt-data-card header{display:flex;align-items:center;gap:9px}.gdt-data-card header div{display:grid;gap:3px}.gdt-data-card header b{font-size:13px}.gdt-data-card header span,.gdt-data-card small{font-size:9.5px;color:#7a899b}.gdt-data-card dl{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0}.gdt-data-card dl div{padding:9px;border-radius:9px;background:rgba(255,255,255,.75);border:1px solid #e0e7ef;text-align:center}.gdt-data-card dt{font-size:9px;color:#7a899b}.gdt-data-card dd{margin:3px 0 0;font-size:17px;font-weight:950}.gdt-upload-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.gdt-upload-grid>button{display:flex;align-items:center;gap:10px;padding:15px;border:1px dashed #b8cbe0;border-radius:13px;background:#f8fbff;color:#356493;text-align:left;cursor:pointer}.gdt-upload-grid button span{display:grid;gap:3px}.gdt-upload-grid button b{font-size:12px}.gdt-upload-grid button small{font-size:9.5px;color:#738397}.gdt-source-list{display:grid;gap:7px;padding:13px;border:1px solid #d8e2ed;border-radius:13px;background:#fff}.gdt-source-list>div{display:grid;gap:3px}.gdt-source-list>div b{font-size:12px}.gdt-source-list>div span{font-size:9.5px;color:#778699}.gdt-source-list article{display:grid;grid-template-columns:auto 1fr auto;gap:8px;align-items:center;padding:9px;border:1px solid #e0e7ef;border-radius:9px;background:#fafcff}.gdt-source-list article span{display:grid;gap:3px;min-width:0}.gdt-source-list article b{font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gdt-source-list article small{font-size:9px;color:#8190a2}.gdt-source-list article button{display:inline-flex;align-items:center;gap:4px;border:1px solid #efd0cb;border-radius:7px;background:#fff7f5;color:#a05248;padding:5px 7px;font:850 9px ${FONT}}.gdt-source-list em{font-size:10px;color:#98a3b0}.gdt-save-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}.gdt-save-actions button{display:inline-flex;align-items:center;gap:6px;padding:9px 11px;border-radius:9px;font:900 10.5px ${FONT};cursor:pointer}.gdt-save-actions .secondary{border:1px solid #cbd8e5;background:#fff;color:#506b87}.gdt-save-actions .primary{border:1px solid #376a9f;background:#376a9f;color:#fff}.gdt-info{display:flex;align-items:flex-start;gap:8px;padding:11px 12px;border-radius:11px;background:#fff8e9;border:1px solid #edd9ad;color:#7b6331;font-size:10.5px;line-height:1.5}@media(max-width:800px){.gdt-contact-actions{align-items:stretch;flex-direction:column}.gdt-record-metrics,.gdt-guide-grid,.gdt-data-grid,.gdt-upload-grid{grid-template-columns:1fr}.gdt-link-manager article,.gdt-activity-link-editor{grid-template-columns:1fr}.gdt-data-card dl{grid-template-columns:repeat(3,1fr)}.gdt-section-heading{align-items:flex-start;flex-direction:column}.gdt-heading-actions{width:100%;justify-content:flex-end}.gdt-table.reflections{min-width:760px}.reflection-wrap{overflow-x:auto}}
 `;
