@@ -950,12 +950,14 @@ function printStudentGradeReport(options = {}) {
   const normalized = {
     category: options.category !== false,
     trend: options.trend !== false,
+    mockChart: options.mockChart !== false,
     mock: options.mock !== false,
   };
   clone.dataset.printCategory = String(normalized.category);
   clone.dataset.printTrend = String(normalized.trend);
+  clone.dataset.printMockChart = String(normalized.mockChart);
   clone.dataset.printMock = String(normalized.mock);
-  clone.dataset.lowerCount = String([normalized.category, normalized.trend, normalized.mock].filter(Boolean).length);
+  clone.dataset.lowerCount = String([normalized.category, normalized.trend, normalized.mockChart, normalized.mock].filter(Boolean).length);
   document.body.appendChild(clone);
   document.body.classList.add(className);
   let cleaned = false;
@@ -977,7 +979,7 @@ const STUDENT_GRADE_PRINT_CSS = `
 .grade-print-option-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:17px 18px 13px;border-bottom:1px solid #e2e8ef}.grade-print-option-head b{display:block;font-size:15px;color:#263d59}.grade-print-option-head span{display:block;margin-top:4px;color:#748398;font-size:10.5px;line-height:1.45}.grade-print-option-head button{display:grid;place-items:center;width:31px;height:31px;border:1px solid #d6e0ea;border-radius:9px;background:#fff;color:#61748a;cursor:pointer}
 .grade-print-option-body{display:grid;gap:9px;padding:14px 18px}.grade-print-option-body label{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:start;padding:10px 11px;border:1px solid #dce4ec;border-radius:11px;background:#fafbfd;cursor:pointer}.grade-print-option-body label input{margin-top:2px}.grade-print-option-body label b{display:block;font-size:11.5px;color:#344d69}.grade-print-option-body label span{display:block;margin-top:3px;font-size:9.8px;line-height:1.45;color:#7b8999}.grade-print-option-actions{display:flex;justify-content:space-between;gap:9px;padding:13px 18px 17px;border-top:1px solid #edf1f5}.grade-print-option-actions>div{display:flex;gap:7px}.grade-print-option-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #cdd9e6;border-radius:9px;padding:8px 11px;background:#fff;color:#526980;font-size:11px;font-weight:900;cursor:pointer}.grade-print-option-actions button.primary{background:#3568a3;color:#fff;border-color:#3568a3}
 @media print {
-  @page{size:A4 landscape;margin:5mm}
+  @page{size:A4 landscape;margin:3.5mm}
   html,body{width:100%!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important}
   body.print-student-grade-report #root{display:none!important}
   body.print-student-grade-report>.student-grade-print-sheet-clone,
@@ -1014,16 +1016,19 @@ const STUDENT_GRADE_PRINT_CSS = `
   .student-grade-print-sheet-clone td{font-size:6.1px;line-height:1.12;font-weight:720;padding:.92mm .65mm;border-right:1px solid #e3e8ee;border-bottom:1px solid #e3e8ee;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .student-grade-print-sheet-clone td.subject{text-align:left;font-weight:880;color:#273c56;white-space:normal;word-break:keep-all;overflow-wrap:anywhere}
   .student-grade-print-sheet-clone th:last-child,.student-grade-print-sheet-clone td:last-child{border-right:0}
-  .student-grade-print-sheet-clone .report-lower-grid{display:grid;gap:1.8mm;align-items:stretch}.student-grade-print-sheet-clone[data-lower-count="3"] .report-lower-grid{grid-template-columns:minmax(0,.78fr) minmax(0,.9fr) minmax(0,1.55fr)}.student-grade-print-sheet-clone[data-lower-count="2"] .report-lower-grid{grid-template-columns:minmax(0,.8fr) minmax(0,1.55fr)}.student-grade-print-sheet-clone[data-lower-count="1"] .report-lower-grid{grid-template-columns:minmax(0,1fr)}.student-grade-print-sheet-clone[data-lower-count="0"] .report-lower-grid,.student-grade-print-sheet-clone[data-lower-count="0"] .report-lower-title{display:none!important}
-  .student-grade-print-sheet-clone .report-trend-card,.student-grade-print-sheet-clone .mock-table,.student-grade-print-sheet-clone .report-category-card{border:1px solid #cfd9e5;border-radius:1.7mm;overflow:hidden;background:#fff;break-inside:avoid;height:100%}
+  .student-grade-print-sheet-clone .report-lower-grid{display:grid;gap:1.8mm;align-items:stretch;grid-auto-rows:minmax(0,1fr)}.student-grade-print-sheet-clone[data-lower-count="4"] .report-lower-grid{grid-template-columns:minmax(0,.82fr) minmax(0,1.35fr)}.student-grade-print-sheet-clone[data-lower-count="3"] .report-lower-grid{grid-template-columns:minmax(0,.78fr) minmax(0,.9fr) minmax(0,1.55fr)}.student-grade-print-sheet-clone[data-lower-count="2"] .report-lower-grid{grid-template-columns:minmax(0,.82fr) minmax(0,1.35fr)}.student-grade-print-sheet-clone[data-lower-count="1"] .report-lower-grid{grid-template-columns:minmax(0,1fr)}.student-grade-print-sheet-clone[data-lower-count="0"] .report-lower-grid,.student-grade-print-sheet-clone[data-lower-count="0"] .report-lower-title{display:none!important}
+  .student-grade-print-sheet-clone .report-trend-card,.student-grade-print-sheet-clone .mock-trend-card,.student-grade-print-sheet-clone .mock-table,.student-grade-print-sheet-clone .report-category-card{border:1px solid #cfd9e5;border-radius:1.7mm;overflow:hidden;background:#fff;break-inside:avoid;height:100%}
   .student-grade-print-sheet-clone .report-trend-head{display:flex;align-items:center;justify-content:space-between;gap:2mm;padding:1.2mm 1.7mm;background:#f4f7fb;border-bottom:1px solid #d8e1eb}
   .student-grade-print-sheet-clone .report-trend-head b{font-size:7.4px;color:#2c4c70}.student-grade-print-sheet-clone .report-trend-head span{font-size:5.9px;color:#78899b;font-weight:800}
-  .student-grade-print-sheet-clone .report-trend-chart{display:block;width:100%;height:48mm;padding:1mm 1.2mm 0}
+  .student-grade-print-sheet-clone .report-trend-chart,.student-grade-print-sheet-clone .mock-trend-chart{display:block;width:100%;height:48mm;padding:1mm 1.2mm 0}
   .student-grade-print-sheet-clone .report-category-head{padding:1.2mm 1.7mm;background:#f4f7fb;border-bottom:1px solid #d8e1eb;font-size:7.4px;font-weight:950;color:#2c4c70}.student-grade-print-sheet-clone .report-category-card table{height:calc(100% - 7mm)}.student-grade-print-sheet-clone .report-category-card th{font-size:6px;padding:1mm .5mm;background:#eef3fa}.student-grade-print-sheet-clone .report-category-card td{font-size:6.2px;padding:1mm .5mm}.student-grade-print-sheet-clone .category-average{font-weight:950;color:#315f92;background:#f4f8fd}.student-grade-print-sheet-clone .mock-table th{font-size:6.2px;padding:1.15mm .65mm;background:#eef3fa}
   .student-grade-print-sheet-clone .mock-table td{font-size:6.3px;padding:1.05mm .65mm}
   .student-grade-print-sheet-clone .sum-cell{font-weight:950;color:#315f92;background:#f4f8fd}
-.student-grade-print-sheet-clone[data-print-category="false"] .report-category-card{display:none!important}.student-grade-print-sheet-clone[data-print-trend="false"] .report-trend-card{display:none!important}.student-grade-print-sheet-clone[data-print-mock="false"] .mock-table{display:none!important}
-  .student-grade-print-sheet-clone[data-semester-count="1"] .report-lower-grid,.student-grade-print-sheet-clone[data-semester-count="2"] .report-lower-grid,.student-grade-print-sheet-clone[data-semester-count="3"] .report-lower-grid{min-height:78mm}.student-grade-print-sheet-clone[data-semester-count="1"] .report-trend-chart,.student-grade-print-sheet-clone[data-semester-count="2"] .report-trend-chart,.student-grade-print-sheet-clone[data-semester-count="3"] .report-trend-chart{height:69mm}
+.student-grade-print-sheet-clone[data-print-category="false"] .report-category-card{display:none!important}.student-grade-print-sheet-clone[data-print-trend="false"] .report-trend-card{display:none!important}.student-grade-print-sheet-clone[data-print-mock-chart="false"] .mock-trend-card{display:none!important}.student-grade-print-sheet-clone[data-print-mock="false"] .mock-table{display:none!important}
+  .student-grade-print-sheet-clone[data-semester-count="1"],.student-grade-print-sheet-clone[data-semester-count="2"],.student-grade-print-sheet-clone[data-semester-count="3"]{height:198mm!important;display:flex!important;flex-direction:column!important}
+  .student-grade-print-sheet-clone[data-semester-count="1"] .report-lower-grid,.student-grade-print-sheet-clone[data-semester-count="2"] .report-lower-grid,.student-grade-print-sheet-clone[data-semester-count="3"] .report-lower-grid{flex:1;min-height:0}
+  .student-grade-print-sheet-clone[data-semester-count="1"] .report-trend-chart,.student-grade-print-sheet-clone[data-semester-count="2"] .report-trend-chart,.student-grade-print-sheet-clone[data-semester-count="3"] .report-trend-chart,.student-grade-print-sheet-clone[data-semester-count="1"] .mock-trend-chart,.student-grade-print-sheet-clone[data-semester-count="2"] .mock-trend-chart,.student-grade-print-sheet-clone[data-semester-count="3"] .mock-trend-chart{height:calc(100% - 7mm);min-height:31mm}
+  .student-grade-print-sheet-clone[data-lower-count="4"] .report-category-card{grid-column:1;grid-row:1}.student-grade-print-sheet-clone[data-lower-count="4"] .report-trend-card{grid-column:2;grid-row:1}.student-grade-print-sheet-clone[data-lower-count="4"] .mock-trend-card{grid-column:1;grid-row:2}.student-grade-print-sheet-clone[data-lower-count="4"] .mock-table{grid-column:2;grid-row:2}
   .student-grade-print-sheet-clone .report-footer{display:flex;justify-content:space-between;gap:8mm;margin-top:2mm;padding-top:1.4mm;border-top:1px solid #dbe2ea;font-size:6px;color:#7d8997;font-weight:700}
   .student-grade-print-sheet-clone[data-semester-count="5"] .semester-head{padding:1.05mm 1.4mm}
   .student-grade-print-sheet-clone[data-semester-count="5"] th{font-size:5.4px;padding:.78mm .5mm}
@@ -1065,6 +1070,41 @@ function StudentGradePrintTrend({ semesterKeys = [], groups, gradeSystem, entryY
       {valid.map(item => <g key={item.index}><circle cx={pointX(item.index)} cy={pointY(item.value)} r="4.5" fill="#fff" stroke="#315f92" strokeWidth="2.5"/><rect x={pointX(item.index)-15} y={pointY(item.value)-22} width="30" height="15" rx="7.5" fill="#274e78"/><text x={pointX(item.index)} y={pointY(item.value)-11.5} textAnchor="middle" fontSize="8.5" fontWeight="900" fill="#fff">{item.value}</text></g>)}
       {semesterKeys.map((key,index) => <text key={`label-${key}`} x={pointX(index)} y={height-8} textAnchor="middle" fontSize="7.3" fontWeight="800" fill="#52667c">{key.replace("-","-")}</text>)}
       {!valid.length && <text x={width/2} y={height/2} textAnchor="middle" fontSize="10" fontWeight="800" fill="#91a0b0">등록된 등급 평균 없음</text>}
+    </svg>
+  </article>;
+}
+
+function StudentGradePrintMockTrend({ mockRows = [], entryYear }) {
+  const width = 360;
+  const height = 132;
+  const left = 30;
+  const right = 12;
+  const top = 18;
+  const bottom = 28;
+  const innerWidth = width - left - right;
+  const innerHeight = height - top - bottom;
+  const series = [
+    { key: "sum2", label: "2합", stroke: "#315f92" },
+    { key: "sum3", label: "3합", stroke: "#7a61a8" },
+    { key: "sum4", label: "4합", stroke: "#c17a35" },
+  ];
+  const values = mockRows.flatMap(row => series.map(item => Number(row.sums?.[item.key])).filter(Number.isFinite));
+  const maxValue = Math.max(12, ...values);
+  const minValue = Math.min(2, ...values);
+  const span = Math.max(1, maxValue - minValue);
+  const pointX = index => mockRows.length <= 1 ? left + innerWidth / 2 : left + (innerWidth * index) / (mockRows.length - 1);
+  const pointY = value => top + ((Number(value) - minValue) / span) * innerHeight;
+  return <article className="mock-trend-card">
+    <div className="report-trend-head"><b>모의고사 최저합 추이</b><span>낮을수록 우수 · 2합/3합/4합</span></div>
+    <svg className="mock-trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="모의고사 최저합 추이">
+      {[0,.5,1].map((ratio,index) => { const value = Math.round((minValue + span * ratio) * 10) / 10; const y = top + innerHeight * ratio; return <g key={index}><line x1={left} x2={width-right} y1={y} y2={y} stroke="#dbe3ec" strokeWidth="1"/><text x={left-12} y={y+3} textAnchor="middle" fontSize="7.5" fontWeight="800" fill="#68798c">{value}</text></g>; })}
+      {series.map((item,seriesIndex) => {
+        const valid = mockRows.map((row,index) => Number.isFinite(Number(row.sums?.[item.key])) ? { index, value:Number(row.sums[item.key]) } : null).filter(Boolean);
+        const points = valid.map(point => `${pointX(point.index)},${pointY(point.value)}`).join(" ");
+        return <g key={item.key}>{points && <polyline points={points} fill="none" stroke={item.stroke} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>}{valid.map(point => <circle key={point.index} cx={pointX(point.index)} cy={pointY(point.value)} r="3" fill="#fff" stroke={item.stroke} strokeWidth="2"/>)}<circle cx={74+seriesIndex*62} cy="8" r="3" fill={item.stroke}/><text x={81+seriesIndex*62} y="11" fontSize="7.5" fontWeight="900" fill="#52667c">{item.label}</text></g>;
+      })}
+      {mockRows.map((row,index) => <text key={row.key} x={pointX(index)} y={height-8} textAnchor="middle" fontSize="6.7" fontWeight="800" fill="#52667c">{mockCalendarLabel(row.key,entryYear).replace("2025년 ","").replace("2026년 ","")}</text>)}
+      {!mockRows.length && <text x={width/2} y={height/2} textAnchor="middle" fontSize="10" fontWeight="800" fill="#91a0b0">등록된 모의고사 성적 없음</text>}
     </svg>
   </article>;
 }
@@ -1138,6 +1178,7 @@ function StudentGradePrintSheet({
     <div className="report-lower-grid">
       <StudentGradePrintCategoryTable semesterKeys={displaySemesterKeys || []} groups={groups} gradeSystem={gradeSystem} entryYear={entryYear} />
       <StudentGradePrintTrend semesterKeys={displaySemesterKeys || []} groups={groups} gradeSystem={gradeSystem} entryYear={entryYear} />
+      <StudentGradePrintMockTrend mockRows={mockRows} entryYear={entryYear} />
       <div className="mock-table"><table><colgroup><col style={{width:"15%"}}/>{MOCK_SUBJECTS.map(subject => <col key={subject} style={{width:"9.5%"}}/>)}<col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/></colgroup><thead><tr><th>회차</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}<th>2합</th><th>3합</th><th>4합</th></tr></thead><tbody>{mockRows.length ? mockRows.map(({key,result,sums}) => <tr key={key}><td>{mockCalendarLabel(key,entryYear)}</td>{MOCK_SUBJECTS.map(subject => <td key={subject}>{result?.[subject] ?? "-"}</td>)}<td className="sum-cell">{sums.sum2 ?? "-"}</td><td className="sum-cell">{sums.sum3 ?? "-"}</td><td className="sum-cell">{sums.sum4 ?? "-"}</td></tr>) : <tr><td colSpan={10}>등록된 모의고사 성적 없음</td></tr>}</tbody></table></div>
     </div>
     <footer className="report-footer"><span>본 자료는 학생 상담을 위한 참고 자료입니다.</span><span>광덕고등학교 성적·시간표 시스템</span></footer>
@@ -1179,9 +1220,9 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
     return subjectLists[index] && subjectLists[index].length;
   });
   const [showGradePrintOptions, setShowGradePrintOptions] = useState(false);
-  const [gradePrintOptions, setGradePrintOptions] = useState({ category: true, trend: true, mock: true });
+  const [gradePrintOptions, setGradePrintOptions] = useState({ category: true, trend: true, mockChart: true, mock: true });
   useEffect(() => {
-    setGradePrintOptions({ category: availableSemesters.length <= 3, trend: true, mock: true });
+    setGradePrintOptions({ category: availableSemesters.length <= 3, trend: true, mockChart: availableSemesters.length <= 3, mock: true });
   }, [sid, availableSemesters.length]);
 
   const [selSemKey, setSelSemKey] = useState(null);
@@ -1296,9 +1337,10 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
             <label><input type="checkbox" checked disabled/><span><b>학기별 내신 성적</b><span>등록된 학기만 표시하며 빈 학기는 제외합니다.</span></span></label>
             <label><input type="checkbox" checked={gradePrintOptions.category} onChange={event=>setGradePrintOptions(prev=>({...prev,category:event.target.checked}))}/><span><b>교과별 평균 등급</b><span>국어·영어·수학·사회·과학의 학기별 평균을 표로 표시합니다.</span></span></label>
             <label><input type="checkbox" checked={gradePrintOptions.trend} onChange={event=>setGradePrintOptions(prev=>({...prev,trend:event.target.checked}))}/><span><b>전과목 평균 등급 추이</b><span>등록된 학기의 평균 등급 변화를 선 그래프로 표시합니다.</span></span></label>
-            <label><input type="checkbox" checked={gradePrintOptions.mock} onChange={event=>setGradePrintOptions(prev=>({...prev,mock:event.target.checked}))}/><span><b>모의고사 성적</b><span>회차별 과목 등급과 2합·3합·4합을 표시합니다.</span></span></label>
+            <label><input type="checkbox" checked={gradePrintOptions.mockChart} onChange={event=>setGradePrintOptions(prev=>({...prev,mockChart:event.target.checked}))}/><span><b>모의고사 최저합 그래프</b><span>회차별 2합·3합·4합의 변화를 그래프로 표시합니다.</span></span></label>
+            <label><input type="checkbox" checked={gradePrintOptions.mock} onChange={event=>setGradePrintOptions(prev=>({...prev,mock:event.target.checked}))}/><span><b>모의고사 성적표</b><span>회차별 과목 등급과 2합·3합·4합을 표로 표시합니다.</span></span></label>
           </div>
-          <div className="grade-print-option-actions"><button type="button" onClick={()=>setGradePrintOptions({category:availableSemesters.length<=3,trend:true,mock:true})}>자동 맞춤</button><div><button type="button" onClick={()=>setShowGradePrintOptions(false)}>취소</button><button type="button" className="primary" onClick={()=>{setShowGradePrintOptions(false);printStudentGradeReport(gradePrintOptions)}}><Printer size={14}/>인쇄·PDF</button></div></div>
+          <div className="grade-print-option-actions"><button type="button" onClick={()=>setGradePrintOptions({category:availableSemesters.length<=3,trend:true,mockChart:availableSemesters.length<=3,mock:true})}>자동 맞춤</button><div><button type="button" onClick={()=>setShowGradePrintOptions(false)}>취소</button><button type="button" className="primary" onClick={()=>{setShowGradePrintOptions(false);printStudentGradeReport(gradePrintOptions)}}><Printer size={14}/>인쇄·PDF</button></div></div>
         </section>
       </div>}
 

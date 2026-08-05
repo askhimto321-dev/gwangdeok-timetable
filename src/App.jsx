@@ -1924,8 +1924,16 @@ function StudentView({
 function ClassPrintView({ roster, build, hasAnyData, onLogout }) {
   const classes = useMemo(() => Array.from(new Set(Object.values(roster).map(r => r.class))).sort((a, b) => a - b), [roster]);
   const [sel, setSel] = useState(null);
+  const [printPerPage, setPrintPerPage] = useState(1);
   useEffect(() => { if (classes.length && (sel === null || !classes.includes(sel))) setSel(classes[0]); }, [classes]); // eslint-disable-line
   const students = useMemo(() => Object.entries(roster).filter(([, s]) => s.class === sel).sort((a, b) => a[1].number - b[1].number), [roster, sel]);
+  const printableStudents = useMemo(() => students.map(([id]) => ({ id, result: build(id) })).filter(item => item.result), [students, build]);
+  const printPages = useMemo(() => {
+    const size = printPerPage === 2 ? 2 : 1;
+    const pages = [];
+    for (let index = 0; index < printableStudents.length; index += size) pages.push(printableStudents.slice(index, index + size));
+    return pages;
+  }, [printableStudents, printPerPage]);
   if (!hasAnyData) return <EmptyState />;
   return (
     <div>
@@ -1938,9 +1946,20 @@ function ClassPrintView({ roster, build, hasAnyData, onLogout }) {
           {onLogout && <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>}
         </div>
         <div style={styles.classChips}>{classes.map(c => <button key={c} onClick={() => setSel(c)} style={{ ...styles.classChip, ...(sel === c ? styles.classChipActive : {}) }}>{c}반</button>)}</div>
-        {sel != null && <div style={styles.printBar}><div style={{ color: "#8a8578", fontSize: 13 }}>{sel}반 학생 {students.length}명</div><button type="button" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> {sel}반 전체 인쇄</button></div>}
+        {sel != null && <div style={{...styles.printBar,alignItems:"center",flexWrap:"wrap"}}>
+          <div style={{ color: "#8a8578", fontSize: 13 }}>{sel}반 학생 {students.length}명</div>
+          <div className="class-print-layout-control">
+            <span>한 페이지</span>
+            <button type="button" className={printPerPage===1?"active":""} onClick={()=>setPrintPerPage(1)}>1명</button>
+            <button type="button" className={printPerPage===2?"active":""} onClick={()=>setPrintPerPage(2)}>2명</button>
+          </div>
+          <button type="button" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> {sel}반 전체 인쇄</button>
+        </div>}
       </div>
-      <div id="print-area">{sel != null && students.map(([id]) => { const r = build(id); return r ? <div key={id} className="print-page-break"><TimetableCard result={r} sid={id} /></div> : null; })}</div>
+      <div id="print-area" className={`class-print-root per-page-${printPerPage}`}>{sel != null && printPages.map((page,pageIndex) => <section key={`page-${pageIndex}`} className={`class-print-sheet ${printPerPage===2?"is-two":"is-one"}`}>
+        {page.map(item => <div key={item.id} className="class-print-slot"><TimetableCard result={item.result} sid={item.id} /></div>)}
+        {printPerPage===2 && page.length===1 && <div className="class-print-slot is-empty" aria-hidden="true"/>}
+      </section>)}</div>
     </div>
   );
 }
@@ -4629,11 +4648,34 @@ const globalCss = `
   .student-timetable-subject { text-wrap: balance; }
   .timetable-long-subject-break { display: none; }
   .print-only { display: none; }
+  .class-print-layout-control{display:inline-flex;align-items:center;gap:5px;margin-left:auto;padding:4px;border:1px solid #d7e0ea;border-radius:10px;background:#f7f9fc}
+  .class-print-layout-control span{padding:0 5px;color:#68788d;font-size:10.5px;font-weight:850}
+  .class-print-layout-control button{min-width:44px;border:1px solid transparent;border-radius:7px;padding:6px 8px;background:transparent;color:#586d84;font-size:10.5px;font-weight:900;cursor:pointer}
+  .class-print-layout-control button.active{background:#315f95;color:#fff;box-shadow:0 3px 8px rgba(49,95,149,.18)}
   @media print {
     .no-print { display: none !important; }
     .print-only { display: block !important; }
     #print-area { display: block !important; }
-    .print-page-break { break-after: page; page-break-after: always; }
+    .class-print-sheet { break-after: page; page-break-after: always; width:100%; position:relative; }
+    .class-print-sheet:last-child { break-after:auto; page-break-after:auto; }
+    .class-print-slot { min-width:0; }
+    .class-print-slot.is-empty { display:block; }
+    .class-print-sheet.is-two { height:285mm; display:grid; grid-template-rows:1fr 1fr; overflow:hidden; }
+    .class-print-sheet.is-two .class-print-slot { min-height:0; overflow:hidden; position:relative; }
+    .class-print-sheet.is-two .class-print-slot:first-child { border-bottom:1px dashed #8291a2; padding-bottom:2.5mm; }
+    .class-print-sheet.is-two .class-print-slot:first-child::after { content:"✂ 절취선"; position:absolute; right:2mm; bottom:-2.2mm; padding:0 1.5mm; background:#fff; color:#7b8795; font-size:6.5pt; font-weight:800; }
+    .class-print-sheet.is-two .class-print-slot:last-child { padding-top:2.5mm; }
+    .class-print-sheet.is-two .print-card { height:100% !important; display:flex !important; flex-direction:column !important; padding:1.5mm 3mm 2mm !important; }
+    .class-print-sheet.is-two .timetable-print-header { padding:1mm .5mm 2mm !important; margin-bottom:2mm !important; border-bottom-width:1.4px !important; }
+    .class-print-sheet.is-two .timetable-print-kicker { margin-bottom:.7mm !important; font-size:6.5pt !important; }
+    .class-print-sheet.is-two .timetable-print-title { font-size:13.5pt !important; line-height:1 !important; }
+    .class-print-sheet.is-two .timetable-print-class { margin-left:2mm !important; padding:.8mm 1.8mm !important; font-size:7pt !important; }
+    .class-print-sheet.is-two .timetable-print-meta { margin-top:.7mm !important; font-size:6.5pt !important; }
+    .class-print-sheet.is-two .student-timetable-table { font-size:6.8pt !important; flex:1 1 auto; }
+    .class-print-sheet.is-two .student-timetable-table th,.class-print-sheet.is-two .student-timetable-table td { padding:3px 2px !important; line-height:1.12 !important; }
+    .class-print-sheet.is-two .student-timetable-table .student-timetable-subject { font-size:6.6pt !important; line-height:1.1 !important; }
+    .class-print-sheet.is-two .timetable-legend { margin-top:1.5mm !important; padding-top:1mm !important; gap:3mm !important; font-size:6.2pt !important; }
+    .class-print-sheet.is-two .is-empty { background:linear-gradient(180deg,#fff,#fdfdfd); }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
     @page { size: A4; margin: 6mm 10mm; }
     body { margin: 0; }

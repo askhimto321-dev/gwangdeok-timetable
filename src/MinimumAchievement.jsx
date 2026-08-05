@@ -133,7 +133,6 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
   const [bulkSubjectIds,setBulkSubjectIds]=useState([]);
   const [bulkStudentIds,setBulkStudentIds]=useState([]);
   const [bulkStudentQuery,setBulkStudentQuery]=useState("");
-  const [bulkStatus,setBulkStatus]=useState("미도달");
   const [bulkNote,setBulkNote]=useState("");
   const [panelMode,setPanelMode]=useState("status");
   const [dataSubjectFilter,setDataSubjectFilter]=useState("all");
@@ -200,19 +199,33 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
   useEffect(()=>setBulkStudentIds(current=>current.filter(sid=>bulkStudents.some(student=>student.sid===sid))),[bulkStudents]);
   const toggleBulkSubject=id=>setBulkSubjectIds(current=>current.includes(id)?current.filter(value=>value!==id):[...current,id]);
   const toggleBulkStudent=sid=>setBulkStudentIds(current=>current.includes(sid)?current.filter(value=>value!==sid):[...current,sid]);
-  const applyBulkAttendance=()=>{
+  const applyBulkAttendance=async()=>{
     if(!canManageAttendance){showToast?.("학급담임 또는 관리자만 출결을 입력할 수 있습니다.","error");return}
-    if(!bulkSubjectIds.length||!bulkStudentIds.length){showToast?.("과목과 학생을 각각 한 명 이상 선택해주세요.","error");return}
-    const stamp={status:bulkStatus,note:bulkNote,updatedBy:actor?.name||actor?.id,updatedAt:new Date().toISOString()};
-    setAttendanceDraft(current=>{
-      const next={...current};
-      bulkSubjectIds.forEach(workspaceId=>{
-        next[workspaceId]={...(next[workspaceId]||{})};
-        bulkStudentIds.forEach(sid=>{next[workspaceId][sid]={...(next[workspaceId][sid]||{}),...stamp}});
+    if(bulkClass==="all"){showToast?.("한 개 학급을 먼저 선택해주세요.","error");return}
+    if(!bulkSubjectIds.length){showToast?.("출결을 반영할 과목을 한 개 이상 선택해주세요.","error");return}
+    const targetRows=allRows.filter(row=>String(row.classNumber)===String(bulkClass)&&bulkSubjectIds.includes(row.workspaceId));
+    if(!targetRows.length){showToast?.("선택한 학급·과목에 해당하는 학생이 없습니다.","error");return}
+    const selectedSet=new Set(bulkStudentIds);
+    const now=new Date().toISOString();
+    const next={...attendanceDraft};
+    bulkSubjectIds.forEach(workspaceId=>{
+      next[workspaceId]={...(next[workspaceId]||{})};
+      targetRows.filter(row=>row.workspaceId===workspaceId).forEach(row=>{
+        const isFail=selectedSet.has(row.sid);
+        next[workspaceId][row.sid]={
+          ...(next[workspaceId][row.sid]||{}),
+          status:isFail?"미도달":"도달",
+          note:isFail?bulkNote:"",
+          updatedBy:actor?.name||actor?.id,
+          updatedAt:now,
+        };
       });
-      return next;
     });
-    showToast?.(`${bulkStudentIds.length}명 × ${bulkSubjectIds.length}과목 출결 상태를 화면에 반영했습니다. 저장 버튼을 눌러 확정해주세요.`,"success");
+    setAttendanceDraft(next);
+    setSaving(true);
+    const ok=await persist?.({minimumAchievementAttendance:next});
+    setSaving(false);
+    if(ok!==false)showToast?.(`${bulkClass}반 출결을 저장했습니다. 선택한 ${bulkStudentIds.length}명은 미도달, 나머지는 자동으로 도달 처리했습니다.`,"success");
   };
 
   const gradeTabs=Array.from(new Set((allowedGrades||[grade]).map(String))).filter(value=>["1","2","3"].includes(value));
@@ -279,22 +292,22 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
       </section>
 
       {canManageAttendance&&<section className="no-minimum-dashboard-print" style={{...ui.section,...ui.bulkSection}}>
-        <div style={ui.bulkHeader}><div className="minimum-bulk-title"><span style={ui.bulkIcon}><ListChecks size={18}/></span><div><b>과목별 출결 일괄 입력</b><small>대상 학급과 과목을 고른 뒤 학생을 검색·다중 선택해 한 번에 적용합니다.</small></div></div><span style={ui.roleBadge}>{isHomeroom?`${homeroomClass}반 입력`:"전체 학급 입력"}</span></div>
+        <div style={ui.bulkHeader}><div className="minimum-bulk-title"><span style={ui.bulkIcon}><ListChecks size={18}/></span><div><b>학급별 출결 일괄 반영</b><small>출결 미도달 학생만 선택하면, 같은 학급의 나머지 학생은 자동으로 출결 도달 처리됩니다.</small></div></div><span style={ui.roleBadge}>{isHomeroom?`${homeroomClass}반 입력`:"전체 학급 입력"}</span></div>
         <div className="minimum-bulk-grid" style={ui.bulkGrid}>
           <div className="minimum-bulk-target-panel">
             <label className="minimum-bulk-step"><b><em>1</em> 학급 선택</b><select value={bulkClass} disabled={isHomeroom} onChange={event=>{setBulkClass(event.target.value);setBulkStudentIds([])}}><option value="all">전체 반</option>{classes.map(value=><option key={value} value={String(value)}>{value}반</option>)}</select></label>
             <div className="minimum-bulk-step"><b><em>2</em> 과목 선택 <small>{bulkSubjectIds.length}개 선택</small></b><div className="bulk-subject-grid" style={ui.checkGrid}>{allWorkspaces.map(item=><button key={item.id} type="button" className={bulkSubjectIds.includes(item.id)?"is-selected":""} onClick={()=>toggleBulkSubject(item.id)}><span>{bulkSubjectIds.includes(item.id)?<Check size={12}/>:null}</span><b>{item.subject}</b><small>{courseLabel(item.settings?.courseType)}</small></button>)}</div></div>
           </div>
           <div className="minimum-bulk-student-panel">
-            <div className="bulk-student-head" style={ui.bulkStudentHead}><b><em>3</em> 학생 선택 <small>{bulkStudentIds.length}명 선택</small></b><div><button type="button" onClick={()=>setBulkStudentIds(bulkStudents.map(item=>item.sid))}>검색 결과 전체</button><button type="button" onClick={()=>setBulkStudentIds([])}>선택 해제</button></div></div>
+            <div className="bulk-student-head" style={ui.bulkStudentHead}><b><em>3</em> 출결 미도달 학생 선택 <small>{bulkStudentIds.length}명 선택</small></b><div><button type="button" onClick={()=>setBulkStudentIds(bulkStudents.map(item=>item.sid))}>검색 결과 전체</button><button type="button" onClick={()=>setBulkStudentIds([])}>선택 해제</button></div></div>
             <div className="minimum-mini-search" style={ui.miniSearch}><Search size={13}/><input value={bulkStudentQuery} onChange={event=>setBulkStudentQuery(event.target.value)} placeholder="이름 또는 반·번호 검색"/></div>
             <div className="bulk-student-grid" style={ui.studentCheckGrid}>{bulkStudents.map(student=><button key={student.sid} type="button" className={bulkStudentIds.includes(student.sid)?"is-selected":""} onClick={()=>toggleBulkStudent(student.sid)}><span>{bulkStudentIds.includes(student.sid)?<Check size={11}/>:null}</span><b>{student.name||student.sid}</b><small>{student.classNumber}반 {student.number}번</small></button>)}</div>
           </div>
-          <div className="minimum-bulk-apply-row">
-            <b><em>4</em> 적용 상태</b>
-            <select value={bulkStatus} onChange={event=>setBulkStatus(event.target.value)}><option value="미도달">출결 미도달</option><option value="도달">출결 도달</option><option value="확인필요">확인 필요</option></select>
-            <input value={bulkNote} onChange={event=>setBulkNote(event.target.value)} placeholder="공통 사유·메모 (선택)"/>
-            <button type="button" style={ui.bulkApplyButton} onClick={applyBulkAttendance}>선택한 {bulkStudentIds.length}명 · {bulkSubjectIds.length}과목에 적용</button>
+          <div className="minimum-bulk-apply-row is-class-apply">
+            <b><em>4</em> 학급 반영</b>
+            <div className="minimum-auto-attendance-note"><strong>선택 학생</strong><span>출결 미도달</span><strong>나머지 학생</strong><span>출결 도달 자동 처리</span></div>
+            <input value={bulkNote} onChange={event=>setBulkNote(event.target.value)} placeholder="미도달 공통 사유·메모 (선택)"/>
+            <button type="button" style={{...ui.bulkApplyButton,...((bulkClass==="all"||!bulkSubjectIds.length||saving)?{opacity:.48,cursor:"not-allowed"}:{})}} disabled={bulkClass==="all"||!bulkSubjectIds.length||saving} onClick={applyBulkAttendance}>{bulkClass==="all"?"학급 선택 필요":`${bulkClass}반 출결 저장·반영`}</button>
           </div>
         </div>
       </section>}
@@ -330,7 +343,7 @@ const css=`
 .minimum-achievement select,.minimum-achievement input{border:1px solid #ccd8e6;border-radius:11px;background:#fff;color:#30445b;padding:9px 10px;min-width:0;font-size:11.5px;font-weight:750}.minimum-achievement .course-badge{display:inline-flex;border-radius:999px;padding:5px 8px;font-size:10.4px;font-weight:950;white-space:nowrap}.minimum-achievement .course-badge.is-common{color:#315d90;background:#e7f1fc}.minimum-achievement .course-badge.is-elective{color:#6a4f87;background:#f1eafa}.minimum-achievement .ok{display:inline-flex;align-items:center;gap:3px;color:#2f7047;font-weight:900}.minimum-achievement .bad{color:#a33d35;font-weight:950}.minimum-achievement .na{color:#667485;background:#eef1f5;border-radius:999px;padding:4px 7px;font-size:10.3px;font-weight:850}
 .minimum-achievement .bulk-subject-grid button,.minimum-achievement .bulk-student-grid button{font-family:${FONT};border:1px solid #d3deeb;background:#fff;color:#465a72;border-radius:10px;cursor:pointer;padding:8px 9px;text-align:left}.minimum-achievement .bulk-subject-grid button{display:grid;grid-template-columns:18px 1fr auto;gap:5px;align-items:center;font-weight:900}.minimum-achievement .bulk-subject-grid button small{font-size:9px;color:#8290a2}.minimum-achievement .bulk-student-grid button{display:grid;grid-template-columns:18px 1fr;gap:2px 5px;align-items:center}.minimum-achievement .bulk-student-grid button small{grid-column:2;color:#8290a2;font-size:9px}.minimum-achievement .bulk-subject-grid button.is-selected,.minimum-achievement .bulk-student-grid button.is-selected{border-color:#78a2ce;background:#eaf3fc;color:#285c93;box-shadow:0 3px 9px rgba(44,91,145,.08)}.minimum-achievement .bulk-student-head button{border:1px solid #d1dce9;border-radius:8px;padding:5px 7px;color:#49647f;background:#fff;font-size:9.5px;font-weight:850;cursor:pointer}
 @media(max-width:1180px){.minimum-achievement .minimum-bulk-grid{grid-template-columns:minmax(120px,.65fr) minmax(190px,1fr)!important minmax(230px,1.25fr)!important minmax(170px,.8fr)!important}.minimum-achievement .bulk-subject-grid button,.minimum-achievement .bulk-student-grid button{overflow:hidden}.minimum-achievement .bulk-subject-grid button,.minimum-achievement .bulk-student-grid button b,.minimum-achievement .bulk-subject-grid button small,.minimum-achievement .bulk-student-grid button small{min-width:0;overflow:hidden;text-overflow:ellipsis}}
-@media(max-width:850px){.minimum-achievement .minimum-rule-grid{grid-template-columns:1fr!important}.minimum-achievement .minimum-hero{grid-template-columns:1fr!important;align-items:flex-start!important}.minimum-achievement .minimum-hero-actions{justify-content:flex-start!important}.minimum-achievement .minimum-bulk-grid{grid-template-columns:1fr!important}}
+@media(max-width:850px){.minimum-achievement .minimum-auto-attendance-note{grid-template-columns:auto 1fr}.minimum-achievement .minimum-rule-grid{grid-template-columns:1fr!important}.minimum-achievement .minimum-hero{grid-template-columns:1fr!important;align-items:flex-start!important}.minimum-achievement .minimum-hero-actions{justify-content:flex-start!important}.minimum-achievement .minimum-bulk-grid{grid-template-columns:1fr!important}}
 
 /* Ver13: compact filters, bulk attendance and one-page final confirmation */
 .minimum-achievement .minimum-filter-title{display:grid;gap:3px;min-width:0}
@@ -362,7 +375,7 @@ const css=`
 .minimum-achievement .bulk-student-grid button small{width:fit-content;margin-top:3px;padding:3px 6px;border-radius:999px;background:#f1f5f9;color:#58708a!important;font-size:10px!important;font-weight:850!important;line-height:1.15}
 .minimum-achievement .minimum-mini-search{min-height:39px;padding:0 10px!important}
 .minimum-achievement .minimum-mini-search input{border:0!important;padding:5px 0!important;outline:0;width:100%}
-.minimum-achievement .minimum-bulk-apply-row{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(140px,.7fr) minmax(210px,1.25fr) minmax(210px,1fr);gap:9px;align-items:center;padding:11px 12px;border:1px solid #d6e1ed;border-radius:13px;background:#f7fafe}
+.minimum-achievement .minimum-bulk-apply-row{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(240px,1fr) minmax(220px,1fr) minmax(210px,.85fr);gap:9px;align-items:center;padding:11px 12px;border:1px solid #d6e1ed;border-radius:13px;background:#f7fafe}.minimum-achievement .minimum-auto-attendance-note{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:5px 7px;align-items:center;padding:8px 10px;border:1px solid #dbe5ef;border-radius:10px;background:#fff;font-size:10px}.minimum-achievement .minimum-auto-attendance-note strong{color:#3c5169;font-weight:950}.minimum-achievement .minimum-auto-attendance-note span{color:#6b7d91;font-weight:800}.minimum-achievement .minimum-auto-attendance-note span:first-of-type{color:#a23d35}.minimum-achievement .minimum-auto-attendance-note span:last-of-type{color:#2f7047}
 .minimum-achievement .minimum-attention-title{display:flex;align-items:flex-start;gap:9px;min-width:0}
 .minimum-achievement .minimum-attention-title>span{display:inline-flex;width:32px;height:32px;align-items:center;justify-content:center;border-radius:10px;color:#9b4b3e;background:#fdece8;flex:0 0 auto}
 .minimum-achievement .minimum-attention-title>div{display:grid;gap:3px}
