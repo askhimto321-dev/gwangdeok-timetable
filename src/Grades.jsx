@@ -938,6 +938,116 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
 }
 const analysisCard = { background: "#fff", border: "1px solid #e2ded3", borderRadius: 12, padding: 14, display: "flex", alignItems: "center", gap: 10, color: "#3d5c3a" };
 
+
+function printStudentGradeReport() {
+  if (typeof document === "undefined") return;
+  const className = "print-student-grade-report";
+  document.body.classList.add(className);
+  const cleanup = () => document.body.classList.remove(className);
+  window.addEventListener("afterprint", cleanup, { once: true });
+  window.requestAnimationFrame(() => window.print());
+}
+
+const STUDENT_GRADE_PRINT_CSS = `
+.student-grade-print-sheet{display:none}
+@media print {
+  @page{size:A4 landscape;margin:6mm}
+  body.print-student-grade-report{background:#fff!important}
+  body.print-student-grade-report *{visibility:hidden!important}
+  body.print-student-grade-report .student-grade-print-sheet,
+  body.print-student-grade-report .student-grade-print-sheet *{visibility:visible!important}
+  body.print-student-grade-report .student-grade-print-sheet{
+    display:block!important;position:absolute!important;left:0;top:0;width:100%!important;
+    color:#24364c;background:#fff;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;
+    -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
+  }
+  body.print-student-grade-report .student-grade-print-sheet *{box-sizing:border-box}
+  .student-grade-print-sheet .report-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;padding:0 0 4mm;border-bottom:2px solid #3568a3}
+  .student-grade-print-sheet .report-kicker{font-size:7.4px;font-weight:900;color:#58708e;letter-spacing:.08em}
+  .student-grade-print-sheet .report-title{margin-top:1.5mm;font-size:17px;line-height:1.1;font-weight:950;letter-spacing:-.04em;color:#203b5c}
+  .student-grade-print-sheet .report-student{margin-top:2mm;font-size:9px;font-weight:850;color:#3e536d}
+  .student-grade-print-sheet .report-meta{text-align:right;font-size:7px;line-height:1.55;color:#65758a;font-weight:750}
+  .student-grade-print-sheet .report-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:2.2mm;margin-top:3mm}
+  .student-grade-print-sheet .report-summary>div{border:1px solid #cfdbe9;border-radius:2.4mm;background:#f5f9fd;padding:2.1mm 2.5mm;min-height:13mm}
+  .student-grade-print-sheet .report-summary small{display:block;font-size:6.5px;color:#6f8093;font-weight:850}
+  .student-grade-print-sheet .report-summary b{display:block;margin-top:.7mm;font-size:12px;line-height:1;font-weight:950;color:#244a75}
+  .student-grade-print-sheet .report-section-title{display:flex;align-items:center;justify-content:space-between;gap:4mm;margin:3mm 0 1.8mm;font-size:8.2px;font-weight:950;color:#263d59}
+  .student-grade-print-sheet .report-section-title span{font-size:6.5px;color:#7b8999;font-weight:750}
+  .student-grade-print-sheet .semester-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2.2mm}
+  .student-grade-print-sheet .semester-card{border:1px solid #cfd9e5;border-radius:2mm;overflow:hidden;break-inside:avoid;background:#fff;min-height:50mm}
+  .student-grade-print-sheet .semester-head{display:flex;align-items:center;justify-content:space-between;gap:2mm;padding:1.8mm 2mm;background:#edf4fb;border-bottom:1px solid #cbd8e6}
+  .student-grade-print-sheet .semester-head b{font-size:7.5px;color:#234d7c}
+  .student-grade-print-sheet .semester-head span{font-size:6px;color:#64778d;font-weight:850;white-space:nowrap}
+  .student-grade-print-sheet table{width:100%;border-collapse:collapse;table-layout:fixed}
+  .student-grade-print-sheet th{background:#f7f9fc;color:#51647a;font-size:5.8px;line-height:1.15;font-weight:900;padding:1.2mm .7mm;border-right:1px solid #dde4ec;border-bottom:1px solid #d6dfe9;text-align:center}
+  .student-grade-print-sheet td{font-size:5.9px;line-height:1.15;font-weight:720;padding:1.05mm .7mm;border-right:1px solid #e3e8ee;border-bottom:1px solid #e3e8ee;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .student-grade-print-sheet td.subject{text-align:left;font-weight:880;color:#273c56;white-space:normal;word-break:keep-all;overflow-wrap:anywhere}
+  .student-grade-print-sheet th:last-child,.student-grade-print-sheet td:last-child{border-right:0}
+  .student-grade-print-sheet .empty-semester{display:grid;place-items:center;min-height:38mm;font-size:7px;color:#9aa6b4;font-weight:800}
+  .student-grade-print-sheet .mock-table{border:1px solid #cfd9e5;border-radius:2mm;overflow:hidden}
+  .student-grade-print-sheet .mock-table th{font-size:6.2px;padding:1.3mm .8mm;background:#eef3fa}
+  .student-grade-print-sheet .mock-table td{font-size:6.3px;padding:1.25mm .8mm}
+  .student-grade-print-sheet .sum-cell{font-weight:950;color:#315f92;background:#f4f8fd}
+  .student-grade-print-sheet .report-footer{display:flex;justify-content:space-between;gap:8mm;margin-top:2mm;padding-top:1.5mm;border-top:1px solid #dbe2ea;font-size:5.8px;color:#7d8997;font-weight:700}
+}
+`;
+
+function StudentGradePrintSheet({
+  sid, studentName, grade, classNumber, number, entryYear, gradeSystem,
+  semesterRecords, displaySemesterKeys, mockData, availableMockKeys, groups,
+}) {
+  const overall5 = groups?.["전과목"]?.avg5 ?? null;
+  const overall9 = groups?.["전과목"]?.avg9 ?? (gradeSystem === 9 ? groups?.["전과목"]?.avg5 : null);
+  const latestSemesterIndex = (displaySemesterKeys || []).map(key => SEMESTER_KEYS.indexOf(key)).filter(index => (semesterRecords?.[index]?.subjects || []).length).pop();
+  const latestSemesterAverage9 = latestSemesterIndex == null ? null : (groups?.["전과목"]?.perSemester9?.[latestSemesterIndex] ?? groups?.["전과목"]?.perSemester5?.[latestSemesterIndex] ?? null);
+  const latestMockKey = availableMockKeys?.[availableMockKeys.length - 1] || null;
+  const latestMock = latestMockKey ? cohortRecord(mockData, entryYear, latestMockKey)?.students?.[sid] || {} : {};
+  const latestSums = computeMockExamSums(latestMock || {});
+  const mockRows = (availableMockKeys || []).map(key => {
+    const result = cohortRecord(mockData, entryYear, key)?.students?.[sid] || {};
+    return { key, result, sums: computeMockExamSums(result) };
+  });
+  const printedAt = new Date().toLocaleDateString("ko-KR");
+  const location = [grade ? `${grade}학년` : null, classNumber ? `${Number(classNumber)}반` : null, number ? `${Number(number)}번` : null].filter(Boolean).join(" ");
+  const gradeText = subject => {
+    const source = getSubjectGrade(subject);
+    if (source == null) return "-";
+    return gradeSystem === 5 ? `${source} / ${Math.round(grade5to9(source) * 100) / 100}` : `${source}`;
+  };
+  return <section className="student-grade-print-sheet" aria-hidden="true">
+    <header className="report-header">
+      <div>
+        <div className="report-kicker">광덕고등학교 학생 성적 상담표</div>
+        <div className="report-title">학기별 내신 및 모의고사 성적</div>
+        <div className="report-student">{sid} {studentName} · {location || "학급 정보 미등록"} · {entryYear}학년도 입학생 · {gradeSystem}등급제</div>
+      </div>
+      <div className="report-meta">출력일 {printedAt}<br/>석차등급은 학교에 등록된 원자료를 기준으로 표시합니다.<br/>{gradeSystem === 5 ? "등급 표기는 5등급 / 9등급 환산 순입니다." : "등급 표기는 9등급제 기준입니다."}</div>
+    </header>
+    <div className="report-summary">
+      <div><small>{gradeSystem === 5 ? "전과목 평균 · 5등급" : "전과목 평균 · 9등급"}</small><b>{gradeSystem === 5 ? (overall5 ?? "-") : (overall9 ?? "-")}</b></div>
+      <div><small>{gradeSystem === 5 ? "전과목 평균 · 9등급 환산" : "최근 학기 평균 · 9등급"}</small><b>{gradeSystem === 5 ? (overall9 ?? "-") : (latestSemesterAverage9 ?? "-")}</b></div>
+      <div><small>최근 모의고사 · 2합</small><b>{latestSums.sum2 ?? "-"}</b></div>
+      <div><small>최근 모의고사 · 3합 / 4합</small><b>{latestSums.sum3 ?? "-"} / {latestSums.sum4 ?? "-"}</b></div>
+    </div>
+    <div className="report-section-title">학기별 내신 성적 <span>과목 · 학점 · 원점수 · 성취도 · 석차등급</span></div>
+    <div className="semester-grid">
+      {(displaySemesterKeys || []).map(key => {
+        const index = SEMESTER_KEYS.indexOf(key);
+        const subjects = semesterRecords?.[index]?.subjects || [];
+        const avg5 = groups?.["전과목"]?.perSemester5?.[index] ?? null;
+        const avg9 = groups?.["전과목"]?.perSemester9?.[index] ?? null;
+        return <article className="semester-card" key={key}>
+          <div className="semester-head"><b>{semesterCalendarLabel(key, entryYear)}</b><span>{gradeSystem === 5 ? `평균 ${avg5 ?? "-"} / 환산 ${avg9 ?? "-"}` : `평균 ${avg9 ?? avg5 ?? "-"}`}</span></div>
+          {subjects.length ? <table><colgroup><col style={{width:"41%"}}/><col style={{width:"10%"}}/><col style={{width:"15%"}}/><col style={{width:"14%"}}/><col style={{width:"20%"}}/></colgroup><thead><tr><th>과목</th><th>학점</th><th>원점수</th><th>성취도</th><th>{gradeSystem === 5 ? "등급 5/9" : "등급"}</th></tr></thead><tbody>{subjects.map((subject, subjectIndex) => <tr key={`${key}-${subject.subject}-${subjectIndex}`}><td className="subject">{subject.subject}</td><td>{subject.credit ?? "-"}</td><td>{subject.score ?? "-"}</td><td>{subject.achievement ?? "-"}</td><td>{gradeText(subject)}</td></tr>)}</tbody></table> : <div className="empty-semester">등록된 성적 없음</div>}
+        </article>;
+      })}
+    </div>
+    <div className="report-section-title">모의고사 성적 <span>회차별 과목 등급과 최적 등급 합</span></div>
+    <div className="mock-table"><table><colgroup><col style={{width:"15%"}}/>{MOCK_SUBJECTS.map(subject => <col key={subject} style={{width:"9.5%"}}/>)}<col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/></colgroup><thead><tr><th>회차</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}<th>2합</th><th>3합</th><th>4합</th></tr></thead><tbody>{mockRows.length ? mockRows.map(({key,result,sums}) => <tr key={key}><td>{mockCalendarLabel(key,entryYear)}</td>{MOCK_SUBJECTS.map(subject => <td key={subject}>{result?.[subject] ?? "-"}</td>)}<td className="sum-cell">{sums.sum2 ?? "-"}</td><td className="sum-cell">{sums.sum3 ?? "-"}</td><td className="sum-cell">{sums.sum4 ?? "-"}</td></tr>) : <tr><td colSpan={10}>등록된 모의고사 성적 없음</td></tr>}</tbody></table></div>
+    <footer className="report-footer"><span>본 자료는 학생 상담을 위한 참고 자료입니다.</span><span>광덕고등학교 성적·시간표 시스템</span></footer>
+  </section>;
+}
+
 function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const { semesterData, mockData, admissionRows, studentAccounts, cohortSettings } = gdb;
 
@@ -1053,6 +1163,21 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
 
   return (
     <div>
+      <style>{STUDENT_GRADE_PRINT_CSS}</style>
+      <StudentGradePrintSheet
+        sid={sid}
+        studentName={studentName}
+        grade={inferredGrade}
+        classNumber={inferredClass}
+        number={inferredNumber}
+        entryYear={entryYear}
+        gradeSystem={gradeSystem}
+        semesterRecords={semesterRecords}
+        displaySemesterKeys={displaySemesterKeys}
+        mockData={mockData}
+        availableMockKeys={availableMockKeys}
+        groups={groups}
+      />
       <StudentIdentityBanner
         sid={sid}
         name={studentName}
@@ -1061,6 +1186,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         number={inferredNumber}
         entryYear={entryYear}
         gradeSystem={gradeSystem}
+        actions={showGrades ? <button type="button" className="no-print" onClick={printStudentGradeReport} style={{display:"inline-flex",alignItems:"center",gap:6,border:"1px solid rgba(255,255,255,.5)",borderRadius:9,padding:"8px 11px",background:"rgba(255,255,255,.13)",color:"#fff",fontSize:11.5,fontWeight:900,cursor:"pointer",whiteSpace:"nowrap"}} title="학기별 내신과 모의고사 성적을 한 장으로 인쇄하거나 PDF로 저장합니다."><Printer size={14}/>성적표 인쇄·PDF</button> : null}
       />
 
       {!hasAnyData && (

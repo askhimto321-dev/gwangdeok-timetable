@@ -784,6 +784,13 @@ export default function App() {
     } catch { /* localStorage unavailable */ }
   };
 
+  const clearStudentWorkspaceSelection = () => {
+    setSelectedStudentSid(null);
+    setSelectedStudentQuery("");
+    setStudentWorkspaceView("grades");
+    saveSession({ selectedStudentSid: null, selectedStudentQuery: "", studentWorkspaceView: "grades" });
+  };
+
   // Unified login: one credential check tried against every account type, regardless of
   // which tab's login form triggered it. Whichever role matches gets activated immediately,
   // unlocking every tab that role has access to — no more separate logins per tab.
@@ -791,17 +798,18 @@ export default function App() {
     const id = (idRaw || "").trim();
     const adminList = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
     const adminMatch = adminList.find(a => a.id === id && a.pw === pw);
-    if (adminMatch) { setLoggedInAdmin(adminMatch); saveSession({ adminId: adminMatch.id }); return "admin"; }
+    if (adminMatch) { clearStudentWorkspaceSelection(); setLoggedInAdmin(adminMatch); saveSession({ adminId: adminMatch.id }); return "admin"; }
     const teacherMatch = (accounts.teacher || []).find(a => a.id === id && a.pw === pw);
-    if (teacherMatch) { setViewedTeacher(null); setLoggedInTeacher(teacherMatch); saveSession({ teacherId: teacherMatch.id }); return "teacher"; }
+    if (teacherMatch) { clearStudentWorkspaceSelection(); setViewedTeacher(null); setLoggedInTeacher(teacherMatch); saveSession({ teacherId: teacherMatch.id }); return "teacher"; }
     const departmentMatch = (accounts.departments || []).find(a => a.id === id && a.pw === pw);
-    if (departmentMatch) { setLoggedInDepartment(departmentMatch); saveSession({ departmentId: departmentMatch.id }); return "department"; }
+    if (departmentMatch) { clearStudentWorkspaceSelection(); setLoggedInDepartment(departmentMatch); saveSession({ departmentId: departmentMatch.id }); return "department"; }
     const monitorMatch = (accounts.monitors || []).find(a => a.id === id && a.pw === pw);
-    if (monitorMatch) { setLoggedInMonitor(monitorMatch); saveSession({ monitorId: monitorMatch.id }); return "monitor"; }
+    if (monitorMatch) { clearStudentWorkspaceSelection(); setLoggedInMonitor(monitorMatch); saveSession({ monitorId: monitorMatch.id }); return "monitor"; }
     const classMatch = (accounts.classView || []).find(a => a.id === id && a.pw === pw);
-    if (classMatch) { setClassAuthed(true); saveSession({ classViewId: classMatch.id }); return "classView"; }
+    if (classMatch) { clearStudentWorkspaceSelection(); setClassAuthed(true); saveSession({ classViewId: classMatch.id }); return "classView"; }
     const studentMatch = (accounts.students || []).find(a => a.id === id && a.pw === pw);
     if (studentMatch) {
+      clearStudentWorkspaceSelection();
       const studentGrade = String(studentMatch.id || "").charAt(0);
       if (GRADES.includes(studentGrade)) setGrade(studentGrade);
       setLoggedInStudent(studentMatch);
@@ -1052,6 +1060,9 @@ export default function App() {
 
   const globalLogout = () => {
     setLoggedInAdmin(null); setLoggedInTeacher(null); setLoggedInDepartment(null); setLoggedInMonitor(null); setClassAuthed(false); setLoggedInStudent(null); setViewedTeacher(null);
+    setSelectedStudentSid(null);
+    setSelectedStudentQuery("");
+    setStudentWorkspaceView("grades");
     setSection(null);
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
