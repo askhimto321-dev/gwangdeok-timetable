@@ -4656,27 +4656,29 @@ const globalCss = `
     .no-print { display: none !important; }
     .print-only { display: block !important; }
     #print-area { display: block !important; }
-    .class-print-sheet { break-after: page; page-break-after: always; width:100%; position:relative; }
+    .class-print-sheet { page: classTimetable; break-after: page; page-break-after: always; width:100%; position:relative; }
     .class-print-sheet:last-child { break-after:auto; page-break-after:auto; }
     .class-print-slot { min-width:0; }
     .class-print-slot.is-empty { display:block; }
-    .class-print-sheet.is-two { height:285mm; display:grid; grid-template-rows:1fr 1fr; overflow:hidden; }
-    .class-print-sheet.is-two .class-print-slot { min-height:0; overflow:hidden; position:relative; }
-    .class-print-sheet.is-two .class-print-slot:first-child { border-bottom:1px dashed #8291a2; padding-bottom:2.5mm; }
-    .class-print-sheet.is-two .class-print-slot:first-child::after { content:"✂ 절취선"; position:absolute; right:2mm; bottom:-2.2mm; padding:0 1.5mm; background:#fff; color:#7b8795; font-size:6.5pt; font-weight:800; }
-    .class-print-sheet.is-two .class-print-slot:last-child { padding-top:2.5mm; }
-    .class-print-sheet.is-two .print-card { height:100% !important; display:flex !important; flex-direction:column !important; padding:1.5mm 3mm 2mm !important; }
-    .class-print-sheet.is-two .timetable-print-header { padding:1mm .5mm 2mm !important; margin-bottom:2mm !important; border-bottom-width:1.4px !important; }
-    .class-print-sheet.is-two .timetable-print-kicker { margin-bottom:.7mm !important; font-size:6.5pt !important; }
-    .class-print-sheet.is-two .timetable-print-title { font-size:13.5pt !important; line-height:1 !important; }
-    .class-print-sheet.is-two .timetable-print-class { margin-left:2mm !important; padding:.8mm 1.8mm !important; font-size:7pt !important; }
-    .class-print-sheet.is-two .timetable-print-meta { margin-top:.7mm !important; font-size:6.5pt !important; }
-    .class-print-sheet.is-two .student-timetable-table { font-size:6.8pt !important; flex:1 1 auto; }
-    .class-print-sheet.is-two .student-timetable-table th,.class-print-sheet.is-two .student-timetable-table td { padding:3px 2px !important; line-height:1.12 !important; }
-    .class-print-sheet.is-two .student-timetable-table .student-timetable-subject { font-size:6.6pt !important; line-height:1.1 !important; }
-    .class-print-sheet.is-two .timetable-legend { margin-top:1.5mm !important; padding-top:1mm !important; gap:3mm !important; font-size:6.2pt !important; }
+    .class-print-root.per-page-2 { width:100% !important; margin:0 !important; padding:0 !important; }
+    .class-print-sheet.is-two { box-sizing:border-box !important; height:278mm; display:grid; grid-template-rows:minmax(0,1fr) minmax(0,1fr); overflow:hidden; margin:0 !important; padding:0 !important; }
+    .class-print-sheet.is-two .class-print-slot { box-sizing:border-box !important; min-height:0; height:139mm; overflow:hidden; position:relative; padding:0 !important; }
+    .class-print-sheet.is-two .class-print-slot:first-child { border-bottom:1px dashed #8291a2; padding-bottom:1.2mm !important; }
+    .class-print-sheet.is-two .class-print-slot:first-child::after { content:"✂ 절취선"; position:absolute; left:50%; right:auto; transform:translateX(-50%); bottom:-1.8mm; padding:0 1.2mm; background:#fff; color:#7b8795; font-size:6pt; font-weight:800; }
+    .class-print-sheet.is-two .class-print-slot:last-child { padding-top:1.2mm !important; }
+    .class-print-sheet.is-two .print-card { box-sizing:border-box !important; height:137.6mm !important; max-height:137.6mm !important; display:flex !important; flex-direction:column !important; padding:1mm 2.2mm 1mm !important; overflow:hidden !important; }
+    .class-print-sheet.is-two .timetable-print-header { padding:.6mm .4mm 1.2mm !important; margin-bottom:1.2mm !important; border-bottom-width:1.2px !important; }
+    .class-print-sheet.is-two .timetable-print-kicker { margin-bottom:.4mm !important; font-size:6.1pt !important; }
+    .class-print-sheet.is-two .timetable-print-title { font-size:12.6pt !important; line-height:1 !important; }
+    .class-print-sheet.is-two .timetable-print-class { margin-left:1.5mm !important; padding:.55mm 1.4mm !important; font-size:6.6pt !important; }
+    .class-print-sheet.is-two .timetable-print-meta { margin-top:.4mm !important; font-size:6.1pt !important; }
+    .class-print-sheet.is-two .student-timetable-table { font-size:6.45pt !important; flex:1 1 auto; min-height:0 !important; }
+    .class-print-sheet.is-two .student-timetable-table th,.class-print-sheet.is-two .student-timetable-table td { padding:2.2px 1.8px !important; line-height:1.06 !important; }
+    .class-print-sheet.is-two .student-timetable-table .student-timetable-subject { font-size:6.25pt !important; line-height:1.04 !important; }
+    .class-print-sheet.is-two .timetable-legend { margin-top:.7mm !important; padding-top:.55mm !important; gap:2.2mm !important; font-size:5.8pt !important; line-height:1 !important; flex:0 0 auto !important; }
     .class-print-sheet.is-two .is-empty { background:linear-gradient(180deg,#fff,#fdfdfd); }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+    @page classTimetable { size: A4; margin: 5mm 8mm; }
     @page { size: A4; margin: 6mm 10mm; }
     body { margin: 0; }
     table tr { break-inside: avoid; page-break-inside: avoid; }
