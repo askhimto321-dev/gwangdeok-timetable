@@ -615,7 +615,7 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState("sem1");
-  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {} });
+  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], siteAnnouncements: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {} });
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] });
@@ -629,6 +629,7 @@ export default function App() {
   const [selectedStudentSid, setSelectedStudentSid] = useState(null);
   const [selectedStudentQuery, setSelectedStudentQuery] = useState("");
   const [studentWorkspaceView, setStudentWorkspaceView] = useState("grades");
+  const [showMyProfile, setShowMyProfile] = useState(false);
   const sessionRestoredRef = useRef(false);
   const [toast, setToast] = useState(null);
   const showToast = useCallback((msg, type = "info") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4200); }, []);
@@ -637,7 +638,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -651,11 +652,12 @@ export default function App() {
         readStorage("kd_materials", {}),
         readStorage("kd_feedback", []),
         readStorage("kd_staff_notices", []),
+        readStorage("kd_site_announcements", []),
         readStorage("kd_teacher_grade_workspaces", {}),
         readStorage("kd_minimum_achievement_settings", {}),
         readStorage("kd_minimum_achievement_attendance", {}),
       ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance });
+      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance });
       loadGradesDB().then(setGdb);
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
@@ -820,6 +822,7 @@ export default function App() {
     if (patch.materials) jobs.push(writeStorage("kd_materials", patch.materials));
     if (patch.feedback) jobs.push(writeStorage("kd_feedback", patch.feedback));
     if (patch.staffNotices) jobs.push(writeStorage("kd_staff_notices", patch.staffNotices));
+    if (patch.siteAnnouncements) jobs.push(writeStorage("kd_site_announcements", patch.siteAnnouncements));
     if (patch.teacherGradeWorkspaces) jobs.push(writeStorage("kd_teacher_grade_workspaces", patch.teacherGradeWorkspaces));
     if (patch.minimumAchievementSettings) jobs.push(writeStorage("kd_minimum_achievement_settings", patch.minimumAchievementSettings));
     if (patch.minimumAchievementAttendance) jobs.push(writeStorage("kd_minimum_achievement_attendance", patch.minimumAchievementAttendance));
@@ -1111,7 +1114,9 @@ export default function App() {
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
       <QuickLinksDock />
-      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
+      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
+      {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
+      <SiteAnnouncementModal announcements={db.siteAnnouncements || []} viewer={loggedInAdmin?{...loggedInAdmin,role:"admin"}:loggedInTeacher?{...loggedInTeacher,role:"teacher"}:loggedInDepartment?{...loggedInDepartment,role:"department"}:loggedInMonitor?{...loggedInMonitor,role:"monitor"}:loggedInStudent?{...loggedInStudent,role:"student"}:null} />
       {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
         allowedGrades={workspaceAllowedGrades}
@@ -1620,7 +1625,7 @@ const teacherZoneWorkspaceStyles = {
   gradeButtonActive: { color: "#315d90", background: "#e9f2fc", borderColor: "#b8cde5" },
 };
 
-function MegaNav({ active, onSwitch, onLogout, showAdmin, showTeacherZone, showMinimumAchievement }) {
+function MegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
   const items = [
     { key: "grades", label: "성적", icon: "📊", activeBg:"linear-gradient(135deg,#e9f3ff,#eef4ff)", activeColor:"#2d5f96" },
     { key: "timetable", label: "시간표", icon: "🗓️", activeBg:"linear-gradient(135deg,#eef8f4,#e7f5ee)", activeColor:"#34705a" },
@@ -1646,7 +1651,7 @@ function MegaNav({ active, onSwitch, onLogout, showAdmin, showTeacherZone, showM
             </button>
           ))}
         </div>
-        <button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button>
+        <div style={megaNavStyles.accountActions}>{onEditProfile && <button style={megaNavStyles.profileButton} onClick={onEditProfile}><Settings size={13}/>내 정보 수정</button>}<button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button></div>
       </div>
     </div>
   );
@@ -1658,6 +1663,8 @@ const megaNavStyles = {
   tabs: { display: "flex", gap: 7, flex: 1, alignItems: "center", flexWrap:"wrap" },
   tab: { border: "1px solid #e0e6ee", background: "rgba(255,255,255,.9)", padding: "9px 14px", borderRadius: 13, fontSize: 13, fontWeight: 850, color: "#667386", cursor: "pointer", transition: "all 0.16s ease", boxShadow:"0 3px 10px rgba(55,72,110,.04)" },
   tabActive: { boxShadow: "0 7px 18px rgba(55,83,150,0.13)", transform:"translateY(-1px)" },
+  accountActions: { display:"flex",alignItems:"center",gap:7,marginLeft:"auto" },
+  profileButton: { display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #d6deea",background:"#fff",padding:"8px 11px",borderRadius:10,color:"#52627a",fontSize:11.5,fontWeight:900,cursor:"pointer" },
 };
 
 function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onBackToSections, canViewStudentTools = true, allowedGrades = null, compact = false }) {
@@ -2218,7 +2225,6 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
           <p style={styles.noticeHeroText}>{teacher.name} 선생님{teacher.homeroomClass ? ` · ${teacher.homeroomClass}반 담임` : ""}{viewingAsAdmin ? " · 관리자 열람" : ""}</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap:"wrap" }}>
-          <button style={styles.noticeHeroButton} onClick={() => setEditingProfile(true)}>내 정보 수정</button>
           <button style={styles.noticeHeroButton} onClick={onLogout}>{viewingAsAdmin ? "돌아가기" : "로그아웃"}</button>
         </div>
       </div>
@@ -3193,6 +3199,36 @@ function staffNoticeAudience(notice, account) {
   const targets = (notice.targetIds || []).map(String);
   return targets.includes(token) || targets.includes(String(account.id));
 }
+
+function siteAnnouncementAudience(item, viewer){
+  if(!item||!viewer||item.enabled===false)return false;
+  if(item.audience==="all"||!item.audience)return true;
+  const staffRoles=["admin","teacher","department","monitor"];
+  if(item.audience==="staff")return staffRoles.includes(viewer.role);
+  if(item.audience==="student")return viewer.role==="student";
+  return false;
+}
+function announcementDismissKey(viewer){return `kd_site_announcement_dismissed_${viewer?.role||"user"}_${viewer?.id||viewer?.name||"anonymous"}`}
+function SiteAnnouncementModal({announcements=[],viewer}){
+  const [sessionClosed,setSessionClosed]=useState([]);
+  const viewerKey=`${viewer?.role||""}:${viewer?.id||viewer?.name||""}`;
+  useEffect(()=>setSessionClosed([]),[viewerKey]);
+  const dismissed=useMemo(()=>{if(!viewer)return new Set();try{return new Set(JSON.parse(localStorage.getItem(announcementDismissKey(viewer))||"[]"))}catch{return new Set()}},[viewerKey]);
+  const active=useMemo(()=>(announcements||[]).filter(item=>siteAnnouncementAudience(item,viewer)).filter(item=>!dismissed.has(item.id)&&!sessionClosed.includes(item.id)).sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))),[announcements,viewer,dismissed,sessionClosed]);
+  const item=active[0];
+  if(!item||!viewer)return null;
+  const close=()=>setSessionClosed(current=>[...current,item.id]);
+  const never=()=>{const next=new Set(dismissed);next.add(item.id);try{localStorage.setItem(announcementDismissKey(viewer),JSON.stringify(Array.from(next)))}catch{}setSessionClosed(current=>[...current,item.id])};
+  return <div className="no-print" style={styles.siteAnnouncementOverlay}><section style={styles.siteAnnouncementModal}><div style={styles.siteAnnouncementIcon}><BellRing size={22}/></div><div style={{minWidth:0}}><span style={styles.siteAnnouncementEyebrow}>학교 안내</span><h2 style={styles.siteAnnouncementTitle}>{item.title||"공지사항"}</h2><p style={styles.siteAnnouncementBody}>{item.body||"내용 없음"}</p><div style={styles.siteAnnouncementMeta}>{item.createdAt?new Date(item.createdAt).toLocaleDateString("ko-KR"):""}{active.length>1?` · 남은 공지 ${active.length-1}건`:""}</div></div><div style={styles.siteAnnouncementActions}><button type="button" style={styles.secondaryBtn} onClick={close}>닫기</button><button type="button" style={styles.primaryBtn} onClick={never}>다시 보지 않음</button></div></section></div>;
+}
+function AdminSiteAnnouncementPanel({announcements=[],persist,showToast}){
+  const [title,setTitle]=useState("");const [body,setBody]=useState("");const [audience,setAudience]=useState("all");const [busy,setBusy]=useState(false);
+  const submit=async()=>{if(!title.trim()||!body.trim()){showToast("제목과 내용을 입력해주세요.","error");return}setBusy(true);const entry={id:`SITE_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,title:title.trim(),body:body.trim(),audience,enabled:true,createdAt:new Date().toISOString()};const ok=await persist({siteAnnouncements:[entry,...announcements]});setBusy(false);if(ok){setTitle("");setBody("");showToast("전체 공지 팝업을 등록했습니다.","success")}};
+  const toggle=async item=>persist({siteAnnouncements:announcements.map(value=>value.id===item.id?{...value,enabled:value.enabled===false}:value)});
+  const remove=async id=>{if(!window.confirm("이 공지를 삭제할까요?"))return;await persist({siteAnnouncements:announcements.filter(item=>item.id!==id)})};
+  return <div style={{display:"grid",gap:14}}><section style={styles.card}><div style={{fontSize:16,fontWeight:950}}>전체 이용자 공지 팝업</div><div style={{marginTop:4,color:"#81796d",fontSize:11,lineHeight:1.5}}>현재 계정뿐 아니라 앞으로 새로 가입하는 이용자에게도 표시됩니다. 이용자는 공지별로 ‘다시 보지 않음’을 선택할 수 있습니다.</div><div style={{display:"grid",gridTemplateColumns:"150px minmax(0,1fr)",gap:8,marginTop:12}}><select value={audience} onChange={e=>setAudience(e.target.value)} style={styles.loginInput}><option value="all">전체 이용자</option><option value="staff">교직원</option><option value="student">학생</option></select><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="공지 제목" style={styles.loginInput}/></div><textarea value={body} onChange={e=>setBody(e.target.value)} rows={5} placeholder="자동으로 보여줄 안내 내용을 입력하세요." style={{...styles.textareaInput,marginTop:8}}/><button type="button" disabled={busy} onClick={submit} style={{...styles.primaryBtn,marginTop:9}}>{busy?<Loader2 className="spin" size={14}/>:<BellRing size={14}/>} 팝업 공지 등록</button></section><section style={styles.card}><div style={{fontSize:14,fontWeight:950,marginBottom:9}}>등록된 팝업 공지</div>{!announcements.length?<div style={styles.materialEmpty}>등록된 공지가 없습니다.</div>:<div style={{display:"grid",gap:8}}>{announcements.map(item=><article key={item.id} style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10,padding:12,border:"1px solid #dce3ec",borderRadius:12,background:item.enabled===false?"#f5f5f5":"#fff"}}><div><div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}><span style={styles.staffNoticeAudienceBadge}>{item.audience==="staff"?"교직원":item.audience==="student"?"학생":"전체"}</span><b>{item.title}</b>{item.enabled===false&&<span style={{fontSize:9,color:"#8a8f98"}}>비활성</span>}</div><p style={{margin:"6px 0 0",fontSize:11.5,lineHeight:1.5,color:"#5f6570",whiteSpace:"pre-wrap"}}>{item.body}</p></div><div style={{display:"flex",gap:5,alignItems:"start"}}><button type="button" style={styles.iconTextBtn} onClick={()=>toggle(item)}>{item.enabled===false?"활성화":"숨김"}</button><button type="button" style={styles.iconBtn} onClick={()=>remove(item.id)}><Trash2 size={14}/></button></div></article>)}</div>}</section></div>;
+}
+
 function AdminStaffNoticePanel({ accounts, notices, persist, showToast }) {
   const staff = [
     ...(accounts.teacher || []).map(item => ({ ...item, accountType: "teacher", displayRole: "선생님" })),
@@ -3408,6 +3444,7 @@ function AdminConsole(props) {
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
         <button onClick={() => setSub("accounts")} style={{ ...styles.adminTabBtn, ...(sub === "accounts" ? styles.adminTabBtnActive : {}) }}><Lock size={14} /> 계정 관리</button>
         <button onClick={() => setSub("staffNotices")} style={{ ...styles.adminTabBtn, ...(sub === "staffNotices" ? styles.adminTabBtnActive : {}) }}><Megaphone size={14} /> 교직원 공지</button>
+        <button onClick={() => setSub("siteAnnouncements")} style={{ ...styles.adminTabBtn, ...(sub === "siteAnnouncements" ? styles.adminTabBtnActive : {}) }}><BellRing size={14} /> 전체 공지 팝업</button>
         <button onClick={() => setSub("feedback")} style={{ ...styles.adminTabBtn, ...(sub === "feedback" ? styles.adminTabBtnActive : {}) }}><Bug size={14} /> 건의·버그</button>
       </div>
       {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
@@ -3417,6 +3454,7 @@ function AdminConsole(props) {
       )}
       {sub === "accounts" && <AdminAccountConsole {...props} />}
       {sub === "staffNotices" && <AdminStaffNoticePanel accounts={props.accounts} notices={props.db.staffNotices || []} persist={props.persist} showToast={props.showToast} />}
+      {sub === "siteAnnouncements" && <AdminSiteAnnouncementPanel announcements={props.db.siteAnnouncements || []} persist={props.persist} showToast={props.showToast} />}
       {sub === "feedback" && <FeedbackAdminPanel feedback={props.db.feedback || []} persist={props.persist} showToast={props.showToast} />}
     </div>
   );
@@ -4536,7 +4574,7 @@ const globalCss = `
   .kd-history-edge-left{left:8px}.kd-history-edge-right{right:8px}
   .kd-history-edge:hover:not(:disabled){background:#315a86;color:#fff;border-color:#315a86}
   .kd-history-edge:disabled{opacity:.24;cursor:default;box-shadow:none}
-  .kd-quick-links{position:fixed;right:14px;bottom:18px;z-index:125;display:flex;align-items:flex-end;gap:9px;font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+  .kd-quick-links{position:fixed;right:18px;bottom:78px;z-index:125;display:flex;align-items:flex-end;gap:9px;font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
   .kd-quick-links-trigger{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:9px 12px;border:1px solid #cfd9e7;border-radius:13px;background:linear-gradient(135deg,#315f95,#6c62a9);color:#fff;box-shadow:0 9px 26px rgba(42,63,94,.22);font-size:11px;font-weight:900;cursor:pointer;white-space:nowrap}
   .kd-quick-links-trigger:hover{transform:translateY(-1px);filter:brightness(1.04)}
   .kd-quick-links-panel{width:min(330px,calc(100vw - 82px));padding:11px;border:1px solid #d5deea;border-radius:15px;background:rgba(255,255,255,.98);box-shadow:0 15px 38px rgba(36,52,76,.20);backdrop-filter:blur(12px)}
@@ -4601,7 +4639,7 @@ const globalCss = `
     .staff-notice-dock { left: 10px !important; top: auto !important; bottom: 74px !important; width: min(300px, calc(100vw - 20px)) !important; }
     .kd-history-edge{top:auto;bottom:12px;transform:none;width:40px;height:40px;border-radius:999px}
     .kd-history-edge-left{left:12px}.kd-history-edge-right{right:12px}
-    .kd-quick-links{right:12px;bottom:62px}.kd-quick-links-trigger span{display:none}.kd-quick-links-trigger{width:42px;height:42px;padding:0;border-radius:999px}.kd-quick-links-panel{width:min(310px,calc(100vw - 72px))}
+    .kd-quick-links{right:12px;bottom:76px}.kd-quick-links-trigger span{display:none}.kd-quick-links-trigger{width:42px;height:42px;padding:0;border-radius:999px}.kd-quick-links-panel{width:min(310px,calc(100vw - 72px))}
   }
     @media (max-width: 720px) {
     .teacher-zone-target-row { grid-template-columns: 1fr !important; }
@@ -4819,7 +4857,17 @@ const styles = {
   noticeOptionField: { display: "grid", gap: 5, fontSize: 11, color: "#766f63", fontWeight: 800 },
   teacherNoticeManageRow: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 9, background: "#fbfaf6" },
   teacherNoticeManageMeta: { display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 6, fontSize: 10.5, color: "#756e62", fontWeight: 800 },
-  feedbackFloatingButton: { position: "fixed", right: 18, bottom: 24, zIndex: 45, display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid #29442d", background: "#365b3b", color: "#fff", borderRadius: 999, padding: "10px 14px", fontSize: 12, fontWeight: 900, cursor: "pointer", boxShadow: "0 7px 20px rgba(35,57,38,0.28)" },
+  siteAnnouncementOverlay: { position:"fixed",inset:0,zIndex:145,display:"grid",placeItems:"center",padding:18,background:"rgba(26,31,42,.38)",backdropFilter:"blur(4px)" },
+  siteAnnouncementModal: { width:"min(620px,calc(100vw - 32px))",display:"grid",gridTemplateColumns:"48px minmax(0,1fr)",gap:13,padding:20,borderRadius:20,background:"#fff",boxShadow:"0 24px 70px rgba(22,31,48,.28)",border:"1px solid #dce3ec" },
+  siteAnnouncementIcon: { width:44,height:44,display:"inline-flex",alignItems:"center",justifyContent:"center",borderRadius:14,color:"#fff",background:"linear-gradient(135deg,#566fa2,#79659a)" },
+  siteAnnouncementEyebrow: { fontSize:10,fontWeight:950,color:"#6c7890",letterSpacing:".06em" },
+  siteAnnouncementTitle: { margin:"4px 0 7px",fontSize:20,lineHeight:1.25,color:"#24334a" },
+  siteAnnouncementBody: { margin:0,fontSize:13,lineHeight:1.7,color:"#4f5a69",whiteSpace:"pre-wrap",wordBreak:"keep-all" },
+  siteAnnouncementMeta: { marginTop:9,fontSize:9.5,color:"#8b94a0" },
+  siteAnnouncementActions: { gridColumn:"1/-1",display:"flex",justifyContent:"flex-end",gap:7,marginTop:3 },
+  profileOverlay: { position:"fixed",inset:0,zIndex:150,display:"grid",placeItems:"center",padding:20,background:"rgba(25,31,42,.42)",backdropFilter:"blur(4px)" },
+  profileModal: { width:"min(880px,calc(100vw - 32px))",maxHeight:"calc(100vh - 40px)",overflowY:"auto",padding:18,borderRadius:18,background:"#fff",boxShadow:"0 24px 70px rgba(20,28,42,.28)" },
+  feedbackFloatingButton: { position: "fixed", right: 18, bottom: 22, zIndex: 45, display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid #29442d", background: "#365b3b", color: "#fff", borderRadius: 999, padding: "10px 14px", fontSize: 12, fontWeight: 900, cursor: "pointer", boxShadow: "0 7px 20px rgba(35,57,38,0.28)" },
   feedbackOverlay: { position: "fixed", inset: 0, zIndex: 80, background: "rgba(30,28,24,0.38)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18 },
   feedbackModal: { width: "min(560px, 100%)", maxHeight: "calc(100vh - 36px)", overflowY: "auto", borderRadius: 14, background: "#fff", border: `1px solid ${COLORS.line}`, boxShadow: "0 18px 55px rgba(0,0,0,0.23)", padding: 18 },
   feedbackModalHeader: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 13 },

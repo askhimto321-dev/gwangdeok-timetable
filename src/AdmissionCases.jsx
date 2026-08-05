@@ -621,23 +621,26 @@ const CSS=`
   .admission-case-range-filter{grid-template-columns:auto repeat(4,minmax(44px,1fr))!important}
 }
 
-.admission-type-performance-shell{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(180px,.55fr);gap:12px;align-items:stretch;min-height:0}
-.admission-type-performance-list{display:grid;gap:8px;align-content:start;padding:10px;border:1px solid #e0e7ef;border-radius:13px;background:linear-gradient(180deg,#fbfdff,#f7f9fc)}
-.admission-type-performance-row{display:grid;grid-template-columns:minmax(78px,118px) minmax(0,1fr) auto;gap:9px;align-items:center;min-width:0}
-.admission-type-performance-label{font-size:10.8px;font-weight:900;color:#263a51;line-height:1.25;word-break:keep-all;overflow-wrap:anywhere}
-.admission-type-performance-bars{display:grid;gap:4px;min-width:0}
-.admission-type-performance-track{height:7px;border-radius:999px;background:#ebe8e2;overflow:hidden}
+.admission-type-performance-shell{display:grid;grid-template-columns:minmax(0,1fr) 178px;gap:12px;align-items:stretch;min-height:0}
+.admission-type-performance-list{display:grid;gap:7px;align-content:start;padding:11px;border:1px solid #dce5ef;border-radius:13px;background:linear-gradient(180deg,#fbfdff,#f7f9fc)}
+.admission-type-performance-row{display:grid;grid-template-columns:minmax(88px,116px) minmax(90px,1fr) 92px 58px;gap:8px;align-items:center;min-width:0;padding:5px 0;border-bottom:1px solid #edf1f5}
+.admission-type-performance-row:last-child{border-bottom:0}
+.admission-type-performance-label{font-size:11.4px;font-weight:950;color:#263a51;line-height:1.28;word-break:keep-all;overflow-wrap:anywhere}
+.admission-type-performance-bars{display:grid;gap:5px;min-width:0}
+.admission-type-performance-track{height:8px;border-radius:999px;background:#e9e6df;overflow:hidden}
 .admission-type-performance-track span{display:block;height:100%;border-radius:inherit}
-.admission-type-performance-track.support span{background:linear-gradient(90deg,#6f94c8,#4777b2)}
-.admission-type-performance-track.accept span{background:linear-gradient(90deg,#79ad8a,#4a845e)}
-.admission-type-performance-metrics{display:grid;grid-template-columns:auto auto;gap:4px;align-items:center;white-space:nowrap}
-.admission-type-performance-metrics span{font-size:9px;color:#718096;font-weight:850}
-.admission-type-performance-metrics b{font-size:11px;color:#2f5687;font-weight:950}
-.admission-type-performance-rate{min-width:55px;text-align:right;font-size:11.5px;font-weight:950;color:#2f6d4b}
-.admission-type-summary{display:grid;grid-template-columns:1fr;gap:7px;align-content:start;padding:10px;border:1px solid #dce4ee;border-radius:13px;background:#f5f8fc}
-.admission-type-summary>div{display:grid;gap:2px;padding:9px 10px;border-radius:9px;background:#fff;border:1px solid #e2e8ef;min-width:0}
-.admission-type-summary small{font-size:9.5px;color:#718197;font-weight:850}.admission-type-summary b{font-size:13px;color:#294969;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-@media(max-width:760px){.admission-type-performance-shell{grid-template-columns:1fr}.admission-type-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.admission-type-performance-track.support span{background:linear-gradient(90deg,#7198cc,#4b78b3)}
+.admission-type-performance-track.accept span{background:linear-gradient(90deg,#7db28f,#4c8761)}
+.admission-type-performance-counts{display:grid;grid-template-columns:1fr;gap:2px;white-space:nowrap}
+.admission-type-performance-counts span{font-size:9.5px;color:#718096;font-weight:850}.admission-type-performance-counts b{font-size:11px;color:#294f7f;font-weight:950}
+.admission-type-performance-rate{display:grid;justify-items:end;gap:0;min-width:55px;color:#2f6d4b}.admission-type-performance-rate b{font-size:12.5px;line-height:1.1;font-weight:950}.admission-type-performance-rate small{font-size:8.7px;font-weight:850;color:#718096}
+.admission-type-summary{display:grid;grid-template-columns:1fr;gap:7px;align-content:start;padding:10px;border:1px solid #dce4ee;border-radius:13px;background:#f4f7fb}
+.admission-type-summary>div{display:grid;gap:3px;padding:10px 11px;border-radius:10px;background:#fff;border:1px solid #e0e7ef;min-width:0}
+.admission-type-summary small{font-size:9.7px;color:#718197;font-weight:850}.admission-type-summary b{font-size:14px;color:#294969;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.admission-type-summary em{font-size:11px;color:#2f6d4b;font-style:normal;font-weight:950}
+.admission-overview-pair{grid-template-columns:minmax(590px,1.25fr) minmax(370px,.75fr)!important}
+.admission-current-support .admission-section-heading{margin-bottom:17px!important}.admission-current-support .admission-section-heading h3{font-size:18px;line-height:1.25}.admission-current-support .admission-section-heading p{margin-top:7px!important;font-size:12px!important;line-height:1.65!important;color:#67768a!important}.admission-current-support .admission-section-heading p strong{color:#315a9b;font-weight:950}
+@media(max-width:1120px){.admission-overview-pair{grid-template-columns:1fr!important}}
+@media(max-width:760px){.admission-type-performance-shell{grid-template-columns:1fr}.admission-type-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.admission-type-performance-row{grid-template-columns:minmax(80px,105px) minmax(80px,1fr) 70px 50px}}
 
 `
 
@@ -814,7 +817,7 @@ function applyFilters(rows,filters,profile=null){
 }
 
 function SummaryCards({rows}){const summary=useMemo(()=>summarizeAdmissionCases(rows),[rows]);const cards=[["지원 사례",summary.total,COLORS.blue],["합격 사례",summary.accepted,COLORS.green],["최초합격",summary.firstAccepted,COLORS.blue],["충원합격",summary.waitlistAccepted,COLORS.purple],["불합격",summary.rejected,COLORS.red],["등록 확인",summary.registered,COLORS.gold]];return <div className="admission-case-summary" style={styles.summary}>{cards.map(([label,value,color])=><div key={label} style={{...styles.summaryCard,borderTopColor:color}}><b style={{color}}>{value.toLocaleString()}</b><span>{label}</span></div>)}</div>}
-function Section({title,description,aside=null,children}){return <section style={styles.section}><div style={styles.sectionTitle}><div><h3>{title}</h3>{description&&<p>{description}</p>}</div>{aside&&<div className="admission-section-aside">{aside}</div>}</div>{children}</section>}
+function Section({title,description,aside=null,children,className=""}){return <section className={className} style={styles.section}><div className="admission-section-heading" style={styles.sectionTitle}><div><h3>{title}</h3>{description&&<p>{description}</p>}</div>{aside&&<div className="admission-section-aside">{aside}</div>}</div>{children}</section>}
 function Table({children,minWidth=0,style=null,className="",wrapStyle=null,wrapClassName=""}){return <div className={wrapClassName} style={{...styles.tableWrap,...(wrapStyle||{})}}><table className={className} style={{minWidth,...(style||{})}}>{children}</table></div>}
 function Empty({title,text,icon=<Database size={28}/>}){return <div style={styles.empty}>{icon}<b>{title}</b>{text&&<span>{text}</span>}</div>}
 function SearchBox({value,onChange,placeholder,count}){return <div className="admission-search-shell"><Search size={17} color="#607087"/><input value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder}/>{count&&<span className="admission-search-count">{count}</span>}</div>}
@@ -1011,7 +1014,7 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
     </div>
     <SummaryCards rows={similar}/>
     {quickFilters}
-    <Section title="현재 성적 기준 대학별 지원 사례" description="지원 구간은 합격 사례 비율이 아니라 학생의 9등급 환산과 합격자 50%컷의 차이로 산출합니다.">
+    <Section className="admission-current-support" title="현재 성적 기준 대학별 지원 사례" description={<>지원 구간은 합격 사례 비율이 아닙니다.<br/><strong>학생의 9등급 환산 내신과 합격자 50%컷의 차이</strong>로 산출합니다.</>}>
       {hasHolistic&&<div className="admission-holistic-notice" style={{marginBottom:12}}><AlertTriangle size={15}/><span><b>학생부종합 전형</b>은 서류·활동·과목 선택 등을 종합 평가하므로 50%컷과 지원 구간을 참고용으로만 활용하세요.</span></div>}
       {stats.length?<div style={styles.caseCards}>{stats.map(stat=>{
         const sample=caseSufficiency(stat.total),difference=gradeDifference(profile.converted,stat.median),rate=stat.total?stat.accepted/stat.total*100:0,fit=applicationBand(profile.converted,stat.median);
@@ -1051,16 +1054,16 @@ function VerticalBars({rows}){
       <div className="admission-type-performance-bars">
         <div className="admission-type-performance-track support" title={`지원 ${row.total}건`}><span style={{width:`${Math.max(row.total?2:0,row.total/max*100)}%`}}/></div>
         <div className="admission-type-performance-track accept" title={`합격 ${row.accepted}건`}><span style={{width:`${Math.max(row.accepted?2:0,row.accepted/max*100)}%`}}/></div>
-        <div className="admission-type-performance-metrics"><span>지원 <b>{row.total}</b></span><span>합격 <b>{row.accepted}</b></span></div>
       </div>
-      <div className="admission-type-performance-rate">{fmt(rate,1)}%</div>
+      <div className="admission-type-performance-counts"><span>지원 <b>{row.total}</b></span><span>합격 <b>{row.accepted}</b></span></div>
+      <div className="admission-type-performance-rate"><b>{fmt(rate,1)}%</b><small>합격률</small></div>
     </div>})}</div>
-    <div className="admission-type-summary">
+    <aside className="admission-type-summary">
       <div><small>전체 지원</small><b>{supportTotal.toLocaleString()}건</b></div>
       <div><small>전체 합격</small><b>{acceptedTotal.toLocaleString()}건</b></div>
       <div><small>전체 합격률</small><b>{fmt(overallRate,1)}%</b></div>
-      <div><small>최고 합격률</small><b>{best?`${best.label} ${fmt(best.accepted/best.total*100,1)}%`:"-"}</b></div>
-    </div>
+      <div><small>최고 합격률</small><b>{best?best.label:"-"}</b><em>{best?`${fmt(best.accepted/best.total*100,1)}%`:""}</em></div>
+    </aside>
   </div>;
 }
 
@@ -1070,7 +1073,7 @@ function Overview({rows}){
   const grades=useMemo(()=>groupStats(rows.filter(x=>x.gradeBand),x=>`${x.gradeBand}등급대`).sort((a,b)=>parseFloat(a.label)-parseFloat(b.label)),[rows]);
   return <div style={{display:"grid",gap:18}}>
     <SummaryCards rows={rows}/>
-    <div className="admission-case-two" style={styles.twoColumns}><Section title="전형별 지원·합격 사례" description="전형별 지원·합격 규모와 합격률을 같은 행에서 비교합니다."><VerticalBars rows={types}/></Section><Section title="지역별 지원·합격 사례" description="사례 수와 합격 사례 수를 함께 비교합니다."><Bars rows={regions}/></Section></div>
+    <div className="admission-case-two admission-overview-pair" style={styles.twoColumns}><Section title="전형별 지원·합격 사례" description="지원·합격 건수와 합격률을 한 줄에서 비교합니다."><VerticalBars rows={types}/></Section><Section title="지역별 지원·합격 사례" description="사례 수와 합격 사례 수를 함께 비교합니다."><Bars rows={regions}/></Section></div>
     <Section title="등급대별 결과" description="1·2등급대는 별도 색으로 강조하고, 각 등급대의 합격 사례 비율과 합격자 50%컷을 표시합니다.">
       <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"15%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"11%"}}/><col style={{width:"12%"}}/><col style={{width:"11%"}}/><col style={{width:"16%"}}/><col style={{width:"13%"}}/></colgroup><thead><tr><th>등급대</th><th>지원</th><th>최초합</th><th>충원합</th><th>합격 합계</th><th>불합격</th><th>합격률</th><th>합격자 50%컷</th></tr></thead><tbody>{grades.map(row=>{const level=parseInt(row.label,10);return <tr key={row.label} className={level===1?"admission-grade-row-1":level===2?"admission-grade-row-2":""}><td><b>{row.label}</b></td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td><b style={{color:COLORS.green}}>{row.accepted}</b></td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td><b>{fmt(row.median)}</b></td></tr>})}</tbody></Table>
     </Section>

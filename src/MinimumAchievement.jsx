@@ -275,7 +275,7 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
           {!isHomeroom&&<select aria-label="학급 필터" value={classFilter} onChange={event=>setClassFilter(event.target.value)}><option value="all">전체 반</option>{classes.map(value=><option key={value} value={String(value)}>{value}반</option>)}</select>}
           <select aria-label="상태 필터" value={statusFilter} onChange={event=>setStatusFilter(event.target.value)}><option value="attention">주의·미도달</option><option value="risk">주의 대상자</option><option value="fail">미도달</option><option value="check">확인 필요</option><option value="reached">도달</option><option value="all">전체</option></select>
         </div>
-        <div className="minimum-metric-grid" style={ui.metrics}><Metric label="조회 결과" value={`${visibleRows.length}명`}/><Metric label="주의 대상자" value={`${summary.risk}명`} tone="warn"/><Metric label="미도달" value={`${summary.fail}명`} tone="bad"/><Metric label="확인 필요" value={`${summary.check}명`}/><Metric label="도달" value={`${summary.reached}명`} tone="good"/></div>
+        <div className="minimum-metric-grid" style={ui.metrics}><Metric label="조회 학생" value={`${visibleRows.length}명`} caption="현재 필터 결과"/><Metric label="주의 대상자" value={`${summary.risk}명`} tone="warn" caption="다음 평가 점수 확인"/><Metric label="미도달" value={`${summary.fail}명`} tone="bad" caption="학업 또는 출결 미도달"/><Metric label="확인 필요" value={`${summary.check}명`} caption="출결·미입력 자료 확인"/><Metric label="도달" value={`${summary.reached}명`} tone="good" caption="이수 기준 충족"/></div>
       </section>
 
       {canManageAttendance&&<section className="no-minimum-dashboard-print" style={{...ui.section,...ui.bulkSection}}>
@@ -306,7 +306,7 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
       </section>}
       <section className="minimum-final-section" style={ui.section}>
         <div style={ui.tableTitle}><div><Users size={16}/><b>학생별·과목별 최종 확인</b></div><span>{visibleRows.length}건</span></div>
-        <div style={ui.tableWrap}><table className="minimum-final-table"><thead><tr><th>반·번호</th><th>성명</th><th>과목</th><th>유형</th><th>현재 환산</th><th>학업 상태</th><th>과목 출결</th><th>최종 판정</th><th>확인 사항</th></tr></thead><tbody>{visibleRows.map(row=><tr key={`${row.workspaceId}-${row.sid}`} className={`row-${row.overallStatus}`}><td className="minimum-class-cell"><b>{row.classNumber}반 {row.number}번</b></td><td className="minimum-name-cell"><b>{row.name||"이름 미연결"}</b></td><td className="minimum-subject-cell"><b title={row.subject}>{row.subject}</b></td><td><CourseBadge type={row.courseType}/></td><td className="minimum-score-cell"><b>{row.earned.toFixed(2)}</b><small>{row.completedWeight}% 입력</small></td><td><StatusBadge status={row.academicStatus}>{row.academicLabel}</StatusBadge></td><td>{canEditRow(row)?<select className="minimum-attendance-select" value={attendanceDraft?.[row.workspaceId]?.[row.sid]?.status||"확인필요"} onChange={event=>updateAttendance(row,{status:event.target.value})}><option value="확인필요">확인 필요</option><option value="도달">출결 도달</option><option value="미도달">출결 미도달</option></select>:<span>{row.attendanceStatus}</span>}</td><td><StatusBadge status={row.overallStatus}>{row.overall}</StatusBadge></td><td>{row.missing.length?<span style={ui.missing}>{row.missing.map(item=><small key={item}><AlertTriangle size={10}/>{item}</small>)}</span>:<span className="ok"><Check size={11}/>입력 완료</span>}</td></tr>)}</tbody></table></div>
+        <div style={ui.tableWrap}><table className="minimum-final-table"><thead><tr><th>반·번호</th><th>성명</th><th>과목</th><th>유형</th><th>현재 환산</th><th>학업 판정</th><th>과목 출결</th><th>최종 판정</th></tr></thead><tbody>{visibleRows.map(row=><tr key={`${row.workspaceId}-${row.sid}`} className={`row-${row.overallStatus}`}><td className="minimum-class-cell"><b>{row.classNumber}반 {row.number}번</b></td><td className="minimum-name-cell"><b>{row.name||"이름 미연결"}</b></td><td className="minimum-subject-cell"><b title={row.subject}>{row.subject}</b></td><td><CourseBadge type={row.courseType}/></td><td className="minimum-score-cell"><b>{row.earned.toFixed(2)}</b>{row.missing.length?<small className="minimum-input-warning">미입력 {row.missing.length}건</small>:<small className="minimum-input-complete"><Check size={10}/>입력 완료</small>}</td><td><StatusBadge status={row.academicStatus}>{row.academicLabel}</StatusBadge></td><td>{canEditRow(row)?<select className="minimum-attendance-select" value={attendanceDraft?.[row.workspaceId]?.[row.sid]?.status||"확인필요"} onChange={event=>updateAttendance(row,{status:event.target.value})}><option value="확인필요">확인 필요</option><option value="도달">출결 도달</option><option value="미도달">출결 미도달</option></select>:<span className={`minimum-attendance-text is-${row.attendanceStatus}`}>{row.attendanceStatus}</span>}</td><td><StatusBadge status={row.overallStatus}>{row.overall}</StatusBadge></td></tr>)}</tbody></table></div>
         {!visibleRows.length&&<div style={ui.noRows}>선택한 조건에 해당하는 학생이 없습니다.</div>}
       </section>
     </>}
@@ -319,7 +319,7 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
     </section>}
   </div>;
 }
-function Metric({label,value,tone}){return <div className={`minimum-metric-card ${tone?`is-${tone}`:""}`} style={{...ui.metric,...(tone?ui[`metric_${tone}`]:{})}}><span>{label}</span><b>{value}</b></div>}
+function Metric({label,value,tone,caption}){return <div className={`minimum-metric-card ${tone?`is-${tone}`:""}`} style={{...ui.metric,...(tone?ui[`metric_${tone}`]:{})}}><span>{label}</span><b>{value}</b>{caption&&<small>{caption}</small>}</div>}
 function CourseBadge({type}){return <span className={`course-badge ${type==="elective"?"is-elective":"is-common"}`}>{courseLabel(type)}</span>}
 function StatusBadge({status,children}){return <span className={`minimum-status is-${status||"check"}`}>{children}</span>}
 const css=`
@@ -340,9 +340,11 @@ const css=`
 .minimum-achievement .minimum-search-box>label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:0 10px;flex:1;min-width:0}
 .minimum-achievement .minimum-search-box>label>b{font-size:11px;color:#3b526d;font-weight:950;white-space:nowrap}
 .minimum-achievement .minimum-search-box input{width:100%;border:0!important;border-left:1px solid #dde5ee!important;border-radius:0!important;padding:4px 0 4px 10px!important;background:transparent!important;font-size:12px!important;outline:0}
-.minimum-achievement .minimum-metric-card{min-height:72px;align-content:center}
-.minimum-achievement .minimum-metric-card>span{font-size:11px;color:#64748a;font-weight:850}
-.minimum-achievement .minimum-metric-card>b{font-size:20px;line-height:1.1;color:#243c58;font-weight:950;font-variant-numeric:tabular-nums}
+.minimum-achievement .minimum-metric-card{min-height:82px;align-content:center;justify-items:center;text-align:center;gap:4px!important;padding:12px 10px!important}
+.minimum-achievement .minimum-metric-card>span{font-size:11.5px;color:#64748a;font-weight:900;line-height:1.25}
+.minimum-achievement .minimum-metric-card>b{font-size:22px;line-height:1.05;color:#243c58;font-weight:950;font-variant-numeric:tabular-nums}
+.minimum-achievement .minimum-metric-card>small{font-size:9.5px;line-height:1.35;color:#7d8998;font-weight:750}
+.minimum-achievement .minimum-metric-card.is-warn>b{color:#9a6518}.minimum-achievement .minimum-metric-card.is-bad>b{color:#a43e37}.minimum-achievement .minimum-metric-card.is-good>b{color:#2f7047}
 .minimum-achievement .minimum-bulk-title{display:flex;align-items:center;gap:10px;min-width:0}
 .minimum-achievement .minimum-bulk-title>div{display:grid;gap:3px;min-width:0}
 .minimum-achievement .minimum-bulk-title b{font-size:14px;color:#2c415a;font-weight:950}
@@ -372,9 +374,9 @@ const css=`
 .minimum-achievement .minimum-attention-chip>small{grid-column:1/2;font-size:9.5px;color:#7f6d68}
 .minimum-achievement .minimum-attention-chip>em{grid-column:2/3;justify-self:end;padding:3px 6px;border-radius:999px;background:#fff1cf;color:#8a5d18;font-size:9px;font-style:normal;font-weight:950}
 .minimum-achievement .minimum-attention-chip.is-fail>em{background:#fde8e6;color:#a23d35}
-.minimum-achievement .minimum-final-table{table-layout:fixed!important;min-width:880px!important}
+.minimum-achievement .minimum-final-table{table-layout:fixed!important;min-width:760px!important}
 .minimum-achievement .minimum-final-table th,.minimum-achievement .minimum-final-table td{padding:8px 6px!important}
-.minimum-achievement .minimum-final-table th:nth-child(1){width:72px}.minimum-achievement .minimum-final-table th:nth-child(2){width:88px}.minimum-achievement .minimum-final-table th:nth-child(3){width:110px}.minimum-achievement .minimum-final-table th:nth-child(4){width:78px}.minimum-achievement .minimum-final-table th:nth-child(5){width:78px}.minimum-achievement .minimum-final-table th:nth-child(6){width:150px}.minimum-achievement .minimum-final-table th:nth-child(7){width:104px}.minimum-achievement .minimum-final-table th:nth-child(8){width:120px}.minimum-achievement .minimum-final-table th:nth-child(9){width:120px}
+.minimum-achievement .minimum-final-table th:nth-child(1){width:72px}.minimum-achievement .minimum-final-table th:nth-child(2){width:82px}.minimum-achievement .minimum-final-table th:nth-child(3){width:105px}.minimum-achievement .minimum-final-table th:nth-child(4){width:72px}.minimum-achievement .minimum-final-table th:nth-child(5){width:86px}.minimum-achievement .minimum-final-table th:nth-child(6){width:185px}.minimum-achievement .minimum-final-table th:nth-child(7){width:104px}.minimum-achievement .minimum-final-table th:nth-child(8){width:128px}
 .minimum-achievement .minimum-class-cell,.minimum-achievement .minimum-name-cell,.minimum-achievement .minimum-score-cell{white-space:nowrap}
 .minimum-achievement .minimum-subject-cell b{display:block;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;line-height:1.35}
 .minimum-achievement .minimum-attendance-select{width:100%;padding:7px 6px!important;font-size:10.5px!important}
@@ -392,6 +394,9 @@ const css=`
   .minimum-achievement .bulk-student-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .minimum-achievement .minimum-bulk-apply-row{grid-template-columns:1fr}
 }
+
+.minimum-achievement .minimum-input-warning{color:#a05b22!important;font-weight:900!important}.minimum-achievement .minimum-input-complete{display:inline-flex!important;align-items:center;justify-content:center;gap:3px;color:#2f7047!important;font-weight:900!important}.minimum-achievement .minimum-attendance-text{display:inline-flex;padding:5px 8px;border-radius:999px;background:#eef2f6;color:#626d79;font-size:10px;font-weight:900}.minimum-achievement .minimum-attendance-text.is-도달{background:#e8f6ed;color:#286842}.minimum-achievement .minimum-attendance-text.is-미도달{background:#fde8e6;color:#a23d35}
+
 @media print{body.print-minimum-dashboard *{visibility:hidden!important}body.print-minimum-dashboard .minimum-dashboard-print-area,body.print-minimum-dashboard .minimum-dashboard-print-area *{visibility:visible!important}body.print-minimum-dashboard .minimum-dashboard-print-area{position:absolute;inset:0;width:100%;gap:8px!important}body.print-minimum-dashboard .no-minimum-dashboard-print{display:none!important}body.print-minimum-dashboard .minimum-achievement table{min-width:0!important;font-size:7.8pt;table-layout:fixed!important}body.print-minimum-dashboard .minimum-achievement th,body.print-minimum-dashboard .minimum-achievement td{padding:4px 3px!important}body.print-minimum-dashboard .minimum-achievement header{padding:14px 16px!important;box-shadow:none!important}body.print-minimum-dashboard .minimum-achievement .minimum-attention-list{grid-template-columns:repeat(4,1fr)!important}}
 `;
 const ui={
