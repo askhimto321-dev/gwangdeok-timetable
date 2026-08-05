@@ -1594,11 +1594,11 @@ function TeacherZoneWorkspace({
   const [workspaceMode, setWorkspaceMode] = useState(() => {
     try {
       const saved = localStorage.getItem(modeStorageKey);
-      return ["grades", "notice", "contacts", "records"].includes(saved) ? saved : "grades";
+      return ["grades", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : "grades";
     } catch { return "grades"; }
   });
   useEffect(() => {
-    if ((!canUseNotice && workspaceMode === "notice") || (!canUseGradeDepartmentTools && ["contacts", "records"].includes(workspaceMode))) setWorkspaceMode("grades");
+    if ((!canUseNotice && workspaceMode === "notice") || (!canUseGradeDepartmentTools && ["contacts", "records", "gradeData"].includes(workspaceMode))) setWorkspaceMode("grades");
   }, [canUseNotice, canUseGradeDepartmentTools, workspaceMode]);
   useEffect(() => {
     try { localStorage.setItem(modeStorageKey, workspaceMode); } catch { /* localStorage unavailable */ }
@@ -1624,8 +1624,9 @@ function TeacherZoneWorkspace({
       <div style={teacherZoneWorkspaceStyles.modeTabs}>
         <button type="button" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
         {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
-        {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 연락처</button>}
-        {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무</button>}
+        {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
+        {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무 (Beta)</button>}
+        {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("gradeData")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "gradeData" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Database size={15} /> 자료 관리</button>}
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
@@ -1636,7 +1637,7 @@ function TeacherZoneWorkspace({
         canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (activeTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(activeTeacher))))} />
     </div>
     {canUseNotice && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
-    {canUseGradeDepartmentTools && <div style={{ display: ["contacts", "records"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records"].includes(workspaceMode))}>
+    {canUseGradeDepartmentTools && <div style={{ display: ["contacts", "records", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records", "gradeData"].includes(workspaceMode))}>
       <GradeDepartmentTools view={workspaceMode} db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} />
     </div>}
   </div>;
