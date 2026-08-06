@@ -3,7 +3,7 @@ import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink,
 import { readStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, diagnoseAdmissionFileBackends, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
-import SusiNaviBetaView from "./SusiNaviBeta.jsx";
+import SusiNaviBetaView, { conversionDetails, loadSusiNaviBetaData } from "./SusiNaviBeta.jsx";
 import {
   parseSemesterSheet,
   computeAllGroupAverages,
@@ -46,6 +46,23 @@ const COMBINATION_META = {
   영수사: { color: "#8a641d", background: "#fff5df" },
   영수과: { color: "#416a7d", background: "#edf6fa" },
 };
+
+const REPORT_BETA_GROUPS = ["전교과", "국수영사과", "국수영과", "국수영사"];
+
+function statisticalGradeValue(betaData, grade5, group) {
+  return conversionDetails(betaData, "statistical", group, grade5)?.value ?? null;
+}
+
+function statisticalReportGroups(groups, betaData, group) {
+  return Object.fromEntries(Object.entries(groups || {}).map(([name, values]) => {
+    const perSemester5 = values?.perSemester5 || [];
+    return [name, {
+      ...values,
+      perSemester9: perSemester5.map(value => value == null ? null : statisticalGradeValue(betaData, value, group)),
+      avg9: values?.avg5 == null ? null : statisticalGradeValue(betaData, values.avg5, group),
+    }];
+  }));
+}
 
 const CATEGORY_META = {
   국어: { short: "국어", label: "국어", color: "#315a9b", background: "#eef3ff", row: "#f8faff" },
@@ -1261,8 +1278,38 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const subjectLists = SEMESTER_KEYS.map((key, index) => semesterRecords[index]?.subjects || null);
   const hasAnyGrades = subjectLists.some(subjects => subjects?.length);
   const [requestedGradeScale, setRequestedGradeScale] = useState(null);
+  const [grade9Method, setGrade9Method] = useState("legacy");
+  const [reportBetaGroup, setReportBetaGroup] = useState("전교과");
+  const [reportBetaData, setReportBetaData] = useState(null);
+  const [reportBetaStatus, setReportBetaStatus] = useState("idle");
   const displayGradeScale = gradeSystem === 9 ? 9 : (requestedGradeScale === 9 ? 9 : 5);
   const groups = useMemo(() => computeAllGroupAverages(subjectLists, gradeSystem), [semesterData, sid, gradeSystem]); // eslint-disable-line
+  const statisticalReportMode = gradeSystem === 5 && displayGradeScale === 9 && grade9Method === "statistical";
+
+  useEffect(() => {
+    if (!statisticalReportMode || reportBetaData) return;
+    let active = true;
+    setReportBetaStatus("loading");
+    loadSusiNaviBetaData().then(value => {
+      if (!active) return;
+      setReportBetaData(value);
+      setReportBetaStatus(value?.conversions?.length ? "ready" : "empty");
+    }).catch(() => {
+      if (active) setReportBetaStatus("error");
+    });
+    return () => { active = false; };
+  }, [statisticalReportMode, reportBetaData]);
+
+  const displayGroups = useMemo(() => (
+    statisticalReportMode
+      ? statisticalReportGroups(groups, reportBetaData, reportBetaGroup)
+      : groups
+  ), [groups, statisticalReportMode, reportBetaData, reportBetaGroup]);
+  const gradeDisplayLabel = displayGradeScale === 5
+    ? "5등급제 원등급"
+    : statisticalReportMode
+      ? `통계 Beta 9등급 · ${reportBetaGroup}`
+      : "기존 환산 9등급";
 
   const displaySemesterKeys = SEMESTER_KEYS.filter(key => Number(key.split("-")[0]) <= inferredGrade);
   const availableSemesters = displaySemesterKeys.filter(key => {
@@ -1318,11 +1365,11 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
       name: meta?.label || selectedCategoryTrend,
       color: meta?.color || "#2b2620",
       values: availableSemesters.map(key => (
-        groups[selectedCategoryTrend]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null
+        displayGroups[selectedCategoryTrend]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null
       )),
       showLabels: true,
     }];
-  }, [groups, availableSemesters, displayGradeScale, selectedCategoryTrend]);
+  }, [displayGroups, availableSemesters, displayGradeScale, selectedCategoryTrend]);
 
   const mockTrendSeries = useMemo(() => {
     const isAverage = selectedMockSubject === "전과목 평균";
@@ -1537,15 +1584,23 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
       {showGrades && hasAnyGrades && (
         <div style={card}>
           <SectionHeading
-            title={`교과별 평균 (${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"})`}
+            title={`교과별 평균 (${gradeDisplayLabel})`}
             description="국어·영어·수학·사회·과학의 학점 가중평균입니다. 전체 평균 열은 별도로 강조했습니다."
           />
           {gradeSystem === 5 && (
-            <GradeScaleSelector value={displayGradeScale} onChange={setRequestedGradeScale} />
+            <GradeScaleSelector
+              value={displayGradeScale}
+              onChange={setRequestedGradeScale}
+              method={grade9Method}
+              onMethodChange={setGrade9Method}
+              betaGroup={reportBetaGroup}
+              onBetaGroupChange={setReportBetaGroup}
+              betaStatus={reportBetaStatus}
+            />
           )}
           <AverageTable
             names={CATEGORY_GROUP_NAMES}
-            groups={groups}
+            groups={displayGroups}
             displaySemesterKeys={displaySemesterKeys}
             entryYear={entryYear}
             gradeScale={displayGradeScale}
@@ -1557,12 +1612,12 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
       {showGrades && hasAnyGrades && (
         <div style={card}>
           <SectionHeading
-            title={`계열별 평균 (${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"})`}
+            title={`계열별 평균 (${gradeDisplayLabel})`}
             description="대학 교과전형에서 자주 활용하는 교과 조합별 학점 가중평균입니다."
           />
           <AverageTable
             names={COMBINATION_GROUP_NAMES}
-            groups={groups}
+            groups={displayGroups}
             displaySemesterKeys={displaySemesterKeys}
             entryYear={entryYear}
             gradeScale={displayGradeScale}
@@ -1616,7 +1671,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         <div style={card}>
           <SectionHeading
             title="성적 추이 그래프"
-            description={`선택한 항목 한 개만 그래프로 표시하여 선이 겹치지 않도록 했습니다. 내신은 ${displayGradeScale}등급${gradeSystem === 5 && displayGradeScale === 9 ? " 환산" : "제"} 기준이며, 위쪽의 1등급에 가까울수록 우수합니다.`}
+            description={`선택한 항목 한 개만 그래프로 표시하여 선이 겹치지 않도록 했습니다. 내신은 ${gradeDisplayLabel} 기준이며, 위쪽의 1등급에 가까울수록 우수합니다.`}
           />
           <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
             <TrendTabButton active={trendTab === "category"} onClick={() => setTrendTab("category")}>교과별 내신</TrendTabButton>
@@ -2954,27 +3009,47 @@ function GradeAverageRow({ name, group, displaySemesterKeys, gradeScale, categor
   );
 }
 
-function GradeScaleSelector({ value, onChange }) {
+function GradeScaleSelector({ value, onChange, method = "legacy", onMethodChange, betaGroup = "전교과", onBetaGroupChange, betaStatus = "idle" }) {
+  const betaActive = value === 9 && method === "statistical";
+  const betaMessage = betaStatus === "loading"
+    ? "수시NAVI 통계 변환표를 불러오는 중입니다."
+    : betaStatus === "empty"
+      ? "관리자에 반영된 수시NAVI 통계 변환표가 없어 값을 표시할 수 없습니다."
+      : betaStatus === "error"
+        ? "통계 변환표를 불러오지 못했습니다. 기존 환산을 사용하거나 다시 접속해주세요."
+        : "53,149명 일반고 통계 기반 추정값이며 대학별 공식 환산등급은 아닙니다.";
   return (
     <div style={gradeScaleSelector.box}>
-      <div>
-        <div style={gradeScaleSelector.title}>내신 등급 기준</div>
-        <div style={gradeScaleSelector.description}>5등급제 원등급과 9등급 환산값(2n-1)을 분리해서 확인합니다.</div>
+      <div style={gradeScaleSelector.topRow}>
+        <div>
+          <div style={gradeScaleSelector.title}>내신 등급 기준</div>
+          <div style={gradeScaleSelector.description}>평균표와 내신 추이 그래프에 적용할 기준을 선택합니다. 과목별 성적표의 9등급 환산 열은 기존 2n-1 방식을 유지합니다.</div>
+        </div>
+        <div style={gradeScaleSelector.buttons}>
+          <button
+            onClick={() => onChange(5)}
+            style={{ ...gradeScaleSelector.button, ...(value === 5 ? gradeScaleSelector.active : {}) }}
+          >
+            5등급제 원등급
+          </button>
+          <button
+            onClick={() => { onChange(9); onMethodChange?.("legacy"); }}
+            style={{ ...gradeScaleSelector.button, ...(value === 9 && method === "legacy" ? gradeScaleSelector.active : {}) }}
+          >
+            기존 9등급 환산
+          </button>
+          <button
+            onClick={() => { onChange(9); onMethodChange?.("statistical"); }}
+            style={{ ...gradeScaleSelector.button, ...gradeScaleSelector.betaButton, ...(betaActive ? gradeScaleSelector.betaActive : {}) }}
+          >
+            통계 Beta 9등급
+          </button>
+        </div>
       </div>
-      <div style={gradeScaleSelector.buttons}>
-        <button
-          onClick={() => onChange(5)}
-          style={{ ...gradeScaleSelector.button, ...(value === 5 ? gradeScaleSelector.active : {}) }}
-        >
-          5등급제 원등급
-        </button>
-        <button
-          onClick={() => onChange(9)}
-          style={{ ...gradeScaleSelector.button, ...(value === 9 ? gradeScaleSelector.active : {}) }}
-        >
-          9등급 환산
-        </button>
-      </div>
+      {betaActive && <div style={gradeScaleSelector.betaPanel}>
+        <label style={gradeScaleSelector.betaLabel}><span>통계 교과 조합</span><select value={betaGroup} onChange={event => onBetaGroupChange?.(event.target.value)} style={gradeScaleSelector.betaSelect}>{REPORT_BETA_GROUPS.map(group => <option key={group}>{group}</option>)}</select></label>
+        <div style={{ ...gradeScaleSelector.betaNotice, ...(["empty", "error"].includes(betaStatus) ? gradeScaleSelector.betaWarning : {}) }}>{betaMessage}</div>
+      </div>}
     </div>
   );
 }
@@ -5636,19 +5711,17 @@ const studentBanner = {
 };
 const gradeScaleSelector = {
   box: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
-    flexWrap: "wrap",
+    display: "grid",
+    gap: 10,
     border: "1px solid #e3dfd3",
     background: "#faf9f5",
     borderRadius: 12,
     padding: "11px 12px",
     marginBottom: 12,
   },
+  topRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
   title: { fontSize: 12.5, fontWeight: 900, color: "#3d3932" },
-  description: { fontSize: 10.8, color: "#8a8578", marginTop: 3 },
+  description: { maxWidth: 650, fontSize: 10.8, lineHeight: 1.5, color: "#8a8578", marginTop: 3 },
   buttons: { display: "flex", gap: 6, flexWrap: "wrap" },
   button: {
     border: "1px solid #ddd7c9",
@@ -5661,6 +5734,13 @@ const gradeScaleSelector = {
     cursor: "pointer",
   },
   active: { background: "#5d4898", borderColor: "#5d4898", color: "#fff" },
+  betaButton: { borderColor: "#cfc3e3", color: "#664e94", background: "#f7f3fc" },
+  betaActive: { background: "linear-gradient(135deg,#5d4898,#7a5aa2)", borderColor: "#5d4898", color: "#fff", boxShadow: "0 5px 13px rgba(93,72,152,.22)" },
+  betaPanel: { display: "grid", gridTemplateColumns: "minmax(160px,.42fr) minmax(280px,1fr)", gap: 9, alignItems: "end", padding: 10, border: "1px solid #ded4ec", borderRadius: 10, background: "#f8f5fc" },
+  betaLabel: { display: "grid", gap: 5, color: "#6f6188", fontSize: 9.8, fontWeight: 900 },
+  betaSelect: { width: "100%", height: 36, border: "1px solid #cfc5df", borderRadius: 9, background: "#fff", padding: "0 9px", color: "#504263", fontSize: 11, fontWeight: 800 },
+  betaNotice: { minHeight: 36, display: "flex", alignItems: "center", padding: "8px 10px", borderRadius: 9, background: "#eee8f7", color: "#66547f", fontSize: 10.2, lineHeight: 1.45, fontWeight: 750 },
+  betaWarning: { background: "#fff3e7", color: "#8b5e23" },
 };
 const categoryBadgeBase = {
   display: "inline-flex",
