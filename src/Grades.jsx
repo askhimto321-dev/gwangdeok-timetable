@@ -752,6 +752,7 @@ export default function GradesSection({
             onToggleFavorite={activeStudentSid ? item => toggleFavorite(activeStudentSid, item) : undefined}
             focusUniversity={linkedUniversity}
             focusDepartment={linkedDepartment}
+            caseRows={gdb?.admissionCases || []}
           />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (

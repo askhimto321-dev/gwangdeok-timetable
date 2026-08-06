@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Upload, FileSpreadsheet, Loader2, Save, Trash2, Search, GraduationCap, Database, AlertTriangle, CheckCircle2, Filter, RotateCcw, ChevronUp, ChevronDown, ArrowLeft, ChevronRight, Star, ExternalLink, Printer } from "lucide-react";
 import { computeAllGroupAverages, computeMockExamSums, grade5to9, parseAdmissionCaseRows, summarizeAdmissionCases } from "./gradeEngine.js";
+import { conversionDetails, loadSusiNaviBetaData } from "./SusiNaviBeta.jsx";
 
 const SEMESTERS=["1-1","1-2","2-1","2-2","3-1","3-2"];
 const MOCKS=["1-3","1-6","1-9","1-10","2-3","2-6","2-9","3-3","3-6","3-9"];
 const PAGE_SIZE=50;
 const COLORS={blue:"#315a9b",green:"#39724c",purple:"#6b4f91",red:"#9a3f3f",gold:"#8a641d",line:"#e2ded3",muted:"#777167"};
+const CASE_CONVERSION_GROUPS=["전교과","국수영사과","국수영과","국수영사"];
+const CASE_GROUP_KEYS={전교과:"전과목",국수영사과:"국영수사과",국수영과:"국영수과",국수영사:"국영수사"};
 function printAdmissionCaseSearch(orientation="portrait"){
   if(typeof window==="undefined"||typeof document==="undefined")return;
   const className="print-admission-case-search";
@@ -644,6 +647,17 @@ const CSS=`
 .admission-current-support .admission-section-heading{margin-bottom:17px!important}.admission-current-support .admission-section-heading h3{font-size:18px;line-height:1.25}.admission-current-support .admission-section-heading p{margin-top:7px!important;font-size:12px!important;line-height:1.65!important;color:#67768a!important}.admission-current-support .admission-section-heading p strong{color:#315a9b;font-weight:950}
 @media(max-width:1120px){.admission-overview-pair{grid-template-columns:1fr!important}}
 @media(max-width:760px){.admission-type-performance-shell{grid-template-columns:1fr}.admission-type-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.admission-type-performance-row{grid-template-columns:minmax(80px,105px) minmax(80px,1fr) 70px 50px}}
+.admission-case-conversion{display:grid;gap:10px;padding:14px 15px;border:1px solid #d8e1ee;border-radius:15px;background:linear-gradient(135deg,#f8fbff,#fcf9ff);box-shadow:0 4px 14px rgba(45,61,84,.04)}
+.admission-case-conversion.is-empty,.admission-case-conversion.is-original{padding:12px 15px;background:#f7f8fa;color:#657184}
+.admission-case-conversion-head{display:flex;align-items:center;justify-content:space-between;gap:14px;min-width:0}
+.admission-case-conversion-head>div{display:grid;gap:2px;min-width:0}.admission-case-conversion-head small{font-size:10px;font-weight:900;color:#65768d}.admission-case-conversion-head b{font-size:13px;color:#29394f;line-height:1.4}.admission-case-conversion-head>span{flex:0 0 auto;padding:7px 10px;border-radius:10px;background:#ede8f7;color:#5d4a86;font-size:11px;font-weight:850}.admission-case-conversion-head>span strong{font-size:16px;margin-left:4px}
+.admission-case-conversion-body{display:grid;grid-template-columns:120px minmax(260px,1fr) 150px 180px;gap:9px;align-items:stretch}
+.admission-case-conversion-source,.admission-case-conversion-result{display:grid;align-content:center;gap:1px;padding:9px 11px;border:1px solid #dce4ef;border-radius:11px;background:#fff;min-width:0}.admission-case-conversion-source small,.admission-case-conversion-result small{font-size:9.5px;color:#738197;font-weight:850}.admission-case-conversion-source b,.admission-case-conversion-result b{font-size:17px;color:#29496c;line-height:1.15}.admission-case-conversion-source span,.admission-case-conversion-result span{font-size:9px;color:#798699;line-height:1.35;overflow-wrap:anywhere}
+.admission-case-conversion-method{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px;border-radius:11px;background:#e9edf3}.admission-case-conversion-method button{display:grid;gap:2px;align-content:center;min-height:58px;padding:7px 9px;border:1px solid transparent;border-radius:9px;background:transparent;color:#667286;cursor:pointer}.admission-case-conversion-method button[aria-pressed="true"]{background:#fff;border-color:#c9d4e3;color:#2c4e76;box-shadow:0 3px 9px rgba(46,65,91,.12)}.admission-case-conversion-method b{font-size:11.5px}.admission-case-conversion-method small{font-size:9px}.admission-case-conversion-method em{font-style:normal;color:#6b4f91;font-size:9px}
+.admission-case-conversion-group{display:grid;gap:4px;padding:8px 10px;border:1px solid #dce4ef;border-radius:11px;background:#fff}.admission-case-conversion-group span{font-size:9.5px;font-weight:850;color:#738197}.admission-case-conversion-group select{width:100%;min-width:0;height:32px;border:1px solid #cfd9e7;border-radius:8px;background:#fff;padding:0 7px;color:#33465e;font-size:11px;font-weight:850}
+.admission-case-conversion-note{margin:0!important;padding:8px 10px;border-radius:9px;background:#eef7f3;color:#37654e;font-size:10px;line-height:1.45}.admission-case-conversion-note.is-warning{background:#fff5e9;color:#875922}
+@media(max-width:1050px){.admission-case-conversion-body{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.admission-case-conversion-head{align-items:flex-start;flex-direction:column}.admission-case-conversion-head>span{width:100%;text-align:center}.admission-case-conversion-body{grid-template-columns:1fr}.admission-case-conversion-method{grid-template-columns:1fr 1fr}}
 
 `
 
@@ -658,7 +672,29 @@ function record(data,entryYear,key){return data?.[`${entryYear}:${key}`]||data?.
 function entryYearForGrade(settings,grade){const year=Number(settings?.academicYear)||new Date().getFullYear();const hit=(settings?.cohorts||[]).find(x=>Number(x.currentGrade)===Number(grade)&&x.status!=="졸업");return Number(hit?.entryYear)||year-Number(grade)+1}
 function median(values){const s=values.map(Number).filter(Number.isFinite).sort((a,b)=>a-b);if(!s.length)return null;const m=Math.floor(s.length/2);return s.length%2?s[m]:(s[m-1]+s[m])/2}
 function percentile(values,ratio){const s=values.map(Number).filter(Number.isFinite).sort((a,b)=>a-b);if(!s.length)return null;const i=(s.length-1)*ratio,l=Math.floor(i),u=Math.ceil(i);return l===u?s[l]:s[l]+(s[u]-s[l])*(i-l)}
-function studentProfile(sid,roster,gdb,currentGrade){if(!sid)return null;const info=roster?.[sid]||{};const grade=Number(info.grade)||Number(String(sid).charAt(0))||Number(currentGrade)||1;const entryYear=Number(info.entryYear)||entryYearForGrade(gdb.cohortSettings,grade);const gradeSystem=entryYear>=2025?5:9;const subjectLists=SEMESTERS.map(k=>record(gdb.semesterData,entryYear,k)?.students?.[sid]?.subjects||null);const groups=computeAllGroupAverages(subjectLists,gradeSystem);const average=gradeSystem===5?groups?.전과목?.avg5:groups?.전과목?.avg9;const converted=average==null?null:(gradeSystem===5?grade5to9(average):average);const latestMock=MOCKS.slice().reverse().find(k=>record(gdb.mockData,entryYear,k)?.students?.[sid]);const mock=latestMock?record(gdb.mockData,entryYear,latestMock)?.students?.[sid]||{}:{};let name=info.name||"";if(!name){for(const k of SEMESTERS.slice().reverse()){name=record(gdb.semesterData,entryYear,k)?.students?.[sid]?.name||"";if(name)break}}return{sid:String(sid),name,grade,entryYear,gradeSystem,average,converted,sums:computeMockExamSums(mock)}}
+function studentProfile(sid,roster,gdb,currentGrade,conversionMethod="legacy",conversionGroup="전교과",betaData=null){
+  if(!sid)return null;
+  const info=roster?.[sid]||{};
+  const grade=Number(info.grade)||Number(String(sid).charAt(0))||Number(currentGrade)||1;
+  const entryYear=Number(info.entryYear)||entryYearForGrade(gdb.cohortSettings,grade);
+  const gradeSystem=entryYear>=2025?5:9;
+  const subjectLists=SEMESTERS.map(k=>record(gdb.semesterData,entryYear,k)?.students?.[sid]?.subjects||null);
+  const groups=computeAllGroupAverages(subjectLists,gradeSystem);
+  const groupKey=CASE_GROUP_KEYS[conversionGroup]||"전과목";
+  const selectedGroup=groups?.[groupKey]||groups?.전과목;
+  const average=gradeSystem===5?selectedGroup?.avg5:selectedGroup?.avg9;
+  const legacyConverted=average==null?null:(gradeSystem===5?grade5to9(average):average);
+  const statistical=gradeSystem===5&&conversionMethod==="statistical"&&average!=null?conversionDetails(betaData,"statistical",conversionGroup,average):null;
+  const statisticalReady=statistical?.value!=null;
+  const converted=gradeSystem===5?(statisticalReady?statistical.value:legacyConverted):average;
+  const conversionApplied=gradeSystem===5&&conversionMethod==="statistical"&&statisticalReady?"statistical":gradeSystem===5?"legacy":"original";
+  const conversionLabel=conversionApplied==="statistical"?`통계 Beta · ${conversionGroup}`:conversionApplied==="legacy"?`기존 환산 · ${conversionGroup}`:"9등급 원등급";
+  const latestMock=MOCKS.slice().reverse().find(k=>record(gdb.mockData,entryYear,k)?.students?.[sid]);
+  const mock=latestMock?record(gdb.mockData,entryYear,latestMock)?.students?.[sid]||{}:{};
+  let name=info.name||"";
+  if(!name){for(const k of SEMESTERS.slice().reverse()){name=record(gdb.semesterData,entryYear,k)?.students?.[sid]?.name||"";if(name)break}}
+  return{sid:String(sid),name,grade,entryYear,gradeSystem,average,converted,legacyConverted,conversionMethod,conversionApplied,conversionGroup,conversionLabel,conversionRange:statistical?.range||"",conversionCumulative:statistical?.cumulative||"",sums:computeMockExamSums(mock)};
+}
 function groupStats(rows,getter){const map=new Map();rows.forEach(row=>{const key=getter(row)||"미지정";if(!map.has(key))map.set(key,[]);map.get(key).push(row)});return Array.from(map,([label,items])=>{const accepted=items.filter(x=>x.finalResult==="합격");return{label,total:items.length,accepted:accepted.length,first:items.filter(x=>x.finalResultDetail==="최초합격").length,waitlist:items.filter(x=>x.finalResultDetail==="충원합격").length,rejected:items.filter(x=>x.finalResult==="불합격").length,rate:items.length?accepted.length/items.length*100:null,median:median(accepted.map(x=>x.universityGrade??x.overallGrade))}}).sort((a,b)=>b.total-a.total||a.label.localeCompare(b.label,"ko"))}
 function resultStyle(value){if(value==="최초합격")return{color:COLORS.blue,background:"#edf3ff",borderColor:"#cbd9ef"};if(value==="충원합격")return{color:COLORS.purple,background:"#f3effa",borderColor:"#d8cdea"};if(value==="불합격")return{color:COLORS.red,background:"#fff0f0",borderColor:"#efcaca"};return{color:COLORS.muted,background:"#f4f2ed",borderColor:"#ddd8cd"}}
 function caseSufficiency(total){
@@ -863,13 +899,36 @@ function StudentConnector({profile,query,onQuery,onSelect,roster}){
     {profile?<div className="admission-student-profile" style={styles.studentProfile}>
       <div style={styles.studentProfileIdentity}><span style={styles.studentProfileEyebrow}>선택 학생</span><div style={styles.studentProfileTitle}><b>{profile.sid}</b><strong>{profile.name}</strong></div><div className="admission-student-profile-badges" style={styles.studentProfileBadges}><span>{profile.entryYear}학년도 입학생</span><span>{profile.grade}학년</span><span>{profile.gradeSystem}등급제</span></div></div>
       <div className="admission-student-score-groups">
-        <div className="admission-student-score-group is-school-group"><div className="admission-score-group-head"><strong>학생 비교 기준 내신</strong><span>학기 누적 기준</span></div><div className="admission-student-metrics is-school"><div className="is-current-grade"><small>{profile.gradeSystem}등급제 현재 내신</small><b>{fmt(profile.average)}</b></div><div className="is-converted-grade"><small>9등급 환산</small><b>{fmt(profile.converted)}</b></div></div></div>
+        <div className="admission-student-score-group is-school-group"><div className="admission-score-group-head"><strong>학생 비교 기준 내신</strong><span>학기 누적 기준</span></div><div className="admission-student-metrics is-school"><div className="is-current-grade"><small>{profile.gradeSystem}등급제 · {profile.gradeSystem===5?profile.conversionGroup:"전교과"}</small><b>{fmt(profile.average)}</b></div><div className="is-converted-grade"><small>{profile.conversionLabel}</small><b>{fmt(profile.converted)}</b></div></div></div>
         <div className="admission-student-score-group is-mock-group"><div className="admission-score-group-head"><strong>모의고사 최저</strong><span>최신 회차 기준</span></div><div className="admission-student-metrics is-mock"><div><small>2합</small><b>{profile.sums?.sum2??"-"}</b></div><div><small>3합</small><b>{profile.sums?.sum3??"-"}</b></div><div className="is-four-sum"><small>4합</small><b>{profile.sums?.sum4??"-"}</b></div></div></div>
       </div>
     </div>:<div style={styles.studentPlaceholder}>학생을 선택하면 현재 성적과 과거 사례를 연결합니다.</div>}
   </div>;
 }
 
+
+function CaseConversionPanel({profile,method,onMethodChange,group,onGroupChange,status}){
+  if(!profile)return <div className="admission-case-conversion is-empty"><div><small>대입 사례 비교 환산 기준</small><b>학생을 선택하면 환산 방식을 설정할 수 있습니다.</b></div></div>;
+  if(profile.gradeSystem!==5)return <div className="admission-case-conversion is-original">
+    <div className="admission-case-conversion-head"><div><small>대입 사례 비교 환산 기준</small><b>9등급제 원등급을 그대로 사용합니다.</b></div><span>현재 {fmt(profile.converted)}</span></div>
+  </div>;
+  const loading=method==="statistical"&&status==="loading";
+  const unavailable=method==="statistical"&&status==="missing";
+  const failed=method==="statistical"&&status==="error";
+  return <section className="admission-case-conversion">
+    <div className="admission-case-conversion-head"><div><small>2024–2026 광덕고 지원현황 비교 기준</small><b>5등급 내신을 어떤 9등급 값으로 비교할지 선택합니다.</b></div><span>현재 비교값 <strong>{fmt(profile.converted)}</strong></span></div>
+    <div className="admission-case-conversion-body">
+      <div className="admission-case-conversion-source"><small>5등급 원내신</small><b>{fmt(profile.average)}</b><span>{group}</span></div>
+      <div className="admission-case-conversion-method" role="group" aria-label="대입 사례 환산 방식">
+        <button type="button" aria-pressed={method==="legacy"} onClick={()=>onMethodChange("legacy")}><b>기존 환산</b><small>2×내신−1</small></button>
+        <button type="button" aria-pressed={method==="statistical"} onClick={()=>onMethodChange("statistical")}><b>통계 버전 <em>Beta</em></b><small>일반고 통계 추정</small></button>
+      </div>
+      <label className="admission-case-conversion-group"><span>교과 조합</span><select value={group} onChange={event=>onGroupChange(event.target.value)}>{CASE_CONVERSION_GROUPS.map(value=><option key={value}>{value}</option>)}</select></label>
+      <div className="admission-case-conversion-result"><small>{profile.conversionLabel}</small><b>{loading?"불러오는 중":fmt(profile.converted)}</b><span>{profile.conversionApplied==="statistical"?(profile.conversionRange?`예상 범위 ${profile.conversionRange}`:"통계 추정값"):(unavailable||failed?"Beta 자료 없음 · 기존 환산 임시 적용":"기존 환산값")}</span></div>
+    </div>
+    {method==="statistical"&&<p className={`admission-case-conversion-note ${unavailable||failed?"is-warning":""}`}>{loading?"수시NAVI Beta 통계 변환표를 불러오는 중입니다.":unavailable?"관리자에 반영된 통계 변환표가 없어 기존 환산값을 임시로 사용합니다.":failed?"통계 변환표를 불러오지 못해 기존 환산값을 임시로 사용합니다.":"통계 Beta는 대학별 공식 환산등급이 아닌 일반고 표본 기반 추정값입니다. 예상 범위와 함께 참고하세요."}</p>}
+  </section>;
+}
 
 function toggleSelection(values,option){
   return values.includes(option)?values.filter(item=>item!==option):[...values,option];
@@ -1234,10 +1293,10 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
   });
   const printContext=focusUniversity?[focusUniversity,focusDepartment,focusAdmissionType].filter(Boolean).join(" › "):(query?`“${query}” 검색 결과`:"전체 대학·학과·전형");
   const globalScope=gradeScopeLabel(globalMinGrade,globalMaxGrade);
-  const localScope=range!=null&&profile?.converted!=null?`9등급 환산 ${fmt(profile.converted)} ±${range.toFixed(1)}`:"";
+  const localScope=range!=null&&profile?.converted!=null?`${profile.conversionLabel} ${fmt(profile.converted)} ±${range.toFixed(1)}`:"";
   const scopeLabels=[globalScope,localScope].filter(Boolean);
   const sortLabel=sortOrder==="overallAsc"?"내신 오름차순":sortOrder==="overallDesc"?"내신 내림차순":"기본 정렬";
-  const studentPrintLabel=profile?`${profile.sid} ${profile.name||"학생"} · 9등급 환산 ${fmt(profile.converted)}`:"학생 미선택";
+  const studentPrintLabel=profile?`${profile.sid} ${profile.name||"학생"} · ${profile.conversionLabel} ${fmt(profile.converted)}`:"학생 미선택";
   const printFilterLabel=[printContext,...scopeLabels,sortLabel].filter(Boolean).join(" · ");
   return <div className="admission-case-search-root admission-case-print-root">
     <div className="admission-case-search-controls no-print">
@@ -1245,7 +1304,7 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
       <div className="admission-case-search-actions">
         {profile&&<div className="admission-case-student-benchmark" title="사례 비교와 지원 구간 계산은 항상 9등급 환산값을 사용합니다.">
           <div className="admission-case-benchmark-head"><span>현재 학생 내신</span><div className="admission-grade-system-toggle" role="group" aria-label="내신 등급제 표시"><button type="button" className={benchmarkScale==="9"?"is-active":""} onClick={()=>setBenchmarkScale("9")}>9등급</button><button type="button" className={benchmarkScale==="5"?"is-active":""} disabled={Number(profile.gradeSystem)!==5} onClick={()=>setBenchmarkScale("5")}>5등급</button></div></div>
-          <div className="admission-case-benchmark-primary"><strong>{fmt(benchmarkScale==="5"?profile.average:profile.converted)}</strong><small>{benchmarkScale==="5"?"5등급제 원내신":"9등급 환산"}</small></div>
+          <div className="admission-case-benchmark-primary"><strong>{fmt(benchmarkScale==="5"?profile.average:profile.converted)}</strong><small>{benchmarkScale==="5"?`5등급제 · ${profile.conversionGroup}`:profile.conversionLabel}</small></div>
           <em>비교 계산은 9등급 기준</em>
         </div>}
         <div className="admission-case-range-filter"><span>내신 비교 범위</span><button type="button" className={`admission-filter-chip ${range==null?"is-active":""}`} onClick={()=>setRange(null)}>전체</button>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-filter-chip ${range===value?"is-active":""}`} disabled={profile?.converted==null} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div>
@@ -1278,7 +1337,18 @@ export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedS
   const query=selectedStudentQuery!==undefined?selectedStudentQuery:localQuery;
   const setSid=value=>selectedStudentSid!==undefined?onSelectedStudentSidChange?.(value):setLocalSid(value);
   const setQuery=value=>selectedStudentQuery!==undefined?onSelectedStudentQueryChange?.(value):setLocalQuery(value);
-  const profile=useMemo(()=>studentProfile(sid,roster,gdb,currentGrade),[sid,roster,gdb,currentGrade]);
+  const[caseConversionMethod,setCaseConversionMethod]=useState("legacy");
+  const[caseConversionGroup,setCaseConversionGroup]=useState("전교과");
+  const[caseBetaData,setCaseBetaData]=useState(null);
+  const[caseBetaStatus,setCaseBetaStatus]=useState("idle");
+  useEffect(()=>{
+    if(caseConversionMethod!=="statistical")return;
+    let alive=true;
+    setCaseBetaStatus("loading");
+    loadSusiNaviBetaData().then(data=>{if(!alive)return;setCaseBetaData(data||null);setCaseBetaStatus(data?.conversions?.length?"ready":"missing")}).catch(()=>{if(alive)setCaseBetaStatus("error")});
+    return()=>{alive=false};
+  },[caseConversionMethod]);
+  const profile=useMemo(()=>studentProfile(sid,roster,gdb,currentGrade,caseConversionMethod,caseConversionGroup,caseBetaData),[sid,roster,gdb,currentGrade,caseConversionMethod,caseConversionGroup,caseBetaData]);
   const[filters,setFilters]=useState({query:"",regions:[],fields:[],schoolTypes:[],admissionGroups:[],detailTypes:[],results:[],bands:[],minGrade:"",maxGrade:""});
   const filtered=useMemo(()=>applyFilters(cases,filters,profile),[cases,filters,profile?.converted]);
   useEffect(()=>{currentView.current={tab,studentUniversity,universitySelection,searchFocus}},[tab,studentUniversity,universitySelection,searchFocus]);
@@ -1297,6 +1367,7 @@ export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedS
     <div style={styles.hero}><div><small>광덕고 상담 지원 자료</small><h2>2024–2026 광덕고 대입 결과</h2><p>과거 졸업생의 통합 지원 사례를 등급·지역·전형별로 분석합니다. 학생 수가 아니라 지원 사례 수입니다.</p></div><div style={styles.heroMeta}><b>{cases.length.toLocaleString()}</b><span>통합 지원 사례</span></div></div>
     {(navDepth>0||onBackToConsultation||focusUniversity)&&<div className="admission-internal-nav"><div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>{navDepth>0&&<button type="button" onClick={goBack}><ArrowLeft size={14}/>이전 화면</button>}{onBackToConsultation&&<button type="button" onClick={onBackToConsultation}><ArrowLeft size={14}/>상담·관심 대학으로</button>}<span>{breadcrumb}</span></div>{focusUniversity&&<span>연결 대학 <b>{focusUniversity}</b> <button type="button" style={{marginLeft:6}} onClick={()=>{setUniversitySelection("");onClearFocus?.()}}>연결 해제</button></span>}</div>}
     <StudentConnector profile={profile} query={query} onQuery={setQuery} onSelect={setSid} roster={roster}/>
+    <CaseConversionPanel profile={profile} method={caseConversionMethod} onMethodChange={setCaseConversionMethod} group={caseConversionGroup} onGroupChange={setCaseConversionGroup} status={caseBetaStatus}/>
     <div style={styles.tabs}>{[["student","학생 맞춤 분석"],["overview","전체 현황"],["university","대학·전형별"],["dimension","등급·지역별"],["search","사례 검색"]].map(([key,label])=><button key={key} onClick={()=>selectTab(key)} style={{...styles.tab,...(tab===key?styles.tabActive:{})}}>{label}</button>)}</div>
     <FilterPanel cases={cases} filters={filters} setFilters={setFilters} filteredCount={filtered.length}/><div style={styles.filteredCount}><Filter size={13}/>전체 {cases.length.toLocaleString()}건 중 현재 조건에 해당하는 사례 <b>{filtered.length.toLocaleString()}건</b></div>{filtered.length===0&&<div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",borderRadius:11,background:"#fff4ed",border:"1px solid #f1cfb7",color:"#8a4f25",fontSize:12}}><AlertTriangle size={16}/><span>조건에 해당하는 사례가 없습니다. 상단의 <b>전체 초기화</b>를 누르거나 선택 범위를 넓혀보세요.</span></div>}
     {tab!=="student"&&<ResultQuickFilters filters={filters} setFilters={setFilters} profile={profile}/>} 
