@@ -504,6 +504,29 @@ export default function GradesSection({
   const [linkedAdmissionType, setLinkedAdmissionType] = useState("");
   const [returnToConsultation, setReturnToConsultation] = useState(false);
   const favoriteItemsFor = useCallback(targetSid => (gdb?.admissionFavorites?.[String(targetSid)] || []), [gdb]);
+  const susiNaviStudent = useMemo(() => {
+    const sid = String(lookupSid || "").trim();
+    if (!sid || !gdb) return null;
+    const studentInfo = roster?.[sid] || null;
+    const metaRecord = Array.isArray(gdb.studentAccounts)
+      ? gdb.studentAccounts.find(student => String(student.id) === sid)
+      : gdb.studentAccounts?.[sid];
+    const legacyRecords = SEMESTER_KEYS.map(key => gdb.semesterData?.[key]?.students?.[sid] || null);
+    const legacyLatest = legacyRecords.slice().reverse().find(Boolean) || null;
+    const entryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatest, cohortSettings: gdb.cohortSettings });
+    const semesterRecords = SEMESTER_KEYS.map((key, index) => cohortRecord(gdb.semesterData, entryYear, key)?.students?.[sid] || legacyRecords[index] || null);
+    const latest = semesterRecords.slice().reverse().find(Boolean) || legacyLatest;
+    const subjectLists = semesterRecords.map(record => record?.subjects || null);
+    const gradeSystem = Number(entryYear) >= 2025 ? 5 : 9;
+    const groups = computeAllGroupAverages(subjectLists, gradeSystem);
+    return {
+      sid,
+      name: studentInfo?.name || latest?.name || metaRecord?.name || "",
+      gradeSystem,
+      grade5: gradeSystem === 5 ? groups?.전과목?.avg5 : null,
+      entryYear,
+    };
+  }, [lookupSid, gdb, roster]);
   const toggleFavorite = useCallback(async (targetSid, item) => {
     if (!targetSid || !persistGrades || !item?.university) return false;
     const source = item.source || "admission";
@@ -689,7 +712,12 @@ export default function GradesSection({
           <AdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />
         )}
         {tab === "susiNaviBeta" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
-          <SusiNaviBetaView isAdmin={!!loggedInAdmin} />
+          <SusiNaviBetaView
+            isAdmin={!!loggedInAdmin}
+            selectedStudent={susiNaviStudent}
+            favorites={favoriteItemsFor(lookupSid)}
+            onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid, item) : undefined}
+          />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />

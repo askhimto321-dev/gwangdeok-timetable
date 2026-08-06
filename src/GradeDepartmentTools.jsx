@@ -170,10 +170,12 @@ function parseClassAutonomyRoles(rows) {
     if (chairIndex < 0 && viceIndex < 0) return;
     const classIndex = labels.findIndex(value => value === "반");
     let semester = "";
-    for (let index = Math.max(0, headerIndex - 3); index <= headerIndex; index += 1) {
+    // 해당 표의 바로 위쪽에서 가장 가까운 학기 제목을 우선 사용합니다.
+    // 같은 시트에 1·2학기 자치회 표가 연속으로 있어도 뒤쪽 제목이 앞 표를 덮어쓰지 않습니다.
+    for (let index = headerIndex; index >= Math.max(0, headerIndex - 7); index -= 1) {
       const title = (rows[index] || []).map(cleanText).join(" ");
-      if (/20\d{2}\s*[-.]?\s*1|1학기/.test(title)) semester = "1학기";
-      if (/20\d{2}\s*[-.]?\s*2|2학기/.test(title)) semester = "2학기";
+      if (/20\d{2}\s*[-.]?\s*1|1학기/.test(title)) { semester = "1학기"; break; }
+      if (/20\d{2}\s*[-.]?\s*2|2학기/.test(title)) { semester = "2학기"; break; }
     }
     let blankCount = 0;
     for (let rowIndex = headerIndex + 1; rowIndex < Math.min(rows.length, headerIndex + 18); rowIndex += 1) {
@@ -705,7 +707,8 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
   const [editingSid, setEditingSid] = useState("");
   const [editRow, setEditRow] = useState(null);
   const [bulkLeadershipRole, setBulkLeadershipRole] = useState("없음");
-  const roleDraftKey = `kd_contact_role_draft_v25_${actor?.id || actor?.name || "shared"}`;
+  const dataRevision = cleanText(data?.appliedAt || data?.updatedAt || data?.sourceName || "shared").replace(/[^0-9A-Za-z가-힣_-]/g, "_").slice(-48);
+  const roleDraftKey = `kd_contact_role_draft_v32_${actor?.id || actor?.name || "shared"}_${dataRevision}`;
   const [leadershipDraft, setLeadershipDraft] = useState(() => {
     try { return JSON.parse(localStorage.getItem(roleDraftKey) || "{}"); }
     catch { return {}; }
@@ -844,7 +847,7 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
       <select value={bulkLeadershipRole} onChange={event=>setBulkLeadershipRole(event.target.value)}>{LEADERSHIP_ROLE_OPTIONS.map(value=><option key={value} value={value}>{leadershipRoleOptionLabel(value)}</option>)}</select>
       <button type="button" className="secondary" onClick={applyRoleToSelected}><Check size={13}/>선택 학생에 적용</button>
       <button type="button" className="secondary" onClick={saveRoleDraft} disabled={!dirtyRoleCount}><Save size={13}/>임시 저장 {dirtyRoleCount ? `(${dirtyRoleCount})` : ""}</button>
-      <button type="button" className="primary" onClick={applyRoleDraft} disabled={!dirtyRoleCount}><CheckCircle2 size={13}/>학교 자료 반영</button>
+      <button type="button" className="primary" onClick={applyRoleDraft} disabled={!dirtyRoleCount}><Save size={13}/>변경 저장 {dirtyRoleCount ? `(${dirtyRoleCount})` : ""}</button>
     </div>
     <div className="gdt-table-wrap"><table className="gdt-table contacts"><thead><tr><th>선택</th><th>반</th><th>번호</th><th>학번</th><th>성명</th><th>학적</th><th>학급/학생 자치</th><th>학생 연락처</th><th>보호자 연락처</th><th>비고</th><th>수정</th></tr></thead><tbody>
       {editingSid === "__new__" && editRow && <tr className="editing add-row">{renderEditorCells()}</tr>}

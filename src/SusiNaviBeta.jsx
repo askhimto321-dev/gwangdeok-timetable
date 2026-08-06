@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Search,
   Sparkles,
+  Star,
   Upload,
   X,
 } from "lucide-react";
@@ -230,6 +231,32 @@ function differenceLabel(student, cutoff) {
   const diff = Math.round((student - cutoff) * 100) / 100;
   return { value: diff, text: `${diff > 0 ? "+" : ""}${diff.toFixed(2)}`, favorable: diff <= 0 };
 }
+
+const SUPPORT_META = {
+  상향: { color: "#b84444", background: "#fff0f0", border: "#efc0c0", detail: "+0.5 초과" },
+  소신: { color: "#a75b18", background: "#fff6e8", border: "#efd3aa", detail: "+0.2~+0.5" },
+  적정: { color: "#7a6412", background: "#fff9db", border: "#eadb92", detail: "-0.2~+0.2" },
+  안정: { color: "#2c7048", background: "#edf8f1", border: "#bedfc9", detail: "-0.5~-0.2" },
+  하향: { color: "#315f91", background: "#eef5ff", border: "#bfd2e9", detail: "-0.5 미만" },
+};
+
+function supportBand(student, cutoff) {
+  if (student == null || cutoff == null) return null;
+  const diff = Math.round((Number(student) - Number(cutoff)) * 100) / 100;
+  let label = "적정";
+  if (diff > 0.5) label = "상향";
+  else if (diff > 0.2) label = "소신";
+  else if (diff < -0.5) label = "하향";
+  else if (diff < -0.2) label = "안정";
+  return { label, diff, ...SUPPORT_META[label] };
+}
+
+function favoriteMatches(item, row) {
+  if (!item || !row) return false;
+  return String(item.source || "") === "susiNaviBeta"
+    && compactText(item.university) === compactText(row[3])
+    && compactText(item.department) === compactText(row[5]);
+}
 function matchesUnit(minimumUnit, recordUnit) {
   const a = compactText(minimumUnit);
   const b = compactText(recordUnit);
@@ -310,7 +337,7 @@ export function SusiNaviBetaAdmin({ showToast }) {
     <section style={ui.adminWrap}>
       <style>{betaCss}</style>
       <div style={ui.adminHead}>
-        <div><span style={ui.betaBadge}>Beta</span><h2 style={ui.adminTitle}>수시NAVI 자료 관리</h2><p style={ui.muted}>기존 광덕고 대입 결과와 분리된 저장 공간을 사용합니다.</p></div>
+        <div style={ui.adminHeadingText}><div><span style={ui.betaBadge}>Beta</span><h2 style={ui.adminTitle}>수시NAVI 자료 관리</h2></div><p style={ui.muted}>교육청 원본에서 Beta 검색에 필요한 항목만 추출하여, 기존 광덕고 대입 결과와 분리해 관리합니다.</p></div>
         {schoolData && <button type="button" style={ui.dangerGhost} onClick={clearSchool} disabled={busy}><X size={14} /> 공용 자료 초기화</button>}
       </div>
       <div className="susi-beta-compare-grid" style={ui.compareGrid}>
@@ -334,7 +361,7 @@ function DataSummary({ title, tone, data }) {
   const school = tone === "school";
   return (
     <article style={{ ...ui.summaryCard, ...(school ? ui.summarySchool : ui.summaryDraft) }}>
-      <div style={ui.summaryTop}><div><b>{title}</b><span>{school ? "교사들이 조회하는 공용 자료" : "반영 전 확인 자료"}</span></div><span style={{ ...ui.statePill, ...(school ? ui.stateSchool : ui.stateDraft) }}>{data ? (school ? "반영됨" : "미리보기") : "없음"}</span></div>
+      <div style={ui.summaryTop}><div style={ui.summaryHeading}><span style={ui.summaryEyebrow}>{school ? "학교 공용 자료" : "업로드 확인 자료"}</span><b style={ui.summaryTitle}>{title}</b><span style={ui.summaryDescription}>{school ? "교사들이 실제 조회하는 최종 자료입니다." : "학교 반영 전 구조와 건수를 확인합니다."}</span></div><span style={{ ...ui.statePill, ...(school ? ui.stateSchool : ui.stateDraft) }}>{data ? (school ? "반영 완료" : "분석 완료") : "자료 없음"}</span></div>
       {data ? <>
         <div style={ui.statGrid}>
           <MiniStat label="대학" value={data.stats?.universities} />
@@ -348,10 +375,15 @@ function DataSummary({ title, tone, data }) {
   );
 }
 function MiniStat({ label, value }) {
-  return <div style={ui.miniStat}><span>{label}</span><b>{Number(value || 0).toLocaleString()}</b></div>;
+  return <div style={ui.miniStat}><span style={ui.miniStatLabel}>{label}</span><b style={ui.miniStatValue}>{Number(value || 0).toLocaleString()}</b></div>;
 }
 
-export default function SusiNaviBetaView({ isAdmin = false }) {
+export default function SusiNaviBetaView({
+  isAdmin = false,
+  selectedStudent = null,
+  favorites = [],
+  onToggleFavorite,
+}) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [grade5, setGrade5] = useState("1.80");
@@ -362,6 +394,7 @@ export default function SusiNaviBetaView({ isAdmin = false }) {
   const [field, setField] = useState("전체");
   const [admissionType, setAdmissionType] = useState("전체");
   const [minimumFilter, setMinimumFilter] = useState("전체");
+  const [favoriteOnly, setFavoriteOnly] = useState(false);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -369,6 +402,18 @@ export default function SusiNaviBetaView({ isAdmin = false }) {
     loadBetaData().then(value => { if (active) { setData(value); setLoading(false); } });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    const value = Number(selectedStudent?.grade5);
+    if (Number.isFinite(value) && value >= 1 && value <= 5) {
+      setGrade5(value.toFixed(2));
+    } else if (selectedStudent?.sid) {
+      // 9등급제 학생이거나 내신 자료가 없는 학생으로 바뀌면
+      // 이전 학생의 5등급 입력값이 남지 않도록 비웁니다.
+      setGrade5("");
+    }
+    if (!selectedStudent?.sid) setFavoriteOnly(false);
+  }, [selectedStudent?.sid, selectedStudent?.grade5]);
 
   const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, grade5), [data, conversionMethod, conversionGroup, grade5]);
   const regions = useMemo(() => unique((data?.records || []).map(row => row[1])), [data]);
@@ -399,12 +444,13 @@ export default function SusiNaviBetaView({ isAdmin = false }) {
       if (admissionType === "정시" && !row[9]) return false;
       if (minimumFilter === "있음" && !minimums.length) return false;
       if (minimumFilter === "없음" && minimums.length) return false;
+      if (favoriteOnly && !favorites.some(item => favoriteMatches(item, row))) return false;
       if (needle && !compactText([row[0], row[1], row[2], row[3], row[4], row[5], row[6], ...(row[7] || []).flat(), ...(row[8] || []).flat()].join(" ")).includes(needle)) return false;
       return true;
     });
-  }, [enriched, query, region, field, admissionType, minimumFilter]);
+  }, [enriched, query, region, field, admissionType, minimumFilter, favoriteOnly, favorites]);
 
-  useEffect(() => { setPage(1); }, [query, region, field, admissionType, minimumFilter]);
+  useEffect(() => { setPage(1); }, [query, region, field, admissionType, minimumFilter, favoriteOnly]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -422,6 +468,11 @@ export default function SusiNaviBetaView({ isAdmin = false }) {
       {!data ? <EmptyData isAdmin={isAdmin} /> : <>
         <div style={ui.converterPanel}>
           <div style={ui.sectionHeading}><div style={ui.step}>1</div><div><b style={ui.sectionTitle}>5·9등급 환산 기준</b><span style={ui.sectionSub}>현재 방식과 통계 기반 방식을 비교해서 사용할 수 있습니다.</span></div></div>
+          {selectedStudent?.sid && <div className="susi-beta-student-auto" style={ui.studentAutoBar}>
+            <div style={ui.studentAutoIdentity}><span>선택 학생 자동 반영</span><b>{selectedStudent.sid} {selectedStudent.name || "학생"}</b></div>
+            <div style={ui.studentAutoGrade}><small>5등급제 전과목 내신</small><b>{selectedStudent.grade5 != null ? Number(selectedStudent.grade5).toFixed(2) : "자료 없음"}</b></div>
+            <p>{selectedStudent.grade5 != null ? "학생 성적표의 등록 학기 전과목 평균을 불러왔습니다. 아래 입력값은 필요할 때 직접 수정할 수 있습니다." : "선택 학생에게 5등급제 내신 자료가 없어 수동 입력을 사용합니다."}</p>
+          </div>}
           <div className="susi-beta-converter-grid" style={ui.converterGrid}>
             <label style={ui.fieldLabel}><span>5등급제 내신</span><input type="number" min="1" max="5" step="0.01" value={grade5} onChange={event => setGrade5(event.target.value)} style={ui.input} /></label>
             <div style={ui.methodBox}><span style={ui.labelText}>환산 방식</span><div style={ui.segmented}>
@@ -447,11 +498,25 @@ export default function SusiNaviBetaView({ isAdmin = false }) {
             <FilterSelect label="전형" value={admissionType} onChange={setAdmissionType} options={["전체", "교과", "종합", "정시"]} />
             <FilterSelect label="수능최저" value={minimumFilter} onChange={setMinimumFilter} options={["전체", "있음", "없음"]} />
           </div>
-          <div style={ui.resultCount}><b>{filtered.length.toLocaleString()}건</b><span>현재 조건에 해당하는 모집단위</span></div>
+          <div style={ui.searchSummaryRow}>
+            <div style={ui.resultCount}><b>{filtered.length.toLocaleString()}건</b><span>현재 조건에 해당하는 모집단위</span></div>
+            <div style={ui.searchSummaryTools}>
+              <button type="button" disabled={!selectedStudent?.sid} onClick={() => setFavoriteOnly(value => !value)} style={{ ...ui.favoriteFilterBtn, ...(favoriteOnly ? ui.favoriteFilterActive : {}), ...(!selectedStudent?.sid ? ui.favoriteBtnDisabled : {}) }}><Star size={13} fill={favoriteOnly ? "currentColor" : "none"}/>즐겨찾기만</button>
+              <div style={ui.supportLegend}>{Object.entries(SUPPORT_META).map(([label, meta]) => <span key={label} style={{ ...ui.supportLegendItem, color: meta.color, background: meta.background, borderColor: meta.border }}><b>{label}</b><small>{meta.detail}</small></span>)}</div>
+            </div>
+          </div>
         </div>
 
         <div style={ui.resultList}>
-          {visible.length ? visible.map(({ row, minimums }, index) => <ResultCard key={`${row[3]}-${row[5]}-${(page - 1) * PAGE_SIZE + index}`} row={row} minimums={minimums} convertedGrade={conversion?.value} />) : <div style={ui.noResult}>조건에 맞는 결과가 없습니다.</div>}
+          {visible.length ? visible.map(({ row, minimums }, index) => <ResultCard
+            key={`${row[3]}-${row[5]}-${(page - 1) * PAGE_SIZE + index}`}
+            row={row}
+            minimums={minimums}
+            convertedGrade={conversion?.value}
+            favorite={favorites.some(item => favoriteMatches(item, row))}
+            favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)}
+            onToggleFavorite={onToggleFavorite}
+          />) : <div style={ui.noResult}>조건에 맞는 결과가 없습니다.</div>}
         </div>
         {pageCount > 1 && <div style={ui.pagination}><button disabled={page <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}>이전</button><span>{page} / {pageCount}</span><button disabled={page >= pageCount} onClick={() => setPage(value => Math.min(pageCount, value + 1))}>다음</button></div>}
       </>}
@@ -463,12 +528,30 @@ function FilterSelect({ label, value, onChange, options }) {
   return <label style={ui.filterLabel}><span>{label}</span><select value={value} onChange={event => onChange(event.target.value)}>{options.map(option => <option key={option}>{option}</option>)}</select></label>;
 }
 
-function ResultCard({ row, minimums, convertedGrade }) {
+function ResultCard({ row, minimums, convertedGrade, favorite, favoriteEnabled, onToggleFavorite }) {
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
+  const favoriteItem = {
+    source: "susiNaviBeta",
+    university,
+    department: unit2027,
+    admissionType: "수시NAVI Beta",
+    region,
+    field,
+    note: "2027 수시NAVI Beta 모집단위",
+  };
   return (
     <article className="susi-beta-result-card" style={ui.resultCard}>
       <div style={ui.resultIdentity}>
-        <div style={ui.universityLine}><h3 style={ui.universityName}>{university}</h3><span style={ui.fieldBadge}>{field}</span></div>
+        <div style={ui.universityLine}>
+          <h3 style={ui.universityName}>{university}</h3><span style={ui.fieldBadge}>{field}</span>
+          <button
+            type="button"
+            title={favoriteEnabled ? (favorite ? "즐겨찾기 해제" : "즐겨찾기 추가") : "학생을 먼저 선택하세요"}
+            disabled={!favoriteEnabled}
+            onClick={() => onToggleFavorite?.(favoriteItem)}
+            style={{ ...ui.favoriteBtn, ...(favorite ? ui.favoriteBtnActive : {}), ...(!favoriteEnabled ? ui.favoriteBtnDisabled : {}) }}
+          ><Star size={15} fill={favorite ? "currentColor" : "none"}/></button>
+        </div>
         <b style={ui.unitTitle}>{unit2027}</b>
         <div style={ui.location}>{[regionGroup, region, detailRegion].filter(Boolean).join(" · ")}</div>
         {unit2026 && unit2026 !== unit2027 && <div style={ui.previousUnit}><span>2026 모집단위</span>{unit2026}</div>}
@@ -485,7 +568,12 @@ function ResultCard({ row, minimums, convertedGrade }) {
 function AdmissionGroup({ title, items = [], convertedGrade, tone }) {
   return <div style={ui.resultSection}><div style={ui.resultSectionTitle}>{title}</div>{items.length ? <div style={ui.admissionItems}>{items.map((item, index) => {
     const diff = differenceLabel(convertedGrade, item[1]);
-    return <div key={`${item[0]}-${index}`} style={{ ...ui.admissionItem, ...(tone === "teaching" ? ui.teachingItem : ui.holisticItem) }}><b>{item[0]}</b><span>50% {item[1] ?? "-"} · 70% {item[2] ?? "-"}</span>{diff && <small style={{ color: diff.favorable ? "#287348" : "#b05244" }}>학생−50%컷 {diff.text}</small>}</div>;
+    const support = supportBand(convertedGrade, item[1]);
+    return <div key={`${item[0]}-${index}`} style={{ ...ui.admissionItem, ...(tone === "teaching" ? ui.teachingItem : ui.holisticItem) }}>
+      <div style={ui.admissionItemHead}><b>{item[0]}</b>{support && <span style={{ ...ui.supportBadge, color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span>}</div>
+      <span style={ui.cutoffLine}><strong>50%컷 {item[1] ?? "-"}</strong><em>70%컷 {item[2] ?? "-"}</em></span>
+      {diff && <small style={{ color: diff.favorable ? "#287348" : "#b05244" }}>학생 환산−50%컷 <b>{diff.text}</b></small>}
+    </div>;
   })}</div> : <span style={ui.none}>자료 없음</span>}</div>;
 }
 function RegularGroup({ info }) {
@@ -526,16 +614,28 @@ const ui = {
   conversionValue: { fontSize: 21, lineHeight: 1.1, color: "#543f82" },
   conversionHelp: { fontSize: 9.5, color: "#817795" },
   statDisclaimer: { marginTop: 10, padding: "9px 11px", borderRadius: 10, background: "#f7f5fb", color: "#6d6381", fontSize: 10.5, lineHeight: 1.5 },
+  studentAutoBar: { marginBottom: 12, display: "grid", gridTemplateColumns: "minmax(180px,.8fr) minmax(130px,.45fr) minmax(260px,1.4fr)", alignItems: "center", gap: 12, padding: "11px 13px", border: "1px solid #d4deed", borderRadius: 12, background: "linear-gradient(135deg,#f7faff,#fbfcff)" },
+  studentAutoIdentity: { display: "grid", gap: 3, minWidth: 0 },
+  studentAutoGrade: { display: "grid", gap: 2, padding: "7px 10px", borderRadius: 9, background: "#edf4ff", color: "#315a91" },
   filterGrid: { display: "grid", gridTemplateColumns: "minmax(260px,2fr) repeat(4,minmax(120px,.65fr))", gap: 9 },
   searchBox: { minHeight: 44, display: "flex", alignItems: "center", gap: 8, padding: "0 12px", border: "1px solid #cdd7e6", borderRadius: 11, background: "#fff" },
   filterLabel: { display: "grid", gridTemplateRows: "auto 1fr", gap: 3, fontSize: 9.5, fontWeight: 800, color: "#758095" },
   resultCount: { marginTop: 11, display: "flex", alignItems: "baseline", gap: 6, color: "#687386", fontSize: 11 },
+  searchSummaryRow: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  searchSummaryTools: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
+  favoriteFilterBtn: { minHeight: 29, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 9px", border: "1px solid #d5ddea", borderRadius: 9, background: "#fff", color: "#667085", fontSize: 10, fontWeight: 850, cursor: "pointer" },
+  favoriteFilterActive: { borderColor: "#e1c36d", background: "#fff7d9", color: "#a36c0a" },
+  supportLegend: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5, flexWrap: "wrap", marginTop: 9 },
+  supportLegendItem: { display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 7px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 800 },
   resultList: { display: "grid", gap: 10 },
   resultCard: { display: "grid", gridTemplateColumns: "235px 1fr", gap: 14, padding: 14, border: "1px solid #dbe2ec", borderRadius: 15, background: "#fff", boxShadow: "0 4px 13px rgba(52,62,78,.04)" },
   resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 5, padding: 11, borderRadius: 12, background: "#f7f8fb" },
   universityLine: { display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
   universityName: { margin: 0, fontSize: 16, lineHeight: 1.2, letterSpacing: "-.02em" },
   fieldBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e9edf5", color: "#526078", fontSize: 9.5, fontWeight: 850 },
+  favoriteBtn: { marginLeft: "auto", width: 31, height: 31, borderRadius: 9, border: "1px solid #d2dbe8", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#7b8799", background: "#fff", cursor: "pointer" },
+  favoriteBtnActive: { color: "#b47b12", background: "#fff8df", borderColor: "#e6ca83" },
+  favoriteBtnDisabled: { opacity: .42, cursor: "not-allowed" },
   unitTitle: { fontSize: 14, lineHeight: 1.35, wordBreak: "keep-all" },
   location: { fontSize: 10.5, color: "#7c8596" },
   previousUnit: { marginTop: 5, display: "grid", gap: 2, paddingTop: 7, borderTop: "1px solid #e1e5ec", fontSize: 10.5, color: "#697386" },
@@ -544,6 +644,9 @@ const ui = {
   resultSectionTitle: { fontSize: 10.5, fontWeight: 900, color: "#596579" },
   admissionItems: { display: "grid", gap: 5 },
   admissionItem: { minWidth: 0, display: "grid", gap: 2, padding: "8px 9px", borderRadius: 10, border: "1px solid #dce3ed", background: "#fbfcfd", fontSize: 10.5 },
+  admissionItemHead: { minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 },
+  supportBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 37, padding: "3px 7px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 900 },
+  cutoffLine: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", color: "#596579" },
   teachingItem: { borderColor: "#d6dfef", background: "#f5f8ff" },
   holisticItem: { borderColor: "#e3dbea", background: "#fbf7fe" },
   regularItem: { borderColor: "#d7e4df", background: "#f4faf7" },
@@ -552,23 +655,30 @@ const ui = {
   minimumItem: { display: "grid", gap: 2, padding: "8px 9px", borderRadius: 10, border: "1px solid #ead9a9", background: "#fffaf0", fontSize: 10.5 },
   noResult: { padding: 40, borderRadius: 15, border: "1px dashed #d5dae2", textAlign: "center", color: "#838b99" },
   pagination: { display: "flex", justifyContent: "center", alignItems: "center", gap: 12, padding: 8 },
-  adminWrap: { display: "grid", gap: 14, padding: 16, border: "1px solid #dfe3eb", borderRadius: 16, background: "#fff" },
+  adminWrap: { display: "grid", gap: 16, padding: 18, border: "1px solid #d9dfeb", borderRadius: 18, background: "linear-gradient(180deg,#fff,#fcfcfe)", boxShadow: "0 8px 24px rgba(52,62,78,.05)" },
   adminHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
-  adminTitle: { display: "inline", margin: "0 0 0 7px", fontSize: 18 },
-  muted: { margin: "6px 0 0", fontSize: 11.5, color: "#7c8494" },
+  adminHeadingText: { display: "grid", gap: 1, minWidth: 0 },
+  adminTitle: { display: "inline", margin: "0 0 0 8px", fontSize: 20, lineHeight: 1.2, letterSpacing: "-.025em", color: "#283247" },
+  muted: { margin: "7px 0 0", fontSize: 11.5, lineHeight: 1.55, color: "#737d8e", fontWeight: 650 },
   compareGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
-  summaryCard: { padding: 14, borderRadius: 14, border: "1px solid", display: "grid", gap: 11 },
+  summaryCard: { padding: 16, borderRadius: 15, border: "1px solid", display: "grid", gap: 12, minWidth: 0 },
   summarySchool: { background: "#f3faf6", borderColor: "#c9dfd1" },
   summaryDraft: { background: "#f5f8ff", borderColor: "#ccd8ec" },
   summaryTop: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" },
+  summaryHeading: { display: "grid", gap: 3, minWidth: 0 },
+  summaryEyebrow: { fontSize: 9.5, color: "#778398", fontWeight: 850 },
+  summaryTitle: { fontSize: 15.5, lineHeight: 1.25, color: "#29374c", letterSpacing: "-.015em" },
+  summaryDescription: { fontSize: 10.5, lineHeight: 1.45, color: "#738094" },
   statePill: { padding: "4px 8px", borderRadius: 999, fontSize: 9.5, fontWeight: 900 },
   stateSchool: { color: "#287348", background: "#e1f3e8" },
   stateDraft: { color: "#315a9b", background: "#e7efff" },
   statGrid: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6 },
-  miniStat: { display: "grid", gap: 2, padding: 8, borderRadius: 9, background: "rgba(255,255,255,.72)", textAlign: "center" },
-  sourceMeta: { display: "grid", gap: 3, fontSize: 10.5, color: "#6f7888" },
+  miniStat: { display: "grid", gap: 3, padding: "10px 8px", borderRadius: 10, background: "rgba(255,255,255,.82)", textAlign: "center", border: "1px solid rgba(210,219,233,.62)" },
+  miniStatLabel: { fontSize: 9.5, color: "#718095", fontWeight: 800 },
+  miniStatValue: { fontSize: 19, lineHeight: 1.1, color: "#243d64", fontWeight: 900 },
+  sourceMeta: { display: "grid", gap: 4, paddingTop: 2, fontSize: 10.5, lineHeight: 1.45, color: "#6f7888", minWidth: 0 },
   summaryEmpty: { padding: 22, textAlign: "center", color: "#9299a6", fontSize: 11 },
-  uploadPanel: { display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 8, alignItems: "center", padding: 11, borderRadius: 12, background: "#f7f8fa" },
+  uploadPanel: { display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 9, alignItems: "center", padding: 12, borderRadius: 13, border: "1px solid #e2e6ee", background: "#f7f8fb" },
   fileName: { minWidth: 0, display: "grid", gap: 2, fontSize: 11, color: "#737c8c", overflow: "hidden" },
   statusLine: { display: "flex", alignItems: "center", gap: 7, padding: "8px 10px", borderRadius: 9, background: "#f1f3f7", color: "#667085", fontSize: 10.5 },
   notice: { display: "flex", gap: 7, padding: 10, borderRadius: 10, background: "#fff8e7", color: "#725d26", fontSize: 10.5, lineHeight: 1.5 },
@@ -581,6 +691,21 @@ const betaCss = `
 .susi-beta-filter-grid input{min-width:0;flex:1;border:0;outline:0;background:transparent;font:inherit;font-size:12px;color:#263244}
 .susi-beta-filter-grid select{width:100%;height:38px;border:1px solid #cdd7e6;border-radius:10px;background:#fff;padding:0 9px;font:inherit;font-size:11px;font-weight:750;color:#344054;outline:0}
 .susi-beta-filter-grid label>span{padding-left:2px}
+.susi-beta-result-card b,.susi-beta-result-card strong{letter-spacing:-.015em}
+.susi-beta-result-card em{font-style:normal;color:#7a8495}
+.susi-beta-converter-grid button small{font-size:9px}
+.susi-beta-student-auto span{font-size:9.5px;color:#728097;font-weight:800}
+.susi-beta-student-auto b{font-size:13px;line-height:1.25;color:#2b3f60}
+.susi-beta-student-auto small{font-size:9px;color:#6a7c96;font-weight:800}
+.susi-beta-student-auto p{margin:0;font-size:10.5px;line-height:1.5;color:#6d7889}
+.susi-beta-compare-grid article header>div{display:grid;gap:3px;min-width:0}
+.susi-beta-compare-grid article header>div>b{font-size:15px;line-height:1.25;color:#28354a}
+.susi-beta-compare-grid article header>div>span{font-size:10.5px;line-height:1.45;color:#738094}
+.susi-beta-compare-grid article dl span,.susi-beta-compare-grid article dl dt{font-size:10px;color:#718095;font-weight:750}
+.susi-beta-compare-grid article dl b,.susi-beta-compare-grid article dl dd{margin:0;font-size:19px;line-height:1.1;color:#243d64;font-weight:900}
+.susi-beta-compare-grid article footer b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#455166}
+.susi-beta-compare-grid article footer span{line-height:1.45}
+.susi-beta-upload-panel button:disabled{opacity:.48;cursor:not-allowed}
 @media(max-width:900px){
   .susi-beta-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .susi-beta-query{grid-column:1/-1}
@@ -589,11 +714,15 @@ const betaCss = `
   .susi-beta-converter-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .susi-beta-upload-panel{grid-template-columns:auto 1fr!important}
   .susi-beta-compare-grid{grid-template-columns:1fr!important}
+  .susi-beta-student-auto{grid-template-columns:1fr 140px!important}
+  .susi-beta-student-auto p{grid-column:1/-1}
 }
 @media(max-width:720px){
   .susi-beta-filter-grid{grid-template-columns:1fr!important}
   .susi-beta-query{grid-column:auto}
   .susi-beta-admission-columns,.susi-beta-converter-grid{grid-template-columns:1fr!important}
   .susi-beta-upload-panel{grid-template-columns:1fr!important}
+  .susi-beta-student-auto{grid-template-columns:1fr!important}
+  .susi-beta-student-auto p{grid-column:auto}
 }
 `;
