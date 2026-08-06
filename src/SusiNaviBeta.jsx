@@ -21,6 +21,7 @@ const STORAGE_KEY = "kd_susi_navi_beta_v1";
 const SCHEMA_VERSION = 1;
 const PAGE_SIZE = 12;
 const CONVERSION_GROUPS = ["전교과", "국수영사과", "국수영과", "국수영사"];
+const CONVERSION_PREF_KEY = "kd_susi_navi_conversion_pref_v1";
 
 // records compact schema
 // [권역, 지역, 세부지역, 대학, 2026모집단위, 2027모집단위, 계열, 교과전형[], 종합전형[], 정시정보]
@@ -106,12 +107,40 @@ function hasRegular(info) {
 function unique(values) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko"));
 }
+const UNIVERSITY_CAMPUS_ALIASES = {
+  가천대: { 성남: "글로벌", 인천: "메디컬", 글로벌: "글로벌", 메디컬: "메디컬" },
+  한양대: { 서울: "서울", 안산: "ERICA", ERICA: "ERICA" },
+  경희대: { 서울: "서울", 용인: "국제", 수원: "국제", 국제: "국제" },
+  단국대: { 용인: "죽전", 죽전: "죽전", 천안: "천안" },
+  경기대: { 서울: "서울", 수원: "수원" },
+  명지대: { 서울: "서울", 용인: "용인" },
+};
+function canonicalCampus(base, campus) {
+  const raw = normalizeText(campus);
+  if (!raw) return "";
+  const map = UNIVERSITY_CAMPUS_ALIASES[base] || {};
+  return map[raw] || map[raw.toUpperCase()] || (raw.toUpperCase() === "ERICA" ? "ERICA" : raw);
+}
+function readConversionPreference() {
+  if (typeof window === "undefined") return { method: "legacy", group: "전교과" };
+  try {
+    const value = JSON.parse(window.localStorage.getItem(CONVERSION_PREF_KEY) || "null");
+    return {
+      method: value?.method === "statistical" ? "statistical" : "legacy",
+      group: CONVERSION_GROUPS.includes(value?.group) ? value.group : "전교과",
+    };
+  } catch {
+    return { method: "legacy", group: "전교과" };
+  }
+}
 
 function universityBaseKey(value) {
   let text = normalizeText(value)
     .replace(/[（]/g, "(").replace(/[）]/g, ")")
-    .replace(/\((?:서울|ERICA|에리카|메디컬|국제|수원|죽전|천안|안양|성남|본교|제\d캠퍼스|캠퍼스)[^)]*\)/gi, "")
-    .replace(/(?:서울|ERICA|에리카|메디컬|국제|수원|죽전|천안|안양|성남)\s*캠퍼스/gi, "")
+    // 대학 식별용 기본키에서는 괄호·슬래시 뒤의 캠퍼스/지역 표기를 모두 제외합니다.
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\s*[\/|]\s*(?:서울|ERICA|에리카|메디컬|글로벌|국제|수원|죽전|천안|안양|성남|인천|안산|용인)(?:캠퍼스)?\s*$/gi, "")
+    .replace(/(?:서울|ERICA|에리카|메디컬|글로벌|국제|수원|죽전|천안|안양|성남|인천|안산|용인)\s*캠퍼스/gi, "")
     .replace(/국립/g, "")
     .replace(/여자대학교/g, "여대")
     .replace(/대학교/g, "대")
@@ -126,15 +155,18 @@ function universityBaseKey(value) {
 }
 function universityCampus(value, region = "") {
   const text = normalizeText(value).replace(/[（]/g, "(").replace(/[）]/g, ")");
-  if (/ERICA|에리카/i.test(text)) return "ERICA";
-  for (const campus of ["메디컬", "국제", "서울", "수원", "죽전", "천안", "안양", "성남"]) {
-    if (new RegExp(`(?:\\(|\\s|^)${campus}(?:캠퍼스)?(?:\\)|\\s|$)`).test(text)) return campus;
-  }
   const base = universityBaseKey(text);
+  let explicit = "";
+  if (/ERICA|에리카/i.test(text)) explicit = "ERICA";
+  if (!explicit) {
+    explicit = ["메디컬", "글로벌", "국제", "서울", "수원", "죽전", "천안", "안양", "성남", "인천", "안산", "용인"]
+      .find(campus => new RegExp(`(?:\\(|\\s|\\/|^)${campus}(?:캠퍼스)?(?:\\)|\\s|\\/|$)`, "i").test(text)) || "";
+  }
+  if (explicit) return canonicalCampus(base, explicit);
   const regionText = normalizeText(region);
   if (base === "한양대") return /경기|안산/.test(regionText) ? "ERICA" : "서울";
   if (base === "가천대") return /인천/.test(regionText) ? "메디컬" : "글로벌";
-  return regionText || "단일";
+  return canonicalCampus(base, regionText) || "단일";
 }
 function universityIdentityKey(value, region = "") {
   return `${universityBaseKey(value)}|${universityCampus(value, region)}`;
@@ -600,9 +632,10 @@ export default function SusiNaviBetaView({
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const conversionPreference = useMemo(() => readConversionPreference(), []);
   const [grade5, setGrade5] = useState("1.80");
-  const [conversionMethod, setConversionMethod] = useState("legacy");
-  const [conversionGroup, setConversionGroup] = useState("전교과");
+  const [conversionMethod, setConversionMethod] = useState(conversionPreference.method);
+  const [conversionGroup, setConversionGroup] = useState(conversionPreference.group);
   const [query, setQuery] = useState("");
   const [region, setRegion] = useState("전체");
   const [field, setField] = useState("전체");
@@ -624,16 +657,23 @@ export default function SusiNaviBetaView({
   }, [focusUniversity]);
 
   useEffect(() => {
-    const value = Number(selectedStudent?.grade5);
+    const groupValue = conversionMethod === "statistical"
+      ? selectedStudent?.grade5ByGroup?.[conversionGroup]
+      : selectedStudent?.grade5;
+    const fallbackValue = selectedStudent?.grade5;
+    const value = Number(groupValue ?? fallbackValue);
     if (Number.isFinite(value) && value >= 1 && value <= 5) {
       setGrade5(value.toFixed(2));
     } else if (selectedStudent?.sid) {
-      // 9등급제 학생이거나 내신 자료가 없는 학생으로 바뀌면
-      // 이전 학생의 5등급 입력값이 남지 않도록 비웁니다.
       setGrade5("");
     }
     if (!selectedStudent?.sid) setFavoriteOnly(false);
-  }, [selectedStudent?.sid, selectedStudent?.grade5]);
+  }, [selectedStudent?.sid, selectedStudent?.grade5, selectedStudent?.grade5ByGroup, conversionMethod, conversionGroup]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(CONVERSION_PREF_KEY, JSON.stringify({ method: conversionMethod, group: conversionGroup }));
+  }, [conversionMethod, conversionGroup]);
 
   const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, grade5), [data, conversionMethod, conversionGroup, grade5]);
   const regions = useMemo(() => unique((data?.records || []).map(row => row[1])), [data]);
@@ -706,8 +746,8 @@ export default function SusiNaviBetaView({
           <div style={ui.sectionHeading}><div style={ui.step}>1</div><div><b style={ui.sectionTitle}>5·9등급 환산 기준</b><span style={ui.sectionSub}>현재 방식과 통계 기반 방식을 비교해서 사용할 수 있습니다.</span></div></div>
           {selectedStudent?.sid && <div className="susi-beta-student-auto" style={ui.studentAutoBar}>
             <div style={ui.studentAutoIdentity}><span>선택 학생 자동 반영</span><b>{selectedStudent.sid} {selectedStudent.name || "학생"}</b></div>
-            <div style={ui.studentAutoGrade}><small>5등급제 전과목 내신</small><b>{selectedStudent.grade5 != null ? Number(selectedStudent.grade5).toFixed(2) : "자료 없음"}</b></div>
-            <p>{selectedStudent.grade5 != null ? "학생 성적표의 등록 학기 전과목 평균을 불러왔습니다. 아래 입력값은 필요할 때 직접 수정할 수 있습니다." : "선택 학생에게 5등급제 내신 자료가 없어 수동 입력을 사용합니다."}</p>
+            <div style={ui.studentAutoGrade}><small>5등급제 {conversionMethod === "statistical" ? conversionGroup : "전교과"} 내신</small><b>{grade5 ? Number(grade5).toFixed(2) : "자료 없음"}</b></div>
+            <p>{grade5 ? `학생 성적표의 등록 학기 ${conversionMethod === "statistical" ? conversionGroup : "전교과"} 평균을 불러왔습니다. 아래 입력값은 필요할 때 직접 수정할 수 있습니다.` : "선택 학생에게 해당 5등급제 내신 자료가 없어 수동 입력을 사용합니다."}</p>
           </div>}
           <div className="susi-beta-converter-grid" style={ui.converterGrid}>
             <label style={ui.fieldLabel}><span>5등급제 내신</span><input type="number" min="1" max="5" step="0.01" value={grade5} onChange={event => setGrade5(event.target.value)} style={ui.input} /></label>
@@ -742,10 +782,16 @@ export default function SusiNaviBetaView({
             </div>
           </div>
           <div className="susi-beta-support-filter" style={ui.supportFilterRow}>
-            <div style={ui.supportFilterHeading}>
-              <span style={ui.supportFilterEyebrow}>지원 구간 필터</span>
-              <b>학생 9등급 환산 내신과 <em>{cutoffBasis}%컷</em>의 차이</b>
-              <small>비교 기준 컷을 바꾸면 상향·소신·적정·안정·하향 판정도 함께 다시 계산됩니다.</small>
+            <div style={ui.supportFilterTop}>
+              <div style={ui.supportFilterHeading}>
+                <span style={ui.supportFilterEyebrow}>지원 구간 필터</span>
+                <b style={ui.supportFilterOneLine}>비교 기준: <em>{conversionMethod === "legacy" ? "기존 환산" : `통계 기반 Beta·${conversionGroup}`}</em> {conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"} − <em>합격자 ${cutoffBasis}%컷</em> · 선택 기준으로 지원 구간 재계산</b>
+              </div>
+              <div style={ui.globalConversionControls} aria-label="검색 전체 환산 방식">
+                <button type="button" onClick={() => setConversionMethod("legacy")} style={{ ...ui.globalConversionBtn, ...(conversionMethod === "legacy" ? ui.globalConversionActive : {}) }}>기존 환산</button>
+                <button type="button" onClick={() => setConversionMethod("statistical")} style={{ ...ui.globalConversionBtn, ...(conversionMethod === "statistical" ? ui.globalConversionActive : {}) }}>통계 기반 Beta</button>
+                {conversionMethod === "statistical" && <select value={conversionGroup} onChange={event => setConversionGroup(event.target.value)} style={ui.globalConversionSelect}>{CONVERSION_GROUPS.map(value => <option key={value}>{value}</option>)}</select>}
+              </div>
             </div>
             <div style={ui.supportFilterControls}>
               <div style={ui.cutoffBasisToggle} aria-label="지원 구간 비교 기준">
@@ -760,6 +806,7 @@ export default function SusiNaviBetaView({
           </div>
         </div>
 
+        {data.caseStats?.length > 0 && <div style={ui.caseStatsGuide}><AlertTriangle size={14}/><span><b>‘협력고교 합격사례 244건’은 해당 학과의 합격자 244명이 아닙니다.</b> 원본 자료가 학과를 구분하지 않고 경기도 협력고교 사례를 <strong>대학·전형·계열 단위</strong>로 집계하므로, 같은 전형·계열의 여러 모집단위에 동일한 사례 수와 30·50·70%컷이 표시됩니다. 대학이 공개한 학과별 50%·70%컷이 비어 있어도 이 통계는 별도로 나타날 수 있습니다.</span></div>}
         <div style={ui.resultList}>
           {visible.length ? visible.map(({ row, minimums, courseRules, changes2028, schedules, caseStats }, index) => <ResultCard
             key={`${row[3]}-${row[5]}-${(page - 1) * PAGE_SIZE + index}`}
@@ -810,7 +857,8 @@ function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedul
     universityKey: universityIdentityKey(university, region),
     campus: universityCampus(university, region),
     department: unit2027,
-    admissionType: "수시NAVI Beta",
+    admissionType: "",
+    sourceLabel: "수시NAVI Beta",
     region,
     field,
     note: "2027 수시NAVI Beta 모집단위",
@@ -873,12 +921,12 @@ function CaseDistribution({ cuts }) {
   if (![p30, p50, p70].some(value => Number.isFinite(Number(value)))) return null;
   return <div style={ui.caseDisclosure}>
     <button type="button" onClick={() => setOpen(value => !value)} style={ui.caseToggleBtn}>
-      <span>협력고교 합격사례 <b>{Number(count || 0).toLocaleString()}건</b></span>
-      <small>{open ? "컷 닫기" : "30·50·70%컷 보기"}</small>
+      <span>대학·전형·계열 통합 합격사례 <b>{Number(count || 0).toLocaleString()}건</b></span>
+      <small>{open ? "컷 닫기" : "학과 구분 없음 · 컷 보기"}</small>
     </button>
-    {open && <div style={ui.caseCutGrid}>
+    {open && <><div style={ui.caseCutGrid}>
       {[['30%', p30, ui.case30], ['50%', p50, ui.case50], ['70%', p70, ui.case70]].map(([label, value, toneStyle]) => <div key={label} style={{ ...ui.caseCutCard, ...toneStyle }}><span>{label} 컷</span><b>{Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "-"}</b></div>)}
-    </div>}
+    </div><small style={ui.caseScopeNote}>선택한 교과 조합 기준 · 학과 구분 없는 대학·전형·계열 통계</small></>}
   </div>;
 }
 function RelatedInfo({ courseRules = [], changes2028 = [], schedules = [] }) {
@@ -952,10 +1000,16 @@ const ui = {
   favoriteFilterLabel: { fontSize: 9.5, fontWeight: 850, color: "#8490a2" },
   favoriteFilterBtn: { minHeight: 32, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 11px", border: "1px solid #d5ddea", borderRadius: 9, background: "#fff", color: "#667085", fontSize: 10.5, fontWeight: 850, cursor: "pointer" },
   favoriteFilterActive: { borderColor: "#e1c36d", background: "#fff7d9", color: "#9a660d", boxShadow: "0 3px 9px rgba(181,126,18,.11)" },
-  supportFilterRow: { marginTop: 15, padding: "14px 15px", border: "1px solid #e0e5ef", borderRadius: 13, background: "linear-gradient(135deg,#fafbff,#f8f7fc)", display: "grid", gridTemplateColumns: "minmax(255px,.82fr) minmax(420px,1.8fr)", alignItems: "center", gap: 18 },
-  supportFilterHeading: { display: "grid", gap: 4, fontSize: 11.5, lineHeight: 1.45, color: "#344055" },
-  supportFilterEyebrow: { fontSize: 9.5, fontWeight: 900, color: "#735e9a", letterSpacing: ".02em" },
-  supportFilterControls: { minWidth: 0, display: "grid", gap: 10, justifyItems: "end" },
+  supportFilterRow: { marginTop: 15, padding: "14px 15px", border: "1px solid #e0e5ef", borderRadius: 13, background: "linear-gradient(135deg,#fafbff,#f8f7fc)", display: "grid", gap: 12 },
+  supportFilterTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" },
+  supportFilterHeading: { minWidth: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, lineHeight: 1.4, color: "#344055", flexWrap: "wrap" },
+  supportFilterEyebrow: { fontSize: 9.5, fontWeight: 900, color: "#735e9a", letterSpacing: ".02em", whiteSpace: "nowrap" },
+  supportFilterOneLine: { minWidth: 0, fontSize: 10.2, color: "#4e596d", fontWeight: 780, whiteSpace: "nowrap" },
+  globalConversionControls: { display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" },
+  globalConversionBtn: { minHeight: 29, padding: "0 9px", border: "1px solid #d9dfea", borderRadius: 8, background: "#fff", color: "#6b7587", fontSize: 9.5, fontWeight: 850, cursor: "pointer" },
+  globalConversionActive: { color: "#fff", background: "#66558e", borderColor: "#66558e", boxShadow: "0 3px 8px rgba(86,69,126,.16)" },
+  globalConversionSelect: { height: 29, border: "1px solid #d4dce8", borderRadius: 8, background: "#fff", padding: "0 7px", color: "#4f5b70", fontSize: 9.5, fontWeight: 800 },
+  supportFilterControls: { minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
   cutoffBasisToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 3, padding: 3, borderRadius: 10, background: "#e9edf4" },
   cutoffBasisBtn: { minHeight: 29, padding: "0 10px", border: 0, borderRadius: 8, background: "transparent", color: "#707b8c", fontSize: 10, fontWeight: 850, cursor: "pointer" },
   cutoffBasisActive: { background: "#fff", color: "#5b4787", boxShadow: "0 2px 7px rgba(64,69,85,.13)" },
@@ -964,6 +1018,7 @@ const ui = {
   supportFilterBtnActive: { background: "#5e5188", borderColor: "#5e5188", color: "#fff", boxShadow: "0 4px 10px rgba(94,81,136,.18)" },
   supportLegendItem: { minHeight: 30, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 800, cursor: "pointer" },
   supportSelected: { boxShadow: "0 0 0 2px rgba(74,85,115,.17)", transform: "translateY(-1px)" },
+  caseStatsGuide: { display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", border: "1px solid #d9e1ee", borderRadius: 11, background: "#f7f9fd", color: "#5c687c", fontSize: 10.5, lineHeight: 1.5 },
   resultList: { display: "grid", gap: 12 },
   resultCard: { display: "grid", gridTemplateColumns: "220px 1fr", gap: 14, padding: 14, border: "1px solid #dbe2ec", borderRadius: 16, background: "#fff", boxShadow: "0 5px 16px rgba(52,62,78,.045)" },
   resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 6, padding: 12, borderRadius: 12, background: "linear-gradient(180deg,#f8f9fc,#f5f7fa)" },
@@ -997,6 +1052,7 @@ const ui = {
   caseDisclosure: { paddingTop: 6, borderTop: "1px dashed #d9e0e9", display: "grid", gap: 6 },
   caseToggleBtn: { minHeight: 29, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, padding: "0 8px", border: "1px solid #dce3ed", borderRadius: 8, background: "#fff", color: "#5b687c", fontSize: 9.5, fontWeight: 750, cursor: "pointer" },
   caseCutGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
+  caseScopeNote: { color: "#7d8797", fontSize: 8.5, lineHeight: 1.35, textAlign: "center" },
   caseCutCard: { display: "grid", gap: 2, padding: "7px 5px", borderRadius: 8, border: "1px solid", textAlign: "center" },
   case30: { color: "#39638d", background: "#eef5fd", borderColor: "#cbdced" },
   case50: { color: "#64518e", background: "#f4effb", borderColor: "#d9cdea" },

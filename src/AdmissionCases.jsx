@@ -685,10 +685,20 @@ const CASE_MULTI_CAMPUS_BY_REGION={
   홍익대:{서울:"서울",세종:"세종"},중앙대:{서울:"서울",경기:"다빈치"},한국외국어대:{서울:"서울",경기:"글로벌"},
   연세대:{서울:"서울",강원:"미래"},성균관대:{서울:"서울",경기:"수원"},명지대:{서울:"서울",경기:"용인"},경기대:{서울:"서울",경기:"수원"}
 };
-function caseUniversityBase(value){return String(value||"").normalize("NFKC").replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g,"").replace(/대학교/g,"대").replace(/(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|국제|미래|다빈치|용인|수원)캠퍼스/gi,"").replace(/캠퍼스/g,"").replace(/\s+/g,"").replace(/[()\[\]{}·ㆍ.\-,_]/g,"").toLowerCase()}
+const CASE_CAMPUS_LOCATION_ALIASES={
+  가천대:{성남:"글로벌",인천:"메디컬",글로벌:"글로벌",메디컬:"메디컬"},
+  한양대:{서울:"서울",안산:"ERICA",ERICA:"ERICA"},
+  경희대:{서울:"서울",용인:"국제",수원:"국제",국제:"국제"},
+  단국대:{용인:"죽전",죽전:"죽전",천안:"천안"},
+  경기대:{서울:"서울",수원:"수원"},
+  명지대:{서울:"서울",용인:"용인"},
+};
+function canonicalCaseCampus(universityName,campus=""){const raw=String(campus||"").trim();if(!raw)return"";const aliases=CASE_CAMPUS_LOCATION_ALIASES[caseUniversityBase(universityName)]||{};return aliases[raw]||aliases[raw.toUpperCase()]||(raw.toUpperCase()==="ERICA"?"ERICA":raw)}
+
+function caseUniversityBase(value){return String(value||"").normalize("NFKC").replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g,"").replace(/여자대학교/g,"여대").replace(/여자대학/g,"여대").replace(/대학교/g,"대").replace(/(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|국제|미래|다빈치|용인|수원)캠퍼스/gi,"").replace(/캠퍼스/g,"").replace(/\s+/g,"").replace(/[()\[\]{}·ㆍ.\-,_]/g,"").toLowerCase()}
 function caseRegion(value){const text=String(value||"").normalize("NFKC").replace(/특별시|광역시|특별자치시|특별자치도|도$/g,"").trim();if(!text||text==="미지정"||text==="공통")return"";const aliases={경기도:"경기",충청남도:"충남",충청북도:"충북",전라남도:"전남",전라북도:"전북",경상남도:"경남",경상북도:"경북",제주도:"제주"};return aliases[text]||text}
-function explicitCaseCampus(value){const source=String(value||"").normalize("NFKC");const bracket=source.match(/[（(\[]\s*([^）)\]]+)\s*[）)\]]/);const bracketValue=String(bracket?.[1]||"").replace(/캠퍼스/gi,"").trim();if(bracketValue&&(CASE_CAMPUS_ALIASES.some(name=>bracketValue.toUpperCase()===name.toUpperCase())||/캠퍼스/i.test(String(bracket?.[1]||""))))return bracketValue.toUpperCase()==="ERICA"?"ERICA":bracketValue;const suffix=CASE_CAMPUS_ALIASES.find(name=>new RegExp(`${name}\\s*캠퍼스`,"i").test(source));return suffix?(suffix.toUpperCase()==="ERICA"?"ERICA":suffix):""}
-function caseCampusLabel(value,region=""){const explicit=explicitCaseCampus(value);if(explicit)return explicit;return CASE_MULTI_CAMPUS_BY_REGION[caseUniversityBase(value)]?.[caseRegion(region)]||""}
+function explicitCaseCampus(value){const source=String(value||"").normalize("NFKC");const bracket=source.match(/[（(\[]\s*([^）)\]]+)\s*[）)\]]/);const bracketValue=String(bracket?.[1]||"").replace(/캠퍼스|캠$/gi,"").trim();const mapped=canonicalCaseCampus(source,bracketValue);if(bracketValue&&(mapped!==bracketValue||CASE_CAMPUS_ALIASES.some(name=>bracketValue.toUpperCase()===name.toUpperCase())||/캠퍼스/i.test(String(bracket?.[1]||""))))return mapped;const suffix=CASE_CAMPUS_ALIASES.find(name=>new RegExp(`${name}\\s*(?:캠퍼스|캠)`,"i").test(source));return suffix?canonicalCaseCampus(source,suffix):""}
+function caseCampusLabel(value,region=""){const explicit=explicitCaseCampus(value);if(explicit)return explicit;const base=caseUniversityBase(value);const regionCampus=CASE_MULTI_CAMPUS_BY_REGION[base]?.[caseRegion(region)]||"";return canonicalCaseCampus(value,regionCampus)}
 function caseCampusForRow(row){
   const raw=String(row?.university||"").trim();
   const normalized=String(row?.universityNormalized||"").trim();
@@ -702,6 +712,9 @@ function caseCampusForRow(row){
   return caseCampusLabel(normalized||raw,row?.region);
 }
 function normalizeUniversityLink(value,region=""){return `${caseUniversityBase(value)}|${caseCampusLabel(value,region)}`}
+function normalizeCaseDepartmentLink(value){return String(value||"").normalize("NFKC").toLowerCase().replace(/\([^)]*\)|\[[^\]]*\]/g,"").replace(/(?:학과|학부|전공|계열|과정|트랙|6년제)/g,"").replace(/[\s·ㆍ_\-–—/]+/g,"").trim()}
+function caseDepartmentMatches(value,target){const left=normalizeCaseDepartmentLink(value),right=normalizeCaseDepartmentLink(target);if(!right)return true;if(!left)return false;return left===right||left.includes(right)||right.includes(left)}
+function cleanLinkedAdmissionType(value){const text=String(value||"").trim();return /수시\s*NAVI|수시나비|Beta/i.test(text)?"":text}
 function prepareAdmissionCaseRows(rows=[]){
   const locations=new Map();
   rows.forEach(row=>{const source=row?.university||row?.universityNormalized;const base=caseUniversityBase(source);const campus=caseCampusForRow(row);if(!base)return;if(!locations.has(base))locations.set(base,new Set());if(campus)locations.get(base).add(campus)});
@@ -1153,16 +1166,20 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
   const[benchmarkScale,setBenchmarkScale]=useState("9");
   const[favoriteMode,setFavoriteMode]=useState("group");
   const[page,setPage]=useState(1);
-  const linkedQuery=[focusUniversity,focusDepartment,focusAdmissionType].filter(Boolean).join(" ");
+  const effectiveFocusAdmissionType=cleanLinkedAdmissionType(focusAdmissionType);
+  const linkedQuery=[focusUniversity,focusDepartment,effectiveFocusAdmissionType].filter(Boolean).join(" ");
   useEffect(()=>{if(linkedQuery)setQuery(linkedQuery)},[linkedQuery]);
   const filtered=useMemo(()=>rows.filter(row=>{
     if(focusUniversity&&normalizeUniversityLink(row.universityNormalized||row.university,row.region)!==normalizeUniversityLink(focusUniversity))return false;
-    if(focusDepartment&&!normalizeSearchText(row.department).includes(normalizeSearchText(focusDepartment)))return false;
-    if(focusAdmissionType&&!normalizeSearchText(`${row.admissionType} ${row.detailType}`).includes(normalizeSearchText(focusAdmissionType)))return false;
-    if(!textMatch(row,query))return false;
+    if(focusDepartment&&!caseDepartmentMatches(row.department,focusDepartment))return false;
+    if(effectiveFocusAdmissionType&&!normalizeSearchText(`${row.admissionType} ${row.detailType}`).includes(normalizeSearchText(effectiveFocusAdmissionType)))return false;
+    // 즐겨찾기 등 다른 화면에서 연결된 경우 대학·학과·전형 전용 조건이 이미 적용됩니다.
+    // 화면에 보이는 연결 검색어를 다시 일반 문자열 검색에 넣으면 '간호학과/간호학부',
+    // 대학 약칭 차이 때문에 실제 사례가 있어도 0건이 될 수 있어 중복 검사를 생략합니다.
+    if(!linkedQuery&&!textMatch(row,query))return false;
     if(range!=null){if(profile?.converted==null)return false;const grade=row.overallGrade;if(grade==null||Math.abs(grade-profile.converted)>range)return false}
     return true;
-  }),[rows,query,range,profile?.converted,focusUniversity,focusDepartment,focusAdmissionType]);
+  }),[rows,query,range,profile?.converted,focusUniversity,focusDepartment,effectiveFocusAdmissionType,linkedQuery]);
   const sorted=useMemo(()=>{
     if(sortOrder==="default")return filtered;
     const direction=sortOrder==="overallAsc"?1:-1;
@@ -1174,7 +1191,7 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
       return(av-bv)*direction||String(a.university||"").localeCompare(String(b.university||""),"ko");
     });
   },[filtered,sortOrder]);
-  useEffect(()=>setPage(1),[query,range,sortOrder,rows.length,focusUniversity,focusDepartment,focusAdmissionType]);
+  useEffect(()=>setPage(1),[query,range,sortOrder,rows.length,focusUniversity,focusDepartment,effectiveFocusAdmissionType]);
   const max=Math.max(1,Math.ceil(sorted.length/PAGE_SIZE));
   const visible=sorted.slice((page-1)*PAGE_SIZE,page*PAGE_SIZE);
   const renderRows=(items,printMode=false)=>items.map(row=>{

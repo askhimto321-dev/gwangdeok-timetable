@@ -524,6 +524,12 @@ export default function GradesSection({
       name: studentInfo?.name || latest?.name || metaRecord?.name || "",
       gradeSystem,
       grade5: gradeSystem === 5 ? groups?.전과목?.avg5 : null,
+      grade5ByGroup: gradeSystem === 5 ? {
+        전교과: groups?.전과목?.avg5 ?? null,
+        국수영사과: groups?.국영수사과?.avg5 ?? null,
+        국수영과: groups?.국영수과?.avg5 ?? null,
+        국수영사: groups?.국영수사?.avg5 ?? null,
+      } : {},
       entryYear,
     };
   }, [lookupSid, gdb, roster]);
@@ -1739,6 +1745,21 @@ const ADMISSION_MULTI_CAMPUS_BY_REGION = {
   명지대: { 서울:"서울", 경기:"용인" },
   경기대: { 서울:"서울", 경기:"수원" },
 };
+
+const ADMISSION_CAMPUS_LOCATION_ALIASES = {
+  가천대: { 성남:"글로벌", 인천:"메디컬", 글로벌:"글로벌", 메디컬:"메디컬" },
+  한양대: { 서울:"서울", 안산:"ERICA", ERICA:"ERICA" },
+  경희대: { 서울:"서울", 용인:"국제", 수원:"국제", 국제:"국제" },
+  단국대: { 용인:"죽전", 죽전:"죽전", 천안:"천안" },
+  경기대: { 서울:"서울", 수원:"수원" },
+  명지대: { 서울:"서울", 용인:"용인" },
+};
+function canonicalAdmissionCampus(universityName, campus = "") {
+  const raw = String(campus || "").trim();
+  if (!raw) return "";
+  const aliases = ADMISSION_CAMPUS_LOCATION_ALIASES[universityKey(universityName)] || {};
+  return aliases[raw] || aliases[raw.toUpperCase()] || (raw.toUpperCase() === "ERICA" ? "ERICA" : raw);
+}
 function normalizeAdmissionRegion(value) {
   const text = String(value || "").normalize("NFKC").replace(/특별시|광역시|특별자치시|특별자치도|도$/g, "").trim();
   if (!text || text === "미지정" || text === "공통") return "";
@@ -1749,11 +1770,12 @@ function explicitAdmissionCampusLabel(value) {
   const source = String(value || "").normalize("NFKC");
   const bracket = source.match(/[（(\[]\s*([^）)\]]+)\s*[）)\]]/);
   const bracketValue = String(bracket?.[1] || "").replace(/캠퍼스|캠$/gi, "").trim();
-  if (bracketValue && (ADMISSION_CAMPUS_ALIASES.some(name => bracketValue.toUpperCase() === name.toUpperCase()) || /캠퍼스/i.test(String(bracket?.[1] || "")))) {
-    return bracketValue.toUpperCase() === "ERICA" ? "ERICA" : bracketValue;
+  const mappedBracket = canonicalAdmissionCampus(source, bracketValue);
+  if (bracketValue && (mappedBracket !== bracketValue || ADMISSION_CAMPUS_ALIASES.some(name => bracketValue.toUpperCase() === name.toUpperCase()) || /캠퍼스/i.test(String(bracket?.[1] || "")))) {
+    return mappedBracket;
   }
   const suffix = ADMISSION_CAMPUS_ALIASES.find(name => new RegExp(`${name}\\s*(?:캠퍼스|캠)`, "i").test(source));
-  return suffix ? (suffix.toUpperCase() === "ERICA" ? "ERICA" : suffix) : "";
+  return suffix ? canonicalAdmissionCampus(source, suffix) : "";
 }
 function admissionCampusLabel(value, region = "") {
   const explicit = explicitAdmissionCampusLabel(value);
@@ -1849,7 +1871,9 @@ function universityDocumentKey(value, region = "", campus = "") {
   return `${universityKey(value)}|${campus || admissionCampusLabel(value, region)}`;
 }
 function admissionItemCampus(item) {
-  return String(item?.campus || admissionCampusLabel(item?.university || item?.name, item?.region) || "").trim();
+  const university = item?.university || item?.name || "";
+  const campus = item?.campus || admissionCampusLabel(university, item?.region) || "";
+  return canonicalAdmissionCampus(university, campus);
 }
 function buildAdmissionDocumentIndex(documents = []) {
   const base = new Map();
@@ -3278,6 +3302,11 @@ function favoriteCategory(item) {
   if (admissionType) return "전형";
   return "대학";
 }
+function favoriteCaseAdmissionType(item) {
+  const value = String(item?.admissionType || "").trim();
+  return /수시\s*NAVI|수시나비|Beta/i.test(value) ? "" : value;
+}
+
 
 function formatStoredFileSize(size) {
   const value = Number(size || 0);
@@ -3394,7 +3423,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
           const baseCases = favoriteCaseIndex.get(baseKey) || [];
           const storedCampus = group.campus || admissionCampusLabel(group.university, group.region);
           const favoriteDepartments = group.items.map(item => normalizeAdmissionLookupKey(item.department)).filter(value => value && !["전체","대학전체"].includes(value));
-          const favoriteTypes = group.items.map(item => normalizeAdmissionLookupKey(item.admissionType)).filter(Boolean);
+          const favoriteTypes = group.items.map(item => normalizeAdmissionLookupKey(favoriteCaseAdmissionType(item))).filter(Boolean);
           const contextualCases = baseCases.filter(caseRow => {
             const department = normalizeAdmissionLookupKey(caseRow.department);
             const type = normalizeAdmissionLookupKey(`${caseRow.admissionType || ""}${caseRow.detailType || ""}`);
@@ -3415,13 +3444,13 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
           const cutValues=accepted.map(row=>asNumber(row.universityGrade??row.overallGrade)).filter(value=>value!=null).sort((a,b)=>a-b);
           const cut50=cutValues.length?(cutValues.length%2?cutValues[(cutValues.length-1)/2]:(cutValues[cutValues.length/2-1]+cutValues[cutValues.length/2])/2):null;
           return <article key={`${group.university}-${resolvedCampus || "common"}`} style={favoriteView.card}>
-            <div style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b style={favoriteView.universityTitle}>{resolvedUniversity}</b><span style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(resolvedUniversity)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(resolvedUniversity,target?.department||"",target?.admissionType||"")}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"광덕고 사례"} <ExternalLink size={12}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.link} onClick={()=>onOpenSusiNavi(resolvedUniversity)}>수시NAVI Beta <ExternalLink size={12}/></button>}</div></div>
+            <div style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b style={favoriteView.universityTitle}>{resolvedUniversity}</b><span style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(resolvedUniversity)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(resolvedUniversity,target?.department||"",favoriteCaseAdmissionType(target))}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"광덕고 사례"} <ExternalLink size={12}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.link} onClick={()=>onOpenSusiNavi(resolvedUniversity)}>수시NAVI Beta <ExternalLink size={12}/></button>}</div></div>
             <div style={favoriteView.sourceGrid}>
               <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>대학 지원 진단</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div>
               <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>광덕고 대입 사례</small><div style={favoriteView.sourceHeadline}><span>지원 <b>{cases.length}건</b></span><span>합격 <b>{accepted.length}건</b></span></div>{cases.length?<div style={favoriteView.sourceMetrics}><span style={favoriteView.sourceMetric}><small>합격자 50%컷</small><b>{cut50==null?"-":Math.round(cut50*100)/100}</b></span><span style={favoriteView.sourceMetric}><small>합격 사례 비율</small><b>{Math.round(accepted.length/cases.length*1000)/10}%</b></span></div>:<span style={favoriteView.sourceDetail}>연결 사례 없음</span>}</div>
               <div style={{...favoriteView.sourceBox,background:"#faf7ff",borderColor:"#e3d9f2"}}><small style={{...favoriteView.sourceLabel,color:"#6a5593"}}>2027 수시NAVI Beta</small><b style={favoriteView.sourceValue}>교육청 모집단위 검색</b><span style={favoriteView.sourceDetail}>2026 입시결과·수능최저·합격사례 분포를 별도 확인합니다.</span>{onOpenSusiNavi&&<button type="button" style={{...favoriteView.itemLink,justifySelf:"start"}} onClick={()=>onOpenSusiNavi(resolvedUniversity)}>NAVI에서 열기 <ExternalLink size={10}/></button>}</div>
             </div>
-            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><span style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><span style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",item.admissionType||"")}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity)}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>)}</div>
+            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><span style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><span style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity)}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>)}</div>
           </article>
         })}</div>}
       </div>;
