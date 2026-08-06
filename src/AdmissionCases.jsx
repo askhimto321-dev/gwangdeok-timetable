@@ -253,6 +253,9 @@ const CSS=`
 .admission-favorite-mode button.is-active{background:#0f1a2e;color:#ffd84d}
 .admission-department-link{border:0;background:transparent;color:#244f7d;font:inherit;font-weight:900;cursor:pointer;text-decoration:underline;text-decoration-color:#b9c9dc;text-underline-offset:3px;text-align:center;white-space:normal;word-break:keep-all}
 .admission-department-link:hover{color:#163d69;text-decoration-color:#315f95}
+.admission-summary-card::after{content:"";position:absolute;right:-18px;bottom:-24px;width:62px;height:62px;border-radius:50%;background:color-mix(in srgb,var(--summary-accent) 9%,transparent);pointer-events:none}
+.admission-summary-card:hover{transform:translateY(-1px);box-shadow:0 7px 17px rgba(45,57,76,.07)!important}
+.admission-summary-card b,.admission-summary-card span,.admission-summary-card small{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif}
 @media(max-width:1000px){.admission-method-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.admission-quick-filter{grid-template-columns:1fr}.admission-case-student-benchmark{min-width:150px}}
 @media(max-width:640px){.admission-method-category-grid{grid-template-columns:1fr}.admission-quick-filter-group{grid-template-columns:1fr}.admission-quick-filter-label{min-width:0}}
 
@@ -829,7 +832,18 @@ function applyFilters(rows,filters,profile=null){
   return basic.filter(row=>row.overallGrade!=null&&filters.bands.includes(applicationBand(profile.converted,row.overallGrade).label));
 }
 
-function SummaryCards({rows}){const summary=useMemo(()=>summarizeAdmissionCases(rows),[rows]);const cards=[["지원 사례",summary.total,COLORS.blue],["합격 사례",summary.accepted,COLORS.green],["최초합격",summary.firstAccepted,COLORS.blue],["충원합격",summary.waitlistAccepted,COLORS.purple],["불합격",summary.rejected,COLORS.red],["등록 확인",summary.registered,COLORS.gold]];return <div className="admission-case-summary" style={styles.summary}>{cards.map(([label,value,color])=><div key={label} style={{...styles.summaryCard,borderTopColor:color}}><b style={{color}}>{value.toLocaleString()}</b><span>{label}</span></div>)}</div>}
+function SummaryCards({rows}){
+  const summary=useMemo(()=>summarizeAdmissionCases(rows),[rows]);
+  const cards=[
+    {label:"지원 사례",value:summary.total,color:COLORS.blue,number:"01",detail:"전체 지원 기록"},
+    {label:"합격 사례",value:summary.accepted,color:COLORS.green,number:"02",detail:"최종 합격 결과"},
+    {label:"최초합격",value:summary.firstAccepted,color:"#3e6ea8",number:"03",detail:"최초 발표 합격"},
+    {label:"충원합격",value:summary.waitlistAccepted,color:COLORS.purple,number:"04",detail:"추가·충원 합격"},
+    {label:"불합격",value:summary.rejected,color:COLORS.red,number:"05",detail:"최종 불합격"},
+    {label:"등록 확인",value:summary.registered,color:COLORS.gold,number:"06",detail:"등록 대학 확인"},
+  ];
+  return <div className="admission-case-summary" style={styles.summary}>{cards.map(card=><article className="admission-summary-card" key={card.label} style={{...styles.summaryCard,"--summary-accent":card.color}}><div style={styles.summaryCardTop}><span style={{...styles.summaryNumber,color:card.color}}>{card.number}</span><small style={styles.summaryDetail}>{card.detail}</small></div><div style={styles.summaryMain}><b style={{...styles.summaryValue,color:card.color}}>{card.value.toLocaleString()}</b><span style={styles.summaryLabel}>{card.label}</span></div></article>)}</div>;
+}
 function Section({title,description,aside=null,children,className=""}){return <section className={className} style={styles.section}><div className="admission-section-heading" style={styles.sectionTitle}><div><h3>{title}</h3>{description&&<p>{description}</p>}</div>{aside&&<div className="admission-section-aside">{aside}</div>}</div>{children}</section>}
 function Table({children,minWidth=0,style=null,className="",wrapStyle=null,wrapClassName=""}){return <div className={wrapClassName} style={{...styles.tableWrap,...(wrapStyle||{})}}><table className={className} style={{minWidth,...(style||{})}}>{children}</table></div>}
 function Empty({title,text,icon=<Database size={28}/>}){return <div style={styles.empty}>{icon}<b>{title}</b>{text&&<span>{text}</span>}</div>}
@@ -1321,7 +1335,13 @@ gradeRange:{display:"flex",alignItems:"center",gap:7},
 smallButton:{display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #d5dbe4",borderRadius:9,background:"#fff",padding:"8px 10px",fontWeight:800,cursor:"pointer",color:"#354052"},
 filteredCount:{display:"flex",alignItems:"center",gap:6,fontSize:12,color:"#656e79"},
 summary:{display:"grid",gridTemplateColumns:"repeat(6,minmax(0,1fr))",gap:10},
-summaryCard:{display:"grid",gap:5,padding:"14px 15px",border:`1px solid ${COLORS.line}`,borderTop:"4px solid",borderRadius:12,background:"#fff",fontSize:13},
+summaryCard:{position:"relative",display:"grid",alignContent:"space-between",gap:10,minHeight:96,padding:"12px 13px",border:`1px solid ${COLORS.line}`,borderLeft:"4px solid var(--summary-accent)",borderRadius:13,background:"linear-gradient(145deg,#fff,#fafbfc)",fontSize:13,overflow:"hidden",boxShadow:"0 3px 10px rgba(45,57,76,.035)"},
+summaryCardTop:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:6,minWidth:0},
+summaryNumber:{fontSize:9.5,fontWeight:950,letterSpacing:".08em"},
+summaryDetail:{minWidth:0,fontSize:8.8,fontWeight:750,color:"#8a93a0",lineHeight:1.25,textAlign:"right",wordBreak:"keep-all"},
+summaryMain:{display:"grid",gap:2},
+summaryValue:{fontSize:23,lineHeight:1,fontWeight:950,letterSpacing:"-.035em"},
+summaryLabel:{fontSize:11.5,lineHeight:1.25,fontWeight:900,color:"#344055"},
 section:{background:"#fff",border:`1px solid ${COLORS.line}`,borderRadius:15,padding:17},
 sectionTitle:{display:"flex",justifyContent:"space-between",marginBottom:15},
 tableWrap:{width:"100%",overflowX:"auto",border:`1px solid ${COLORS.line}`,borderRadius:11},

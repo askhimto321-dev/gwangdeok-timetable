@@ -521,8 +521,9 @@ export default function GradesSection({
   const [linkedAdmissionType, setLinkedAdmissionType] = useState("");
   const [returnToConsultation, setReturnToConsultation] = useState(false);
   const favoriteItemsFor = useCallback(targetSid => (gdb?.admissionFavorites?.[String(targetSid)] || []), [gdb]);
+  const activeStudentSid = String(loggedInStudent?.id || lookupSid || "").trim();
   const susiNaviStudent = useMemo(() => {
-    const sid = String(lookupSid || "").trim();
+    const sid = activeStudentSid;
     if (!sid || !gdb) return null;
     const studentInfo = roster?.[sid] || null;
     const metaRecord = Array.isArray(gdb.studentAccounts)
@@ -549,7 +550,7 @@ export default function GradesSection({
       } : {},
       entryYear,
     };
-  }, [lookupSid, gdb, roster]);
+  }, [activeStudentSid, gdb, roster]);
   const toggleFavorite = useCallback(async (targetSid, item) => {
     if (!targetSid || !persistGrades || !item?.university) return false;
     const source = item.source || "admission";
@@ -581,9 +582,9 @@ export default function GradesSection({
     if (fromConsultation) { setReturnToConsultation(true); markConsultationHistory(); }
     setTab(loggedInStudent ? "admission" : "lookupAdmission");
   };
-  const openSusiNaviUniversity = (name, fromConsultation = false) => {
+  const openSusiNaviUniversity = (name, fromConsultation = false, department = "") => {
     setLinkedUniversity(name || "");
-    setLinkedDepartment("");
+    setLinkedDepartment(department || "");
     setLinkedAdmissionType("");
     if (fromConsultation) { setReturnToConsultation(true); markConsultationHistory(); }
     setTab("susiNaviBeta");
@@ -657,6 +658,7 @@ export default function GradesSection({
           <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="내 성적 리포트" />
           <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학 지원 진단" />
           <TabBtn active={tab === "consultation"} onClick={() => setTab("consultation")} label="상담·관심 대학" />
+          <TabBtn active={tab === "susiNaviBeta"} onClick={() => { clearLinkedUniversity(); setTab("susiNaviBeta"); }} label="2027 수시NAVI Beta" />
         </div>}
         {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <div style={staffToolNav.wrap}>
@@ -672,7 +674,7 @@ export default function GradesSection({
 
         {tab === "grades" && loggedInStudent && <StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} />}
         {tab === "admission" && loggedInStudent && <StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenCases={(name,department,admissionType)=>openCaseUniversity(name,false,department,admissionType)} focusUniversity={linkedUniversity} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />}
-        {tab === "consultation" && loggedInStudent && <StudentConsultationView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={name => openAdmissionUniversity(name, true)} onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} />}
+        {tab === "consultation" && loggedInStudent && <StudentConsultationView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={name => openAdmissionUniversity(name, true)} onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)} onOpenSusiNavi={(name,department) => openSusiNaviUniversity(name, true, department)} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} />}
 
         {loggedInTeacher && !teacherHasGradeAccess && (
           <EmptyBox text={`${currentGrade}학년 학생 성적 조회 권한이 없습니다. 관리자에게 역할 또는 성적 조회 권한을 요청해주세요.`} />
@@ -727,7 +729,7 @@ export default function GradesSection({
             onToggleFavorite={item => toggleFavorite(lookupSid,item)}
             onOpenAdmission={name => openAdmissionUniversity(name, true)}
             onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)}
-            onOpenSusiNavi={name => openSusiNaviUniversity(name, true)}
+            onOpenSusiNavi={(name,department) => openSusiNaviUniversity(name, true, department)}
             persistGrades={persistGrades}
             canEdit
             authorName={loggedInAdmin ? "관리자" : (loggedInTeacher?.name || loggedInTeacher?.id || "선생님")}
@@ -742,13 +744,14 @@ export default function GradesSection({
         {tab === "admissionCases" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <AdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />
         )}
-        {tab === "susiNaviBeta" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
+        {tab === "susiNaviBeta" && (loggedInStudent || loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <SusiNaviBetaView
             isAdmin={!!loggedInAdmin}
             selectedStudent={susiNaviStudent}
-            favorites={favoriteItemsFor(lookupSid)}
-            onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid, item) : undefined}
+            favorites={favoriteItemsFor(activeStudentSid)}
+            onToggleFavorite={activeStudentSid ? item => toggleFavorite(activeStudentSid, item) : undefined}
             focusUniversity={linkedUniversity}
+            focusDepartment={linkedDepartment}
           />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
@@ -3490,7 +3493,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
   const favoriteContent = !(favorites || []).length
     ? <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 지원 진단 또는 광덕고 대입 결과의 별 아이콘을 눌러 저장하세요." />
     : <div style={card}>
-        <SectionHeading title="관심 대학·학과" description="대학·학과·전형별로 저장한 항목을 분류하고, 지원 진단과 광덕고 사례를 같은 학교 기준으로 연결합니다." />
+        <SectionHeading title="관심 대학·학과" description="저장한 대학·학과를 대학 지원 진단, 광덕고 대입 사례, 2027 수시NAVI Beta와 같은 대학·캠퍼스 기준으로 연결합니다." />
         <div style={favoriteView.filters}>{["전체","대학","학과","전형"].map(value=><button key={value} type="button" onClick={()=>setFavoriteFilter(value)} style={{...favoriteView.filterButton,...(favoriteFilter===value?favoriteView.filterActive:{})}}>{value}<span>{categoryCounts[value]||0}</span></button>)}</div>
         {!groups.length ? <div style={favoriteView.filteredEmpty}>선택한 분류에 저장된 관심 항목이 없습니다.</div> : <div style={favoriteView.grid}>{groups.map(group=>{
           const baseKey = universityKey(group.university);
@@ -3519,13 +3522,13 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
           const cutValues=accepted.map(row=>asNumber(row.universityGrade??row.overallGrade)).filter(value=>value!=null).sort((a,b)=>a-b);
           const cut50=cutValues.length?(cutValues.length%2?cutValues[(cutValues.length-1)/2]:(cutValues[cutValues.length/2-1]+cutValues[cutValues.length/2])/2):null;
           return <article key={`${group.university}-${resolvedCampus || "common"}`} style={favoriteView.card}>
-            <div style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b style={favoriteView.universityTitle}>{resolvedUniversity}</b><span style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(resolvedUniversity)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(resolvedUniversity,target?.department||"",favoriteCaseAdmissionType(target))}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"광덕고 사례"} <ExternalLink size={12}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.link} onClick={()=>onOpenSusiNavi(resolvedUniversity)}>수시NAVI Beta <ExternalLink size={12}/></button>}</div></div>
+            <div style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b style={favoriteView.universityTitle}>{resolvedUniversity}</b><span style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(resolvedUniversity)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(resolvedUniversity,target?.department||"",favoriteCaseAdmissionType(target))}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"광덕고 사례"} <ExternalLink size={12}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>수시NAVI Beta <ExternalLink size={12}/></button>}</div></div>
             <div style={favoriteView.sourceGrid}>
               <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>대학 지원 진단</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div>
               <div style={favoriteView.sourceBox}><small style={favoriteView.sourceLabel}>광덕고 대입 사례</small><div style={favoriteView.sourceHeadline}><span>지원 <b>{cases.length}건</b></span><span>합격 <b>{accepted.length}건</b></span></div>{cases.length?<div style={favoriteView.sourceMetrics}><span style={favoriteView.sourceMetric}><small>합격자 50%컷</small><b>{cut50==null?"-":Math.round(cut50*100)/100}</b></span><span style={favoriteView.sourceMetric}><small>합격 사례 비율</small><b>{Math.round(accepted.length/cases.length*1000)/10}%</b></span></div>:<span style={favoriteView.sourceDetail}>연결 사례 없음</span>}</div>
-              <div style={{...favoriteView.sourceBox,background:"#faf7ff",borderColor:"#e3d9f2"}}><small style={{...favoriteView.sourceLabel,color:"#6a5593"}}>2027 수시NAVI Beta</small><b style={favoriteView.sourceValue}>교육청 모집단위 검색</b><span style={favoriteView.sourceDetail}>2026 입시결과·수능최저·합격사례 분포를 별도 확인합니다.</span>{onOpenSusiNavi&&<button type="button" style={{...favoriteView.itemLink,justifySelf:"start"}} onClick={()=>onOpenSusiNavi(resolvedUniversity)}>NAVI에서 열기 <ExternalLink size={10}/></button>}</div>
+              <div style={{...favoriteView.sourceBox,background:"#faf7ff",borderColor:"#e3d9f2"}}><small style={{...favoriteView.sourceLabel,color:"#6a5593"}}>2027 수시NAVI Beta</small><b style={favoriteView.sourceValue}>교육청 모집단위 검색</b><span style={favoriteView.sourceDetail}>2026 입시결과·수능최저·합격사례 분포를 별도 확인합니다.</span>{onOpenSusiNavi&&<button type="button" style={{...favoriteView.itemLink,justifySelf:"start"}} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>NAVI에서 열기 <ExternalLink size={10}/></button>}</div>
             </div>
-            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><span style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><span style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity)}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>)}</div>
+            <div style={favoriteView.items}>{group.items.map(item=><div key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span style={favoriteView.itemText}><span style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}</span><span style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>)}</div>
           </article>
         })}</div>}
       </div>;
@@ -5987,28 +5990,28 @@ const consultationView = {
   empty:{padding:"18px",borderRadius:10,background:"#fafafa",color:"#8a9099",textAlign:"center",fontSize:11.5,border:"1px dashed #dfe3e8"},
 };
 const favoriteView = {
-  grid:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:12},
-  card:{border:"1px solid #dfe3eb",borderRadius:14,padding:14,background:"linear-gradient(135deg,#fff,#f8faff)",display:"grid",gap:12},
-  header:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:10},
-  link:{display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #cfd9e7",background:"#fff",color:"#315a86",borderRadius:8,padding:"7px 9px",fontSize:11,fontWeight:850,cursor:"pointer"},
-  sourceGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(145px,1fr))",gap:8},
-  sourceBox:{display:"grid",gap:4,padding:"10px 11px",borderRadius:10,background:"#f7f9fc",border:"1px solid #e1e6ee",minWidth:0},
-  sourceLabel:{fontSize:10.3,fontWeight:900,color:"#687588"},
-  sourceValue:{fontSize:13,color:"#263a55",lineHeight:1.25},
-  sourceHeadline:{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:10.5,color:"#657286"},
-  sourceMetrics:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:6},
-  sourceMetric:{display:"grid",gap:2,padding:"7px 8px",borderRadius:8,background:"#fff",border:"1px solid #e4e8ef",fontSize:11,color:"#2f425d"},
-  sourceDetail:{fontSize:10.3,color:"#788392",lineHeight:1.35},
+  grid:{display:"grid",gridTemplateColumns:"1fr",gap:14},
+  card:{border:"1px solid #d8e1ed",borderRadius:15,padding:15,background:"linear-gradient(135deg,#fff,#f7f9fd)",display:"grid",gap:13,boxShadow:"0 5px 16px rgba(46,58,78,.045)",minWidth:0},
+  header:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap",minWidth:0},
+  link:{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,minHeight:34,border:"1px solid #c9d5e4",background:"#fff",color:"#2e5784",borderRadius:9,padding:"0 10px",fontSize:10.5,fontWeight:900,cursor:"pointer",whiteSpace:"nowrap"},
+  sourceGrid:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:9,minWidth:0},
+  sourceBox:{display:"grid",alignContent:"start",gap:7,minHeight:112,padding:"12px",borderRadius:11,background:"#f7f9fc",border:"1px solid #dce4ee",minWidth:0,overflow:"hidden"},
+  sourceLabel:{fontSize:10.5,fontWeight:950,color:"#5f6e83",lineHeight:1.3},
+  sourceValue:{fontSize:14,color:"#243852",lineHeight:1.35,wordBreak:"keep-all",overflowWrap:"anywhere"},
+  sourceHeadline:{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",fontSize:11,color:"#5e6d82"},
+  sourceMetrics:{display:"grid",gridTemplateColumns:"repeat(2,minmax(0,1fr))",gap:7,minWidth:0},
+  sourceMetric:{minWidth:0,display:"grid",gap:3,padding:"8px",borderRadius:8,background:"#fff",border:"1px solid #e0e6ef",fontSize:11,color:"#2f425d",overflowWrap:"anywhere"},
+  sourceDetail:{fontSize:10.5,color:"#748093",lineHeight:1.5,wordBreak:"keep-all",overflowWrap:"anywhere"},
   items:{display:"grid",gap:6},
-  item:{display:"flex",alignItems:"center",gap:7,padding:"8px 9px",borderRadius:9,background:"#fff",border:"1px solid #ece8df"},
+  item:{display:"flex",alignItems:"center",gap:8,padding:"9px 10px",borderRadius:10,background:"#fff",border:"1px solid #e4e8ef",minWidth:0,flexWrap:"wrap"},
   filters:{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",padding:"7px",borderRadius:11,background:"#f4f7fb",border:"1px solid #e0e6ef"},
   filterButton:{display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #d6deea",borderRadius:999,padding:"6px 9px",background:"#fff",color:"#586679",fontSize:10.8,fontWeight:900,cursor:"pointer"},
   filterActive:{background:"#315f95",borderColor:"#315f95",color:"#fff"},
   filteredEmpty:{padding:"16px",borderRadius:10,background:"#fafbfc",border:"1px dashed #dce2eb",color:"#7d8692",textAlign:"center",fontSize:11.5},
-  universityTitle:{fontSize:15,color:"#222d3d",lineHeight:1.25},
-  universityCount:{fontSize:10.2,color:"#7a8492"},
+  universityTitle:{fontSize:16,color:"#202e43",lineHeight:1.3,wordBreak:"keep-all",overflowWrap:"anywhere"},
+  universityCount:{fontSize:10.5,color:"#738095"},
   kindBadge:{display:"inline-flex",justifySelf:"start",borderRadius:999,padding:"2px 6px",background:"#eef3fa",color:"#315a86",fontSize:8.8,fontWeight:900},
-  itemText:{display:"grid",gap:3,flex:1,minWidth:0,fontSize:11.5},
+  itemText:{display:"grid",gap:3,flex:"1 1 220px",minWidth:0,fontSize:11.5,wordBreak:"keep-all",overflowWrap:"anywhere"},
   itemLink:{display:"inline-flex",alignItems:"center",gap:3,border:"1px solid #d5deea",background:"#fff",color:"#315a86",borderRadius:7,padding:"5px 7px",fontSize:9.8,fontWeight:850,cursor:"pointer",whiteSpace:"nowrap"},
   remove:{border:0,background:"#f2f3f5",color:"#777f8a",borderRadius:7,padding:"5px 7px",fontSize:10.5,fontWeight:800,cursor:"pointer"},
 };
