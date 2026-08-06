@@ -564,73 +564,77 @@ export default function GradesSection({
     const next = { ...(gdb?.admissionFavorites || {}), [String(targetSid)]: nextList };
     return persistGrades({ admissionFavorites: next });
   }, [gdb, persistGrades, favoriteItemsFor]);
-  const markConsultationHistory = () => {
-    if (typeof window === "undefined" || window.history.state?.kdConsultationLink) return;
-    window.history.pushState({ ...(window.history.state || {}), kdConsultationLink: true }, "");
-  };
-  const openCaseUniversity = (name, fromConsultation = false, department = "", admissionType = "") => {
-    setLinkedUniversity(name || "");
-    setLinkedDepartment(department || "");
-    setLinkedAdmissionType(admissionType || "");
-    if (fromConsultation) { setReturnToConsultation(true); markConsultationHistory(); }
-    setTab("admissionCases");
-  };
-  const openAdmissionUniversity = (name, fromConsultation = false) => {
-    setLinkedUniversity(name || "");
-    setLinkedDepartment("");
-    setLinkedAdmissionType("");
-    if (fromConsultation) { setReturnToConsultation(true); markConsultationHistory(); }
-    setTab(loggedInStudent ? "admission" : "lookupAdmission");
-  };
-  const openSusiNaviUniversity = (name, fromConsultation = false, department = "") => {
-    setLinkedUniversity(name || "");
-    setLinkedDepartment(department || "");
-    setLinkedAdmissionType("");
-    if (fromConsultation) { setReturnToConsultation(true); markConsultationHistory(); }
-    setTab("susiNaviBeta");
-  };
-  const finishReturnToConsultation = () => {
-    setLinkedUniversity("");
-    setLinkedDepartment("");
-    setLinkedAdmissionType("");
-    setReturnToConsultation(false);
-    setTab("consultation");
-  };
-  const returnToConsultationView = () => {
-    if (typeof window !== "undefined" && window.history.state?.kdConsultationLink) window.history.back();
-    else finishReturnToConsultation();
-  };
-  const clearLinkedUniversity = () => { setLinkedUniversity(""); setLinkedDepartment(""); setLinkedAdmissionType(""); };
-
+  const gradesHistorySessionRef = useRef(`kd-grades-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const gradesHistoryDepthRef = useRef(0);
+  const currentGradesViewRef = useRef({ tab, linkedUniversity: "", linkedDepartment: "", linkedAdmissionType: "", returnToConsultation: false });
+  const applyGradesView = useCallback(view => {
+    setTab(view?.tab || (loggedInStudent ? "grades" : "lookup"));
+    setLinkedUniversity(view?.linkedUniversity || "");
+    setLinkedDepartment(view?.linkedDepartment || "");
+    setLinkedAdmissionType(view?.linkedAdmissionType || "");
+    setReturnToConsultation(Boolean(view?.returnToConsultation));
+  }, [loggedInStudent]);
   useEffect(() => {
-    const handlePopState = () => { if (returnToConsultation) finishReturnToConsultation(); };
+    currentGradesViewRef.current = { tab, linkedUniversity, linkedDepartment, linkedAdmissionType, returnToConsultation };
+  }, [tab, linkedUniversity, linkedDepartment, linkedAdmissionType, returnToConsultation]);
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const session = gradesHistorySessionRef.current;
+    const initial = currentGradesViewRef.current;
+    window.history.replaceState({ ...(window.history.state || {}), kdGradesSession: session, kdGradesDepth: 0, kdGradesView: initial }, "");
+    gradesHistoryDepthRef.current = 0;
+    const handlePopState = event => {
+      const state = event.state || {};
+      if (state.kdGradesSession !== session || !state.kdGradesView) return;
+      gradesHistoryDepthRef.current = Math.max(0, Number(state.kdGradesDepth || 0));
+      applyGradesView(state.kdGradesView);
+    };
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [returnToConsultation]);
-
-  useEffect(() => {
-    if (!["admission", "lookupAdmission", "admissionCases", "susiNaviBeta"].includes(tab)) {
-      setLinkedUniversity("");
-      setLinkedDepartment("");
-      setLinkedAdmissionType("");
-      setReturnToConsultation(false);
-      if (typeof window !== "undefined" && window.history.state?.kdConsultationLink) {
-        const next = { ...(window.history.state || {}) };
-        delete next.kdConsultationLink;
-        window.history.replaceState(next, "");
-      }
+  }, [applyGradesView]);
+  const navigateGradeTab = (nextTab, options = {}) => {
+    const keepLinked = Boolean(options.keepLinked);
+    const next = {
+      tab: nextTab,
+      linkedUniversity: options.linkedUniversity ?? (keepLinked ? linkedUniversity : ""),
+      linkedDepartment: options.linkedDepartment ?? (keepLinked ? linkedDepartment : ""),
+      linkedAdmissionType: options.linkedAdmissionType ?? (keepLinked ? linkedAdmissionType : ""),
+      returnToConsultation: Boolean(options.returnToConsultation),
+    };
+    if (JSON.stringify(next) === JSON.stringify(currentGradesViewRef.current)) return;
+    const currentDepth = gradesHistoryDepthRef.current;
+    const nextDepth = options.replace ? currentDepth : currentDepth + 1;
+    if (typeof window !== "undefined") {
+      const state = { ...(window.history.state || {}), kdGradesSession: gradesHistorySessionRef.current, kdGradesDepth: nextDepth, kdGradesView: next };
+      if (options.replace) window.history.replaceState(state, ""); else window.history.pushState(state, "");
     }
-  }, [tab]);
+    gradesHistoryDepthRef.current = nextDepth;
+    currentGradesViewRef.current = next;
+    applyGradesView(next);
+  };
+  const openCaseUniversity = (name, fromConsultation = false, department = "", admissionType = "") => navigateGradeTab("admissionCases", { linkedUniversity: name || "", linkedDepartment: department || "", linkedAdmissionType: admissionType || "", returnToConsultation: fromConsultation });
+  const openAdmissionUniversity = (name, fromConsultation = false) => navigateGradeTab(loggedInStudent ? "admission" : "lookupAdmission", { linkedUniversity: name || "", returnToConsultation: fromConsultation });
+  const openSusiNaviUniversity = (name, fromConsultation = false, department = "") => navigateGradeTab("susiNaviBeta", { linkedUniversity: name || "", linkedDepartment: department || "", returnToConsultation: fromConsultation });
+  const returnToConsultationView = () => {
+    if (typeof window !== "undefined" && gradesHistoryDepthRef.current > 0) window.history.back();
+    else navigateGradeTab("consultation", { replace: true });
+  };
+  const clearLinkedUniversity = () => {
+    const next = { ...currentGradesViewRef.current, linkedUniversity: "", linkedDepartment: "", linkedAdmissionType: "", returnToConsultation: false };
+    currentGradesViewRef.current = next;
+    applyGradesView(next);
+    if (typeof window !== "undefined" && window.history.state?.kdGradesSession === gradesHistorySessionRef.current) window.history.replaceState({ ...window.history.state, kdGradesView: next }, "");
+  };
 
   useEffect(() => {
-    if (loggedInTeacher && !teacherHasGradeAccess && tab !== "class") setTab("lookup");
+    if (loggedInTeacher && !teacherHasGradeAccess && tab !== "class") navigateGradeTab("lookup", { replace: true });
   }, [loggedInTeacher, teacherHasGradeAccess, tab]);
 
   useEffect(() => {
     if (!requestedStudentView || loggedInStudent) return;
-    if (requestedStudentView === "grades") setTab("lookup");
-    if (requestedStudentView === "admission") setTab("lookupAdmission");
-    if (requestedStudentView === "consultation") setTab("consultation");
+    if (requestedStudentView === "grades") navigateGradeTab("lookup", { replace: true });
+    if (requestedStudentView === "admission") navigateGradeTab("lookupAdmission", { replace: true });
+    if (requestedStudentView === "consultation") navigateGradeTab("consultation", { replace: true });
   }, [requestedStudentView, loggedInStudent]);
 
   if (!gdb) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
@@ -655,19 +659,19 @@ export default function GradesSection({
 
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
         {loggedInStudent && <div style={{ display: "flex", gap: 7, marginBottom: 18, flexWrap: "wrap", padding:6, border:"1px solid #dfe5ef", borderRadius:12, background:"linear-gradient(135deg,#f7faff,#fbf9ff)" }}>
-          <TabBtn active={tab === "grades"} onClick={() => setTab("grades")} label="내 성적 리포트" />
-          <TabBtn active={tab === "admission"} onClick={() => setTab("admission")} label="대학 지원 진단" />
-          <TabBtn active={tab === "consultation"} onClick={() => setTab("consultation")} label="상담·관심 대학" />
-          <TabBtn active={tab === "susiNaviBeta"} onClick={() => { clearLinkedUniversity(); setTab("susiNaviBeta"); }} label="2027 수시NAVI Beta" />
+          <TabBtn active={tab === "grades"} onClick={() => navigateGradeTab("grades")} label="내 성적 리포트" />
+          <TabBtn active={tab === "admission"} onClick={() => navigateGradeTab("admission")} label="대학 지원 진단" />
+          <TabBtn active={tab === "consultation"} onClick={() => navigateGradeTab("consultation")} label="상담·관심 대학" />
+          <TabBtn active={tab === "susiNaviBeta"} onClick={() => navigateGradeTab("susiNaviBeta")} label="2027 수시NAVI Beta" />
         </div>}
         {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <div style={staffToolNav.wrap}>
             <div style={staffToolNav.heading}><BarChart3 size={17} /><div style={staffToolNav.headingText}><b>교사용 분석·관리</b><span style={{ fontSize: 10.5, fontWeight: 650, color: "#7a8495" }}>학생 조회와 별도로 분석 도구를 사용할 수 있습니다.</span></div></div>
             <div style={staffToolNav.buttons}>
-              <button type="button" onClick={() => setTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
-              <button type="button" onClick={() => setTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
-              <button type="button" onClick={() => setTab("susiNaviBeta")} style={{ ...staffToolNav.button, ...(tab === "susiNaviBeta" ? staffToolNav.active : {}) }}><BookOpen size={13} /> 2027 수시NAVI <span style={{ fontSize: 9, opacity: .78 }}>Beta</span></button>
-              {loggedInTeacher && loggedInTeacher.homeroomClass && <button type="button" onClick={() => setTab("class")} style={{ ...staffToolNav.button, ...(tab === "class" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 담임반 학생 계정</button>}
+              <button type="button" onClick={() => navigateGradeTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
+              <button type="button" onClick={() => navigateGradeTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
+              <button type="button" onClick={() => navigateGradeTab("susiNaviBeta")} style={{ ...staffToolNav.button, ...(tab === "susiNaviBeta" ? staffToolNav.active : {}) }}><BookOpen size={13} /> 2027 수시NAVI <span style={{ fontSize: 9, opacity: .78 }}>Beta</span></button>
+              {loggedInTeacher && loggedInTeacher.homeroomClass && <button type="button" onClick={() => navigateGradeTab("class")} style={{ ...staffToolNav.button, ...(tab === "class" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 담임반 학생 계정</button>}
             </div>
           </div>
         )}
@@ -2029,6 +2033,38 @@ function admissionCaseFocusUniversity(row) {
   if (!campus || explicitAdmissionCampusLabel(row?.university)) return row?.university || "";
   return `${row?.university || ""}(${campus})`;
 }
+function normalizeAdmissionCaseDepartment(value) {
+  return String(value || "").normalize("NFKC").toLowerCase()
+    .replace(/\([^)]*\)|\[[^\]]*\]/g, "")
+    .replace(/(?:학과|학부|전공|계열|과정|트랙|6년제)/g, "")
+    .replace(/[\s·ㆍ_\-–—/]+/g, "").trim();
+}
+function admissionCaseDepartmentMatches(value, target) {
+  const left = normalizeAdmissionCaseDepartment(value);
+  const right = normalizeAdmissionCaseDepartment(target);
+  if (!right) return true;
+  return Boolean(left) && (left === right || left.includes(right) || right.includes(left));
+}
+function normalizeAdmissionCaseType(value) {
+  return String(value || "").normalize("NFKC").toLowerCase()
+    .replace(/학생부|전형|일반|학교장|추천자|추천/g, "")
+    .replace(/[\s·ㆍ_\-–—/()[\]{}]+/g, "").trim();
+}
+function admissionCaseTypeMatches(item, target) {
+  const right = normalizeAdmissionCaseType(target);
+  if (!right) return true;
+  const left = normalizeAdmissionCaseType(`${item?.admissionType || ""} ${item?.detailType || ""}`);
+  return Boolean(left) && (left.includes(right) || right.includes(left));
+}
+function admissionCaseLinkForRow(caseIndex, row) {
+  const universityItems = admissionCaseItemsForRow(caseIndex, row);
+  if (!universityItems.length) return { count: 0, scope: "none", label: "광덕고 사례", university: admissionCaseFocusUniversity(row), department: "", admissionType: "" };
+  const departmentItems = row?.department ? universityItems.filter(item => admissionCaseDepartmentMatches(item?.department, row.department)) : universityItems;
+  const exactItems = row?.track ? departmentItems.filter(item => admissionCaseTypeMatches(item, row.track)) : departmentItems;
+  if (exactItems.length) return { count: exactItems.length, scope: "exact", label: "광덕고 전형", university: admissionCaseFocusUniversity(row), department: row?.department || "", admissionType: row?.track || "" };
+  if (departmentItems.length) return { count: departmentItems.length, scope: "department", label: "광덕고 학과", university: admissionCaseFocusUniversity(row), department: row?.department || "", admissionType: "" };
+  return { count: universityItems.length, scope: "university", label: "광덕고 대학", university: admissionCaseFocusUniversity(row), department: "", admissionType: "" };
+}
 function favoriteSemanticKey(item) {
   const scope = item?.favoriteKind === "개별사례" || item?.caseId ? `case:${String(item?.caseId || "")}` : "group";
   // 출처가 달라도 같은 대학·캠퍼스·학과는 하나의 관심 대학 묶음으로 관리합니다.
@@ -2435,7 +2471,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
     });
     return map;
   }, [gdb.admissionCases]);
-  const caseCountForRow = row => admissionCaseItemsForRow(caseIndexByUniversity, row).length;
+  const caseLinkForRow = row => admissionCaseLinkForRow(caseIndexByUniversity, row);
   const favoriteActive = item => (favorites || []).some(value => favoriteSemanticKey(value) === favoriteSemanticKey(item));
   const filteredRows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -2775,10 +2811,11 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                   const specialNote = admissionSpecialNote(row, reflection);
                   const subjectRuleText = admissionSubjectRuleText(row.requiredSubjects);
                   const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
+                  const caseLink = caseLinkForRow(row);
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.favoriteCell }}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,region:row.region,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",favoriteKind:"전형",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{caseCountForRow(row)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(admissionCaseFocusUniversity(row),row.department||"",row.track||"")}>사례 {caseCountForRow(row)}건</button>:<span style={admissionTable.caseBadge} title="상담·관심 대학에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountForRow(row)}건</span>)}</div></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{caseLink.count>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} title={`${caseLink.label} 사례 ${caseLink.count}건을 엽니다.`} onClick={()=>onOpenCases(caseLink.university,caseLink.department,caseLink.admissionType)}>{caseLink.label} {caseLink.count}건</button>:<span style={admissionTable.caseBadge} title={`${caseLink.label} 사례 ${caseLink.count}건`}>{caseLink.label} {caseLink.count}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
@@ -2851,10 +2888,11 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                 {displayRows.map(row => {
                   const reflection = admissionReflectionText(row);
                   const specialNote = admissionSpecialNote(row, reflection);
+                  const caseLink = caseLinkForRow(row);
                   return (
                     <tr key={`school-${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.favoriteCell }}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,region:row.region,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",favoriteKind:"전형",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{caseCountForRow(row)>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} onClick={()=>onOpenCases(admissionCaseFocusUniversity(row),row.department||"",row.track||"")}>사례 {caseCountForRow(row)}건</button>:<span style={admissionTable.caseBadge} title="상담·관심 대학에 저장하면 대학 기준과 광덕고 사례를 함께 볼 수 있습니다.">사례 {caseCountForRow(row)}건</span>)}</div></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{caseLink.count>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} title={`${caseLink.label} 사례 ${caseLink.count}건을 엽니다.`} onClick={()=>onOpenCases(caseLink.university,caseLink.department,caseLink.admissionType)}>{caseLink.label} {caseLink.count}건</button>:<span style={admissionTable.caseBadge} title={`${caseLink.label} 사례 ${caseLink.count}건`}>{caseLink.label} {caseLink.count}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}

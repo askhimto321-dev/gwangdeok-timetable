@@ -1542,7 +1542,7 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
   const value = trend || { total: 0, accepted: 0, rate: null, detailTypes: [], scope: "연결 자료 없음" };
   const visibleTypes = value.detailTypes?.slice(0, compact ? 4 : 8) || [];
   const hiddenCount = Math.max(0, Number(value.detailTypes?.length || 0) - visibleTypes.length);
-  return <div className="susi-beta-school-trend" style={{ ...ui.schoolTrendPanel, ...(compact ? ui.schoolTrendCompact : {}) }}>
+  return <div className={`susi-beta-school-trend ${compact ? "is-compact" : "is-expanded"}`} style={{ ...ui.schoolTrendPanel, ...(compact ? ui.schoolTrendCompact : ui.schoolTrendExpanded) }}>
     <div className="susi-beta-school-trend-heading" style={ui.schoolTrendHeading}>
       <div><small style={ui.schoolSourceBadge}>광덕고 별도 사례</small><b>{value.scope}</b></div>
       <span style={ui.schoolTrendSeparation}>
@@ -1878,15 +1878,15 @@ const ui = {
   officialBadge: { padding: "3px 6px", borderRadius: 999, background: "#e9f5ef", color: "#2e7358", fontWeight: 900 },
   connectionDataCompare: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 8 },
   connectionNaviBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #d9d0e9", borderRadius: 11, background: "linear-gradient(135deg,#faf7fe,#fff)", color: "#54466f" },
-  connectionSchoolBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #cfe2d5", borderRadius: 11, background: "linear-gradient(135deg,#f2faf5,#fff)", color: "#365b49" },
+  connectionSchoolBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #ecd6b4", borderRadius: 11, background: "linear-gradient(135deg,#fff8ed,#fffdf9)", color: "#6d5124" },
   connectionDataHeading: { minWidth: 0, display: "grid", gap: 3 },
   connectionNaviBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#e9e2f6", color: "#624c8b", fontSize: 9.5, fontWeight: 950 },
-  connectionSchoolBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#dff1e7", color: "#2f7052", fontSize: 9.5, fontWeight: 950 },
+  connectionSchoolBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f7e4c5", color: "#82591c", fontSize: 9.5, fontWeight: 950 },
   connectionNaviMetrics: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 5 },
   connectionSchoolMetrics: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   connectionCutBasisMetric: { borderColor: "#c7b6e1", background: "#eee7f8" },
-  connectionSchoolBlockFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, flexWrap: "wrap", color: "#6f8177", fontSize: 9.5 },
-  connectionSchoolLink: { minHeight: 35, padding: "0 9px", border: "1px solid #cde0d4", borderRadius: 8, background: "#fff", color: "#397057", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  connectionSchoolBlockFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, flexWrap: "wrap", color: "#806f55", fontSize: 9.5 },
+  connectionSchoolLink: { minHeight: 35, padding: "0 9px", border: "1px solid #e2c99f", borderRadius: 8, background: "#fff", color: "#80571b", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   connectionSource: { display: "grid", gap: 2, padding: "7px 8px", borderRadius: 8, background: "rgba(255,255,255,.72)", color: "#6e6680", fontSize: 10.2, lineHeight: 1.45 },
   connectionCardFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTop: "1px dashed #dce3ec", fontSize: 11.5 },
   connectionFooterNav: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 10, paddingTop: 11, borderTop: "1px solid #e1e6ee" },
@@ -1904,17 +1904,18 @@ const ui = {
   resultActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
   resultToggle: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 12px", border: "1px solid #cbd6e4", borderRadius: 10, background: "#fff", color: "#354b68", fontSize: 12.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultConnectButton: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 11px", border: "1px solid #d7cbea", borderRadius: 10, background: "#f7f2fc", color: "#5b4385", fontSize: 12, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
-  schoolTrendPanel: { display: "grid", gridTemplateColumns: "minmax(180px,.72fr) minmax(245px,.92fr) minmax(300px,1.55fr) auto", alignItems: "center", gap: 12, padding: "13px 15px", borderTop: "1px solid #dce9e1", borderBottom: "1px solid #dce9e1", background: "linear-gradient(135deg,#f3faf6,#fbfdfc)", color: "#44574d" },
+  schoolTrendPanel: { display: "grid", gridTemplateColumns: "minmax(180px,.72fr) minmax(245px,.92fr) minmax(300px,1.55fr) auto", alignItems: "center", gap: 12, padding: "13px 15px", borderTop: "1px solid #ecd8b8", borderBottom: "1px solid #ecd8b8", background: "linear-gradient(135deg,#fff8ee,#fffdf9)", color: "#675432" },
   schoolTrendCompact: { paddingTop: 11, paddingBottom: 11 },
+  schoolTrendExpanded: { marginTop: 14, borderTop: "1px solid #e6c99a", boxShadow: "inset 0 5px 0 rgba(231,191,122,.10)" },
   schoolTrendHeading: { minWidth: 0, display: "grid", gap: 5 },
-  schoolTrendSeparation: { display: "grid", gap: 1, fontSize: 10, lineHeight: 1.4, color: "#6d8176" },
-  schoolSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#dff1e7", color: "#2f7052", fontSize: 9.5, fontWeight: 950 },
+  schoolTrendSeparation: { display: "grid", gap: 1, fontSize: 10, lineHeight: 1.4, color: "#806f55" },
+  schoolSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f7e4c5", color: "#82591c", fontSize: 9.5, fontWeight: 950 },
   schoolTrendMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   schoolTrendTypes: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", alignItems: "stretch", gap: 7 },
   schoolTrendTypeMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 4 },
-  schoolTrendMore: { gridColumn: "1/-1", padding: "4px 2px", fontSize: 9.5, color: "#71837a" },
-  schoolTrendAction: { minWidth: 150, display: "grid", justifyItems: "end", gap: 5, color: "#6f8177", fontSize: 10, lineHeight: 1.45 },
-  schoolTrendOpenButton: { minHeight: 38, padding: "0 11px", border: "1px solid #bad7c5", borderRadius: 9, background: "#fff", color: "#347057", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  schoolTrendMore: { gridColumn: "1/-1", padding: "4px 2px", fontSize: 9.5, color: "#88785e" },
+  schoolTrendAction: { minWidth: 150, display: "grid", justifyItems: "end", gap: 5, color: "#806f55", fontSize: 10, lineHeight: 1.45 },
+  schoolTrendOpenButton: { minHeight: 38, padding: "0 11px", border: "1px solid #e0c596", borderRadius: 9, background: "#fff", color: "#80571b", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultCardBody: { minWidth: 0, display: "grid", gridTemplateColumns: "225px minmax(0,1fr)", gap: 16, padding: "18px", borderTop: "1px solid #e1e7ef", background: "#fff" },
   resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 10, padding: 14, borderRadius: 12, background: "linear-gradient(180deg,#f5f8fc,#fafbfd)", border: "1px solid #e3e8f0" },
   identityLabel: { fontSize: 10.5, color: "#5c6d84", fontWeight: 950 },
@@ -2160,6 +2161,16 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-school-trend-types,.susi-beta-school-trend>div:last-child{grid-column:1/-1!important}
   .susi-beta-school-trend>div:last-child{justify-items:start!important}
 }
+/* Patch 42: 광덕고 별도 사례를 정시 영역과 명확히 구분 */
+.susi-beta-school-trend.is-expanded{margin-top:14px!important;border-top:1px solid #e5c791!important}
+.susi-beta-school-trend-heading>div>small{color:#82591c!important}
+.susi-beta-school-trend-heading>div>b{color:#6b4e22!important}
+.susi-beta-school-trend-heading>span strong{color:#735424!important}.susi-beta-school-trend-heading>span em{color:#8a795e!important}
+.susi-beta-school-trend-metrics>span,.susi-beta-school-trend-types>span{border-color:#ead8bb!important;background:rgba(255,255,255,.9)!important}
+.susi-beta-school-trend-metrics small,.susi-beta-school-trend-types>span>span>small>em{color:#8a7b65!important}
+.susi-beta-school-trend-metrics b,.susi-beta-school-trend-types>span>b,.susi-beta-school-trend-types>span>span>small>strong{color:#6b4e22!important}
+.susi-beta-connection-school-metrics>span{border-color:#ead8bb!important;background:rgba(255,255,255,.9)!important}
+.susi-beta-connection-school-metrics b{color:#6b4e22!important}
 .susi-beta-print-sheet{display:none}
 /* Patch 39 readability overrides */
 .susi-beta-view-toolbar [role="tab"]>b{font-size:14px}.susi-beta-view-toolbar [role="tab"]>small{font-size:11.5px}
