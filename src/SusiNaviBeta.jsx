@@ -1022,13 +1022,24 @@ export default function SusiNaviBetaView({
     [enriched, cutoffBasis, conversionGroup],
   );
   const connectionUniversities = useMemo(
-    () => unique(connectionEntries.map(entry => entry.university)),
+    () => unique(connectionEntries.map(entry => entry.university)).sort((a, b) => a.localeCompare(b, "ko")),
     [connectionEntries],
   );
+  const detailUniversities = useMemo(
+    () => unique(enriched.map(({ row }) => row[3])).sort((a, b) => a.localeCompare(b, "ko")),
+    [enriched],
+  );
+  const detailSelectedUniversity = useMemo(() => {
+    if (!connectionFocus?.university) return "";
+    return detailUniversities.find(name => universityIdentityKey(name) === universityIdentityKey(connectionFocus.university)
+      || universityBaseKey(name) === universityBaseKey(connectionFocus.university)) || "";
+  }, [detailUniversities, connectionFocus?.university]);
   useEffect(() => {
-    if (connectionUniversity && !connectionUniversities.some(name => universityBaseKey(name) === universityBaseKey(connectionUniversity))) {
-      setConnectionUniversity("");
-    }
+    if (!connectionUniversity) return;
+    const matched = connectionUniversities.find(name => universityIdentityKey(name) === universityIdentityKey(connectionUniversity)
+      || universityBaseKey(name) === universityBaseKey(connectionUniversity));
+    if (!matched) setConnectionUniversity("");
+    else if (matched !== connectionUniversity) setConnectionUniversity(matched);
   }, [connectionUniversities, connectionUniversity]);
   const connectionResults = useMemo(() => (
     connectionMode === "university"
@@ -1066,15 +1077,15 @@ export default function SusiNaviBetaView({
       {!data ? <EmptyData isAdmin={isAdmin} /> : <>
         <div className="susi-beta-view-toolbar" style={ui.viewToolbar}>
           <div style={ui.viewTabs} role="tablist" aria-label="수시NAVI 화면 구분">
-            <button type="button" role="tab" aria-selected={viewTab === "search"} onClick={() => setViewTab("search")} style={{ ...ui.viewTab, ...(viewTab === "search" ? ui.viewTabActive : {}) }}><span>1</span><b>기준·검색</b><small>환산과 필터</small></button>
-            <button type="button" role="tab" aria-selected={viewTab === "connection"} onClick={() => setViewTab("connection")} style={{ ...ui.viewTab, ...(viewTab === "connection" ? ui.viewTabActive : {}) }}><span>2</span><b>지원 연결</b><small>유사 성적대 탐색</small></button>
-            <button type="button" role="tab" aria-selected={viewTab === "results"} onClick={() => setViewTab("results")} style={{ ...ui.viewTab, ...(viewTab === "results" ? ui.viewTabActive : {}) }}><span>3</span><b>대학 상세</b><small>{filtered.length.toLocaleString()}개 결과</small></button>
+            <button type="button" role="tab" aria-selected={viewTab === "search"} onClick={() => setViewTab("search")} style={{ ...ui.viewTab, ...(viewTab === "search" ? ui.viewTabActive : {}) }}><span>1</span><b>기준 설정</b><small>환산·검색 조건</small></button>
+            <button type="button" role="tab" aria-selected={viewTab === "results"} onClick={() => setViewTab("results")} style={{ ...ui.viewTab, ...(viewTab === "results" ? ui.viewTabActive : {}) }}><span>2</span><b>대학 상세</b><small>{filtered.length.toLocaleString()}개 모집단위</small></button>
+            <button type="button" role="tab" aria-selected={viewTab === "connection"} onClick={() => setViewTab("connection")} style={{ ...ui.viewTab, ...(viewTab === "connection" ? ui.viewTabActive : {}) }}><span>3</span><b>지원 연결</b><small>유사 대학 탐색</small></button>
           </div>
-          <button type="button" style={ui.printButton} onClick={() => window.print()}><Printer size={15}/>현재 결과 인쇄·PDF</button>
+          <button type="button" style={ui.printButton} onClick={() => { setViewTab("results"); window.setTimeout(() => window.print(), 90); }}><Printer size={16}/>대학 상세 인쇄·PDF</button>
         </div>
 
         {viewTab === "search" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
-          <div style={ui.tabGuide}><b>기준·검색</b><span>학생의 5등급 내신을 9등급 기준으로 환산하고, 대학·지역·계열·전형 조건을 설정합니다. 조건을 바꾸면 ‘대학 상세’ 결과도 즉시 갱신됩니다.</span></div>
+          <div style={ui.tabGuide}><b>1단계 · 기준 설정</b><span>학생의 5등급 내신을 9등급 기준으로 환산하고 대학·지역·계열·전형 조건을 설정합니다. 다음 화면에서 먼저 대학 상세 결과를 확인한 뒤 지원 연결 탐색으로 이어집니다.</span></div>
           <div style={ui.converterPanel}>
             <div style={ui.sectionHeading}><div style={ui.step}>1</div><div><b style={ui.sectionTitle}>5·9등급 환산 기준</b><span style={ui.sectionSub}>현재 방식과 통계 기반 방식을 비교해서 사용할 수 있습니다.</span></div></div>
             {selectedStudent?.sid && <div className="susi-beta-student-auto" style={ui.studentAutoBar}>
@@ -1114,8 +1125,8 @@ export default function SusiNaviBetaView({
                   <span style={ui.favoriteFilterLabel}>관심 모집단위</span>
                   <button type="button" disabled={!selectedStudent?.sid} onClick={() => setFavoriteOnly(value => !value)} style={{ ...ui.favoriteFilterBtn, ...(favoriteOnly ? ui.favoriteFilterActive : {}), ...(!selectedStudent?.sid ? ui.favoriteBtnDisabled : {}) }}><Star size={14} fill={favoriteOnly ? "currentColor" : "none"}/>{favoriteOnly ? "즐겨찾기만 보는 중" : "즐겨찾기만"}</button>
                 </div>
-                <button type="button" style={ui.goResultButton} onClick={() => setViewTab("connection")}>다음: 지원 연결 탐색 ›</button>
-                <button type="button" style={ui.directResultButton} onClick={() => { setConnectionFocus(null); setViewTab("results"); }}>바로 대학 상세 {filtered.length.toLocaleString()}건</button>
+                <button type="button" style={ui.goResultButton} onClick={() => { setConnectionFocus(null); setPage(1); setViewTab("results"); }}>다음: 대학 상세 {filtered.length.toLocaleString()}건 보기 ›</button>
+                <button type="button" style={ui.directResultButton} onClick={() => { setConnectionMode("grade"); setViewTab("connection"); }}>지원 연결 바로가기</button>
               </div>
             </div>
             <div className="susi-beta-support-filter" style={ui.supportFilterRow}>
@@ -1145,14 +1156,14 @@ export default function SusiNaviBetaView({
               </div>
             </div>
             <div style={ui.searchWorkflowFooter}>
-              <span><b>다음 단계</b> · 현재 환산값과 컷 기준을 그대로 유지한 채 유사 성적대 지원군을 탐색합니다.</span>
-              <button type="button" style={ui.workflowNextButton} onClick={() => setViewTab("connection")}>지원 연결 탐색으로 ›</button>
+              <span><b>다음 단계</b> · 먼저 대학별 모집단위와 전형 정보를 확인한 뒤, 필요한 대학을 기준으로 유사 지원군을 탐색할 수 있습니다.</span>
+              <button type="button" style={ui.workflowNextButton} onClick={() => { setConnectionFocus(null); setPage(1); setViewTab("results"); }}>대학 상세 결과 보기 ›</button>
             </div>
           </div>
         </div>}
 
         {viewTab === "connection" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
-          <div style={ui.tabGuide}><b>지원 연결이 의미하는 것</b><span><strong>내 성적대</strong>는 학생 환산등급과 선택한 컷의 차이가 범위 안인 모집단위를 찾습니다. <strong>특정 대학 연계</strong>는 선택 대학과 계열·전형·컷이 비슷한 다른 대학을 찾습니다. 실제 동일 학생의 복수지원 기록은 아닙니다.</span></div>
+          <div style={ui.tabGuide}><b>대학 상세 다음 단계</b><span>대학 상세에서 확인한 모집단위를 바탕으로 <strong>내 성적대 전체 후보</strong> 또는 <strong>선택 대학과 비슷한 대학</strong>을 찾습니다. 실제 동일 학생의 복수지원 기록이 아니라 공개 컷과 협력고교 통계를 연결한 탐색 결과입니다.</span></div>
           {data.caseStats?.length > 0 && <div style={ui.caseStatsGuide}><AlertTriangle size={14}/><span><b>‘협력고교 지원사례 244건’은 해당 학과의 합격자 244명이 아닙니다.</b> 원본 자료가 학과를 구분하지 않고 경기도 협력고교 사례를 <strong>대학·전형·계열 단위</strong>로 집계합니다. 대학 공개 모집단위 컷이 없는 경우에는 화면에 ‘계열 통합’으로 구분해 표시합니다.</span></div>}
           <SupportConnectionExplorer
             mode={connectionMode}
@@ -1171,7 +1182,7 @@ export default function SusiNaviBetaView({
             caseRows={caseRows}
             favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)}
             onToggleFavorite={onToggleFavorite}
-            onBack={() => setViewTab("search")}
+            onBack={() => setViewTab("results")}
             onOpenUniversity={item => {
               setConnectionFocus({
                 university: item.university,
@@ -1195,10 +1206,10 @@ export default function SusiNaviBetaView({
 
         {viewTab === "results" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
           <div style={ui.resultContextGuide}>
-            <div><b>대학 상세 결과 {filtered.length.toLocaleString()}건</b><span>2027 모집단위에 2026 교과·종합 입시결과, 정시 참고자료, 2027 수능최저와 <strong>광덕고 지원경향</strong>을 연결했습니다. 카드의 항목 탭으로 필요한 정보만 골라 볼 수 있습니다.</span></div>
+            <div><b>대학 상세 결과 {filtered.length.toLocaleString()}건</b><span>먼저 대학·모집단위별 교과·종합·정시·수능최저와 <strong>광덕고 지원경향</strong>을 확인하세요. 각 카드의 <strong>이 대학과 비슷한 대학 찾기</strong>를 누르면 해당 대학을 기준으로 지원 연결 탐색이 이어집니다.</span></div>
             <div style={ui.resultContextActions}>
-              <button type="button" style={ui.backToSearchButton} onClick={() => setViewTab("connection")}>‹ 지원 연결</button>
-              <button type="button" style={ui.backToSearchButton} onClick={() => setViewTab("search")}>검색 조건 수정</button>
+              <button type="button" style={ui.backToSearchButton} onClick={() => setViewTab("search")}>‹ 기준 설정 수정</button>
+              <button type="button" style={ui.resultConnectPrimary} onClick={() => { setConnectionMode("grade"); setConnectionUniversity(""); setViewTab("connection"); }}>현재 성적으로 지원 연결 찾기 ›</button>
             </div>
           </div>
           <div style={ui.resultFilterBar}>
@@ -1222,6 +1233,16 @@ export default function SusiNaviBetaView({
               <button type="button" aria-pressed={cutoffBasis === "70"} onClick={() => setCutoffBasis("70")} style={{ ...ui.resultCutoffButton, ...(cutoffBasis === "70" ? ui.resultCutoffActive : {}) }}>70%</button>
             </div>
           </div>
+          <div className="susi-beta-detail-search" style={ui.detailSearchPanel}>
+            <div style={ui.detailSearchHeading}><b>대학별 상세 조회</b><span>대학명·모집단위·전형명을 검색하거나 대학을 직접 선택하세요. 결과 수와 페이지가 즉시 갱신됩니다.</span></div>
+            <label style={ui.detailSearchBox}><Search size={18}/><input value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="예: 중앙대, 간호학과, 학생부교과" />{query && <button type="button" onClick={() => { setQuery(""); setPage(1); }} aria-label="검색어 지우기"><X size={15}/></button>}<strong>{filtered.length.toLocaleString()}건</strong></label>
+            <label style={ui.detailUniversitySelect}><span>대학 직접 선택</span><select value={detailSelectedUniversity} onChange={event => {
+              const name = event.target.value;
+              setConnectionFocus(name ? { university: name, department: "", admissionType: "", source: "대학 직접 선택" } : null);
+              setQuery("");
+              setPage(1);
+            }}><option value="">전체 대학</option>{detailUniversities.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
+          </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
             {visible.length ? visible.map(({ row, minimums, courseRules, changes2028, schedules, caseStats }, index) => <ResultCard
@@ -1239,9 +1260,18 @@ export default function SusiNaviBetaView({
               favorite={favorites.some(item => favoriteMatches(item, row))}
               favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)}
               onToggleFavorite={onToggleFavorite}
+              onConnectUniversity={() => {
+                setConnectionMode("university");
+                setConnectionUniversity(row[3]);
+                setViewTab("connection");
+              }}
             />) : <div style={ui.noResult}>조건에 맞는 결과가 없습니다. 위의 ‘현재 적용 조건’을 확인하고 연결 조건이나 검색 필터를 해제해주세요.</div>}
           </div>
           {pageCount > 1 && <Pagination page={page} pageCount={pageCount} onChange={changePage} />}
+          <div style={ui.resultWorkflowFooter}>
+            <div><b>대학 정보를 확인했나요?</b><span>현재 성적 전체 후보를 보거나, 각 대학 카드의 버튼으로 특정 대학과 비슷한 대학을 찾을 수 있습니다.</span></div>
+            <button type="button" style={ui.resultConnectPrimary} onClick={() => { setConnectionMode("grade"); setConnectionUniversity(""); setViewTab("connection"); }}>다음: 지원 연결 탐색 ›</button>
+          </div>
         </div>}
 
         <PrintResultSheet
@@ -1308,20 +1338,28 @@ function SupportConnectionExplorer({
   const total = Number(resultSet?.total || 0);
   const exact = Number(resultSet?.exact || 0);
   const distinctCuts = Number(resultSet?.distinctCuts || 0);
-  const [displayMode, setDisplayMode] = useState("representative");
+  const [displayMode, setDisplayMode] = useState("all");
   const [resultPage, setResultPage] = useState(1);
   const [selectedKey, setSelectedKey] = useState("");
+  const [candidateQuery, setCandidateQuery] = useState("");
 
   useEffect(() => {
     setResultPage(1);
     setSelectedKey("");
+    setCandidateQuery("");
   }, [mode, range, university, total, cutoffBasis, conversionMethod, conversionGroup]);
 
-  const resultPageCount = Math.max(1, Math.ceil(allResults.length / CONNECTION_PAGE_SIZE));
+  const searchedResults = useMemo(() => {
+    const needle = compactText(candidateQuery);
+    if (!needle) return allResults;
+    return allResults.filter(item => compactText(`${item.university} ${item.department} ${item.originalDepartment || ""} ${item.field} ${item.track} ${item.admissionType}`).includes(needle));
+  }, [allResults, candidateQuery]);
+  const resultPageCount = Math.max(1, Math.ceil(searchedResults.length / CONNECTION_PAGE_SIZE));
+  const compactResults = candidateQuery ? representativeConnectionResults(searchedResults, CONNECTION_PAGE_SIZE) : representativeResults;
   const results = displayMode === "all"
-    ? allResults.slice((resultPage - 1) * CONNECTION_PAGE_SIZE, resultPage * CONNECTION_PAGE_SIZE)
-    : representativeResults;
-  const selectedItem = allResults.find(item => item.key === selectedKey) || null;
+    ? searchedResults.slice((resultPage - 1) * CONNECTION_PAGE_SIZE, resultPage * CONNECTION_PAGE_SIZE)
+    : compactResults;
+  const selectedItem = searchedResults.find(item => item.key === selectedKey) || allResults.find(item => item.key === selectedKey) || null;
   const setMode = next => {
     setDisplayMode(next);
     setResultPage(1);
@@ -1330,13 +1368,19 @@ function SupportConnectionExplorer({
   return <section className="susi-beta-connection-panel" style={ui.connectionPanel}>
     <div style={ui.connectionHead}>
       <div style={ui.connectionTitleWrap}>
-        <span style={ui.connectionIcon}><Network size={18}/></span>
-        <div><b style={ui.connectionTitle}>지원 연결 탐색</b><span style={ui.connectionSub}>전체 후보를 먼저 계산하고, 대표 보기에서는 컷 차이·대학 중복을 줄여 12건을 보여줍니다. <strong>전체 후보 보기</strong>에서 나머지 결과를 페이지별로 확인할 수 있습니다.</span></div>
+        <span style={ui.connectionIcon}><Network size={20}/></span>
+        <div><b style={ui.connectionTitle}>지원 연결 탐색</b><span style={ui.connectionSub}>대학 상세를 확인한 뒤 사용하는 비교 화면입니다. 기본값은 <strong>전체 후보</strong>이며, 12개 요약 보기는 필요할 때 선택할 수 있습니다.</span></div>
       </div>
-      <div style={ui.connectionModeToggle}>
-        <button type="button" aria-pressed={mode === "grade"} onClick={() => onModeChange("grade")} style={{ ...ui.connectionModeBtn, ...(mode === "grade" ? ui.connectionModeActive : {}) }}>내 성적대</button>
-        <button type="button" aria-pressed={mode === "university"} onClick={() => onModeChange("university")} style={{ ...ui.connectionModeBtn, ...(mode === "university" ? ui.connectionModeActive : {}) }}>특정 대학 연계</button>
-      </div>
+      <button type="button" style={ui.connectionBackButton} onClick={onBack}>‹ 대학 상세로 돌아가기</button>
+    </div>
+
+    <div style={ui.connectionModeChooser} role="tablist" aria-label="지원 연결 탐색 방식">
+      <button type="button" role="tab" aria-selected={mode === "grade"} onClick={() => onModeChange("grade")} style={{ ...ui.connectionModeCard, ...(mode === "grade" ? ui.connectionModeCardActive : {}) }}>
+        <span>방법 1</span><b>내 성적대로 전체 후보 찾기</b><small>학생 환산등급과 선택한 50·70%컷의 차이가 범위 안인 모든 모집단위를 찾습니다.</small>
+      </button>
+      <button type="button" role="tab" aria-selected={mode === "university"} onClick={() => onModeChange("university")} style={{ ...ui.connectionModeCard, ...(mode === "university" ? ui.connectionModeCardActive : {}) }}>
+        <span>방법 2</span><b>특정 대학과 비슷한 대학 찾기</b><small>기준 대학을 고르면 계열·전형·컷이 가까운 다른 대학과 모집단위를 연결합니다.</small>
+      </button>
     </div>
 
     <div style={ui.connectionControls}>
@@ -1345,9 +1389,9 @@ function SupportConnectionExplorer({
         <div style={ui.criterionItem}><small>교과 조합</small><b>{conversionMethod === "statistical" ? conversionGroup : "전교과"}</b></div>
         <div style={{ ...ui.criterionItem, ...ui.criterionGrade }}><small>학생 9등급 환산</small><b>{gradeReady ? Number(convertedGrade).toFixed(2) : "입력 필요"}</b></div>
         <div style={{ ...ui.criterionItem, ...ui.criterionCut }}><small>현재 비교 기준</small><b>{cutoffBasis}%컷</b></div>
-      </div> : <label style={ui.connectionSelectLabel}><span>기준 대학</span><select value={university} onChange={event => onUniversityChange(event.target.value)} style={ui.connectionSelect}><option value="">대학을 선택하세요</option>{universities.map(name => <option key={name} value={name}>{name}</option>)}</select></label>}
-      <label style={ui.connectionSelectLabel}><span>등급 컷 차이 범위</span><select value={range} onChange={event => onRangeChange(event.target.value)} style={ui.connectionSelect}><option value="0.20">±0.20 이내</option><option value="0.30">±0.30 이내</option><option value="0.50">±0.50 이내</option><option value="0.80">±0.80 이내</option></select></label>
-      <div style={ui.connectionResultCount}><small>전체 연결 후보</small><b>{total.toLocaleString()}건</b><span>{displayMode === "all" ? `${resultPage}/${resultPageCount}페이지` : `대표 ${representativeResults.length}건`}</span></div>
+      </div> : <label style={{ ...ui.connectionSelectLabel, ...ui.connectionUniversitySelector }}><span>① 기준 대학을 선택하세요</span><select value={university} onChange={event => onUniversityChange(event.target.value)} style={ui.connectionSelect}><option value="">대학을 선택하면 결과가 표시됩니다</option>{universities.map(name => <option key={name} value={name}>{name}</option>)}</select>{university && <small><b>{university}</b>의 공개 컷과 계열·전형이 가까운 다른 대학을 찾는 중입니다.</small>}</label>}
+      <label style={ui.connectionSelectLabel}><span>{mode === "university" ? "② " : ""}등급 컷 차이 범위</span><select value={range} onChange={event => onRangeChange(event.target.value)} style={ui.connectionSelect}><option value="0.20">±0.20 이내</option><option value="0.30">±0.30 이내</option><option value="0.50">±0.50 이내</option><option value="0.80">±0.80 이내</option></select></label>
+      <div style={ui.connectionResultCount}><small>계산된 전체 후보</small><b>{total.toLocaleString()}건</b><span>{displayMode === "all" ? `전체 보기 · ${resultPage}/${resultPageCount}페이지` : `요약 ${compactResults.length}건`}</span></div>
     </div>
 
     <div style={ui.connectionStats}>
@@ -1357,17 +1401,20 @@ function SupportConnectionExplorer({
       <span><small>계열 통합 컷</small><b>{Number(resultSet?.integrated || 0).toLocaleString()}건</b></span>
     </div>
 
-    <div style={ui.connectionNotice}><AlertTriangle size={14}/><span><b>차이 0.00</b>은 동일 학생이라는 뜻이 아니라 비교 컷 숫자가 같다는 뜻입니다. 대학 공개 모집단위 컷이 없을 때는 협력고교의 대학·전형·계열 통합컷을 사용하며, 이를 <strong>계열 통합</strong>으로 따로 표시합니다.{total > 0 && distinctCuts === 1 ? <> 현재 선택 범위의 기준 컷은 모두 <strong>{Number(allResults[0]?.referenceCut || 0).toFixed(2)}</strong>로 동일합니다.</> : null}</span></div>
+    <div style={ui.connectionNotice}><AlertTriangle size={16}/><span><b>차이 0.00</b>은 동일 학생이라는 뜻이 아니라 비교 컷 숫자가 같다는 뜻입니다. 대학 공개 모집단위 컷이 없을 때는 협력고교의 대학·전형·계열 통합컷을 사용하고 <strong>계열 통합</strong>으로 표시합니다.{total > 0 && distinctCuts === 1 ? <> 현재 선택 범위의 기준 컷은 모두 <strong>{Number(allResults[0]?.referenceCut || 0).toFixed(2)}</strong>로 동일합니다.</> : null}</span></div>
 
-    {!!total && <div style={ui.connectionDisplayBar}>
-      <div><b>표시 방식</b><span>대표 보기는 대학·컷 차이를 분산하고, 전체 후보 보기는 계산된 모든 결과를 순서대로 보여줍니다.</span></div>
-      <div style={ui.connectionDisplayToggle}>
-        <button type="button" aria-pressed={displayMode === "representative"} onClick={() => setMode("representative")} style={{ ...ui.connectionDisplayButton, ...(displayMode === "representative" ? ui.connectionDisplayActive : {}) }}>대표 12건</button>
-        <button type="button" aria-pressed={displayMode === "all"} onClick={() => setMode("all")} style={{ ...ui.connectionDisplayButton, ...(displayMode === "all" ? ui.connectionDisplayActive : {}) }}>전체 후보 {total.toLocaleString()}건</button>
+    {!!total && <>
+      <div style={ui.connectionDisplayBar}>
+        <div><b>{displayMode === "all" ? "전체 후보를 조회하고 있습니다." : "대학 중복을 줄인 요약 결과입니다."}</b><span>전체 보기에서는 모든 결과를 12개씩 페이지로 확인하고, 대학·학과 검색으로 후보를 빠르게 좁힐 수 있습니다.</span></div>
+        <div style={ui.connectionDisplayToggle}>
+          <button type="button" aria-pressed={displayMode === "all"} onClick={() => setMode("all")} style={{ ...ui.connectionDisplayButton, ...(displayMode === "all" ? ui.connectionDisplayActive : {}) }}>전체 후보 {total.toLocaleString()}건</button>
+          <button type="button" aria-pressed={displayMode === "representative"} onClick={() => setMode("representative")} style={{ ...ui.connectionDisplayButton, ...(displayMode === "representative" ? ui.connectionDisplayActive : {}) }}>요약 12건</button>
+        </div>
       </div>
-    </div>}
+      <label style={ui.connectionCandidateSearch}><Search size={17}/><input value={candidateQuery} onChange={event => { setCandidateQuery(event.target.value); setResultPage(1); }} placeholder="전체 후보 안에서 대학명·학과·전형 검색" />{candidateQuery && <button type="button" onClick={() => { setCandidateQuery(""); setResultPage(1); }} aria-label="후보 검색어 지우기"><X size={14}/></button>}<strong>{searchedResults.length.toLocaleString()}건</strong></label>
+    </>}
 
-    {!results.length ? <div style={ui.connectionEmpty}>{mode === "grade" && !gradeReady ? "5등급 내신을 입력하거나 학생을 선택하면 성적대 연결 결과가 표시됩니다." : mode === "university" && !university ? "기준 대학을 선택하면 유사한 다른 대학·학과를 표시합니다." : "선택한 범위에 연결되는 후보가 없습니다. 범위를 넓히거나 비교 기준을 바꿔주세요."}</div> : <div style={ui.connectionGrid}>{results.map(item => {
+    {!results.length ? <div style={ui.connectionEmpty}>{mode === "grade" && !gradeReady ? "5등급 내신을 입력하거나 학생을 선택하면 성적대 연결 결과가 표시됩니다." : mode === "university" && !university ? "위의 ‘특정 대학과 비슷한 대학 찾기’를 선택한 뒤 기준 대학을 골라주세요." : candidateQuery ? "검색어에 맞는 후보가 없습니다. 대학명이나 학과명을 줄여서 검색해보세요." : "선택한 범위에 연결되는 후보가 없습니다. 범위를 넓히거나 비교 기준을 바꿔주세요."}</div> : <div style={ui.connectionGrid}>{results.map(item => {
       const difference = Math.abs(Number(mode === "grade" ? item.difference : item.linkDifference));
       const support = mode === "grade" ? supportBand(convertedGrade, item.referenceCut) : null;
       const favoriteItem = connectionFavoriteItem(item);
@@ -1377,7 +1424,7 @@ function SupportConnectionExplorer({
       return <article key={`${mode}-${item.key}`} onClick={() => setSelectedKey(item.key)} style={{ ...ui.connectionCard, ...(selected ? ui.connectionCardSelected : {}) }}>
         <div style={ui.connectionCardHead}>
           <div style={ui.connectionUniversityWrap}><small style={ui.connectionEntityLabel}>대학</small><b style={ui.connectionUniversityName}>{item.university}</b><span>{item.admissionType}</span></div>
-          <button type="button" aria-label={favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"} disabled={!favoriteEnabled} onClick={event => { event.stopPropagation(); onToggleFavorite?.(favoriteItem); }} style={{ ...ui.connectionFavoriteBtn, ...(favorite ? ui.favoriteBtnActive : {}), ...(!favoriteEnabled ? ui.favoriteBtnDisabled : {}) }}><Star size={14} fill={favorite ? "currentColor" : "none"}/></button>
+          <button type="button" aria-label={favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"} disabled={!favoriteEnabled} onClick={event => { event.stopPropagation(); onToggleFavorite?.(favoriteItem); }} style={{ ...ui.connectionFavoriteBtn, ...(favorite ? ui.favoriteBtnActive : {}), ...(!favoriteEnabled ? ui.favoriteBtnDisabled : {}) }}><Star size={16} fill={favorite ? "currentColor" : "none"}/></button>
         </div>
         <div style={ui.connectionDepartmentWrap}><small style={ui.connectionEntityLabel}>모집단위</small><strong style={ui.connectionDepartment}>{item.department}</strong></div>
         <div style={ui.connectionMeta}><span>{item.field}</span><span>{item.track}</span><span style={item.integratedScope ? ui.integratedBadge : ui.officialBadge}>{item.integratedScope ? "계열 통합" : "학과 공개컷"}</span></div>
@@ -1388,14 +1435,14 @@ function SupportConnectionExplorer({
         </div>
         {trend.total > 0 && <div className="susi-beta-connection-trend" style={ui.connectionTrendMini}><span><small>광덕고 지원</small><b>{trend.total}건</b></span><span><small>합격</small><b>{trend.accepted}건</b></span><span><small>합격률</small><b>{trend.rate}%</b></span></div>}
         <small style={ui.connectionSource}>{item.referenceSource}</small>
-        <div style={ui.connectionCardFoot}>{support ? <span style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <span>{item.linkedTarget ? `${item.linkedTarget.university} ${item.linkedTarget.department} 기준` : "유사 지원군"}</span>}<button type="button" onClick={event => { event.stopPropagation(); onOpenUniversity?.(item); }}>대학 상세 열기 ›</button></div>
+        <div style={ui.connectionCardFoot}>{support ? <span style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <span>{item.linkedTarget ? `${item.linkedTarget.university} · ${item.linkedTarget.department} 기준` : "유사 지원군"}</span>}<button type="button" onClick={event => { event.stopPropagation(); onOpenUniversity?.(item); }}>대학 상세 보기 ›</button></div>
       </article>;
     })}</div>}
 
-    {displayMode === "all" && resultPageCount > 1 && <Pagination page={resultPage} pageCount={resultPageCount} onChange={setResultPage}/>}
+    {displayMode === "all" && resultPageCount > 1 && <Pagination page={resultPage} pageCount={resultPageCount} onChange={setResultPage}/>} 
     <div style={ui.connectionFooterNav}>
-      <button type="button" style={ui.connectionBackButton} onClick={onBack}>‹ 기준·검색으로</button>
-      <div style={ui.connectionSelectionStatus}>{selectedItem ? <><small>선택한 결과</small><b>{selectedItem.university} · {selectedItem.department}</b></> : <span>카드를 선택하면 대학 상세로 이어집니다.</span>}</div>
+      <button type="button" style={ui.connectionBackButton} onClick={onBack}>‹ 대학 상세로</button>
+      <div style={ui.connectionSelectionStatus}>{selectedItem ? <><small>선택한 결과</small><b>{selectedItem.university} · {selectedItem.department}</b></> : <span>카드를 선택하면 해당 대학의 상세 화면으로 돌아갈 수 있습니다.</span>}</div>
       <button type="button" disabled={!selectedItem} style={{ ...ui.connectionNextButton, ...(!selectedItem ? ui.favoriteBtnDisabled : {}) }} onClick={() => selectedItem && onOpenUniversity?.(selectedItem)}>선택 대학 상세 보기 ›</button>
     </div>
   </section>;
@@ -1419,7 +1466,7 @@ function SupportTrendPanel({ trend, compact = false }) {
   </div>;
 }
 
-function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedules = [], caseStats = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite }) {
+function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedules = [], caseStats = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onConnectUniversity }) {
   const [open, setOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("all");
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
@@ -1455,8 +1502,9 @@ function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedul
           <span><small>수능최저</small><b>{minimums?.length || 0}건</b></span>
         </div>
         <div style={ui.resultActions}>
-          <button type="button" title={favoriteEnabled ? (favorite ? "즐겨찾기 해제" : "즐겨찾기 추가") : "학생을 먼저 선택하세요"} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(favoriteItem)} style={{ ...ui.favoriteBtn, ...(favorite ? ui.favoriteBtnActive : {}), ...(!favoriteEnabled ? ui.favoriteBtnDisabled : {}) }}><Star size={15} fill={favorite ? "currentColor" : "none"}/></button>
-          <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={ui.resultToggle}>{open ? <ChevronUp size={15}/> : <ChevronDown size={15}/>} {open ? "상세 접기" : "상세 펼치기"}</button>
+          <button type="button" title={favoriteEnabled ? (favorite ? "즐겨찾기 해제" : "즐겨찾기 추가") : "학생을 먼저 선택하세요"} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(favoriteItem)} style={{ ...ui.favoriteBtn, ...(favorite ? ui.favoriteBtnActive : {}), ...(!favoriteEnabled ? ui.favoriteBtnDisabled : {}) }}><Star size={16} fill={favorite ? "currentColor" : "none"}/></button>
+          <button type="button" onClick={onConnectUniversity} style={ui.resultConnectButton}><Network size={15}/>이 대학과 비슷한 대학 찾기</button>
+          <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={ui.resultToggle}>{open ? <ChevronUp size={16}/> : <ChevronDown size={16}/>} {open ? "상세 접기" : "상세 펼치기"}</button>
         </div>
       </div>
       <SupportTrendPanel trend={schoolTrend} compact={!open}/>
@@ -1565,35 +1613,41 @@ function MinimumGroup({ rows = [] }) {
 }
 
 const ui = {
-  root: { display: "grid", gap: 14, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", color: "#222a3a" },
+  root: { display: "grid", gap: 15, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", color: "#222a3a", fontSize: 14, lineHeight: 1.55 },
   loading: { minHeight: 320, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#647086", fontWeight: 750 },
   hero: { padding: "23px 25px", borderRadius: 18, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#fff", background: "linear-gradient(135deg,#63558e,#8a5d82)", boxShadow: "0 14px 34px rgba(86,67,119,.18)" },
-  heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 800, opacity: .82 },
+  heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 850, opacity: .86 },
   heroTitle: { margin: "6px 0 4px", fontSize: 25, lineHeight: 1.15, letterSpacing: "-.03em" },
-  heroText: { margin: 0, fontSize: 12.5, lineHeight: 1.55, opacity: .88 },
+  heroText: { margin: 0, fontSize: 13.5, lineHeight: 1.6, opacity: .9 },
   heroStats: { minWidth: 170, display: "grid", gap: 4, textAlign: "right" },
   betaBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#eee8ff", color: "#6b55a0", fontSize: 10, fontWeight: 900, verticalAlign: "middle" },
-  betaNotice: { display: "flex", gap: 9, alignItems: "flex-start", padding: "11px 14px", border: "1px solid #e5d9b7", borderRadius: 12, background: "#fff9e9", color: "#6e5923", fontSize: 11.5, lineHeight: 1.55 },
-  viewToolbar: { position: "sticky", top: 6, zIndex: 12, display: "grid", gridTemplateColumns: "minmax(20px,1fr) minmax(430px,650px) minmax(150px,1fr)", alignItems: "stretch", gap: 10, padding: 7, border: "1px solid #d8deea", borderRadius: 15, background: "rgba(255,255,255,.96)", boxShadow: "0 8px 22px rgba(44,53,69,.09)", backdropFilter: "blur(8px)" },
-  viewTabs: { minWidth: 0, gridColumn: "2", display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
-  viewTab: { minWidth: 0, minHeight: 50, display: "grid", gridTemplateColumns: "25px minmax(0,1fr)", gridTemplateRows: "auto auto", columnGap: 7, alignContent: "center", textAlign: "left", padding: "7px 10px", border: "1px solid transparent", borderRadius: 11, background: "transparent", color: "#6b7586", cursor: "pointer" },
+  betaNotice: { display: "flex", gap: 9, alignItems: "flex-start", padding: "11px 14px", border: "1px solid #e5d9b7", borderRadius: 12, background: "#fff9e9", color: "#6e5923", fontSize: 13.5, lineHeight: 1.6 },
+  viewToolbar: { position: "sticky", top: 6, zIndex: 12, display: "grid", gridTemplateColumns: "minmax(520px,720px) auto", justifyContent: "center", alignItems: "stretch", gap: 12, padding: 8, border: "1px solid #d8deea", borderRadius: 16, background: "rgba(255,255,255,.97)", boxShadow: "0 8px 22px rgba(44,53,69,.09)", backdropFilter: "blur(8px)" },
+  viewTabs: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6 },
+  viewTab: { minWidth: 0, minHeight: 56, display: "grid", gridTemplateColumns: "28px minmax(0,1fr)", gridTemplateRows: "auto auto", columnGap: 9, alignContent: "center", textAlign: "left", padding: "8px 12px", border: "1px solid transparent", borderRadius: 12, background: "transparent", color: "#5e6a7d", cursor: "pointer" },
   viewTabActive: { borderColor: "#d6cbea", background: "linear-gradient(135deg,#f4f0fb,#fff)", color: "#594681", boxShadow: "0 3px 10px rgba(86,69,126,.12)" },
-  printButton: { gridColumn: "3", justifySelf: "end", minWidth: 146, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, border: "1px solid #c9d5e4", borderRadius: 11, background: "#263c61", color: "#fff", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
+  printButton: { minWidth: 176, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, border: "1px solid #263c61", borderRadius: 12, background: "#263c61", color: "#fff", fontSize: 13, fontWeight: 900, cursor: "pointer", boxShadow: "0 5px 12px rgba(38,60,97,.18)" },
   tabPanel: { display: "grid", gap: 13 },
-  tabGuide: { display: "grid", gridTemplateColumns: "150px minmax(0,1fr)", gap: 12, alignItems: "center", padding: "12px 14px", border: "1px solid #dce3ed", borderRadius: 13, background: "linear-gradient(135deg,#f7f9fd,#fff)", color: "#5f6c80", fontSize: 11, lineHeight: 1.55 },
-  goResultButton: { minHeight: 38, padding: "0 14px", border: "1px solid #5f4e87", borderRadius: 10, background: "#66558e", color: "#fff", fontSize: 10.5, fontWeight: 900, cursor: "pointer", boxShadow: "0 5px 12px rgba(86,69,126,.18)" },
-  directResultButton: { minHeight: 38, padding: "0 12px", border: "1px solid #ccd7e5", borderRadius: 10, background: "#fff", color: "#52627a", fontSize: 10, fontWeight: 850, cursor: "pointer" },
-  searchWorkflowFooter: { marginTop: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "11px 13px", border: "1px solid #d8d0e8", borderRadius: 12, background: "linear-gradient(135deg,#f8f5fd,#fff)", color: "#606b7d", fontSize: 10.5, lineHeight: 1.45 },
-  workflowNextButton: { minHeight: 36, flex: "0 0 auto", padding: "0 13px", border: 0, borderRadius: 9, background: "#5f4d88", color: "#fff", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
-  resultContextGuide: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "13px 15px", border: "1px solid #d9e2ef", borderRadius: 13, background: "linear-gradient(135deg,#f5f8fd,#fff)", color: "#5e6a7c", fontSize: 10.8, lineHeight: 1.55 },
-  resultContextActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
-  backToSearchButton: { flex: "0 0 auto", minHeight: 34, padding: "0 11px", border: "1px solid #cfd8e5", borderRadius: 9, background: "#fff", color: "#40516a", fontSize: 10, fontWeight: 850, cursor: "pointer" },
+  tabGuide: { display: "grid", gridTemplateColumns: "180px minmax(0,1fr)", gap: 14, alignItems: "center", padding: "14px 16px", border: "1px solid #dce3ed", borderRadius: 14, background: "linear-gradient(135deg,#f7f9fd,#fff)", color: "#536176", fontSize: 13.5, lineHeight: 1.6 },
+  goResultButton: { minHeight: 43, padding: "0 16px", border: "1px solid #5f4e87", borderRadius: 11, background: "#66558e", color: "#fff", fontSize: 13, fontWeight: 900, cursor: "pointer", boxShadow: "0 6px 14px rgba(86,69,126,.20)" },
+  directResultButton: { minHeight: 43, padding: "0 14px", border: "1px solid #ccd7e5", borderRadius: 11, background: "#fff", color: "#52627a", fontSize: 12.5, fontWeight: 850, cursor: "pointer" },
+  searchWorkflowFooter: { marginTop: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "11px 13px", border: "1px solid #d8d0e8", borderRadius: 12, background: "linear-gradient(135deg,#f8f5fd,#fff)", color: "#606b7d", fontSize: 12, lineHeight: 1.5 },
+  workflowNextButton: { minHeight: 40, flex: "0 0 auto", padding: "0 15px", border: 0, borderRadius: 10, background: "#5f4d88", color: "#fff", fontSize: 12.5, fontWeight: 900, cursor: "pointer" },
+  resultContextGuide: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "15px 17px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f5f8fd,#fff)", color: "#526075", fontSize: 13.2, lineHeight: 1.62 },
+  resultContextActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
+  resultConnectPrimary: { minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 14px", border: "1px solid #58447f", borderRadius: 10, background: "#604c89", color: "#fff", fontSize: 12.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(86,69,126,.18)" },
+  resultWorkflowFooter: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "14px 15px", border: "1px solid #d8d0e8", borderRadius: 13, background: "linear-gradient(135deg,#f7f3fc,#fff)", color: "#566276", fontSize: 12.5, lineHeight: 1.55 },
+  detailSearchPanel: { display: "grid", gridTemplateColumns: "minmax(230px,.75fr) minmax(310px,1.15fr) minmax(260px,.9fr)", gap: 12, alignItems: "end", padding: "15px 16px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f7faff,#fbf9ff)" },
+  detailSearchHeading: { display: "grid", gap: 4, color: "#26384f" },
+  detailSearchBox: { minWidth: 0, minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "0 12px", border: "1px solid #c8d5e5", borderRadius: 11, background: "#fff", color: "#52657f", boxShadow: "0 3px 10px rgba(48,65,88,.05)" },
+  detailUniversitySelect: { display: "grid", gap: 6, color: "#59687c", fontSize: 11, fontWeight: 900 },
+  backToSearchButton: { flex: "0 0 auto", minHeight: 39, padding: "0 13px", border: "1px solid #cfd8e5", borderRadius: 10, background: "#fff", color: "#40516a", fontSize: 11.2, fontWeight: 850, cursor: "pointer" },
   resultFilterBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #e0e5ed", borderRadius: 12, background: "#fbfcfe", flexWrap: "wrap" },
   activeFilterWrap: { minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
   activeFilterLabel: { color: "#7b8797", fontSize: 9.5, fontWeight: 900 },
-  activeFilterChip: { display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 8px", borderRadius: 999, background: "#edf2f8", color: "#445875", border: "1px solid #d6e0ec", fontSize: 9.2, fontWeight: 850 },
+  activeFilterChip: { display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 8px", borderRadius: 999, background: "#edf2f8", color: "#445875", border: "1px solid #d6e0ec", fontSize: 11, fontWeight: 850 },
   activeFilterEmpty: { color: "#9aa2ae", fontSize: 9.5 },
-  clearFilterButton: { minHeight: 27, padding: "0 8px", border: "1px solid #e2cfcf", borderRadius: 8, background: "#fff7f7", color: "#9a5555", fontSize: 9.2, fontWeight: 850, cursor: "pointer" },
+  clearFilterButton: { minHeight: 27, padding: "0 8px", border: "1px solid #e2cfcf", borderRadius: 8, background: "#fff7f7", color: "#9a5555", fontSize: 11, fontWeight: 850, cursor: "pointer" },
   resultCutoffControl: { display: "inline-flex", alignItems: "center", gap: 4, padding: 4, border: "1px solid #ddd5ea", borderRadius: 10, background: "#f2eef8", color: "#706480", fontSize: 9.5, fontWeight: 900 },
   resultCutoffButton: { minWidth: 45, height: 29, border: "1px solid transparent", borderRadius: 7, background: "transparent", color: "#786f85", fontSize: 10, fontWeight: 900, cursor: "pointer" },
   resultCutoffActive: { background: "#65518d", color: "#fff", borderColor: "#5a477e", boxShadow: "0 3px 8px rgba(86,69,126,.18)" },
@@ -1602,7 +1656,7 @@ const ui = {
   searchPanel: { padding: 18, border: "1px solid #dce2ec", borderRadius: 16, background: "#fff" },
   sectionHeading: { display: "flex", gap: 10, alignItems: "center", marginBottom: 14 },
   sectionTitle: { display: "block", fontSize: 14, lineHeight: 1.25, color: "#2b3445" },
-  sectionSub: { display: "block", marginTop: 3, fontSize: 10.5, lineHeight: 1.45, color: "#7a8495" },
+  sectionSub: { display: "block", marginTop: 3, fontSize: 12.5, lineHeight: 1.55, color: "#707c8f" },
   step: { width: 26, height: 26, borderRadius: 9, background: "#665690", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 12 },
   converterGrid: { display: "grid", gridTemplateColumns: "150px minmax(270px,1.4fr) minmax(160px,.8fr) minmax(190px,.9fr)", gap: 10, alignItems: "stretch" },
   fieldLabel: { display: "grid", gap: 6, minWidth: 0, fontSize: 11, fontWeight: 800, color: "#5d6678" },
@@ -1650,61 +1704,67 @@ const ui = {
   supportLegendItem: { minHeight: 30, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 800, cursor: "pointer" },
   supportSelected: { boxShadow: "0 0 0 2px rgba(74,85,115,.17)", transform: "translateY(-1px)" },
   caseStatsGuide: { display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", border: "1px solid #d9e1ee", borderRadius: 11, background: "#f7f9fd", color: "#5c687c", fontSize: 10.5, lineHeight: 1.5 },
-  connectionPanel: { display: "grid", gap: 13, padding: 17, border: "1px solid #d3ddea", borderRadius: 16, background: "linear-gradient(145deg,#ffffff,#f7f9fd)", boxShadow: "0 7px 20px rgba(52,62,78,.045)" },
+  connectionPanel: { display: "grid", gap: 15, padding: 19, border: "1px solid #cfdbea", borderRadius: 17, background: "linear-gradient(145deg,#ffffff,#f7f9fd)", boxShadow: "0 8px 22px rgba(52,62,78,.055)" },
   connectionHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
   connectionTitleWrap: { display: "flex", alignItems: "center", gap: 11, minWidth: 0 },
   connectionIcon: { width: 38, height: 38, flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, color: "#604b8b", background: "#eee9f8" },
-  connectionTitle: { display: "block", fontSize: 15.5, lineHeight: 1.25, color: "#24334a" },
-  connectionSub: { display: "block", maxWidth: 640, marginTop: 4, fontSize: 10.7, lineHeight: 1.5, color: "#748095", wordBreak: "keep-all" },
+  connectionTitle: { display: "block", fontSize: 20, lineHeight: 1.25, color: "#21324a" },
+  connectionSub: { display: "block", maxWidth: 720, marginTop: 5, fontSize: 13, lineHeight: 1.6, color: "#69768a", wordBreak: "keep-all" },
   connectionModeToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 11, background: "#e9edf4" },
   connectionModeBtn: { minHeight: 34, padding: "0 13px", border: 0, borderRadius: 8, background: "transparent", color: "#687488", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
   connectionModeActive: { color: "#fff", background: "#5f4f88", boxShadow: "0 3px 9px rgba(86,69,126,.2)" },
-  connectionControls: { display: "grid", gridTemplateColumns: "minmax(430px,1.5fr) minmax(165px,.45fr) minmax(135px,.34fr)", gap: 10, alignItems: "end" },
-  connectionCriterion: { minHeight: 66, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 7, padding: 7, border: "1px solid #d5deea", borderRadius: 13, background: "#edf1f6" },
-  criterionItem: { minWidth: 0, display: "grid", alignContent: "center", gap: 4, padding: "9px 10px", borderRadius: 10, background: "#fff", color: "#4c5b70", border: "1px solid #e1e6ee" },
+  connectionModeChooser: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
+  connectionModeCard: { minWidth: 0, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", gridTemplateRows: "auto auto", columnGap: 10, rowGap: 3, alignItems: "center", padding: "13px 14px", border: "1px solid #d8e1ec", borderRadius: 13, background: "#fff", color: "#526075", textAlign: "left", cursor: "pointer" },
+  connectionModeCardActive: { borderColor: "#66518f", background: "linear-gradient(135deg,#f3effb,#fff)", color: "#4f387d", boxShadow: "0 0 0 2px rgba(102,81,143,.12),0 6px 15px rgba(70,55,105,.09)" },
+  connectionUniversitySelector: { minHeight: 78, padding: "9px 10px", border: "1px solid #d9e1ec", borderRadius: 12, background: "#f8fafd" },
+  connectionControls: { display: "grid", gridTemplateColumns: "minmax(470px,1.55fr) minmax(185px,.5fr) minmax(155px,.38fr)", gap: 11, alignItems: "stretch" },
+  connectionCriterion: { minHeight: 78, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, padding: 8, border: "1px solid #d5deea", borderRadius: 14, background: "#edf1f6" },
+  criterionItem: { minWidth: 0, display: "grid", alignContent: "center", gap: 5, padding: "11px 12px", borderRadius: 11, background: "#fff", color: "#405069", border: "1px solid #e1e6ee" },
   criterionGrade: { background: "#eaf3ff", color: "#224f88", border: "1px solid #bfd4ef" },
   criterionCut: { background: "#f2ebfb", color: "#5b4387", border: "1px solid #d2c2e8" },
-  connectionSelectLabel: { display: "grid", gap: 6, fontSize: 10, fontWeight: 900, color: "#5f6d81" },
-  connectionSelect: { width: "100%", height: 42, border: "1px solid #bdcadb", borderRadius: 10, background: "#fff", padding: "0 10px", color: "#2f3d52", fontSize: 11, fontWeight: 800, outline: "none" },
-  connectionResultCount: { minHeight: 62, display: "grid", alignContent: "center", justifyItems: "center", gap: 2, border: "1px solid #ddd3ef", borderRadius: 11, background: "linear-gradient(135deg,#eee8f8,#f7f3fc)", color: "#59447f" },
+  connectionSelectLabel: { display: "grid", gap: 7, fontSize: 12.5, fontWeight: 900, color: "#526177" },
+  connectionSelect: { width: "100%", height: 48, border: "1px solid #b9c8dc", borderRadius: 11, background: "#fff", padding: "0 12px", color: "#25354c", fontSize: 13.5, fontWeight: 800, outline: "none" },
+  connectionResultCount: { minHeight: 78, display: "grid", alignContent: "center", justifyItems: "center", gap: 3, border: "1px solid #d6c9eb", borderRadius: 12, background: "linear-gradient(135deg,#eee8f8,#f8f4fc)", color: "#513a7d" },
   connectionStats: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 7 },
-  connectionNotice: { display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", border: "1px solid #ead9aa", borderRadius: 10, background: "#fff8e7", color: "#6c5724", fontSize: 10.2, lineHeight: 1.55 },
-  connectionEmpty: { padding: 21, border: "1px dashed #cfd9e6", borderRadius: 11, background: "#fafbfc", color: "#7f8998", fontSize: 11, textAlign: "center" },
-  connectionDisplayBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #dce3ed", borderRadius: 11, background: "#fafbfe", color: "#657186", fontSize: 9.8, lineHeight: 1.45, flexWrap: "wrap" },
+  connectionNotice: { display: "flex", alignItems: "flex-start", gap: 9, padding: "11px 13px", border: "1px solid #ead39b", borderRadius: 11, background: "#fff8e7", color: "#66501d", fontSize: 12.3, lineHeight: 1.62 },
+  connectionEmpty: { padding: 21, border: "1px dashed #cfd9e6", borderRadius: 11, background: "#fafbfc", color: "#7f8998", fontSize: 12.5, textAlign: "center" },
+  connectionDisplayBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #dce3ed", borderRadius: 11, background: "#fafbfe", color: "#657186", fontSize: 11.5, lineHeight: 1.5, flexWrap: "wrap" },
   connectionDisplayToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 10, background: "#e9edf4" },
-  connectionDisplayButton: { minHeight: 31, padding: "0 10px", border: "1px solid transparent", borderRadius: 7, background: "transparent", color: "#68758a", fontSize: 9.5, fontWeight: 900, cursor: "pointer" },
-  connectionDisplayActive: { background: "#fff", color: "#5c4785", borderColor: "#d5c9e8", boxShadow: "0 3px 8px rgba(86,69,126,.12)" },
-  connectionGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 10 },
-  connectionCard: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 12, border: "1px solid #d8e1ec", borderRadius: 13, background: "#fff", color: "#344055", textAlign: "left", boxShadow: "0 3px 10px rgba(48,60,80,.035)", cursor: "pointer", transition: "border-color .15s,box-shadow .15s,transform .15s" },
+  connectionDisplayButton: { minHeight: 31, padding: "0 10px", border: "1px solid transparent", borderRadius: 7, background: "transparent", color: "#68758a", fontSize: 11, fontWeight: 900, cursor: "pointer" },
+  connectionDisplayActive: { background: "#5f4c89", color: "#fff", borderColor: "#5f4c89", boxShadow: "0 4px 10px rgba(86,69,126,.18)" },
+  connectionCandidateSearch: { minHeight: 46, display: "flex", alignItems: "center", gap: 9, padding: "0 12px", border: "1px solid #cbd7e6", borderRadius: 11, background: "#fff", color: "#52657e", boxShadow: "0 3px 10px rgba(48,65,88,.04)" },
+  connectionGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 },
+  connectionCard: { minWidth: 0, display: "grid", alignContent: "start", gap: 9, padding: 14, border: "1px solid #d5e0ed", borderRadius: 14, background: "#fff", color: "#303e54", textAlign: "left", boxShadow: "0 4px 12px rgba(48,60,80,.045)", cursor: "pointer", transition: "border-color .15s,box-shadow .15s,transform .15s" },
   connectionCardSelected: { borderColor: "#66518f", boxShadow: "0 0 0 2px rgba(102,81,143,.15),0 8px 18px rgba(70,55,105,.12)", transform: "translateY(-1px)" },
   connectionCardHead: { minWidth: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 7, fontSize: 11 },
   connectionUniversityWrap: { minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  connectionEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 20, padding: "0 6px", borderRadius: 6, background: "#e8eef7", color: "#536785", fontSize: 8.2, fontWeight: 950 },
-  connectionUniversityName: { minWidth: 0, fontSize: 12.5, lineHeight: 1.3, color: "#1f3e69", fontWeight: 950, overflowWrap: "anywhere" },
+  connectionEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 20, padding: "0 6px", borderRadius: 6, background: "#e8eef7", color: "#536785", fontSize: 10.5, fontWeight: 950 },
+  connectionUniversityName: { minWidth: 0, fontSize: 16, lineHeight: 1.3, color: "#173a68", fontWeight: 950, overflowWrap: "anywhere" },
   connectionDepartmentWrap: { display: "grid", gap: 4, padding: "8px 9px", border: "1px solid #e1d8ef", borderRadius: 9, background: "linear-gradient(135deg,#faf7ff,#fff)" },
   connectionFavoriteBtn: { flex: "0 0 auto", width: 29, height: 29, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #d4dce7", borderRadius: 8, background: "#fff", color: "#8b95a3", cursor: "pointer" },
-  connectionDepartment: { minHeight: 0, fontSize: 12.5, lineHeight: 1.42, color: "#5a4384", wordBreak: "keep-all", overflowWrap: "anywhere" },
-  connectionMeta: { minHeight: 21, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", color: "#6f7c90", fontSize: 9.2 },
+  connectionDepartment: { minHeight: 0, fontSize: 16, lineHeight: 1.45, color: "#52377f", fontWeight: 900, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  connectionMeta: { minHeight: 21, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", color: "#6f7c90", fontSize: 11 },
   integratedBadge: { padding: "3px 6px", borderRadius: 999, background: "#fff3d9", color: "#86601c", fontWeight: 900 },
   officialBadge: { padding: "3px 6px", borderRadius: 999, background: "#e9f5ef", color: "#2e7358", fontWeight: 900 },
   connectionMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   connectionTrendMini: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5, padding: 6, border: "1px solid #d7e8dc", borderRadius: 9, background: "#f4faf6" },
-  connectionSource: { padding: "5px 7px", borderRadius: 7, background: "#f6f8fb", color: "#7a8596", fontSize: 8.7, lineHeight: 1.35 },
-  connectionCardFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, paddingTop: 7, borderTop: "1px dashed #dce3ec", fontSize: 9.1 },
+  connectionSource: { padding: "6px 8px", borderRadius: 8, background: "#f5f7fa", color: "#6e7b8d", fontSize: 12.5, lineHeight: 1.5 },
+  connectionCardFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTop: "1px dashed #dce3ec", fontSize: 11.5 },
   connectionFooterNav: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 10, paddingTop: 11, borderTop: "1px solid #e1e6ee" },
-  connectionBackButton: { minHeight: 36, padding: "0 11px", border: "1px solid #d1dae6", borderRadius: 9, background: "#fff", color: "#53627a", fontSize: 10, fontWeight: 850, cursor: "pointer" },
-  connectionSelectionStatus: { minWidth: 0, display: "grid", justifyItems: "center", gap: 2, color: "#7b8596", fontSize: 9.5, textAlign: "center" },
-  connectionNextButton: { minHeight: 38, padding: "0 14px", border: 0, borderRadius: 9, background: "#5e4b87", color: "#fff", fontSize: 10.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(86,69,126,.18)" },
+  connectionBackButton: { minHeight: 40, padding: "0 13px", border: "1px solid #cbd6e5", borderRadius: 10, background: "#fff", color: "#465873", fontSize: 12.5, fontWeight: 900, cursor: "pointer" },
+  connectionSelectionStatus: { minWidth: 0, display: "grid", justifyItems: "center", gap: 3, color: "#707c8f", fontSize: 11.5, textAlign: "center" },
+  connectionNextButton: { minHeight: 42, padding: "0 15px", border: 0, borderRadius: 10, background: "#5e4b87", color: "#fff", fontSize: 12.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(86,69,126,.18)" },
   focusFallbackNotice: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 11px", border: "1px solid #edd2a8", borderRadius: 10, background: "#fff8ea", color: "#7a5b25", fontSize: 9.8, lineHeight: 1.5 },
   resultList: { display: "grid", gap: 10 },
   resultCard: { display: "grid", gap: 0, border: "1px solid #d6e0ec", borderRadius: 15, background: "#fff", overflow: "hidden", boxShadow: "0 5px 15px rgba(52,62,78,.04)" },
-  resultSummary: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", alignItems: "center", gap: 12, padding: "13px 14px", background: "linear-gradient(135deg,#fff,#f8fafe)" },
+  resultSummary: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", alignItems: "center", gap: 13, padding: "15px 16px", background: "linear-gradient(135deg,#fff,#f8fafe)" },
   resultSummaryIdentity: { minWidth: 0, display: "grid", gap: 5 },
-  resultEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 20, padding: "0 6px", borderRadius: 6, background: "#e7edf6", color: "#526783", fontSize: 8.2, fontWeight: 950, whiteSpace: "nowrap" },
+  resultEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 22, padding: "0 7px", borderRadius: 7, background: "#e7edf6", color: "#48617f", fontSize: 10.5, fontWeight: 950, whiteSpace: "nowrap" },
   resultDepartmentLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
   resultQuickStats: { display: "grid", gridTemplateColumns: "repeat(3,74px)", gap: 5 },
-  resultActions: { display: "flex", alignItems: "center", gap: 6 },
-  resultToggle: { minHeight: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 4, padding: "0 10px", border: "1px solid #cbd6e4", borderRadius: 9, background: "#fff", color: "#3f5069", fontSize: 10, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  resultActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
+  resultToggle: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 12px", border: "1px solid #cbd6e4", borderRadius: 10, background: "#fff", color: "#354b68", fontSize: 12.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  resultConnectButton: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 11px", border: "1px solid #d7cbea", borderRadius: 10, background: "#f7f2fc", color: "#5b4385", fontSize: 12, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   schoolTrendPanel: { display: "grid", gridTemplateColumns: "minmax(150px,.65fr) minmax(240px,.9fr) minmax(260px,1.45fr)", alignItems: "center", gap: 10, padding: "10px 13px", borderTop: "1px solid #e2e8ef", borderBottom: "1px solid #e5ebf1", background: "linear-gradient(135deg,#f5faf7,#fbfdfc)", color: "#44574d" },
   schoolTrendCompact: { paddingTop: 8, paddingBottom: 8 },
   schoolTrendHeading: { minWidth: 0, display: "grid", gap: 2 },
@@ -1714,19 +1774,19 @@ const ui = {
   resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 7, padding: 12, borderRadius: 11, background: "linear-gradient(180deg,#f6f8fb,#f9fafc)" },
   identityLabel: { fontSize: 10, color: "#68758a" },
   detailTabGuide: { display: "grid", gap: 3, padding: "9px", borderRadius: 8, border: "1px solid #e0e5ed", background: "#fff", color: "#6c788a", fontSize: 9.3, lineHeight: 1.4 },
-  sameUnitNote: { padding: "9px", borderRadius: 8, background: "#eef3f8", color: "#667488", fontSize: 10, lineHeight: 1.45 },
+  sameUnitNote: { padding: "9px", borderRadius: 8, background: "#eef3f8", color: "#667488", fontSize: 12.5, lineHeight: 1.55 },
   universityLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
-  universityName: { margin: 0, fontSize: 15.5, lineHeight: 1.25, letterSpacing: "-.025em", color: "#202f46" },
+  universityName: { margin: 0, fontSize: 20, lineHeight: 1.25, letterSpacing: "-.025em", color: "#182d4a" },
   fieldBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e8edf5", color: "#506078", fontSize: 9.3, fontWeight: 900 },
   favoriteBtn: { flex: "0 0 auto", width: 34, height: 34, borderRadius: 9, border: "1px solid #d2dbe8", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#7b8799", background: "#fff", cursor: "pointer" },
   favoriteBtnActive: { color: "#a96f08", background: "#fff7d8", borderColor: "#dec06a" },
   favoriteBtnDisabled: { opacity: .42, cursor: "not-allowed" },
-  unitTitle: { minWidth: 0, fontSize: 13.5, lineHeight: 1.42, color: "#28394f", wordBreak: "keep-all", overflowWrap: "anywhere" },
-  location: { fontSize: 10.2, color: "#778397" },
-  previousUnit: { display: "grid", gap: 4, padding: "9px", border: "1px solid #dee5ee", borderRadius: 9, background: "#fff", fontSize: 10, lineHeight: 1.45, color: "#657286" },
+  unitTitle: { minWidth: 0, fontSize: 16, lineHeight: 1.45, color: "#263850", wordBreak: "keep-all", overflowWrap: "anywhere" },
+  location: { fontSize: 11.3, color: "#6f7d91" },
+  previousUnit: { display: "grid", gap: 4, padding: "9px", border: "1px solid #dee5ee", borderRadius: 9, background: "#fff", fontSize: 12.5, lineHeight: 1.55, color: "#657286" },
   resultDetailArea: { minWidth: 0, display: "grid", alignContent: "start", gap: 10 },
   detailTabs: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 5, padding: 5, border: "1px solid #dce3ed", borderRadius: 11, background: "#edf1f6" },
-  detailTabButton: { minHeight: 34, border: "1px solid transparent", borderRadius: 8, background: "transparent", color: "#687589", fontSize: 9.8, fontWeight: 900, cursor: "pointer" },
+  detailTabButton: { minHeight: 38, border: "1px solid transparent", borderRadius: 9, background: "transparent", color: "#5f6d82", fontSize: 11, fontWeight: 900, cursor: "pointer" },
   detailTabActive: { background: "#fff", borderColor: "#d4dce8", color: "#56417f", boxShadow: "0 3px 8px rgba(70,55,105,.12)" },
   admissionColumns: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
   admissionColumnsSingle: { gridTemplateColumns: "minmax(0,1fr)" },
@@ -1738,7 +1798,7 @@ const ui = {
   sectionRegular: { color: "#27715b", background: "#e9f7f1" },
   sectionMinimum: { color: "#9a6419", background: "#fff3d8" },
   admissionItems: { display: "grid", gap: 7 },
-  admissionItem: { minWidth: 0, display: "grid", gap: 6, padding: "10px", borderRadius: 11, border: "1px solid #dce3ed", background: "#fbfcfd", fontSize: 10.5, lineHeight: 1.4 },
+  admissionItem: { minWidth: 0, display: "grid", gap: 7, padding: "11px", borderRadius: 11, border: "1px solid #dce3ed", background: "#fbfcfd", fontSize: 12.5, lineHeight: 1.5 },
   admissionItemHead: { minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 },
   admissionName: { minWidth: 0, color: "#29374b", lineHeight: 1.4, wordBreak: "keep-all", overflowWrap: "anywhere" },
   supportBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 38, padding: "3px 7px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 900 },
@@ -1786,7 +1846,7 @@ const ui = {
   adminHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
   adminHeadingText: { display: "grid", gap: 1, minWidth: 0 },
   adminTitle: { display: "inline", margin: "0 0 0 8px", fontSize: 20, lineHeight: 1.2, letterSpacing: "-.025em", color: "#283247" },
-  muted: { margin: "7px 0 0", fontSize: 11.5, lineHeight: 1.55, color: "#737d8e", fontWeight: 650 },
+  muted: { margin: "7px 0 0", fontSize: 13.5, lineHeight: 1.6, color: "#737d8e", fontWeight: 650 },
   compareGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
   summaryCard: { padding: 16, borderRadius: 15, border: "1px solid", display: "grid", gap: 12, minWidth: 0 },
   summarySchool: { background: "#f3faf6", borderColor: "#c9dfd1" },
@@ -1795,7 +1855,7 @@ const ui = {
   summaryHeading: { display: "grid", gap: 3, minWidth: 0 },
   summaryEyebrow: { fontSize: 9.5, color: "#778398", fontWeight: 850 },
   summaryTitle: { fontSize: 15.5, lineHeight: 1.25, color: "#29374c", letterSpacing: "-.015em" },
-  summaryDescription: { fontSize: 10.5, lineHeight: 1.45, color: "#738094" },
+  summaryDescription: { fontSize: 12, lineHeight: 1.5, color: "#738094" },
   statePill: { padding: "4px 8px", borderRadius: 999, fontSize: 9.5, fontWeight: 900 },
   stateSchool: { color: "#287348", background: "#e1f3e8" },
   stateDraft: { color: "#315a9b", background: "#e7efff" },
@@ -1803,7 +1863,7 @@ const ui = {
   miniStat: { display: "grid", gap: 3, padding: "10px 8px", borderRadius: 10, background: "rgba(255,255,255,.82)", textAlign: "center", border: "1px solid rgba(210,219,233,.62)" },
   miniStatLabel: { fontSize: 9.5, color: "#718095", fontWeight: 800 },
   miniStatValue: { fontSize: 19, lineHeight: 1.1, color: "#243d64", fontWeight: 900 },
-  sourceMeta: { display: "grid", gap: 4, paddingTop: 2, fontSize: 10.5, lineHeight: 1.45, color: "#6f7888", minWidth: 0 },
+  sourceMeta: { display: "grid", gap: 4, paddingTop: 2, fontSize: 12, lineHeight: 1.5, color: "#6f7888", minWidth: 0 },
   summaryEmpty: { padding: 22, textAlign: "center", color: "#9299a6", fontSize: 11 },
   uploadPanel: { display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 9, alignItems: "center", padding: 12, borderRadius: 13, border: "1px solid #e2e6ee", background: "#f7f8fb" },
   fileName: { minWidth: 0, display: "grid", gap: 2, fontSize: 11, color: "#737c8c", overflow: "hidden" },
@@ -1815,9 +1875,20 @@ const ui = {
 };
 
 const betaCss = `
-.susi-beta-filter-grid input{min-width:0;flex:1;border:0;outline:0;background:transparent;font:inherit;font-size:12px;color:#263244}
-.susi-beta-filter-grid select{width:100%;height:38px;border:1px solid #cdd7e6;border-radius:10px;background:#fff;padding:0 9px;font:inherit;font-size:11px;font-weight:750;color:#344054;outline:0}
-.susi-beta-filter-grid label>span{padding-left:2px}
+.susi-beta-tab-panel{font-size:13px}
+.susi-beta-filter-grid input{min-width:0;flex:1;border:0;outline:0;background:transparent;font:inherit;font-size:13px;font-weight:650;color:#263244}
+.susi-beta-filter-grid select{width:100%;height:42px;border:1px solid #cdd7e6;border-radius:10px;background:#fff;padding:0 10px;font:inherit;font-size:12px;font-weight:800;color:#2f3e53;outline:0}
+.susi-beta-filter-grid label>span{padding-left:2px;font-size:11px!important}
+.susi-beta-detail-search input,.susi-beta-connection-panel input{min-width:0;flex:1;border:0;outline:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:#26364d}
+.susi-beta-detail-search input::placeholder,.susi-beta-connection-panel input::placeholder{color:#929cab;font-weight:600}
+.susi-beta-detail-search label>button,.susi-beta-connection-panel label>button{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:#eef2f7;color:#65738a;cursor:pointer}
+.susi-beta-detail-search label>strong,.susi-beta-connection-panel label>strong{flex:0 0 auto;padding:4px 8px;border-radius:999px;background:#edf2f8;color:#3e5676;font-size:10.5px;font-weight:950;white-space:nowrap}
+.susi-beta-detail-search select{width:100%;height:48px;border:1px solid #c8d5e5;border-radius:11px;background:#fff;padding:0 12px;font:inherit;font-size:12.5px;font-weight:800;color:#26364d;outline:none}
+.susi-beta-detail-search select:focus,.susi-beta-connection-panel select:focus{border-color:#735f9b;box-shadow:0 0 0 3px rgba(102,81,143,.12)}
+.susi-beta-detail-search>div>b{font-size:16px;line-height:1.25}.susi-beta-detail-search>div>span{font-size:11.5px;line-height:1.5;color:#6d798b;word-break:keep-all}
+.susi-beta-connection-panel [role="tab"]>span{grid-row:1/3;align-self:start;display:inline-flex;align-items:center;justify-content:center;min-width:48px;min-height:26px;padding:0 8px;border-radius:999px;background:#edf1f6;color:#637086;font-size:10px;font-weight:950}
+.susi-beta-connection-panel [role="tab"]>b{font-size:13.5px;line-height:1.3;color:inherit}.susi-beta-connection-panel [role="tab"]>small{font-size:10.5px!important;line-height:1.45;color:#748095}
+.susi-beta-connection-panel [role="tab"][aria-selected="true"]>span{background:#66518f;color:#fff}.susi-beta-connection-panel [role="tab"][aria-selected="true"]>small{color:#66577f}
 .susi-beta-result-card b,.susi-beta-result-card strong{letter-spacing:-.015em}
 .susi-beta-result-card em{font-style:normal;color:#7a8495}
 .susi-beta-result-card details summary::-webkit-details-marker{display:none}
@@ -1859,25 +1930,25 @@ const betaCss = `
 .susi-beta-result-card button span strong{font-size:15px;line-height:1}
 .susi-beta-result-card button small{font-size:8.5px;color:inherit}
 nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cursor:not-allowed;box-shadow:none}
-.susi-beta-view-toolbar [role="tab"]>span{grid-row:1/3;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;background:#e9edf4;color:#657286;font-size:10px;font-weight:950}
-.susi-beta-view-toolbar [role="tab"]>b{min-width:0;font-size:11px;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.susi-beta-view-toolbar [role="tab"]>small{min-width:0;font-size:8.7px;line-height:1.2;color:#8490a1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.susi-beta-view-toolbar [role="tab"]>span{grid-row:1/3;width:27px;height:27px;display:inline-flex;align-items:center;justify-content:center;border-radius:9px;background:#e9edf4;color:#657286;font-size:11px;font-weight:950}
+.susi-beta-view-toolbar [role="tab"]>b{min-width:0;font-size:12.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.susi-beta-view-toolbar [role="tab"]>small{min-width:0;font-size:10px;line-height:1.25;color:#7e899a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .susi-beta-view-toolbar [role="tab"][aria-selected="true"]>span{background:#66558e;color:#fff}
 .susi-beta-tab-panel strong{letter-spacing:-.01em}
 .susi-beta-connection-panel button{font:inherit}
 .susi-beta-connection-panel button:hover:not(:disabled){border-color:#aebcd0;box-shadow:0 4px 11px rgba(52,62,78,.08)}
 .susi-beta-connection-panel button[aria-pressed="true"]{box-shadow:0 3px 9px rgba(86,69,126,.18)}
-.susi-beta-connection-panel small{font-size:9px;line-height:1.35}
-.susi-beta-connection-panel label>span{font-size:9.8px}
+.susi-beta-connection-panel small{font-size:10.2px;line-height:1.4}
+.susi-beta-connection-panel label>span{font-size:11px}
 .susi-beta-connection-panel article>div:first-child>div{min-width:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.susi-beta-connection-panel article>div:first-child>div>b{font-size:11.4px;color:#26384f;overflow-wrap:anywhere}
-.susi-beta-connection-panel article>div:first-child>div>span{padding:3px 6px;border-radius:999px;background:#edf1f6;color:#627084;font-size:8.6px;font-weight:900}
+.susi-beta-connection-panel article>div:first-child>div>b{font-size:14px;color:#1f3b63;overflow-wrap:anywhere}
+.susi-beta-connection-panel article>div:first-child>div>span{padding:3px 7px;border-radius:999px;background:#edf1f6;color:#5b6c83;font-size:9.6px;font-weight:900}
 .susi-beta-connection-panel article>div:nth-child(3)>span:not([style]){padding:3px 6px;border-radius:999px;background:#f1f3f7}
 .susi-beta-connection-panel article>div:nth-child(4)>span,.susi-beta-connection-panel>div:nth-child(3)>span{min-width:0;display:grid;gap:2px;padding:6px;border:1px solid #e5e9ef;border-radius:8px;background:#f8f9fb;text-align:center}
-.susi-beta-connection-panel article>div:nth-child(4) small,.susi-beta-connection-panel>div:nth-child(3) small{font-size:8px;color:#7e8999}
-.susi-beta-connection-panel article>div:nth-child(4) b,.susi-beta-connection-panel>div:nth-child(3) b{font-size:10.5px;color:#30425b;overflow-wrap:anywhere}
+.susi-beta-connection-panel article>div:nth-child(4) small,.susi-beta-connection-panel>div:nth-child(3) small{font-size:9.5px;color:#748195}
+.susi-beta-connection-panel article>div:nth-child(4) b,.susi-beta-connection-panel>div:nth-child(3) b{font-size:12px;color:#2b405d;overflow-wrap:anywhere}
 .susi-beta-connection-panel article>div:last-child>span{display:inline-flex;padding:3px 7px;border:1px solid #d9e0e9;border-radius:999px;font-weight:900;white-space:nowrap}
-.susi-beta-connection-panel article>div:last-child>button{border:0;background:transparent;color:#5e4e86;font-size:9px;font-weight:950;cursor:pointer;white-space:nowrap;padding:3px}
+.susi-beta-connection-panel article>div:last-child>button{border:0;background:transparent;color:#59457f;font-size:10.5px;font-weight:950;cursor:pointer;white-space:nowrap;padding:4px}
 .susi-beta-result-card [style*="repeat(3, 74px)"] span{display:grid;gap:2px;padding:6px 7px;border:1px solid #e1e6ee;border-radius:8px;background:#fff;text-align:center}
 .susi-beta-result-card [style*="repeat(3, 74px)"] small{font-size:8px;color:#7c8798}
 .susi-beta-result-card [style*="repeat(3, 74px)"] b{font-size:10.5px;color:#34475f}
@@ -1886,10 +1957,10 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-result-card button small{font-size:8.5px;color:inherit}
 .susi-beta-result-card p,.susi-beta-result-card span,.susi-beta-result-card b,.susi-beta-result-card strong{overflow-wrap:anywhere}
 .susi-beta-school-trend>div{min-width:0}
-.susi-beta-school-trend-heading>div{display:grid;gap:2px}.susi-beta-school-trend-heading>div>small{color:#62806e;font-weight:950}.susi-beta-school-trend-heading>div>b{font-size:11px;color:#2f5140}.susi-beta-school-trend-heading>span{font-size:8.7px;color:#74887d}
-.susi-beta-school-trend-metrics>span,.susi-beta-connection-trend>span,.susi-beta-connection-metrics>span{min-width:0;display:grid;gap:2px;padding:6px 7px;border:1px solid #dfe7e2;border-radius:8px;background:rgba(255,255,255,.82);text-align:center}.susi-beta-school-trend-metrics small,.susi-beta-connection-trend small,.susi-beta-connection-metrics small{font-size:8px;color:#78877f}.susi-beta-school-trend-metrics b,.susi-beta-connection-trend b,.susi-beta-connection-metrics b{font-size:10.5px;color:#315746;overflow-wrap:anywhere}
-.susi-beta-school-trend-types>span{min-width:105px;display:grid;gap:2px;padding:6px 8px;border:1px solid #dce8e0;border-radius:8px;background:#fff}.susi-beta-school-trend-types>span>b{font-size:9.2px;color:#355d49}.susi-beta-school-trend-types>span>small{font-size:8px;color:#778a7f}.susi-beta-school-trend-types>em{font-style:normal;font-size:8.8px;color:#8b9890}
-.susi-beta-school-trend small{font-size:8.8px;line-height:1.35}
+.susi-beta-school-trend-heading>div{display:grid;gap:2px}.susi-beta-school-trend-heading>div>small{color:#62806e;font-weight:950}.susi-beta-school-trend-heading>div>b{font-size:12.5px;color:#294c3b}.susi-beta-school-trend-heading>span{font-size:10px;color:#6d8176}
+.susi-beta-school-trend-metrics>span,.susi-beta-connection-trend>span,.susi-beta-connection-metrics>span{min-width:0;display:grid;gap:2px;padding:6px 7px;border:1px solid #dfe7e2;border-radius:8px;background:rgba(255,255,255,.82);text-align:center}.susi-beta-school-trend-metrics small,.susi-beta-connection-trend small,.susi-beta-connection-metrics small{font-size:9.5px;color:#718078}.susi-beta-school-trend-metrics b,.susi-beta-connection-trend b,.susi-beta-connection-metrics b{font-size:12px;color:#2b5542;overflow-wrap:anywhere}
+.susi-beta-school-trend-types>span{min-width:105px;display:grid;gap:2px;padding:6px 8px;border:1px solid #dce8e0;border-radius:8px;background:#fff}.susi-beta-school-trend-types>span>b{font-size:10.5px;color:#315844}.susi-beta-school-trend-types>span>small{font-size:9.4px;color:#71857a}.susi-beta-school-trend-types>em{font-style:normal;font-size:8.8px;color:#8b9890}
+.susi-beta-school-trend small{font-size:10px;line-height:1.4}
 .susi-beta-school-trend b,.susi-beta-school-trend strong{overflow-wrap:anywhere}
 .susi-beta-connection-panel article{transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
 .susi-beta-connection-panel article:hover{transform:translateY(-1px)}
@@ -1902,10 +1973,29 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-school-trend>div:last-child{grid-column:1/-1!important}
 }
 .susi-beta-print-sheet{display:none}
+/* Patch 39 readability overrides */
+.susi-beta-view-toolbar [role="tab"]>b{font-size:14px}.susi-beta-view-toolbar [role="tab"]>small{font-size:11.5px}
+.susi-beta-detail-search input,.susi-beta-connection-panel input{font-size:14.5px;font-weight:800}
+.susi-beta-detail-search label>strong,.susi-beta-connection-panel label>strong{font-size:11.5px}
+.susi-beta-detail-search select{font-size:14px}
+.susi-beta-detail-search>div>b{font-size:18px}.susi-beta-detail-search>div>span{font-size:12.5px}
+.susi-beta-connection-panel [role="tab"]>span{font-size:11px}.susi-beta-connection-panel [role="tab"]>b{font-size:15px}.susi-beta-connection-panel [role="tab"]>small{font-size:12px!important}
+.susi-beta-connection-panel small{font-size:11.5px;line-height:1.45}.susi-beta-connection-panel label>span{font-size:12.5px}
+.susi-beta-connection-panel article>div:first-child>div>b{font-size:16px}.susi-beta-connection-panel article>div:first-child>div>span{font-size:10.8px}
+.susi-beta-connection-panel article>div:nth-child(4) small,.susi-beta-connection-panel>div:nth-child(3) small{font-size:10.5px}
+.susi-beta-connection-panel article>div:nth-child(4) b,.susi-beta-connection-panel>div:nth-child(3) b{font-size:13.5px}
+.susi-beta-connection-panel article>div:last-child>button{font-size:12px}
+.susi-beta-school-trend-metrics small,.susi-beta-connection-trend small,.susi-beta-connection-metrics small{font-size:10.5px}.susi-beta-school-trend-metrics b,.susi-beta-connection-trend b,.susi-beta-connection-metrics b{font-size:13.5px}
+.susi-beta-result-card button{font-size:12.5px}.susi-beta-result-card small{line-height:1.45}
+@media(max-width:1100px){
+  .susi-beta-detail-search{grid-template-columns:1fr 1fr!important}.susi-beta-detail-search>div:first-child{grid-column:1/-1}
+  .susi-beta-connection-panel>div:nth-of-type(3){grid-template-columns:1fr 1fr!important}.susi-beta-connection-panel>div:nth-of-type(3)>div:first-child{grid-column:1/-1}
+}
 @media(max-width:900px){
   .susi-beta-view-toolbar{position:static!important;display:grid!important;grid-template-columns:1fr!important}
   .susi-beta-view-toolbar>div,.susi-beta-view-toolbar>button{grid-column:1!important}.susi-beta-view-toolbar>button{min-height:38px}
   .susi-beta-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .susi-beta-detail-search{grid-template-columns:1fr!important}.susi-beta-detail-search>div:first-child{grid-column:auto}
   .susi-beta-support-filter{grid-template-columns:1fr!important}
   .susi-beta-support-filter>div:last-child{justify-items:start!important}
   .susi-beta-query{grid-column:1/-1}
@@ -1931,7 +2021,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-admission-columns,.susi-beta-converter-grid{grid-template-columns:1fr!important}
   .susi-beta-result-card>div:first-child{grid-template-columns:1fr!important}
   .susi-beta-result-card>div:first-child>div:last-child{justify-content:flex-end!important}
-  .susi-beta-connection-panel>div:nth-of-type(2),.susi-beta-connection-panel>div:last-child{grid-template-columns:1fr!important}
+  .susi-beta-connection-panel>div:nth-of-type(2),.susi-beta-connection-panel>div:nth-of-type(3),.susi-beta-connection-panel>div:last-child{grid-template-columns:1fr!important}
   .susi-beta-upload-panel{grid-template-columns:1fr!important}
   .susi-beta-student-auto{grid-template-columns:1fr!important}
   .susi-beta-student-auto p{grid-column:auto}

@@ -100,9 +100,19 @@ const CSS=`
 .admission-filter-secondary-options .admission-filter-chip.is-active{background:#5b6374;border-color:#5b6374;color:#fff}
 .admission-cut-arrow{display:inline-flex;align-items:center;justify-content:center;gap:4px;white-space:nowrap;font-weight:900}
 .admission-holistic-notice{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-radius:10px;background:#fff8e8;border:1px solid #ecd69e;color:#755b20;font-size:11.5px;line-height:1.45}
-.admission-university-picker{display:grid;grid-template-columns:minmax(240px,1fr) minmax(250px,.9fr);gap:10px;align-items:end}
-.admission-university-picker select{width:100%;height:42px;border:1px solid #cfd8e5;border-radius:11px;background:#fff;padding:0 12px;font-weight:800;color:#2d3948;outline:none}
-.admission-university-picker select:focus{border-color:#6e8db8;box-shadow:0 0 0 3px rgba(64,101,151,.12)}
+.admission-university-picker{display:grid;grid-template-columns:minmax(300px,1fr) minmax(340px,1.05fr);gap:14px;align-items:end;width:min(100%,820px)}
+.admission-university-control{display:grid;gap:7px;min-width:0}
+.admission-university-control-label{display:flex;align-items:center;justify-content:space-between;gap:10px;color:#415067;font-size:12.5px;font-weight:900;line-height:1.35}
+.admission-university-control-label small{color:#7a8798;font-size:11px;font-weight:750}
+.admission-university-searchbox{display:flex;align-items:center;gap:10px;min-height:48px;border:1px solid #c8d5e5;border-radius:13px;background:#fff;padding:0 13px;box-shadow:0 3px 10px rgba(40,61,88,.06);transition:border-color .15s,box-shadow .15s}
+.admission-university-searchbox:focus-within{border-color:#5578a8;box-shadow:0 0 0 4px rgba(64,101,151,.12)}
+.admission-university-searchbox input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:#1f2f45;font-size:15px;font-weight:800;line-height:1.4;letter-spacing:-.02em}
+.admission-university-searchbox input::placeholder{color:#9aa5b3;font-weight:700}
+.admission-university-search-clear{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:#eef2f7;color:#58677a;font-size:17px;font-weight:900;cursor:pointer}
+.admission-university-search-clear:hover{background:#e2e8f0;color:#26384f}
+.admission-university-result-count{display:inline-flex;align-items:center;justify-content:center;min-width:48px;height:28px;padding:0 9px;border-radius:999px;background:#edf3fb;color:#365f91;font-size:11.5px;font-weight:900;white-space:nowrap}
+.admission-university-picker select{width:100%;height:48px;border:1px solid #c8d5e5;border-radius:13px;background:#fff;padding:0 38px 0 13px;font-size:14px;font-weight:850;color:#24364d;outline:none;box-shadow:0 3px 10px rgba(40,61,88,.05);cursor:pointer}
+.admission-university-picker select:focus{border-color:#5578a8;box-shadow:0 0 0 4px rgba(64,101,151,.12)}
 .admission-range-button{
   min-width:66px;padding:8px 13px;border:1px solid #d5deea;border-radius:10px;
   background:#fff;color:#465466;font-size:13px;font-weight:700;cursor:pointer;
@@ -290,7 +300,9 @@ const CSS=`
   .admission-filter-primary,.admission-filter-secondary{grid-template-columns:1fr}
   .admission-case-comparison{grid-template-columns:1fr}
   .admission-university-choice-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .admission-university-picker{grid-template-columns:1fr}
+  .admission-university-picker{grid-template-columns:1fr;width:100%}
+  .admission-university-control-label{align-items:flex-start;flex-direction:column;gap:2px}
+  .admission-university-searchbox input{font-size:14px}
 }
 /* Ver5: 홈페이지 글꼴에 맞춘 전형 선택과 의미가 보이는 빠른 필터 */
 .admission-method-filter,
@@ -1180,7 +1192,22 @@ function UniversityAnalysis({rows,focusUniversity="",selectedUniversity="",onSel
   const selectedRate=selectedRows.length?selectedAccepted/selectedRows.length*100:0;
   const holistic=selectedRows.some(row=>String(row.admissionType||row.detailType||"").includes("종합"));
   return <div style={{display:"grid",gap:12}}>
-    <div style={styles.universitySearchPanel}><div style={{display:"grid",gap:3}}><b style={{fontSize:15}}>대학별 상세 조회</b><span style={{fontSize:11.5,color:"#737b87"}}>검색어를 바꾸면 첫 번째 검색 결과로 즉시 최신화됩니다.</span></div><div className="admission-university-picker"><div style={{...styles.searchBox,minWidth:0}}><Search size={17} color="#59677a"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="대학명 검색"/>{query&&<button type="button" onClick={()=>setQuery("")} style={{border:0,background:"transparent",cursor:"pointer",color:"#637187",fontWeight:900}}>×</button>}<span>{universities.length}개</span></div><label style={{display:"grid",gap:5,fontSize:10.5,fontWeight:800,color:"#667180"}}>대학 선택<select value={selected} onChange={e=>setSelected(e.target.value)}>{universities.map(row=><option key={row.label} value={row.label}>{row.label} · 지원 {row.total} · 합격 {row.accepted}</option>)}</select></label></div></div>
+    <div style={styles.universitySearchPanel}>
+      <div style={{display:"grid",gap:5,minWidth:220}}>
+        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={styles.searchStepBadge}>대학 상세</span><b style={{fontSize:18,color:"#22334a",letterSpacing:"-.025em"}}>대학별 지원·합격 현황 조회</b></div>
+        <span style={{fontSize:12.5,lineHeight:1.55,color:"#66758a"}}>대학명을 검색한 뒤 오른쪽 목록에서 학교를 선택하면 모집단위·전형별 사례가 아래에 표시됩니다.</span>
+      </div>
+      <div className="admission-university-picker">
+        <label className="admission-university-control">
+          <span className="admission-university-control-label"><span>① 대학명 검색</span><small>일부 이름만 입력해도 됩니다.</small></span>
+          <span className="admission-university-searchbox"><Search size={19} color="#536984"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="예: 중앙대, 동국대, 가톨릭대"/>{query&&<button type="button" className="admission-university-search-clear" onClick={()=>setQuery("")} aria-label="검색어 지우기">×</button>}<span className="admission-university-result-count">{universities.length}개</span></span>
+        </label>
+        <label className="admission-university-control">
+          <span className="admission-university-control-label"><span>② 조회할 대학 선택</span><small>지원·합격 사례 수를 함께 표시합니다.</small></span>
+          <select value={selected} onChange={e=>setSelected(e.target.value)}>{universities.map(row=><option key={row.label} value={row.label}>{row.label} · 지원 {row.total}건 · 합격 {row.accepted}건</option>)}</select>
+        </label>
+      </div>
+    </div>
     <div style={styles.universityDetail}>{!selected?<Empty title="검색 결과가 없습니다." text="대학명을 다시 입력하거나 검색어를 지워보세요."/>:<><div style={styles.universityHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:20,color:"#202a35"}}>{selected}</b><span style={{fontSize:12,color:"#737b87"}}>광덕고 2024~2026 통합 지원 사례</span></div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span className="admission-sample-badge">{caseSufficiency(selectedRows.length).label}</span><RateBand rate={selectedRate} total={selectedRows.length}/></div></div>
       <div className="admission-stat-strip"><div><small>지원 사례</small><b style={{color:COLORS.blue}}>{selectedRows.length}건</b></div><div><small>합격 사례</small><b style={{color:COLORS.green}}>{selectedAccepted}건</b></div><div><small>합격자 50%컷</small><b>{fmt(median(acceptedGrades))}</b></div><div><small>합격자 25~75%</small><b>{fmt(percentile(acceptedGrades,.25))} ~ {fmt(percentile(acceptedGrades,.75))}</b></div></div>
       {holistic&&<div className="admission-holistic-notice" style={{marginTop:12}}><AlertTriangle size={15}/><span><b>학생부종합 참고</b> · 학생부종합은 서류·활동·과목 선택 등을 종합 평가하므로 커트라인은 참고용으로만 활용하세요.</span></div>}
@@ -1448,7 +1475,8 @@ barTrack:{height:9,borderRadius:999,background:"#ece9e2",overflow:"hidden"},
 barFill:{height:"100%",borderRadius:999,background:"linear-gradient(90deg,#4e73a6,#8b79ad)"},
 searchBox:{display:"flex",alignItems:"center",gap:10,border:"1px solid #cfd9e7",borderRadius:13,background:"#fff",padding:"10px 12px",boxShadow:"0 4px 14px rgba(48,65,88,.06)"},
 universityGrid:{display:"grid",gridTemplateColumns:"1fr",gap:14},
-universitySearchPanel:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:16,flexWrap:"wrap",padding:"14px 15px",border:"1px solid #dfe5ed",borderRadius:14,background:"linear-gradient(135deg,#f7faff,#fbf9ff)"},
+universitySearchPanel:{display:"flex",justifyContent:"space-between",alignItems:"center",gap:20,flexWrap:"wrap",padding:"18px 20px",border:"1px solid #d7e1ee",borderRadius:16,background:"linear-gradient(135deg,#f5f9ff,#fbf9ff)",boxShadow:"0 5px 16px rgba(48,65,88,.05)"},
+searchStepBadge:{display:"inline-flex",alignItems:"center",justifyContent:"center",height:26,padding:"0 9px",borderRadius:999,background:"#e9f1fb",color:"#315f95",fontSize:11.5,fontWeight:950},
 universityList:{maxHeight:210,overflowY:"auto",display:"grid",gridTemplateColumns:"repeat(4,minmax(0,1fr))",gap:8,alignContent:"start",paddingRight:3},
 universityButton:{display:"grid",gap:7,textAlign:"left",padding:"10px 11px",border:`1px solid ${COLORS.line}`,background:"#fff",borderRadius:10,cursor:"pointer",minWidth:0},
 universityButtonActive:{borderColor:COLORS.blue,background:"#edf3ff",boxShadow:"0 4px 12px rgba(49,90,155,.12)"},
