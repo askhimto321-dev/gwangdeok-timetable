@@ -172,10 +172,17 @@ function parseClassAutonomyRoles(rows) {
     let semester = "";
     // 해당 표의 바로 위쪽에서 가장 가까운 학기 제목을 우선 사용합니다.
     // 같은 시트에 1·2학기 자치회 표가 연속으로 있어도 뒤쪽 제목이 앞 표를 덮어쓰지 않습니다.
-    for (let index = headerIndex; index >= Math.max(0, headerIndex - 7); index -= 1) {
+    for (let index = headerIndex - 1; index >= Math.max(0, headerIndex - 10); index -= 1) {
       const title = (rows[index] || []).map(cleanText).join(" ");
-      if (/20\d{2}\s*[-.]?\s*1|1학기/.test(title)) { semester = "1학기"; break; }
-      if (/20\d{2}\s*[-.]?\s*2|2학기/.test(title)) { semester = "2학기"; break; }
+      // 표 제목의 연도-학기 표기를 정확히 읽습니다. 2026-1을 2학기로 잘못
+      // 판정하거나, 아래쪽 2학기 제목이 위쪽 1학기 표에 섞이지 않게 합니다.
+      const explicit = /학급자치|자치회|학기\s*조직/.test(title)
+        ? title.match(/20\d{2}\s*(?:[-./]\s*([12])|년\s*([12])\s*학기)/)
+        : null;
+      const semesterNumber = explicit?.[1] || explicit?.[2];
+      if (semesterNumber) { semester = semesterNumber === "1" ? "1학기" : "2학기"; break; }
+      if (/(?:^|\s)1학기(?:\s|$)/.test(title)) { semester = "1학기"; break; }
+      if (/(?:^|\s)2학기(?:\s|$)/.test(title)) { semester = "2학기"; break; }
     }
     let blankCount = 0;
     for (let rowIndex = headerIndex + 1; rowIndex < Math.min(rows.length, headerIndex + 18); rowIndex += 1) {
@@ -223,6 +230,8 @@ function normalizeContactItem(item) {
     note: cleanText(item?.note),
     enrollmentStatus: normalizeAcademicStatus(item?.enrollmentStatus),
     leadershipRole: normalizeLeadershipRole(item?.leadershipRole),
+    leadershipRoleSource: cleanText(item?.leadershipRoleSource),
+    leadershipRoleEditedAt: cleanText(item?.leadershipRoleEditedAt),
   };
 }
 
@@ -260,6 +269,7 @@ function parseContacts(workbook) {
       note: row[noteIndex],
       enrollmentStatus: statusIndex >= 0 ? row[statusIndex] : "재학",
       leadershipRole: roleIndex >= 0 && cleanText(row[roleIndex]) ? row[roleIndex] : (autonomyRoles.get(sid) || "없음"),
+      leadershipRoleSource: "excel",
     });
   }).filter(Boolean).sort((a, b) => Number(a.classNumber) - Number(b.classNumber) || Number(a.number) - Number(b.number) || Number(a.sid) - Number(b.sid));
 }
@@ -563,7 +573,22 @@ function DataManagementWorkspace({ appliedData, draft, setDraft, canManage, acto
     try {
       const parsed = parseGradeDepartmentWorkbook(await file.arrayBuffer(), file.name);
       if (!parsed.contacts.length) throw new Error("'2학년명렬' 시트에서 학생 비상연락망을 찾지 못했습니다.");
-      const previousRecords = draft?.records || appliedData?.records || {};
+      const previousSource = draft || appliedData || {};
+      const previousRecords = previousSource.records || {};
+      // 파일 재업로드 시 엑셀에서 읽은 학기별 역할은 새로 계산하되,
+      // 홈페이지에서 교사가 직접 수정해 저장한 역할만 우선 유지합니다.
+      const manualRoles = new Map((previousSource.contacts || [])
+        .filter(item => item?.leadershipRoleSource === "manual" || item?.leadershipRoleEditedAt)
+        .map(item => [normalizeSid(item.sid), item]));
+      parsed.contacts = parsed.contacts.map(item => {
+        const manual = manualRoles.get(item.sid);
+        return manual ? normalizeContactItem({
+          ...item,
+          leadershipRole: manual.leadershipRole,
+          leadershipRoleSource: "manual",
+          leadershipRoleEditedAt: manual.leadershipRoleEditedAt || new Date().toISOString(),
+        }) : item;
+      });
       parsed.records.reflections = previousRecords.reflections || [];
       parsed.records.reflectionSources = previousRecords.reflectionSources || [];
       parsed.updatedBy = actor?.name || actor?.id || "관리자";
@@ -694,10 +719,18 @@ function DataManagementWorkspace({ appliedData, draft, setDraft, canManage, acto
 }
 
 function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdateData, actor }) {
-  const contacts = useMemo(
-    () => (data?.contacts || []).map(normalizeContactItem).filter(item => item.sid && item.name),
-    [data?.contacts],
-  );
+  const contacts = useMemo(() => {
+    const normalized = (data?.contacts || []).map(normalizeContactItem).filter(item => item.sid && item.name);
+    // Ver26~32에서 2026-1 표가 2학기로 저장된 기존 자료를 화면에서 자동 복구합니다.
+    // 새 파서로 다시 올린 자료나 교사가 직접 수정한 값은 건드리지 않습니다.
+    const hasFirstSemesterRole = normalized.some(item => /1학기 학급자치/.test(item.leadershipRole));
+    const hasSecondSemesterRole = normalized.some(item => /2학기 학급자치/.test(item.leadershipRole));
+    const repairLegacySemester = !hasFirstSemesterRole && hasSecondSemesterRole;
+    return repairLegacySemester ? normalized.map(item => {
+      if (item.leadershipRoleSource === "manual" || item.leadershipRoleEditedAt) return item;
+      return normalizeContactItem({ ...item, leadershipRole: item.leadershipRole.replace(/2학기 학급자치/g, "1학기 학급자치"), leadershipRoleSource: "excel" });
+    }) : normalized;
+  }, [data?.contacts]);
   const canViewAll = ["admin", "department", "gradeHead"].includes(accessRole);
   const lockedClass = !canViewAll ? String(homeroomClass || "") : "";
   const [classFilter, setClassFilter] = useState(lockedClass || "전체");
@@ -718,6 +751,7 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
     catch { setLeadershipDraft({}); }
   }, [roleDraftKey]);
   const classes = useMemo(() => Array.from(new Set(contacts.map(item=>String(item.classNumber)).filter(Boolean))).sort((a,b)=>Number(a)-Number(b)), [contacts]);
+  const storedRoleBySid = useMemo(() => new Map((data?.contacts || []).map(item => [normalizeSid(item.sid), normalizeLeadershipRole(item.leadershipRole)])), [data?.contacts]);
   const roleValue = item => leadershipDraft[item.sid] ?? item.leadershipRole ?? "없음";
   const effectiveClass = lockedClass || classFilter;
   const filtered = useMemo(() => {
@@ -737,7 +771,7 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
     showToast(`${values.length}개 보호자 연락처를 복사했습니다.`, "success");
   };
   const setRoleValue = (sid, value) => setLeadershipDraft(current => ({ ...current, [sid]: value }));
-  const dirtyRoleCount = contacts.filter(item => roleValue(item) !== (item.leadershipRole || "없음")).length;
+  const dirtyRoleCount = contacts.filter(item => roleValue(item) !== (storedRoleBySid.get(item.sid) || "없음")).length;
   const applyRoleToSelected = () => {
     if (!selected.length) return showToast("학급/학생 자치 역할을 적용할 학생을 먼저 선택해주세요.", "error");
     setLeadershipDraft(current => {
@@ -757,7 +791,17 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
   };
   const applyRoleDraft = async () => {
     if (!dirtyRoleCount) return showToast("학교에 반영할 학급/학생 자치 변경사항이 없습니다.", "error");
-    const nextContacts = contacts.map(item => normalizeContactItem({ ...item, leadershipRole: roleValue(item) }));
+    const editedAt = new Date().toISOString();
+    const nextContacts = contacts.map(item => {
+      const nextRole = roleValue(item);
+      const changed = nextRole !== (item.leadershipRole || "없음");
+      return normalizeContactItem({
+        ...item,
+        leadershipRole: nextRole,
+        leadershipRoleSource: changed ? "manual" : item.leadershipRoleSource,
+        leadershipRoleEditedAt: changed ? editedAt : item.leadershipRoleEditedAt,
+      });
+    });
     const ok = await onUpdateData({ ...data, contacts: nextContacts }, `학급/학생 자치 ${dirtyRoleCount}건을 학교 자료에 반영했습니다.`);
     if (ok) {
       try { localStorage.removeItem(roleDraftKey); } catch { /* ignore */ }
@@ -812,6 +856,8 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
       note: editRow.note,
       enrollmentStatus: editRow.enrollmentStatus,
       leadershipRole: editRow.leadershipRole,
+      leadershipRoleSource: "manual",
+      leadershipRoleEditedAt: new Date().toISOString(),
     });
     const nextContacts = (adding ? [...contacts, nextContact] : contacts.map(item => item.sid === editingSid ? nextContact : item))
       .sort((a,b)=>Number(a.classNumber)-Number(b.classNumber)||Number(a.number)-Number(b.number)||Number(a.sid)-Number(b.sid));
@@ -847,7 +893,7 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
       <select value={bulkLeadershipRole} onChange={event=>setBulkLeadershipRole(event.target.value)}>{LEADERSHIP_ROLE_OPTIONS.map(value=><option key={value} value={value}>{leadershipRoleOptionLabel(value)}</option>)}</select>
       <button type="button" className="secondary" onClick={applyRoleToSelected}><Check size={13}/>선택 학생에 적용</button>
       <button type="button" className="secondary" onClick={saveRoleDraft} disabled={!dirtyRoleCount}><Save size={13}/>임시 저장 {dirtyRoleCount ? `(${dirtyRoleCount})` : ""}</button>
-      <button type="button" className="primary" onClick={applyRoleDraft} disabled={!dirtyRoleCount}><Save size={13}/>변경 저장 {dirtyRoleCount ? `(${dirtyRoleCount})` : ""}</button>
+      <button type="button" className="primary" onClick={applyRoleDraft} disabled={!dirtyRoleCount}><Save size={13}/>학교 자료에 저장 {dirtyRoleCount ? `(${dirtyRoleCount})` : ""}</button>
     </div>
     <div className="gdt-table-wrap"><table className="gdt-table contacts"><thead><tr><th>선택</th><th>반</th><th>번호</th><th>학번</th><th>성명</th><th>학적</th><th>학급/학생 자치</th><th>학생 연락처</th><th>보호자 연락처</th><th>비고</th><th>수정</th></tr></thead><tbody>
       {editingSid === "__new__" && editRow && <tr className="editing add-row">{renderEditorCells()}</tr>}
