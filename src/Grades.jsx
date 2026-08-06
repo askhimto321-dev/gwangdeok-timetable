@@ -750,6 +750,7 @@ export default function GradesSection({
             selectedStudent={susiNaviStudent}
             favorites={favoriteItemsFor(activeStudentSid)}
             onToggleFavorite={activeStudentSid ? item => toggleFavorite(activeStudentSid, item) : undefined}
+            onOpenCases={!loggedInStudent ? (name, department, admissionType) => openCaseUniversity(name, false, department, admissionType) : undefined}
             focusUniversity={linkedUniversity}
             focusDepartment={linkedDepartment}
             caseRows={gdb?.admissionCases || []}

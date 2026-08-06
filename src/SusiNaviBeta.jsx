@@ -584,7 +584,7 @@ function schoolCaseTrend(caseRows, university, region = "", department = "", adm
     rejected: Math.max(0, total - accepted),
     rate: total ? Math.round(accepted / total * 1000) / 10 : null,
     detailTypes,
-    scope: departmentRows.length ? "모집단위 연결" : (universityRows.length ? "대학 전체" : "연결 자료 없음"),
+    scope: departmentRows.length ? "모집단위 기준" : (universityRows.length ? "대학 전체 기준" : "연결 자료 없음"),
     departmentMatched: departmentRows.length > 0,
   };
 }
@@ -616,7 +616,7 @@ function supportConnectionEntries(enrichedRows, cutoffBasis, conversionGroup) {
         referenceCut,
         officialCut,
         linkedCut,
-        referenceSource: official ? "대학 공개 모집단위 컷" : "협력고교 대학·전형·계열 통합컷",
+        referenceSource: official ? "대학 공개 모집단위 컷" : "NAVI 통합 사례 · 대학·전형·계열 통합컷",
         integratedScope: !official,
         caseCount: Number(cuts?.[0] || 0),
       });
@@ -877,6 +877,7 @@ export default function SusiNaviBetaView({
   selectedStudent = null,
   favorites = [],
   onToggleFavorite,
+  onOpenCases,
   caseRows = [],
   focusUniversity = "",
   focusDepartment = "",
@@ -1069,10 +1070,10 @@ export default function SusiNaviBetaView({
     <section style={ui.root}>
       <style>{betaCss}</style>
       <div style={ui.hero}>
-        <div><div style={ui.heroEyebrow}><Sparkles size={14} /> 경기도교육청 교사용 자료 기반 · 독립 시험 운영</div><h2 style={ui.heroTitle}>2027 수시NAVI <span>Beta</span></h2><p style={ui.heroText}>광덕고 대입 결과와 분리하여 대학·모집단위와 전년도 입시결과를 조회합니다.</p></div>
+        <div><div style={ui.heroEyebrow}><Sparkles size={14} /> 경기도교육청 교사용 자료 기반 · 독립 시험 운영</div><h2 style={ui.heroTitle}>2027 수시NAVI <span>Beta</span></h2><p style={ui.heroText}>경기도교육청 통합 자료를 기반으로 대학·모집단위, 전년도 입시결과와 NAVI 통합 사례를 조회합니다.</p></div>
         {data && <div style={ui.heroStats}><b>{data.stats?.universities?.toLocaleString()}개 대학</b><span>{data.stats?.records?.toLocaleString()}개 모집단위</span><small>자료 기준 {data.source?.sourceDate || "확인 필요"}</small></div>}
       </div>
-      <div style={ui.betaNotice}><AlertTriangle size={15} /><span><b>시험 운영 기능입니다.</b> 2027 모집단위와 2026 입시결과를 연결한 참고자료이며, 기존 광덕고 사례검색·지원구간 판정에는 영향을 주지 않습니다.{data && !data.caseStats?.length && <><br/><strong>합격사례 분포·2028 변화 자료를 사용하려면 관리자에서 최신 원본 파일을 다시 분석·반영해주세요.</strong></>}</span></div>
+      <div style={ui.betaNotice}><AlertTriangle size={15} /><span><b>시험 운영 기능입니다.</b> 2027 모집단위와 2026 입시결과를 연결한 참고자료입니다. 2024–2026 광덕고 대입 결과 탭과는 별도의 데이터베이스이며, 광덕고 사례에는 영향을 주지 않습니다.{data && !data.caseStats?.length && <><br/><strong>NAVI 통합 사례 분포·2028 변화 자료를 사용하려면 관리자에서 최신 원본 파일을 다시 분석·반영해주세요.</strong></>}</span></div>
 
       {!data ? <EmptyData isAdmin={isAdmin} /> : <>
         <div className="susi-beta-view-toolbar" style={ui.viewToolbar}>
@@ -1156,15 +1157,15 @@ export default function SusiNaviBetaView({
               </div>
             </div>
             <div style={ui.searchWorkflowFooter}>
-              <span><b>다음 단계</b> · 먼저 대학별 모집단위와 전형 정보를 확인한 뒤, 필요한 대학을 기준으로 유사 지원군을 탐색할 수 있습니다.</span>
+              <span style={ui.workflowCopy}><b>다음 단계</b><em>먼저 대학별 모집단위와 전형 정보를 확인한 뒤, 필요한 대학을 기준으로 유사 지원군을 탐색할 수 있습니다.</em></span>
               <button type="button" style={ui.workflowNextButton} onClick={() => { setConnectionFocus(null); setPage(1); setViewTab("results"); }}>대학 상세 결과 보기 ›</button>
             </div>
           </div>
         </div>}
 
         {viewTab === "connection" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
-          <div style={ui.tabGuide}><b>대학 상세 다음 단계</b><span>대학 상세에서 확인한 모집단위를 바탕으로 <strong>내 성적대 전체 후보</strong> 또는 <strong>선택 대학과 비슷한 대학</strong>을 찾습니다. 실제 동일 학생의 복수지원 기록이 아니라 공개 컷과 협력고교 통계를 연결한 탐색 결과입니다.</span></div>
-          {data.caseStats?.length > 0 && <div style={ui.caseStatsGuide}><AlertTriangle size={14}/><span><b>‘협력고교 지원사례 244건’은 해당 학과의 합격자 244명이 아닙니다.</b> 원본 자료가 학과를 구분하지 않고 경기도 협력고교 사례를 <strong>대학·전형·계열 단위</strong>로 집계합니다. 대학 공개 모집단위 컷이 없는 경우에는 화면에 ‘계열 통합’으로 구분해 표시합니다.</span></div>}
+          <div style={ui.tabGuide}><b>대학 상세 다음 단계</b><span>대학 상세에서 확인한 모집단위를 바탕으로 <strong>내 성적대 전체 후보</strong> 또는 <strong>선택 대학과 비슷한 대학</strong>을 찾습니다. 실제 동일 학생의 복수지원 기록이 아니라 대학 공개 컷과 NAVI 통합 사례 통계를 연결한 탐색 결과입니다.</span></div>
+          {data.caseStats?.length > 0 && <div style={ui.caseStatsGuide}><AlertTriangle size={14}/><span><b>‘NAVI 통합 지원사례 244건’은 해당 학과의 합격자 244명이 아닙니다.</b> 경기도교육청 원본은 여러 학교의 사례를 <strong>대학·전형·계열 단위</strong>로 통합하며, 일부 통계는 학과를 별도로 구분하지 않습니다. 대학 공개 모집단위 컷이 없는 경우에는 화면에 ‘계열 통합’으로 구분해 표시합니다.</span></div>}
           <SupportConnectionExplorer
             mode={connectionMode}
             onModeChange={setConnectionMode}
@@ -1182,6 +1183,7 @@ export default function SusiNaviBetaView({
             caseRows={caseRows}
             favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)}
             onToggleFavorite={onToggleFavorite}
+            onOpenCases={onOpenCases}
             onBack={() => setViewTab("results")}
             onOpenUniversity={item => {
               setConnectionFocus({
@@ -1206,11 +1208,15 @@ export default function SusiNaviBetaView({
 
         {viewTab === "results" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
           <div style={ui.resultContextGuide}>
-            <div><b>대학 상세 결과 {filtered.length.toLocaleString()}건</b><span>먼저 대학·모집단위별 교과·종합·정시·수능최저와 <strong>광덕고 지원경향</strong>을 확인하세요. 각 카드의 <strong>이 대학과 비슷한 대학 찾기</strong>를 누르면 해당 대학을 기준으로 지원 연결 탐색이 이어집니다.</span></div>
+            <div style={ui.guideCopy}><b>대학 상세 결과 {filtered.length.toLocaleString()}건</b><span>먼저 <strong>NAVI 통합 데이터</strong>의 대학·모집단위별 교과·종합·정시·수능최저를 확인하세요. 카드 아래의 초록색 영역은 NAVI 통합 사례가 아니라 <strong>2024–2026 광덕고 자체 지원·합격 사례</strong>이며 별도 자료로 구분해 표시합니다.</span></div>
             <div style={ui.resultContextActions}>
               <button type="button" style={ui.backToSearchButton} onClick={() => setViewTab("search")}>‹ 기준 설정 수정</button>
               <button type="button" style={ui.resultConnectPrimary} onClick={() => { setConnectionMode("grade"); setConnectionUniversity(""); setViewTab("connection"); }}>현재 성적으로 지원 연결 찾기 ›</button>
             </div>
+          </div>
+          <div className="susi-beta-source-legend" style={ui.dataSourceLegend}>
+            <div style={ui.naviSourceCard}><div style={ui.sourceCardCopy}><small>NAVI 통합 데이터</small><b>경기도교육청 제공 통합 자료</b><span>2027 모집단위, 2026 입시결과, NAVI 통합 지원사례 분포와 통합컷을 표시합니다.</span></div></div>
+            <div style={ui.schoolSourceCard}><div style={ui.sourceCardCopy}><small>광덕고 별도 사례</small><b>2024–2026 우리 학교 실제 지원 결과</b><span>지원·합격·합격률과 세부전형별 현황을 별도로 표시합니다.</span></div>{onOpenCases && <button type="button" style={ui.sourceLegendLink} onClick={() => onOpenCases("", "", "")}>광덕고 대입 결과 탭 열기 ›</button>}</div>
           </div>
           <div style={ui.resultFilterBar}>
             <div style={ui.activeFilterWrap}>
@@ -1260,6 +1266,7 @@ export default function SusiNaviBetaView({
               favorite={favorites.some(item => favoriteMatches(item, row))}
               favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)}
               onToggleFavorite={onToggleFavorite}
+              onOpenCases={onOpenCases}
               onConnectUniversity={() => {
                 setConnectionMode("university");
                 setConnectionUniversity(row[3]);
@@ -1269,7 +1276,7 @@ export default function SusiNaviBetaView({
           </div>
           {pageCount > 1 && <Pagination page={page} pageCount={pageCount} onChange={changePage} />}
           <div style={ui.resultWorkflowFooter}>
-            <div><b>대학 정보를 확인했나요?</b><span>현재 성적 전체 후보를 보거나, 각 대학 카드의 버튼으로 특정 대학과 비슷한 대학을 찾을 수 있습니다.</span></div>
+            <div style={ui.guideCopy}><b>대학 정보를 확인했나요?</b><span>현재 성적 전체 후보를 조회하거나, 각 대학 카드의 버튼으로 특정 대학과 비슷한 대학을 찾을 수 있습니다.</span></div>
             <button type="button" style={ui.resultConnectPrimary} onClick={() => { setConnectionMode("grade"); setConnectionUniversity(""); setViewTab("connection"); }}>다음: 지원 연결 탐색 ›</button>
           </div>
         </div>}
@@ -1329,6 +1336,7 @@ function SupportConnectionExplorer({
   caseRows = [],
   favoriteEnabled,
   onToggleFavorite,
+  onOpenCases,
   onOpenUniversity,
   onBack,
 }) {
@@ -1385,23 +1393,23 @@ function SupportConnectionExplorer({
 
     <div style={ui.connectionControls}>
       {mode === "grade" ? <div style={ui.connectionCriterion}>
-        <div style={ui.criterionItem}><small>환산 방식</small><b>{conversionMethod === "statistical" ? "통계 기반 Beta" : "기존 2×내신−1"}</b></div>
-        <div style={ui.criterionItem}><small>교과 조합</small><b>{conversionMethod === "statistical" ? conversionGroup : "전교과"}</b></div>
-        <div style={{ ...ui.criterionItem, ...ui.criterionGrade }}><small>학생 9등급 환산</small><b>{gradeReady ? Number(convertedGrade).toFixed(2) : "입력 필요"}</b></div>
-        <div style={{ ...ui.criterionItem, ...ui.criterionCut }}><small>현재 비교 기준</small><b>{cutoffBasis}%컷</b></div>
+        <div style={ui.criterionItem}><small style={ui.criterionLabel}>환산 방식</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? "통계 기반 Beta" : "기존 2×내신−1"}</b></div>
+        <div style={ui.criterionItem}><small style={ui.criterionLabel}>교과 조합</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? conversionGroup : "전교과"}</b></div>
+        <div style={{ ...ui.criterionItem, ...ui.criterionGrade }}><small style={ui.criterionLabel}>학생 9등급 환산</small><b style={ui.criterionValueStrong}>{gradeReady ? Number(convertedGrade).toFixed(2) : "입력 필요"}</b></div>
+        <div style={{ ...ui.criterionItem, ...ui.criterionCut }}><small style={ui.criterionLabel}>현재 비교 기준</small><b style={ui.criterionValueStrong}>{cutoffBasis}%컷</b></div>
       </div> : <label style={{ ...ui.connectionSelectLabel, ...ui.connectionUniversitySelector }}><span>① 기준 대학을 선택하세요</span><select value={university} onChange={event => onUniversityChange(event.target.value)} style={ui.connectionSelect}><option value="">대학을 선택하면 결과가 표시됩니다</option>{universities.map(name => <option key={name} value={name}>{name}</option>)}</select>{university && <small><b>{university}</b>의 공개 컷과 계열·전형이 가까운 다른 대학을 찾는 중입니다.</small>}</label>}
       <label style={ui.connectionSelectLabel}><span>{mode === "university" ? "② " : ""}등급 컷 차이 범위</span><select value={range} onChange={event => onRangeChange(event.target.value)} style={ui.connectionSelect}><option value="0.20">±0.20 이내</option><option value="0.30">±0.30 이내</option><option value="0.50">±0.50 이내</option><option value="0.80">±0.80 이내</option></select></label>
-      <div style={ui.connectionResultCount}><small>계산된 전체 후보</small><b>{total.toLocaleString()}건</b><span>{displayMode === "all" ? `전체 보기 · ${resultPage}/${resultPageCount}페이지` : `요약 ${compactResults.length}건`}</span></div>
+      <div style={ui.connectionResultCount}><small style={ui.resultCountLabel}>계산된 전체 후보</small><b style={ui.resultCountValue}>{total.toLocaleString()}건</b><span style={ui.resultCountMeta}>{displayMode === "all" ? `전체 보기 · ${resultPage}/${resultPageCount}페이지` : `요약 ${compactResults.length}건`}</span></div>
     </div>
 
     <div style={ui.connectionStats}>
-      <span><small>차이 0.00</small><b>{exact.toLocaleString()}건</b></span>
-      <span><small>서로 다른 컷</small><b>{distinctCuts.toLocaleString()}개</b></span>
-      <span><small>대학 공개 컷</small><b>{Number(resultSet?.official || 0).toLocaleString()}건</b></span>
-      <span><small>계열 통합 컷</small><b>{Number(resultSet?.integrated || 0).toLocaleString()}건</b></span>
+      <span style={ui.connectionStatCard}><small style={ui.connectionStatLabel}>차이 0.00</small><b style={ui.connectionStatValue}>{exact.toLocaleString()}건</b></span>
+      <span style={ui.connectionStatCard}><small style={ui.connectionStatLabel}>서로 다른 기준컷</small><b style={ui.connectionStatValue}>{distinctCuts.toLocaleString()}개</b></span>
+      <span style={ui.connectionStatCard}><small style={ui.connectionStatLabel}>대학 모집단위 공개컷</small><b style={ui.connectionStatValue}>{Number(resultSet?.official || 0).toLocaleString()}건</b></span>
+      <span style={ui.connectionStatCard}><small style={ui.connectionStatLabel}>NAVI 계열 통합컷</small><b style={ui.connectionStatValue}>{Number(resultSet?.integrated || 0).toLocaleString()}건</b></span>
     </div>
 
-    <div style={ui.connectionNotice}><AlertTriangle size={16}/><span><b>차이 0.00</b>은 동일 학생이라는 뜻이 아니라 비교 컷 숫자가 같다는 뜻입니다. 대학 공개 모집단위 컷이 없을 때는 협력고교의 대학·전형·계열 통합컷을 사용하고 <strong>계열 통합</strong>으로 표시합니다.{total > 0 && distinctCuts === 1 ? <> 현재 선택 범위의 기준 컷은 모두 <strong>{Number(allResults[0]?.referenceCut || 0).toFixed(2)}</strong>로 동일합니다.</> : null}</span></div>
+    <div style={ui.connectionNotice}><AlertTriangle size={16}/><span><b>차이 0.00</b>은 동일 학생이라는 뜻이 아니라 비교 컷 숫자가 같다는 뜻입니다. 대학 공개 모집단위 컷이 없을 때는 NAVI 통합 사례의 대학·전형·계열 통합컷을 사용하고 <strong>계열 통합</strong>으로 표시합니다.{total > 0 && distinctCuts === 1 ? <> 현재 선택 범위의 기준 컷은 모두 <strong>{Number(allResults[0]?.referenceCut || 0).toFixed(2)}</strong>로 동일합니다.</> : null}</span></div>
 
     {!!total && <>
       <div style={ui.connectionDisplayBar}>
@@ -1431,10 +1439,13 @@ function SupportConnectionExplorer({
         <div className="susi-beta-connection-metrics" style={ui.connectionMetrics}>
           <span><small>{cutoffBasis}%컷</small><b>{Number(item.referenceCut).toFixed(2)}</b></span>
           <span><small>{mode === "grade" ? "학생과 차이" : "기준대학과 차이"}</small><b>{difference.toFixed(2)}</b></span>
-          <span><small>협력고교 사례</small><b>{item.caseCount ? `${item.caseCount.toLocaleString()}건` : "-"}</b></span>
+          <span><small>NAVI 통합 사례</small><b>{item.caseCount ? `${item.caseCount.toLocaleString()}건` : "-"}</b></span>
         </div>
-        {trend.total > 0 && <div className="susi-beta-connection-trend" style={ui.connectionTrendMini}><span><small>광덕고 지원</small><b>{trend.total}건</b></span><span><small>합격</small><b>{trend.accepted}건</b></span><span><small>합격률</small><b>{trend.rate}%</b></span></div>}
-        <small style={ui.connectionSource}>{item.referenceSource}</small>
+        {trend.total > 0 && <div style={ui.connectionSchoolTrendWrap}>
+          <div className="susi-beta-connection-trend" style={ui.connectionTrendMini}><span><small>광덕고 지원</small><b>{trend.total}건</b></span><span><small>합격</small><b>{trend.accepted}건</b></span><span><small>합격률</small><b>{trend.rate}%</b></span></div>
+          {onOpenCases && <button type="button" style={ui.connectionSchoolLink} onClick={event => { event.stopPropagation(); onOpenCases(item.university, item.integratedScope ? "" : (item.originalDepartment || item.department), item.admissionType || ""); }}>광덕고 탭 ›</button>}
+        </div>}
+        <small style={ui.connectionSource}><b>NAVI 기준:</b> {item.referenceSource}</small>
         <div style={ui.connectionCardFoot}>{support ? <span style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <span>{item.linkedTarget ? `${item.linkedTarget.university} · ${item.linkedTarget.department} 기준` : "유사 지원군"}</span>}<button type="button" onClick={event => { event.stopPropagation(); onOpenUniversity?.(item); }}>대학 상세 보기 ›</button></div>
       </article>;
     })}</div>}
@@ -1448,12 +1459,14 @@ function SupportConnectionExplorer({
   </section>;
 }
 
-function SupportTrendPanel({ trend, compact = false }) {
+function SupportTrendPanel({ trend, compact = false, university = "", department = "", onOpenCases }) {
   const value = trend || { total: 0, accepted: 0, rate: null, detailTypes: [], scope: "연결 자료 없음" };
+  const visibleTypes = value.detailTypes?.slice(0, compact ? 4 : 8) || [];
+  const hiddenCount = Math.max(0, Number(value.detailTypes?.length || 0) - visibleTypes.length);
   return <div className="susi-beta-school-trend" style={{ ...ui.schoolTrendPanel, ...(compact ? ui.schoolTrendCompact : {}) }}>
     <div className="susi-beta-school-trend-heading" style={ui.schoolTrendHeading}>
-      <div><small>광덕고 지원경향</small><b>{value.scope}</b></div>
-      <span>{value.total ? "2024–2026 실제 지원 사례" : "연결 사례 없음"}</span>
+      <div><small style={ui.schoolSourceBadge}>광덕고 별도 사례</small><b>{value.scope}</b></div>
+      <span>{value.total ? "2024–2026 광덕고 실제 지원 결과 · NAVI 통합 사례와 별도 집계" : "광덕고 연결 사례 없음 · NAVI 통합 데이터와는 별개입니다."}</span>
     </div>
     <div className="susi-beta-school-trend-metrics" style={ui.schoolTrendMetrics}>
       <span><small>지원 사례</small><b>{Number(value.total || 0).toLocaleString()}건</b></span>
@@ -1461,12 +1474,23 @@ function SupportTrendPanel({ trend, compact = false }) {
       <span><small>합격률</small><b>{value.rate == null ? "-" : `${value.rate}%`}</b></span>
     </div>
     <div className="susi-beta-school-trend-types" style={ui.schoolTrendTypes}>
-      {value.detailTypes?.length ? value.detailTypes.slice(0, compact ? 2 : 4).map(item => <span key={item.label}><b>{item.label}</b><small>지원 {item.total} · 합격 {item.accepted}{item.rate == null ? "" : ` · ${item.rate}%`}</small></span>) : <em>세부전형별 연결 자료가 없습니다.</em>}
+      {visibleTypes.length ? visibleTypes.map(item => <span key={item.label}>
+        <b>{item.label}</b>
+        <span style={ui.schoolTrendTypeMetrics}>
+          <small><em>지원</em><strong>{item.total}건</strong></small>
+          <small><em>합격</em><strong>{item.accepted}건</strong></small>
+          <small><em>합격률</em><strong>{item.rate == null ? "-" : `${item.rate}%`}</strong></small>
+        </span>
+      </span>) : <em>광덕고 세부전형별 연결 자료가 없습니다.</em>}
+      {hiddenCount > 0 && <em style={ui.schoolTrendMore}>외 {hiddenCount}개 세부전형은 광덕고 대입 결과 탭에서 확인할 수 있습니다.</em>}
+    </div>
+    <div style={ui.schoolTrendAction}>
+      {onOpenCases ? <button type="button" style={ui.schoolTrendOpenButton} onClick={() => onOpenCases(university, department, "")}>광덕고 대입 결과에서 전체 보기 ›</button> : <span>교사용 ‘2024–2026 광덕고 대입 결과’ 탭에서 전체 사례를 확인합니다.</span>}
     </div>
   </div>;
 }
 
-function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedules = [], caseStats = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onConnectUniversity }) {
+function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedules = [], caseStats = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity }) {
   const [open, setOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("all");
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
@@ -1492,7 +1516,7 @@ function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedul
     <article className="susi-beta-result-card" style={ui.resultCard}>
       <div style={ui.resultSummary}>
         <div style={ui.resultSummaryIdentity}>
-          <div style={ui.universityLine}><span style={ui.resultEntityLabel}>대학</span><h3 style={ui.universityName}>{university}</h3><span style={ui.fieldBadge}>{field}</span></div>
+          <div style={ui.universityLine}><span style={ui.resultEntityLabel}>대학</span><h3 style={ui.universityName}>{university}</h3><span style={ui.fieldBadge}>{field}</span><span style={ui.naviInlineBadge}>NAVI 통합 데이터</span></div>
           <div style={ui.resultDepartmentLine}><span style={ui.resultEntityLabel}>2027 모집단위</span><b style={ui.unitTitle}>{unit2027}</b></div>
           <span style={ui.location}>{[regionGroup, region, detailRegion].filter(Boolean).join(" · ")}</span>
         </div>
@@ -1507,11 +1531,12 @@ function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedul
           <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={ui.resultToggle}>{open ? <ChevronUp size={16}/> : <ChevronDown size={16}/>} {open ? "상세 접기" : "상세 펼치기"}</button>
         </div>
       </div>
-      <SupportTrendPanel trend={schoolTrend} compact={!open}/>
+      <SupportTrendPanel trend={schoolTrend} compact={!open} university={university} department={unit2027} onOpenCases={onOpenCases}/>
       {open && <div style={ui.resultCardBody}>
         <div style={ui.resultIdentity}>
-          <b style={ui.identityLabel}>모집단위 연결 정보</b>
-          {unit2026 && unit2026 !== unit2027 ? <div style={ui.previousUnit}><span>2026 모집단위</span><b>{unit2026}</b><span>2027에는 {unit2027}(으)로 연결</span></div> : <div style={ui.sameUnitNote}>2026·2027 모집단위명이 동일합니다.</div>}
+          <b style={ui.identityLabel}>NAVI 모집단위 연결 정보</b>
+          <span style={ui.identitySourceNote}>경기도교육청 제공 2027 모집단위와 2026 입시결과를 연결한 정보입니다.</span>
+          {unit2026 && unit2026 !== unit2027 ? <div style={ui.previousUnit}><span>2026 모집단위</span><b>{unit2026}</b><span>2027 모집단위 <strong>{unit2027}</strong>(으)로 연결됩니다.</span></div> : <div style={ui.sameUnitNote}>2026·2027 모집단위명이 동일합니다.</div>}
           <div style={ui.detailTabGuide}><b>정보 항목</b><span>교과·종합·정시·수능최저 중 필요한 항목만 선택해 넓게 볼 수 있습니다.</span></div>
           <RelatedInfo courseRules={courseRules} changes2028={changes2028} schedules={schedules} />
         </div>
@@ -1552,7 +1577,7 @@ function SectionTitle({ tone, title, year }) {
   return <div style={ui.resultSectionTitle}><span style={{ ...ui.sectionTypeBadge, ...toneStyle }}>{title}</span><b>{year}</b></div>;
 }
 function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade, cutoffBasis, tone, university, region, caseStats, conversionGroup }) {
-  return <div style={ui.resultSection}><SectionTitle tone={tone} title={title} year={year}/>{items.length ? <div style={ui.admissionItems}>{items.map((item, index) => {
+  return <div style={ui.resultSection}><SectionTitle tone={tone} title={title} year={year}/>{items.length ? <div style={{ ...ui.admissionItems, ...(items.length >= 4 ? ui.admissionItemsDense : {}) }}>{items.map((item, index) => {
     const selectedCutoff = cutoffValue(item, cutoffBasis);
     const diff = differenceLabel(convertedGrade, selectedCutoff);
     const support = supportBand(convertedGrade, selectedCutoff);
@@ -1560,12 +1585,13 @@ function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade
     const cuts = caseCutForGroup(stat, conversionGroup);
     return <div key={`${item[0]}-${index}`} style={{ ...ui.admissionItem, ...(tone === "teaching" ? ui.teachingItem : ui.holisticItem) }}>
       <div style={ui.admissionItemHead}><b style={ui.admissionName}>{item[0]}</b>{support && <span style={{ ...ui.supportBadge, color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span>}</div>
+      <small style={ui.officialCutLabel}>대학 공개 2026 입시결과</small>
       <div style={ui.cutoffGrid}>
         <div style={{ ...ui.cutoffBox, ...(cutoffBasis === "50" ? ui.cutoffBoxActive : {}) }}><span>50%컷</span><b>{item[1] ?? "-"}</b></div>
         <div style={{ ...ui.cutoffBox, ...(cutoffBasis === "70" ? ui.cutoffBoxActive : {}) }}><span>70%컷</span><b>{item[2] ?? "-"}</b></div>
       </div>
       {diff && <small style={{ ...ui.studentDifference, color: diff.favorable ? "#287348" : "#b05244" }}>학생 환산 − {cutoffBasis}%컷 <b>{diff.text}</b></small>}
-      {cuts?.[0] ? <CaseDistribution cuts={cuts} /> : <small style={ui.caseNone}>협력고교 분포 자료 없음</small>}
+      {cuts?.[0] ? <CaseDistribution cuts={cuts} /> : <small style={ui.caseNone}>NAVI 통합 사례 분포 없음</small>}
     </div>;
   })}</div> : <span style={ui.none}>자료 없음</span>}</div>;
 }
@@ -1575,13 +1601,13 @@ function CaseDistribution({ cuts }) {
   if (![p30, p50, p70].some(value => Number.isFinite(Number(value)))) return null;
   return <div style={ui.caseDisclosure}>
     <button type="button" onClick={() => setOpen(value => !value)} style={ui.caseToggleBtn}>
-      <span style={ui.caseToggleIdentity}><small>협력고교 통계</small><b>대학 · 전형 · 계열 통합</b></span>
+      <span style={ui.caseToggleIdentity}><small>NAVI 통합 사례</small><b>대학 · 전형 · 계열 통합</b></span>
       <span style={ui.caseToggleCount}><strong>{Number(count || 0).toLocaleString()}</strong><small>지원사례</small></span>
       <span style={ui.caseToggleAction}>{open ? "컷 닫기" : "30·50·70%컷 보기"}</span>
     </button>
     {open && <><div style={ui.caseCutGrid}>
       {[["30%", p30, ui.case30], ["50%", p50, ui.case50], ["70%", p70, ui.case70]].map(([label, value, toneStyle]) => <div key={label} style={{ ...ui.caseCutCard, ...toneStyle }}><span>{label} 컷</span><b>{Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "-"}</b></div>)}
-    </div><small style={ui.caseScopeNote}><b>선택한 교과 조합 기준</b><span>학과 구분 없이 대학·전형·계열을 통합한 통계입니다.</span></small></>}
+    </div><small style={ui.caseScopeNote}><b>선택한 교과 조합 기준</b><span>경기도교육청 NAVI 사례를 학과 구분 없이 대학·전형·계열 단위로 통합한 통계입니다.</span></small></>}
   </div>;
 }
 
@@ -1631,13 +1657,20 @@ const ui = {
   tabGuide: { display: "grid", gridTemplateColumns: "180px minmax(0,1fr)", gap: 14, alignItems: "center", padding: "14px 16px", border: "1px solid #dce3ed", borderRadius: 14, background: "linear-gradient(135deg,#f7f9fd,#fff)", color: "#536176", fontSize: 13.5, lineHeight: 1.6 },
   goResultButton: { minHeight: 43, padding: "0 16px", border: "1px solid #5f4e87", borderRadius: 11, background: "#66558e", color: "#fff", fontSize: 13, fontWeight: 900, cursor: "pointer", boxShadow: "0 6px 14px rgba(86,69,126,.20)" },
   directResultButton: { minHeight: 43, padding: "0 14px", border: "1px solid #ccd7e5", borderRadius: 11, background: "#fff", color: "#52627a", fontSize: 12.5, fontWeight: 850, cursor: "pointer" },
-  searchWorkflowFooter: { marginTop: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "11px 13px", border: "1px solid #d8d0e8", borderRadius: 12, background: "linear-gradient(135deg,#f8f5fd,#fff)", color: "#606b7d", fontSize: 12, lineHeight: 1.5 },
+  searchWorkflowFooter: { marginTop: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "13px 15px", border: "1px solid #d8d0e8", borderRadius: 12, background: "linear-gradient(135deg,#f8f5fd,#fff)", color: "#606b7d", fontSize: 12.5, lineHeight: 1.55 },
+  workflowCopy: { minWidth: 0, display: "grid", gap: 4 },
   workflowNextButton: { minHeight: 40, flex: "0 0 auto", padding: "0 15px", border: 0, borderRadius: 10, background: "#5f4d88", color: "#fff", fontSize: 12.5, fontWeight: 900, cursor: "pointer" },
-  resultContextGuide: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "15px 17px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f5f8fd,#fff)", color: "#526075", fontSize: 13.2, lineHeight: 1.62 },
+  resultContextGuide: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, padding: "17px 19px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f5f8fd,#fff)", color: "#526075", fontSize: 13.2, lineHeight: 1.62 },
+  guideCopy: { minWidth: 0, display: "grid", gap: 6 },
   resultContextActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
+  dataSourceLegend: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
+  naviSourceCard: { minWidth: 0, display: "grid", gap: 4, padding: "12px 14px", border: "1px solid #d8d1e8", borderRadius: 12, background: "linear-gradient(135deg,#f6f2fb,#fff)", color: "#5f5277", fontSize: 11.5, lineHeight: 1.5 },
+  schoolSourceCard: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", columnGap: 10, rowGap: 4, alignItems: "center", padding: "12px 14px", border: "1px solid #cfe1d6", borderRadius: 12, background: "linear-gradient(135deg,#f2faf5,#fff)", color: "#4f6659", fontSize: 11.5, lineHeight: 1.5 },
+  sourceCardCopy: { minWidth: 0, display: "grid", gap: 3 },
+  sourceLegendLink: { minHeight: 36, padding: "0 11px", border: "1px solid #bad6c6", borderRadius: 9, background: "#fff", color: "#347057", fontSize: 11, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultConnectPrimary: { minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 14px", border: "1px solid #58447f", borderRadius: 10, background: "#604c89", color: "#fff", fontSize: 12.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(86,69,126,.18)" },
-  resultWorkflowFooter: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "14px 15px", border: "1px solid #d8d0e8", borderRadius: 13, background: "linear-gradient(135deg,#f7f3fc,#fff)", color: "#566276", fontSize: 12.5, lineHeight: 1.55 },
-  detailSearchPanel: { display: "grid", gridTemplateColumns: "minmax(230px,.75fr) minmax(310px,1.15fr) minmax(260px,.9fr)", gap: 12, alignItems: "end", padding: "15px 16px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f7faff,#fbf9ff)" },
+  resultWorkflowFooter: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "16px 17px", border: "1px solid #d8d0e8", borderRadius: 13, background: "linear-gradient(135deg,#f7f3fc,#fff)", color: "#566276", fontSize: 12.5, lineHeight: 1.55 },
+  detailSearchPanel: { display: "grid", gridTemplateColumns: "minmax(230px,.75fr) minmax(310px,1.15fr) minmax(260px,.9fr)", gap: 13, alignItems: "end", padding: "17px 18px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f7faff,#fbf9ff)" },
   detailSearchHeading: { display: "grid", gap: 4, color: "#26384f" },
   detailSearchBox: { minWidth: 0, minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "0 12px", border: "1px solid #c8d5e5", borderRadius: 11, background: "#fff", color: "#52657f", boxShadow: "0 3px 10px rgba(48,65,88,.05)" },
   detailUniversitySelect: { display: "grid", gap: 6, color: "#59687c", fontSize: 11, fontWeight: 900 },
@@ -1718,14 +1751,23 @@ const ui = {
   connectionModeCardActive: { borderColor: "#66518f", background: "linear-gradient(135deg,#f3effb,#fff)", color: "#4f387d", boxShadow: "0 0 0 2px rgba(102,81,143,.12),0 6px 15px rgba(70,55,105,.09)" },
   connectionUniversitySelector: { minHeight: 78, padding: "9px 10px", border: "1px solid #d9e1ec", borderRadius: 12, background: "#f8fafd" },
   connectionControls: { display: "grid", gridTemplateColumns: "minmax(470px,1.55fr) minmax(185px,.5fr) minmax(155px,.38fr)", gap: 11, alignItems: "stretch" },
-  connectionCriterion: { minHeight: 78, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, padding: 8, border: "1px solid #d5deea", borderRadius: 14, background: "#edf1f6" },
-  criterionItem: { minWidth: 0, display: "grid", alignContent: "center", gap: 5, padding: "11px 12px", borderRadius: 11, background: "#fff", color: "#405069", border: "1px solid #e1e6ee" },
+  connectionCriterion: { minHeight: 86, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, padding: 8, border: "1px solid #d5deea", borderRadius: 14, background: "#edf1f6" },
+  criterionItem: { minWidth: 0, display: "grid", alignContent: "center", justifyItems: "center", gap: 6, padding: "12px 10px", borderRadius: 11, background: "#fff", color: "#405069", border: "1px solid #e1e6ee", textAlign: "center" },
+  criterionLabel: { display: "block", fontSize: 10.5, lineHeight: 1.3, fontWeight: 850, color: "#758196" },
+  criterionValue: { display: "block", fontSize: 14, lineHeight: 1.3, fontWeight: 900, color: "#35475f", wordBreak: "keep-all" },
+  criterionValueStrong: { display: "block", fontSize: 18, lineHeight: 1.15, fontWeight: 950, color: "inherit" },
   criterionGrade: { background: "#eaf3ff", color: "#224f88", border: "1px solid #bfd4ef" },
   criterionCut: { background: "#f2ebfb", color: "#5b4387", border: "1px solid #d2c2e8" },
   connectionSelectLabel: { display: "grid", gap: 7, fontSize: 12.5, fontWeight: 900, color: "#526177" },
   connectionSelect: { width: "100%", height: 48, border: "1px solid #b9c8dc", borderRadius: 11, background: "#fff", padding: "0 12px", color: "#25354c", fontSize: 13.5, fontWeight: 800, outline: "none" },
-  connectionResultCount: { minHeight: 78, display: "grid", alignContent: "center", justifyItems: "center", gap: 3, border: "1px solid #d6c9eb", borderRadius: 12, background: "linear-gradient(135deg,#eee8f8,#f8f4fc)", color: "#513a7d" },
-  connectionStats: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 7 },
+  connectionResultCount: { minHeight: 86, display: "grid", alignContent: "center", justifyItems: "center", gap: 5, padding: "10px 8px", border: "1px solid #d6c9eb", borderRadius: 12, background: "linear-gradient(135deg,#eee8f8,#f8f4fc)", color: "#513a7d", textAlign: "center" },
+  resultCountLabel: { display: "block", fontSize: 10.5, lineHeight: 1.3, fontWeight: 850, color: "#786a91" },
+  resultCountValue: { display: "block", fontSize: 20, lineHeight: 1.1, fontWeight: 950, color: "#513a7d" },
+  resultCountMeta: { display: "block", fontSize: 10.5, lineHeight: 1.35, color: "#786a91" },
+  connectionStats: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 9 },
+  connectionStatCard: { minWidth: 0, minHeight: 64, display: "grid", alignContent: "center", justifyItems: "center", gap: 5, padding: "9px 8px", border: "1px solid #dfe5ee", borderRadius: 11, background: "#f8fafc", textAlign: "center" },
+  connectionStatLabel: { display: "block", fontSize: 10.5, lineHeight: 1.35, fontWeight: 850, color: "#748196", wordBreak: "keep-all" },
+  connectionStatValue: { display: "block", fontSize: 15.5, lineHeight: 1.15, fontWeight: 950, color: "#2f435e" },
   connectionNotice: { display: "flex", alignItems: "flex-start", gap: 9, padding: "11px 13px", border: "1px solid #ead39b", borderRadius: 11, background: "#fff8e7", color: "#66501d", fontSize: 12.3, lineHeight: 1.62 },
   connectionEmpty: { padding: 21, border: "1px dashed #cfd9e6", borderRadius: 11, background: "#fafbfc", color: "#7f8998", fontSize: 12.5, textAlign: "center" },
   connectionDisplayBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #dce3ed", borderRadius: 11, background: "#fafbfe", color: "#657186", fontSize: 11.5, lineHeight: 1.5, flexWrap: "wrap" },
@@ -1747,7 +1789,9 @@ const ui = {
   integratedBadge: { padding: "3px 6px", borderRadius: 999, background: "#fff3d9", color: "#86601c", fontWeight: 900 },
   officialBadge: { padding: "3px 6px", borderRadius: 999, background: "#e9f5ef", color: "#2e7358", fontWeight: 900 },
   connectionMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
-  connectionTrendMini: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5, padding: 6, border: "1px solid #d7e8dc", borderRadius: 9, background: "#f4faf6" },
+  connectionTrendMini: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5, padding: 6, border: "1px solid #d7e8dc", borderRadius: 9, background: "#f4faf6" },
+  connectionSchoolTrendWrap: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "center", gap: 7 },
+  connectionSchoolLink: { minHeight: 35, padding: "0 9px", border: "1px solid #cde0d4", borderRadius: 8, background: "#fff", color: "#397057", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   connectionSource: { padding: "6px 8px", borderRadius: 8, background: "#f5f7fa", color: "#6e7b8d", fontSize: 12.5, lineHeight: 1.5 },
   connectionCardFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTop: "1px dashed #dce3ec", fontSize: 11.5 },
   connectionFooterNav: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 10, paddingTop: 11, borderTop: "1px solid #e1e6ee" },
@@ -1757,7 +1801,7 @@ const ui = {
   focusFallbackNotice: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 11px", border: "1px solid #edd2a8", borderRadius: 10, background: "#fff8ea", color: "#7a5b25", fontSize: 9.8, lineHeight: 1.5 },
   resultList: { display: "grid", gap: 10 },
   resultCard: { display: "grid", gap: 0, border: "1px solid #d6e0ec", borderRadius: 15, background: "#fff", overflow: "hidden", boxShadow: "0 5px 15px rgba(52,62,78,.04)" },
-  resultSummary: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", alignItems: "center", gap: 13, padding: "15px 16px", background: "linear-gradient(135deg,#fff,#f8fafe)" },
+  resultSummary: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", alignItems: "center", gap: 14, padding: "17px 18px", background: "linear-gradient(135deg,#fff,#f8fafe)" },
   resultSummaryIdentity: { minWidth: 0, display: "grid", gap: 5 },
   resultEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 22, padding: "0 7px", borderRadius: 7, background: "#e7edf6", color: "#48617f", fontSize: 10.5, fontWeight: 950, whiteSpace: "nowrap" },
   resultDepartmentLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
@@ -1765,25 +1809,32 @@ const ui = {
   resultActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
   resultToggle: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 12px", border: "1px solid #cbd6e4", borderRadius: 10, background: "#fff", color: "#354b68", fontSize: 12.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultConnectButton: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 11px", border: "1px solid #d7cbea", borderRadius: 10, background: "#f7f2fc", color: "#5b4385", fontSize: 12, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
-  schoolTrendPanel: { display: "grid", gridTemplateColumns: "minmax(150px,.65fr) minmax(240px,.9fr) minmax(260px,1.45fr)", alignItems: "center", gap: 10, padding: "10px 13px", borderTop: "1px solid #e2e8ef", borderBottom: "1px solid #e5ebf1", background: "linear-gradient(135deg,#f5faf7,#fbfdfc)", color: "#44574d" },
-  schoolTrendCompact: { paddingTop: 8, paddingBottom: 8 },
-  schoolTrendHeading: { minWidth: 0, display: "grid", gap: 2 },
+  schoolTrendPanel: { display: "grid", gridTemplateColumns: "minmax(180px,.72fr) minmax(245px,.92fr) minmax(300px,1.55fr) auto", alignItems: "center", gap: 12, padding: "13px 15px", borderTop: "1px solid #dce9e1", borderBottom: "1px solid #dce9e1", background: "linear-gradient(135deg,#f3faf6,#fbfdfc)", color: "#44574d" },
+  schoolTrendCompact: { paddingTop: 11, paddingBottom: 11 },
+  schoolTrendHeading: { minWidth: 0, display: "grid", gap: 5 },
+  schoolSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#dff1e7", color: "#2f7052", fontSize: 9.5, fontWeight: 950 },
   schoolTrendMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
-  schoolTrendTypes: { minWidth: 0, display: "flex", alignItems: "stretch", gap: 5, flexWrap: "wrap" },
-  resultCardBody: { minWidth: 0, display: "grid", gridTemplateColumns: "215px minmax(0,1fr)", gap: 12, padding: 13, borderTop: "1px solid #e1e7ef", background: "#fff" },
-  resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 7, padding: 12, borderRadius: 11, background: "linear-gradient(180deg,#f6f8fb,#f9fafc)" },
-  identityLabel: { fontSize: 10, color: "#68758a" },
+  schoolTrendTypes: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", alignItems: "stretch", gap: 7 },
+  schoolTrendTypeMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 4 },
+  schoolTrendMore: { gridColumn: "1/-1", padding: "4px 2px", fontSize: 9.5, color: "#71837a" },
+  schoolTrendAction: { minWidth: 150, display: "grid", justifyItems: "end", gap: 5, color: "#6f8177", fontSize: 10, lineHeight: 1.45 },
+  schoolTrendOpenButton: { minHeight: 38, padding: "0 11px", border: "1px solid #bad7c5", borderRadius: 9, background: "#fff", color: "#347057", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  resultCardBody: { minWidth: 0, display: "grid", gridTemplateColumns: "225px minmax(0,1fr)", gap: 16, padding: "18px", borderTop: "1px solid #e1e7ef", background: "#fff" },
+  resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 10, padding: 14, borderRadius: 12, background: "linear-gradient(180deg,#f5f8fc,#fafbfd)", border: "1px solid #e3e8f0" },
+  identityLabel: { fontSize: 10.5, color: "#5c6d84", fontWeight: 950 },
+  identitySourceNote: { display: "block", fontSize: 10.5, lineHeight: 1.5, color: "#768398" },
   detailTabGuide: { display: "grid", gap: 3, padding: "9px", borderRadius: 8, border: "1px solid #e0e5ed", background: "#fff", color: "#6c788a", fontSize: 9.3, lineHeight: 1.4 },
   sameUnitNote: { padding: "9px", borderRadius: 8, background: "#eef3f8", color: "#667488", fontSize: 12.5, lineHeight: 1.55 },
   universityLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
-  universityName: { margin: 0, fontSize: 20, lineHeight: 1.25, letterSpacing: "-.025em", color: "#182d4a" },
+  universityName: { margin: 0, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 17.5, lineHeight: 1.3, fontWeight: 850, letterSpacing: "-.015em", color: "#18304f" },
   fieldBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e8edf5", color: "#506078", fontSize: 9.3, fontWeight: 900 },
+  naviInlineBadge: { display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#eee9f8", color: "#66518e", fontSize: 9.2, fontWeight: 950 },
   favoriteBtn: { flex: "0 0 auto", width: 34, height: 34, borderRadius: 9, border: "1px solid #d2dbe8", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#7b8799", background: "#fff", cursor: "pointer" },
   favoriteBtnActive: { color: "#a96f08", background: "#fff7d8", borderColor: "#dec06a" },
   favoriteBtnDisabled: { opacity: .42, cursor: "not-allowed" },
-  unitTitle: { minWidth: 0, fontSize: 16, lineHeight: 1.45, color: "#263850", wordBreak: "keep-all", overflowWrap: "anywhere" },
+  unitTitle: { minWidth: 0, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 14.5, lineHeight: 1.5, fontWeight: 850, color: "#2b3d55", wordBreak: "keep-all", overflowWrap: "anywhere" },
   location: { fontSize: 11.3, color: "#6f7d91" },
-  previousUnit: { display: "grid", gap: 4, padding: "9px", border: "1px solid #dee5ee", borderRadius: 9, background: "#fff", fontSize: 12.5, lineHeight: 1.55, color: "#657286" },
+  previousUnit: { display: "grid", gap: 7, padding: "12px", border: "1px solid #dce4ef", borderRadius: 10, background: "#fff", fontSize: 11.5, lineHeight: 1.55, color: "#657286" },
   resultDetailArea: { minWidth: 0, display: "grid", alignContent: "start", gap: 10 },
   detailTabs: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 5, padding: 5, border: "1px solid #dce3ed", borderRadius: 11, background: "#edf1f6" },
   detailTabButton: { minHeight: 38, border: "1px solid transparent", borderRadius: 9, background: "transparent", color: "#5f6d82", fontSize: 11, fontWeight: 900, cursor: "pointer" },
@@ -1797,17 +1848,19 @@ const ui = {
   sectionHolistic: { color: "#76518f", background: "#f3eafb" },
   sectionRegular: { color: "#27715b", background: "#e9f7f1" },
   sectionMinimum: { color: "#9a6419", background: "#fff3d8" },
-  admissionItems: { display: "grid", gap: 7 },
-  admissionItem: { minWidth: 0, display: "grid", gap: 7, padding: "11px", borderRadius: 11, border: "1px solid #dce3ed", background: "#fbfcfd", fontSize: 12.5, lineHeight: 1.5 },
+  admissionItems: { display: "grid", gap: 9 },
+  admissionItemsDense: { gridTemplateColumns: "repeat(auto-fit,minmax(215px,1fr))", alignItems: "stretch" },
+  admissionItem: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: "12px", borderRadius: 11, border: "1px solid #dce3ed", background: "#fbfcfd", fontSize: 12.5, lineHeight: 1.5 },
   admissionItemHead: { minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 },
-  admissionName: { minWidth: 0, color: "#29374b", lineHeight: 1.4, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  admissionName: { minWidth: 0, color: "#26384f", fontSize: 13.5, fontWeight: 900, lineHeight: 1.45, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  officialCutLabel: { display: "block", paddingTop: 2, color: "#728096", fontSize: 9.5, fontWeight: 900 },
   supportBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 38, padding: "3px 7px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 900 },
   cutoffGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 },
   cutoffBox: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 5, padding: "6px 7px", border: "1px solid #e0e5ed", borderRadius: 8, background: "rgba(255,255,255,.72)", color: "#717b8b" },
   cutoffBoxActive: { borderColor: "#66558e", background: "linear-gradient(135deg,#f3effb,#fff)", color: "#5b4787", boxShadow: "0 0 0 2px rgba(102,85,142,.12),0 4px 10px rgba(86,69,126,.10)" },
   studentDifference: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 9.5, fontWeight: 750 },
   caseNone: { color: "#9aa2af", fontSize: 9 },
-  caseDisclosure: { paddingTop: 6, borderTop: "1px dashed #d9e0e9", display: "grid", gap: 6 },
+  caseDisclosure: { marginTop: 2, padding: "8px", border: "1px solid #ded5ec", borderRadius: 10, background: "#faf7fe", display: "grid", gap: 7 },
   caseToggleBtn: { minHeight: 54, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", alignItems: "center", gap: 9, padding: "7px 9px", border: "1px solid #d6deea", borderRadius: 10, background: "linear-gradient(135deg,#fff,#f8f9fc)", color: "#526078", cursor: "pointer", textAlign: "left" },
   caseToggleIdentity: { minWidth: 0, display: "grid", gap: 2 },
   caseToggleCount: { minWidth: 56, display: "grid", justifyItems: "center", gap: 0, padding: "4px 7px", borderRadius: 8, background: "#eee9f8", color: "#614d88" },
@@ -1965,12 +2018,30 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-connection-panel article{transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
 .susi-beta-connection-panel article:hover{transform:translateY(-1px)}
 .susi-beta-connection-panel article button{font:inherit}
+/* Patch 40 source separation and spacing overrides */
+.susi-beta-tab-panel [style*="display: grid"]>b+span{margin-top:0}
+.susi-beta-result-card h3,.susi-beta-result-card b{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+.susi-beta-school-trend-heading>div>small{font-size:9.5px!important;line-height:1.25}
+.susi-beta-school-trend-heading>div>b{font-size:12px!important;line-height:1.4}.susi-beta-school-trend-heading>span{font-size:10px!important;line-height:1.5;word-break:keep-all}
+.susi-beta-school-trend-types>span{min-width:0!important;display:grid!important;gap:6px!important;padding:8px 9px!important}
+.susi-beta-school-trend-types>span>b{font-size:10.5px!important;line-height:1.35;color:#315844}
+.susi-beta-school-trend-types>span>span{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.susi-beta-school-trend-types>span>span>small{min-width:0;display:grid;gap:2px;padding:4px;border-radius:6px;background:#f4f8f5;text-align:center}
+.susi-beta-school-trend-types>span>span>small>em{font-style:normal;font-size:8px;line-height:1.2;color:#7b8a82}
+.susi-beta-school-trend-types>span>span>small>strong{font-size:9.5px;line-height:1.2;color:#315844}
+.susi-beta-school-trend>div:last-child button:hover,.susi-beta-result-card button[style*="#347057"]:hover{border-color:#8fc0a3!important;background:#f5fbf7!important;box-shadow:0 4px 10px rgba(48,109,79,.10)!important}
+.susi-beta-connection-panel>div:nth-of-type(4)>span{display:grid!important;align-content:center!important;justify-items:center!important;gap:5px!important}
+.susi-beta-connection-panel>div:nth-of-type(4)>span small,.susi-beta-connection-panel>div:nth-of-type(4)>span b{display:block!important;margin:0!important}
+.susi-beta-connection-panel article small b{font-weight:950;color:#59677a}
+.susi-beta-connection-panel article>div:nth-child(5) button{font-size:10.5px}
+.susi-beta-detail-search input{letter-spacing:-.01em}
 @media(max-width:1050px){
   .susi-beta-view-toolbar{grid-template-columns:minmax(0,1fr) auto!important}
   .susi-beta-view-toolbar>div{grid-column:1!important}
   .susi-beta-view-toolbar>button{grid-column:2!important}
   .susi-beta-school-trend{grid-template-columns:1fr 1fr!important}
-  .susi-beta-school-trend>div:last-child{grid-column:1/-1!important}
+  .susi-beta-school-trend-types,.susi-beta-school-trend>div:last-child{grid-column:1/-1!important}
+  .susi-beta-school-trend>div:last-child{justify-items:start!important}
 }
 .susi-beta-print-sheet{display:none}
 /* Patch 39 readability overrides */
@@ -2011,6 +2082,9 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-compare-grid{grid-template-columns:1fr!important}
   .susi-beta-student-auto{grid-template-columns:1fr 140px!important}
   .susi-beta-student-auto p{grid-column:1/-1}
+}
+@media(max-width:800px){
+  .susi-beta-school-trend>div:last-child{justify-items:start!important}
 }
 @media(max-width:720px){
   .susi-beta-view-toolbar [role="tab"]{grid-template-columns:22px minmax(0,1fr)!important;padding:6px!important}

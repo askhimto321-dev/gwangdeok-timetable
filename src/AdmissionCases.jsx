@@ -660,7 +660,8 @@ const CSS=`
 @media(max-width:1120px){.admission-overview-pair{grid-template-columns:1fr!important}}
 @media(max-width:760px){.admission-type-performance-shell{grid-template-columns:1fr}.admission-type-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.admission-type-performance-row{grid-template-columns:minmax(80px,105px) minmax(80px,1fr) 70px 50px}}
 .admission-case-conversion{display:grid;gap:10px;padding:14px 15px;border:1px solid #d8e1ee;border-radius:15px;background:linear-gradient(135deg,#f8fbff,#fcf9ff);box-shadow:0 4px 14px rgba(45,61,84,.04)}
-.admission-case-conversion.is-empty,.admission-case-conversion.is-original{padding:12px 15px;background:#f7f8fa;color:#657184}
+.admission-case-conversion.is-empty,.admission-case-conversion.is-original{padding:14px 16px;background:#f7f8fa;color:#657184}
+.admission-case-conversion.is-empty>div,.admission-case-conversion.is-original>div{display:grid;gap:5px;min-width:0}.admission-case-conversion.is-empty small,.admission-case-conversion.is-original small{display:block;font-size:10px;font-weight:900;color:#6e7d91}.admission-case-conversion.is-empty b,.admission-case-conversion.is-original b{display:block;font-size:13px;line-height:1.55;color:#3f5067;word-break:keep-all}
 .admission-case-conversion-head{display:flex;align-items:center;justify-content:space-between;gap:14px;min-width:0}
 .admission-case-conversion-head>div{display:grid;gap:2px;min-width:0}.admission-case-conversion-head small{font-size:10px;font-weight:900;color:#65768d}.admission-case-conversion-head b{font-size:13px;color:#29394f;line-height:1.4}.admission-case-conversion-head>span{flex:0 0 auto;padding:7px 10px;border-radius:10px;background:#ede8f7;color:#5d4a86;font-size:11px;font-weight:850}.admission-case-conversion-head>span strong{font-size:16px;margin-left:4px}
 .admission-case-conversion-body{display:grid;grid-template-columns:120px minmax(260px,1fr) 150px 180px;gap:9px;align-items:stretch}
@@ -920,7 +921,7 @@ function StudentConnector({profile,query,onQuery,onSelect,roster}){
 
 
 function CaseConversionPanel({profile,method,onMethodChange,group,onGroupChange,status}){
-  if(!profile)return <div className="admission-case-conversion is-empty"><div><small>대입 사례 비교 환산 기준</small><b>학생을 선택하면 환산 방식을 설정할 수 있습니다.</b></div></div>;
+  if(!profile)return <div className="admission-case-conversion is-empty"><div><small>대입 사례 비교 환산 기준</small><b>학생을 선택하면 환산 방식과 교과 조합을 설정할 수 있습니다.</b></div></div>;
   if(profile.gradeSystem!==5)return <div className="admission-case-conversion is-original">
     <div className="admission-case-conversion-head"><div><small>대입 사례 비교 환산 기준</small><b>9등급제 원등급을 그대로 사용합니다.</b></div><span>현재 {fmt(profile.converted)}</span></div>
   </div>;
