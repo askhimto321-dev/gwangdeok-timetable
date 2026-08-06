@@ -627,58 +627,93 @@ function supportConnectionEntries(enrichedRows, cutoffBasis, conversionGroup) {
   return Array.from(new Map(entries.map(entry => [entry.key, entry])).values());
 }
 
-function representativeConnectionResults(sorted, limit = 12) {
-  if (!sorted.length) return [];
-  const groups = new Map();
-  sorted.forEach(item => {
-    const difference = Math.abs(Number(item.difference ?? item.linkDifference ?? 0));
-    const key = difference.toFixed(2);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(item);
-  });
-  const keys = Array.from(groups.keys()).sort((a, b) => Number(a) - Number(b));
-  const result = [];
-  const universityCounts = new Map();
-  let round = 0;
-  while (result.length < limit) {
-    let added = false;
-    for (const key of keys) {
-      const bucket = groups.get(key) || [];
-      while (bucket.length) {
-        const candidate = bucket.shift();
-        const universityKey = universityIdentityKey(candidate.university, candidate.region);
-        const count = universityCounts.get(universityKey) || 0;
-        if (count >= 2 && sorted.length > limit) continue;
-        result.push(candidate);
-        universityCounts.set(universityKey, count + 1);
-        added = true;
-        break;
-      }
-      if (result.length >= limit) break;
-    }
-    if (!added || round++ > limit) break;
-  }
-  if (result.length < limit) {
-    const selectedKeys = new Set(result.map(item => item.key));
-    sorted.forEach(item => {
-      if (result.length < limit && !selectedKeys.has(item.key)) result.push(item);
-    });
-  }
-  return result.slice(0, limit);
+function connectionSupportBand(item) {
+  const diff = Number(item?.difference);
+  if (!Number.isFinite(diff)) return "유사";
+  if (diff > .5) return "상향";
+  if (diff > .2) return "소신";
+  if (diff < -.5) return "하향";
+  if (diff < -.2) return "안정";
+  return "적정";
 }
 
-function connectionResultSet(matches, range) {
+function representativeConnectionResults(sorted, limit = 12, mode = "grade") {
+  if (!sorted.length) return [];
+  const source = [...sorted];
+  const selected = [];
+  const selectedKeys = new Set();
+  const universityCounts = new Map();
+  const fieldCounts = new Map();
+  const typeCounts = new Map();
+  const universityKeyOf = item => universityIdentityKey(item.university, item.region);
+  const similarityScore = item => {
+    const base = mode === "university"
+      ? Number(item.linkScore ?? item.linkDifference ?? 99)
+      : Math.abs(Number(item.difference ?? 99));
+    const officialPenalty = item.officialCut == null ? .035 : 0;
+    const evidenceBonus = Math.min(Math.log10(Number(item.caseCount || 0) + 1) * .014, .045);
+    const fieldPenalty = (fieldCounts.get(item.field || "공통") || 0) * .035;
+    const typePenalty = (typeCounts.get(item.admissionType || "기타") || 0) * .025;
+    return base + officialPenalty + fieldPenalty + typePenalty - evidenceBonus;
+  };
+  const chooseBest = (pool, maxPerUniversity) => {
+    const candidates = pool.filter(item => !selectedKeys.has(item.key) && (universityCounts.get(universityKeyOf(item)) || 0) < maxPerUniversity);
+    return candidates.sort((a, b) => similarityScore(a) - similarityScore(b)
+      || Number(b.caseCount || 0) - Number(a.caseCount || 0)
+      || a.university.localeCompare(b.university, "ko"))[0] || null;
+  };
+  const add = item => {
+    if (!item || selectedKeys.has(item.key) || selected.length >= limit) return false;
+    const universityKey = universityKeyOf(item);
+    selected.push(item);
+    selectedKeys.add(item.key);
+    universityCounts.set(universityKey, (universityCounts.get(universityKey) || 0) + 1);
+    fieldCounts.set(item.field || "공통", (fieldCounts.get(item.field || "공통") || 0) + 1);
+    typeCounts.set(item.admissionType || "기타", (typeCounts.get(item.admissionType || "기타") || 0) + 1);
+    return true;
+  };
+
+  if (mode === "grade") {
+    const bandOrder = ["적정", "소신", "안정", "상향", "하향"];
+    const buckets = new Map(bandOrder.map(label => [label, source.filter(item => connectionSupportBand(item) === label)]));
+    for (const maxPerUniversity of [1, 2, Number.POSITIVE_INFINITY]) {
+      let progressed = true;
+      while (selected.length < limit && progressed) {
+        progressed = false;
+        for (const label of bandOrder) {
+          const candidate = chooseBest(buckets.get(label) || [], maxPerUniversity);
+          if (add(candidate)) progressed = true;
+          if (selected.length >= limit) break;
+        }
+      }
+      if (selected.length >= limit) break;
+    }
+  } else {
+    for (const maxPerUniversity of [1, 2, Number.POSITIVE_INFINITY]) {
+      while (selected.length < limit) {
+        const candidate = chooseBest(source, maxPerUniversity);
+        if (!add(candidate)) break;
+      }
+      if (selected.length >= limit) break;
+    }
+  }
+
+  if (selected.length < limit) source.forEach(item => add(item));
+  return selected.slice(0, limit);
+}
+
+function connectionResultSet(matches, range, mode = "grade") {
   const sorted = [...matches].sort((a, b) => {
-    const aDiff = Math.abs(Number(a.difference ?? a.linkDifference ?? 99));
-    const bDiff = Math.abs(Number(b.difference ?? b.linkDifference ?? 99));
-    return aDiff - bDiff || b.caseCount - a.caseCount || a.university.localeCompare(b.university, "ko");
+    const aDiff = mode === "university" ? Number(a.linkScore ?? a.linkDifference ?? 99) : Math.abs(Number(a.difference ?? 99));
+    const bDiff = mode === "university" ? Number(b.linkScore ?? b.linkDifference ?? 99) : Math.abs(Number(b.difference ?? 99));
+    return aDiff - bDiff || Number(b.officialCut != null) - Number(a.officialCut != null) || b.caseCount - a.caseCount || a.university.localeCompare(b.university, "ko");
   });
   const exact = sorted.filter(item => Math.abs(Number(item.difference ?? item.linkDifference ?? 99)) < .005).length;
   const distinctCuts = new Set(sorted.map(item => Number(item.referenceCut).toFixed(2))).size;
   const distinctDifferences = new Set(sorted.map(item => Math.abs(Number(item.difference ?? item.linkDifference ?? 99)).toFixed(2))).size;
   const official = sorted.filter(item => item.officialCut != null).length;
   return {
-    items: representativeConnectionResults(sorted, CONNECTION_PAGE_SIZE),
+    items: representativeConnectionResults(sorted, CONNECTION_PAGE_SIZE, mode),
     allItems: sorted,
     total: sorted.length,
     exact,
@@ -687,24 +722,25 @@ function connectionResultSet(matches, range) {
     official,
     integrated: sorted.length - official,
     range: Number(range) || 0,
+    mode,
   };
 }
 
 function linkedSupportResults(entries, convertedGrade, range) {
   const grade = Number(convertedGrade);
   const width = Number(range);
-  if (!Number.isFinite(grade) || !Number.isFinite(width)) return connectionResultSet([], width);
+  if (!Number.isFinite(grade) || !Number.isFinite(width)) return connectionResultSet([], width, "grade");
   const matches = entries
     .map(entry => ({ ...entry, difference: Math.round((grade - entry.referenceCut) * 100) / 100 }))
     .filter(entry => Math.abs(entry.difference) <= width + .0001);
-  return connectionResultSet(matches, width);
+  return connectionResultSet(matches, width, "grade");
 }
 
 function linkedUniversityResults(entries, selectedUniversity, range) {
   const width = Number(range);
-  if (!selectedUniversity || !Number.isFinite(width)) return connectionResultSet([], width);
+  if (!selectedUniversity || !Number.isFinite(width)) return connectionResultSet([], width, "university");
   const targets = entries.filter(entry => universityBaseKey(entry.university) === universityBaseKey(selectedUniversity));
-  if (!targets.length) return connectionResultSet([], width);
+  if (!targets.length) return connectionResultSet([], width, "university");
   const matches = entries
     .filter(entry => universityBaseKey(entry.university) !== universityBaseKey(selectedUniversity))
     .map(entry => {
@@ -724,7 +760,7 @@ function linkedUniversityResults(entries, selectedUniversity, range) {
       };
     })
     .filter(entry => entry.linkDifference <= width + .0001);
-  return connectionResultSet(matches, width);
+  return connectionResultSet(matches, width, "university");
 }
 
 function connectionFavoriteItem(item) {
@@ -1290,7 +1326,7 @@ export default function SusiNaviBetaView({
                 setMinimumFilter("전체");
                 setSupportFilter("전체");
                 setFavoriteOnly(false);
-              }}>조건 전체 해제</button>}
+              }}>필터 전체 해제</button>}
             </div>
             <div style={ui.resultCutoffControl}>
               <span>판정 컷</span>
@@ -1422,7 +1458,8 @@ function SupportConnectionExplorer({
     return allResults.filter(item => compactText(`${item.university} ${item.department} ${item.originalDepartment || ""} ${item.field} ${item.track} ${item.admissionType}`).includes(needle));
   }, [allResults, candidateQuery]);
   const resultPageCount = Math.max(1, Math.ceil(searchedResults.length / CONNECTION_PAGE_SIZE));
-  const compactResults = candidateQuery ? representativeConnectionResults(searchedResults, CONNECTION_PAGE_SIZE) : representativeResults;
+  const compactResults = candidateQuery ? representativeConnectionResults(searchedResults, CONNECTION_PAGE_SIZE, mode) : representativeResults;
+  const summaryBandCounts = useMemo(() => compactResults.reduce((acc, item) => { const label = connectionSupportBand(item); acc[label] = (acc[label] || 0) + 1; return acc; }, {}), [compactResults]);
   const results = displayMode === "all"
     ? searchedResults.slice((resultPage - 1) * CONNECTION_PAGE_SIZE, resultPage * CONNECTION_PAGE_SIZE)
     : compactResults;
@@ -1436,7 +1473,7 @@ function SupportConnectionExplorer({
     <div style={ui.connectionHead}>
       <div style={ui.connectionTitleWrap}>
         <span style={ui.connectionIcon}><Network size={20}/></span>
-        <div><b style={ui.connectionTitle}>지원 연결 탐색</b><span style={ui.connectionSub}>대학 상세를 확인한 뒤 사용하는 비교 화면입니다. 기본값은 <strong>전체 후보</strong>이며, 12개 요약 보기는 필요할 때 선택할 수 있습니다.</span></div>
+        <div><b style={ui.connectionTitle}>지원 연결 탐색</b><span style={ui.connectionSub}>대학 상세를 확인한 뒤 사용하는 비교 화면입니다. 기본값은 <strong>전체 후보</strong>이며, 균형 요약은 대학 중복·입결 차이·데이터 유사도를 함께 반영합니다.</span></div>
       </div>
       <button type="button" style={ui.connectionBackButton} onClick={onBack}>‹ 대학 상세로 돌아가기</button>
     </div>
@@ -1459,7 +1496,7 @@ function SupportConnectionExplorer({
         <div style={{ ...ui.criterionItem, ...ui.criterionCut }}><small style={ui.criterionLabel}>지원 컷 기준</small><b style={ui.criterionValueStrong}>{cutoffBasis}%컷</b></div>
       </div> : <label style={{ ...ui.connectionSelectLabel, ...ui.connectionUniversitySelector }}><span>① 기준 대학을 선택하세요</span><select value={university} onChange={event => onUniversityChange(event.target.value)} style={ui.connectionSelect}><option value="">대학을 선택하면 결과가 표시됩니다</option>{universities.map(name => <option key={name} value={name}>{name}</option>)}</select>{university && <small><b>{university}</b>의 공개 컷과 계열·전형이 가까운 다른 대학을 찾는 중입니다.</small>}</label>}
       <label style={{ ...ui.connectionSelectLabel, ...ui.connectionRangeCard }}><span>{mode === "university" ? "② " : ""}허용할 컷 차이</span><select value={range} onChange={event => onRangeChange(event.target.value)} style={ui.connectionSelect}><option value="0.20">±0.20 이내</option><option value="0.30">±0.30 이내</option><option value="0.50">±0.50 이내</option><option value="0.80">±0.80 이내</option></select><small>범위를 넓히면 더 많은 대학·모집단위가 포함됩니다.</small></label>
-      <div style={ui.connectionResultCount}><small style={ui.resultCountLabel}>검색된 전체 후보</small><b style={ui.resultCountValue}>{total.toLocaleString()}건</b><span style={ui.resultCountMeta}>{displayMode === "all" ? `전체 보기 · ${resultPage}/${resultPageCount}페이지` : `대표 결과 ${compactResults.length}건`}</span></div>
+      <div style={ui.connectionResultCount}><small style={ui.resultCountLabel}>검색된 전체 후보</small><b style={ui.resultCountValue}>{total.toLocaleString()}건</b><span style={ui.resultCountMeta}>{displayMode === "all" ? `전체 보기 · ${resultPage}/${resultPageCount}페이지` : `균형 요약 ${compactResults.length}건`}</span></div>
     </div>
 
     <div style={ui.connectionStats}>
@@ -1473,12 +1510,16 @@ function SupportConnectionExplorer({
 
     {!!total && <>
       <div style={ui.connectionDisplayBar}>
-        <div><b>{displayMode === "all" ? "전체 후보를 조회하고 있습니다." : "대학 중복을 줄인 요약 결과입니다."}</b><span>전체 보기에서는 모든 결과를 12개씩 페이지로 확인하고, 대학·학과 검색으로 후보를 빠르게 좁힐 수 있습니다.</span></div>
+        <div><b>{displayMode === "all" ? "전체 후보를 조회하고 있습니다." : "대학과 지원 구간을 고르게 뽑은 균형 요약입니다."}</b><span>{displayMode === "all" ? "모든 결과를 12개씩 페이지로 확인하고 대학·학과 검색으로 빠르게 좁힐 수 있습니다." : mode === "grade" ? "대학별 1건을 우선하고, 입결 차이·공개컷 여부·NAVI 사례 수를 반영한 뒤 상향부터 하향까지 가능한 범위에서 고르게 구성합니다." : "대학별 1건을 우선하고, 기준 대학과의 컷 차이·계열·전형 유사도와 NAVI 사례 수를 함께 반영합니다."}</span></div>
         <div style={ui.connectionDisplayToggle}>
           <button type="button" aria-pressed={displayMode === "all"} onClick={() => setMode("all")} style={{ ...ui.connectionDisplayButton, ...(displayMode === "all" ? ui.connectionDisplayActive : {}) }}>전체 후보 {total.toLocaleString()}건</button>
-          <button type="button" aria-pressed={displayMode === "representative"} onClick={() => setMode("representative")} style={{ ...ui.connectionDisplayButton, ...(displayMode === "representative" ? ui.connectionDisplayActive : {}) }}>요약 12건</button>
+          <button type="button" aria-pressed={displayMode === "representative"} onClick={() => setMode("representative")} style={{ ...ui.connectionDisplayButton, ...(displayMode === "representative" ? ui.connectionDisplayActive : {}) }}>균형 요약 12건</button>
         </div>
       </div>
+      {displayMode === "representative" && <div style={ui.connectionSummaryGuide}>
+        <div style={ui.connectionSummaryCopy}><b>균형 요약 산출 기준</b><span>{mode === "grade" ? "대학 중복 최소화 → 입결 차이 → 대학 공개컷 우선 → NAVI 사례 수 → 지원 구간 분산 순으로 12건을 선정합니다." : "대학 중복 최소화 → 컷 차이 → 계열·전형 유사도 → 대학 공개컷과 NAVI 사례 수 순으로 12건을 선정합니다."}</span></div>
+        <div style={ui.connectionSummaryChips}>{mode === "grade" ? ["상향", "소신", "적정", "안정", "하향"].map(label => <span key={label} style={{ ...ui.connectionSummaryChip, color: SUPPORT_META[label].color, borderColor: SUPPORT_META[label].border, background: SUPPORT_META[label].background }}><b>{label}</b><small>{Number(summaryBandCounts[label] || 0)}건</small></span>) : <><span style={ui.connectionSummaryChip}><b>대학별</b><small>1건 우선</small></span><span style={ui.connectionSummaryChip}><b>입결</b><small>차이 최소</small></span><span style={ui.connectionSummaryChip}><b>계열·전형</b><small>유사도 반영</small></span></>}</div>
+      </div>}
       <label style={ui.connectionCandidateSearch}><Search size={17}/><input value={candidateQuery} onChange={event => { setCandidateQuery(event.target.value); setResultPage(1); }} placeholder="전체 후보 안에서 대학명·학과·전형 검색" />{candidateQuery && <button type="button" onClick={() => { setCandidateQuery(""); setResultPage(1); }} aria-label="후보 검색어 지우기"><X size={14}/></button>}<strong>{searchedResults.length.toLocaleString()}건</strong></label>
     </>}
 
@@ -1753,9 +1794,9 @@ const ui = {
   resultContextActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
   dataSourceLegend: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
   naviSourceCard: { minWidth: 0, display: "grid", gap: 4, padding: "12px 14px", border: "1px solid #d8d1e8", borderRadius: 12, background: "linear-gradient(135deg,#f6f2fb,#fff)", color: "#5f5277", fontSize: 11.5, lineHeight: 1.5 },
-  schoolSourceCard: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", columnGap: 10, rowGap: 4, alignItems: "center", padding: "12px 14px", border: "1px solid #cfe1d6", borderRadius: 12, background: "linear-gradient(135deg,#f2faf5,#fff)", color: "#4f6659", fontSize: 11.5, lineHeight: 1.5 },
+  schoolSourceCard: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", columnGap: 10, rowGap: 4, alignItems: "center", padding: "12px 14px", border: "1px solid #e4c3ca", borderRadius: 12, background: "linear-gradient(135deg,#fff3f5,#fffafb)", color: "#724650", fontSize: 11.5, lineHeight: 1.5 },
   sourceCardCopy: { minWidth: 0, display: "grid", gap: 3 },
-  sourceLegendLink: { minHeight: 36, padding: "0 11px", border: "1px solid #bad6c6", borderRadius: 9, background: "#fff", color: "#347057", fontSize: 11, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  sourceLegendLink: { minHeight: 36, padding: "0 11px", border: "1px solid #ddb5bd", borderRadius: 9, background: "#fff", color: "#8a4050", fontSize: 11, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultConnectPrimary: { minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 14px", border: "1px solid #58447f", borderRadius: 10, background: "#604c89", color: "#fff", fontSize: 12.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(86,69,126,.18)" },
   resultWorkflowFooter: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "16px 17px", border: "1px solid #d8d0e8", borderRadius: 13, background: "linear-gradient(135deg,#f7f3fc,#fff)", color: "#566276", fontSize: 12.5, lineHeight: 1.55 },
   detailSearchPanel: { display: "grid", gridTemplateColumns: "minmax(230px,.75fr) minmax(310px,1.15fr) minmax(260px,.9fr)", gap: 13, alignItems: "end", padding: "17px 18px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f7faff,#fbf9ff)" },
@@ -1768,7 +1809,7 @@ const ui = {
   activeFilterLabel: { color: "#7b8797", fontSize: 9.5, fontWeight: 900 },
   activeFilterChip: { display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 8px", borderRadius: 999, background: "#edf2f8", color: "#445875", border: "1px solid #d6e0ec", fontSize: 11, fontWeight: 850 },
   activeFilterEmpty: { color: "#9aa2ae", fontSize: 9.5 },
-  clearFilterButton: { minHeight: 27, padding: "0 8px", border: "1px solid #e2cfcf", borderRadius: 8, background: "#fff7f7", color: "#9a5555", fontSize: 11, fontWeight: 850, cursor: "pointer" },
+  clearFilterButton: { minHeight: 34, padding: "0 12px", border: "1px solid #e59a9a", borderRadius: 9, background: "#fff0f0", color: "#c83232", fontSize: 13, fontWeight: 950, cursor: "pointer", boxShadow: "0 3px 8px rgba(190,48,48,.08)" },
   resultCutoffControl: { display: "inline-flex", alignItems: "center", gap: 5, padding: 5, border: "1px solid #ddd5ea", borderRadius: 11, background: "#f2eef8", color: "#706480", fontSize: 10.5, fontWeight: 900 },
   resultCutoffButton: { minWidth: 63, height: 33, border: "1px solid transparent", borderRadius: 8, background: "transparent", color: "#786f85", fontSize: 11.5, fontWeight: 950, cursor: "pointer" },
   resultCutoffActive: { background: "#65518d", color: "#fff", borderColor: "#5a477e", boxShadow: "0 3px 8px rgba(86,69,126,.18)" },
@@ -1868,6 +1909,10 @@ const ui = {
   sameCutNotice: { flex: "0 0 auto", marginLeft: "auto", padding: "3px 8px", borderRadius: 999, background: "#f4e4b9", color: "#73571d", fontStyle: "normal", fontSize: 10.5, fontWeight: 900 },
   connectionEmpty: { padding: 21, border: "1px dashed #cfd9e6", borderRadius: 11, background: "#fafbfc", color: "#7f8998", fontSize: 12.5, textAlign: "center" },
   connectionDisplayBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #dce3ed", borderRadius: 11, background: "#fafbfe", color: "#657186", fontSize: 11.5, lineHeight: 1.5, flexWrap: "wrap" },
+  connectionSummaryGuide: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "center", gap: 12, padding: "12px 14px", border: "1px solid #cdd9e7", borderRadius: 12, background: "linear-gradient(135deg,#f4f8fc,#fff)", color: "#536278" },
+  connectionSummaryCopy: { minWidth: 0, display: "grid", gap: 3, fontSize: 11.5, lineHeight: 1.55 },
+  connectionSummaryChips: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" },
+  connectionSummaryChip: { display: "inline-grid", gridTemplateColumns: "auto auto", alignItems: "center", gap: 5, minHeight: 30, padding: "0 9px", border: "1px solid #d5deea", borderRadius: 999, background: "#fff", color: "#4d5f76", fontSize: 10.5, fontWeight: 900, whiteSpace: "nowrap" },
   connectionDisplayToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 10, background: "#e9edf4" },
   connectionDisplayButton: { minHeight: 31, padding: "0 10px", border: "1px solid transparent", borderRadius: 7, background: "transparent", color: "#68758a", fontSize: 11, fontWeight: 900, cursor: "pointer" },
   connectionDisplayActive: { background: "#315f88", color: "#fff", borderColor: "#315f88", boxShadow: "0 4px 10px rgba(49,95,136,.18)" },
@@ -1887,15 +1932,15 @@ const ui = {
   officialBadge: { padding: "3px 6px", borderRadius: 999, background: "#e9f5ef", color: "#2e7358", fontWeight: 900 },
   connectionDataCompare: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 8 },
   connectionNaviBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #cbdbea", borderRadius: 11, background: "linear-gradient(135deg,#f2f7fb,#fff)", color: "#35536f" },
-  connectionSchoolBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #ecd6b4", borderRadius: 11, background: "linear-gradient(135deg,#fff8ed,#fffdf9)", color: "#6d5124" },
+  connectionSchoolBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #e6c2c8", borderRadius: 11, background: "linear-gradient(135deg,#fff3f5,#fffafb)", color: "#713f49" },
   connectionDataHeading: { minWidth: 0, display: "grid", gap: 3 },
   connectionNaviBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#dfeaf4", color: "#315f88", fontSize: 9.5, fontWeight: 950 },
-  connectionSchoolBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f7e4c5", color: "#82591c", fontSize: 9.5, fontWeight: 950 },
+  connectionSchoolBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f3dce1", color: "#8a4050", fontSize: 9.5, fontWeight: 950 },
   connectionNaviMetrics: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 5 },
   connectionSchoolMetrics: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   connectionCutBasisMetric: { borderColor: "#e2bd78", background: "#fff2d8" },
-  connectionSchoolBlockFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, flexWrap: "wrap", color: "#806f55", fontSize: 9.5 },
-  connectionSchoolLink: { minHeight: 35, padding: "0 9px", border: "1px solid #e2c99f", borderRadius: 8, background: "#fff", color: "#80571b", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  connectionSchoolBlockFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, flexWrap: "wrap", color: "#86656c", fontSize: 9.5 },
+  connectionSchoolLink: { minHeight: 35, padding: "0 9px", border: "1px solid #dfb7bf", borderRadius: 8, background: "#fff", color: "#8a4050", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   connectionSource: { display: "grid", gap: 2, padding: "7px 8px", borderRadius: 8, background: "rgba(255,255,255,.72)", color: "#6e6680", fontSize: 10.2, lineHeight: 1.45 },
   connectionCardFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTop: "1px dashed #dce3ec", fontSize: 11.5 },
   connectionFooterNav: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 10, paddingTop: 11, borderTop: "1px solid #e1e6ee" },
@@ -1913,18 +1958,18 @@ const ui = {
   resultActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
   resultToggle: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 12px", border: "1px solid #cbd6e4", borderRadius: 10, background: "#fff", color: "#354b68", fontSize: 12.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultConnectButton: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 11px", border: "1px solid #d7cbea", borderRadius: 10, background: "#f7f2fc", color: "#5b4385", fontSize: 12, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
-  schoolTrendPanel: { display: "grid", gridTemplateColumns: "minmax(180px,.72fr) minmax(245px,.92fr) minmax(300px,1.55fr) auto", alignItems: "center", gap: 12, padding: "13px 15px", borderTop: "1px solid #ecd8b8", borderBottom: "1px solid #ecd8b8", background: "linear-gradient(135deg,#fff8ee,#fffdf9)", color: "#675432" },
+  schoolTrendPanel: { display: "grid", gridTemplateColumns: "minmax(180px,.72fr) minmax(245px,.92fr) minmax(300px,1.55fr) auto", alignItems: "center", gap: 12, padding: "13px 15px", borderTop: "1px solid #e5c4ca", borderBottom: "1px solid #e5c4ca", background: "linear-gradient(135deg,#fff3f5,#fffafb)", color: "#6e4650" },
   schoolTrendCompact: { paddingTop: 11, paddingBottom: 11 },
-  schoolTrendExpanded: { marginTop: 14, borderTop: "1px solid #e6c99a", boxShadow: "inset 0 5px 0 rgba(231,191,122,.10)" },
+  schoolTrendExpanded: { marginTop: 14, borderTop: "1px solid #dfb6be", boxShadow: "inset 0 5px 0 rgba(181,86,105,.08)" },
   schoolTrendHeading: { minWidth: 0, display: "grid", gap: 5 },
-  schoolTrendSeparation: { display: "grid", gap: 1, fontSize: 10, lineHeight: 1.4, color: "#806f55" },
-  schoolSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f7e4c5", color: "#82591c", fontSize: 9.5, fontWeight: 950 },
+  schoolTrendSeparation: { display: "grid", gap: 1, fontSize: 10, lineHeight: 1.4, color: "#87676e" },
+  schoolSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f3dce1", color: "#8a4050", fontSize: 9.5, fontWeight: 950 },
   schoolTrendMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   schoolTrendTypes: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", alignItems: "stretch", gap: 7 },
   schoolTrendTypeMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 4 },
-  schoolTrendMore: { gridColumn: "1/-1", padding: "4px 2px", fontSize: 9.5, color: "#88785e" },
-  schoolTrendAction: { minWidth: 150, display: "grid", justifyItems: "end", gap: 5, color: "#806f55", fontSize: 10, lineHeight: 1.45 },
-  schoolTrendOpenButton: { minHeight: 38, padding: "0 11px", border: "1px solid #e0c596", borderRadius: 9, background: "#fff", color: "#80571b", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  schoolTrendMore: { gridColumn: "1/-1", padding: "4px 2px", fontSize: 9.5, color: "#8b6f75" },
+  schoolTrendAction: { minWidth: 150, display: "grid", justifyItems: "end", gap: 5, color: "#86656c", fontSize: 10, lineHeight: 1.45 },
+  schoolTrendOpenButton: { minHeight: 38, padding: "0 11px", border: "1px solid #dfb7bf", borderRadius: 9, background: "#fff", color: "#8a4050", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultCardBody: { minWidth: 0, display: "grid", gridTemplateColumns: "225px minmax(0,1fr)", gap: 16, padding: "18px", borderTop: "1px solid #e1e7ef", background: "#fff" },
   resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 10, padding: 14, borderRadius: 12, background: "linear-gradient(180deg,#f5f8fc,#fafbfd)", border: "1px solid #e3e8f0" },
   identityLabel: { fontSize: 10.5, color: "#5c6d84", fontWeight: 950 },
@@ -2138,10 +2183,10 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-school-trend-types>span{min-width:0!important;display:grid!important;gap:6px!important;padding:8px 9px!important}
 .susi-beta-school-trend-types>span>b{font-size:10.5px!important;line-height:1.35;color:#315844}
 .susi-beta-school-trend-types>span>span{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
-.susi-beta-school-trend-types>span>span>small{min-width:0;display:grid;gap:2px;padding:4px;border-radius:6px;background:#f4f8f5;text-align:center}
+.susi-beta-school-trend-types>span>span>small{min-width:0;display:grid;gap:2px;padding:4px;border-radius:6px;background:#fff5f6;text-align:center}
 .susi-beta-school-trend-types>span>span>small>em{font-style:normal;font-size:8px;line-height:1.2;color:#7b8a82}
 .susi-beta-school-trend-types>span>span>small>strong{font-size:9.5px;line-height:1.2;color:#315844}
-.susi-beta-school-trend>div:last-child button:hover,.susi-beta-result-card button[style*="#347057"]:hover{border-color:#8fc0a3!important;background:#f5fbf7!important;box-shadow:0 4px 10px rgba(48,109,79,.10)!important}
+.susi-beta-school-trend>div:last-child button:hover,.susi-beta-result-card button[style*="#8a4050"]:hover{border-color:#d49da8!important;background:#fff5f6!important;box-shadow:0 4px 10px rgba(138,64,80,.10)!important}
 .susi-beta-connection-panel>div:nth-of-type(4)>span{display:grid!important;align-content:center!important;justify-items:center!important;gap:5px!important}
 .susi-beta-connection-panel>div:nth-of-type(4)>span small,.susi-beta-connection-panel>div:nth-of-type(4)>span b{display:block!important;margin:0!important}
 .susi-beta-connection-panel article small b{font-weight:950;color:#59677a}
@@ -2154,7 +2199,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-connection-notice>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .susi-beta-connection-compare section>div:first-child>b{font-size:11.5px;line-height:1.35;color:inherit;word-break:keep-all}
 .susi-beta-connection-navi-metrics>span,.susi-beta-connection-school-metrics>span{min-width:0;display:grid;align-content:center;justify-items:center;gap:2px;padding:7px 5px;border:1px solid rgba(94,81,136,.14);border-radius:8px;background:rgba(255,255,255,.86);text-align:center}
-.susi-beta-connection-school-metrics>span{border-color:rgba(47,112,82,.14)}
+.susi-beta-connection-school-metrics>span{border-color:rgba(138,64,80,.16)}
 .susi-beta-connection-navi-metrics small,.susi-beta-connection-school-metrics small{font-size:9.5px!important;line-height:1.25;color:#7b8494}
 .susi-beta-connection-navi-metrics b,.susi-beta-connection-school-metrics b{font-size:12.5px!important;line-height:1.2;font-weight:950;color:#3d4c63}
 .susi-beta-connection-navi-metrics>span:first-child b{color:#8a5d17;font-size:14px!important}
@@ -2171,15 +2216,15 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-school-trend>div:last-child{justify-items:start!important}
 }
 /* Patch 42: 광덕고 별도 사례를 정시 영역과 명확히 구분 */
-.susi-beta-school-trend.is-expanded{margin-top:14px!important;border-top:1px solid #e5c791!important}
-.susi-beta-school-trend-heading>div>small{color:#82591c!important}
-.susi-beta-school-trend-heading>div>b{color:#6b4e22!important}
-.susi-beta-school-trend-heading>span strong{color:#735424!important}.susi-beta-school-trend-heading>span em{color:#8a795e!important}
-.susi-beta-school-trend-metrics>span,.susi-beta-school-trend-types>span{border-color:#ead8bb!important;background:rgba(255,255,255,.9)!important}
-.susi-beta-school-trend-metrics small,.susi-beta-school-trend-types>span>span>small>em{color:#8a7b65!important}
-.susi-beta-school-trend-metrics b,.susi-beta-school-trend-types>span>b,.susi-beta-school-trend-types>span>span>small>strong{color:#6b4e22!important}
-.susi-beta-connection-school-metrics>span{border-color:#ead8bb!important;background:rgba(255,255,255,.9)!important}
-.susi-beta-connection-school-metrics b{color:#6b4e22!important}
+.susi-beta-school-trend.is-expanded{margin-top:14px!important;border-top:1px solid #ddb3bc!important}
+.susi-beta-school-trend-heading>div>small{color:#8a4050!important}
+.susi-beta-school-trend-heading>div>b{color:#713f49!important}
+.susi-beta-school-trend-heading>span strong{color:#7a4853!important}.susi-beta-school-trend-heading>span em{color:#92767c!important}
+.susi-beta-school-trend-metrics>span,.susi-beta-school-trend-types>span{border-color:#e6cbd0!important;background:rgba(255,255,255,.92)!important}
+.susi-beta-school-trend-metrics small,.susi-beta-school-trend-types>span>span>small>em{color:#927b81!important}
+.susi-beta-school-trend-metrics b,.susi-beta-school-trend-types>span>b,.susi-beta-school-trend-types>span>span>small>strong{color:#713f49!important}
+.susi-beta-connection-school-metrics>span{border-color:#e6cbd0!important;background:rgba(255,255,255,.92)!important}
+.susi-beta-connection-school-metrics b{color:#713f49!important}
 .susi-beta-print-sheet{display:none}
 /* Patch 39 readability overrides */
 .susi-beta-view-toolbar [role="tab"]>b{font-size:14px}.susi-beta-view-toolbar [role="tab"]>small{font-size:11.5px}
@@ -2200,6 +2245,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-connection-panel>div:nth-of-type(3){grid-template-columns:1fr 1fr!important}.susi-beta-connection-panel>div:nth-of-type(3)>div:first-child{grid-column:1/-1}
 }
 @media(max-width:900px){
+  .susi-beta-connection-panel [style*="connectionSummaryGuide"]{grid-template-columns:1fr!important}
   .susi-beta-connection-criteria{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .susi-beta-connection-criteria>div:first-child{grid-column:1/-1!important}
   .susi-beta-view-toolbar{position:static!important;display:grid!important;grid-template-columns:1fr!important}
@@ -2280,7 +2326,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-result-identity>span:nth-child(2){font-size:11px!important;line-height:1.6!important;word-break:keep-all}
 .susi-beta-result-identity>div:nth-child(3){white-space:nowrap!important;font-size:11.5px!important;line-height:1.3!important;padding:9px 8px!important;letter-spacing:-.025em}
 .susi-beta-detail-tabs [role="tab"]{font-size:13px!important;font-weight:950!important;letter-spacing:-.015em}
-.susi-beta-school-trend.is-expanded{grid-template-columns:minmax(185px,.72fr) minmax(220px,.82fr) minmax(0,1.75fr)!important;gap:14px!important;padding:17px 18px!important;margin-top:18px!important;border-top:2px solid #e2bd7d!important}
+.susi-beta-school-trend.is-expanded{grid-template-columns:minmax(185px,.72fr) minmax(220px,.82fr) minmax(0,1.75fr)!important;gap:14px!important;padding:17px 18px!important;margin-top:18px!important;border-top:2px solid #dcaeb8!important}
 .susi-beta-school-trend.is-expanded>div:last-child{grid-column:1/-1!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;padding-top:2px}
 .susi-beta-school-trend.is-expanded .susi-beta-school-trend-types{grid-template-columns:repeat(auto-fit,minmax(185px,1fr))!important;gap:9px!important}
 .susi-beta-school-trend.is-expanded .susi-beta-school-trend-types>span{padding:10px!important}
