@@ -679,6 +679,23 @@ const CSS=`
 .admission-case-conversion-group select{font-size:12.5px!important;font-weight:900!important}.admission-case-conversion-note{font-size:10.8px!important}
 .admission-case-link-fallback{display:flex;align-items:flex-start;gap:8px;margin-top:8px;padding:10px 12px;border:1px solid #ecd2a9;border-radius:10px;background:#fff8ea;color:#77551d;font-size:11px;line-height:1.5}.admission-case-link-fallback svg{flex:0 0 auto;margin-top:1px}.admission-case-link-fallback span{display:grid;gap:2px}.admission-case-link-fallback b{font-size:11.5px;font-weight:950}
 
+/* Patch 43: 지역 통계 균형 및 표본 규모 단계별 강조 */
+.admission-overview-pair{grid-template-columns:repeat(2,minmax(0,1fr))!important;align-items:start!important}
+.admission-region-bars{grid-template-columns:repeat(2,minmax(0,1fr))!important;column-gap:14px!important;row-gap:8px!important;align-content:start}
+.admission-region-bar-row{grid-template-columns:58px minmax(74px,1fr) auto!important;gap:7px!important;padding:3px 0;min-width:0}
+.admission-region-bar-row>b{font-size:11.5px!important;white-space:nowrap}
+.admission-region-bar-row .admission-case-count-pill{padding:4px 7px!important;font-size:9.8px!important}
+.admission-region-bar-row>div:last-child{display:grid!important;grid-template-columns:1fr!important;justify-items:end!important;gap:2px!important}
+.admission-sample-badge{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;letter-spacing:-.02em;box-shadow:none!important}
+.admission-sample-badge.is-many{padding:6px 10px!important;background:#eaf6ee!important;border-color:#a9d2b6!important;color:#25643d!important;font-size:11.5px!important;font-weight:950!important}
+.admission-sample-badge.is-adequate{padding:5px 9px!important;background:#eef3fb!important;border-color:#bdcde4!important;color:#315d91!important;font-size:10.8px!important;font-weight:900!important}
+.admission-sample-badge.is-low{padding:5px 8px!important;background:#fff3df!important;border-color:#e7c68f!important;color:#8a5b18!important;font-size:10px!important;font-weight:850!important}
+@media(max-width:1120px){
+  .admission-overview-pair{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .admission-region-bars{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media(max-width:860px){.admission-overview-pair,.admission-region-bars{grid-template-columns:1fr!important}}
+
 `
 
 function num(v){
@@ -718,10 +735,9 @@ function studentProfile(sid,roster,gdb,currentGrade,conversionMethod="legacy",co
 function groupStats(rows,getter){const map=new Map();rows.forEach(row=>{const key=getter(row)||"미지정";if(!map.has(key))map.set(key,[]);map.get(key).push(row)});return Array.from(map,([label,items])=>{const accepted=items.filter(x=>x.finalResult==="합격");return{label,total:items.length,accepted:accepted.length,first:items.filter(x=>x.finalResultDetail==="최초합격").length,waitlist:items.filter(x=>x.finalResultDetail==="충원합격").length,rejected:items.filter(x=>x.finalResult==="불합격").length,rate:items.length?accepted.length/items.length*100:null,median:median(accepted.map(x=>x.universityGrade??x.overallGrade))}}).sort((a,b)=>b.total-a.total||a.label.localeCompare(b.label,"ko"))}
 function resultStyle(value){if(value==="최초합격")return{color:COLORS.blue,background:"#edf3ff",borderColor:"#cbd9ef"};if(value==="충원합격")return{color:COLORS.purple,background:"#f3effa",borderColor:"#d8cdea"};if(value==="불합격")return{color:COLORS.red,background:"#fff0f0",borderColor:"#efcaca"};return{color:COLORS.muted,background:"#f4f2ed",borderColor:"#ddd8cd"}}
 function caseSufficiency(total){
-  if(total>=20)return{label:"표본 충분",detail:"20건 이상"};
-  if(total>=10)return{label:"표본 보통",detail:"10~19건"};
-  if(total>=5)return{label:"표본 제한",detail:"5~9건"};
-  return{label:"표본 주의",detail:"4건 이하"};
+  if(total>=20)return{label:"표본 많음",detail:"20건 이상",level:"many"};
+  if(total>=10)return{label:"표본 적당",detail:"10~19건",level:"adequate"};
+  return{label:"표본 적음",detail:total>=5?"5~9건":"4건 이하 · 해석 주의",level:"low"};
 }
 function signedGradeGap(studentGrade,cutGrade){
   const student=num(studentGrade),cut=num(cutGrade);
@@ -1091,7 +1107,7 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
           <div style={{display:"grid",gap:6}}>
             <span style={styles.detailEyebrow}>학생 맞춤 대학 상세</span>
             <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><h3 style={{fontSize:22}}>{selectedUniversity}</h3>{onToggleFavorite&&<button type="button" className={`admission-favorite-button ${isFavorite(favorites,{source:"case",university:selectedUniversity})?"is-active":""}`} onClick={()=>onToggleFavorite({source:"case",favoriteKind:"대학",university:selectedUniversity,label:`${selectedUniversity} 광덕고 사례`})} title="관심 대학에 저장"><Star size={15} fill="currentColor"/></button>}{onOpenAdmission&&admissionRows.some(row=>normalizeUniversityLink(row.university,row.region)===normalizeUniversityLink(selectedUniversity))&&<button type="button" className="admission-link-button" onClick={()=>onOpenAdmission(selectedUniversity)}>대학 지원 진단 <ExternalLink size={12}/></button>}</div>
-            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}><span className="admission-sample-badge" title={sample.detail}>{sample.label}</span><span className="admission-band-badge" title={fit.detail} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span><RateBand rate={rate} total={selectedAll.length}/></div>
+            <div style={{display:"flex",gap:7,flexWrap:"wrap"}}><span className={`admission-sample-badge is-${sample.level}`} title={sample.detail}>{sample.label}</span><span className="admission-band-badge" title={fit.detail} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span><RateBand rate={rate} total={selectedAll.length}/></div>
           </div>
           <div className="admission-detail-compare" style={styles.detailStudentCompare}>
             <div><small>학생 환산 등급</small><b>{fmt(profile.converted)}</b></div>
@@ -1136,7 +1152,7 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
       {stats.length?<div style={styles.caseCards}>{stats.map(stat=>{
         const sample=caseSufficiency(stat.total),difference=gradeDifference(profile.converted,stat.median),rate=stat.total?stat.accepted/stat.total*100:0,fit=applicationBand(profile.converted,stat.median);
         return <button type="button" className="admission-university-card" key={stat.label} style={styles.caseCard} onClick={()=>onSelectUniversity?.(stat.label)}>
-          <div style={styles.caseCardHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:15.5,color:"#222b36"}}>{stat.label}</b><span style={{fontSize:10.5,color:"#7b8491"}}>클릭하여 상세 보기</span></div><div style={{display:"flex",gap:6,alignItems:"center"}}>{onToggleFavorite&&<span role="button" tabIndex={0} className={`admission-favorite-button ${isFavorite(favorites,{source:"case",university:stat.label})?"is-active":""}`} onClick={event=>{event.stopPropagation();onToggleFavorite({source:"case",favoriteKind:"대학",university:stat.label,label:`${stat.label} 광덕고 사례`})}} onKeyDown={event=>{if(event.key==="Enter"){event.stopPropagation();onToggleFavorite({source:"case",favoriteKind:"대학",university:stat.label,label:`${stat.label} 광덕고 사례`})}}} title="관심 대학에 저장"><Star size={14} fill="currentColor"/></span>}<span className="admission-sample-badge" title={sample.detail}>{sample.label}</span></div></div>
+          <div style={styles.caseCardHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:15.5,color:"#222b36"}}>{stat.label}</b><span style={{fontSize:10.5,color:"#7b8491"}}>클릭하여 상세 보기</span></div><div style={{display:"flex",gap:6,alignItems:"center"}}>{onToggleFavorite&&<span role="button" tabIndex={0} className={`admission-favorite-button ${isFavorite(favorites,{source:"case",university:stat.label})?"is-active":""}`} onClick={event=>{event.stopPropagation();onToggleFavorite({source:"case",favoriteKind:"대학",university:stat.label,label:`${stat.label} 광덕고 사례`})}} onKeyDown={event=>{if(event.key==="Enter"){event.stopPropagation();onToggleFavorite({source:"case",favoriteKind:"대학",university:stat.label,label:`${stat.label} 광덕고 사례`})}}} title="관심 대학에 저장"><Star size={14} fill="currentColor"/></span>}<span className={`admission-sample-badge is-${sample.level}`} title={sample.detail}>{sample.label}</span></div></div>
           <div className="admission-case-comparison"><div><small>학생 환산 등급</small><b style={{color:COLORS.blue}}>{fmt(profile.converted)}</b></div><div><small>합격자 50%컷</small><b style={{color:COLORS.green}}>{fmt(stat.median)}</b></div><div><small>50%컷 대비</small><b className="admission-cut-arrow" title={difference.detail} style={{fontSize:12.5,color:difference.color}}>{difference.label}</b></div></div>
           <div style={styles.caseCountRow}><span className="admission-case-count-pill support">지원 <b>{stat.total}</b></span><span className="admission-case-count-pill accept">합격 <b>{stat.accepted}</b></span><span className="admission-case-count-pill reject">불합격 <b>{stat.rejected}</b></span></div>
           <div style={styles.caseFooter}><div style={{display:"grid",gap:3}}><span style={{fontSize:10.5,color:"#777f8b"}}>합격 사례 비율 {fmt(rate,1)}%</span><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:800}}>50%컷 기준</span><span className="admission-band-badge" title={fit.detail} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span></div></div><ChevronRight size={17} color="#7a8799"/></div>
@@ -1147,7 +1163,7 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
 }
 function Bars({rows}){
   const max=Math.max(1,...rows.map(x=>x.total));
-  return <div style={{display:"grid",gap:12}}>{rows.map(row=><div key={row.label} style={styles.barRowNew}>
+  return <div className="admission-region-bars" style={{display:"grid",gap:12}}>{rows.map(row=><div className="admission-region-bar-row" key={row.label} style={styles.barRowNew}>
     <b style={{fontSize:13}}>{row.label}</b>
     <div style={styles.dualBarWrap}>
       <div style={styles.dualBarTrack}><div style={{...styles.supportBar,width:`${Math.max(2,row.total/max*100)}%`}}/></div>
@@ -1227,7 +1243,7 @@ function UniversityAnalysis({rows,focusUniversity="",selectedUniversity="",onSel
         </label>
       </div>
     </div>
-    <div style={styles.universityDetail}>{!selected?<Empty title="검색 결과가 없습니다." text="대학명을 다시 입력하거나 검색어를 지워보세요."/>:<><div style={styles.universityHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:20,color:"#202a35"}}>{selected}</b><span style={{fontSize:12,color:"#737b87"}}>광덕고 2024~2026 통합 지원 사례</span></div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span className="admission-sample-badge">{caseSufficiency(selectedRows.length).label}</span><RateBand rate={selectedRate} total={selectedRows.length}/></div></div>
+    <div style={styles.universityDetail}>{!selected?<Empty title="검색 결과가 없습니다." text="대학명을 다시 입력하거나 검색어를 지워보세요."/>:<><div style={styles.universityHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:20,color:"#202a35"}}>{selected}</b><span style={{fontSize:12,color:"#737b87"}}>광덕고 2024~2026 통합 지원 사례</span></div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span className={`admission-sample-badge is-${caseSufficiency(selectedRows.length).level}`} title={caseSufficiency(selectedRows.length).detail}>{caseSufficiency(selectedRows.length).label}</span><RateBand rate={selectedRate} total={selectedRows.length}/></div></div>
       <div className="admission-stat-strip"><div><small>지원 사례</small><b style={{color:COLORS.blue}}>{selectedRows.length}건</b></div><div><small>합격 사례</small><b style={{color:COLORS.green}}>{selectedAccepted}건</b></div><div><small>합격자 50%컷</small><b>{fmt(median(acceptedGrades))}</b></div><div><small>합격자 25~75%</small><b>{fmt(percentile(acceptedGrades,.25))} ~ {fmt(percentile(acceptedGrades,.75))}</b></div></div>
       {holistic&&<div className="admission-holistic-notice" style={{marginTop:12}}><AlertTriangle size={15}/><span><b>학생부종합 참고</b> · 학생부종합은 서류·활동·과목 선택 등을 종합 평가하므로 커트라인은 참고용으로만 활용하세요.</span></div>}
       <div style={{marginTop:12}}><Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"24%"}}/><col style={{width:"26%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"10%"}}/><col style={{width:"8%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률</th><th>50%컷</th></tr></thead><tbody>{details.map(row=><tr key={`${row.department}|${row.type}`}><td><button type="button" className="admission-department-link" onClick={()=>onOpenDepartmentCases?.(selected,row.department,"")} title="이 모집단위의 전체 사례 조회">{row.department}</button></td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td></tr>)}</tbody></Table></div></>}</div>

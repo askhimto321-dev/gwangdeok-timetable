@@ -17,7 +17,7 @@ const GRADES = ["1", "2", "3"];
 const DISABLED_GRADES = [];
 const RESET_PASSWORD = "kd2026";
 const DEFAULT_ADMIN = { id: "admin", pw: "kd2026" };
-const SITE_TITLE = "광덕고 성적/시간표";
+const SITE_TITLE = "광덕고 데이터베이스 [BETA]";
 
 const TEACHER_ROLE_LABELS = { homeroom: "학급담임", gradeHead: "학년부장", other: "그외" };
 function normalizeGradeAccessList(value) {
@@ -1115,10 +1115,10 @@ export default function App() {
         <style>{globalCss}</style>
         <div style={{ padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontWeight: 700, fontSize: 20 }}>광덕고 성적/시간표 <span style={styles.betaBadge}>Beta</span></div>
+            <div style={{ fontWeight: 800, fontSize: 20 }}>{SITE_TITLE}</div>
             <div style={{ fontSize: 13, color: "#8a8578", marginTop: 6 }}>먼저 로그인해주세요. (학생 / 선생님 / 관리자 계정 모두 아래에서 로그인합니다)</div>
           </div>
-          <UnifiedLoginGate label="광덕고 성적/시간표" attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+          <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
         </div>
       </div>
     );
@@ -1667,7 +1667,7 @@ function MegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTea
       <div style={megaNavStyles.inner}>
         <div style={megaNavStyles.brand}>
           <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#2f6fb0,#7167b5)", boxShadow: "0 7px 18px rgba(55,83,150,0.24)" }}><Sparkles size={17} /></span>
-          <span style={{ fontWeight: 900, fontSize: 14.5 }}>광덕고 성적/시간표</span>
+          <span style={{ fontWeight: 900, fontSize: 14.5 }}>{SITE_TITLE}</span>
         </div>
         <div style={megaNavStyles.tabs}>
           {items.map(it => (

@@ -1129,7 +1129,7 @@ export default function SusiNaviBetaView({
         <div><div style={ui.heroEyebrow}><Sparkles size={14} /> 경기도교육청 교사용 자료 기반 · 독립 시험 운영</div><h2 style={ui.heroTitle}>2027 수시NAVI <span>Beta</span></h2><p style={ui.heroText}>경기도교육청 통합 자료를 기반으로 대학·모집단위, 전년도 입시결과와 NAVI 통합 사례를 조회합니다.</p></div>
         {data && <div style={ui.heroStats}><b>{data.stats?.universities?.toLocaleString()}개 대학</b><span>{data.stats?.records?.toLocaleString()}개 모집단위</span><small>자료 기준 {data.source?.sourceDate || "확인 필요"}</small></div>}
       </div>
-      <div style={ui.betaNotice}><AlertTriangle size={15} /><span><b>시험 운영 기능입니다.</b> 2027 모집단위와 2026 입시결과를 연결한 참고자료입니다. 2024–2026 광덕고 대입 결과 탭과는 별도의 데이터베이스이며, 광덕고 사례에는 영향을 주지 않습니다.{data && !data.caseStats?.length && <><br/><strong>NAVI 통합 사례 분포·2028 변화 자료를 사용하려면 관리자에서 최신 원본 파일을 다시 분석·반영해주세요.</strong></>}</span></div>
+      <div className="susi-beta-beta-notice" style={ui.betaNotice}><AlertTriangle size={15} /><div><b>시험 운영 기능입니다.</b><span>2027 모집단위와 2026 입시결과를 연결한 참고자료입니다.<br/>2024–2026 광덕고 대입 결과 탭과는 별도의 데이터베이스이며, 광덕고 사례에는 영향을 주지 않습니다.</span>{data && !data.caseStats?.length && <strong>NAVI 통합 사례 분포·2028 변화 자료를 사용하려면 관리자에서 최신 원본 파일을 다시 분석·반영해주세요.</strong>}</div></div>
 
       {!data ? <EmptyData isAdmin={isAdmin} /> : <>
         <div className="susi-beta-view-toolbar" style={ui.viewToolbar}>
@@ -1145,7 +1145,7 @@ export default function SusiNaviBetaView({
         </div>
 
         {viewTab === "search" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
-          <div style={ui.tabGuide}><b>1단계 · 기준 설정</b><span>학생의 5등급 내신을 9등급 기준으로 환산하고 대학·지역·계열·전형 조건을 설정합니다. 다음 화면에서 먼저 대학 상세 결과를 확인한 뒤 지원 연결 탐색으로 이어집니다.</span></div>
+          <div className="susi-beta-criteria-guide" style={ui.tabGuide}><b>1단계 · 기준 설정</b><span><strong>학생의 5등급 내신을 9등급 기준으로 환산</strong>하고, 대학·지역·계열·전형 조건을 설정합니다.<br/><em>다음 단계에서 대학 상세 결과를 먼저 확인한 뒤 지원 연결 탐색으로 이어집니다.</em></span></div>
           <div style={ui.converterPanel}>
             <div style={ui.sectionHeading}><div style={ui.step}>1</div><div><b style={ui.sectionTitle}>5·9등급 환산 기준</b><span style={ui.sectionSub}>현재 방식과 통계 기반 방식을 비교해서 사용할 수 있습니다.</span></div></div>
             {selectedStudent?.sid && <div className="susi-beta-student-auto" style={ui.studentAutoBar}>
@@ -1614,15 +1614,15 @@ function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedul
         </div>
       </div>
       {open && <div style={ui.resultCardBody}>
-        <div style={ui.resultIdentity}>
+        <div className="susi-beta-result-identity" style={ui.resultIdentity}>
           <b style={ui.identityLabel}>NAVI 모집단위 연결 정보</b>
-          <span style={ui.identitySourceNote}>경기도교육청 제공 2027 모집단위와 2026 입시결과를 연결한 정보입니다.</span>
+          <span style={ui.identitySourceNote}>경기도교육청 제공 2027 모집단위와<br/>대학 공개 2026 입시결과를 연결한 정보입니다.</span>
           {unit2026 && unit2026 !== unit2027 ? <div style={ui.previousUnit}><span>2026 모집단위</span><b>{unit2026}</b><span>2027 모집단위 <strong>{unit2027}</strong>(으)로 연결됩니다.</span></div> : <div style={ui.sameUnitNote}>2026·2027 모집단위명이 동일합니다.</div>}
           <div style={ui.detailTabGuide}><b>정보 항목</b><span>교과·종합·정시·수능최저 중 필요한 항목만 선택해 넓게 볼 수 있습니다.</span></div>
           <RelatedInfo courseRules={courseRules} changes2028={changes2028} schedules={schedules} />
         </div>
         <div style={ui.resultDetailArea}>
-          <div style={ui.detailTabs} role="tablist" aria-label={`${university} ${unit2027} 상세 정보`}>
+          <div className="susi-beta-detail-tabs" style={ui.detailTabs} role="tablist" aria-label={`${university} ${unit2027} 상세 정보`}>
             {tabs.map(([key, label]) => <button type="button" key={key} role="tab" aria-selected={detailTab === key} onClick={() => setDetailTab(key)} style={{ ...ui.detailTabButton, ...(detailTab === key ? ui.detailTabActive : {}) }}>{label}</button>)}
           </div>
           <div className="susi-beta-admission-columns" style={{ ...ui.admissionColumns, ...(detailTab !== "all" ? ui.admissionColumnsSingle : {}) }}>
@@ -2252,5 +2252,28 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-print-sheet th:nth-child(1){width:10%}.susi-beta-print-sheet th:nth-child(2){width:14%}.susi-beta-print-sheet th:nth-child(3){width:9%}.susi-beta-print-sheet th:nth-child(4),.susi-beta-print-sheet th:nth-child(5){width:17%}.susi-beta-print-sheet th:nth-child(6){width:13%}.susi-beta-print-sheet th:nth-child(7){width:20%}
   .susi-beta-print-sheet tr{break-inside:avoid;height:10.5mm}
   .susi-beta-print-sheet footer{margin-top:4px;font-size:6.3pt;color:#555f70}
+}
+
+/* Patch 43: 상세 카드 여백·기준 설정 안내·탭 가독성 */
+.susi-beta-beta-notice{align-items:flex-start!important}
+.susi-beta-beta-notice>div{min-width:0;display:grid;gap:4px;line-height:1.55}
+.susi-beta-beta-notice>div>b{display:block;color:#73541d;font-size:12.5px;font-weight:950}
+.susi-beta-beta-notice>div>span{display:block;color:#756543;font-size:11.5px;word-break:keep-all}
+.susi-beta-beta-notice>div>strong{display:block;margin-top:2px;color:#8b5b1e;font-size:11px;line-height:1.5}
+.susi-beta-criteria-guide>b{color:#314f7d!important;font-size:14.5px!important;font-weight:950!important}
+.susi-beta-criteria-guide>span{color:#55657b!important;font-size:13.5px!important;line-height:1.65!important;word-break:keep-all}
+.susi-beta-criteria-guide>span>strong{color:#315f99;font-weight:950}
+.susi-beta-criteria-guide>span>em{color:#665187;font-style:normal;font-weight:850}
+.susi-beta-result-identity>span:nth-child(2){font-size:11px!important;line-height:1.6!important;word-break:keep-all}
+.susi-beta-result-identity>div:nth-child(3){white-space:nowrap!important;font-size:11.5px!important;line-height:1.3!important;padding:9px 8px!important;letter-spacing:-.025em}
+.susi-beta-detail-tabs [role="tab"]{font-size:13px!important;font-weight:950!important;letter-spacing:-.015em}
+.susi-beta-school-trend.is-expanded{grid-template-columns:minmax(185px,.72fr) minmax(220px,.82fr) minmax(0,1.75fr)!important;gap:14px!important;padding:17px 18px!important;margin-top:18px!important;border-top:2px solid #e2bd7d!important}
+.susi-beta-school-trend.is-expanded>div:last-child{grid-column:1/-1!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;padding-top:2px}
+.susi-beta-school-trend.is-expanded .susi-beta-school-trend-types{grid-template-columns:repeat(auto-fit,minmax(185px,1fr))!important;gap:9px!important}
+.susi-beta-school-trend.is-expanded .susi-beta-school-trend-types>span{padding:10px!important}
+.susi-beta-school-trend.is-expanded .susi-beta-school-trend-metrics>span{min-height:58px!important}
+@media(max-width:1050px){
+  .susi-beta-school-trend.is-expanded{grid-template-columns:1fr 1fr!important}
+  .susi-beta-school-trend.is-expanded .susi-beta-school-trend-types,.susi-beta-school-trend.is-expanded>div:last-child{grid-column:1/-1!important}
 }
 `;
