@@ -1451,21 +1451,22 @@ function SupportConnectionExplorer({
     </div>
 
     <div style={ui.connectionControls}>
-      {mode === "grade" ? <div style={ui.connectionCriterion}>
-        <div style={ui.criterionItem}><small style={ui.criterionLabel}>환산 방식</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? "통계 기반 Beta" : "기존 2×내신−1"}</b></div>
-        <div style={ui.criterionItem}><small style={ui.criterionLabel}>교과 조합</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? conversionGroup : "전교과"}</b></div>
+      {mode === "grade" ? <div className="susi-beta-connection-criteria" style={ui.connectionCriterion}>
+        <div style={ui.connectionCriteriaHeading}><b>현재 적용 중인 비교 기준</b><span>환산 방식과 교과 조합을 확인한 뒤, 학생 등급과 선택 컷을 기준으로 후보를 계산합니다.</span></div>
+        <div style={{ ...ui.criterionItem, ...ui.criterionMethod }}><small style={ui.criterionLabel}>환산 방식</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? "통계 기반 Beta" : "기존 2×내신−1"}</b></div>
+        <div style={{ ...ui.criterionItem, ...ui.criterionGroup }}><small style={ui.criterionLabel}>교과 조합</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? conversionGroup : "전교과"}</b></div>
         <div style={{ ...ui.criterionItem, ...ui.criterionGrade }}><small style={ui.criterionLabel}>학생 9등급 환산</small><b style={ui.criterionValueStrong}>{gradeReady ? Number(convertedGrade).toFixed(2) : "입력 필요"}</b></div>
-        <div style={{ ...ui.criterionItem, ...ui.criterionCut }}><small style={ui.criterionLabel}>현재 비교 기준</small><b style={ui.criterionValueStrong}>{cutoffBasis}%컷</b></div>
+        <div style={{ ...ui.criterionItem, ...ui.criterionCut }}><small style={ui.criterionLabel}>지원 컷 기준</small><b style={ui.criterionValueStrong}>{cutoffBasis}%컷</b></div>
       </div> : <label style={{ ...ui.connectionSelectLabel, ...ui.connectionUniversitySelector }}><span>① 기준 대학을 선택하세요</span><select value={university} onChange={event => onUniversityChange(event.target.value)} style={ui.connectionSelect}><option value="">대학을 선택하면 결과가 표시됩니다</option>{universities.map(name => <option key={name} value={name}>{name}</option>)}</select>{university && <small><b>{university}</b>의 공개 컷과 계열·전형이 가까운 다른 대학을 찾는 중입니다.</small>}</label>}
-      <label style={ui.connectionSelectLabel}><span>{mode === "university" ? "② " : ""}등급 컷 차이 범위</span><select value={range} onChange={event => onRangeChange(event.target.value)} style={ui.connectionSelect}><option value="0.20">±0.20 이내</option><option value="0.30">±0.30 이내</option><option value="0.50">±0.50 이내</option><option value="0.80">±0.80 이내</option></select></label>
-      <div style={ui.connectionResultCount}><small style={ui.resultCountLabel}>계산된 전체 후보</small><b style={ui.resultCountValue}>{total.toLocaleString()}건</b><span style={ui.resultCountMeta}>{displayMode === "all" ? `전체 보기 · ${resultPage}/${resultPageCount}페이지` : `요약 ${compactResults.length}건`}</span></div>
+      <label style={{ ...ui.connectionSelectLabel, ...ui.connectionRangeCard }}><span>{mode === "university" ? "② " : ""}허용할 컷 차이</span><select value={range} onChange={event => onRangeChange(event.target.value)} style={ui.connectionSelect}><option value="0.20">±0.20 이내</option><option value="0.30">±0.30 이내</option><option value="0.50">±0.50 이내</option><option value="0.80">±0.80 이내</option></select><small>범위를 넓히면 더 많은 대학·모집단위가 포함됩니다.</small></label>
+      <div style={ui.connectionResultCount}><small style={ui.resultCountLabel}>검색된 전체 후보</small><b style={ui.resultCountValue}>{total.toLocaleString()}건</b><span style={ui.resultCountMeta}>{displayMode === "all" ? `전체 보기 · ${resultPage}/${resultPageCount}페이지` : `대표 결과 ${compactResults.length}건`}</span></div>
     </div>
 
     <div style={ui.connectionStats}>
-      <span style={ui.connectionStatCard}><small style={ui.connectionStatLabel}>차이 0.00</small><b style={ui.connectionStatValue}>{exact.toLocaleString()}건</b></span>
-      <span style={ui.connectionStatCard}><small style={ui.connectionStatLabel}>서로 다른 기준컷</small><b style={ui.connectionStatValue}>{distinctCuts.toLocaleString()}개</b></span>
-      <span style={ui.connectionStatCard}><small style={ui.connectionStatLabel}>대학 모집단위 공개컷</small><b style={ui.connectionStatValue}>{Number(resultSet?.official || 0).toLocaleString()}건</b></span>
-      <span style={ui.connectionStatCard}><small style={ui.connectionStatLabel}>NAVI 계열 통합컷</small><b style={ui.connectionStatValue}>{Number(resultSet?.integrated || 0).toLocaleString()}건</b></span>
+      <span style={{ ...ui.connectionStatCard, ...ui.connectionStatExact }}><small style={ui.connectionStatLabel}>컷 차이 0.00</small><b style={ui.connectionStatValue}>{exact.toLocaleString()}건</b></span>
+      <span style={{ ...ui.connectionStatCard, ...ui.connectionStatDistinct }}><small style={ui.connectionStatLabel}>서로 다른 기준컷</small><b style={ui.connectionStatValue}>{distinctCuts.toLocaleString()}개</b></span>
+      <span style={{ ...ui.connectionStatCard, ...ui.connectionStatOfficial }}><small style={ui.connectionStatLabel}>대학 공개 모집단위 컷</small><b style={ui.connectionStatValue}>{Number(resultSet?.official || 0).toLocaleString()}건</b></span>
+      <span style={{ ...ui.connectionStatCard, ...ui.connectionStatIntegrated }}><small style={ui.connectionStatLabel}>NAVI 계열 통합 컷</small><b style={ui.connectionStatValue}>{Number(resultSet?.integrated || 0).toLocaleString()}건</b></span>
     </div>
 
     <div className="susi-beta-connection-notice" style={ui.connectionNotice}><AlertTriangle size={16}/><span><b>차이 0.00</b>은 동일 학생이 아니라 비교 컷이 같다는 뜻이며, 대학 공개컷이 없으면 NAVI 대학·전형·계열 통합컷을 사용합니다.</span>{total > 0 && distinctCuts === 1 ? <em style={ui.sameCutNotice}>현재 기준컷 {Number(allResults[0]?.referenceCut || 0).toFixed(2)}</em> : null}</div>
@@ -1824,35 +1825,43 @@ const ui = {
   supportLegendItem: { minHeight: 30, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 800, cursor: "pointer" },
   supportSelected: { boxShadow: "0 0 0 2px rgba(74,85,115,.17)", transform: "translateY(-1px)" },
   caseStatsGuide: { display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", border: "1px solid #d9e1ee", borderRadius: 11, background: "#f7f9fd", color: "#5c687c", fontSize: 10.5, lineHeight: 1.5 },
-  connectionPanel: { display: "grid", gap: 15, padding: 19, border: "1px solid #cfdbea", borderRadius: 17, background: "linear-gradient(145deg,#ffffff,#f7f9fd)", boxShadow: "0 8px 22px rgba(52,62,78,.055)" },
+  connectionPanel: { display: "grid", gap: 18, padding: 21, border: "1px solid #cbd8e7", borderRadius: 18, background: "linear-gradient(145deg,#ffffff,#f5f8fb)", boxShadow: "0 10px 26px rgba(44,62,86,.07)" },
   connectionHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
   connectionTitleWrap: { display: "flex", alignItems: "center", gap: 11, minWidth: 0 },
-  connectionIcon: { width: 38, height: 38, flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, color: "#604b8b", background: "#eee9f8" },
+  connectionIcon: { width: 40, height: 40, flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, color: "#285d87", background: "#e8f1f8" },
   connectionTitle: { display: "block", fontSize: 20, lineHeight: 1.25, color: "#21324a" },
   connectionSub: { display: "block", maxWidth: 720, marginTop: 5, fontSize: 13, lineHeight: 1.6, color: "#69768a", wordBreak: "keep-all" },
   connectionModeToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 11, background: "#e9edf4" },
   connectionModeBtn: { minHeight: 34, padding: "0 13px", border: 0, borderRadius: 8, background: "transparent", color: "#687488", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
   connectionModeActive: { color: "#fff", background: "#5f4f88", boxShadow: "0 3px 9px rgba(86,69,126,.2)" },
   connectionModeChooser: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
-  connectionModeCard: { minWidth: 0, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", gridTemplateRows: "auto auto", columnGap: 10, rowGap: 3, alignItems: "center", padding: "13px 14px", border: "1px solid #d8e1ec", borderRadius: 13, background: "#fff", color: "#526075", textAlign: "left", cursor: "pointer" },
-  connectionModeCardActive: { borderColor: "#66518f", background: "linear-gradient(135deg,#f3effb,#fff)", color: "#4f387d", boxShadow: "0 0 0 2px rgba(102,81,143,.12),0 6px 15px rgba(70,55,105,.09)" },
+  connectionModeCard: { minWidth: 0, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", gridTemplateRows: "auto auto", columnGap: 12, rowGap: 5, alignItems: "center", padding: "15px 16px", border: "1px solid #d4deea", borderRadius: 14, background: "#fff", color: "#526075", textAlign: "left", cursor: "pointer" },
+  connectionModeCardActive: { borderColor: "#315f88", background: "linear-gradient(135deg,#edf5fb,#fff)", color: "#234d73", boxShadow: "0 0 0 2px rgba(49,95,136,.11),0 7px 16px rgba(43,79,112,.10)" },
   connectionUniversitySelector: { minHeight: 78, padding: "9px 10px", border: "1px solid #d9e1ec", borderRadius: 12, background: "#f8fafd" },
-  connectionControls: { display: "grid", gridTemplateColumns: "minmax(470px,1.55fr) minmax(185px,.5fr) minmax(155px,.38fr)", gap: 11, alignItems: "stretch" },
-  connectionCriterion: { minHeight: 86, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, padding: 8, border: "1px solid #d5deea", borderRadius: 14, background: "#edf1f6" },
-  criterionItem: { minWidth: 0, display: "grid", alignContent: "center", justifyItems: "center", gap: 6, padding: "12px 10px", borderRadius: 11, background: "#fff", color: "#405069", border: "1px solid #e1e6ee", textAlign: "center" },
+  connectionControls: { display: "grid", gridTemplateColumns: "minmax(500px,1.62fr) minmax(205px,.55fr) minmax(170px,.4fr)", gap: 14, alignItems: "stretch" },
+  connectionCriterion: { minHeight: 112, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, padding: 9, border: "1px solid #cfdae7", borderRadius: 15, background: "#eef3f7" },
+  connectionCriteriaHeading: { gridColumn: "1/-1", display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "4px 5px 2px", color: "#566579", fontSize: 10.5, lineHeight: 1.4, flexWrap: "wrap" },
+  criterionItem: { minWidth: 0, display: "grid", alignContent: "center", justifyItems: "center", gap: 6, padding: "12px 10px", borderRadius: 11, background: "#fff", color: "#405069", border: "1px solid #dbe3ec", textAlign: "center", boxShadow: "0 2px 7px rgba(51,70,94,.035)" },
   criterionLabel: { display: "block", fontSize: 10.5, lineHeight: 1.3, fontWeight: 850, color: "#758196" },
   criterionValue: { display: "block", fontSize: 14, lineHeight: 1.3, fontWeight: 900, color: "#35475f", wordBreak: "keep-all" },
   criterionValueStrong: { display: "block", fontSize: 18, lineHeight: 1.15, fontWeight: 950, color: "inherit" },
+  criterionMethod: { background: "#f9fbfd", color: "#344b64", border: "1px solid #d7e1eb" },
+  criterionGroup: { background: "#eef8f4", color: "#2f6654", border: "1px solid #c8e0d7" },
   criterionGrade: { background: "#eaf3ff", color: "#224f88", border: "1px solid #bfd4ef" },
-  criterionCut: { background: "#f2ebfb", color: "#5b4387", border: "1px solid #d2c2e8" },
-  connectionSelectLabel: { display: "grid", gap: 7, fontSize: 12.5, fontWeight: 900, color: "#526177" },
+  criterionCut: { background: "#fff4df", color: "#7b551d", border: "1px solid #e8cc98" },
+  connectionSelectLabel: { display: "grid", alignContent: "center", gap: 7, fontSize: 12.5, fontWeight: 900, color: "#526177" },
+  connectionRangeCard: { padding: "12px 13px", border: "1px solid #d6e0ea", borderRadius: 14, background: "#fbfcfe" },
   connectionSelect: { width: "100%", height: 48, border: "1px solid #b9c8dc", borderRadius: 11, background: "#fff", padding: "0 12px", color: "#25354c", fontSize: 13.5, fontWeight: 800, outline: "none" },
-  connectionResultCount: { minHeight: 86, display: "grid", alignContent: "center", justifyItems: "center", gap: 5, padding: "10px 8px", border: "1px solid #d6c9eb", borderRadius: 12, background: "linear-gradient(135deg,#eee8f8,#f8f4fc)", color: "#513a7d", textAlign: "center" },
-  resultCountLabel: { display: "block", fontSize: 10.5, lineHeight: 1.3, fontWeight: 850, color: "#786a91" },
-  resultCountValue: { display: "block", fontSize: 20, lineHeight: 1.1, fontWeight: 950, color: "#513a7d" },
-  resultCountMeta: { display: "block", fontSize: 10.5, lineHeight: 1.35, color: "#786a91" },
+  connectionResultCount: { minHeight: 112, display: "grid", alignContent: "center", justifyItems: "center", gap: 6, padding: "12px 9px", border: "1px solid #bfd1e2", borderRadius: 14, background: "linear-gradient(135deg,#eaf3fa,#f8fbfd)", color: "#244f75", textAlign: "center" },
+  resultCountLabel: { display: "block", fontSize: 10.8, lineHeight: 1.3, fontWeight: 900, color: "#58728b" },
+  resultCountValue: { display: "block", fontSize: 22, lineHeight: 1.05, fontWeight: 950, color: "#1e4f79" },
+  resultCountMeta: { display: "block", fontSize: 10.8, lineHeight: 1.4, color: "#60788e" },
   connectionStats: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 9 },
-  connectionStatCard: { minWidth: 0, minHeight: 64, display: "grid", alignContent: "center", justifyItems: "center", gap: 5, padding: "9px 8px", border: "1px solid #dfe5ee", borderRadius: 11, background: "#f8fafc", textAlign: "center" },
+  connectionStatCard: { minWidth: 0, minHeight: 70, display: "grid", alignContent: "center", justifyItems: "center", gap: 5, padding: "10px 9px", border: "1px solid #dfe5ee", borderRadius: 12, background: "#f8fafc", textAlign: "center" },
+  connectionStatExact: { background: "#edf5fb", borderColor: "#c8dce9" },
+  connectionStatDistinct: { background: "#f3f5f8", borderColor: "#d9dfe7" },
+  connectionStatOfficial: { background: "#eef8f3", borderColor: "#c9e1d5" },
+  connectionStatIntegrated: { background: "#fff6e8", borderColor: "#ead2aa" },
   connectionStatLabel: { display: "block", fontSize: 10.5, lineHeight: 1.35, fontWeight: 850, color: "#748196", wordBreak: "keep-all" },
   connectionStatValue: { display: "block", fontSize: 15.5, lineHeight: 1.15, fontWeight: 950, color: "#2f435e" },
   connectionNotice: { minWidth: 0, display: "flex", alignItems: "center", gap: 9, padding: "10px 13px", border: "1px solid #ead39b", borderRadius: 11, background: "#fff8e7", color: "#66501d", fontSize: 11.8, lineHeight: 1.45, whiteSpace: "nowrap" },
@@ -1861,30 +1870,30 @@ const ui = {
   connectionDisplayBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #dce3ed", borderRadius: 11, background: "#fafbfe", color: "#657186", fontSize: 11.5, lineHeight: 1.5, flexWrap: "wrap" },
   connectionDisplayToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 10, background: "#e9edf4" },
   connectionDisplayButton: { minHeight: 31, padding: "0 10px", border: "1px solid transparent", borderRadius: 7, background: "transparent", color: "#68758a", fontSize: 11, fontWeight: 900, cursor: "pointer" },
-  connectionDisplayActive: { background: "#5f4c89", color: "#fff", borderColor: "#5f4c89", boxShadow: "0 4px 10px rgba(86,69,126,.18)" },
+  connectionDisplayActive: { background: "#315f88", color: "#fff", borderColor: "#315f88", boxShadow: "0 4px 10px rgba(49,95,136,.18)" },
   connectionCandidateSearch: { minHeight: 46, display: "flex", alignItems: "center", gap: 9, padding: "0 12px", border: "1px solid #cbd7e6", borderRadius: 11, background: "#fff", color: "#52657e", boxShadow: "0 3px 10px rgba(48,65,88,.04)" },
   connectionGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 },
   connectionCard: { minWidth: 0, display: "grid", alignContent: "start", gap: 9, padding: 14, border: "1px solid #d5e0ed", borderRadius: 14, background: "#fff", color: "#303e54", textAlign: "left", boxShadow: "0 4px 12px rgba(48,60,80,.045)", cursor: "pointer", transition: "border-color .15s,box-shadow .15s,transform .15s" },
-  connectionCardSelected: { borderColor: "#66518f", boxShadow: "0 0 0 2px rgba(102,81,143,.15),0 8px 18px rgba(70,55,105,.12)", transform: "translateY(-1px)" },
+  connectionCardSelected: { borderColor: "#315f88", boxShadow: "0 0 0 2px rgba(49,95,136,.14),0 8px 18px rgba(43,79,112,.12)", transform: "translateY(-1px)" },
   connectionCardHead: { minWidth: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 7, fontSize: 11 },
   connectionUniversityWrap: { minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
   connectionEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 20, padding: "0 6px", borderRadius: 6, background: "#e8eef7", color: "#536785", fontSize: 10.5, fontWeight: 950 },
   connectionUniversityName: { minWidth: 0, fontSize: 16, lineHeight: 1.3, color: "#173a68", fontWeight: 950, overflowWrap: "anywhere" },
-  connectionDepartmentWrap: { display: "grid", gap: 4, padding: "8px 9px", border: "1px solid #e1d8ef", borderRadius: 9, background: "linear-gradient(135deg,#faf7ff,#fff)" },
+  connectionDepartmentWrap: { display: "grid", gap: 4, padding: "9px 10px", border: "1px solid #d7e2ed", borderRadius: 9, background: "linear-gradient(135deg,#f4f8fc,#fff)" },
   connectionFavoriteBtn: { flex: "0 0 auto", width: 29, height: 29, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #d4dce7", borderRadius: 8, background: "#fff", color: "#8b95a3", cursor: "pointer" },
-  connectionDepartment: { minHeight: 0, fontSize: 16, lineHeight: 1.45, color: "#52377f", fontWeight: 900, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  connectionDepartment: { minHeight: 0, fontSize: 16, lineHeight: 1.45, color: "#244f75", fontWeight: 900, wordBreak: "keep-all", overflowWrap: "anywhere" },
   connectionMeta: { minHeight: 21, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", color: "#6f7c90", fontSize: 11 },
   integratedBadge: { padding: "3px 6px", borderRadius: 999, background: "#fff3d9", color: "#86601c", fontWeight: 900 },
   officialBadge: { padding: "3px 6px", borderRadius: 999, background: "#e9f5ef", color: "#2e7358", fontWeight: 900 },
   connectionDataCompare: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 8 },
-  connectionNaviBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #d9d0e9", borderRadius: 11, background: "linear-gradient(135deg,#faf7fe,#fff)", color: "#54466f" },
+  connectionNaviBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #cbdbea", borderRadius: 11, background: "linear-gradient(135deg,#f2f7fb,#fff)", color: "#35536f" },
   connectionSchoolBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #ecd6b4", borderRadius: 11, background: "linear-gradient(135deg,#fff8ed,#fffdf9)", color: "#6d5124" },
   connectionDataHeading: { minWidth: 0, display: "grid", gap: 3 },
-  connectionNaviBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#e9e2f6", color: "#624c8b", fontSize: 9.5, fontWeight: 950 },
+  connectionNaviBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#dfeaf4", color: "#315f88", fontSize: 9.5, fontWeight: 950 },
   connectionSchoolBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f7e4c5", color: "#82591c", fontSize: 9.5, fontWeight: 950 },
   connectionNaviMetrics: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 5 },
   connectionSchoolMetrics: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
-  connectionCutBasisMetric: { borderColor: "#c7b6e1", background: "#eee7f8" },
+  connectionCutBasisMetric: { borderColor: "#e2bd78", background: "#fff2d8" },
   connectionSchoolBlockFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, flexWrap: "wrap", color: "#806f55", fontSize: 9.5 },
   connectionSchoolLink: { minHeight: 35, padding: "0 9px", border: "1px solid #e2c99f", borderRadius: 8, background: "#fff", color: "#80571b", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   connectionSource: { display: "grid", gap: 2, padding: "7px 8px", borderRadius: 8, background: "rgba(255,255,255,.72)", color: "#6e6680", fontSize: 10.2, lineHeight: 1.45 },
@@ -1892,7 +1901,7 @@ const ui = {
   connectionFooterNav: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 10, paddingTop: 11, borderTop: "1px solid #e1e6ee" },
   connectionBackButton: { minHeight: 40, padding: "0 13px", border: "1px solid #cbd6e5", borderRadius: 10, background: "#fff", color: "#465873", fontSize: 12.5, fontWeight: 900, cursor: "pointer" },
   connectionSelectionStatus: { minWidth: 0, display: "grid", justifyItems: "center", gap: 3, color: "#707c8f", fontSize: 11.5, textAlign: "center" },
-  connectionNextButton: { minHeight: 42, padding: "0 15px", border: 0, borderRadius: 10, background: "#5e4b87", color: "#fff", fontSize: 12.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(86,69,126,.18)" },
+  connectionNextButton: { minHeight: 42, padding: "0 15px", border: 0, borderRadius: 10, background: "#315f88", color: "#fff", fontSize: 12.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(49,95,136,.18)" },
   focusFallbackNotice: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 11px", border: "1px solid #edd2a8", borderRadius: 10, background: "#fff8ea", color: "#7a5b25", fontSize: 9.8, lineHeight: 1.5 },
   resultList: { display: "grid", gap: 10 },
   resultCard: { display: "grid", gap: 0, border: "1px solid #d6e0ec", borderRadius: 15, background: "#fff", overflow: "hidden", boxShadow: "0 5px 15px rgba(52,62,78,.04)" },
@@ -2044,7 +2053,7 @@ const betaCss = `
 .susi-beta-detail-search>div>b{font-size:16px;line-height:1.25}.susi-beta-detail-search>div>span{font-size:11.5px;line-height:1.5;color:#6d798b;word-break:keep-all}
 .susi-beta-connection-panel [role="tab"]>span{grid-row:1/3;align-self:start;display:inline-flex;align-items:center;justify-content:center;min-width:48px;min-height:26px;padding:0 8px;border-radius:999px;background:#edf1f6;color:#637086;font-size:10px;font-weight:950}
 .susi-beta-connection-panel [role="tab"]>b{font-size:13.5px;line-height:1.3;color:inherit}.susi-beta-connection-panel [role="tab"]>small{font-size:10.5px!important;line-height:1.45;color:#748095}
-.susi-beta-connection-panel [role="tab"][aria-selected="true"]>span{background:#66518f;color:#fff}.susi-beta-connection-panel [role="tab"][aria-selected="true"]>small{color:#66577f}
+.susi-beta-connection-panel [role="tab"][aria-selected="true"]>span{background:#315f88;color:#fff}.susi-beta-connection-panel [role="tab"][aria-selected="true"]>small{color:#48657e}
 .susi-beta-result-card b,.susi-beta-result-card strong{letter-spacing:-.015em}
 .susi-beta-result-card em{font-style:normal;color:#7a8495}
 .susi-beta-result-card details summary::-webkit-details-marker{display:none}
@@ -2104,7 +2113,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-connection-panel article>div:nth-child(4) small,.susi-beta-connection-panel>div:nth-child(3) small{font-size:9.5px;color:#748195}
 .susi-beta-connection-panel article>div:nth-child(4) b,.susi-beta-connection-panel>div:nth-child(3) b{font-size:12px;color:#2b405d;overflow-wrap:anywhere}
 .susi-beta-connection-panel article>div:last-child>span{display:inline-flex;padding:3px 7px;border:1px solid #d9e0e9;border-radius:999px;font-weight:900;white-space:nowrap}
-.susi-beta-connection-panel article>div:last-child>button{border:0;background:transparent;color:#59457f;font-size:10.5px;font-weight:950;cursor:pointer;white-space:nowrap;padding:4px}
+.susi-beta-connection-panel article>div:last-child>button{border:0;background:transparent;color:#285d87;font-size:10.5px;font-weight:950;cursor:pointer;white-space:nowrap;padding:4px}
 .susi-beta-result-card [style*="repeat(3, 74px)"] span{display:grid;gap:2px;padding:6px 7px;border:1px solid #e1e6ee;border-radius:8px;background:#fff;text-align:center}
 .susi-beta-result-card [style*="repeat(3, 74px)"] small{font-size:8px;color:#7c8798}
 .susi-beta-result-card [style*="repeat(3, 74px)"] b{font-size:10.5px;color:#34475f}
@@ -2148,8 +2157,8 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-connection-school-metrics>span{border-color:rgba(47,112,82,.14)}
 .susi-beta-connection-navi-metrics small,.susi-beta-connection-school-metrics small{font-size:9.5px!important;line-height:1.25;color:#7b8494}
 .susi-beta-connection-navi-metrics b,.susi-beta-connection-school-metrics b{font-size:12.5px!important;line-height:1.2;font-weight:950;color:#3d4c63}
-.susi-beta-connection-navi-metrics>span:first-child b{color:#5c438a;font-size:14px!important}
-.susi-beta-connection-compare section>small>b{font-size:9.5px!important;color:#65577c}.susi-beta-connection-compare section>small>span{font-size:9.8px;line-height:1.4}.susi-beta-connection-compare section>small>em{font-size:8.8px;line-height:1.4;font-style:normal;color:#847b90}
+.susi-beta-connection-navi-metrics>span:first-child b{color:#8a5d17;font-size:14px!important}
+.susi-beta-connection-compare section>small>b{font-size:9.5px!important;color:#49637d}.susi-beta-connection-compare section>small>span{font-size:9.8px;line-height:1.4}.susi-beta-connection-compare section>small>em{font-size:8.8px;line-height:1.4;font-style:normal;color:#847b90}
 .susi-beta-school-trend-heading>span strong{font-size:10.5px;line-height:1.35;color:#456855}.susi-beta-school-trend-heading>span em{font-size:9.5px;line-height:1.35;font-style:normal;color:#788a80}
 .susi-beta-result-card [style*="대학 공개 2026"]{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .susi-beta-result-card [style*="justify-content: space-between"]>span+ b{white-space:nowrap}
@@ -2191,6 +2200,8 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-connection-panel>div:nth-of-type(3){grid-template-columns:1fr 1fr!important}.susi-beta-connection-panel>div:nth-of-type(3)>div:first-child{grid-column:1/-1}
 }
 @media(max-width:900px){
+  .susi-beta-connection-criteria{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+  .susi-beta-connection-criteria>div:first-child{grid-column:1/-1!important}
   .susi-beta-view-toolbar{position:static!important;display:grid!important;grid-template-columns:1fr!important}
   .susi-beta-view-toolbar>div{grid-column:1!important}.susi-beta-view-toolbar>.susi-beta-view-actions{grid-template-columns:1fr 1fr!important}.susi-beta-view-toolbar>.susi-beta-view-actions button{min-height:38px}
   .susi-beta-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}
@@ -2217,6 +2228,8 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-school-trend>div:last-child{justify-items:start!important}
 }
 @media(max-width:720px){
+  .susi-beta-connection-criteria{grid-template-columns:1fr!important}
+  .susi-beta-connection-criteria>div:first-child{grid-column:auto!important}
   .susi-beta-view-toolbar [role="tab"]{grid-template-columns:22px minmax(0,1fr)!important;padding:6px!important}
   .susi-beta-view-toolbar [role="tab"]>small{display:none}
   .susi-beta-tab-panel>div:first-child{grid-template-columns:1fr!important}

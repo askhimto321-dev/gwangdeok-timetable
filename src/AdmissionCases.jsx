@@ -686,10 +686,10 @@ const CSS=`
 .admission-region-bar-row>b{font-size:11.5px!important;white-space:nowrap}
 .admission-region-bar-row .admission-case-count-pill{padding:4px 7px!important;font-size:9.8px!important}
 .admission-region-bar-row>div:last-child{display:grid!important;grid-template-columns:1fr!important;justify-items:end!important;gap:2px!important}
-.admission-sample-badge{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;letter-spacing:-.02em;box-shadow:none!important}
-.admission-sample-badge.is-many{padding:6px 10px!important;background:#eaf6ee!important;border-color:#a9d2b6!important;color:#25643d!important;font-size:11.5px!important;font-weight:950!important}
-.admission-sample-badge.is-adequate{padding:5px 9px!important;background:#eef3fb!important;border-color:#bdcde4!important;color:#315d91!important;font-size:10.8px!important;font-weight:900!important}
-.admission-sample-badge.is-low{padding:5px 8px!important;background:#fff3df!important;border-color:#e7c68f!important;color:#8a5b18!important;font-size:10px!important;font-weight:850!important}
+.admission-sample-badge{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;letter-spacing:-.02em;box-shadow:0 4px 10px rgba(20,27,36,.14)!important;text-shadow:0 1px 0 rgba(0,0,0,.18)}
+.admission-sample-badge.is-many{padding:6px 11px!important;background:#203b55!important;border-color:#5892b8!important;color:#e8f7ff!important;font-size:11.5px!important;font-weight:950!important}
+.admission-sample-badge.is-adequate{padding:6px 10px!important;background:#403752!important;border-color:#8d79b5!important;color:#f5edff!important;font-size:11px!important;font-weight:925!important}
+.admission-sample-badge.is-low{padding:5px 9px!important;background:#4a3524!important;border-color:#bd8849!important;color:#fff1ca!important;font-size:10.5px!important;font-weight:900!important}
 @media(max-width:1120px){
   .admission-overview-pair{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .admission-region-bars{grid-template-columns:repeat(2,minmax(0,1fr))!important}

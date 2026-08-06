@@ -1115,7 +1115,7 @@ export default function App() {
         <style>{globalCss}</style>
         <div style={{ padding: "40px 20px" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{ fontWeight: 800, fontSize: 20 }}>{SITE_TITLE}</div>
+            <div style={{ fontWeight: 900, fontSize: 24, letterSpacing: "-.035em" }}>{SITE_TITLE}</div>
             <div style={{ fontSize: 13, color: "#8a8578", marginTop: 6 }}>먼저 로그인해주세요. (학생 / 선생님 / 관리자 계정 모두 아래에서 로그인합니다)</div>
           </div>
           <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
@@ -1666,8 +1666,8 @@ function MegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTea
     <div className="no-print" style={megaNavStyles.wrap}>
       <div style={megaNavStyles.inner}>
         <div style={megaNavStyles.brand}>
-          <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#2f6fb0,#7167b5)", boxShadow: "0 7px 18px rgba(55,83,150,0.24)" }}><Sparkles size={17} /></span>
-          <span style={{ fontWeight: 900, fontSize: 14.5 }}>{SITE_TITLE}</span>
+          <span style={{ width: 41, height: 41, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 13, color: "#fff", background: "linear-gradient(135deg,#2f6fb0,#7167b5)", boxShadow: "0 8px 20px rgba(55,83,150,0.26)" }}><Sparkles size={20} /></span>
+          <span style={{ fontWeight: 950, fontSize: 17.5, letterSpacing: "-.035em" }}>{SITE_TITLE}</span>
         </div>
         <div style={megaNavStyles.tabs}>
           {items.map(it => (
@@ -1687,10 +1687,10 @@ function MegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTea
 }
 const megaNavStyles = {
   wrap: { position: "sticky", top: 0, zIndex: 40, background: "rgba(250,251,253,.94)", backdropFilter: "blur(18px)", borderBottom: "1px solid #e4e9f0", boxShadow: "0 8px 28px rgba(55,72,110,0.08)" },
-  inner: { maxWidth: 1160, margin: "0 auto", padding: "10px 20px", display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" },
-  brand: { display: "flex", alignItems: "center", gap: 10, marginRight: 8, fontWeight: 900, letterSpacing: "-0.3px" },
+  inner: { maxWidth: 1160, margin: "0 auto", padding: "13px 20px", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" },
+  brand: { display: "flex", alignItems: "center", gap: 12, marginRight: 10, fontWeight: 950, letterSpacing: "-0.4px" },
   tabs: { display: "flex", gap: 7, flex: 1, alignItems: "center", flexWrap:"wrap" },
-  tab: { border: "1px solid #e0e6ee", background: "rgba(255,255,255,.9)", padding: "9px 14px", borderRadius: 13, fontSize: 13, fontWeight: 850, color: "#667386", cursor: "pointer", transition: "all 0.16s ease", boxShadow:"0 3px 10px rgba(55,72,110,.04)" },
+  tab: { border: "1px solid #e0e6ee", background: "rgba(255,255,255,.9)", padding: "10px 15px", borderRadius: 13, fontSize: 13.5, fontWeight: 875, color: "#667386", cursor: "pointer", transition: "all 0.16s ease", boxShadow:"0 3px 10px rgba(55,72,110,.04)" },
   tabActive: { boxShadow: "0 7px 18px rgba(55,83,150,0.13)", transform:"translateY(-1px)" },
   accountActions: { display:"flex",alignItems:"center",gap:7,marginLeft:"auto" },
   profileButton: { display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #d6deea",background:"#fff",padding:"8px 11px",borderRadius:10,color:"#52627a",fontSize:11.5,fontWeight:900,cursor:"pointer" },
@@ -1724,7 +1724,7 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onB
     <div style={styles.topbar} className="no-print">
       <div style={styles.topbarRow}>
         <div style={styles.brand}>
-          <span style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 11, color: "#fff", background: "linear-gradient(135deg,#2f6fb0,#7167b5)", boxShadow: "0 6px 14px rgba(49,91,56,0.20)" }}><Sparkles size={17} /></span>
+          <span style={{ width: 40, height: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 13, color: "#fff", background: "linear-gradient(135deg,#2f6fb0,#7167b5)", boxShadow: "0 7px 17px rgba(49,91,56,0.22)" }}><Sparkles size={19} /></span>
           <div>
             <div style={{ ...styles.brandTitle, fontWeight: 900 }}>{SITE_TITLE}</div>
             <div style={styles.brandSub}>{meta?.updatedAt ? `최근 업데이트 · ${new Date(meta.updatedAt).toLocaleString("ko-KR")}` : "데이터 없음"}</div>
@@ -4786,7 +4786,7 @@ const styles = {
   topbarCompact: { position: "relative", top: "auto", zIndex: 20, margin: "10px auto 0", maxWidth: 1080, border: "1px solid #e2ded3", borderRadius: 14, padding: "9px 12px", background: "linear-gradient(135deg,#fafbfc,#fff)" },
   topbarRowCompact: { justifyContent: "flex-start", gap: 10 },
   navCompact: { flex: "1 1 auto", justifyContent: "flex-start", flexWrap: "nowrap", gap: 4 },
-  topbarRow: { maxWidth: 1040, margin: "0 auto", padding: "12px 20px 8px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 },
+  topbarRow: { maxWidth: 1040, margin: "0 auto", padding: "15px 20px 10px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 },
   scopeRow: { maxWidth: 1040, margin: "0 auto", padding: "0 20px 12px", display: "flex", gap: 20, flexWrap: "wrap" },
   scopeGroup: { display: "flex", alignItems: "center", gap: 8 },
   scopeLabel: { fontSize: 11.5, color: "#a39d8c", fontWeight: 700 },
@@ -4796,9 +4796,9 @@ const styles = {
   scopeBtnDisabled: { opacity: 0.4, cursor: "not-allowed" },
   brand: { display: "flex", alignItems: "center", gap: 10 },
   brandMark: { width: 30, height: 30, borderRadius: 8, background: COLORS.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14 },
-  brandTitle: { fontWeight: 700, fontSize: 14 },
+  brandTitle: { fontWeight: 900, fontSize: 17, lineHeight: 1.25, letterSpacing: "-.035em" },
   betaBadge: { fontSize: 9.5, background: "#eef0ec", color: "#6b6754", padding: "1px 6px", borderRadius: 5, marginLeft: 5, fontWeight: 700 },
-  brandSub: { fontSize: 10.5, color: "#a39d8c" },
+  brandSub: { fontSize: 11, color: "#8f8a7d", marginTop: 2 },
   nav: { display: "flex", gap: 4 },
   navBtn: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", padding: "8px 12px", borderRadius: 7, fontSize: 13, cursor: "pointer", color: "#8a8578", fontWeight: 700 },
   navBtnActive: { background: COLORS.accentSoft, color: COLORS.accent },
