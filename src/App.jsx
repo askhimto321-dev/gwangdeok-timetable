@@ -81,17 +81,88 @@ function parseCompositeLabel(raw) {
   return { subject: raw };
 }
 function emptyGrid() { const g = {}; DAYS.forEach(d => { g[d] = Array(7).fill(null); }); return g; }
+function normalizeSubjectMatch(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/\s+/g, "")
+    .replace(/[·ㆍ:：,./\\\-_[\]{}()]/g, "")
+    .replace(/[Ⅰ]/g, "I")
+    .replace(/[Ⅱ]/g, "II")
+    .toLowerCase();
+}
 function subseqScore(abbrev, clean) {
-  if (clean.includes(abbrev)) return 100;
-  let i = 0; for (const ch of clean) { if (i < abbrev.length && ch === abbrev[i]) i++; }
-  return i === abbrev.length ? 50 : 0;
+  const a = normalizeSubjectMatch(abbrev);
+  const c = normalizeSubjectMatch(clean);
+  if (!a || !c) return 0;
+  if (a === c) return 180;
+  if (c.startsWith(a)) return 145 + Math.min(a.length, 12);
+  if (c.includes(a)) return 130 + Math.min(a.length, 12);
+  let i = 0; for (const ch of c) { if (i < a.length && ch === a[i]) i++; }
+  return i === a.length ? 75 + Math.min(a.length, 12) : 0;
+}
+function subjectNameScore(left, right) {
+  const a = normalizeSubjectMatch(left), b = normalizeSubjectMatch(right);
+  if (!a || !b) return 0;
+  if (a === b) return 260;
+  if (a.includes(b) || b.includes(a)) return 210 + Math.min(a.length, b.length, 20);
+  return Math.max(subseqScore(a, b), subseqScore(b, a));
+}
+function collectMoveAbbrevs(grid) {
+  const found = new Set();
+  if (!grid) return [];
+  DAYS.forEach(day => (grid[day] || []).forEach(cell => {
+    if (isMoveSlot(cell)) {
+      const value = moveSlotAbbrev(cell);
+      if (value) found.add(value);
+    }
+  }));
+  return Array.from(found);
+}
+function resolveSubjectAbbrev(subject, abbrevMap = {}, grid = null) {
+  const candidates = collectMoveAbbrevs(grid);
+  const pool = candidates.length ? candidates : Object.keys(abbrevMap || {});
+  const normalizedSubject = normalizeSubjectMatch(subject);
+  if (!normalizedSubject) return null;
+
+  // 1) 관리자에서 저장한 명시적 매핑을 가장 먼저 사용하되, 해당 반 시간표에 없는 오래된 매핑은 배제합니다.
+  let explicit = null, explicitScore = 0;
+  Object.entries(abbrevMap || {}).forEach(([abbr, mapped]) => {
+    if (candidates.length && !candidates.includes(abbr)) return;
+    const score = subjectNameScore(mapped, subject);
+    if (score > explicitScore) { explicitScore = score; explicit = abbr; }
+  });
+  if (explicit && explicitScore >= 210) return explicit;
+
+  // 2) PDF/HWP 시간표의 실제 약어와 과목명을 직접 비교하여 매핑 누락·오래된 매핑을 자동 보정합니다.
+  let best = null, bestScore = 0, tied = false;
+  pool.forEach(abbr => {
+    const mapped = abbrevMap?.[abbr];
+    const score = Math.max(
+      subseqScore(abbr, subject),
+      mapped ? subjectNameScore(mapped, subject) : 0,
+    );
+    if (score > bestScore) { best = abbr; bestScore = score; tied = false; }
+    else if (score === bestScore && score > 0 && abbr !== best) tied = true;
+  });
+  if (!best || bestScore < 75) return null;
+  // 약어 자체가 과목명에 포함되는 강한 매치는 동점이어도 허용하고, 약한 부분수열 매치는 모호하면 보류합니다.
+  if (tied && bestScore < 130) return null;
+  return best;
 }
 function suggestAbbrevMapping(abbrevs, subjects) {
   const out = {};
-  abbrevs.forEach(a => {
-    let best = null, bestScore = 0;
-    subjects.forEach(s => { const sc = subseqScore(a, s.replace(/\s/g, "")); if (sc > bestScore) { bestScore = sc; best = s; } });
-    if (best) out[a] = best;
+  const usedSubjects = new Set();
+  [...abbrevs].forEach(a => {
+    let best = null, bestScore = 0, tied = false;
+    subjects.forEach(s => {
+      const sc = subseqScore(a, s);
+      if (sc > bestScore) { bestScore = sc; best = s; tied = false; }
+      else if (sc === bestScore && sc > 0 && s !== best) tied = true;
+    });
+    if (best && bestScore >= 75 && (!tied || bestScore >= 130)) {
+      out[a] = best;
+      usedSubjects.add(best);
+    }
   });
   return out;
 }
@@ -473,6 +544,132 @@ function parseHwpTimetables(arrayBuffer) {
     out[grade][cls] = grid;
   });
   return out;
+}
+
+/* ---------- PDF timetable parsing (Hancom PDF / text-layer PDF) ---------- */
+let _pdfJsModule = null;
+async function loadPdfJs() {
+  if (_pdfJsModule) return _pdfJsModule;
+  const urls = [
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs",
+    "https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.min.mjs",
+  ];
+  let lastError = null;
+  for (const url of urls) {
+    try {
+      // Vite가 외부 ESM 주소를 번들 대상으로 해석하지 않도록 런타임에서 불러옵니다.
+      const mod = await import(/* @vite-ignore */ url);
+      const base = url.replace(/pdf\.min\.mjs(?:\?.*)?$/, "");
+      mod.GlobalWorkerOptions.workerSrc = `${base}pdf.worker.min.mjs`;
+      _pdfJsModule = mod;
+      return mod;
+    } catch (error) { lastError = error; }
+  }
+  throw new Error(`PDF 분석 모듈을 불러오지 못했습니다. 네트워크 연결을 확인해주세요. (${lastError?.message || lastError || "unknown"})`);
+}
+function pdfItemPoint(item, viewport) {
+  const x = Number(item?.transform?.[4] || 0);
+  const y = Number(viewport?.height || 0) - Number(item?.transform?.[5] || 0);
+  const width = Number(item?.width || 0);
+  return {
+    text: String(item?.str || "").trim(),
+    x,
+    y,
+    cx: x + width / 2,
+  };
+}
+function joinPdfCellParts(parts) {
+  if (!parts?.length) return null;
+  const sorted = [...parts].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const lines = [];
+  sorted.forEach(part => {
+    let line = lines.find(item => Math.abs(item.y - part.y) <= 3.8);
+    if (!line) { line = { y: part.y, items: [] }; lines.push(line); }
+    line.items.push(part);
+  });
+  lines.sort((a, b) => a.y - b.y);
+  const texts = lines.map(line => line.items.sort((a, b) => a.x - b.x).map(item => item.text).join("").trim()).filter(Boolean);
+  if (!texts.length) return null;
+  if (texts.length === 1) return texts[0];
+  // 한컴 PDF 시간표는 같은 셀의 두 번째 줄에 특별실(운동장/음악실/미술실)을 둡니다.
+  return `${texts[0]}(${texts.slice(1).join(" / ")})`;
+}
+function parsePdfTimetablePage(items, viewport) {
+  const points = items.map(item => pdfItemPoint(item, viewport)).filter(item => item.text);
+  const titleText = points
+    .filter(item => item.y < 145)
+    .sort((a, b) => (a.y - b.y) || (a.x - b.x))
+    .map(item => item.text)
+    .join(" " );
+  const compactTitle = titleText.replace(/\s+/g, "");
+  const titleMatch = compactTitle.match(/([1-3])학년(\d+)반시간표/);
+  if (!titleMatch) return null;
+
+  const headers = {};
+  DAYS.forEach(day => {
+    const found = points
+      .filter(item => item.text === day && item.y >= 120 && item.y <= 190)
+      .sort((a, b) => Math.abs(a.y - 150) - Math.abs(b.y - 150))[0];
+    if (found) headers[day] = found.cx;
+  });
+  const periodCenters = {};
+  PERIODS.forEach(period => {
+    const found = points.find(item => item.text === `${period}교시`);
+    if (found) periodCenters[period] = found.y;
+  });
+  if (DAYS.some(day => !Number.isFinite(headers[day])) || PERIODS.some(period => !Number.isFinite(periodCenters[period]))) {
+    return { grade: titleMatch[1], cls: titleMatch[2], error: "요일 또는 교시 머리글을 인식하지 못했습니다." };
+  }
+
+  const dayCenters = DAYS.map(day => headers[day]);
+  const dayBounds = [-Infinity, ...dayCenters.slice(0, -1).map((x, i) => (x + dayCenters[i + 1]) / 2), Infinity];
+  const rowCenters = PERIODS.map(period => periodCenters[period]);
+  const rowBounds = [-Infinity, ...rowCenters.slice(0, -1).map((y, i) => (y + rowCenters[i + 1]) / 2), Infinity];
+  const cells = {};
+  PERIODS.forEach(period => DAYS.forEach(day => { cells[`${period}|${day}`] = []; }));
+  const ignore = new Set(["교시", ...DAYS, ...PERIODS.map(period => `${period}교시`)]);
+  const firstDayLeft = dayCenters[0] - Math.max(34, (dayCenters[1] - dayCenters[0]) * 0.48);
+
+  points.forEach(item => {
+    if (item.y < 175 || item.cx < firstDayLeft || ignore.has(item.text) || /^\(\d{2}:\d{2}\)$/.test(item.text)) return;
+    let dayIndex = -1;
+    for (let i = 0; i < DAYS.length; i++) if (item.cx >= dayBounds[i] && item.cx < dayBounds[i + 1]) { dayIndex = i; break; }
+    let periodIndex = -1;
+    for (let i = 0; i < PERIODS.length; i++) if (item.y >= rowBounds[i] && item.y < rowBounds[i + 1]) { periodIndex = i; break; }
+    if (dayIndex < 0 || periodIndex < 0) return;
+    cells[`${PERIODS[periodIndex]}|${DAYS[dayIndex]}`].push(item);
+  });
+
+  const grid = emptyGrid();
+  PERIODS.forEach((period, pi) => DAYS.forEach(day => {
+    const value = joinPdfCellParts(cells[`${period}|${day}`]);
+    if (value && value !== "-") grid[day][pi] = value;
+  }));
+  return { grade: titleMatch[1], cls: titleMatch[2], grid };
+}
+async function parsePdfTimetables(arrayBuffer) {
+  const pdfjsLib = await loadPdfJs();
+  const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+  const doc = await loadingTask.promise;
+  const pageCount = doc.numPages;
+  const out = {};
+  const failures = [];
+  try {
+    for (let pageNo = 1; pageNo <= pageCount; pageNo++) {
+      const page = await doc.getPage(pageNo);
+      const viewport = page.getViewport({ scale: 1 });
+      const text = await page.getTextContent({ normalizeWhitespace: true });
+      const parsed = parsePdfTimetablePage(text.items || [], viewport);
+      if (!parsed) { failures.push(`${pageNo}쪽: 시간표 제목 미인식`); continue; }
+      if (parsed.error) { failures.push(`${pageNo}쪽: ${parsed.error}`); continue; }
+      if (!out[parsed.grade]) out[parsed.grade] = {};
+      out[parsed.grade][parsed.cls] = parsed.grid;
+    }
+  } finally {
+    try { await doc.destroy(); } catch {}
+  }
+  if (!Object.keys(out).length) throw new Error(`PDF에서 시간표 표를 인식하지 못했습니다.${failures.length ? ` (${failures.slice(0, 3).join(" · ")})` : ""}`);
+  return { byGrade: out, failures, pageCount };
 }
 
 /* ---------- xlsx timetable parsing ---------- */
@@ -1009,22 +1206,23 @@ export default function App() {
     };
 
     (enrollments[sid] || []).forEach(course => {
-      const ab = rev[course.subject];
       const legacyNoticeKey = targetKeyFor("elective", course.subject, course.group);
       const noticeKey = subjectKeyFor(course.subject);
       registerClassroomCourse(noticeKey, course.subject, course.subject, "elective", [legacyNoticeKey]);
       [...asNoticeArray(announcements[noticeKey]), ...asNoticeArray(announcements[legacyNoticeKey])].forEach(n => notices.push({ subject: course.subject, group: "전체 수강생", ...n }));
-      if (!ab) { warnings.push(`"${course.subject}" 과목의 약어 매핑이 없습니다.`); return; }
       const hostTT = timetables[String(course.hostClass)];
       if (!hostTT) { warnings.push(`"${course.subject}"이 개설되는 ${roomLabel(course.hostClass)} 시간표가 없습니다.`); return; }
+      const exactAb = rev[course.subject];
+      const ab = (exactAb && collectMoveAbbrevs(hostTT).includes(exactAb)) ? exactAb : resolveSubjectAbbrev(course.subject, abbrevMap, hostTT);
+      if (!ab) { warnings.push(`"${course.subject}" 과목을 ${roomLabel(course.hostClass)} 시간표의 이동수업 약어와 연결하지 못했습니다.`); return; }
       let placed = 0;
       DAYS.forEach(day => (hostTT[day] || []).forEach((c, pi) => {
         if (!c) return;
         const bare = parseCompositeLabel(c).subject;
-        const match = isMoveSlot(c) ? moveSlotAbbrev(c) === ab : bare === ab;
+        const match = isMoveSlot(c) ? moveSlotAbbrev(c) === ab : normalizeSubjectMatch(bare) === normalizeSubjectMatch(ab);
         if (match) { grid[day][pi] = { type: "move", subject: displaySubjectLabel(course.subject), group: course.group, hostClass: course.hostClass, roomLabel: roomLabel(course.hostClass), moved: course.hostClass !== info.class }; placed++; }
       }));
-      if (placed === 0) warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${roomLabel(course.hostClass)} 시간표에서 찾지 못했습니다.`);
+      if (placed === 0) warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${roomLabel(course.hostClass)} 시간표에서 찾지 못했습니다. (해석 약어: ${ab})`);
     });
     DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: displaySubjectLabel(subject), location }; } return c; }); });
     const seenCommon = new Set();
@@ -1833,7 +2031,7 @@ function ScopeGroup({ label, children }) { return <div style={styles.scopeGroup}
 function ScopeBtn({ active, onClick, children, disabled }) { return <button onClick={disabled ? undefined : onClick} disabled={disabled} style={{ ...styles.scopeBtn, ...(active && !disabled ? styles.scopeBtnActive : {}), ...(disabled ? styles.scopeBtnDisabled : {}) }}>{children}</button>; }
 function NavBtn({ active, onClick, icon, label }) { return <button onClick={onClick} style={{ ...styles.navBtn, ...(active ? styles.navBtnActive : {}) }}>{icon}<span>{label}</span></button>; }
 
-function EmptyState() { return <div style={styles.emptyBox}><Database size={28} color="#c4bfae" /><div style={{ fontWeight: 700, marginTop: 10 }}>등록된 데이터가 없습니다</div><div style={{ fontSize: 13, color: "#8a8578", marginTop: 4 }}>관리자 탭에서 이동수업 명단(엑셀)과 학급 시간표(한글/엑셀)를 업로드하면 조회가 가능해집니다.</div></div>; }
+function EmptyState() { return <div style={styles.emptyBox}><Database size={28} color="#c4bfae" /><div style={{ fontWeight: 700, marginTop: 10 }}>등록된 데이터가 없습니다</div><div style={{ fontSize: 13, color: "#8a8578", marginTop: 4 }}>관리자 탭에서 이동수업 명단(엑셀)과 학급 시간표(PDF/한글/엑셀)를 업로드하면 조회가 가능해집니다.</div></div>; }
 
 function StudentOwnTimetable({ student, build, grade, setGrade }) {
   const result = build(student.id);
@@ -3833,13 +4031,19 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
         const byGrade = parseHwpTimetables(buf);
         result = byGrade[grade] || {};
         if (!Object.keys(result).length) { showToast(`한글 파일에서 ${grade}학년 시간표를 찾지 못했습니다. (파일에 있는 학년: ${Object.keys(byGrade).join(", ") || "없음"})`, "error"); setBusy(false); return; }
+      } else if (/\.pdf$/i.test(file.name)) {
+        const parsedPdf = await parsePdfTimetables(buf);
+        const byGrade = parsedPdf.byGrade || {};
+        result = byGrade[grade] || {};
+        if (!Object.keys(result).length) { showToast(`PDF에서 ${grade}학년 시간표를 찾지 못했습니다. (파일에 있는 학년: ${Object.keys(byGrade).join(", ") || "없음"})`, "error"); setBusy(false); return; }
+        if (parsedPdf.failures?.length) console.warn("PDF 시간표 일부 페이지 인식 경고", parsedPdf.failures);
       } else {
         const XLSX = await loadXLSX();
         result = parseTimetableWorkbook(XLSX, XLSX.read(buf, { type: "array" }));
         if (!Object.keys(result).length) { showToast("시트 이름이 반 번호(1, 2, 3…)인 시트를 찾지 못했습니다.", "error"); setBusy(false); return; }
       }
       setFilePreview(result); setEditing(Object.keys(result).sort((a, b) => a - b)[0]);
-      showToast("파일을 업로드했습니다.", "success");
+      showToast(`${Object.keys(result).length}개 반 시간표를 인식했습니다. 반영 전 미리보기를 확인해주세요.`, "success");
     } catch (e) { showToast(`실패했습니다. (${e.message})`, "error"); console.error(e); } finally { setBusy(false); }
   };
 
@@ -3874,12 +4078,13 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
     <div>
       <div style={styles.uploadBox}>
         <FileText size={22} color="#8a8578" />
-        <div style={{ fontWeight: 700, marginTop: 8 }}>학급 시간표 업로드 (한글 .hwp / 엑셀 .xlsx)</div>
-        <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center" }}>
+        <div style={{ fontWeight: 700, marginTop: 8 }}>학급 시간표 업로드 (PDF .pdf / 한글 .hwp / 엑셀 .xlsx)</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center", lineHeight: 1.65 }}>
+          <b>PDF 파일</b>: "N학년 N반 시간표"가 페이지별 표로 저장된 한컴 PDF를 자동 인식합니다. 1·2·3학년이 한 PDF에 함께 있어도 현재 선택 학년만 미리봅니다.<br />
           <b>한글 파일</b>: "N학년 N반 시간표" 제목과 표가 있는 hwp를 그대로 올리면 자동 인식됩니다.<br />
           <b>엑셀 파일</b>: 시트 이름 = 반 번호, 1행 "교시 월 화 수 목 금", 2~8행에 1~7교시.
         </div>
-        <input ref={fileRef} type="file" accept=".hwp,.xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
+        <input ref={fileRef} type="file" accept=".pdf,.hwp,.xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
         <button style={styles.uploadBtn} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />}{busy ? "분석 중…" : "파일 선택"}</button>
       </div>
 
@@ -4584,30 +4789,77 @@ function AdminNoticesViewer({ db, persist, showToast, scopeKey, roster, timetabl
   );
 }
 
-function AdminVerify({ roster, enrollments, timetables, build, abbrevMap }) {
+function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persistAbbrev, grade, showToast }) {
   const [report, setReport] = useState(null);
   const run = () => {
     const issues = []; let checked = 0;
     const scoped = new Set();
+    const enrolledSubjects = Array.from(new Set(Object.values(enrollments || {}).flatMap(list => (list || []).map(course => course.subject).filter(Boolean))));
     Object.values(timetables).forEach(g => DAYS.forEach(d => (g[d] || []).forEach(c => { if (isMoveSlot(c)) scoped.add(moveSlotAbbrev(c)); })));
-    Array.from(scoped).filter(a => !abbrevMap[a]).forEach(a => issues.push({ sid: "-", name: "(공통)", cls: "-", detail: `이 학기 시간표의 약어 "${a}" 매핑 없음` }));
+    const suggested = {};
+    Array.from(scoped).filter(a => !abbrevMap[a]).forEach(a => {
+      const inferred = suggestAbbrevMapping([a], enrolledSubjects)[a];
+      if (inferred) suggested[a] = inferred;
+      else issues.push({ sid: "-", name: "(공통)", cls: "-", type: "mapping", detail: `이 학기 시간표의 약어 "${a}"를 어떤 선택과목과 연결해야 하는지 판단할 수 없습니다.` });
+    });
     Object.keys(roster).forEach(sid => {
       const r = build(sid); checked++;
-      if (!r.hasTimetable) issues.push({ sid, name: r.student.name, cls: r.student.class, detail: "학급 시간표 없음" });
-      r.warnings.forEach(w => issues.push({ sid, name: r.student.name, cls: r.student.class, detail: w }));
-      if (!(enrollments[sid] || []).length) issues.push({ sid, name: r.student.name, cls: r.student.class, detail: "명단에 선택과목 기록 없음" });
+      if (!r.hasTimetable) issues.push({ sid, name: r.student.name, cls: r.student.class, type: "timetable", detail: "학급 시간표 없음" });
+      r.warnings.forEach(w => issues.push({ sid, name: r.student.name, cls: r.student.class, type: w.includes("시간표") ? "slot" : "mapping", detail: w }));
+      if (!(enrollments[sid] || []).length) issues.push({ sid, name: r.student.name, cls: r.student.class, type: "roster", detail: "명단에 선택과목 기록 없음" });
     });
-    Object.keys(enrollments).forEach(sid => { if (!roster[sid]) issues.push({ sid, name: "(명단 외)", cls: "-", detail: "출석부엔 있으나 학생 명단에 없는 학번" }); });
-    setReport({ checked, issues });
+    Object.keys(enrollments).forEach(sid => { if (!roster[sid]) issues.push({ sid, name: "(명단 외)", cls: "-", type: "roster", detail: "출석부엔 있으나 학생 명단에 없는 학번" }); });
+
+    // 같은 학생에게 같은 원인이 중복 출력되는 경우를 제거하고, 원인별 건수를 같이 보여줍니다.
+    const seen = new Set();
+    const deduped = issues.filter(item => {
+      const key = `${item.sid}|${item.detail}`;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+    const causes = {};
+    deduped.forEach(item => {
+      const key = item.detail
+        .replace(/"[^"]+"/g, '"과목"')
+        .replace(/\([^)]*\)/g, "")
+        .replace(/\d+반/g, "N반");
+      causes[key] = (causes[key] || 0) + 1;
+    });
+    const causeRows = Object.entries(causes).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    setReport({ checked, issues: deduped, suggested, causeRows });
+  };
+  const applySuggested = async () => {
+    if (!report?.suggested || !Object.keys(report.suggested).length || !persistAbbrev) return;
+    const ok = await persistAbbrev(grade, { ...abbrevMap, ...report.suggested });
+    if (ok) {
+      showToast?.(`${Object.keys(report.suggested).length}개 시간표 약어를 자동 매핑했습니다.`, "success");
+      setReport(null);
+    }
   };
   return (
     <div>
-      <button style={styles.primaryBtn} onClick={run}><Check size={14} /> 전체 검증 실행</button>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button style={styles.primaryBtn} onClick={run}><Check size={14} /> 전체 검증 실행</button>
+        <span style={{ fontSize: 12, color: "#8a8578" }}>PDF/HWP 시간표의 실제 이동수업 약어와 출석부 과목명을 함께 비교합니다.</span>
+      </div>
       {report && (
         <div style={{ marginTop: 16 }}>
-          <div style={styles.statGrid}><StatCard label="검사 학생" value={report.checked} unit="명" /><StatCard label="문제" value={report.issues.length} unit="건" /></div>
+          <div style={styles.statGrid}><StatCard label="검사 학생" value={report.checked} unit="명" /><StatCard label="실제 문제" value={report.issues.length} unit="건" /><StatCard label="자동 연결 가능" value={Object.keys(report.suggested || {}).length} unit="개" /></div>
+          {Object.keys(report.suggested || {}).length > 0 && (
+            <div style={{ ...styles.infoBox, marginTop: 10, borderColor: "#c9deef", background: "#f4f9fd" }}>
+              <div style={{ fontWeight: 850, color: "#315f86", marginBottom: 5 }}>약어 매핑 누락 중 자동으로 판단 가능한 항목</div>
+              <div style={{ fontSize: 12, color: "#5c6f82", lineHeight: 1.65 }}>{Object.entries(report.suggested).map(([a, subject]) => `${a} → ${subject}`).join(" · ")}</div>
+              {persistAbbrev && <button type="button" style={{ ...styles.secondaryBtn, marginTop: 8 }} onClick={applySuggested}><Save size={13} /> 자동 매핑 저장</button>}
+            </div>
+          )}
+          {report.causeRows?.length > 0 && (
+            <div style={{ ...styles.infoBox, marginTop: 10 }}>
+              <div style={{ fontWeight: 850, marginBottom: 7 }}>문제 원인 요약</div>
+              <div style={{ display: "grid", gap: 5 }}>{report.causeRows.map(([label, count]) => <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12 }}><span style={{ color: "#665f55" }}>{label}</span><b style={{ color: "#b3401f", whiteSpace: "nowrap" }}>{count}건</b></div>)}</div>
+            </div>
+          )}
           {report.issues.length === 0
-            ? <div style={styles.okBanner}><Check size={14} /> 모든 항목이 정상입니다.</div>
+            ? <div style={styles.okBanner}><Check size={14} /> 모든 학생의 시간표 연결이 정상입니다.{Object.keys(report.suggested || {}).length ? " 자동 연결 가능한 약어는 위에서 저장할 수 있습니다." : ""}</div>
             : <div style={styles.issueList}>{report.issues.map((x, i) => <div key={i} style={styles.issueRow}><span style={styles.issueBadge}>{x.cls}반</span><span style={{ fontWeight: 700 }}>{x.name}</span><span style={{ color: "#8a8578", fontSize: 12 }}>({x.sid})</span><span style={{ color: "#b3401f", fontSize: 12 }}>{x.detail}</span></div>)}</div>}
         </div>
       )}
