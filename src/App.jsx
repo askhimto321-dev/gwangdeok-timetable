@@ -3998,22 +3998,37 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster, enrollments, se
           <div style={{ display: "flex", gap: 8 }}><button style={styles.primaryBtn} onClick={apply} disabled={filteredStats.sheetCount === 0}><Save size={14} /> 반영하기</button><button style={styles.secondaryBtn} onClick={() => setParsed(null)}>취소</button></div>
         </div>
       )}
-      {!parsed && Object.keys(roster).length > 0 && <CurrentRosterViewer roster={roster} enrollments={enrollments} />}
+      {!parsed && Object.keys(roster).length > 0 && <CurrentRosterViewer roster={roster} enrollments={enrollments} scopeKey={scopeKey} db={db} persist={persist} showToast={showToast} />}
       {Object.keys(roster).length > 0 && !parsed && <button style={styles.dangerBtn} onClick={async () => { const ok = await persist({ roster: { ...db.roster, [scopeKey]: {} }, enrollments: { ...db.enrollments, [scopeKey]: {} } }); if (ok) showToast("명단을 삭제했습니다.", "success"); }}><Trash2 size={14} /> 명단 삭제</button>}
     </div>
   );
 }
 
-function CurrentRosterViewer({ roster, enrollments }) {
+function CurrentRosterViewer({ roster, enrollments, scopeKey, db, persist, showToast }) {
   const [tab, setTab] = useState("class");
   const [selectedClass, setSelectedClass] = useState(null);
   const [selectedSubjectKey, setSelectedSubjectKey] = useState(null);
+  const [editingSid, setEditingSid] = useState(null);
+  const [editClass, setEditClass] = useState("");
+  const [editNumber, setEditNumber] = useState("");
+  const [savingStudent, setSavingStudent] = useState(false);
+
+  const isValidClass = (value) => /^\d+$/.test(String(value ?? "").trim()) && Number(value) >= 1 && Number(value) <= 30;
+  const isValidNumber = (value) => /^\d+$/.test(String(value ?? "").trim()) && Number(value) >= 1 && Number(value) <= 99;
+  const needsRosterFix = (student) => !isValidClass(student?.class) || !isValidNumber(student?.number);
 
   const byClass = useMemo(() => {
     const m = {};
-    Object.entries(roster).forEach(([sid, s]) => { (m[s.class] = m[s.class] || []).push({ sid, ...s }); });
-    Object.values(m).forEach(list => list.sort((a, b) => a.number - b.number));
-    return Object.entries(m).sort((a, b) => a[0] - b[0]);
+    Object.entries(roster).forEach(([sid, s]) => {
+      const classKey = isValidClass(s?.class) ? String(Number(s.class)) : "미입력/확인필요";
+      (m[classKey] = m[classKey] || []).push({ sid, ...s });
+    });
+    Object.values(m).forEach(list => list.sort((a, b) => (Number(a.number) || 999) - (Number(b.number) || 999)));
+    return Object.entries(m).sort((a, b) => {
+      if (a[0] === "미입력/확인필요") return 1;
+      if (b[0] === "미입력/확인필요") return -1;
+      return Number(a[0]) - Number(b[0]);
+    });
   }, [roster]);
 
   const bySubject = useMemo(() => {
@@ -4024,17 +4039,100 @@ function CurrentRosterViewer({ roster, enrollments }) {
         (m[key] = m[key] || []).push({ sid, ...(roster[sid] || {}) });
       });
     });
-    Object.values(m).forEach(list => list.sort((a, b) => (a.class - b.class) || (a.number - b.number)));
+    Object.values(m).forEach(list => list.sort((a, b) => (Number(a.class) || 999) - (Number(b.class) || 999) || (Number(a.number) || 999) - (Number(b.number) || 999)));
     return Object.entries(m).sort((a, b) => b[1].length - a[1].length);
   }, [enrollments, roster]);
 
-  useEffect(() => { if (byClass.length && !selectedClass) setSelectedClass(byClass[0][0]); }, [byClass]); // eslint-disable-line
-  useEffect(() => { if (bySubject.length && !selectedSubjectKey) setSelectedSubjectKey(bySubject[0][0]); }, [bySubject]); // eslint-disable-line
+  const missingInfoCount = useMemo(() => Object.values(roster).filter(needsRosterFix).length, [roster]);
+
+  useEffect(() => {
+    if (!byClass.length) return;
+    if (!selectedClass || !byClass.some(([c]) => c === selectedClass)) setSelectedClass(byClass[0][0]);
+  }, [byClass, selectedClass]);
+  useEffect(() => {
+    if (!bySubject.length) return;
+    if (!selectedSubjectKey || !bySubject.some(([k]) => k === selectedSubjectKey)) setSelectedSubjectKey(bySubject[0][0]);
+  }, [bySubject, selectedSubjectKey]);
+
+  const beginStudentEdit = (student) => {
+    setEditingSid(student.sid);
+    setEditClass(isValidClass(student.class) ? String(Number(student.class)) : "");
+    setEditNumber(isValidNumber(student.number) ? String(Number(student.number)) : "");
+  };
+
+  const cancelStudentEdit = () => {
+    setEditingSid(null);
+    setEditClass("");
+    setEditNumber("");
+  };
+
+  const saveStudentInfo = async (sid) => {
+    const classValue = String(editClass || "").trim().replace(/반$/, "").trim();
+    const numberValue = String(editNumber || "").trim().replace(/번$/, "").trim();
+    if (!isValidClass(classValue)) {
+      showToast("반은 숫자로 입력해주세요. (예: 5)", "error");
+      return;
+    }
+    if (!isValidNumber(numberValue)) {
+      showToast("번호는 숫자로 입력해주세요. (예: 1)", "error");
+      return;
+    }
+    setSavingStudent(true);
+    try {
+      const updatedRoster = {
+        ...roster,
+        [sid]: { ...(roster[sid] || {}), class: Number(classValue), number: Number(numberValue) },
+      };
+      const ok = await persist({
+        roster: { ...db.roster, [scopeKey]: updatedRoster },
+        meta: { ...db.meta, [scopeKey]: { ...(db.meta?.[scopeKey] || {}), updatedAt: new Date().toISOString() } },
+      });
+      if (ok) {
+        showToast(`${updatedRoster[sid]?.name || sid} 학생의 반·번호를 저장했습니다.`, "success");
+        cancelStudentEdit();
+      }
+    } finally {
+      setSavingStudent(false);
+    }
+  };
 
   const StudentTable = ({ list }) => (
     <table style={styles.editTable}>
-      <thead><tr><th style={styles.th}>학번</th><th style={styles.th}>이름</th><th style={styles.th}>반</th><th style={styles.th}>번호</th></tr></thead>
-      <tbody>{list.map(s => <tr key={s.sid}><td style={styles.tdReadonly}>{s.sid}</td><td style={styles.tdReadonly}>{s.name}</td><td style={styles.tdReadonly}>{s.class}반</td><td style={styles.tdReadonly}>{s.number}</td></tr>)}</tbody>
+      <thead><tr><th style={styles.th}>학번</th><th style={styles.th}>이름</th><th style={styles.th}>반</th><th style={styles.th}>번호</th><th style={{ ...styles.th, width: 110 }}>수정</th></tr></thead>
+      <tbody>{list.map(s => {
+        const editing = editingSid === s.sid;
+        const needsFix = needsRosterFix(s);
+        return (
+          <tr key={s.sid} style={needsFix ? { background: "#fff7f5" } : undefined}>
+            <td style={styles.tdReadonly}>{s.sid}</td>
+            <td style={styles.tdReadonly}>{s.name}</td>
+            <td style={styles.tdReadonly}>
+              {editing ? (
+                <input value={editClass} onChange={e => setEditClass(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="예: 5" style={{ ...styles.cellInput, minWidth: 70, textAlign: "center" }} />
+              ) : (
+                <span style={needsFix && !isValidClass(s.class) ? { color: "#b42318", fontWeight: 800 } : undefined}>{isValidClass(s.class) ? `${Number(s.class)}반` : "미입력"}</span>
+              )}
+            </td>
+            <td style={styles.tdReadonly}>
+              {editing ? (
+                <input value={editNumber} onChange={e => setEditNumber(e.target.value.replace(/[^0-9]/g, ""))} inputMode="numeric" placeholder="예: 1" style={{ ...styles.cellInput, minWidth: 70, textAlign: "center" }} />
+              ) : (
+                <span style={needsFix && !isValidNumber(s.number) ? { color: "#b42318", fontWeight: 800 } : undefined}>{isValidNumber(s.number) ? Number(s.number) : "미입력"}</span>
+              )}
+            </td>
+            <td style={styles.tdReadonly}>
+              {editing ? (
+                <div style={{ display: "flex", justifyContent: "center", gap: 5, flexWrap: "wrap" }}>
+                  <button type="button" onClick={() => saveStudentInfo(s.sid)} disabled={savingStudent} style={{ ...styles.primaryBtn, padding: "6px 9px", fontSize: 12 }}><Save size={12} /> 저장</button>
+                  <button type="button" onClick={cancelStudentEdit} disabled={savingStudent} style={{ ...styles.secondaryBtn, padding: "6px 9px", fontSize: 12 }}><X size={12} /> 취소</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => beginStudentEdit(s)} style={{ ...styles.secondaryBtn, padding: "6px 10px", fontSize: 12 }}>직접 수정</button>
+              )}
+            </td>
+          </tr>
+        );
+      })}</tbody>
     </table>
   );
 
@@ -4043,16 +4141,22 @@ function CurrentRosterViewer({ roster, enrollments }) {
       <div style={{ fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><Eye size={15} /> 현재 저장된 출석부 (실제 반영된 데이터)</div>
       <div style={styles.statGrid}>
         <StatCard label="전체 학생" value={Object.keys(roster).length} unit="명" />
-        <StatCard label="반 수" value={byClass.length} unit="개" />
+        <StatCard label="반 수" value={byClass.filter(([cls]) => cls !== "미입력/확인필요").length} unit="개" />
         <StatCard label="개설 과목·그룹" value={bySubject.length} unit="개" />
+        {missingInfoCount > 0 && <StatCard label="반·번호 확인 필요" value={missingInfoCount} unit="명" />}
       </div>
+      {missingInfoCount > 0 && (
+        <div style={{ ...styles.infoBox, padding: "10px 12px", marginBottom: 12, background: "#fff7f5", borderColor: "#f3c7bf", color: "#8f2f24", fontSize: 12.5, lineHeight: 1.55 }}>
+          <b>반·번호가 누락되거나 잘못 인식된 학생이 {missingInfoCount}명 있습니다.</b> 아래 표의 <b>직접 수정</b>을 눌러 반과 번호를 입력하면 실제 저장된 출석부에 바로 반영됩니다. 학번과 이름, 이동수업 과목 정보는 그대로 유지됩니다.
+        </div>
+      )}
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
         <button style={{ ...styles.classChip, ...(tab === "class" ? styles.classChipActive : {}) }} onClick={() => setTab("class")}>반별 명단</button>
         <button style={{ ...styles.classChip, ...(tab === "subject" ? styles.classChipActive : {}) }} onClick={() => setTab("subject")}>과목·그룹별 명단</button>
       </div>
       {tab === "class" && (
         <div>
-          <div style={styles.classChips}>{byClass.map(([cls, list]) => <button key={cls} onClick={() => setSelectedClass(cls)} style={{ ...styles.classChip, ...(selectedClass === cls ? styles.classChipActive : {}) }}>{cls}반 ({list.length}명)</button>)}</div>
+          <div style={styles.classChips}>{byClass.map(([cls, list]) => <button key={cls} onClick={() => setSelectedClass(cls)} style={{ ...styles.classChip, ...(selectedClass === cls ? styles.classChipActive : {}), ...(cls === "미입력/확인필요" ? { borderColor: "#d92d20", color: "#b42318", fontWeight: 800 } : {}) }}>{cls === "미입력/확인필요" ? `확인 필요 (${list.length}명)` : `${cls}반 (${list.length}명)`}</button>)}</div>
           {selectedClass && <div style={{ maxHeight: 360, overflowY: "auto" }}><StudentTable list={(byClass.find(([c]) => c === selectedClass) || [null, []])[1]} /></div>}
         </div>
       )}
