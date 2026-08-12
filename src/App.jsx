@@ -572,18 +572,64 @@ function pdfItemPoint(item, viewport) {
   const y = Number(viewport?.height || 0) - Number(item?.transform?.[5] || 0);
   const width = Number(item?.width || 0);
   return {
-    text: String(item?.str || "").trim(),
+    text: String(item?.str || "").normalize("NFKC").trim(),
     x,
     y,
     cx: x + width / 2,
   };
+}
+function compactPdfText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u00a0\u2000-\u200b\u202f\u3000]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+function groupPdfLines(points, tolerance = 5) {
+  const lines = [];
+  [...points].sort((a, b) => (a.y - b.y) || (a.x - b.x)).forEach(point => {
+    let line = lines.find(item => Math.abs(item.y - point.y) <= tolerance);
+    if (!line) { line = { y: point.y, items: [] }; lines.push(line); }
+    line.items.push(point);
+    line.y = line.items.reduce((sum, item) => sum + item.y, 0) / line.items.length;
+  });
+  return lines
+    .map(line => {
+      const items = line.items.sort((a, b) => a.x - b.x);
+      const text = items.map(item => item.text).join("");
+      return { ...line, items, text, compact: compactPdfText(text) };
+    })
+    .sort((a, b) => a.y - b.y);
+}
+function clusterPdfAxis(values, count) {
+  const nums = values.filter(Number.isFinite).sort((a, b) => a - b);
+  if (nums.length < count) return [];
+  let centers = Array.from({ length: count }, (_, i) => {
+    const idx = Math.min(nums.length - 1, Math.round(((i + 0.5) / count) * (nums.length - 1)));
+    return nums[idx];
+  });
+  for (let iter = 0; iter < 12; iter++) {
+    const groups = Array.from({ length: count }, () => []);
+    nums.forEach(value => {
+      let best = 0;
+      let dist = Math.abs(value - centers[0]);
+      for (let i = 1; i < centers.length; i++) {
+        const next = Math.abs(value - centers[i]);
+        if (next < dist) { best = i; dist = next; }
+      }
+      groups[best].push(value);
+    });
+    centers = centers.map((center, i) => groups[i].length ? groups[i].reduce((a, b) => a + b, 0) / groups[i].length : center);
+    centers.sort((a, b) => a - b);
+  }
+  return centers;
 }
 function joinPdfCellParts(parts) {
   if (!parts?.length) return null;
   const sorted = [...parts].sort((a, b) => (a.y - b.y) || (a.x - b.x));
   const lines = [];
   sorted.forEach(part => {
-    let line = lines.find(item => Math.abs(item.y - part.y) <= 3.8);
+    let line = lines.find(item => Math.abs(item.y - part.y) <= 4.8);
     if (!line) { line = { y: part.y, items: [] }; lines.push(line); }
     line.items.push(part);
   });
@@ -596,42 +642,93 @@ function joinPdfCellParts(parts) {
 }
 function parsePdfTimetablePage(items, viewport) {
   const points = items.map(item => pdfItemPoint(item, viewport)).filter(item => item.text);
-  const titleText = points
-    .filter(item => item.y < 145)
-    .sort((a, b) => (a.y - b.y) || (a.x - b.x))
-    .map(item => item.text)
-    .join(" " );
-  const compactTitle = titleText.replace(/\s+/g, "");
+  const pageWidth = Number(viewport?.width || 595);
+  const pageHeight = Number(viewport?.height || 842);
+
+  // PDF.js는 같은 글자를 여러 item으로 쪼개기도 하므로 제목/머리글은 item 단위가 아니라 같은 줄 단위로 다시 합칩니다.
+  const titleLines = groupPdfLines(points.filter(item => item.y < Math.min(190, pageHeight * 0.24)), 6);
+  const compactTitle = titleLines.map(line => line.compact).join("");
   const titleMatch = compactTitle.match(/([1-3])학년(\d+)반시간표/);
   if (!titleMatch) return null;
 
+  const headerCandidates = points.filter(item => item.y >= 105 && item.y <= Math.min(220, pageHeight * 0.3));
   const headers = {};
   DAYS.forEach(day => {
-    const found = points
-      .filter(item => item.text === day && item.y >= 120 && item.y <= 190)
+    const found = headerCandidates
+      .filter(item => compactPdfText(item.text) === day)
       .sort((a, b) => Math.abs(a.y - 150) - Math.abs(b.y - 150))[0];
     if (found) headers[day] = found.cx;
   });
-  const periodCenters = {};
-  PERIODS.forEach(period => {
-    const found = points.find(item => item.text === `${period}교시`);
-    if (found) periodCenters[period] = found.y;
-  });
-  if (DAYS.some(day => !Number.isFinite(headers[day])) || PERIODS.some(period => !Number.isFinite(periodCenters[period]))) {
-    return { grade: titleMatch[1], cls: titleMatch[2], error: "요일 또는 교시 머리글을 인식하지 못했습니다." };
+
+  // 요일 글자가 PDF.js에서 비정상적으로 합쳐진 경우에는 실제 본문 셀 x좌표를 5개 열로 군집화해 복구합니다.
+  let dayCenters = DAYS.map(day => headers[day]).filter(Number.isFinite);
+  if (dayCenters.length !== DAYS.length) {
+    const bodyX = points
+      .filter(item => item.y > 170 && item.y < pageHeight * 0.78 && item.cx > pageWidth * 0.26)
+      .filter(item => !/^\(?\d{2}:\d{2}\)?$/.test(compactPdfText(item.text)))
+      .map(item => item.cx);
+    const clustered = clusterPdfAxis(bodyX, 5);
+    if (clustered.length === 5) dayCenters = clustered;
+  } else {
+    dayCenters = DAYS.map(day => headers[day]);
+  }
+  if (dayCenters.length !== 5 || dayCenters.some((x, i) => i > 0 && x <= dayCenters[i - 1])) {
+    return { grade: titleMatch[1], cls: titleMatch[2], error: "요일 열 위치를 인식하지 못했습니다." };
   }
 
-  const dayCenters = DAYS.map(day => headers[day]);
+  const firstGap = dayCenters[1] - dayCenters[0];
+  const firstDayLeft = dayCenters[0] - Math.max(30, firstGap * 0.52);
+  const leftLines = groupPdfLines(points.filter(item => item.cx < firstDayLeft && item.y >= 150 && item.y <= pageHeight * 0.82), 5.2);
+  const periodCenters = {};
+  PERIODS.forEach(period => {
+    const label = leftLines.find(line => line.compact === `${period}교시` || line.compact.startsWith(`${period}교시`));
+    const expectedTime = PERIOD_TIME[period];
+    const time = leftLines.find(line => line.compact.replace(/[()]/g, "") === expectedTime);
+    if (label && time) periodCenters[period] = (label.y + time.y) / 2;
+    else if (label) periodCenters[period] = label.y;
+    else if (time) periodCenters[period] = time.y;
+  });
+
+  // 일부 행의 글자가 분리/누락돼도 다른 행의 간격으로 보간합니다.
+  const known = PERIODS.filter(period => Number.isFinite(periodCenters[period]));
+  if (known.length >= 2 && known.length < PERIODS.length) {
+    const slopes = [];
+    for (let i = 0; i < known.length; i++) {
+      for (let j = i + 1; j < known.length; j++) {
+        slopes.push((periodCenters[known[j]] - periodCenters[known[i]]) / (known[j] - known[i]));
+      }
+    }
+    slopes.sort((a, b) => a - b);
+    const step = slopes[Math.floor(slopes.length / 2)];
+    const anchors = known.map(period => periodCenters[period] - (period - 1) * step).sort((a, b) => a - b);
+    const start = anchors[Math.floor(anchors.length / 2)];
+    PERIODS.forEach(period => { if (!Number.isFinite(periodCenters[period])) periodCenters[period] = start + (period - 1) * step; });
+  }
+
+  let rowCenters = PERIODS.map(period => periodCenters[period]);
+  if (rowCenters.some(value => !Number.isFinite(value))) {
+    // 마지막 안전장치: 왼쪽 시간표 영역의 (08:40)~(15:30) 줄 위치를 순서대로 사용합니다.
+    const timeRows = leftLines
+      .filter(line => /^\(?\d{2}:\d{2}\)?$/.test(line.compact))
+      .map(line => line.y)
+      .sort((a, b) => a - b);
+    if (timeRows.length === 7) rowCenters = timeRows;
+  }
+  if (rowCenters.length !== 7 || rowCenters.some(value => !Number.isFinite(value)) || rowCenters.some((y, i) => i > 0 && y <= rowCenters[i - 1])) {
+    return { grade: titleMatch[1], cls: titleMatch[2], error: `교시 행 위치를 인식하지 못했습니다. (${known.length}/7개 확인)` };
+  }
+
   const dayBounds = [-Infinity, ...dayCenters.slice(0, -1).map((x, i) => (x + dayCenters[i + 1]) / 2), Infinity];
-  const rowCenters = PERIODS.map(period => periodCenters[period]);
   const rowBounds = [-Infinity, ...rowCenters.slice(0, -1).map((y, i) => (y + rowCenters[i + 1]) / 2), Infinity];
   const cells = {};
   PERIODS.forEach(period => DAYS.forEach(day => { cells[`${period}|${day}`] = []; }));
   const ignore = new Set(["교시", ...DAYS, ...PERIODS.map(period => `${period}교시`)]);
-  const firstDayLeft = dayCenters[0] - Math.max(34, (dayCenters[1] - dayCenters[0]) * 0.48);
+  const headerY = headerCandidates.length ? Math.max(...headerCandidates.map(item => item.y)) : 155;
+  const bodyTop = Math.min(rowCenters[0] - 18, (headerY + rowCenters[0]) / 2);
 
   points.forEach(item => {
-    if (item.y < 175 || item.cx < firstDayLeft || ignore.has(item.text) || /^\(\d{2}:\d{2}\)$/.test(item.text)) return;
+    const compact = compactPdfText(item.text);
+    if (item.y < bodyTop || item.cx < firstDayLeft || ignore.has(compact) || /^\(?\d{2}:\d{2}\)?$/.test(compact)) return;
     let dayIndex = -1;
     for (let i = 0; i < DAYS.length; i++) if (item.cx >= dayBounds[i] && item.cx < dayBounds[i + 1]) { dayIndex = i; break; }
     let periodIndex = -1;
@@ -645,6 +742,10 @@ function parsePdfTimetablePage(items, viewport) {
     const value = joinPdfCellParts(cells[`${period}|${day}`]);
     if (value && value !== "-") grid[day][pi] = value;
   }));
+
+  // 최소한의 구조 검증: 정상적인 학급 시간표라면 35칸 중 일정 수 이상의 수업이 있어야 합니다.
+  const filled = DAYS.reduce((sum, day) => sum + grid[day].filter(Boolean).length, 0);
+  if (filled < 12) return { grade: titleMatch[1], cls: titleMatch[2], error: `표 셀을 충분히 읽지 못했습니다. (${filled}/35칸)` };
   return { grade: titleMatch[1], cls: titleMatch[2], grid };
 }
 async function parsePdfTimetables(arrayBuffer) {
@@ -4080,11 +4181,11 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
         <FileText size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>학급 시간표 업로드 (PDF .pdf / 한글 .hwp / 엑셀 .xlsx)</div>
         <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center", lineHeight: 1.65 }}>
-          <b>PDF 파일</b>: "N학년 N반 시간표"가 페이지별 표로 저장된 한컴 PDF를 자동 인식합니다. 1·2·3학년이 한 PDF에 함께 있어도 현재 선택 학년만 미리봅니다.<br />
+          <b>PDF 파일</b>: "N학년 N반 시간표"가 페이지별 표로 저장된 한컴 PDF를 자동 인식합니다. 교시·시간·셀 문구가 PDF 내부에서 여러 조각으로 나뉘어 있어도 줄 단위로 복원합니다. 1·2·3학년이 한 PDF에 함께 있어도 현재 선택 학년만 미리봅니다.<br />
           <b>한글 파일</b>: "N학년 N반 시간표" 제목과 표가 있는 hwp를 그대로 올리면 자동 인식됩니다.<br />
           <b>엑셀 파일</b>: 시트 이름 = 반 번호, 1행 "교시 월 화 수 목 금", 2~8행에 1~7교시.
         </div>
-        <input ref={fileRef} type="file" accept=".pdf,.hwp,.xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
+        <input ref={fileRef} type="file" accept=".pdf,.hwp,.xlsx,.xls" style={{ display: "none" }} onChange={e => { const file = e.target.files?.[0]; if (file) handleFile(file); e.target.value = ""; }} />
         <button style={styles.uploadBtn} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />}{busy ? "분석 중…" : "파일 선택"}</button>
       </div>
 
