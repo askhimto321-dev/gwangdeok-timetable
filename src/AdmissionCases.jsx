@@ -64,8 +64,11 @@ const CSS=`
 .admission-student-metrics.is-mock b{font-size:18.5px;font-weight:950;letter-spacing:-.03em}
 .admission-student-metrics.is-mock small{font-size:9.5px;color:#738094;font-weight:850;white-space:nowrap}.admission-student-metrics.is-mock .is-four-sum{padding-left:4px;padding-right:4px}.admission-student-metrics.is-mock .is-four-sum b{font-size:18px}
 .admission-student-metrics.is-school>div.is-converted-grade small,.admission-student-metrics.is-school>div.is-converted-grade b{color:#fff!important}
-.admission-case-search button{display:block;width:100%;padding:9px 11px;border:0;background:#fff;text-align:left;cursor:pointer;font-size:13px}
-.admission-case-search button:hover{background:#edf3ff}
+.admission-case-search button{display:grid;width:100%;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:9px;padding:9px 10px;border:0;background:#fff;text-align:left;cursor:pointer;font-size:13px;color:#27364a}
+.admission-case-search button:hover{background:#f1f6fc}
+.admission-case-search-id{display:inline-flex;align-items:center;justify-content:center;min-width:58px;height:27px;padding:0 8px;border-radius:8px;background:#edf3fa;color:#365b86;font-size:11.5px;font-weight:950;letter-spacing:.01em}
+.admission-case-search-name{min-width:0;font-size:13.5px;font-weight:900;color:#1f2e42;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.admission-case-search-action{font-size:10px;font-weight:900;color:#8b97a7;white-space:nowrap}
 .admission-favorite-button{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:9px;border:1px solid #dce2eb;background:#fff;color:#8993a0;cursor:pointer;flex:0 0 auto}
 .admission-favorite-button:hover{border-color:#f0c94d;background:#fffaf0;color:#c69600}
 .admission-favorite-button.is-active{background:#0f1a2e;border-color:#0f1a2e;color:#ffd84d}
@@ -944,7 +947,7 @@ function RateBand({rate,total,compact=false}){
 function StudentConnector({profile,query,onQuery,onSelect,roster}){
   const hits=useMemo(()=>{const q=String(query||"").trim().toLowerCase();return q?Object.entries(roster||{}).filter(([sid,info])=>`${sid} ${info?.name||""}`.toLowerCase().includes(q)).slice(0,8):[]},[query,roster]);
   return <div className="admission-case-student" style={styles.studentConnector}>
-    <div style={styles.studentSearchPanel}><label style={styles.label}>학생 성적 연동</label><div style={{position:"relative"}}><Search size={16} style={{position:"absolute",left:12,top:12,color:"#748094"}}/><input style={{...styles.input,paddingLeft:36,height:42}} value={query||""} onChange={e=>onQuery(e.target.value)} placeholder="학번 또는 이름 검색"/>{hits.length>0&&<div className="admission-case-search" style={styles.searchResults}>{hits.map(([sid,info])=><button key={sid} onClick={()=>{onSelect(sid);onQuery(sid)}}><b>{sid}</b> {info?.name}</button>)}</div>}</div></div>
+    <div style={styles.studentSearchPanel}><label style={styles.label}>학생 성적 연동</label><div style={{position:"relative"}}><Search size={16} style={{position:"absolute",left:12,top:12,color:"#748094"}}/><input style={{...styles.input,paddingLeft:36,height:42,fontWeight:800,color:"#24344a"}} value={query||""} onChange={e=>onQuery(e.target.value)} placeholder="학번 또는 이름 검색"/>{hits.length>0&&<div className="admission-case-search" style={styles.searchResults}>{hits.map(([sid,info])=><button key={sid} onClick={()=>{onSelect(sid);onQuery(sid)}}><span className="admission-case-search-id">{sid}</span><b className="admission-case-search-name">{info?.name||"이름 미등록"}</b><small className="admission-case-search-action">선택 ›</small></button>)}</div>}</div></div>
     {profile?<div className="admission-student-profile" style={styles.studentProfile}>
       <div style={styles.studentProfileIdentity}><span style={styles.studentProfileEyebrow}>선택 학생</span><div style={styles.studentProfileTitle}><b>{profile.sid}</b><strong>{profile.name}</strong></div><div className="admission-student-profile-badges" style={styles.studentProfileBadges}><span>{profile.entryYear}학년도 입학생</span><span>{profile.grade}학년</span><span>{profile.gradeSystem}등급제</span></div></div>
       <div className="admission-student-score-groups">

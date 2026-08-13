@@ -48,6 +48,7 @@ const COMBINATION_META = {
 };
 
 const REPORT_BETA_GROUPS = ["전교과", "국수영사과", "국수영과", "국수영사"];
+const EMPTY_FAVORITES = Object.freeze([]);
 
 function statisticalGradeValue(betaData, grade5, group) {
   return conversionDetails(betaData, "statistical", group, grade5)?.value ?? null;
@@ -509,6 +510,7 @@ export default function GradesSection({
   persistGrades,
 }) {
   const [tab, setTab] = useState(loggedInStudent ? "grades" : "lookup");
+  const [visitedTabs, setVisitedTabs] = useState(() => [loggedInStudent ? "grades" : "lookup"]);
   const [localLookupSid, setLocalLookupSid] = useState(null);
   const [localLookupQuery, setLocalLookupQuery] = useState("");
   const controlledLookup = selectedStudentSid !== undefined;
@@ -516,12 +518,16 @@ export default function GradesSection({
   const lookupQuery = selectedStudentQuery !== undefined ? selectedStudentQuery : localLookupQuery;
   const setLookupSid = value => controlledLookup ? onSelectedStudentSidChange?.(value) : setLocalLookupSid(value);
   const setLookupQuery = value => selectedStudentQuery !== undefined ? onSelectedStudentQueryChange?.(value) : setLocalLookupQuery(value);
+  useEffect(() => {
+    setVisitedTabs(previous => previous.includes(tab) ? previous : [...previous, tab]);
+  }, [tab]);
+  const keepTabMounted = key => tab === key || visitedTabs.includes(key);
   const teacherHasGradeAccess = !loggedInTeacher || (teacherGradeAccess || []).map(String).includes(String(currentGrade));
   const [linkedUniversity, setLinkedUniversity] = useState("");
   const [linkedDepartment, setLinkedDepartment] = useState("");
   const [linkedAdmissionType, setLinkedAdmissionType] = useState("");
   const [returnToConsultation, setReturnToConsultation] = useState(false);
-  const favoriteItemsFor = useCallback(targetSid => (gdb?.admissionFavorites?.[String(targetSid)] || []), [gdb]);
+  const favoriteItemsFor = useCallback(targetSid => (gdb?.admissionFavorites?.[String(targetSid)] || EMPTY_FAVORITES), [gdb]);
   const activeStudentSid = String(loggedInStudent?.id || lookupSid || "").trim();
   const susiNaviStudent = useMemo(() => {
     const sid = activeStudentSid;
@@ -694,16 +700,16 @@ export default function GradesSection({
           </div>
         )}
 
-        {loggedInStudent && <div style={{ display: tab === "grades" ? "block" : "none" }}><StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} /></div>}
-        {loggedInStudent && <div style={{ display: tab === "admission" ? "block" : "none" }}><StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenCases={(name,department,admissionType)=>openCaseUniversity(name,false,department,admissionType)} focusUniversity={linkedUniversity} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} /></div>}
-        {loggedInStudent && <div style={{ display: tab === "consultation" ? "block" : "none" }}><StudentConsultationView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={name => openAdmissionUniversity(name, true)} onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)} onOpenSusiNavi={(name,department) => openSusiNaviUniversity(name, true, department)} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} /></div>}
+        {loggedInStudent && keepTabMounted("grades") && <div style={{ display: tab === "grades" ? "block" : "none" }}><StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} /></div>}
+        {loggedInStudent && keepTabMounted("admission") && <div style={{ display: tab === "admission" ? "block" : "none" }}><StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenCases={(name,department,admissionType)=>openCaseUniversity(name,false,department,admissionType)} focusUniversity={linkedUniversity} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} /></div>}
+        {loggedInStudent && keepTabMounted("consultation") && <div style={{ display: tab === "consultation" ? "block" : "none" }}><MemoStudentConsultationView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={name => openAdmissionUniversity(name, true)} onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)} onOpenSusiNavi={(name,department) => openSusiNaviUniversity(name, true, department)} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} /></div>}
 
         {loggedInTeacher && !teacherHasGradeAccess && (
           <EmptyBox text={`${currentGrade}학년 학생 성적 조회 권한이 없습니다. 관리자에게 역할 또는 성적 조회 권한을 요청해주세요.`} />
         )}
 
-        {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{ display: tab === "lookup" ? "block" : "none" }}>
-          <StudentLookup
+        {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && keepTabMounted("lookup") && <div style={{ display: tab === "lookup" ? "block" : "none" }}>
+          <MemoStudentLookup
             roster={roster}
             gdb={gdb}
             isAdmin
@@ -722,8 +728,8 @@ export default function GradesSection({
             onClearFocus={clearLinkedUniversity}
           />
         </div>}
-        {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{ display: tab === "lookupAdmission" ? "block" : "none" }}>
-          <StudentLookup
+        {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && keepTabMounted("lookupAdmission") && <div style={{ display: tab === "lookupAdmission" ? "block" : "none" }}>
+          <MemoStudentLookup
             roster={roster}
             gdb={gdb}
             isAdmin
@@ -742,8 +748,8 @@ export default function GradesSection({
             onClearFocus={clearLinkedUniversity}
           />
         </div>}
-        {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{ display: tab === "consultation" ? "block" : "none" }}>
-          {lookupSid ? <StudentConsultationView
+        {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && keepTabMounted("consultation") && <div style={{ display: tab === "consultation" ? "block" : "none" }}>
+          {lookupSid ? <MemoStudentConsultationView
             sid={lookupSid}
             gdb={gdb}
             studentInfo={roster?.[lookupSid]}
@@ -760,11 +766,11 @@ export default function GradesSection({
         {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
         )}
-        {tab === "admissionCases" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
-          <AdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />
-        )}
-        {(loggedInStudent || loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{ display: tab === "susiNaviBeta" ? "block" : "none" }}>
-          <SusiNaviBetaView
+        {keepTabMounted("admissionCases") && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{ display: tab === "admissionCases" ? "block" : "none" }}>
+          <MemoAdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />
+        </div>}
+        {(loggedInStudent || loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && keepTabMounted("susiNaviBeta") && <div style={{ display: tab === "susiNaviBeta" ? "block" : "none" }}>
+          <MemoSusiNaviBetaView
             key={activeStudentSid || "staff"}
             isAdmin={!!loggedInAdmin}
             selectedStudent={susiNaviStudent}
@@ -5912,6 +5918,55 @@ const card = {
   marginBottom: 14,
   boxShadow: "0 1px 0 rgba(43,38,32,0.02)",
 };
+
+// Patch 55: keep inactive workspace panels mounted without re-rendering them on every tab switch.
+// Heavy NAVI/admission calculations now update only when their actual data/filter inputs change.
+const MemoStudentLookup = React.memo(StudentLookup, (prev, next) => (
+  prev.roster === next.roster
+  && prev.gdb === next.gdb
+  && prev.homeroomClass === next.homeroomClass
+  && prev.isAdmin === next.isAdmin
+  && prev.initialView === next.initialView
+  && prev.selectedSid === next.selectedSid
+  && prev.sharedQuery === next.sharedQuery
+  && prev.showViewTabs === next.showViewTabs
+  && prev.hideSearch === next.hideSearch
+  && prev.favorites === next.favorites
+  && prev.focusUniversity === next.focusUniversity
+  && Boolean(prev.onBackToConsultation) === Boolean(next.onBackToConsultation)
+));
+const MemoStudentConsultationView = React.memo(StudentConsultationView, (prev, next) => (
+  prev.sid === next.sid
+  && prev.gdb === next.gdb
+  && prev.studentInfo === next.studentInfo
+  && prev.favorites === next.favorites
+  && prev.persistGrades === next.persistGrades
+  && prev.canEdit === next.canEdit
+  && prev.authorName === next.authorName
+));
+const MemoAdmissionCaseAnalytics = React.memo(AdmissionCaseAnalytics, (prev, next) => (
+  prev.gdb === next.gdb
+  && prev.roster === next.roster
+  && prev.currentGrade === next.currentGrade
+  && prev.selectedStudentSid === next.selectedStudentSid
+  && prev.selectedStudentQuery === next.selectedStudentQuery
+  && prev.favorites === next.favorites
+  && prev.focusUniversity === next.focusUniversity
+  && prev.focusDepartment === next.focusDepartment
+  && prev.focusAdmissionType === next.focusAdmissionType
+  && Boolean(prev.onBackToConsultation) === Boolean(next.onBackToConsultation)
+));
+const MemoSusiNaviBetaView = React.memo(SusiNaviBetaView, (prev, next) => (
+  prev.isAdmin === next.isAdmin
+  && prev.selectedStudent === next.selectedStudent
+  && prev.favorites === next.favorites
+  && prev.focusUniversity === next.focusUniversity
+  && prev.focusDepartment === next.focusDepartment
+  && prev.caseRows === next.caseRows
+  && Boolean(prev.onToggleFavorite) === Boolean(next.onToggleFavorite)
+  && Boolean(prev.onOpenCases) === Boolean(next.onOpenCases)
+));
+
 const btn = {
   input: { boxSizing: "border-box", border: "1px solid #ddd7c9", borderRadius: 8, background: "#fff", padding: "7px 10px", fontSize: 12, color: "#2b2620", outline: "none" },
   primary: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "#3d5c3a", color: "#fff", padding: "8px 16px", borderRadius: 8, fontSize: 12.5, cursor: "pointer", fontWeight: 700 },

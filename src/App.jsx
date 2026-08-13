@@ -26,6 +26,10 @@ const STUDENT_WORKSPACE_VIEWS = [
   ["susiNaviBeta", "수시NAVI Beta"],
   ["admissionCases", "광덕고 대입 결과"],
 ];
+const STUDENT_WORKSPACE_GROUPS = [
+  { label: "학생 분석", views: ["grades", "admission", "consultation"] },
+  { label: "진학·조회", views: ["timetable", "susiNaviBeta", "admissionCases"] },
+];
 const STUDENT_WORKSPACE_VIEW_KEYS = STUDENT_WORKSPACE_VIEWS.map(([key]) => key);
 
 const TEACHER_ROLE_LABELS = { homeroom: "학급담임", gradeHead: "학년부장", other: "그외" };
@@ -2012,8 +2016,16 @@ function StaffStudentWorkspaceBar({
           {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
         </div>
         <div className="kd-workspace-openers" style={styles.workspaceOpeners}>
-          <span style={styles.workspaceOpenersLabel}>새 작업 열기</span>
-          {STUDENT_WORKSPACE_VIEWS.map(([key,label]) => <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceOpenerBtn, ...(openTabs.includes(key) ? styles.workspaceOpenerBtnOpened : {}) }}><span>{openTabs.includes(key) ? "✓" : "+"}</span>{label}</button>)}
+          <div style={styles.workspaceOpenersHeader}><span style={styles.workspaceOpenersLabel}>새 작업 열기</span><small>화면을 열어두고 빠르게 전환</small></div>
+          <div style={styles.workspaceOpenerRows}>
+            {STUDENT_WORKSPACE_GROUPS.map(group => <div key={group.label} className="kd-workspace-opener-row" style={styles.workspaceOpenerRow}>
+              <span style={styles.workspaceOpenerGroupLabel}>{group.label}</span>
+              <div style={styles.workspaceOpenerGrid}>{group.views.map(key => {
+                const label = labelFor(key);
+                return <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceOpenerBtn, ...(openTabs.includes(key) ? styles.workspaceOpenerBtnOpened : {}) }}><span>{openTabs.includes(key) ? "✓" : "+"}</span>{label}</button>;
+              })}</div>
+            </div>)}
+          </div>
         </div>
         <div style={styles.workspaceStudentState}>{selectedSid ? <><span>선택 학생</span><strong>{selectedSid}</strong></> : <span>학생을 검색한 뒤 필요한 화면을 탭으로 열어두세요.</span>}</div>
       </div>
@@ -5281,8 +5293,8 @@ const globalCss = `
   .kd-quick-links-list a:hover{border-color:#aebfd4;background:#f1f6fc;transform:translateX(-2px)}
   .kd-quick-links-icon{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:#eaf1fb;color:#315f95}
   .kd-quick-links-copy{display:grid;gap:2px;min-width:0}.kd-quick-links-copy b{font-size:11.5px;line-height:1.25;white-space:normal;word-break:keep-all}.kd-quick-links-copy small{font-size:9.2px;line-height:1.35;color:#7a8797;white-space:normal;overflow-wrap:anywhere}
-  @media (max-width: 1180px){.kd-workspace-top-row{grid-template-columns:minmax(250px,1fr) minmax(0,1.25fr)!important}.kd-workspace-top-row>div:last-child{grid-column:1/-1;justify-content:flex-start!important;text-align:left!important}.kd-workspace-openers{justify-content:flex-end!important}.kd-workspace-tab-hint{display:none!important}}
-  @media (max-width: 760px){.kd-workspace-top-row{grid-template-columns:1fr!important}.kd-workspace-openers{justify-content:flex-start!important}.kd-workspace-tab-strip{grid-template-columns:auto minmax(0,1fr)!important}.kd-workspace-tab-hint{display:none!important}}
+  @media (max-width: 1180px){.kd-workspace-top-row{grid-template-columns:minmax(250px,.9fr) minmax(0,1.35fr)!important}.kd-workspace-top-row>div:last-child{grid-column:1/-1;justify-content:flex-start!important;text-align:left!important}.kd-workspace-tab-hint{display:none!important}}
+  @media (max-width: 760px){.kd-workspace-top-row{grid-template-columns:1fr!important}.kd-workspace-opener-row{grid-template-columns:54px minmax(0,1fr)!important}.kd-workspace-tab-strip{grid-template-columns:auto minmax(0,1fr)!important}.kd-workspace-tab-hint{display:none!important}}
 .subject-roster-table th{padding:10px 12px;background:#eaf2fb;color:#294f7f;border:1px solid #d4e0ef;font-size:12px;font-weight:900}
 .subject-roster-table td{padding:10px 12px;border:1px solid #e0e7f0;text-align:center;color:#33445b}
 .subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
@@ -5633,15 +5645,20 @@ const styles = {
   staffNoticeAudienceBadge: { display: "inline-flex", borderRadius: 999, padding: "3px 7px", background: "#edf1fa", color: "#4c628f", border: "1px solid #ced8eb", fontSize: 9.5, fontWeight: 900 },
   workspaceBarWrap: { position: "sticky", top: 55, zIndex: 35, background: "rgba(248,251,255,.97)", backdropFilter: "blur(13px)", borderBottom: "1px solid #dbe4ef", boxShadow:"0 5px 18px rgba(55,74,104,.05)" },
   workspaceBarInner: { maxWidth: 1280, margin: "0 auto", padding: "9px 18px 10px", display: "grid", gap: 8 },
-  workspaceBarTopRow: { display: "grid", gridTemplateColumns: "minmax(280px,1.15fr) minmax(520px,1.8fr) minmax(155px,.45fr)", alignItems: "center", gap: 12 },
+  workspaceBarTopRow: { display: "grid", gridTemplateColumns: "minmax(280px,1.02fr) minmax(585px,1.9fr) minmax(145px,.42fr)", alignItems: "center", gap: 12 },
   workspaceSearchWrap: { position: "relative", minWidth: 0, height: 42, borderRadius: 13, border: "1px solid #d3dce7", background: "#fff", display: "flex", alignItems: "center", gap: 9, padding: "0 12px", boxShadow: "0 3px 12px rgba(55,70,90,.05)" },
   workspaceSearchInput: { flex: 1, minWidth: 0, border: 0, outline: 0, fontSize: 13.5, fontWeight: 800, background: "transparent", color: "#26364b" },
   workspaceClearBtn: { border: 0, background: "transparent", color: "#8a909a", cursor: "pointer", padding: 3, display: "grid", placeItems: "center" },
   workspaceMatches: { position: "absolute", left: 0, right: 0, top: 43, zIndex: 70, background: "#fff", border: "1px solid #dce2ea", borderRadius: 12, padding: 6, boxShadow: "0 14px 32px rgba(46,56,72,.16)", display: "grid", gap: 3 },
-  workspaceMatchItem: { border: 0, borderRadius: 8, background: "transparent", padding: "8px 10px", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, color: "#6b7280" },
-  workspaceOpeners: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center", padding: "4px 6px", borderRadius: 12, background: "#f2f6fa", border: "1px solid #e0e7ef" },
-  workspaceOpenersLabel: { fontSize: 10.5, fontWeight: 950, color: "#65758a", marginRight: 3, whiteSpace: "nowrap" },
-  workspaceOpenerBtn: { minHeight:32, display:"inline-flex", alignItems:"center", gap:5, border:"1px solid #d5dee9", borderRadius:9, background:"#fff", color:"#53657a", padding:"0 9px", fontSize:10.8, fontWeight:900, cursor:"pointer", whiteSpace:"nowrap" },
+  workspaceMatchItem: { border: 0, borderRadius: 9, background: "transparent", padding: "8px 10px", textAlign: "left", cursor: "pointer", display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "center", gap: 10, fontSize: 11.5, color: "#6b7280" },
+  workspaceOpeners: { display: "grid", gap: 5, padding: "6px 8px", borderRadius: 12, background: "#f2f6fa", border: "1px solid #e0e7ef" },
+  workspaceOpenersHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, minHeight: 18, padding: "0 2px", color: "#8692a1", fontSize: 9.3, fontWeight: 800 },
+  workspaceOpenersLabel: { fontSize: 10.5, fontWeight: 950, color: "#53667d", whiteSpace: "nowrap" },
+  workspaceOpenerRows: { display: "grid", gap: 4 },
+  workspaceOpenerRow: { minWidth: 0, display: "grid", gridTemplateColumns: "62px minmax(0,1fr)", gap: 6, alignItems: "center" },
+  workspaceOpenerGroupLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 29, borderRadius: 8, background: "#e8eef5", color: "#6a788a", fontSize: 9.4, fontWeight: 950, whiteSpace: "nowrap" },
+  workspaceOpenerGrid: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
+  workspaceOpenerBtn: { minHeight:30, minWidth:0, display:"inline-flex", alignItems:"center", justifyContent:"center", gap:5, border:"1px solid #d5dee9", borderRadius:8, background:"#fff", color:"#53657a", padding:"0 8px", fontSize:10.4, fontWeight:900, cursor:"pointer", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" },
   workspaceOpenerBtnOpened: { background:"#eef5fb", borderColor:"#bfd3e6", color:"#315f91" },
   workspaceTabStrip: { display:"grid", gridTemplateColumns:"auto minmax(0,1fr) auto", alignItems:"center", gap:9, paddingTop:8, borderTop:"1px solid #dde6ef" },
   workspaceTabStripLabel: { fontSize:11, fontWeight:950, color:"#42566f", whiteSpace:"nowrap" },

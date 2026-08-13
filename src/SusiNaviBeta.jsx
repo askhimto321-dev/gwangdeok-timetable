@@ -513,6 +513,13 @@ const SUPPORT_META = {
   안정: { color: "#2c7048", background: "#edf8f1", border: "#bedfc9", detail: "-0.5~-0.2" },
   하향: { color: "#315f91", background: "#eef5ff", border: "#bfd2e9", detail: "-0.5 미만" },
 };
+const RESULT_SORT_LABELS = {
+  default: "기본 정렬",
+  cut50: "50%컷 낮은순",
+  cut70: "70%컷 낮은순",
+  supportUp: "상향 → 하향",
+  supportDown: "하향 → 상향",
+};
 
 function supportBand(student, cutoff) {
   if (student == null || cutoff == null) return null;
@@ -1450,7 +1457,7 @@ export default function SusiNaviBetaView({
               <MultiFilterSelect compact label="계열" values={fieldFilters} onChange={setFieldFilters} options={fields}/>
               <MultiFilterSelect compact label="전형" values={admissionFilters} onChange={setAdmissionFilters} options={["교과", "종합", "정시"]}/>
               <MultiFilterSelect compact label="수능최저" values={minimumFilters} onChange={setMinimumFilters} options={["있음", "없음"]}/>
-              <label style={ui.resultSortLabel}><span>정렬</span><select value={resultSort} onChange={event => setResultSort(event.target.value)}><option value="default">기본 정렬</option><option value="cut50">50%컷 낮은순</option><option value="cut70">70%컷 낮은순</option><option value="supportUp">상향 → 하향</option><option value="supportDown">하향 → 상향</option></select></label>
+              <label className="susi-beta-sort-control" style={ui.resultSortControl}><span>정렬</span><b>{RESULT_SORT_LABELS[resultSort] || "기본 정렬"}</b><ChevronDown size={14}/><select aria-label="대학 상세 결과 정렬" value={resultSort} onChange={event => setResultSort(event.target.value)} style={ui.resultSortNative}><option value="default">기본 정렬</option><option value="cut50">50%컷 낮은순</option><option value="cut70">70%컷 낮은순</option><option value="supportUp">상향 → 하향</option><option value="supportDown">하향 → 상향</option></select></label>
             </div>
             <div style={ui.resultSupportQuick}><span>지원 구간</span>{Object.entries(SUPPORT_META).map(([label, meta]) => {
               const active = supportFilters.includes(label);
@@ -1984,12 +1991,13 @@ const ui = {
   resultContextActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
   sourceGuideDetails: { border: "1px solid #dce3ec", borderRadius: 13, background: "#fbfcfe", overflow: "hidden" },
   sourceGuideSummary: { minHeight: 45, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 14px", cursor: "pointer", color: "#536176", listStyle: "none" },
-  resultControlPanel: { display: "grid", gap: 10, padding: "13px 14px", border: "1px solid #cfdce9", borderRadius: 14, background: "linear-gradient(135deg,#f7fbff,#fff)" },
-  resultControlHeading: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", color: "#42556d" },
-  resultControlGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(130px,1fr)) minmax(180px,1.1fr)", gap: 8, alignItems: "stretch" },
-  resultSortLabel: { minWidth: 0, display: "grid", gap: 4, fontSize: 10.5, fontWeight: 900, color: "#657388" },
-  resultSupportQuick: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingTop: 2, color: "#657388", fontSize: 10.5, fontWeight: 900 },
-  resultSupportQuickBtn: { minHeight: 28, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 10.5, fontWeight: 950, cursor: "pointer" },
+  resultControlPanel: { display: "grid", gap: 10, padding: "14px", border: "1px solid #c9d8e8", borderRadius: 14, background: "linear-gradient(145deg,#f5f9fe,#ffffff)", boxShadow: "0 4px 14px rgba(48,73,104,.05)" },
+  resultControlHeading: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap", paddingBottom: 9, borderBottom: "1px solid #e5ebf2", color: "#354c68" },
+  resultControlGrid: { display: "grid", gridTemplateColumns: "repeat(5,minmax(0,1fr))", gap: 8, alignItems: "stretch" },
+  resultSortControl: { position: "relative", minWidth: 0, minHeight: 42, display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 7, padding: "0 10px", border: "1px solid #ced8e5", borderRadius: 10, background: "#fff", color: "#59687c", boxSizing: "border-box", cursor: "pointer", overflow: "hidden" },
+  resultSortNative: { position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" },
+  resultSupportQuick: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "8px 9px", border: "1px solid #e1e7ef", borderRadius: 10, background: "rgba(255,255,255,.82)", color: "#5c6d82", fontSize: 10.5, fontWeight: 900 },
+  resultSupportQuickBtn: { minHeight: 30, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 10.5, fontWeight: 950, cursor: "pointer" },
   resultSupportReset: { minHeight: 28, padding: "0 10px", border: "1px solid #d7dfe9", borderRadius: 999, background: "#fff", color: "#69768a", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
   dataSourceLegend: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
   naviSourceCard: { minWidth: 0, display: "grid", gap: 4, padding: "12px 14px", border: "1px solid #d8d1e8", borderRadius: 12, background: "linear-gradient(135deg,#f6f2fb,#fff)", color: "#5f5277", fontSize: 11.5, lineHeight: 1.5 },
@@ -2565,6 +2573,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-multi-filter summary::-webkit-details-marker,.susi-beta-source-guide summary::-webkit-details-marker{display:none}
 .susi-beta-multi-filter summary>b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#2f435d;text-align:right}
 .susi-beta-multi-filter summary>span{font-size:10.5px;font-weight:900;color:#758297;white-space:nowrap}
+.susi-beta-sort-control>span{font-size:10.5px;font-weight:900;color:#758297;white-space:nowrap}.susi-beta-sort-control>b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#2f435d;text-align:right}.susi-beta-sort-control:focus-within{border-color:#87a8ca!important;box-shadow:0 0 0 2px rgba(70,112,155,.10)}
 .susi-beta-multi-filter[open] summary{border-color:#87a8ca!important;box-shadow:0 0 0 2px rgba(70,112,155,.10)}
 .susi-beta-source-guide[open]>summary{border-bottom:1px solid #e1e7ef;background:#f7f9fc}
 .susi-beta-source-guide>summary>span{display:flex;align-items:center;gap:7px;min-width:0}
