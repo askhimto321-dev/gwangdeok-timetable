@@ -18,6 +18,16 @@ const DISABLED_GRADES = [];
 const RESET_PASSWORD = "kd2026";
 const DEFAULT_ADMIN = { id: "admin", pw: "kd2026" };
 const SITE_TITLE = "광덕고 데이터베이스 [BETA]";
+const STUDENT_WORKSPACE_VIEWS = [
+  ["grades", "성적 리포트"],
+  ["admission", "대학 지원 진단"],
+  ["consultation", "상담·관심 대학"],
+  ["timetable", "개인 시간표"],
+  ["susiNaviBeta", "수시NAVI Beta"],
+  ["admissionCases", "광덕고 대입 결과"],
+  ["mockAnalysis", "모의고사 분석"],
+];
+const STUDENT_WORKSPACE_VIEW_KEYS = STUDENT_WORKSPACE_VIEWS.map(([key]) => key);
 
 const TEACHER_ROLE_LABELS = { homeroom: "학급담임", gradeHead: "학년부장", other: "그외" };
 function normalizeGradeAccessList(value) {
@@ -972,6 +982,15 @@ export default function App() {
   const [selectedStudentSid, setSelectedStudentSid] = useState(null);
   const [selectedStudentQuery, setSelectedStudentQuery] = useState("");
   const [studentWorkspaceView, setStudentWorkspaceView] = useState("grades");
+  const [studentWorkspaceTabs, setStudentWorkspaceTabs] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("kd_session") || "{}");
+      const restored = Array.isArray(saved.studentWorkspaceTabs)
+        ? saved.studentWorkspaceTabs.filter(view => STUDENT_WORKSPACE_VIEW_KEYS.includes(view))
+        : [];
+      return restored.length ? Array.from(new Set(restored)) : ["grades"];
+    } catch { return ["grades"]; }
+  });
   const [showMyProfile, setShowMyProfile] = useState(false);
   const sessionRestoredRef = useRef(false);
   const [toast, setToast] = useState(null);
@@ -1045,7 +1064,11 @@ export default function App() {
             if (GRADES.includes(selectedGrade) && !DISABLED_GRADES.includes(selectedGrade)) setGrade(selectedGrade);
           }
           if (saved.section) setSection(saved.section);
-          if (["grades", "admission", "consultation", "timetable"].includes(saved.studentWorkspaceView)) setStudentWorkspaceView(saved.studentWorkspaceView);
+          if (STUDENT_WORKSPACE_VIEW_KEYS.includes(saved.studentWorkspaceView)) setStudentWorkspaceView(saved.studentWorkspaceView);
+          if (Array.isArray(saved.studentWorkspaceTabs)) {
+            const restoredTabs = Array.from(new Set(saved.studentWorkspaceTabs.filter(view => STUDENT_WORKSPACE_VIEW_KEYS.includes(view))));
+            if (restoredTabs.length) setStudentWorkspaceTabs(restoredTabs);
+          }
         } catch { /* ignore malformed session */ }
       }
     })();
@@ -1082,7 +1105,12 @@ export default function App() {
       historyApplyingRef.current = true;
       if (route.section !== undefined) setSection(route.section);
       if (route.tab !== undefined) setTab(route.tab);
-      if (route.studentWorkspaceView !== undefined) setStudentWorkspaceView(route.studentWorkspaceView);
+      if (route.studentWorkspaceView !== undefined) {
+        setStudentWorkspaceView(route.studentWorkspaceView);
+        if (STUDENT_WORKSPACE_VIEW_KEYS.includes(route.studentWorkspaceView)) {
+          setStudentWorkspaceTabs(prev => prev.includes(route.studentWorkspaceView) ? prev : [...prev, route.studentWorkspaceView]);
+        }
+      }
       if (route.grade !== undefined && GRADES.includes(String(route.grade))) setGrade(String(route.grade));
       if (route.semester !== undefined) setSemester(route.semester);
       queueMicrotask(() => { historyApplyingRef.current = false; });
@@ -1132,7 +1160,8 @@ export default function App() {
     setSelectedStudentSid(null);
     setSelectedStudentQuery("");
     setStudentWorkspaceView("grades");
-    saveSession({ selectedStudentSid: null, selectedStudentQuery: "", studentWorkspaceView: "grades" });
+    setStudentWorkspaceTabs(["grades"]);
+    saveSession({ selectedStudentSid: null, selectedStudentQuery: "", studentWorkspaceView: "grades", studentWorkspaceTabs: ["grades"] });
   };
 
   // Unified login: one credential check tried against every account type, regardless of
@@ -1426,6 +1455,7 @@ export default function App() {
     setSelectedStudentSid(null);
     setSelectedStudentQuery("");
     setStudentWorkspaceView("grades");
+    setStudentWorkspaceTabs(["grades"]);
     setSection(null);
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
@@ -1433,6 +1463,9 @@ export default function App() {
   const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
   const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
   const changeStudentWorkspaceView = (view) => {
+    if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
+    const nextTabs = studentWorkspaceTabs.includes(view) ? studentWorkspaceTabs : [...studentWorkspaceTabs, view];
+    if (!studentWorkspaceTabs.includes(view)) setStudentWorkspaceTabs(nextTabs);
     const nextSection = view === "timetable" ? "timetable" : "grades";
     const nextTab = view === "timetable" ? "student" : tab;
     pushAppRoute({ section: nextSection, studentWorkspaceView: view, tab: nextTab });
@@ -1443,7 +1476,35 @@ export default function App() {
     } else {
       setSection("grades");
     }
-    saveSession({ section: nextSection, studentWorkspaceView: view, selectedStudentSid, selectedStudentQuery });
+    saveSession({ section: nextSection, studentWorkspaceView: view, studentWorkspaceTabs: nextTabs, selectedStudentSid, selectedStudentQuery });
+  };
+  const syncStudentWorkspaceView = (view) => {
+    if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
+    setStudentWorkspaceView(view);
+    setStudentWorkspaceTabs(prev => {
+      const next = prev.includes(view) ? prev : [...prev, view];
+      saveSession({ studentWorkspaceView: view, studentWorkspaceTabs: next });
+      return next;
+    });
+  };
+  const closeStudentWorkspaceTab = (view) => {
+    if (studentWorkspaceTabs.length <= 1) return;
+    const index = studentWorkspaceTabs.indexOf(view);
+    if (index < 0) return;
+    const nextTabs = studentWorkspaceTabs.filter(item => item !== view);
+    setStudentWorkspaceTabs(nextTabs);
+    if (studentWorkspaceView === view) {
+      const nextView = nextTabs[Math.min(index, nextTabs.length - 1)] || nextTabs[0] || "grades";
+      const nextSection = nextView === "timetable" ? "timetable" : "grades";
+      const nextTab = nextView === "timetable" ? "student" : tab;
+      pushAppRoute({ section: nextSection, studentWorkspaceView: nextView, tab: nextTab });
+      setStudentWorkspaceView(nextView);
+      setSection(nextSection);
+      if (nextView === "timetable") setTab("student");
+      saveSession({ section: nextSection, studentWorkspaceView: nextView, studentWorkspaceTabs: nextTabs, selectedStudentSid, selectedStudentQuery });
+    } else {
+      saveSession({ studentWorkspaceTabs: nextTabs });
+    }
   };
   const switchSection = (s) => {
     let nextWorkspaceView = studentWorkspaceView;
@@ -1451,6 +1512,9 @@ export default function App() {
     if (staffWorkspaceEnabled) {
       if (s === "timetable") nextWorkspaceView = "timetable";
       if (s === "grades" && studentWorkspaceView === "timetable") nextWorkspaceView = "grades";
+      if (["grades", "timetable"].includes(s)) {
+        setStudentWorkspaceTabs(prev => prev.includes(nextWorkspaceView) ? prev : [...prev, nextWorkspaceView]);
+      }
     }
     if (staffWorkspaceEnabled && selectedStudentSid && s === "timetable") nextTab = "student";
     pushAppRoute({ section: s, studentWorkspaceView: nextWorkspaceView, tab: nextTab });
@@ -1500,7 +1564,23 @@ export default function App() {
         onSelect={updateSelectedStudentSid}
         activeView={studentWorkspaceView}
         onViewChange={changeStudentWorkspaceView}
+        openTabs={studentWorkspaceTabs}
+        onCloseTab={closeStudentWorkspaceTab}
       />}
+      {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <div style={{ display: activeSection === "grades" ? "block" : "none" }}>
+        <GradesSection
+          loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
+          roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
+          gdb={gdb} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
+          selectedStudentSid={selectedStudentSid}
+          onSelectedStudentSidChange={updateSelectedStudentSid}
+          selectedStudentQuery={selectedStudentQuery}
+          onSelectedStudentQueryChange={updateSelectedStudentQuery}
+          requestedStudentView={studentWorkspaceView}
+          onWorkspaceViewChange={syncStudentWorkspaceView}
+          persistGrades={persistGrades}
+        />
+      </div>}
       {activeSection === "admin" ? (
         <AdminConsole
           db={db} persist={persist} showToast={showToast} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester}
@@ -1532,14 +1612,14 @@ export default function App() {
           />
         </div>
       ) : activeSection === "grades" ? (
-        <GradesSection
+        staffWorkspaceEnabled ? null : <GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
           roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
           gdb={gdb} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
-          selectedStudentSid={staffWorkspaceEnabled ? selectedStudentSid : undefined}
-          onSelectedStudentSidChange={staffWorkspaceEnabled ? updateSelectedStudentSid : undefined}
-          selectedStudentQuery={staffWorkspaceEnabled ? selectedStudentQuery : undefined}
-          onSelectedStudentQueryChange={staffWorkspaceEnabled ? updateSelectedStudentQuery : undefined}
+          selectedStudentSid={undefined}
+          onSelectedStudentSidChange={undefined}
+          selectedStudentQuery={undefined}
+          onSelectedStudentQueryChange={undefined}
           requestedStudentView={studentWorkspaceView}
           persistGrades={persistGrades}
         />
@@ -1899,6 +1979,8 @@ function StaffStudentWorkspaceBar({
   onSelect,
   activeView,
   onViewChange,
+  openTabs = ["grades"],
+  onCloseTab,
 }) {
   const mergedStudents = useMemo(() => {
     const map = new Map();
@@ -1920,18 +2002,32 @@ function StaffStudentWorkspaceBar({
       || `${student.class}반${student.number}번`.includes(q.replace(/\s/g, ""))
     )).slice(0, 8);
   }, [mergedStudents, query, selectedSid]);
+  const labelFor = view => STUDENT_WORKSPACE_VIEWS.find(([key]) => key === view)?.[1] || view;
   return <div className="no-print" style={styles.workspaceBarWrap}>
     <div style={styles.workspaceBarInner}>
-      <div style={styles.workspaceSearchWrap}>
-        <Search size={16} color="#788397" />
-        <input value={query || ""} onChange={event => onQueryChange(event.target.value)} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
-        {query && <button type="button" onClick={() => { onQueryChange(""); onSelect(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
-        {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
+      <div className="kd-workspace-top-row" style={styles.workspaceBarTopRow}>
+        <div style={styles.workspaceSearchWrap}>
+          <Search size={16} color="#788397" />
+          <input value={query || ""} onChange={event => onQueryChange(event.target.value)} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
+          {query && <button type="button" onClick={() => { onQueryChange(""); onSelect(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
+          {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
+        </div>
+        <div className="kd-workspace-openers" style={styles.workspaceOpeners}>
+          <span style={styles.workspaceOpenersLabel}>화면 열기</span>
+          {STUDENT_WORKSPACE_VIEWS.map(([key,label]) => <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceOpenerBtn, ...(openTabs.includes(key) ? styles.workspaceOpenerBtnOpened : {}) }}><span>{openTabs.includes(key) ? "✓" : "+"}</span>{label}</button>)}
+        </div>
+        <div style={styles.workspaceStudentState}>{selectedSid ? <><span>선택 학생</span><strong>{selectedSid}</strong></> : <span>학생을 검색한 뒤 필요한 화면을 탭으로 열어두세요.</span>}</div>
       </div>
-      <div style={styles.workspaceViewTabs}>
-        {[['grades','성적 리포트'],['admission','대학 지원 진단'],['consultation','상담·관심 대학'],['timetable','개인 시간표']].map(([key,label]) => <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceViewBtn, ...(activeView === key ? styles.workspaceViewBtnActive : {}) }}>{label}</button>)}
+      <div className="kd-workspace-tab-strip" style={styles.workspaceTabStrip}>
+        <span style={styles.workspaceTabStripLabel}>작업 탭</span>
+        <div style={styles.workspaceViewTabs}>
+          {openTabs.map(view => <div key={view} style={{ ...styles.workspaceTabShell, ...(activeView === view ? styles.workspaceTabShellActive : {}) }}>
+            <button type="button" onClick={() => onViewChange(view)} style={{ ...styles.workspaceViewBtn, ...(activeView === view ? styles.workspaceViewBtnActive : {}) }}>{labelFor(view)}</button>
+            {openTabs.length > 1 && <button type="button" aria-label={`${labelFor(view)} 탭 닫기`} title="탭 닫기" onClick={() => onCloseTab?.(view)} style={styles.workspaceTabClose}><X size={12}/></button>}
+          </div>)}
+        </div>
+        <span className="kd-workspace-tab-hint" style={styles.workspaceTabHint}>필요한 화면을 여러 개 열어두고 빠르게 전환할 수 있습니다.</span>
       </div>
-      <div style={styles.workspaceStudentState}>{selectedSid ? <><span>선택 학생</span><strong>{selectedSid}</strong></> : <span>학생을 검색해 세 화면을 연속 조회하세요.</span>}</div>
     </div>
   </div>;
 }
@@ -5186,6 +5282,8 @@ const globalCss = `
   .kd-quick-links-list a:hover{border-color:#aebfd4;background:#f1f6fc;transform:translateX(-2px)}
   .kd-quick-links-icon{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:#eaf1fb;color:#315f95}
   .kd-quick-links-copy{display:grid;gap:2px;min-width:0}.kd-quick-links-copy b{font-size:11.5px;line-height:1.25;white-space:normal;word-break:keep-all}.kd-quick-links-copy small{font-size:9.2px;line-height:1.35;color:#7a8797;white-space:normal;overflow-wrap:anywhere}
+  @media (max-width: 1180px){.kd-workspace-top-row{grid-template-columns:minmax(250px,1fr) minmax(0,1.25fr)!important}.kd-workspace-top-row>div:last-child{grid-column:1/-1;justify-content:flex-start!important;text-align:left!important}.kd-workspace-openers{justify-content:flex-end!important}.kd-workspace-tab-hint{display:none!important}}
+  @media (max-width: 760px){.kd-workspace-top-row{grid-template-columns:1fr!important}.kd-workspace-openers{justify-content:flex-start!important}.kd-workspace-tab-strip{grid-template-columns:auto minmax(0,1fr)!important}.kd-workspace-tab-hint{display:none!important}}
 .subject-roster-table th{padding:10px 12px;background:#eaf2fb;color:#294f7f;border:1px solid #d4e0ef;font-size:12px;font-weight:900}
 .subject-roster-table td{padding:10px 12px;border:1px solid #e0e7f0;text-align:center;color:#33445b}
 .subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
@@ -5534,16 +5632,27 @@ const styles = {
   staffNoticeComposer: { border: "1px solid #d9dfec", borderRadius: 14, background: "linear-gradient(135deg,#f6f8fd,#ffffff)", padding: 17, boxShadow: "0 4px 18px rgba(68,84,120,.06)" },
   staffNoticeManageCard: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fff" },
   staffNoticeAudienceBadge: { display: "inline-flex", borderRadius: 999, padding: "3px 7px", background: "#edf1fa", color: "#4c628f", border: "1px solid #ced8eb", fontSize: 9.5, fontWeight: 900 },
-  workspaceBarWrap: { position: "sticky", top: 55, zIndex: 35, background: "rgba(248,251,255,.95)", backdropFilter: "blur(13px)", borderBottom: "1px solid #dbe4ef", boxShadow:"0 5px 18px rgba(55,74,104,.05)" },
-  workspaceBarInner: { maxWidth: 1120, margin: "0 auto", padding: "9px 20px", display: "grid", gridTemplateColumns: "minmax(250px,1fr) auto minmax(150px,.45fr)", gap: 10, alignItems: "center" },
+  workspaceBarWrap: { position: "sticky", top: 55, zIndex: 35, background: "rgba(248,251,255,.97)", backdropFilter: "blur(13px)", borderBottom: "1px solid #dbe4ef", boxShadow:"0 5px 18px rgba(55,74,104,.05)" },
+  workspaceBarInner: { maxWidth: 1240, margin: "0 auto", padding: "8px 16px 9px", display: "grid", gap: 7 },
+  workspaceBarTopRow: { display: "grid", gridTemplateColumns: "minmax(245px,1fr) minmax(430px,auto) minmax(165px,.5fr)", alignItems: "center", gap: 9 },
   workspaceSearchWrap: { position: "relative", minWidth: 0, height: 38, borderRadius: 12, border: "1px solid #d8dfe8", background: "#fff", display: "flex", alignItems: "center", gap: 8, padding: "0 11px", boxShadow: "0 3px 12px rgba(55,70,90,.05)" },
   workspaceSearchInput: { flex: 1, minWidth: 0, border: 0, outline: 0, fontSize: 12.5, fontWeight: 750, background: "transparent" },
   workspaceClearBtn: { border: 0, background: "transparent", color: "#8a909a", cursor: "pointer", padding: 3, display: "grid", placeItems: "center" },
   workspaceMatches: { position: "absolute", left: 0, right: 0, top: 43, zIndex: 70, background: "#fff", border: "1px solid #dce2ea", borderRadius: 12, padding: 6, boxShadow: "0 14px 32px rgba(46,56,72,.16)", display: "grid", gap: 3 },
   workspaceMatchItem: { border: 0, borderRadius: 8, background: "transparent", padding: "8px 10px", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, color: "#6b7280" },
-  workspaceViewTabs: { display: "flex", gap: 4, padding: 4, borderRadius: 13, background: "linear-gradient(135deg,#eaf1f9,#f0edf8)", border:"1px solid #dde4ee" },
-  workspaceViewBtn: { border: 0, borderRadius: 9, background: "transparent", color: "#667085", padding: "7px 10px", fontSize: 11.5, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
-  workspaceViewBtnActive: { background: "#fff", color: "#244f86", boxShadow: "0 3px 9px rgba(48,65,90,.13)", border:"1px solid #d6e1ef" },
+  workspaceOpeners: { display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" },
+  workspaceOpenersLabel: { fontSize: 9.5, fontWeight: 900, color: "#8a94a2", marginRight: 2, whiteSpace: "nowrap" },
+  workspaceOpenerBtn: { display:"inline-flex", alignItems:"center", gap:4, border:"1px solid #dbe3ec", borderRadius:8, background:"#fff", color:"#68788b", padding:"5px 7px", fontSize:10, fontWeight:850, cursor:"pointer", whiteSpace:"nowrap" },
+  workspaceOpenerBtnOpened: { background:"#eef5fb", borderColor:"#bfd3e6", color:"#315f91" },
+  workspaceTabStrip: { display:"grid", gridTemplateColumns:"auto minmax(0,1fr) auto", alignItems:"center", gap:7, paddingTop:6, borderTop:"1px solid #e5ebf2" },
+  workspaceTabStripLabel: { fontSize:10, fontWeight:950, color:"#53657a", whiteSpace:"nowrap" },
+  workspaceTabHint: { fontSize:9.5, fontWeight:700, color:"#929dab", whiteSpace:"nowrap" },
+  workspaceViewTabs: { display: "flex", gap: 5, overflowX:"auto", minWidth:0, padding:"1px 0" },
+  workspaceTabShell: { display:"inline-flex", alignItems:"center", flex:"0 0 auto", border:"1px solid #d9e2ec", borderRadius:9, background:"#f4f6f9", overflow:"hidden" },
+  workspaceTabShellActive: { background:"#fff", borderColor:"#9fbbd7", boxShadow:"0 2px 8px rgba(48,65,90,.1)" },
+  workspaceViewBtn: { border: 0, borderRadius: 0, background: "transparent", color: "#6c7888", padding: "6px 8px 6px 10px", fontSize: 10.5, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
+  workspaceViewBtnActive: { background: "#fff", color: "#244f86" },
+  workspaceTabClose: { display:"grid", placeItems:"center", width:25, height:27, border:0, borderLeft:"1px solid #e1e7ee", background:"transparent", color:"#98a3b1", cursor:"pointer" },
   workspaceStudentState: { minWidth: 0, fontSize: 10.5, color: "#8a8578", textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 },
   staffNoticeDock: { position: "fixed", left: 18, top: 212, zIndex: 44, width: 300 },
   staffNoticeDockButton: { display: "inline-flex", alignItems: "center", gap: 7, borderRadius: 999, padding: "9px 12px", border: "1px solid #d2d5df", background: "#fff", color: "#526079", fontSize: 11.5, fontWeight: 900, cursor: "pointer", boxShadow: "0 7px 22px rgba(40,46,60,.12)" },
