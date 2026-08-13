@@ -28,6 +28,29 @@ const CONVERSION_GROUPS = ["전교과", "국수영사과", "국수영과", "국�
 const CONVERSION_PREF_KEY = "kd_susi_navi_conversion_pref_v1";
 const CUTOFF_PREF_KEY = "kd_susi_navi_cutoff_pref_v1";
 const CONNECTION_PAGE_SIZE = 12;
+const NAVI_VIEW_STATE_PREFIX = "kd_susi_navi_view_state_patch51";
+
+function naviViewStateKey(studentSid = "") {
+  return `${NAVI_VIEW_STATE_PREFIX}:${String(studentSid || "staff")}`;
+}
+function readNaviViewState(studentSid = "") {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(naviViewStateKey(studentSid)) || "null");
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function writeNaviViewState(studentSid = "", value = {}) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(naviViewStateKey(studentSid), JSON.stringify(value));
+  } catch {
+    // sessionStorage가 차단된 환경에서는 화면 상태만 유지합니다.
+  }
+}
 
 // records compact schema
 // [권역, 지역, 세부지역, 대학, 2026모집단위, 2027모집단위, 계열, 교과전형[], 종합전형[], 정시정보]
@@ -921,23 +944,27 @@ export default function SusiNaviBetaView({
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const conversionPreference = useMemo(() => readConversionPreference(), []);
+  const restoredViewState = useMemo(() => readNaviViewState(selectedStudent?.sid), []);
+  const restoredSupportFilters = Array.isArray(restoredViewState?.supportFilters)
+    ? restoredViewState.supportFilters.filter(label => SUPPORT_META[label])
+    : (restoredViewState?.supportFilter && restoredViewState.supportFilter !== "전체" && SUPPORT_META[restoredViewState.supportFilter] ? [restoredViewState.supportFilter] : []);
   const [grade5, setGrade5] = useState("1.80");
-  const [conversionMethod, setConversionMethod] = useState(conversionPreference.method);
-  const [conversionGroup, setConversionGroup] = useState(conversionPreference.group);
-  const [query, setQuery] = useState("");
-  const [region, setRegion] = useState("전체");
-  const [field, setField] = useState("전체");
-  const [admissionType, setAdmissionType] = useState("전체");
-  const [minimumFilter, setMinimumFilter] = useState("전체");
-  const [supportFilter, setSupportFilter] = useState("전체");
-  const [cutoffBasis, setCutoffBasis] = useState(() => readCutoffPreference());
-  const [connectionMode, setConnectionMode] = useState("grade");
-  const [connectionRange, setConnectionRange] = useState("0.30");
-  const [connectionUniversity, setConnectionUniversity] = useState("");
-  const [favoriteOnly, setFavoriteOnly] = useState(false);
-  const [viewTab, setViewTab] = useState("search");
-  const [connectionFocus, setConnectionFocus] = useState(null);
-  const [page, setPage] = useState(1);
+  const [conversionMethod, setConversionMethod] = useState(restoredViewState?.conversionMethod === "statistical" ? "statistical" : conversionPreference.method);
+  const [conversionGroup, setConversionGroup] = useState(CONVERSION_GROUPS.includes(restoredViewState?.conversionGroup) ? restoredViewState.conversionGroup : conversionPreference.group);
+  const [query, setQuery] = useState(restoredViewState?.query || "");
+  const [region, setRegion] = useState(restoredViewState?.region || "전체");
+  const [field, setField] = useState(restoredViewState?.field || "전체");
+  const [admissionType, setAdmissionType] = useState(restoredViewState?.admissionType || "전체");
+  const [minimumFilter, setMinimumFilter] = useState(restoredViewState?.minimumFilter || "전체");
+  const [supportFilters, setSupportFilters] = useState(restoredSupportFilters);
+  const [cutoffBasis, setCutoffBasis] = useState(restoredViewState?.cutoffBasis === "50" ? "50" : (restoredViewState?.cutoffBasis === "70" ? "70" : readCutoffPreference()));
+  const [connectionMode, setConnectionMode] = useState(restoredViewState?.connectionMode === "university" ? "university" : "grade");
+  const [connectionRange, setConnectionRange] = useState(restoredViewState?.connectionRange || "0.30");
+  const [connectionUniversity, setConnectionUniversity] = useState(restoredViewState?.connectionUniversity || "");
+  const [favoriteOnly, setFavoriteOnly] = useState(Boolean(restoredViewState?.favoriteOnly));
+  const [viewTab, setViewTab] = useState(["search", "results", "connection"].includes(restoredViewState?.viewTab) ? restoredViewState.viewTab : "search");
+  const [connectionFocus, setConnectionFocus] = useState(restoredViewState?.connectionFocus || null);
+  const [page, setPage] = useState(Math.max(1, Number(restoredViewState?.page || 1)));
   const naviHistorySessionRef = useRef(`kd-susi-navi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const naviHistoryDepthRef = useRef(0);
 
@@ -981,7 +1008,7 @@ export default function SusiNaviBetaView({
     window.history.replaceState({
       ...(window.history.state || {}),
       kdSusiNaviSession: session,
-      kdSusiNaviTab: "search",
+      kdSusiNaviTab: viewTab,
       kdSusiNaviDepth: 0,
     }, "");
     const handlePopState = event => {
@@ -1001,26 +1028,36 @@ export default function SusiNaviBetaView({
     return () => { active = false; };
   }, []);
 
+  const handledExternalFocusRef = useRef("");
   useEffect(() => {
-    if (focusUniversity) {
-      setConnectionUniversity(focusUniversity);
-      setConnectionFocus({
-        university: focusUniversity,
-        department: focusDepartment || "",
-        admissionType: "",
-        source: "즐겨찾기 연결",
-      });
-      setQuery("");
-      setRegion("전체");
-      setField("전체");
-      setAdmissionType("전체");
-      setMinimumFilter("전체");
-      setSupportFilter("전체");
-      setFavoriteOnly(false);
-      setCutoffBasis("70");
-      navigateViewTab("results");
-      setPage(1);
+    if (!focusUniversity) {
+      handledExternalFocusRef.current = "";
+      return;
     }
+    const focusKey = `${universityBaseKey(focusUniversity)}|${compactText(focusDepartment)}`;
+    if (handledExternalFocusRef.current === focusKey) return;
+    handledExternalFocusRef.current = focusKey;
+    const restoredMatches = restoredViewState?.externalFocusKey === focusKey || (connectionFocus?.university
+      && universityBaseKey(connectionFocus.university) === universityBaseKey(focusUniversity)
+      && (!focusDepartment || !connectionFocus?.department || unitSimilar(connectionFocus.department, focusDepartment)));
+    setConnectionUniversity(focusUniversity);
+    if (restoredMatches) return;
+    setConnectionFocus({
+      university: focusUniversity,
+      department: focusDepartment || "",
+      admissionType: "",
+      source: "즐겨찾기 연결",
+    });
+    setQuery("");
+    setRegion("전체");
+    setField("전체");
+    setAdmissionType("전체");
+    setMinimumFilter("전체");
+    setSupportFilters([]);
+    setFavoriteOnly(false);
+    setCutoffBasis("70");
+    navigateViewTab("results");
+    setPage(1);
   }, [focusUniversity, focusDepartment]);
 
   useEffect(() => {
@@ -1045,6 +1082,34 @@ export default function SusiNaviBetaView({
     if (typeof window === "undefined") return;
     window.localStorage.setItem(CUTOFF_PREF_KEY, cutoffBasis);
   }, [cutoffBasis]);
+
+  useEffect(() => {
+    writeNaviViewState(selectedStudent?.sid, {
+      version: 51,
+      viewTab,
+      query,
+      region,
+      field,
+      admissionType,
+      minimumFilter,
+      supportFilters,
+      cutoffBasis,
+      conversionMethod,
+      conversionGroup,
+      connectionMode,
+      connectionRange,
+      connectionUniversity,
+      favoriteOnly,
+      connectionFocus,
+      externalFocusKey: focusUniversity ? `${universityBaseKey(focusUniversity)}|${compactText(focusDepartment)}` : "",
+      page,
+      savedAt: Date.now(),
+    });
+  }, [
+    selectedStudent?.sid, viewTab, query, region, field, admissionType, minimumFilter,
+    supportFilters, cutoffBasis, conversionMethod, conversionGroup, connectionMode,
+    connectionRange, connectionUniversity, favoriteOnly, connectionFocus, focusUniversity, focusDepartment, page,
+  ]);
 
   const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, grade5), [data, conversionMethod, conversionGroup, grade5]);
   const regions = useMemo(() => unique((data?.records || []).map(row => row[1])), [data]);
@@ -1094,21 +1159,21 @@ export default function SusiNaviBetaView({
     if (admissionType === "정시" && !row[9]) return false;
     if (minimumFilter === "있음" && !minimums.length) return false;
     if (minimumFilter === "없음" && minimums.length) return false;
-    if (supportFilter !== "전체") {
+    if (supportFilters.length && admissionType !== "정시" && conversion?.value != null) {
       const supportItems = admissionType === "교과"
         ? (row[7] || [])
         : admissionType === "종합"
           ? (row[8] || [])
           : [...(row[7] || []), ...(row[8] || [])];
       const labels = unique(supportItems
-        .map(item => supportBand(conversion?.value, cutoffValue(item, cutoffBasis))?.label)
+        .map(item => supportBand(conversion.value, cutoffValue(item, cutoffBasis))?.label)
         .filter(Boolean));
-      if (!labels.includes(supportFilter)) return false;
+      if (!labels.some(label => supportFilters.includes(label))) return false;
     }
     if (favoriteOnly && !favorites.some(item => favoriteMatches(item, row))) return false;
     if (!queryMatchesRow(row, query)) return false;
     return true;
-  }), [enriched, connectionFocus, connectionFocusDepartmentMatched, query, region, field, admissionType, minimumFilter, supportFilter, cutoffBasis, favoriteOnly, favorites, conversion?.value]);
+  }), [enriched, connectionFocus, connectionFocusDepartmentMatched, query, region, field, admissionType, minimumFilter, supportFilters, cutoffBasis, favoriteOnly, favorites, conversion?.value]);
 
   const connectionEntries = useMemo(
     () => supportConnectionEntries(enriched, cutoffBasis, conversionGroup),
@@ -1140,7 +1205,7 @@ export default function SusiNaviBetaView({
       : linkedSupportResults(connectionEntries, conversion?.value, connectionRange)
   ), [connectionMode, connectionEntries, connectionUniversity, connectionRange, conversion?.value]);
 
-  useEffect(() => { setPage(1); }, [connectionFocus, query, region, field, admissionType, minimumFilter, supportFilter, cutoffBasis, favoriteOnly]);
+  useEffect(() => { setPage(1); }, [connectionFocus, query, region, field, admissionType, minimumFilter, supportFilters, cutoffBasis, favoriteOnly]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const changePage = nextPage => setPage(Math.min(pageCount, Math.max(1, Number(nextPage) || 1)));
@@ -1151,9 +1216,15 @@ export default function SusiNaviBetaView({
     field !== "전체" ? `계열: ${field}` : "",
     admissionType !== "전체" ? `전형: ${admissionType}` : "",
     minimumFilter !== "전체" ? `수능최저: ${minimumFilter}` : "",
-    supportFilter !== "전체" ? `지원구간: ${supportFilter}` : "",
     favoriteOnly ? "즐겨찾기만" : "",
   ].filter(Boolean);
+  const supportFilterDisabled = admissionType === "정시" || conversion?.value == null;
+
+  useEffect(() => {
+    if ((admissionType === "정시" || conversion?.value == null) && supportFilters.length) {
+      setSupportFilters([]);
+    }
+  }, [admissionType, conversion?.value, supportFilters.length]);
 
 
   if (loading) return <div style={ui.loading}><Loader2 className="spin" size={22} /> 수시NAVI Beta 자료를 불러오는 중입니다.</div>;
@@ -1211,7 +1282,7 @@ export default function SusiNaviBetaView({
               <label className="susi-beta-query" style={ui.searchBox}><Search size={16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학명·모집단위·전형명 검색" /></label>
               <FilterSelect label="지역" value={region} onChange={setRegion} options={["전체", ...regions]} />
               <FilterSelect label="계열" value={field} onChange={setField} options={["전체", ...fields]} />
-              <FilterSelect label="전형" value={admissionType} onChange={setAdmissionType} options={["전체", "교과", "종합", "정시"]} />
+              <FilterSelect label="전형" value={admissionType} onChange={value => { setAdmissionType(value); if (value === "정시") setSupportFilters([]); }} options={["전체", "교과", "종합", "정시"]} />
               <FilterSelect label="수능최저" value={minimumFilter} onChange={setMinimumFilter} options={["전체", "있음", "없음"]} />
             </div>
             <div style={ui.searchSummaryRow}>
@@ -1228,10 +1299,10 @@ export default function SusiNaviBetaView({
             <div className="susi-beta-support-filter" style={ui.supportFilterRow}>
               <div style={ui.supportFilterTop}>
                 <div style={ui.supportFilterHeading}>
-                  <span style={ui.supportFilterEyebrow}>지원 구간 필터</span>
+                  <span style={ui.supportFilterEyebrow}>지원 구간 다중 필터</span>
                   <b style={ui.supportFilterOneLine}>
                     <span>비교 기준: <em>{conversionMethod === "legacy" ? "기존 환산" : `통계 기반 Beta · ${conversionGroup}`}</em> {conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"}</span>
-                    <span><em>합격자 {cutoffBasis}%컷</em>을 기준으로 지원 구간을 다시 계산합니다.</span>
+                    <span>{admissionType === "정시" ? <em>정시 선택 중 · 지원구간 필터는 수시 교과·종합 전형에만 적용됩니다.</em> : conversion?.value == null ? <em>학생 환산등급을 입력하면 지원구간 필터를 사용할 수 있습니다.</em> : <><em>합격자 {cutoffBasis}%컷</em> 기준 · 여러 구간을 동시에 선택하면 합집합으로 조회합니다.</>}</span>
                   </b>
                 </div>
                 <div style={ui.globalConversionControls} aria-label="검색 전체 환산 방식">
@@ -1246,8 +1317,26 @@ export default function SusiNaviBetaView({
                   <button type="button" aria-pressed={cutoffBasis === "70"} onClick={() => setCutoffBasis("70")} style={{ ...ui.cutoffBasisBtn, ...(cutoffBasis === "70" ? ui.cutoffBasisActive : {}) }}><b>70%컷</b><small>{cutoffBasis === "70" ? "✓ 현재 판정 기준" : "판정 기준으로 선택"}</small></button>
                 </div>
                 <div style={ui.supportLegend}>
-                  <button type="button" onClick={() => setSupportFilter("전체")} style={{ ...ui.supportFilterBtn, ...(supportFilter === "전체" ? ui.supportFilterBtnActive : {}) }}>전체</button>
-                  {Object.entries(SUPPORT_META).map(([label, meta]) => <button type="button" key={label} onClick={() => setSupportFilter(label)} style={{ ...ui.supportLegendItem, ...(supportFilter === label ? ui.supportSelected : {}), color: meta.color, background: meta.background, borderColor: meta.border }}><b>{label}</b><small>{meta.detail}</small></button>)}
+                  <button type="button" aria-pressed={!supportFilters.length} onClick={() => setSupportFilters([])} style={{ ...ui.supportFilterBtn, ...(!supportFilters.length ? ui.supportFilterBtnActive : {}) }}>전체</button>
+                  {Object.entries(SUPPORT_META).map(([label, meta]) => {
+                    const active = supportFilters.includes(label);
+                    return <button
+                      type="button"
+                      key={label}
+                      aria-pressed={active}
+                      disabled={supportFilterDisabled}
+                      onClick={() => setSupportFilters(current => current.includes(label) ? current.filter(value => value !== label) : [...current, label])}
+                      style={{
+                        ...ui.supportLegendItem,
+                        ...(active ? ui.supportSelected : {}),
+                        ...(supportFilterDisabled ? { opacity: .42, cursor: "not-allowed" } : {}),
+                        color: active ? "#fff" : meta.color,
+                        background: active ? meta.color : meta.background,
+                        borderColor: active ? meta.color : meta.border,
+                        boxShadow: active ? `0 4px 11px ${meta.color}33` : "none",
+                      }}
+                    ><b>{label}</b><small>{meta.detail}</small></button>;
+                  })}
                 </div>
               </div>
             </div>
@@ -1293,7 +1382,7 @@ export default function SusiNaviBetaView({
               setField("전체");
               setAdmissionType("전체");
               setMinimumFilter("전체");
-              setSupportFilter("전체");
+              setSupportFilters([]);
               setFavoriteOnly(false);
               setPage(1);
               navigateViewTab("results");
@@ -1316,15 +1405,20 @@ export default function SusiNaviBetaView({
           <div style={ui.resultFilterBar}>
             <div style={ui.activeFilterWrap}>
               <span style={ui.activeFilterLabel}>현재 적용 조건</span>
-              {activeFilterLabels.length ? activeFilterLabels.map(label => <b key={label} style={ui.activeFilterChip}>{label}</b>) : <b style={ui.activeFilterEmpty}>추가 필터 없음</b>}
-              {activeFilterLabels.length > 0 && <button type="button" style={ui.clearFilterButton} onClick={() => {
+              {activeFilterLabels.map(label => <b key={label} style={ui.activeFilterChip}>{label}</b>)}
+              {supportFilters.map(label => {
+                const meta = SUPPORT_META[label];
+                return <b key={`support-${label}`} style={{ ...ui.activeFilterChip, color: meta.color, background: meta.background, borderColor: meta.border }}>지원구간: {label}</b>;
+              })}
+              {!activeFilterLabels.length && !supportFilters.length && <b style={ui.activeFilterEmpty}>추가 필터 없음</b>}
+              {(activeFilterLabels.length > 0 || supportFilters.length > 0) && <button type="button" style={ui.clearFilterButton} onClick={() => {
                 setConnectionFocus(null);
                 setQuery("");
                 setRegion("전체");
                 setField("전체");
                 setAdmissionType("전체");
                 setMinimumFilter("전체");
-                setSupportFilter("전체");
+                setSupportFilters([]);
                 setFavoriteOnly(false);
               }}>필터 전체 해제</button>}
             </div>
@@ -1950,7 +2044,7 @@ const ui = {
   focusFallbackNotice: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 11px", border: "1px solid #edd2a8", borderRadius: 10, background: "#fff8ea", color: "#7a5b25", fontSize: 9.8, lineHeight: 1.5 },
   resultList: { display: "grid", gap: 10 },
   resultCard: { display: "grid", gap: 0, border: "1px solid #d6e0ec", borderRadius: 15, background: "#fff", overflow: "hidden", boxShadow: "0 5px 15px rgba(52,62,78,.04)" },
-  resultSummary: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", alignItems: "center", gap: 14, padding: "17px 18px", background: "linear-gradient(135deg,#fff,#f8fafe)" },
+  resultSummary: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(300px,1fr) auto auto", alignItems: "center", gap: 14, padding: "17px 18px", background: "linear-gradient(135deg,#fff,#f8fafe)" },
   resultSummaryIdentity: { minWidth: 0, display: "grid", gap: 5 },
   resultEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 22, padding: "0 7px", borderRadius: 7, background: "#e7edf6", color: "#48617f", fontSize: 10.5, fontWeight: 950, whiteSpace: "nowrap" },
   resultDepartmentLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
@@ -1970,12 +2064,12 @@ const ui = {
   schoolTrendMore: { gridColumn: "1/-1", padding: "4px 2px", fontSize: 9.5, color: "#8b6f75" },
   schoolTrendAction: { minWidth: 150, display: "grid", justifyItems: "end", gap: 5, color: "#86656c", fontSize: 10, lineHeight: 1.45 },
   schoolTrendOpenButton: { minHeight: 38, padding: "0 11px", border: "1px solid #dfb7bf", borderRadius: 9, background: "#fff", color: "#8a4050", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
-  resultCardBody: { minWidth: 0, display: "grid", gridTemplateColumns: "225px minmax(0,1fr)", gap: 16, padding: "18px", borderTop: "1px solid #e1e7ef", background: "#fff" },
-  resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 10, padding: 14, borderRadius: 12, background: "linear-gradient(180deg,#f5f8fc,#fafbfd)", border: "1px solid #e3e8f0" },
+  resultCardBody: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(245px,285px) minmax(0,1fr)", gap: 16, padding: "18px", borderTop: "1px solid #e1e7ef", background: "#fff" },
+  resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 10, padding: 14, borderRadius: 12, background: "linear-gradient(180deg,#f5f8fc,#fafbfd)", border: "1px solid #e3e8f0", overflow: "visible", wordBreak: "keep-all", overflowWrap: "anywhere" },
   identityLabel: { fontSize: 10.5, color: "#5c6d84", fontWeight: 950 },
-  identitySourceNote: { display: "block", fontSize: 10.5, lineHeight: 1.5, color: "#768398" },
+  identitySourceNote: { display: "block", minWidth: 0, fontSize: 10.5, lineHeight: 1.55, color: "#768398", wordBreak: "keep-all", overflowWrap: "anywhere" },
   detailTabGuide: { display: "grid", gap: 3, padding: "9px", borderRadius: 8, border: "1px solid #e0e5ed", background: "#fff", color: "#6c788a", fontSize: 9.3, lineHeight: 1.4 },
-  sameUnitNote: { padding: "9px", borderRadius: 8, background: "#eef3f8", color: "#667488", fontSize: 12.5, lineHeight: 1.55 },
+  sameUnitNote: { minWidth: 0, padding: "9px", borderRadius: 8, background: "#eef3f8", color: "#667488", fontSize: 12.5, lineHeight: 1.55, wordBreak: "keep-all", overflowWrap: "anywhere" },
   universityLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
   universityName: { margin: 0, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 17.5, lineHeight: 1.3, fontWeight: 850, letterSpacing: "-.015em", color: "#18304f" },
   fieldBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e8edf5", color: "#506078", fontSize: 9.3, fontWeight: 900 },
@@ -1985,7 +2079,7 @@ const ui = {
   favoriteBtnDisabled: { opacity: .42, cursor: "not-allowed" },
   unitTitle: { minWidth: 0, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 14.5, lineHeight: 1.5, fontWeight: 850, color: "#2b3d55", wordBreak: "keep-all", overflowWrap: "anywhere" },
   location: { fontSize: 11.3, color: "#6f7d91" },
-  previousUnit: { display: "grid", gap: 7, padding: "12px", border: "1px solid #dce4ef", borderRadius: 10, background: "#fff", fontSize: 11.5, lineHeight: 1.55, color: "#657286" },
+  previousUnit: { minWidth: 0, display: "grid", gap: 7, padding: "12px", border: "1px solid #dce4ef", borderRadius: 10, background: "#fff", fontSize: 11.5, lineHeight: 1.55, color: "#657286", wordBreak: "keep-all", overflowWrap: "anywhere" },
   resultDetailArea: { minWidth: 0, display: "grid", alignContent: "start", gap: 10 },
   detailTabs: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 5, padding: 5, border: "1px solid #dce3ed", borderRadius: 11, background: "#edf1f6" },
   detailTabButton: { minHeight: 38, border: "1px solid transparent", borderRadius: 9, background: "transparent", color: "#5f6d82", fontSize: 11, fontWeight: 900, cursor: "pointer" },
@@ -2334,5 +2428,20 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 @media(max-width:1050px){
   .susi-beta-school-trend.is-expanded{grid-template-columns:1fr 1fr!important}
   .susi-beta-school-trend.is-expanded .susi-beta-school-trend-types,.susi-beta-school-trend.is-expanded>div:last-child{grid-column:1/-1!important}
+}
+
+/* Patch 51: 긴 모집단위/전형명 잘림 방지 + 지원구간 다중선택 */
+.susi-beta-result-card,.susi-beta-result-card *{min-width:0}
+.susi-beta-result-card h3,.susi-beta-result-card b,.susi-beta-result-card span,.susi-beta-result-card p,.susi-beta-result-card small{text-overflow:clip}
+.susi-beta-result-card h3,.susi-beta-result-card b,.susi-beta-result-card p{overflow-wrap:anywhere;word-break:keep-all}
+.susi-beta-result-identity>div,.susi-beta-result-identity>span,.susi-beta-result-identity>b{max-width:100%;white-space:normal}
+.susi-beta-result-identity>div:nth-child(3){white-space:normal!important;overflow:visible!important;height:auto!important;min-height:0!important;line-height:1.55!important;overflow-wrap:anywhere!important;word-break:keep-all!important}
+.susi-beta-result-card [style*="overflow: hidden"],.susi-beta-result-card [style*="overflow:hidden"]{text-overflow:clip}
+.susi-beta-support-filter button[aria-pressed="true"] b{font-weight:950}
+.susi-beta-support-filter button[aria-pressed="true"] small{color:rgba(255,255,255,.9)!important}
+@media(max-width:1180px){
+  .susi-beta-result-card>div:first-child{grid-template-columns:minmax(260px,1fr) auto!important}
+  .susi-beta-result-card>div:first-child>div:nth-child(2){grid-column:2;grid-row:1}
+  .susi-beta-result-card>div:first-child>div:last-child{grid-column:1/-1;justify-content:flex-end!important}
 }
 `;
