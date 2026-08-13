@@ -281,6 +281,61 @@ function unitSimilar(a, b) {
   const rightTokens = unitTokens(b);
   return leftTokens.some(token => rightTokens.some(other => token === other || (Math.min(token.length, other.length) >= 3 && (token.includes(other) || other.includes(token)))));
 }
+function unitIdentityKey(value) {
+  return compactText(normalizeText(value)
+    .replace(/[（]/g, "(").replace(/[）]/g, ")")
+    .replace(/[()\[\]{}·,/|\-]+/g, " "));
+}
+function admissionIdentityKey(item = []) {
+  return [compactText(item?.[0]), ...[1, 2, 3, 4].map(index => Number.isFinite(Number(item?.[index])) ? Number(item[index]).toFixed(4) : "")].join("|");
+}
+function mergeAdmissionEntries(...groups) {
+  const merged = new Map();
+  groups.flat().filter(Boolean).forEach(item => {
+    const key = admissionIdentityKey(item);
+    if (!merged.has(key)) merged.set(key, item);
+  });
+  return Array.from(merged.values());
+}
+function regularInfoScore(info) {
+  if (!Array.isArray(info)) return 0;
+  return info.reduce((score, value) => score + ((value !== null && value !== undefined && value !== "" && value !== "-") ? 1 : 0), 0);
+}
+function merge2026Units(a, b) {
+  const values = [...String(a || "").split(/\s+\/\s+/), ...String(b || "").split(/\s+\/\s+/)]
+    .map(normalizeText).filter(Boolean);
+  return Array.from(new Set(values)).join(" / ");
+}
+function mergeNaviRecord(base, next) {
+  const merged = [...base];
+  merged[4] = merge2026Units(base?.[4], next?.[4]);
+  merged[7] = mergeAdmissionEntries(base?.[7] || [], next?.[7] || []);
+  merged[8] = mergeAdmissionEntries(base?.[8] || [], next?.[8] || []);
+  if (regularInfoScore(next?.[9]) > regularInfoScore(base?.[9])) merged[9] = next?.[9] ? [...next[9]] : null;
+  const baseName = normalizeText(base?.[3]);
+  const nextName = normalizeText(next?.[3]);
+  if (!explicitCampusToken(baseName) && explicitCampusToken(nextName)) merged[3] = next?.[3];
+  return merged;
+}
+function coalesceNaviRecords(records = []) {
+  const map = new Map();
+  records.forEach(row => {
+    if (!Array.isArray(row)) return;
+    const universityKey = universityIdentityKey(row?.[3], row?.[1]);
+    const unitKey = unitIdentityKey(row?.[5]);
+    const fieldKey = compactText(row?.[6] || "공통");
+    const key = `${universityKey}|${unitKey}|${fieldKey}`;
+    if (!map.has(key)) {
+      map.set(key, [
+        row?.[0], row?.[1], row?.[2], row?.[3], row?.[4], row?.[5], row?.[6],
+        [...(row?.[7] || [])], [...(row?.[8] || [])], row?.[9] ? [...row[9]] : null,
+      ]);
+      return;
+    }
+    map.set(key, mergeNaviRecord(map.get(key), row));
+  });
+  return Array.from(map.values());
+}
 
 function parseDataRows(rows) {
   const result = [];
@@ -298,7 +353,7 @@ function parseDataRows(rows) {
       teaching, holistic, hasRegular(regular) ? regular : null,
     ]);
   }
-  return result;
+  return coalesceNaviRecords(result);
 }
 
 function parseConversionRows(rows) {
@@ -1101,7 +1156,7 @@ export default function SusiNaviBetaView({
 
   useEffect(() => {
     writeNaviViewState(selectedStudent?.sid, {
-      version: 54,
+      version: 56,
       viewTab,
       query,
       regionFilters,
@@ -1129,15 +1184,16 @@ export default function SusiNaviBetaView({
   ]);
 
   const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, grade5), [data, conversionMethod, conversionGroup, grade5]);
-  const regions = useMemo(() => unique((data?.records || []).map(row => row[1])), [data]);
-  const fields = useMemo(() => unique((data?.records || []).map(row => row[6])), [data]);
+  const canonicalRecords = useMemo(() => coalesceNaviRecords(data?.records || []), [data?.records]);
+  const regions = useMemo(() => unique(canonicalRecords.map(row => row[1])), [canonicalRecords]);
+  const fields = useMemo(() => unique(canonicalRecords.map(row => row[6])), [canonicalRecords]);
   const minimumIndex = useMemo(() => buildUniversityIndex(data?.minimums || [], 1, 0), [data]);
   const courseRuleIndex = useMemo(() => buildUniversityIndex(data?.courseRules || [], 1, 0), [data]);
   const changeIndex = useMemo(() => buildUniversityIndex(data?.changes2028 || [], 1, 0), [data]);
   const scheduleIndex = useMemo(() => buildUniversityIndex(data?.schedules || [], 1, 0), [data]);
   const caseStatIndex = useMemo(() => buildUniversityIndex(data?.caseStats || [], 5, 0), [data]);
 
-  const enriched = useMemo(() => (data?.records || []).map(row => {
+  const enriched = useMemo(() => canonicalRecords.map(row => {
     const minimums = indexedUniversityRows(minimumIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5]));
     const courseRules = indexedUniversityRows(courseRuleIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 4);
     const changes2028 = indexedUniversityRows(changeIndex, row[3], row[1]).filter(item => !item[6] || /O|변경|신설/.test(item[6])).slice(0, 5);
@@ -1151,7 +1207,7 @@ export default function SusiNaviBetaView({
       schedules,
       caseStats,
     };
-  }), [data, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex]);
+  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex]);
 
   const connectionFocusDepartmentMatched = useMemo(() => {
     if (!connectionFocus?.university || !connectionFocus?.department) return false;
@@ -1436,8 +1492,21 @@ export default function SusiNaviBetaView({
         </div>}
 
         {viewTab === "results" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
-          <div style={ui.resultContextGuide}>
-            <div style={ui.guideCopy}><b>대학 상세 결과 {filtered.length.toLocaleString()}건</b><span>현재 검색·필터 조건에 맞는 2027 모집단위를 보여줍니다. 자료 출처 설명은 아래 <strong>‘자료 기준 안내’</strong>에서 필요할 때 펼쳐볼 수 있습니다.</span></div>
+          <div className="susi-beta-result-context" style={ui.resultContextGuide}>
+            <div style={ui.resultContextMain}>
+              <div className="susi-beta-result-headline" style={ui.resultHeadlineRow}>
+                <div style={ui.resultCountHero}>
+                  <span style={ui.resultMetricLabel}>대학 상세 결과</span>
+                  <b style={ui.resultMetricValue}>{filtered.length.toLocaleString()}<em style={ui.resultCountUnit}>건</em></b>
+                </div>
+                <div className="susi-beta-current-grade" style={ui.currentGradeHero}>
+                  <span style={ui.currentGradeLabel}>현재 학생 내신</span>
+                  <b style={ui.currentGradeValue}>{conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"}</b>
+                  <small style={ui.currentGradeHelp}>9등급 환산 · 원등급 {grade5 || "-"} · {conversionMethod === "statistical" ? `통계 Beta · ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</small>
+                </div>
+              </div>
+              <div className="susi-beta-result-description" style={ui.resultContextOneLine}>현재 검색·필터 조건에 맞는 2027 모집단위입니다. 자료 출처는 아래 <strong>‘자료 기준 안내’</strong>에서 확인할 수 있습니다.</div>
+            </div>
             <div style={ui.resultContextActions}>
               <button type="button" style={ui.backToSearchButton} onClick={() => goBackWithinNavi("search")}>‹ 기준 설정 수정</button>
               <button type="button" style={ui.resultConnectPrimary} onClick={() => { setConnectionMode("grade"); setConnectionUniversity(""); navigateViewTab("connection"); }}>현재 성적으로 지원 연결 찾기 ›</button>
@@ -1503,7 +1572,7 @@ export default function SusiNaviBetaView({
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
             {visible.length ? visible.map(({ row, minimums, courseRules, changes2028, schedules, caseStats }, index) => <ResultCard
-              key={`${row[3]}-${row[5]}-${(page - 1) * PAGE_SIZE + index}`}
+              key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
               row={row}
               minimums={minimums}
               courseRules={courseRules}
@@ -1986,7 +2055,18 @@ const ui = {
   searchWorkflowFooter: { marginTop: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, padding: "13px 15px", border: "1px solid #d8d0e8", borderRadius: 12, background: "linear-gradient(135deg,#f8f5fd,#fff)", color: "#606b7d", fontSize: 12.5, lineHeight: 1.55 },
   workflowCopy: { minWidth: 0, display: "grid", gap: 4 },
   workflowNextButton: { minHeight: 40, flex: "0 0 auto", padding: "0 15px", border: 0, borderRadius: 10, background: "#5f4d88", color: "#fff", fontSize: 12.5, fontWeight: 900, cursor: "pointer" },
-  resultContextGuide: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, padding: "17px 19px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f5f8fd,#fff)", color: "#526075", fontSize: 13.2, lineHeight: 1.62 },
+  resultContextGuide: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "center", gap: 18, padding: "16px 18px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f5f8fd,#fff)", color: "#526075" },
+  resultContextMain: { minWidth: 0, display: "grid", gap: 9 },
+  resultHeadlineRow: { minWidth: 0, display: "flex", alignItems: "stretch", gap: 10, flexWrap: "wrap" },
+  resultCountHero: { minWidth: 150, display: "grid", alignContent: "center", gap: 2, padding: "10px 13px", border: "1px solid #cfdae9", borderRadius: 11, background: "#fff", color: "#52627a" },
+  resultMetricLabel: { fontSize: 10.5, fontWeight: 900, color: "#6d798b" },
+  resultMetricValue: { fontSize: 25, lineHeight: 1.05, fontWeight: 950, letterSpacing: "-.03em", color: "#263c62" },
+  resultCountUnit: { marginLeft: 3, fontStyle: "normal", fontSize: 12, fontWeight: 900, color: "#6d7b8d" },
+  currentGradeHero: { minWidth: 310, display: "grid", gridTemplateColumns: "auto auto minmax(0,1fr)", alignItems: "center", gap: 9, padding: "10px 13px", border: "1px solid #c9d8ee", borderRadius: 11, background: "linear-gradient(135deg,#eaf3ff,#f8fbff)", color: "#315a91" },
+  currentGradeLabel: { fontSize: 10.5, fontWeight: 950, color: "#58708f", whiteSpace: "nowrap" },
+  currentGradeValue: { fontSize: 24, lineHeight: 1, fontWeight: 950, letterSpacing: "-.03em", color: "#244f86" },
+  currentGradeHelp: { minWidth: 0, fontSize: 10.5, lineHeight: 1.35, fontWeight: 800, color: "#60799a", whiteSpace: "nowrap" },
+  resultContextOneLine: { minWidth: 0, color: "#617087", fontSize: 12.2, lineHeight: 1.45, whiteSpace: "nowrap" },
   guideCopy: { minWidth: 0, display: "grid", gap: 6 },
   resultContextActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
   sourceGuideDetails: { border: "1px solid #dce3ec", borderRadius: 13, background: "#fbfcfe", overflow: "hidden" },
@@ -2461,6 +2541,16 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 @media(max-width:1100px){
   .susi-beta-detail-search{grid-template-columns:1fr 1fr!important}.susi-beta-detail-search>div:first-child{grid-column:1/-1}
   .susi-beta-connection-panel>div:nth-of-type(3){grid-template-columns:1fr 1fr!important}.susi-beta-connection-panel>div:nth-of-type(3)>div:first-child{grid-column:1/-1}
+}
+@media(max-width:1080px){
+  .susi-beta-result-context{grid-template-columns:1fr!important}
+  .susi-beta-result-context>div:last-child{justify-content:flex-start!important}
+}
+@media(max-width:760px){
+  .susi-beta-result-headline{display:grid!important;grid-template-columns:1fr!important}
+  .susi-beta-current-grade{grid-template-columns:auto auto!important;min-width:0!important}
+  .susi-beta-current-grade>small{grid-column:1/-1;white-space:normal!important}
+  .susi-beta-result-description{white-space:normal!important}
 }
 @media(max-width:900px){
   .susi-beta-connection-panel [style*="connectionSummaryGuide"]{grid-template-columns:1fr!important}
