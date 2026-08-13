@@ -3041,6 +3041,32 @@ function PersonalNoticeComposer({ roster, db, persist, showToast, scopeKey, teac
   );
 }
 
+function printSingleTimetableCard(cardElement) {
+  if (!cardElement) {
+    window.print();
+    return;
+  }
+
+  document.querySelectorAll(".single-timetable-print-clone").forEach(node => node.remove());
+  const clone = cardElement.cloneNode(true);
+  clone.classList.add("single-timetable-print-clone");
+  clone.querySelectorAll(".no-print").forEach(node => node.remove());
+  document.body.appendChild(clone);
+  document.body.classList.add("print-single-timetable");
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    document.body.classList.remove("print-single-timetable");
+    clone.remove();
+  };
+
+  window.addEventListener("afterprint", cleanup, { once: true });
+  window.setTimeout(() => window.print(), 60);
+  window.setTimeout(cleanup, 4000);
+}
+
 function TimetableCard({ result, sid }) {
   const { student, grid, warnings, hasTimetable, notices, homeroomNotices, classroomCourses = [] } = result;
   const hasNotices = (notices && notices.length > 0) || (homeroomNotices && homeroomNotices.length > 0);
@@ -3053,7 +3079,7 @@ function TimetableCard({ result, sid }) {
           <div style={styles.cardTitle} className="timetable-print-title">{student.name} <span style={styles.cardSub} className="timetable-print-class">{student.class}반 {student.number}번</span></div>
           <div style={styles.cardMeta} className="timetable-print-meta">학번 {sid}</div>
         </div>
-        <button type="button" className="no-print" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> 인쇄 / PDF</button>
+        <button type="button" className="no-print" style={styles.printBtn} onClick={event => printSingleTimetableCard(event.currentTarget.closest(".student-timetable-card"))}><Printer size={14} /> 개별 출력 / PDF</button>
       </div>
       <div className="no-print" style={styles.studentViewTabs}>
         <button type="button" onClick={() => setView("timetable")} style={{ ...styles.studentViewTab, ...(view === "timetable" ? styles.studentViewTabActive : {}) }}><Calendar size={14} /> 시간표</button>
@@ -5108,11 +5134,22 @@ const globalCss = `
   .student-timetable-subject { text-wrap: balance; }
   .timetable-long-subject-break { display: none; }
   .print-only { display: none; }
+  .single-timetable-print-clone { display: none !important; }
   .class-print-layout-control{display:inline-flex;align-items:center;gap:5px;margin-left:auto;padding:4px;border:1px solid #d7e0ea;border-radius:10px;background:#f7f9fc}
   .class-print-layout-control span{padding:0 5px;color:#68788d;font-size:10.5px;font-weight:850}
   .class-print-layout-control button{min-width:44px;border:1px solid transparent;border-radius:7px;padding:6px 8px;background:transparent;color:#586d84;font-size:10.5px;font-weight:900;cursor:pointer}
   .class-print-layout-control button.active{background:#315f95;color:#fff;box-shadow:0 3px 8px rgba(49,95,149,.18)}
   @media print {
+    body.print-single-timetable #root { display: none !important; }
+    body.print-single-timetable > .single-timetable-print-clone {
+      display: block !important;
+      width: 100% !important;
+      max-width: none !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      position: static !important;
+    }
+    body.print-single-timetable > .single-timetable-print-clone .no-print { display: none !important; }
     .no-print { display: none !important; }
     .print-only { display: block !important; }
     #print-area { display: block !important; }
