@@ -25,7 +25,6 @@ const STUDENT_WORKSPACE_VIEWS = [
   ["timetable", "개인 시간표"],
   ["susiNaviBeta", "수시NAVI Beta"],
   ["admissionCases", "광덕고 대입 결과"],
-  ["mockAnalysis", "모의고사 분석"],
 ];
 const STUDENT_WORKSPACE_VIEW_KEYS = STUDENT_WORKSPACE_VIEWS.map(([key]) => key);
 
@@ -2013,7 +2012,7 @@ function StaffStudentWorkspaceBar({
           {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
         </div>
         <div className="kd-workspace-openers" style={styles.workspaceOpeners}>
-          <span style={styles.workspaceOpenersLabel}>화면 열기</span>
+          <span style={styles.workspaceOpenersLabel}>새 작업 열기</span>
           {STUDENT_WORKSPACE_VIEWS.map(([key,label]) => <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceOpenerBtn, ...(openTabs.includes(key) ? styles.workspaceOpenerBtnOpened : {}) }}><span>{openTabs.includes(key) ? "✓" : "+"}</span>{label}</button>)}
         </div>
         <div style={styles.workspaceStudentState}>{selectedSid ? <><span>선택 학생</span><strong>{selectedSid}</strong></> : <span>학생을 검색한 뒤 필요한 화면을 탭으로 열어두세요.</span>}</div>
@@ -2026,7 +2025,7 @@ function StaffStudentWorkspaceBar({
             {openTabs.length > 1 && <button type="button" aria-label={`${labelFor(view)} 탭 닫기`} title="탭 닫기" onClick={() => onCloseTab?.(view)} style={styles.workspaceTabClose}><X size={12}/></button>}
           </div>)}
         </div>
-        <span className="kd-workspace-tab-hint" style={styles.workspaceTabHint}>필요한 화면을 여러 개 열어두고 빠르게 전환할 수 있습니다.</span>
+        <span className="kd-workspace-tab-hint" style={styles.workspaceTabHint}>열어둔 화면은 학생을 바꾸기 전까지 상태를 유지합니다.</span>
       </div>
     </div>
   </div>;
@@ -5633,24 +5632,24 @@ const styles = {
   staffNoticeManageCard: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 12, background: "#fff" },
   staffNoticeAudienceBadge: { display: "inline-flex", borderRadius: 999, padding: "3px 7px", background: "#edf1fa", color: "#4c628f", border: "1px solid #ced8eb", fontSize: 9.5, fontWeight: 900 },
   workspaceBarWrap: { position: "sticky", top: 55, zIndex: 35, background: "rgba(248,251,255,.97)", backdropFilter: "blur(13px)", borderBottom: "1px solid #dbe4ef", boxShadow:"0 5px 18px rgba(55,74,104,.05)" },
-  workspaceBarInner: { maxWidth: 1240, margin: "0 auto", padding: "8px 16px 9px", display: "grid", gap: 7 },
-  workspaceBarTopRow: { display: "grid", gridTemplateColumns: "minmax(245px,1fr) minmax(430px,auto) minmax(165px,.5fr)", alignItems: "center", gap: 9 },
-  workspaceSearchWrap: { position: "relative", minWidth: 0, height: 38, borderRadius: 12, border: "1px solid #d8dfe8", background: "#fff", display: "flex", alignItems: "center", gap: 8, padding: "0 11px", boxShadow: "0 3px 12px rgba(55,70,90,.05)" },
-  workspaceSearchInput: { flex: 1, minWidth: 0, border: 0, outline: 0, fontSize: 12.5, fontWeight: 750, background: "transparent" },
+  workspaceBarInner: { maxWidth: 1280, margin: "0 auto", padding: "9px 18px 10px", display: "grid", gap: 8 },
+  workspaceBarTopRow: { display: "grid", gridTemplateColumns: "minmax(280px,1.15fr) minmax(520px,1.8fr) minmax(155px,.45fr)", alignItems: "center", gap: 12 },
+  workspaceSearchWrap: { position: "relative", minWidth: 0, height: 42, borderRadius: 13, border: "1px solid #d3dce7", background: "#fff", display: "flex", alignItems: "center", gap: 9, padding: "0 12px", boxShadow: "0 3px 12px rgba(55,70,90,.05)" },
+  workspaceSearchInput: { flex: 1, minWidth: 0, border: 0, outline: 0, fontSize: 13.5, fontWeight: 800, background: "transparent", color: "#26364b" },
   workspaceClearBtn: { border: 0, background: "transparent", color: "#8a909a", cursor: "pointer", padding: 3, display: "grid", placeItems: "center" },
   workspaceMatches: { position: "absolute", left: 0, right: 0, top: 43, zIndex: 70, background: "#fff", border: "1px solid #dce2ea", borderRadius: 12, padding: 6, boxShadow: "0 14px 32px rgba(46,56,72,.16)", display: "grid", gap: 3 },
   workspaceMatchItem: { border: 0, borderRadius: 8, background: "transparent", padding: "8px 10px", textAlign: "left", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 10, fontSize: 11.5, color: "#6b7280" },
-  workspaceOpeners: { display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", justifyContent: "center" },
-  workspaceOpenersLabel: { fontSize: 9.5, fontWeight: 900, color: "#8a94a2", marginRight: 2, whiteSpace: "nowrap" },
-  workspaceOpenerBtn: { display:"inline-flex", alignItems:"center", gap:4, border:"1px solid #dbe3ec", borderRadius:8, background:"#fff", color:"#68788b", padding:"5px 7px", fontSize:10, fontWeight:850, cursor:"pointer", whiteSpace:"nowrap" },
+  workspaceOpeners: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "center", padding: "4px 6px", borderRadius: 12, background: "#f2f6fa", border: "1px solid #e0e7ef" },
+  workspaceOpenersLabel: { fontSize: 10.5, fontWeight: 950, color: "#65758a", marginRight: 3, whiteSpace: "nowrap" },
+  workspaceOpenerBtn: { minHeight:32, display:"inline-flex", alignItems:"center", gap:5, border:"1px solid #d5dee9", borderRadius:9, background:"#fff", color:"#53657a", padding:"0 9px", fontSize:10.8, fontWeight:900, cursor:"pointer", whiteSpace:"nowrap" },
   workspaceOpenerBtnOpened: { background:"#eef5fb", borderColor:"#bfd3e6", color:"#315f91" },
-  workspaceTabStrip: { display:"grid", gridTemplateColumns:"auto minmax(0,1fr) auto", alignItems:"center", gap:7, paddingTop:6, borderTop:"1px solid #e5ebf2" },
-  workspaceTabStripLabel: { fontSize:10, fontWeight:950, color:"#53657a", whiteSpace:"nowrap" },
-  workspaceTabHint: { fontSize:9.5, fontWeight:700, color:"#929dab", whiteSpace:"nowrap" },
-  workspaceViewTabs: { display: "flex", gap: 5, overflowX:"auto", minWidth:0, padding:"1px 0" },
-  workspaceTabShell: { display:"inline-flex", alignItems:"center", flex:"0 0 auto", border:"1px solid #d9e2ec", borderRadius:9, background:"#f4f6f9", overflow:"hidden" },
-  workspaceTabShellActive: { background:"#fff", borderColor:"#9fbbd7", boxShadow:"0 2px 8px rgba(48,65,90,.1)" },
-  workspaceViewBtn: { border: 0, borderRadius: 0, background: "transparent", color: "#6c7888", padding: "6px 8px 6px 10px", fontSize: 10.5, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
+  workspaceTabStrip: { display:"grid", gridTemplateColumns:"auto minmax(0,1fr) auto", alignItems:"center", gap:9, paddingTop:8, borderTop:"1px solid #dde6ef" },
+  workspaceTabStripLabel: { fontSize:11, fontWeight:950, color:"#42566f", whiteSpace:"nowrap" },
+  workspaceTabHint: { fontSize:10, fontWeight:750, color:"#8a96a6", whiteSpace:"nowrap" },
+  workspaceViewTabs: { display: "flex", gap: 6, overflowX:"auto", minWidth:0, padding:"2px 0" },
+  workspaceTabShell: { display:"inline-flex", alignItems:"center", flex:"0 0 auto", border:"1px solid #d5dfea", borderRadius:10, background:"#f6f8fb", overflow:"hidden" },
+  workspaceTabShellActive: { background:"#fff", borderColor:"#6f98c2", boxShadow:"0 3px 10px rgba(48,65,90,.12)" },
+  workspaceViewBtn: { minHeight:31, border: 0, borderRadius: 0, background: "transparent", color: "#607187", padding: "0 10px 0 12px", fontSize: 11.2, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceViewBtnActive: { background: "#fff", color: "#244f86" },
   workspaceTabClose: { display:"grid", placeItems:"center", width:25, height:27, border:0, borderLeft:"1px solid #e1e7ee", background:"transparent", color:"#98a3b1", cursor:"pointer" },
   workspaceStudentState: { minWidth: 0, fontSize: 10.5, color: "#8a8578", textAlign: "right", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 },
