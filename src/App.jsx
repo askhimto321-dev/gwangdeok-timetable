@@ -69,8 +69,19 @@ function applyAutomaticTeacherAccess(teacher, fallbackGrade = "2") {
 }
 
 /* ---------- helpers ---------- */
-function isMoveSlot(cell) { if (!cell) return false; return /^[A-Z](\(\d\))?_[가-힣A-Za-z0-9]+$/.test(cell); }
-function moveSlotAbbrev(cell) { const m = cell.match(/^[A-Z](?:\(\d\))?_(.+)$/); return m ? m[1] : null; }
+function parseMoveSlot(cell) {
+  if (!cell) return null;
+  const m = String(cell).trim().match(/^([A-Z])(?:\((\d+)\))?_(.+)$/);
+  if (!m) return null;
+  return { group: m[1], subgroup: m[2] || null, abbrev: m[3], rawGroup: m[2] ? `${m[1]}(${m[2]})` : m[1] };
+}
+function isMoveSlot(cell) { return !!parseMoveSlot(cell); }
+function moveSlotAbbrev(cell) { return parseMoveSlot(cell)?.abbrev || null; }
+function moveSlotGroup(cell) { return parseMoveSlot(cell)?.group || null; }
+function normalizeGroupCode(value) {
+  const m = String(value || "").trim().toUpperCase().match(/^([A-Z])/);
+  return m ? m[1] : "";
+}
 function displaySubjectLabel(value) {
   const subject = String(value || "").trim();
   return FIXED_LABELS[subject] || subject;
@@ -100,6 +111,34 @@ function subseqScore(abbrev, clean) {
   let i = 0; for (const ch of c) { if (i < a.length && ch === a[i]) i++; }
   return i === a.length ? 75 + Math.min(a.length, 12) : 0;
 }
+function subjectWordInitials(value) {
+  return String(value || "").normalize("NFKC").trim().split(/\s+/).map(word => normalizeSubjectMatch(word)).filter(Boolean).map(word => word[0]).join("");
+}
+function abbreviationSubjectScore(abbrev, subject) {
+  const raw = normalizeSubjectMatch(abbrev);
+  const a = raw.replace(/\d+$/g, "") || raw;
+  const c = normalizeSubjectMatch(subject);
+  const initials = subjectWordInitials(subject);
+  if (!a || !c) return 0;
+  if (a === c) return 320;
+  if (c.startsWith(a)) return 280 + Math.min(a.length, 12);
+  if (initials && initials === a) return 270 + Math.min(a.length, 12);
+  if (initials && initials.startsWith(a)) return 250 + Math.min(a.length, 12);
+  // 과목명 중간의 일반 단어가 우연히 같다는 이유만으로 연결하지 않도록 낮은 점수만 줍니다.
+  if (c.includes(a)) return 105 + Math.min(a.length, 12);
+  const seq = subseqScore(a, c);
+  return seq ? Math.min(120, seq) : 0;
+}
+function abbreviationLooksCompatible(abbrev, subject) {
+  const raw = normalizeSubjectMatch(abbrev);
+  const a = raw.replace(/\d+$/g, "") || raw;
+  const c = normalizeSubjectMatch(subject);
+  const initials = subjectWordInitials(subject);
+  if (!a || !c) return false;
+  // 예: "물질" → "세포와 물질대사"는 중간 단어 일치일 뿐이므로 명시 매핑이어도 신뢰하지 않습니다.
+  if (c.includes(a) && !c.startsWith(a) && !(initials && initials.startsWith(a))) return false;
+  return abbreviationSubjectScore(a, subject) >= 75;
+}
 function subjectNameScore(left, right) {
   const a = normalizeSubjectMatch(left), b = normalizeSubjectMatch(right);
   if (!a || !b) return 0;
@@ -121,48 +160,52 @@ function collectMoveAbbrevs(grid) {
 function resolveSubjectAbbrev(subject, abbrevMap = {}, grid = null) {
   const candidates = collectMoveAbbrevs(grid);
   const pool = candidates.length ? candidates : Object.keys(abbrevMap || {});
-  const normalizedSubject = normalizeSubjectMatch(subject);
-  if (!normalizedSubject) return null;
+  if (!normalizeSubjectMatch(subject)) return null;
 
-  // 1) 관리자에서 저장한 명시적 매핑을 가장 먼저 사용하되, 해당 반 시간표에 없는 오래된 매핑은 배제합니다.
+  // 1) 약어 자체가 과목명의 시작/단어 머리글자와 강하게 맞으면 저장된 예전 매핑보다 우선합니다.
+  //    세포와 물질대사에서 "세포"가 "물질"보다 우선되어 I/J 블록이 뒤바뀌는 오류를 막습니다.
+  let lexicalBest = null, lexicalScore = 0, lexicalTied = false;
+  pool.forEach(abbr => {
+    const score = abbreviationSubjectScore(abbr, subject);
+    if (score > lexicalScore) { lexicalBest = abbr; lexicalScore = score; lexicalTied = false; }
+    else if (score === lexicalScore && score > 0 && abbr !== lexicalBest) lexicalTied = true;
+  });
+  if (lexicalBest && lexicalScore >= 220 && (!lexicalTied || lexicalScore >= 280)) return lexicalBest;
+
+  // 2) 관리자 저장 매핑은 약어와 과목명이 의미상 호환될 때만 사용합니다.
   let explicit = null, explicitScore = 0;
   Object.entries(abbrevMap || {}).forEach(([abbr, mapped]) => {
     if (candidates.length && !candidates.includes(abbr)) return;
+    if (!abbreviationLooksCompatible(abbr, subject)) return;
     const score = subjectNameScore(mapped, subject);
     if (score > explicitScore) { explicitScore = score; explicit = abbr; }
   });
   if (explicit && explicitScore >= 210) return explicit;
 
-  // 2) PDF/HWP 시간표의 실제 약어와 과목명을 직접 비교하여 매핑 누락·오래된 매핑을 자동 보정합니다.
+  // 3) 마지막으로 보수적으로 점수가 가장 높은 약어만 선택합니다.
   let best = null, bestScore = 0, tied = false;
   pool.forEach(abbr => {
     const mapped = abbrevMap?.[abbr];
-    const score = Math.max(
-      subseqScore(abbr, subject),
-      mapped ? subjectNameScore(mapped, subject) : 0,
-    );
+    const semantic = abbreviationSubjectScore(abbr, subject);
+    const mappedScore = mapped && abbreviationLooksCompatible(abbr, subject) ? subjectNameScore(mapped, subject) : 0;
+    const score = Math.max(semantic, mappedScore >= 210 ? 200 : 0);
     if (score > bestScore) { best = abbr; bestScore = score; tied = false; }
     else if (score === bestScore && score > 0 && abbr !== best) tied = true;
   });
-  if (!best || bestScore < 75) return null;
-  // 약어 자체가 과목명에 포함되는 강한 매치는 동점이어도 허용하고, 약한 부분수열 매치는 모호하면 보류합니다.
-  if (tied && bestScore < 130) return null;
+  if (!best || bestScore < 75 || (tied && bestScore < 220)) return null;
   return best;
 }
 function suggestAbbrevMapping(abbrevs, subjects) {
   const out = {};
-  const usedSubjects = new Set();
   [...abbrevs].forEach(a => {
     let best = null, bestScore = 0, tied = false;
     subjects.forEach(s => {
-      const sc = subseqScore(a, s);
+      const sc = abbreviationSubjectScore(a, s);
       if (sc > bestScore) { bestScore = sc; best = s; tied = false; }
       else if (sc === bestScore && sc > 0 && s !== best) tied = true;
     });
-    if (best && bestScore >= 75 && (!tied || bestScore >= 130)) {
-      out[a] = best;
-      usedSubjects.add(best);
-    }
+    // 중간 단어 포함 정도의 약한 유사도는 자동 저장하지 않습니다.
+    if (best && bestScore >= 180 && (!tied || bestScore >= 250)) out[a] = best;
   });
   return out;
 }
@@ -1314,16 +1357,33 @@ export default function App() {
       const hostTT = timetables[String(course.hostClass)];
       if (!hostTT) { warnings.push(`"${course.subject}"이 개설되는 ${roomLabel(course.hostClass)} 시간표가 없습니다.`); return; }
       const exactAb = rev[course.subject];
-      const ab = (exactAb && collectMoveAbbrevs(hostTT).includes(exactAb)) ? exactAb : resolveSubjectAbbrev(course.subject, abbrevMap, hostTT);
+      const exactCompatible = exactAb && abbreviationLooksCompatible(exactAb, course.subject);
+      const ab = (exactCompatible && collectMoveAbbrevs(hostTT).includes(exactAb)) ? exactAb : resolveSubjectAbbrev(course.subject, abbrevMap, hostTT);
       if (!ab) { warnings.push(`"${course.subject}" 과목을 ${roomLabel(course.hostClass)} 시간표의 이동수업 약어와 연결하지 못했습니다.`); return; }
+      const expectedGroup = normalizeGroupCode(course.group);
       let placed = 0;
+      const sameSubjectOtherGroups = new Set();
       DAYS.forEach(day => (hostTT[day] || []).forEach((c, pi) => {
         if (!c) return;
         const bare = parseCompositeLabel(c).subject;
-        const match = isMoveSlot(c) ? moveSlotAbbrev(c) === ab : normalizeSubjectMatch(bare) === normalizeSubjectMatch(ab);
+        if (isMoveSlot(c)) {
+          const slotGroup = moveSlotGroup(c);
+          const sameSubject = moveSlotAbbrev(c) === ab;
+          if (sameSubject && expectedGroup && slotGroup !== expectedGroup) sameSubjectOtherGroups.add(slotGroup);
+          const match = sameSubject && (!expectedGroup || slotGroup === expectedGroup);
+          if (match) { grid[day][pi] = { type: "move", subject: displaySubjectLabel(course.subject), group: course.group, hostClass: course.hostClass, roomLabel: roomLabel(course.hostClass), moved: course.hostClass !== info.class }; placed++; }
+          return;
+        }
+        const match = !expectedGroup && normalizeSubjectMatch(bare) === normalizeSubjectMatch(ab);
         if (match) { grid[day][pi] = { type: "move", subject: displaySubjectLabel(course.subject), group: course.group, hostClass: course.hostClass, roomLabel: roomLabel(course.hostClass), moved: course.hostClass !== info.class }; placed++; }
       }));
-      if (placed === 0) warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${roomLabel(course.hostClass)} 시간표에서 찾지 못했습니다. (해석 약어: ${ab})`);
+      if (placed === 0) {
+        if (expectedGroup && sameSubjectOtherGroups.size) {
+          warnings.push(`"${course.subject}"은 출석부에서 ${course.group}그룹인데 ${roomLabel(course.hostClass)} 시간표에는 ${Array.from(sameSubjectOtherGroups).join("/")}그룹으로 배치되어 있습니다. 그룹 코드와 개설반을 확인해주세요.`);
+        } else {
+          warnings.push(`"${course.subject}(${course.group})"의 시간대를 ${roomLabel(course.hostClass)} 시간표에서 찾지 못했습니다. (해석 약어: ${ab}${expectedGroup ? ` · 그룹: ${expectedGroup}` : ""})`);
+        }
+      }
     });
     DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: displaySubjectLabel(subject), location }; } return c; }); });
     const seenCommon = new Set();
@@ -5028,10 +5088,17 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persis
     const enrolledSubjects = Array.from(new Set(Object.values(enrollments || {}).flatMap(list => (list || []).map(course => course.subject).filter(Boolean))));
     Object.values(timetables).forEach(g => DAYS.forEach(d => (g[d] || []).forEach(c => { if (isMoveSlot(c)) scoped.add(moveSlotAbbrev(c)); })));
     const suggested = {};
-    Array.from(scoped).filter(a => !abbrevMap[a]).forEach(a => {
+    Array.from(scoped).forEach(a => {
+      const current = abbrevMap[a];
       const inferred = suggestAbbrevMapping([a], enrolledSubjects)[a];
-      if (inferred) suggested[a] = inferred;
-      else issues.push({ sid: "-", name: "(공통)", cls: "-", type: "mapping", detail: `이 학기 시간표의 약어 "${a}"를 어떤 선택과목과 연결해야 하는지 판단할 수 없습니다.` });
+      if (inferred && (!current || normalizeSubjectMatch(current) !== normalizeSubjectMatch(inferred))) {
+        suggested[a] = inferred;
+        if (current) issues.push({ sid: "-", name: "(공통)", cls: "-", type: "mapping", detail: `저장된 약어 "${a}" → "${current}" 매핑이 현재 출석부와 맞지 않습니다. "${inferred}"로 교정할 수 있습니다.` });
+      } else if (!current && !inferred) {
+        issues.push({ sid: "-", name: "(공통)", cls: "-", type: "mapping", detail: `이 학기 시간표의 약어 "${a}"를 어떤 선택과목과 연결해야 하는지 판단할 수 없습니다.` });
+      } else if (current && !abbreviationLooksCompatible(a, current)) {
+        issues.push({ sid: "-", name: "(공통)", cls: "-", type: "mapping", detail: `저장된 약어 "${a}" → "${current}" 매핑은 약어 의미와 맞지 않아 학생 시간표에서 사용하지 않습니다.` });
+      }
     });
     Object.keys(roster).forEach(sid => {
       const r = build(sid); checked++;
