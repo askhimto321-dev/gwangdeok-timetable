@@ -1290,25 +1290,32 @@ export default function App() {
     }
   }, []);
 
+  const allStudentSidSet = useMemo(() => {
+    const set = new Set();
+    Object.values(db.roster || {}).forEach(scopeRoster => Object.keys(scopeRoster || {}).forEach(sid => set.add(String(sid))));
+    return set;
+  }, [db.roster]);
+
   const updateSelectedStudentQuery = useCallback((queryValue) => {
     const value = String(queryValue ?? "");
     setSelectedStudentQuery(value);
     const exactSid = value.trim();
-    const existsInAnyRoster = exactSid && Object.values(db.roster || {}).some(scopeRoster => scopeRoster?.[exactSid]);
-    if (existsInAnyRoster) {
+    if (exactSid && allStudentSidSet.has(exactSid)) {
       setSelectedStudentSid(exactSid);
       const inferredGrade = exactSid.charAt(0);
       if (GRADES.includes(inferredGrade) && !DISABLED_GRADES.includes(inferredGrade)) setGrade(inferredGrade);
       saveSession({ selectedStudentSid: exactSid, selectedStudentQuery: exactSid });
-    } else {
-      if (selectedStudentSid && exactSid !== selectedStudentSid) {
-        setSelectedStudentSid(null);
-        saveSession({ selectedStudentSid: null, selectedStudentQuery: value });
-      } else {
-        saveSession({ selectedStudentQuery: value });
-      }
+      return;
     }
-  }, [db.roster, selectedStudentSid]);
+    if (!exactSid) {
+      if (selectedStudentSid) setSelectedStudentSid(null);
+      saveSession({ selectedStudentSid: null, selectedStudentQuery: "" });
+      return;
+    }
+    // 부분 입력은 화면 상태만 갱신하고 localStorage 저장·전체 roster 재탐색은 하지 않습니다.
+    // 검색창이 빠르게 입력되도록 정확한 학번 선택 시점에만 세션을 저장합니다.
+    if (selectedStudentSid && exactSid !== selectedStudentSid) setSelectedStudentSid(null);
+  }, [allStudentSidSet, selectedStudentSid]);
 
   useEffect(() => {
     if (!loggedInTeacher) return;
@@ -1985,34 +1992,49 @@ function StaffStudentWorkspaceBar({
   openTabs = ["grades"],
   onCloseTab,
 }) {
+  const allowedGradeKey = useMemo(() => (allowedGrades || []).map(String).sort().join("|"), [allowedGrades]);
   const mergedStudents = useMemo(() => {
     const map = new Map();
+    const allowed = new Set(allowedGradeKey ? allowedGradeKey.split("|") : []);
     Object.entries(allRosters || {}).forEach(([scope, scopeRoster]) => {
       const scopeGrade = String(scope).split("-")[0];
-      if (allowedGrades?.length && !allowedGrades.map(String).includes(scopeGrade)) return;
+      if (allowed.size && !allowed.has(scopeGrade)) return;
       Object.entries(scopeRoster || {}).forEach(([sid, student]) => {
         if (!map.has(sid)) map.set(sid, { ...student, sid, grade: scopeGrade });
       });
     });
     return Array.from(map.values());
-  }, [allRosters, allowedGrades]);
+  }, [allRosters, allowedGradeKey]);
+  const studentBySid = useMemo(() => new Map(mergedStudents.map(student => [String(student.sid), student])), [mergedStudents]);
+  const [draftQuery, setDraftQuery] = useState(() => String(query || ""));
+  useEffect(() => {
+    const external = String(query || "");
+    if (selectedSid || !draftQuery || external === "") setDraftQuery(external);
+  }, [query, selectedSid]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const exactSid = draftQuery.trim();
+    if (!/^\d{5}$/.test(exactSid) || selectedSid === exactSid || !studentBySid.has(exactSid)) return undefined;
+    const timer = window.setTimeout(() => onSelect?.(exactSid), 90);
+    return () => window.clearTimeout(timer);
+  }, [draftQuery, selectedSid, studentBySid, onSelect]);
   const matches = useMemo(() => {
-    const q = String(query || "").trim().toLowerCase();
-    if (!q || selectedSid) return [];
+    const q = String(draftQuery || "").trim().toLowerCase();
+    if (!q || selectedSid === q) return [];
+    const compact = q.replace(/\s/g, "");
     return mergedStudents.filter(student => (
-      student.sid.includes(q)
+      String(student.sid).includes(q)
       || String(student.name || "").toLowerCase().includes(q)
-      || `${student.class}반${student.number}번`.includes(q.replace(/\s/g, ""))
+      || `${student.class}반${student.number}번`.includes(compact)
     )).slice(0, 8);
-  }, [mergedStudents, query, selectedSid]);
+  }, [mergedStudents, draftQuery, selectedSid]);
   const labelFor = view => STUDENT_WORKSPACE_VIEWS.find(([key]) => key === view)?.[1] || view;
   return <div className="no-print" style={styles.workspaceBarWrap}>
     <div style={styles.workspaceBarInner}>
       <div className="kd-workspace-top-row" style={styles.workspaceBarTopRow}>
         <div style={styles.workspaceSearchWrap}>
           <Search size={16} color="#788397" />
-          <input value={query || ""} onChange={event => onQueryChange(event.target.value)} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
-          {query && <button type="button" onClick={() => { onQueryChange(""); onSelect(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
+          <input value={draftQuery} onChange={event => { const next = event.target.value; setDraftQuery(next); if (selectedSid && next.trim() !== String(selectedSid)) onSelect?.(null); }} onBlur={() => { if (!draftQuery.trim()) onQueryChange?.(""); }} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
+          {draftQuery && <button type="button" onClick={() => { setDraftQuery(""); onQueryChange?.(""); onSelect?.(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
           {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
         </div>
         <div className="kd-workspace-openers" style={styles.workspaceOpeners}>

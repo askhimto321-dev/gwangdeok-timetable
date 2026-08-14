@@ -87,7 +87,7 @@ function normalizeUniversityAliasText(value) {
 function explicitCampusToken(value) {
   const text = normalizeText(value);
   if (/ERICA|에리카/i.test(text)) return "ERICA";
-  return ["메디컬", "글로벌", "국제", "서울", "수원", "죽전", "천안", "안양", "성남"]
+  return ["메디컬", "글로벌", "글로컬", "국제", "서울", "세종", "수원", "죽전", "천안", "안양", "성남", "안성", "미래", "다빈치", "송도", "용인", "안산", "인천"]
     .find(campus => new RegExp(`(?:\\(|\\s|\\/|^)${campus}(?:캠퍼스)?(?:\\)|\\s|\\/|$)`, "i").test(text)) || "";
 }
 function cleanCell(value) {
@@ -137,12 +137,18 @@ function unique(values) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko"));
 }
 const UNIVERSITY_CAMPUS_ALIASES = {
-  가천대: { 성남: "글로벌", 인천: "메디컬", 글로벌: "글로벌", 메디컬: "메디컬" },
-  한양대: { 서울: "서울", 안산: "ERICA", ERICA: "ERICA" },
-  경희대: { 서울: "서울", 용인: "국제", 수원: "국제", 국제: "국제" },
-  단국대: { 용인: "죽전", 죽전: "죽전", 천안: "천안" },
-  경기대: { 서울: "서울", 수원: "수원" },
-  명지대: { 서울: "서울", 용인: "용인" },
+  가천대: { 경기: "글로벌", 성남: "글로벌", 인천: "메디컬", 글로벌: "글로벌", 메디컬: "메디컬" },
+  한양대: { 서울: "서울", 경기: "ERICA", 안산: "ERICA", ERICA: "ERICA" },
+  경희대: { 서울: "서울", 경기: "국제", 용인: "국제", 수원: "국제", 국제: "국제" },
+  단국대: { 경기: "죽전", 용인: "죽전", 죽전: "죽전", 충남: "천안", 천안: "천안" },
+  경기대: { 서울: "서울", 경기: "수원", 수원: "수원" },
+  명지대: { 서울: "서울", 경기: "용인", 용인: "용인" },
+  고려대: { 서울: "서울", 세종: "세종" },
+  건국대: { 서울: "서울", 충북: "글로컬", 충주: "글로컬", 글로컬: "글로컬" },
+  중앙대: { 서울: "서울", 경기: "다빈치", 안성: "다빈치", 다빈치: "다빈치" },
+  홍익대: { 서울: "서울", 세종: "세종" },
+  상명대: { 서울: "서울", 충남: "천안", 천안: "천안" },
+  한국외대: { 서울: "서울", 경기: "글로벌", 용인: "글로벌", 글로벌: "글로벌" },
 };
 function canonicalCampus(base, campus) {
   const raw = normalizeText(campus);
@@ -173,8 +179,8 @@ function universityBaseKey(value) {
     .replace(/[（]/g, "(").replace(/[）]/g, ")")
     // 대학 식별용 기본키에서는 괄호·슬래시 뒤의 캠퍼스/지역 표기를 모두 제외합니다.
     .replace(/\([^)]*\)/g, "")
-    .replace(/\s*[\/|]\s*(?:서울|ERICA|에리카|메디컬|글로벌|국제|수원|죽전|천안|안양|성남|인천|안산|용인)(?:캠퍼스)?\s*$/gi, "")
-    .replace(/(?:서울|ERICA|에리카|메디컬|글로벌|국제|수원|죽전|천안|안양|성남|인천|안산|용인)\s*캠퍼스/gi, "")
+    .replace(/\s*[\/|]\s*(?:서울|ERICA|에리카|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인)(?:캠퍼스)?\s*$/gi, "")
+    .replace(/(?:서울|ERICA|에리카|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인)\s*캠퍼스/gi, "")
     .replace(/국립/g, "")
     .replace(/여자대학교/g, "여대")
     .replace(/대학교/g, "대")
@@ -193,14 +199,19 @@ function universityCampus(value, region = "") {
   let explicit = "";
   if (/ERICA|에리카/i.test(text)) explicit = "ERICA";
   if (!explicit) {
-    explicit = ["메디컬", "글로벌", "국제", "서울", "수원", "죽전", "천안", "안양", "성남", "인천", "안산", "용인"]
+    explicit = ["메디컬", "글로벌", "글로컬", "국제", "서울", "세종", "수원", "죽전", "천안", "안양", "성남", "인천", "안산", "안성", "미래", "다빈치", "송도", "용인"]
       .find(campus => new RegExp(`(?:\\(|\\s|\\/|^)${campus}(?:캠퍼스)?(?:\\)|\\s|\\/|$)`, "i").test(text)) || "";
   }
   if (explicit) return canonicalCampus(base, explicit);
   const regionText = normalizeText(region);
-  if (base === "한양대") return /경기|안산/.test(regionText) ? "ERICA" : "서울";
-  if (base === "가천대") return /인천/.test(regionText) ? "메디컬" : "글로벌";
-  return canonicalCampus(base, regionText) || "단일";
+  const regionMap = UNIVERSITY_CAMPUS_ALIASES[base] || null;
+  if (regionMap) {
+    const mapped = regionMap[regionText] || regionMap[regionText.toUpperCase()];
+    if (mapped) return mapped;
+  }
+  // 일반 대학은 지역명을 캠퍼스 식별자로 사용하지 않습니다.
+  // 같은 캠퍼스가 '전남/광주'처럼 서로 다른 지역 문자열로 저장돼 중복 카드가 생기는 것을 막습니다.
+  return "단일";
 }
 function universityIdentityKey(value, region = "") {
   return `${universityBaseKey(value)}|${universityCampus(value, region)}`;
@@ -306,12 +317,27 @@ function merge2026Units(a, b) {
     .map(normalizeText).filter(Boolean);
   return Array.from(new Set(values)).join(" / ");
 }
+function fieldValuesOf(row) {
+  const stored = Array.isArray(row?.[10]) ? row[10].filter(Boolean) : [];
+  if (stored.length) return unique(stored);
+  return unique([normalizeText(row?.[6])].filter(Boolean));
+}
+function mergeFieldLabels(base, next) {
+  return unique([...fieldValuesOf(base), ...fieldValuesOf(next)]);
+}
+function displayMergedFields(values) {
+  const list = unique(values || []);
+  return list.length ? list.join(" · ") : "공통";
+}
 function mergeNaviRecord(base, next) {
   const merged = [...base];
+  const fields = mergeFieldLabels(base, next);
   merged[4] = merge2026Units(base?.[4], next?.[4]);
+  merged[6] = displayMergedFields(fields);
   merged[7] = mergeAdmissionEntries(base?.[7] || [], next?.[7] || []);
   merged[8] = mergeAdmissionEntries(base?.[8] || [], next?.[8] || []);
   if (regularInfoScore(next?.[9]) > regularInfoScore(base?.[9])) merged[9] = next?.[9] ? [...next[9]] : null;
+  merged[10] = fields;
   const baseName = normalizeText(base?.[3]);
   const nextName = normalizeText(next?.[3]);
   if (!explicitCampusToken(baseName) && explicitCampusToken(nextName)) merged[3] = next?.[3];
@@ -323,12 +349,14 @@ function coalesceNaviRecords(records = []) {
     if (!Array.isArray(row)) return;
     const universityKey = universityIdentityKey(row?.[3], row?.[1]);
     const unitKey = unitIdentityKey(row?.[5]);
-    const fieldKey = compactText(row?.[6] || "공통");
-    const key = `${universityKey}|${unitKey}|${fieldKey}`;
+    // 대학·캠퍼스·2027 모집단위가 같으면 계열 표기가 달라도 한 카드로 통합합니다.
+    // 원래 계열 값은 row[10]에 보존해 지역/계열 다중필터가 정확히 작동하도록 합니다.
+    const key = `${universityKey}|${unitKey}`;
     if (!map.has(key)) {
+      const fields = unique([normalizeText(row?.[6])].filter(Boolean));
       map.set(key, [
-        row?.[0], row?.[1], row?.[2], row?.[3], row?.[4], row?.[5], row?.[6],
-        [...(row?.[7] || [])], [...(row?.[8] || [])], row?.[9] ? [...row[9]] : null,
+        row?.[0], row?.[1], row?.[2], row?.[3], row?.[4], row?.[5], displayMergedFields(fields),
+        [...(row?.[7] || [])], [...(row?.[8] || [])], row?.[9] ? [...row[9]] : null, fields,
       ]);
       return;
     }
@@ -1156,7 +1184,7 @@ export default function SusiNaviBetaView({
 
   useEffect(() => {
     writeNaviViewState(selectedStudent?.sid, {
-      version: 56,
+      version: 57,
       viewTab,
       query,
       regionFilters,
@@ -1186,7 +1214,7 @@ export default function SusiNaviBetaView({
   const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, grade5), [data, conversionMethod, conversionGroup, grade5]);
   const canonicalRecords = useMemo(() => coalesceNaviRecords(data?.records || []), [data?.records]);
   const regions = useMemo(() => unique(canonicalRecords.map(row => row[1])), [canonicalRecords]);
-  const fields = useMemo(() => unique(canonicalRecords.map(row => row[6])), [canonicalRecords]);
+  const fields = useMemo(() => unique(canonicalRecords.flatMap(row => fieldValuesOf(row))), [canonicalRecords]);
   const minimumIndex = useMemo(() => buildUniversityIndex(data?.minimums || [], 1, 0), [data]);
   const courseRuleIndex = useMemo(() => buildUniversityIndex(data?.courseRules || [], 1, 0), [data]);
   const changeIndex = useMemo(() => buildUniversityIndex(data?.changes2028 || [], 1, 0), [data]);
@@ -1219,42 +1247,42 @@ export default function SusiNaviBetaView({
   }, [enriched, connectionFocus]);
 
   const filtered = useMemo(() => {
-    const matches = enriched.filter(({ row, minimums }) => {
+    const matches = enriched.flatMap(entry => {
+      const { row, minimums } = entry;
       if (connectionFocus?.university) {
         const sameUniversity = universityIdentityKey(row[3], row[1]) === universityIdentityKey(connectionFocus.university, connectionFocus.region || "")
           || universityBaseKey(row[3]) === universityBaseKey(connectionFocus.university);
-        if (!sameUniversity) return false;
-        if (connectionFocus.department && connectionFocusDepartmentMatched && !unitSimilar(row[5], connectionFocus.department)) return false;
+        if (!sameUniversity) return [];
+        if (connectionFocus.department && connectionFocusDepartmentMatched && !unitSimilar(row[5], connectionFocus.department)) return [];
       }
-      if (regionFilters.length && !regionFilters.includes(row[1])) return false;
-      if (fieldFilters.length && !fieldFilters.includes(row[6])) return false;
-      if (admissionFilters.length) {
-        const admissionMatch = admissionFilters.some(type => (
-          (type === "교과" && row[7]?.length)
-          || (type === "종합" && row[8]?.length)
-          || (type === "정시" && row[9])
-        ));
-        if (!admissionMatch) return false;
-      }
+      if (regionFilters.length && !regionFilters.includes(row[1])) return [];
+      if (fieldFilters.length && !fieldFilters.some(field => fieldValuesOf(row).includes(field))) return [];
       if (minimumFilters.length === 1) {
-        if (minimumFilters[0] === "있음" && !minimums.length) return false;
-        if (minimumFilters[0] === "없음" && minimums.length) return false;
+        if (minimumFilters[0] === "있음" && !minimums.length) return [];
+        if (minimumFilters[0] === "없음" && minimums.length) return [];
       }
-      if (supportFilters.length && conversion?.value != null) {
-        const useTeaching = !admissionFilters.length || admissionFilters.includes("교과");
-        const useHolistic = !admissionFilters.length || admissionFilters.includes("종합");
-        const supportItems = [
-          ...(useTeaching ? (row[7] || []) : []),
-          ...(useHolistic ? (row[8] || []) : []),
-        ];
-        const labels = unique(supportItems
-          .map(item => supportBand(conversion.value, cutoffValue(item, cutoffBasis))?.label)
-          .filter(Boolean));
-        if (!labels.some(label => supportFilters.includes(label))) return false;
-      }
-      if (favoriteOnly && !favorites.some(item => favoriteMatches(item, row))) return false;
-      if (!queryMatchesRow(row, query)) return false;
-      return true;
+      if (favoriteOnly && !favorites.some(item => favoriteMatches(item, row))) return [];
+
+      const useTeaching = !admissionFilters.length || admissionFilters.includes("교과");
+      const useHolistic = !admissionFilters.length || admissionFilters.includes("종합");
+      const useRegular = !admissionFilters.length || admissionFilters.includes("정시");
+      const matchSupport = item => !supportFilters.length || conversion?.value == null
+        || supportFilters.includes(supportBand(conversion.value, cutoffValue(item, cutoffBasis))?.label);
+      const teaching = useTeaching ? (row[7] || []).filter(matchSupport) : [];
+      const holistic = useHolistic ? (row[8] || []).filter(matchSupport) : [];
+      const regular = useRegular ? row[9] : null;
+
+      // 지원구간 필터가 활성화되면 카드 내부의 전형도 선택한 구간만 남깁니다.
+      // 이전에는 '한 전형만 조건에 맞아도' 카드의 다른 상향/하향 전형까지 같이 보여 필터가 안 먹는 것처럼 보였습니다.
+      if (supportFilters.length && conversion?.value != null && !teaching.length && !holistic.length) return [];
+      if (admissionFilters.length && !teaching.length && !holistic.length && !regular) return [];
+
+      const visibleRow = [...row];
+      visibleRow[7] = teaching;
+      visibleRow[8] = holistic;
+      visibleRow[9] = regular;
+      if (!queryMatchesRow(visibleRow, query)) return [];
+      return [{ ...entry, row: visibleRow }];
     });
     const cutForRow = (entry, basis) => {
       const row = entry.row;
