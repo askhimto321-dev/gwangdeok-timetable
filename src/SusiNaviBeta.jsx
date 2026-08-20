@@ -149,11 +149,13 @@ const UNIVERSITY_CAMPUS_ALIASES = {
   홍익대: { 서울: "서울", 세종: "세종" },
   상명대: { 서울: "서울", 충남: "천안", 천안: "천안" },
   한국외대: { 서울: "서울", 경기: "글로벌", 용인: "글로벌", 글로벌: "글로벌" },
+  동국대: { 서울: "서울", 경북: "WISE", 경주: "WISE", WISE: "WISE", 와이즈: "WISE" },
 };
 function canonicalCampus(base, campus) {
   const raw = normalizeText(campus);
   if (!raw) return "";
   const map = UNIVERSITY_CAMPUS_ALIASES[base] || {};
+  if (/^(?:WISE|와이즈|경주)$/i.test(raw)) return "WISE";
   return map[raw] || map[raw.toUpperCase()] || (raw.toUpperCase() === "ERICA" ? "ERICA" : raw);
 }
 function readConversionPreference() {
@@ -179,8 +181,9 @@ function universityBaseKey(value) {
     .replace(/[（]/g, "(").replace(/[）]/g, ")")
     // 대학 식별용 기본키에서는 괄호·슬래시 뒤의 캠퍼스/지역 표기를 모두 제외합니다.
     .replace(/\([^)]*\)/g, "")
-    .replace(/\s*[\/|]\s*(?:서울|ERICA|에리카|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인)(?:캠퍼스)?\s*$/gi, "")
-    .replace(/(?:서울|ERICA|에리카|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인)\s*캠퍼스/gi, "")
+    .replace(/\s*[\/|]\s*(?:서울|ERICA|에리카|WISE|와이즈|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인|경주)(?:캠퍼스)?\s*$/gi, "")
+    .replace(/(?:서울|ERICA|에리카|WISE|와이즈|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인|경주)\s*(?:캠퍼스|캠)/gi, "")
+    .replace(/\s+(?:서울|ERICA|에리카|WISE|와이즈|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인|경주)\s*$/gi, "")
     .replace(/국립/g, "")
     .replace(/여자대학교/g, "여대")
     .replace(/대학교/g, "대")
@@ -199,9 +202,10 @@ function universityCampus(value, region = "") {
   let explicit = "";
   if (/ERICA|에리카/i.test(text)) explicit = "ERICA";
   if (!explicit) {
-    explicit = ["메디컬", "글로벌", "글로컬", "국제", "서울", "세종", "수원", "죽전", "천안", "안양", "성남", "인천", "안산", "안성", "미래", "다빈치", "송도", "용인"]
+    explicit = ["WISE", "와이즈", "메디컬", "글로벌", "글로컬", "국제", "서울", "세종", "수원", "죽전", "천안", "안양", "성남", "인천", "안산", "안성", "미래", "다빈치", "송도", "용인", "경주"]
       .find(campus => new RegExp(`(?:\\(|\\s|\\/|^)${campus}(?:캠퍼스)?(?:\\)|\\s|\\/|$)`, "i").test(text)) || "";
   }
+  if (/\bWISE\b|와이즈/i.test(text)) explicit = "WISE";
   if (explicit) return canonicalCampus(base, explicit);
   const regionText = normalizeText(region);
   const regionMap = UNIVERSITY_CAMPUS_ALIASES[base] || null;
@@ -215,6 +219,18 @@ function universityCampus(value, region = "") {
 }
 function universityIdentityKey(value, region = "") {
   return `${universityBaseKey(value)}|${universityCampus(value, region)}`;
+}
+function sameUniversityCampus(left, leftRegion = "", right, rightRegion = "") {
+  const leftBase = universityBaseKey(left);
+  const rightBase = universityBaseKey(right);
+  if (!leftBase || leftBase !== rightBase) return false;
+  const leftCampus = universityCampus(left, leftRegion);
+  const rightCampus = universityCampus(right, rightRegion);
+  if (leftCampus === rightCampus) return true;
+  // 캠퍼스가 여러 개인 대학은 캠퍼스 정보가 다르면 같은 대학으로 느슨하게 합치지 않습니다.
+  // 동국대 서울/WISE처럼 본교·분교가 섞이는 문제를 막기 위한 핵심 규칙입니다.
+  if (UNIVERSITY_CAMPUS_ALIASES[leftBase]) return false;
+  return leftCampus === "단일" || rightCampus === "단일";
 }
 function universitySearchText(value, region = "") {
   const campus = universityCampus(value, region);
@@ -617,8 +633,8 @@ function supportBand(student, cutoff) {
 
 function favoriteMatches(item, row) {
   if (!item || !row) return false;
-  const sameUniversity = universityIdentityKey(item.university, item.region || item.campus) === universityIdentityKey(row[3], row[1])
-    || universityBaseKey(item.university) === universityBaseKey(row[3]);
+  const itemRegion = item.region || (item.campus && item.campus !== "단일" ? item.campus : "");
+  const sameUniversity = sameUniversityCampus(item.university, itemRegion, row[3], row[1]);
   const department = normalizeText(item.department);
   return sameUniversity && (!department || unitSimilar(department, row[5]));
 }
@@ -893,8 +909,8 @@ function connectionFavoriteItem(item) {
 
 function favoriteMatchesConnection(favorite, entry) {
   if (!favorite || !entry) return false;
-  const sameUniversity = universityIdentityKey(favorite.university, favorite.region || favorite.campus) === universityIdentityKey(entry.university, entry.region)
-    || universityBaseKey(favorite.university) === universityBaseKey(entry.university);
+  const favoriteRegion = favorite.region || (favorite.campus && favorite.campus !== "단일" ? favorite.campus : "");
+  const sameUniversity = sameUniversityCampus(favorite.university, favoriteRegion, entry.university, entry.region);
   if (!sameUniversity) return false;
   const favoriteDepartment = compactText(favorite.department);
   const entryDepartment = compactText(entry.originalDepartment || entry.department);

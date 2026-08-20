@@ -1856,7 +1856,8 @@ function universityKey(value) {
     .replace(/여자대학교/g, "여대")
     .replace(/여자대학/g, "여대")
     .replace(/대학교/g, "대")
-    .replace(/(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|국제)캠퍼스/gi, "")
+    .replace(/\s+(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|WISE|와이즈|국제|경주)(?:캠퍼스|캠)?\s*$/gi, "")
+    .replace(/(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|국제|WISE|와이즈)캠퍼스/gi, "")
     .replace(/캠퍼스/g, "")
     .replace(/\s+/g, "")
     .replace(/[()\[\]{}·ㆍ.,_-]/g, "")
@@ -1864,7 +1865,7 @@ function universityKey(value) {
 }
 
 
-const ADMISSION_CAMPUS_ALIASES = ["서울","세종","글로컬","글로벌","메디컬","ERICA","국제","죽전","천안","안성","수원","송도","미래","다빈치","용인"];
+const ADMISSION_CAMPUS_ALIASES = ["서울","세종","글로컬","글로벌","메디컬","ERICA","WISE","와이즈","국제","죽전","천안","안성","수원","송도","미래","다빈치","용인","경주"];
 const ADMISSION_MULTI_CAMPUS_BY_REGION = {
   건국대: { 서울:"서울", 충북:"글로컬" },
   고려대: { 서울:"서울", 세종:"세종" },
@@ -1879,6 +1880,7 @@ const ADMISSION_MULTI_CAMPUS_BY_REGION = {
   성균관대: { 서울:"서울", 경기:"수원" },
   명지대: { 서울:"서울", 경기:"용인" },
   경기대: { 서울:"서울", 경기:"수원" },
+  동국대: { 서울:"서울", 경북:"WISE", 경주:"WISE" },
 };
 
 const ADMISSION_CAMPUS_LOCATION_ALIASES = {
@@ -1888,11 +1890,13 @@ const ADMISSION_CAMPUS_LOCATION_ALIASES = {
   단국대: { 용인:"죽전", 죽전:"죽전", 천안:"천안" },
   경기대: { 서울:"서울", 수원:"수원" },
   명지대: { 서울:"서울", 용인:"용인" },
+  동국대: { 서울:"서울", 경북:"WISE", 경주:"WISE", WISE:"WISE", 와이즈:"WISE" },
 };
 function canonicalAdmissionCampus(universityName, campus = "") {
   const raw = String(campus || "").trim();
   if (!raw) return "";
   const aliases = ADMISSION_CAMPUS_LOCATION_ALIASES[universityKey(universityName)] || {};
+  if (/^(?:WISE|와이즈|경주)$/i.test(raw)) return "WISE";
   return aliases[raw] || aliases[raw.toUpperCase()] || (raw.toUpperCase() === "ERICA" ? "ERICA" : raw);
 }
 function normalizeAdmissionRegion(value) {
@@ -1909,6 +1913,7 @@ function explicitAdmissionCampusLabel(value) {
   if (bracketValue && (mappedBracket !== bracketValue || ADMISSION_CAMPUS_ALIASES.some(name => bracketValue.toUpperCase() === name.toUpperCase()) || /캠퍼스/i.test(String(bracket?.[1] || "")))) {
     return mappedBracket;
   }
+  if (/\bWISE\b|와이즈/i.test(source)) return "WISE";
   const suffix = ADMISSION_CAMPUS_ALIASES.find(name => new RegExp(`${name}\\s*(?:캠퍼스|캠)`, "i").test(source));
   return suffix ? canonicalAdmissionCampus(source, suffix) : "";
 }
@@ -1974,7 +1979,7 @@ function singleCampusRegionForUniversity(entries = [], universityName = "") {
   return regions[0];
 }
 function universityNameWithoutCampus(universityName) {
-  return String(universityName || "").replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g, "").replace(/\s*(?:서울|세종|글로컬|글로벌|메디컬|ERICA|국제|죽전|천안|안성|수원|송도|미래|다빈치|용인)\s*(?:캠퍼스|캠)$/i, "").trim();
+  return String(universityName || "").replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g, "").replace(/\s*(?:서울|세종|글로컬|글로벌|메디컬|ERICA|WISE|와이즈|국제|죽전|천안|안성|수원|송도|미래|다빈치|용인|경주)\s*(?:캠퍼스|캠)$/i, "").trim();
 }
 function universityNameWithCampus(universityName, campus = "") {
   const name = canonicalAdmissionUniversityBase(universityName);
@@ -2087,11 +2092,21 @@ function admissionCaseLinkForRow(caseIndex, row) {
   if (departmentItems.length) return { count: departmentItems.length, scope: "department", label: "광덕고 학과", university: admissionCaseFocusUniversity(row), department: row?.department || "", admissionType: "" };
   return { count: universityItems.length, scope: "university", label: "광덕고 대학", university: admissionCaseFocusUniversity(row), department: "", admissionType: "" };
 }
+function favoriteCampusForItem(item) {
+  const university = String(item?.university || "").trim();
+  // 과거 즐겨찾기에 `단일`/`공통`으로 저장된 값은 실제 캠퍼스 정보가 아니므로
+  // 대학명 또는 지역에서 다시 판별합니다. (예: 동국대(WISE), 동국대 + 경북)
+  const explicit = explicitAdmissionCampusLabel(university);
+  if (explicit) return explicit;
+  const stored = String(item?.campus || "").trim();
+  if (stored && !["단일", "공통", "미지정"].includes(stored)) return canonicalAdmissionCampus(university, stored);
+  return admissionCampusLabel(university, item?.region) || "";
+}
 function favoriteSemanticKey(item) {
   const scope = item?.favoriteKind === "개별사례" || item?.caseId ? `case:${String(item?.caseId || "")}` : "group";
   // 출처가 달라도 같은 대학·캠퍼스·학과는 하나의 관심 대학 묶음으로 관리합니다.
   const admissionType = String(item?.admissionType || "").replace(/수시NAVI\s*Beta/gi, "").trim();
-  return [universityDocumentKey(item?.university, item?.region, item?.campus), String(item?.department || "전체").trim(), admissionType, scope].join("|");
+  return [universityDocumentKey(item?.university, item?.region, favoriteCampusForItem(item)), String(item?.department || "전체").trim(), admissionType, scope].join("|");
 }
 
 
@@ -3564,21 +3579,61 @@ function printCounselingHistory(options = {}) {
   if (!includeNotes && !includeFavorites) return;
   const source = document.querySelector(".counseling-print-root");
   if (!source) return;
+
+  // 메인 앱 DOM을 숨긴 채 window.print()를 호출하면 브라우저/프린트 미리보기 시점에 따라
+  // 복제 노드가 사라져 빈 페이지가 되는 경우가 있었습니다. 인쇄 문서를 전용 iframe에
+  // 완전히 격리해 상담 화면의 현재 렌더 상태와 관계없이 안정적으로 출력합니다.
   const clone = source.cloneNode(true);
   clone.classList.add("counseling-print-root-clone");
   clone.querySelectorAll(".no-print,button").forEach(node => node.remove());
   if (!includeNotes) clone.querySelectorAll(".counseling-print-notes").forEach(node => node.remove());
   if (!includeFavorites) clone.querySelectorAll(".counseling-print-favorites").forEach(node => node.remove());
-  document.body.appendChild(clone);
-  const className = "print-counseling-history";
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("title", "상담 기록 인쇄");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.cssText = "position:fixed;left:-12000px;top:0;width:210mm;height:297mm;border:0;background:#fff;pointer-events:none;";
+  document.body.appendChild(frame);
+
+  let cleaned = false;
   const cleanup = () => {
-    document.body.classList.remove(className);
-    clone.remove();
+    if (cleaned) return;
+    cleaned = true;
+    try { frame.remove(); } catch { /* already removed */ }
   };
-  document.body.classList.add(className);
-  window.addEventListener("afterprint", cleanup, { once: true });
-  window.setTimeout(() => window.print(), 70);
-  window.setTimeout(cleanup, 15000);
+  const printWindow = frame.contentWindow;
+  const printDocument = frame.contentDocument || printWindow?.document;
+  if (!printWindow || !printDocument) { cleanup(); return; }
+
+  try {
+    printDocument.open();
+    printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${COUNSELING_PRINT_CSS}</style></head><body class="print-counseling-history">${clone.outerHTML}</body></html>`);
+    printDocument.close();
+  } catch { cleanup(); return; }
+
+  printWindow.addEventListener("afterprint", cleanup, { once: true });
+  const startPrint = () => {
+    if (cleaned) return;
+    try {
+      printWindow.focus();
+      printWindow.print();
+    } catch { cleanup(); }
+  };
+  let printScheduled = false;
+  const waitForLayout = () => {
+    if (printScheduled || cleaned) return;
+    printScheduled = true;
+    const fontsReady = printDocument.fonts?.ready || Promise.resolve();
+    Promise.resolve(fontsReady).catch(() => null).finally(() => {
+      printWindow.requestAnimationFrame(() => printWindow.requestAnimationFrame(() => printWindow.setTimeout(startPrint, 80)));
+    });
+  };
+  frame.addEventListener("load", waitForLayout, { once: true });
+  // about:blank → document.write 전환에서 load 이벤트가 매우 빨리 지나가는 브라우저도 있어 타이머를 안전망으로 둡니다.
+  window.setTimeout(waitForLayout, 60);
+
+  // 미리보기에서 오래 머무르는 경우에도 문서가 중간에 삭제되지 않도록 여유 있게 정리합니다.
+  window.setTimeout(cleanup, 5 * 60 * 1000);
 }
 
 const COUNSELING_PRINT_CSS = `
@@ -3727,10 +3782,10 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
     });
     const groups = [];
     byBase.forEach(items => {
-      const knownCampuses = Array.from(new Set(items.map(item => admissionItemCampus(item)).filter(Boolean)));
+      const knownCampuses = Array.from(new Set(items.map(item => favoriteCampusForItem(item)).filter(Boolean)));
       const map = new Map();
       items.forEach(item => {
-        let campus = admissionItemCampus(item);
+        let campus = favoriteCampusForItem(item);
         if (!campus && knownCampuses.length === 1) campus = knownCampuses[0];
         const key = `${universityKey(item.university)}|${campus || "공통"}`;
         if (!map.has(key)) map.set(key, { university: item.university, region: item.region || "미지정", campus, items: [] });

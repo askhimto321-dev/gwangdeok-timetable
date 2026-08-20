@@ -758,12 +758,13 @@ function gradeDifference(studentGrade,cutGrade){
     ?{label,detail:`50%컷보다 ${fmt(Math.abs(diff))}등급 앞`,color:"#2f7347",background:"#edf8f0"}
     :{label,detail:`50%컷보다 ${fmt(diff)}등급 뒤`,color:"#9a3f3f",background:"#fff0f0"};
 }
-const CASE_CAMPUS_ALIASES=["서울","세종","글로컬","글로벌","메디컬","ERICA","국제","죽전","천안","안성","수원","송도","미래","다빈치","용인"];
+const CASE_CAMPUS_ALIASES=["서울","세종","글로컬","글로벌","메디컬","ERICA","WISE","와이즈","국제","죽전","천안","안성","수원","송도","미래","다빈치","용인","경주"];
 const CASE_MULTI_CAMPUS_BY_REGION={
   건국대:{서울:"서울",충북:"글로컬"},고려대:{서울:"서울",세종:"세종"},가천대:{경기:"글로벌",인천:"메디컬"},
   경희대:{서울:"서울",경기:"국제"},단국대:{경기:"죽전",충남:"천안"},한양대:{서울:"서울",경기:"ERICA"},
   홍익대:{서울:"서울",세종:"세종"},중앙대:{서울:"서울",경기:"다빈치"},한국외국어대:{서울:"서울",경기:"글로벌"},
-  연세대:{서울:"서울",강원:"미래"},성균관대:{서울:"서울",경기:"수원"},명지대:{서울:"서울",경기:"용인"},경기대:{서울:"서울",경기:"수원"}
+  연세대:{서울:"서울",강원:"미래"},성균관대:{서울:"서울",경기:"수원"},명지대:{서울:"서울",경기:"용인"},경기대:{서울:"서울",경기:"수원"},
+  동국대:{서울:"서울",경북:"WISE",경주:"WISE"}
 };
 const CASE_CAMPUS_LOCATION_ALIASES={
   가천대:{성남:"글로벌",인천:"메디컬",글로벌:"글로벌",메디컬:"메디컬"},
@@ -772,12 +773,13 @@ const CASE_CAMPUS_LOCATION_ALIASES={
   단국대:{용인:"죽전",죽전:"죽전",천안:"천안"},
   경기대:{서울:"서울",수원:"수원"},
   명지대:{서울:"서울",용인:"용인"},
+  동국대:{서울:"서울",경북:"WISE",경주:"WISE",WISE:"WISE",와이즈:"WISE"},
 };
-function canonicalCaseCampus(universityName,campus=""){const raw=String(campus||"").trim();if(!raw)return"";const aliases=CASE_CAMPUS_LOCATION_ALIASES[caseUniversityBase(universityName)]||{};return aliases[raw]||aliases[raw.toUpperCase()]||(raw.toUpperCase()==="ERICA"?"ERICA":raw)}
+function canonicalCaseCampus(universityName,campus=""){const raw=String(campus||"").trim();if(!raw)return"";if(/^(?:WISE|와이즈|경주)$/i.test(raw))return"WISE";const aliases=CASE_CAMPUS_LOCATION_ALIASES[caseUniversityBase(universityName)]||{};return aliases[raw]||aliases[raw.toUpperCase()]||(raw.toUpperCase()==="ERICA"?"ERICA":raw)}
 
-function caseUniversityBase(value){return String(value||"").normalize("NFKC").replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g,"").replace(/여자대학교/g,"여대").replace(/여자대학/g,"여대").replace(/대학교/g,"대").replace(/(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|국제|미래|다빈치|용인|수원)캠퍼스/gi,"").replace(/캠퍼스/g,"").replace(/\s+/g,"").replace(/[()\[\]{}·ㆍ.\-,_]/g,"").toLowerCase()}
+function caseUniversityBase(value){return String(value||"").normalize("NFKC").replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}/g,"").replace(/여자대학교/g,"여대").replace(/여자대학/g,"여대").replace(/대학교/g,"대").replace(/\s+(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|WISE|와이즈|국제|미래|다빈치|용인|수원|경주)(?:캠퍼스|캠)?\s*$/gi,"").replace(/(?:서울|세종|죽전|천안|글로컬|글로벌|메디컬|ERICA|WISE|와이즈|국제|미래|다빈치|용인|수원|경주)캠퍼스/gi,"").replace(/캠퍼스/g,"").replace(/\s+/g,"").replace(/[()\[\]{}·ㆍ.\-,_]/g,"").toLowerCase()}
 function caseRegion(value){const text=String(value||"").normalize("NFKC").replace(/특별시|광역시|특별자치시|특별자치도|도$/g,"").trim();if(!text||text==="미지정"||text==="공통")return"";const aliases={경기도:"경기",충청남도:"충남",충청북도:"충북",전라남도:"전남",전라북도:"전북",경상남도:"경남",경상북도:"경북",제주도:"제주"};return aliases[text]||text}
-function explicitCaseCampus(value){const source=String(value||"").normalize("NFKC");const bracket=source.match(/[（(\[]\s*([^）)\]]+)\s*[）)\]]/);const bracketValue=String(bracket?.[1]||"").replace(/캠퍼스|캠$/gi,"").trim();const mapped=canonicalCaseCampus(source,bracketValue);if(bracketValue&&(mapped!==bracketValue||CASE_CAMPUS_ALIASES.some(name=>bracketValue.toUpperCase()===name.toUpperCase())||/캠퍼스/i.test(String(bracket?.[1]||""))))return mapped;const suffix=CASE_CAMPUS_ALIASES.find(name=>new RegExp(`${name}\\s*(?:캠퍼스|캠)`,"i").test(source));return suffix?canonicalCaseCampus(source,suffix):""}
+function explicitCaseCampus(value){const source=String(value||"").normalize("NFKC");if(/\bWISE\b|와이즈/i.test(source))return"WISE";const bracket=source.match(/[（(\[]\s*([^）)\]]+)\s*[）)\]]/);const bracketValue=String(bracket?.[1]||"").replace(/캠퍼스|캠$/gi,"").trim();const mapped=canonicalCaseCampus(source,bracketValue);if(bracketValue&&(mapped!==bracketValue||CASE_CAMPUS_ALIASES.some(name=>bracketValue.toUpperCase()===name.toUpperCase())||/캠퍼스/i.test(String(bracket?.[1]||""))))return mapped;const suffix=CASE_CAMPUS_ALIASES.find(name=>new RegExp(`${name}\\s*(?:캠퍼스|캠)`,"i").test(source));return suffix?canonicalCaseCampus(source,suffix):""}
 function caseCampusLabel(value,region=""){const explicit=explicitCaseCampus(value);if(explicit)return explicit;const base=caseUniversityBase(value);const regionCampus=CASE_MULTI_CAMPUS_BY_REGION[base]?.[caseRegion(region)]||"";return canonicalCaseCampus(value,regionCampus)}
 function caseCampusForRow(row){
   const raw=String(row?.university||"").trim();
