@@ -1000,6 +1000,34 @@ export default function App() {
   const showToast = useCallback((msg, type = "info") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4200); }, []);
   const historyApplyingRef = useRef(false);
   const [historyMeta, setHistoryMeta] = useState({ depth: 0, maxDepth: 0 });
+  const workspaceScrollPositionsRef = useRef({});
+  const workspaceScrollRestoreTokenRef = useRef(0);
+  const studentWorkspaceViewRef = useRef(studentWorkspaceView);
+  useEffect(() => { studentWorkspaceViewRef.current = studentWorkspaceView; }, [studentWorkspaceView]);
+  const rememberWorkspaceScroll = useCallback((view = studentWorkspaceViewRef.current) => {
+    if (typeof window === "undefined" || !view) return;
+    workspaceScrollPositionsRef.current[view] = Math.max(0, window.scrollY || window.pageYOffset || 0);
+  }, []);
+  const restoreWorkspaceScroll = useCallback((view) => {
+    if (typeof window === "undefined" || !view) return;
+    const token = ++workspaceScrollRestoreTokenRef.current;
+    const stored = Number(workspaceScrollPositionsRef.current[view]);
+    const target = Number.isFinite(stored) ? Math.max(0, stored) : 0;
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      if (workspaceScrollRestoreTokenRef.current !== token) return;
+      window.scrollTo({ top: target, left: 0, behavior: "auto" });
+      // 데이터가 많은 탭은 표시 직후 높이가 한 번 더 변할 수 있어 다음 프레임에 재확인합니다.
+      window.requestAnimationFrame(() => {
+        if (workspaceScrollRestoreTokenRef.current === token) window.scrollTo({ top: target, left: 0, behavior: "auto" });
+      });
+    }));
+  }, []);
+  const prepareWorkspaceViewChange = useCallback((nextView) => {
+    const previousView = studentWorkspaceViewRef.current;
+    if (previousView && previousView !== nextView) rememberWorkspaceScroll(previousView);
+    studentWorkspaceViewRef.current = nextView;
+    if (previousView !== nextView) restoreWorkspaceScroll(nextView);
+  }, [rememberWorkspaceScroll, restoreWorkspaceScroll]);
 
   useEffect(() => {
     (async () => {
@@ -1082,6 +1110,8 @@ export default function App() {
     const browserHistory = window.history;
     const originalPushState = browserHistory.pushState.bind(browserHistory);
     const originalReplaceState = browserHistory.replaceState.bind(browserHistory);
+    const originalScrollRestoration = browserHistory.scrollRestoration;
+    try { browserHistory.scrollRestoration = "manual"; } catch { /* browser does not support it */ }
     let currentDepth = Number(browserHistory.state?.kdDepth);
     if (!Number.isFinite(currentDepth) || currentDepth < 0) {
       currentDepth = 0;
@@ -1109,6 +1139,7 @@ export default function App() {
       if (route.section !== undefined) setSection(route.section);
       if (route.tab !== undefined) setTab(route.tab);
       if (route.studentWorkspaceView !== undefined) {
+        prepareWorkspaceViewChange(route.studentWorkspaceView);
         setStudentWorkspaceView(route.studentWorkspaceView);
         if (STUDENT_WORKSPACE_VIEW_KEYS.includes(route.studentWorkspaceView)) {
           setStudentWorkspaceTabs(prev => prev.includes(route.studentWorkspaceView) ? prev : [...prev, route.studentWorkspaceView]);
@@ -1124,8 +1155,9 @@ export default function App() {
       window.removeEventListener("popstate", handlePopState);
       browserHistory.pushState = originalPushState;
       browserHistory.replaceState = originalReplaceState;
+      try { browserHistory.scrollRestoration = originalScrollRestoration; } catch { /* ignore */ }
     };
-  }, []);
+  }, [prepareWorkspaceViewChange]);
 
   useEffect(() => {
     if (typeof window === "undefined" || historyApplyingRef.current || historyMeta.depth !== 0) return;
@@ -1279,6 +1311,8 @@ export default function App() {
 
   const updateSelectedStudentSid = useCallback((sid) => {
     const value = sid ? String(sid).trim() : null;
+    workspaceScrollPositionsRef.current = {};
+    workspaceScrollRestoreTokenRef.current += 1;
     setSelectedStudentSid(value);
     if (value) {
       setSelectedStudentQuery(value);
@@ -1301,6 +1335,8 @@ export default function App() {
     setSelectedStudentQuery(value);
     const exactSid = value.trim();
     if (exactSid && allStudentSidSet.has(exactSid)) {
+      workspaceScrollPositionsRef.current = {};
+      workspaceScrollRestoreTokenRef.current += 1;
       setSelectedStudentSid(exactSid);
       const inferredGrade = exactSid.charAt(0);
       if (GRADES.includes(inferredGrade) && !DISABLED_GRADES.includes(inferredGrade)) setGrade(inferredGrade);
@@ -1474,6 +1510,7 @@ export default function App() {
   const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
   const changeStudentWorkspaceView = (view) => {
     if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
+    prepareWorkspaceViewChange(view);
     const nextTabs = studentWorkspaceTabs.includes(view) ? studentWorkspaceTabs : [...studentWorkspaceTabs, view];
     if (!studentWorkspaceTabs.includes(view)) setStudentWorkspaceTabs(nextTabs);
     const nextSection = view === "timetable" ? "timetable" : "grades";
@@ -1490,6 +1527,7 @@ export default function App() {
   };
   const syncStudentWorkspaceView = (view) => {
     if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
+    prepareWorkspaceViewChange(view);
     setStudentWorkspaceView(view);
     setStudentWorkspaceTabs(prev => {
       const next = prev.includes(view) ? prev : [...prev, view];
@@ -1507,6 +1545,7 @@ export default function App() {
       const nextView = nextTabs[Math.min(index, nextTabs.length - 1)] || nextTabs[0] || "grades";
       const nextSection = nextView === "timetable" ? "timetable" : "grades";
       const nextTab = nextView === "timetable" ? "student" : tab;
+      prepareWorkspaceViewChange(nextView);
       pushAppRoute({ section: nextSection, studentWorkspaceView: nextView, tab: nextTab });
       setStudentWorkspaceView(nextView);
       setSection(nextSection);
