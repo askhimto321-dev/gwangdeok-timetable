@@ -692,6 +692,7 @@ export default function GradesSection({
           <div style={staffToolNav.wrap}>
             <div style={staffToolNav.heading}><BarChart3 size={17} /><div style={staffToolNav.headingText}><b>교사용 분석·관리</b><span style={{ fontSize: 10.5, fontWeight: 650, color: "#7a8495" }}>학생 조회와 별도로 분석 도구를 사용할 수 있습니다.</span></div></div>
             <div style={staffToolNav.buttons}>
+              <button type="button" onClick={() => navigateGradeTab("gradeCompare")} style={{ ...staffToolNav.button, ...(tab === "gradeCompare" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 학생 성적 비교</button>
               <button type="button" onClick={() => navigateGradeTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
               <button type="button" onClick={() => navigateGradeTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
               <button type="button" onClick={() => navigateGradeTab("susiNaviBeta")} style={{ ...staffToolNav.button, ...(tab === "susiNaviBeta" ? staffToolNav.active : {}) }}><BookOpen size={13} /> 2027 수시NAVI <span style={{ fontSize: 9, opacity: .78 }}>Beta</span></button>
@@ -763,6 +764,9 @@ export default function GradesSection({
             authorName={loggedInAdmin ? "관리자" : (loggedInTeacher?.name || loggedInTeacher?.id || "선생님")}
           /> : <EmptyBox text="상단 학생 통합 검색에서 상담할 학생을 선택하세요." />}
         </div>}
+        {keepTabMounted("gradeCompare") && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{display:tab === "gradeCompare" ? "block" : "none"}}>
+          <StudentGradeComparison gdb={gdb} roster={roster} currentGrade={currentGrade} />
+        </div>}
         {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
         )}
@@ -807,6 +811,101 @@ function mockStudentName(sid, roster, gdb, entryYear) {
   }
   return "";
 }
+function buildStudentComparisonRow(sid, studentInfo, gdb) {
+  if (!sid || !gdb) return null;
+  const legacySemesterRecords = SEMESTER_KEYS.map(key => gdb.semesterData?.[key]?.students?.[sid] || null);
+  const legacyLatest = legacySemesterRecords.slice().reverse().find(Boolean) || null;
+  const metaRecord = Array.isArray(gdb.studentAccounts)
+    ? gdb.studentAccounts.find(student => String(student.id) === String(sid))
+    : gdb.studentAccounts?.[sid];
+  const entryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatest, cohortSettings: gdb.cohortSettings });
+  const semesterRecords = SEMESTER_KEYS.map((key, index) => cohortRecord(gdb.semesterData, entryYear, key)?.students?.[sid] || legacySemesterRecords[index] || null);
+  const latestRecord = semesterRecords.slice().reverse().find(Boolean) || legacyLatest;
+  const gradeSystem = Number(entryYear) >= 2025 ? 5 : 9;
+  const subjectLists = semesterRecords.map(record => record?.subjects || null);
+  const groups = computeAllGroupAverages(subjectLists, gradeSystem);
+  const lastIndex = subjectLists.reduce((found, subjects, index) => subjects?.length ? index : found, -1);
+  const valueFor = group => ({
+    primary: gradeSystem === 5 ? groups?.[group]?.avg5 ?? null : groups?.[group]?.avg9 ?? null,
+    converted: gradeSystem === 5 ? groups?.[group]?.avg9 ?? null : null,
+  });
+  return {
+    sid: String(sid),
+    name: studentInfo?.name || latestRecord?.name || metaRecord?.name || "이름 미등록",
+    classNumber: studentInfo?.class ?? latestRecord?.class ?? metaRecord?.class ?? "-",
+    number: studentInfo?.number ?? latestRecord?.number ?? metaRecord?.number ?? "-",
+    entryYear,
+    gradeSystem,
+    overall: valueFor("전과목"),
+    coreAll: valueFor("국영수사과"),
+    coreScience: valueFor("국영수과"),
+    coreSocial: valueFor("국영수사"),
+    latestKey: lastIndex >= 0 ? SEMESTER_KEYS[lastIndex] : "",
+    latestPrimary: lastIndex >= 0 ? (gradeSystem === 5 ? groups?.전과목?.perSemester5?.[lastIndex] : groups?.전과목?.perSemester9?.[lastIndex]) ?? null : null,
+    latestConverted: lastIndex >= 0 && gradeSystem === 5 ? groups?.전과목?.perSemester9?.[lastIndex] ?? null : null,
+    trend: SEMESTER_KEYS.map((key, index) => ({ key, value: gradeSystem === 5 ? groups?.전과목?.perSemester5?.[index] ?? null : groups?.전과목?.perSemester9?.[index] ?? null })).filter(item => item.value != null),
+  };
+}
+
+function StudentGradeComparison({ gdb, roster, currentGrade }) {
+  const storageKey = `kd_grade_compare_${currentGrade}`;
+  const [selectedSids, setSelectedSids] = useState(() => {
+    try { const saved = JSON.parse(localStorage.getItem(storageKey) || "[]"); return Array.isArray(saved) ? saved.map(String).slice(0, 8) : []; } catch { return []; }
+  });
+  const [query, setQuery] = useState("");
+  const rosterEntries = useMemo(() => Object.entries(roster || {}).map(([sid, info]) => ({ sid: String(sid), ...info })).sort((a,b) => (Number(a.class)-Number(b.class)) || (Number(a.number)-Number(b.number)) || a.sid.localeCompare(b.sid)), [roster]);
+  const rosterBySid = useMemo(() => new Map(rosterEntries.map(item => [item.sid, item])), [rosterEntries]);
+  useEffect(() => {
+    setSelectedSids(prev => {
+      const next = prev.filter(sid => rosterBySid.has(String(sid))).slice(0, 8);
+      return next.length === prev.length && next.every((sid,index)=>sid===prev[index]) ? prev : next;
+    });
+  }, [rosterBySid]);
+  useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(selectedSids)); } catch { /* ignore */ } }, [storageKey, selectedSids]);
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const compact = q.replace(/\s/g, "");
+    return rosterEntries.filter(item => !selectedSids.includes(item.sid) && (
+      item.sid.includes(q) || String(item.name || "").toLowerCase().includes(q) || `${item.class}반${item.number}번`.includes(compact)
+    )).slice(0, 8);
+  }, [query, rosterEntries, selectedSids]);
+  const rows = useMemo(() => selectedSids.map(sid => buildStudentComparisonRow(sid, rosterBySid.get(sid), gdb)).filter(Boolean), [selectedSids, rosterBySid, gdb]);
+  const ranked = useMemo(() => {
+    const ordered = rows.filter(row => row.overall.primary != null).slice().sort((a,b)=>a.overall.primary-b.overall.primary);
+    return new Map(ordered.map((row,index)=>[row.sid,index+1]));
+  }, [rows]);
+  const addStudent = sid => {
+    const value = String(sid || "").trim();
+    if (!rosterBySid.has(value) || selectedSids.includes(value)) return;
+    setSelectedSids(prev => [...prev, value].slice(0, 8));
+    setQuery("");
+  };
+  const gradeBox = value => {
+    if (!value) return <span style={{color:"#a0a9b6"}}>-</span>;
+    return <div style={{display:"grid",gap:2,justifyItems:"center"}}><b style={{fontSize:13,color:"#284f7d"}}>{value.primary ?? "-"}</b>{value.converted != null && <small style={{fontSize:9.2,color:"#7a6a91",fontWeight:850}}>9환산 {value.converted}</small>}</div>;
+  };
+  return <div style={{display:"grid",gap:14}}>
+    <section style={{...card,padding:0,overflow:"visible",border:"1px solid #d7e2ee"}}>
+      <div style={{padding:"18px 20px",borderRadius:"12px 12px 0 0",background:"linear-gradient(135deg,#315f95,#667bb0)",color:"#fff",display:"flex",justifyContent:"space-between",gap:14,alignItems:"center",flexWrap:"wrap"}}>
+        <div><div style={{display:"flex",alignItems:"center",gap:8,fontWeight:950,fontSize:19}}><UsersRound size={20}/>학생 성적 비교</div><div style={{marginTop:4,fontSize:11.5,color:"#e9f0f8"}}>최대 8명의 누적 내신과 교과 조합, 학기별 추이를 한 화면에서 비교합니다.</div></div>
+        <span style={{padding:"7px 10px",borderRadius:999,background:"rgba(255,255,255,.16)",fontSize:11,fontWeight:900}}>선택 {rows.length}명 / 8명</span>
+      </div>
+      <div style={{padding:16,display:"grid",gap:10}}>
+        <div style={{position:"relative",maxWidth:520}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,border:"1px solid #cad8e8",borderRadius:11,padding:"0 11px",height:42,background:"#fff",boxShadow:"0 2px 8px rgba(43,70,104,.05)"}}><Search size={15} color="#71849a"/><input value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"&&/^\d{5}$/.test(query.trim()))addStudent(query.trim())}} placeholder="학번 또는 이름으로 비교 학생 추가" style={{border:0,outline:0,width:"100%",fontSize:12.5,fontWeight:750,color:"#243c59",background:"transparent"}}/>{query&&<button type="button" onClick={()=>setQuery("")} style={{border:0,background:"transparent",cursor:"pointer",color:"#8a98a8",padding:3}}><X size={14}/></button>}</div>
+          {suggestions.length>0&&<div style={{position:"absolute",zIndex:20,top:46,left:0,right:0,border:"1px solid #d3deea",borderRadius:11,background:"#fff",boxShadow:"0 12px 28px rgba(42,61,83,.16)",overflow:"hidden"}}>{suggestions.map(item=><button key={item.sid} type="button" onClick={()=>addStudent(item.sid)} style={{width:"100%",display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,padding:"9px 11px",border:0,borderBottom:"1px solid #eef2f6",background:"#fff",cursor:"pointer",textAlign:"left"}}><span><b style={{fontSize:12,color:"#213b59"}}>{item.name}</b><small style={{marginLeft:7,color:"#8793a1"}}>{item.sid}</small></span><span style={{fontSize:10.5,color:"#66798e",fontWeight:800}}>{item.class}반 {item.number}번</span></button>)}</div>}
+        </div>
+        {selectedSids.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{selectedSids.map(sid=>{const info=rosterBySid.get(sid);return <span key={sid} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 8px",border:"1px solid #cedbea",borderRadius:999,background:"#f6f9fd",color:"#385977",fontSize:10.5,fontWeight:850}}><b>{info?.name||sid}</b><small>{sid}</small><button type="button" onClick={()=>setSelectedSids(prev=>prev.filter(value=>value!==sid))} style={{display:"grid",placeItems:"center",width:17,height:17,padding:0,border:0,borderRadius:99,background:"#e4ebf3",color:"#6d7f91",cursor:"pointer"}}><X size={10}/></button></span>})}<button type="button" onClick={()=>setSelectedSids([])} style={{border:"1px solid #e5c9c6",borderRadius:999,padding:"6px 9px",background:"#fff7f6",color:"#a14f47",fontSize:10.5,fontWeight:900,cursor:"pointer"}}>전체 해제</button></div>}
+      </div>
+    </section>
+    {rows.length===0 ? <EmptyBox text="비교할 학생을 2명 이상 검색해 추가하세요. 한 명부터도 미리 볼 수 있습니다."/> : <section style={{...card,padding:0,overflow:"hidden",borderTop:"4px solid #315f95"}}>
+      <div style={{padding:"13px 15px",display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",borderBottom:"1px solid #e3e8ee",background:"#f8fafc"}}><div><b style={{fontSize:13.5,color:"#263f5d"}}>누적 내신 비교</b><div style={{fontSize:10.5,color:"#7b8796",marginTop:3}}>5등급제 학생은 원등급과 기존 9등급 환산을 함께 표시합니다. 숫자가 낮을수록 상위입니다.</div></div><span style={{fontSize:10.5,fontWeight:900,color:"#526a83"}}>{currentGrade}학년 · {rows.length}명</span></div>
+      <div style={{overflowX:"auto"}}><table style={{...table.base,minWidth:930,tableLayout:"fixed"}}><colgroup><col style={{width:150}}/><col style={{width:108}}/><col style={{width:118}}/><col style={{width:118}}/><col style={{width:118}}/><col style={{width:126}}/><col/></colgroup><thead><tr><th style={table.th}>학생</th><th style={table.th}>전과목 누적</th><th style={table.th}>국·영·수·사·과</th><th style={table.th}>국·영·수·과</th><th style={table.th}>국·영·수·사</th><th style={table.th}>최근 학기</th><th style={table.th}>학기별 전과목 평균</th></tr></thead><tbody>{rows.map(row=>{const rank=ranked.get(row.sid);return <tr key={row.sid}><td style={{...table.td,textAlign:"left"}}><div style={{display:"flex",alignItems:"center",gap:7}}>{rank&&<span style={{display:"grid",placeItems:"center",width:25,height:25,borderRadius:8,background:rank===1?"#315f95":"#eef3f9",color:rank===1?"#fff":"#4f6780",fontSize:9.5,fontWeight:950}}>{rank}</span>}<div><b style={{display:"block",fontSize:12.5,color:"#253b55"}}>{row.name}</b><small style={{display:"block",marginTop:2,fontSize:9.5,color:"#7d8996"}}>{row.sid} · {row.classNumber}반 {row.number}번</small></div></div></td><td style={table.td}>{gradeBox(row.overall)}</td><td style={table.td}>{gradeBox(row.coreAll)}</td><td style={table.td}>{gradeBox(row.coreScience)}</td><td style={table.td}>{gradeBox(row.coreSocial)}</td><td style={table.td}><div style={{display:"grid",gap:2,justifyItems:"center"}}><small style={{fontSize:9,color:"#7b8997",fontWeight:850}}>{row.latestKey?SEMESTER_LABELS[row.latestKey]:"자료 없음"}</small><b style={{fontSize:12.5,color:"#354f6e"}}>{row.latestPrimary??"-"}</b>{row.latestConverted!=null&&<small style={{fontSize:9,color:"#7a6a91"}}>9환산 {row.latestConverted}</small>}</div></td><td style={{...table.td,textAlign:"left"}}><div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{row.trend.length?row.trend.map(item=><span key={item.key} style={{display:"inline-flex",alignItems:"center",gap:3,padding:"4px 6px",borderRadius:7,background:"#f1f5f9",color:"#526980",fontSize:9.5,fontWeight:850}}><small style={{fontSize:8.5,color:"#8995a3"}}>{item.key}</small>{item.value}</span>):<span style={{color:"#a0a9b6"}}>-</span>}</div></td></tr>})}</tbody></table></div>
+    </section>}
+  </div>;
+}
+
 function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
   const entryYear = entryYearForGrade(gdb.cohortSettings, currentGrade);
   // 현재 학년까지의 누적 회차를 모두 보여줍니다. 예: 2학년은 1학년 3·6·9·10월도 함께 조회.
@@ -1040,6 +1139,7 @@ function printStudentGradeReport(options = {}) {
   const source = document.querySelector(".student-grade-print-sheet");
   if (!source) return;
   const className = "print-student-grade-report";
+  const paper = String(options.paper || "A4").toUpperCase() === "B4" ? "B4" : "A4";
   const clone = source.cloneNode(true);
   clone.classList.add("student-grade-print-sheet-clone");
   clone.removeAttribute("aria-hidden");
@@ -1053,16 +1153,22 @@ function printStudentGradeReport(options = {}) {
   clone.dataset.printTrend = String(normalized.trend);
   clone.dataset.printMockChart = String(normalized.mockChart);
   clone.dataset.printMock = String(normalized.mock);
+  clone.dataset.paper = paper;
   clone.dataset.lowerCount = String([normalized.category, normalized.trend, normalized.mockChart, normalized.mock].filter(Boolean).length);
   const mockRows = clone.querySelectorAll(".mock-table tbody tr").length || 1;
   clone.style.setProperty("--mock-row-count", String(mockRows));
   document.body.appendChild(clone);
   document.body.classList.add(className);
+  document.body.classList.toggle("print-grade-paper-b4", paper === "B4");
+  let pageStyle = document.getElementById("student-grade-dynamic-page");
+  if (!pageStyle) { pageStyle = document.createElement("style"); pageStyle.id = "student-grade-dynamic-page"; document.body.appendChild(pageStyle); }
+  pageStyle.textContent = `@page{size:${paper} landscape;margin:${paper === "B4" ? "5mm" : "3.5mm"}}`;
   let cleaned = false;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    document.body.classList.remove(className);
+    document.body.classList.remove(className, "print-grade-paper-b4");
+    pageStyle?.remove();
     clone.remove();
   };
   window.addEventListener("afterprint", cleanup, { once: true });
@@ -1079,6 +1185,7 @@ const STUDENT_GRADE_PRINT_CSS = `
 .grade-print-conversion-box>div:first-child>b{display:block;font-size:12px;color:#294462}.grade-print-conversion-box>div:first-child>span{display:block;margin-top:4px;font-size:9.8px;line-height:1.45;color:#748397}
 .grade-print-conversion-options{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grade-print-conversion-options button{display:grid;gap:3px;text-align:left;padding:10px 11px;border:1px solid #d5dfeb;border-radius:10px;background:#fff;color:#52657d;cursor:pointer}.grade-print-conversion-options button b{font-size:11px}.grade-print-conversion-options button small{font-size:9px;color:#7d8999}.grade-print-conversion-options button.is-active{border-color:#3568a3;background:#edf4fc;color:#28588e;box-shadow:0 0 0 2px rgba(53,104,163,.10)}.grade-print-conversion-options button.is-active.beta{border-color:#735b9b;background:#f4effb;color:#604588;box-shadow:0 0 0 2px rgba(115,91,155,.10)}
 .grade-print-beta-row{display:grid;grid-template-columns:minmax(145px,.55fr) minmax(0,1fr);gap:9px;align-items:end}.grade-print-beta-row label{display:grid!important;grid-template-columns:1fr!important;gap:5px!important;padding:0!important;border:0!important;background:transparent!important}.grade-print-beta-row label>span{font-size:9.5px!important;font-weight:900;color:#61738a}.grade-print-beta-row select{width:100%;height:36px;border:1px solid #cbd7e5;border-radius:9px;background:#fff;padding:0 9px;font:inherit;font-size:10.5px;font-weight:850;color:#344a64}.grade-print-beta-row>small{display:block;padding:8px 9px;border-radius:9px;background:#fff;color:#6d7b8e;font-size:9.3px;line-height:1.4}.grade-print-beta-row>small.warning{background:#fff7e8;color:#806020}
+.grade-print-paper-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 11px;border:1px solid #dce4ec;border-radius:11px;background:#fafbfd}.grade-print-paper-row>span>b{display:block;font-size:11.5px;color:#344d69}.grade-print-paper-row>span>small{display:block;margin-top:3px;font-size:9.5px;line-height:1.4;color:#7b8999}.grade-print-paper-row>div{display:flex;gap:5px}.grade-print-paper-row button{min-width:48px;border:1px solid #d1dce8;border-radius:8px;padding:7px 9px;background:#fff;color:#64758a;font-size:10.5px;font-weight:900;cursor:pointer}.grade-print-paper-row button.is-active{background:#315f95;border-color:#315f95;color:#fff}
 .grade-print-option-actions{display:flex;justify-content:space-between;gap:9px;padding:13px 18px 17px;border-top:1px solid #edf1f5}.grade-print-option-actions>div{display:flex;gap:7px}.grade-print-option-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #cdd9e6;border-radius:9px;padding:8px 11px;background:#fff;color:#526980;font-size:11px;font-weight:900;cursor:pointer}.grade-print-option-actions button.primary{background:#3568a3;color:#fff;border-color:#3568a3}
 @media(max-width:640px){.grade-print-conversion-options,.grade-print-beta-row{grid-template-columns:1fr}.grade-print-option-actions{align-items:stretch;flex-direction:column}.grade-print-option-actions>div{display:grid;grid-template-columns:1fr 1fr}}
 @media print {
@@ -1137,6 +1244,17 @@ const STUDENT_GRADE_PRINT_CSS = `
   .student-grade-print-sheet-clone[data-semester-count="5"] th{font-size:5.4px;padding:.78mm .5mm}
   .student-grade-print-sheet-clone[data-semester-count="5"] td{font-size:5.5px;padding:.68mm .5mm}
   .student-grade-print-sheet-clone[data-semester-count="5"] .report-trend-chart,.student-grade-print-sheet-clone[data-semester-count="5"] .mock-trend-chart{height:calc(100% - 7mm)}
+  .student-grade-print-sheet-clone[data-paper="B4"]{height:236mm!important;max-height:236mm!important;padding:2mm 3mm!important}
+  .student-grade-print-sheet-clone[data-paper="B4"] .report-title{font-size:21px!important}
+  .student-grade-print-sheet-clone[data-paper="B4"] .report-student{font-size:10.2px!important}
+  .student-grade-print-sheet-clone[data-paper="B4"] .report-summary b{font-size:14.5px!important}
+  .student-grade-print-sheet-clone[data-paper="B4"] .semester-head b{font-size:8.5px!important}
+  .student-grade-print-sheet-clone[data-paper="B4"] th{font-size:6.6px!important;padding:1.2mm .75mm!important}
+  .student-grade-print-sheet-clone[data-paper="B4"] td{font-size:6.7px!important;padding:1.05mm .75mm!important}
+  .student-grade-print-sheet-clone[data-paper="B4"][data-lower-count="4"] .report-lower-grid{height:78mm!important}
+  .student-grade-print-sheet-clone[data-paper="B4"][data-lower-count="3"] .report-lower-grid{height:49mm!important}
+  .student-grade-print-sheet-clone[data-paper="B4"][data-lower-count="2"] .report-lower-grid{height:53mm!important}
+  .student-grade-print-sheet-clone[data-paper="B4"][data-lower-count="1"] .report-lower-grid{height:56mm!important}
 }
 `
 
@@ -1360,16 +1478,17 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
     return subjectLists[index] && subjectLists[index].length;
   });
   const [showGradePrintOptions, setShowGradePrintOptions] = useState(false);
-  const [gradePrintOptions, setGradePrintOptions] = useState({ category: true, trend: true, mockChart: true, mock: true, grade9Method: "legacy", betaGroup: "전교과" });
+  const [gradePrintOptions, setGradePrintOptions] = useState({ category: true, trend: true, mockChart: true, mock: true, grade9Method: "legacy", betaGroup: "전교과", paper: "A4" });
   useEffect(() => {
-    setGradePrintOptions({
+    setGradePrintOptions(prev => ({
       category: availableSemesters.length <= 3,
       trend: true,
       mockChart: availableSemesters.length <= 3,
       mock: true,
       grade9Method: statisticalReportMode ? "statistical" : "legacy",
       betaGroup: reportBetaGroup,
-    });
+      paper: prev?.paper === "B4" ? "B4" : "A4",
+    }));
   }, [sid, availableSemesters.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const printStatisticalMode = gradeSystem === 5 && gradePrintOptions.grade9Method === "statistical";
   useEffect(() => {
@@ -1511,6 +1630,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
               </div>
               {gradePrintOptions.grade9Method === "statistical" && <div className="grade-print-beta-row"><label><span>교과 조합</span><select value={gradePrintOptions.betaGroup} onChange={event => setGradePrintOptions(prev => ({ ...prev, betaGroup: event.target.value }))}>{REPORT_BETA_GROUPS.map(group => <option key={group}>{group}</option>)}</select></label><small className={["empty","error"].includes(reportBetaStatus) ? "warning" : ""}>{reportBetaStatus === "loading" ? "통계 변환표를 불러오는 중입니다." : reportBetaStatus === "empty" ? "통계 변환표가 없어 실제 인쇄 시 기존 환산으로 대체됩니다." : reportBetaStatus === "error" ? "변환표를 불러오지 못해 실제 인쇄 시 기존 환산으로 대체됩니다." : "53,149명 일반고 자료를 이용한 통계적 추정값입니다."}</small></div>}
             </div>}
+            <div className="grade-print-paper-row"><span><b>인쇄 용지</b><small>B4를 선택하면 더 넓은 용지에 맞춰 글자와 표 여백을 확대합니다.</small></span><div><button type="button" className={gradePrintOptions.paper !== "B4" ? "is-active" : ""} onClick={()=>setGradePrintOptions(prev=>({...prev,paper:"A4"}))}>A4</button><button type="button" className={gradePrintOptions.paper === "B4" ? "is-active" : ""} onClick={()=>setGradePrintOptions(prev=>({...prev,paper:"B4"}))}>B4</button></div></div>
             <label><input type="checkbox" checked disabled/><span><b>학기별 내신 성적</b><span>등록된 학기만 표시하며 빈 학기는 제외합니다.</span></span></label>
             <label><input type="checkbox" checked={gradePrintOptions.category} onChange={event=>setGradePrintOptions(prev=>({...prev,category:event.target.checked}))}/><span><b>교과별 평균 등급</b><span>국어·영어·수학·사회·과학의 학기별 평균을 표로 표시합니다.</span></span></label>
             <label><input type="checkbox" checked={gradePrintOptions.trend} onChange={event=>setGradePrintOptions(prev=>({...prev,trend:event.target.checked}))}/><span><b>전과목 평균 등급 추이</b><span>등록된 학기의 평균 등급 변화를 선 그래프로 표시합니다.</span></span></label>
@@ -3576,6 +3696,7 @@ function printCounselingHistory(options = {}) {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   const includeNotes = options.notes !== false;
   const includeFavorites = Boolean(options.favorites);
+  const paper = String(options.paper || "A4").toUpperCase() === "B4" ? "B4" : "A4";
   if (!includeNotes && !includeFavorites) return;
   const source = document.querySelector(".counseling-print-root");
   if (!source) return;
@@ -3592,7 +3713,7 @@ function printCounselingHistory(options = {}) {
   const frame = document.createElement("iframe");
   frame.setAttribute("title", "상담 기록 인쇄");
   frame.setAttribute("aria-hidden", "true");
-  frame.style.cssText = "position:fixed;left:-12000px;top:0;width:210mm;height:297mm;border:0;background:#fff;pointer-events:none;";
+  frame.style.cssText = `position:fixed;left:-12000px;top:0;width:${paper === "B4" ? "250mm" : "210mm"};height:${paper === "B4" ? "353mm" : "297mm"};border:0;background:#fff;pointer-events:none;`;
   document.body.appendChild(frame);
 
   let cleaned = false;
@@ -3607,7 +3728,8 @@ function printCounselingHistory(options = {}) {
 
   try {
     printDocument.open();
-    printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${COUNSELING_PRINT_CSS}</style></head><body class="print-counseling-history">${clone.outerHTML}</body></html>`);
+    const counselingPrintCss = COUNSELING_PRINT_CSS.replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
+    printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${counselingPrintCss}</style></head><body class="print-counseling-history ${paper === "B4" ? "counseling-paper-b4" : ""}">${clone.outerHTML}</body></html>`);
     printDocument.close();
   } catch { cleanup(); return; }
 
@@ -3642,6 +3764,7 @@ const COUNSELING_PRINT_CSS = `
 .counseling-print-option-modal{width:min(470px,100%);overflow:hidden;border:1px solid #d6e0ec;border-radius:16px;background:#fff;box-shadow:0 22px 60px rgba(29,43,61,.22);font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif}
 .counseling-print-option-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 17px 12px;border-bottom:1px solid #e6ebf1}.counseling-print-option-head b{display:block;font-size:15px;color:#263b56}.counseling-print-option-head span{display:block;margin-top:4px;font-size:10.5px;line-height:1.5;color:#758397}.counseling-print-option-head button{display:grid;place-items:center;width:30px;height:30px;border:1px solid #d9e1ea;border-radius:8px;background:#fff;color:#64748a;cursor:pointer}
 .counseling-print-option-body{display:grid;gap:8px;padding:13px 17px}.counseling-print-option-body label{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:start;padding:11px 12px;border:1px solid #dce4ed;border-radius:11px;background:#fafbfd;cursor:pointer}.counseling-print-option-body label.is-disabled{opacity:.48;cursor:not-allowed}.counseling-print-option-body input{margin-top:2px}.counseling-print-option-body b{display:block;font-size:12px;color:#344c68}.counseling-print-option-body span{display:block;margin-top:3px;font-size:10px;line-height:1.45;color:#7b899a}
+.counseling-print-paper-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 11px;border:1px solid #dce4ed;border-radius:11px;background:#f7f9fc}.counseling-print-paper-row>span>b{display:block;font-size:11.5px;color:#344c68}.counseling-print-paper-row>span>small{display:block;margin-top:3px;font-size:9.5px;color:#7b899a}.counseling-print-paper-row>div{display:flex;gap:5px}.counseling-print-paper-row button{min-width:48px;border:1px solid #d1dbe7;border-radius:8px;padding:7px 9px;background:#fff;color:#62748a;font-size:10.5px;font-weight:900;cursor:pointer}.counseling-print-paper-row button.is-active{background:#315f95;border-color:#315f95;color:#fff}
 .counseling-print-option-actions{display:flex;justify-content:flex-end;gap:7px;padding:12px 17px 16px;border-top:1px solid #edf1f5}.counseling-print-option-actions button{border:1px solid #cfdae6;border-radius:9px;padding:8px 11px;background:#fff;color:#546a82;font-size:11px;font-weight:900;cursor:pointer}.counseling-print-option-actions button.primary{background:#315f95;border-color:#315f95;color:#fff}.counseling-print-option-actions button:disabled{opacity:.45;cursor:not-allowed}
 @media print {
   @page{size:A4 portrait;margin:9mm 9mm 10mm}
@@ -3654,6 +3777,9 @@ const COUNSELING_PRINT_CSS = `
     font-size:9pt!important;line-height:1.42!important;letter-spacing:-.01em!important;
     -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
   }
+  body.print-counseling-history.counseling-paper-b4>.counseling-print-root-clone{font-size:9.6pt!important;gap:4mm!important}
+  body.print-counseling-history.counseling-paper-b4>.counseling-print-root-clone .counseling-print-note{padding:3.5mm!important}
+  body.print-counseling-history.counseling-paper-b4>.counseling-print-root-clone .counseling-print-favorites{font-size:9.2pt!important}
   body.print-counseling-history>.counseling-print-root-clone *,
   body.print-counseling-history>.counseling-print-root-clone *::before,
   body.print-counseling-history>.counseling-print-root-clone *::after{box-sizing:border-box!important;font-family:inherit!important}
@@ -3878,6 +4004,7 @@ function StudentConsultationView({
   const [printOptionsOpen, setPrintOptionsOpen] = useState(false);
   const [printNotes, setPrintNotes] = useState(true);
   const [printFavorites, setPrintFavorites] = useState(false);
+  const [printPaper, setPrintPaper] = useState("A4");
   const notes = useMemo(
     () => [...(gdb?.admissionCounseling?.[String(sid)] || [])].sort((a,b)=>String(b.date||b.createdAt||"").localeCompare(String(a.date||a.createdAt||""))),
     [gdb?.admissionCounseling, sid],
@@ -3969,10 +4096,11 @@ function StudentConsultationView({
       <div className="counseling-print-option-modal">
         <div className="counseling-print-option-head"><div><b>상담 인쇄 항목 선택</b><span>상담 기록과 관심 대학·학과 중 PDF에 넣을 항목을 선택하세요.</span></div><button type="button" onClick={()=>setPrintOptionsOpen(false)} aria-label="닫기"><X size={15}/></button></div>
         <div className="counseling-print-option-body">
+          <div className="counseling-print-paper-row"><span><b>인쇄 용지</b><small>B4는 넓은 상담 자료를 여유 있게 배치합니다.</small></span><div><button type="button" className={printPaper==="A4"?"is-active":""} onClick={()=>setPrintPaper("A4")}>A4</button><button type="button" className={printPaper==="B4"?"is-active":""} onClick={()=>setPrintPaper("B4")}>B4</button></div></div>
           <label><input type="checkbox" checked={printNotes} onChange={event=>setPrintNotes(event.target.checked)}/><span><b>상담 기록</b><span>상담일·작성자·상담 내용을 인쇄합니다.</span></span></label>
           <label className={!favorites.length?"is-disabled":""}><input type="checkbox" checked={printFavorites} disabled={!favorites.length} onChange={event=>setPrintFavorites(event.target.checked)}/><span><b>관심 대학·학과</b><span>{favorites.length?`저장된 관심 항목 ${favorites.length}개와 대학 지원·광덕고 사례·NAVI 컷 정보를 함께 인쇄합니다.`:"저장된 관심 대학·학과가 없습니다."}</span></span></label>
         </div>
-        <div className="counseling-print-option-actions"><button type="button" onClick={()=>setPrintOptionsOpen(false)}>취소</button><button type="button" className="primary" disabled={!printNotes&&!printFavorites} onClick={()=>{setPrintOptionsOpen(false);window.setTimeout(()=>printCounselingHistory({notes:printNotes,favorites:printFavorites}),40)}}><Printer size={12}/>선택 항목 인쇄·PDF</button></div>
+        <div className="counseling-print-option-actions"><button type="button" onClick={()=>setPrintOptionsOpen(false)}>취소</button><button type="button" className="primary" disabled={!printNotes&&!printFavorites} onClick={()=>{setPrintOptionsOpen(false);window.setTimeout(()=>printCounselingHistory({notes:printNotes,favorites:printFavorites,paper:printPaper}),40)}}><Printer size={12}/>선택 항목 인쇄·PDF</button></div>
       </div>
     </div>}
   </div>;

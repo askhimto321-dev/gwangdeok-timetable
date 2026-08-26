@@ -2046,10 +2046,13 @@ function StaffStudentWorkspaceBar({
   }, [allRosters, allowedGradeKey]);
   const studentBySid = useMemo(() => new Map(mergedStudents.map(student => [String(student.sid), student])), [mergedStudents]);
   const [draftQuery, setDraftQuery] = useState(() => String(query || ""));
+  const [queryEditing, setQueryEditing] = useState(false);
   useEffect(() => {
     const external = String(query || "");
-    if (selectedSid || !draftQuery || external === "") setDraftQuery(external);
-  }, [query, selectedSid]); // eslint-disable-line react-hooks/exhaustive-deps
+    // 백스페이스로 수정 중일 때 부모에 남아 있는 직전 학번이 입력창을 다시 덮어쓰지 않도록 합니다.
+    // 외부에서 학생을 새로 선택했거나 입력이 끝난 시점에만 부모 검색값을 동기화합니다.
+    if (!queryEditing || (selectedSid && external === String(selectedSid))) setDraftQuery(external);
+  }, [query, selectedSid, queryEditing]);
   useEffect(() => {
     const exactSid = draftQuery.trim();
     if (!/^\d{5}$/.test(exactSid) || selectedSid === exactSid || !studentBySid.has(exactSid)) return undefined;
@@ -2072,9 +2075,9 @@ function StaffStudentWorkspaceBar({
       <div className="kd-workspace-top-row" style={styles.workspaceBarTopRow}>
         <div style={styles.workspaceSearchWrap}>
           <Search size={16} color="#788397" />
-          <input value={draftQuery} onChange={event => { const next = event.target.value; setDraftQuery(next); if (selectedSid && next.trim() !== String(selectedSid)) onSelect?.(null); }} onBlur={() => { if (!draftQuery.trim()) onQueryChange?.(""); }} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
-          {draftQuery && <button type="button" onClick={() => { setDraftQuery(""); onQueryChange?.(""); onSelect?.(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
-          {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
+          <input value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => { const next = event.target.value; setDraftQuery(next); if (selectedSid && next.trim() !== String(selectedSid)) onSelect?.(null); }} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
+          {draftQuery && <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
+          {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(String(student.sid)); setQueryEditing(false); onSelect(student.sid); }} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
         </div>
         <div className="kd-workspace-openers" style={styles.workspaceOpeners}>
           <div style={styles.workspaceOpenersHeader}><span style={styles.workspaceOpenersLabel}>새 작업 열기</span><small>화면을 열어두고 빠르게 전환</small></div>
@@ -2453,6 +2456,7 @@ function ClassPrintView({ roster, build, hasAnyData, onLogout }) {
   const classes = useMemo(() => Array.from(new Set(Object.values(roster).map(r => r.class))).sort((a, b) => a - b), [roster]);
   const [sel, setSel] = useState(null);
   const [printPerPage, setPrintPerPage] = useState(1);
+  const [printPaper, setPrintPaper] = useState("A4");
   useEffect(() => { if (classes.length && (sel === null || !classes.includes(sel))) setSel(classes[0]); }, [classes]); // eslint-disable-line
   const students = useMemo(() => Object.entries(roster).filter(([, s]) => s.class === sel).sort((a, b) => a[1].number - b[1].number), [roster, sel]);
   const printableStudents = useMemo(() => students.map(([id]) => ({ id, result: build(id) })).filter(item => item.result), [students, build]);
@@ -2477,11 +2481,16 @@ function ClassPrintView({ roster, build, hasAnyData, onLogout }) {
         {sel != null && <div style={{...styles.printBar,alignItems:"center",flexWrap:"wrap"}}>
           <div style={{ color: "#8a8578", fontSize: 13 }}>{sel}반 학생 {students.length}명</div>
           <div className="class-print-layout-control">
+            <span>용지</span>
+            <button type="button" className={printPaper==="A4"?"active":""} onClick={()=>setPrintPaper("A4")}>A4</button>
+            <button type="button" className={printPaper==="B4"?"active":""} onClick={()=>setPrintPaper("B4")}>B4</button>
+          </div>
+          <div className="class-print-layout-control">
             <span>한 페이지</span>
             <button type="button" className={printPerPage===1?"active":""} onClick={()=>setPrintPerPage(1)}>1명</button>
             <button type="button" className={printPerPage===2?"active":""} onClick={()=>setPrintPerPage(2)}>2명</button>
           </div>
-          <button type="button" style={styles.printBtn} onClick={() => window.print()}><Printer size={14} /> {sel}반 전체 인쇄</button>
+          <button type="button" style={styles.printBtn} onClick={() => printTimetableDocument(printPaper)}><Printer size={14} /> {sel}반 전체 인쇄</button>
         </div>}
       </div>
       <div id="print-area" className={`class-print-root per-page-${printPerPage}`}>{sel != null && printPages.map((page,pageIndex) => <section key={`page-${pageIndex}`} className={`class-print-sheet ${printPerPage===2?"is-two":"is-one"}`}>
@@ -3269,7 +3278,27 @@ function PersonalNoticeComposer({ roster, db, persist, showToast, scopeKey, teac
   );
 }
 
-function printSingleTimetableCard(cardElement) {
+function printTimetableDocument(paper = "A4", beforePrint) {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  const normalizedPaper = String(paper).toUpperCase() === "B4" ? "B4" : "A4";
+  let pageStyle = document.getElementById("timetable-dynamic-page-size");
+  if (!pageStyle) { pageStyle = document.createElement("style"); pageStyle.id = "timetable-dynamic-page-size"; document.body.appendChild(pageStyle); }
+  pageStyle.textContent = `@page classTimetable { size: ${normalizedPaper}; margin: ${normalizedPaper === "B4" ? "7mm 9mm" : "5mm 7mm"}; } @page { size: ${normalizedPaper}; margin: ${normalizedPaper === "B4" ? "8mm 12mm" : "6mm 10mm"}; }`;
+  document.body.classList.toggle("print-paper-b4", normalizedPaper === "B4");
+  beforePrint?.();
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    document.body.classList.remove("print-paper-b4");
+    pageStyle?.remove();
+  };
+  window.addEventListener("afterprint", cleanup, { once: true });
+  window.setTimeout(() => window.print(), 60);
+  window.setTimeout(cleanup, 15000);
+}
+
+function printSingleTimetableCard(cardElement, paper = "A4") {
   if (!cardElement) {
     window.print();
     return;
@@ -3290,9 +3319,15 @@ function printSingleTimetableCard(cardElement) {
     clone.remove();
   };
 
-  window.addEventListener("afterprint", cleanup, { once: true });
+  const normalizedPaper = String(paper).toUpperCase() === "B4" ? "B4" : "A4";
+  let pageStyle = document.getElementById("timetable-single-dynamic-page-size");
+  if (!pageStyle) { pageStyle = document.createElement("style"); pageStyle.id = "timetable-single-dynamic-page-size"; document.body.appendChild(pageStyle); }
+  pageStyle.textContent = `@page { size: ${normalizedPaper}; margin: ${normalizedPaper === "B4" ? "8mm 12mm" : "6mm 10mm"}; }`;
+  document.body.classList.toggle("print-paper-b4", normalizedPaper === "B4");
+  const finalCleanup = () => { cleanup(); document.body.classList.remove("print-paper-b4"); pageStyle?.remove(); };
+  window.addEventListener("afterprint", finalCleanup, { once: true });
   window.setTimeout(() => window.print(), 60);
-  window.setTimeout(cleanup, 4000);
+  window.setTimeout(finalCleanup, 15000);
 }
 
 function TimetableCard({ result, sid }) {
@@ -5420,6 +5455,15 @@ const globalCss = `
     .class-print-sheet.is-two .student-timetable-table .student-timetable-cell.is-move > div:last-child { gap:.7mm !important; transform:scale(.96); transform-origin:center; }
     .class-print-sheet.is-two .timetable-legend { margin-top:.65mm !important; padding-top:.55mm !important; gap:2.5mm !important; font-size:6.35pt !important; line-height:1.05 !important; flex:0 0 auto !important; }
     .class-print-sheet.is-two .is-empty { background:linear-gradient(180deg,#fff,#fdfdfd); }
+    body.print-paper-b4 .class-print-sheet.is-two { height:333mm !important; max-height:333mm !important; }
+    body.print-paper-b4 .class-print-sheet.is-two .class-print-slot { height:160mm !important; }
+    body.print-paper-b4 .class-print-sheet.is-two .class-print-slot:nth-child(2) { top:171mm !important; }
+    body.print-paper-b4 .class-print-sheet.is-two .print-card { height:157.5mm !important; max-height:157.5mm !important; padding:2mm 3mm 1.5mm !important; }
+    body.print-paper-b4 .class-print-sheet.is-two .student-timetable-table { height:119mm !important; flex-basis:119mm !important; min-height:119mm !important; font-size:9pt !important; }
+    body.print-paper-b4 .class-print-sheet.is-two .student-timetable-table thead tr { height:8mm !important; }
+    body.print-paper-b4 .class-print-sheet.is-two .student-timetable-table tbody tr { height:15.6mm !important; }
+    body.print-paper-b4 .class-print-sheet.is-one .student-timetable-table { font-size:10.2pt !important; }
+    body.print-paper-b4 .class-print-sheet.is-one .timetable-print-title { font-size:22pt !important; }
     * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
     @page classTimetable { size: A4; margin: 5mm 7mm; }
     @page { size: A4; margin: 6mm 10mm; }

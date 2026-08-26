@@ -9,15 +9,19 @@ const PAGE_SIZE=50;
 const COLORS={blue:"#315a9b",green:"#39724c",purple:"#6b4f91",red:"#9a3f3f",gold:"#8a641d",line:"#e2ded3",muted:"#777167"};
 const CASE_CONVERSION_GROUPS=["전교과","국수영사과","국수영과","국수영사"];
 const CASE_GROUP_KEYS={전교과:"전과목",국수영사과:"국영수사과",국수영과:"국영수과",국수영사:"국영수사"};
-function printAdmissionCaseSearch(orientation="portrait"){
+function printAdmissionCaseSearch(printMode="a4-portrait"){
   if(typeof window==="undefined"||typeof document==="undefined")return;
   const className="print-admission-case-search";
+  const normalized=String(printMode||"a4-portrait").toLowerCase();
+  const paper=normalized.startsWith("b4")?"B4":"A4";
+  const orientation=normalized.includes("landscape")?"landscape":"portrait";
   const orientationClass=orientation==="landscape"?"print-admission-landscape":"print-admission-portrait";
   let pageStyle=document.getElementById("admission-case-dynamic-page");
-  if(!pageStyle){pageStyle=document.createElement("style");pageStyle.id="admission-case-dynamic-page";document.head.appendChild(pageStyle)}
-  pageStyle.textContent=`@page{size:A4 ${orientation==="landscape"?"landscape":"portrait"};margin:${orientation==="landscape"?"7mm":"10mm 11mm"}}`;
-  const cleanup=()=>{document.body.classList.remove(className,"print-admission-landscape","print-admission-portrait");pageStyle?.remove()};
+  if(!pageStyle){pageStyle=document.createElement("style");pageStyle.id="admission-case-dynamic-page";document.body.appendChild(pageStyle)}
+  pageStyle.textContent=`@page{size:${paper} ${orientation};margin:${paper==="B4"?(orientation==="landscape"?"8mm":"11mm 12mm"):(orientation==="landscape"?"7mm":"10mm 11mm")}}`;
+  const cleanup=()=>{document.body.classList.remove(className,"print-admission-landscape","print-admission-portrait","print-admission-b4");pageStyle?.remove()};
   document.body.classList.add(className,orientationClass);
+  document.body.classList.toggle("print-admission-b4",paper==="B4");
   window.addEventListener("afterprint",cleanup,{once:true});
   window.requestAnimationFrame(()=>window.print());
   window.setTimeout(cleanup,15000);
@@ -544,6 +548,7 @@ const CSS=`
   body.print-admission-case-search .admission-case-search-table td b{font-size:inherit!important}
   body.print-admission-case-search .admission-case-search-table small{font-size:5.6pt!important;line-height:1.2!important}
   body.print-admission-case-search .admission-case-search-table a{color:inherit!important;text-decoration:none!important}
+  body.print-admission-b4 .admission-case-print-root{max-width:none!important;width:100%!important}body.print-admission-b4 .admission-case-search-table{font-size:7.4pt!important}body.print-admission-b4 .admission-case-print-header h2{font-size:17pt!important}body.print-admission-b4 .admission-case-search-table th{font-size:7.1pt!important}
   body.print-admission-portrait .admission-case-print-root{width:calc(100% - 2mm)!important;margin:0 auto!important}body.print-admission-portrait .admission-case-search-table{font-size:7pt!important}
   body.print-admission-portrait .admission-case-search-table th{font-size:6.8pt!important}
   body.print-admission-portrait .admission-case-search-table th,
@@ -1316,7 +1321,7 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
   const[query,setQuery]=useState("");
   const[range,setRange]=useState(null);
   const[sortOrder,setSortOrder]=useState("default");
-  const[printOrientation,setPrintOrientation]=useState("portrait");
+  const[printOrientation,setPrintOrientation]=useState("a4-portrait");
   const[benchmarkScale,setBenchmarkScale]=useState("9");
   const[favoriteMode,setFavoriteMode]=useState("group");
   const[page,setPage]=useState(1);
@@ -1396,7 +1401,7 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
         </div>}
         <div className="admission-case-range-filter"><span>내신 비교 범위</span><button type="button" className={`admission-filter-chip ${range==null?"is-active":""}`} onClick={()=>setRange(null)}>전체</button>{[0.3,0.5,1].map(value=><button type="button" key={value} className={`admission-filter-chip ${range===value?"is-active":""}`} disabled={profile?.converted==null} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</div>
         <label className="admission-case-compact-control admission-case-sort-control"><span>정렬</span><select className="admission-case-sort-select" value={sortOrder} onChange={event=>setSortOrder(event.target.value)} aria-label="사례 정렬"><option value="default">기본 정렬</option><option value="overallAsc">내신 오름차순</option><option value="overallDesc">내신 내림차순</option></select></label>
-        <div className="admission-case-compact-control admission-case-print-control"><label><span>용지</span><select value={printOrientation} onChange={event=>setPrintOrientation(event.target.value)} aria-label="인쇄 방향"><option value="portrait">A4 세로</option><option value="landscape">A4 가로</option></select></label><button type="button" className="admission-case-print-button" onClick={()=>printAdmissionCaseSearch(printOrientation)} title="브라우저 인쇄 창에서 PDF로 저장할 수 있습니다."><Printer size={13}/>인쇄·PDF</button></div>
+        <div className="admission-case-compact-control admission-case-print-control"><label><span>용지</span><select value={printOrientation} onChange={event=>setPrintOrientation(event.target.value)} aria-label="인쇄 용지와 방향"><option value="a4-portrait">A4 세로</option><option value="a4-landscape">A4 가로</option><option value="b4-portrait">B4 세로</option><option value="b4-landscape">B4 가로</option></select></label><button type="button" className="admission-case-print-button" onClick={()=>printAdmissionCaseSearch(printOrientation)} title="브라우저 인쇄 창에서 PDF로 저장할 수 있습니다."><Printer size={13}/>인쇄·PDF</button></div>
       </div>
     </div>
     <div className="admission-case-search-context no-print"><span>{focusUniversity?<><b>연결 조회</b> · {[focusUniversity,focusDepartment,focusAdmissionType].filter(Boolean).join(" › ")}</>:<><b>현재 조회</b> · {query?`“${query}” 검색 결과`:"전체 대학·학과·전형"}</>}</span><span className="admission-case-filter-status">{scopeLabels.length?scopeLabels.map(label=><b key={label}>{label}</b>):"성적 범위 제한 없음"}{sortOrder!=="default"&&<b>{sortOrder==="overallAsc"?"내신 오름차순":"내신 내림차순"}</b>}{(focusUniversity||focusDepartment||focusAdmissionType)&&<button type="button" className="admission-clear-button" onClick={()=>{setQuery("");onClearLinkedFocus?.()}}>연결 필터 해제</button>}</span></div>
