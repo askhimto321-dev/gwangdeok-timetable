@@ -1029,17 +1029,17 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
     { icon: <GraduationCap size={18} />, value: presentRows.find(row => row.total != null)?.total ?? "-", label: "최고 총점", tone: "#6c4f8c", bg: "#f4effa" },
   ];
 
-  // 1·2등급만 강조되던 기존 표시를 1~9등급 전체가 식별되도록 확장합니다.
+  // 1·2등급은 강조색으로, 3~9등급은 동일한 중립색으로 표시해 상위 등급만 빠르게 식별합니다.
   const gradePalette = {
-    1: { background: "#def4e5", color: "#176338", border: "#afd8bd" },
-    2: { background: "#e5efff", color: "#285998", border: "#bdd0ef" },
-    3: { background: "#e5f5f5", color: "#286b72", border: "#bbdcde" },
-    4: { background: "#fff3d9", color: "#815c17", border: "#ead39b" },
-    5: { background: "#ffeddf", color: "#8d5423", border: "#ecc9aa" },
-    6: { background: "#fde9e4", color: "#994b3c", border: "#edc1b8" },
-    7: { background: "#f8e7ed", color: "#8d4960", border: "#e2bbc8" },
-    8: { background: "#eee9f7", color: "#63507f", border: "#cec2df" },
-    9: { background: "#eceff2", color: "#4f5964", border: "#cbd1d7" },
+    1: { background: "#dff4e6", color: "#176338", border: "#a9d7b8" },
+    2: { background: "#e4efff", color: "#285998", border: "#b8cdec" },
+    3: { background: "#f0f2f5", color: "#555f6b", border: "#d7dce2" },
+    4: { background: "#f0f2f5", color: "#555f6b", border: "#d7dce2" },
+    5: { background: "#f0f2f5", color: "#555f6b", border: "#d7dce2" },
+    6: { background: "#f0f2f5", color: "#555f6b", border: "#d7dce2" },
+    7: { background: "#f0f2f5", color: "#555f6b", border: "#d7dce2" },
+    8: { background: "#f0f2f5", color: "#555f6b", border: "#d7dce2" },
+    9: { background: "#f0f2f5", color: "#555f6b", border: "#d7dce2" },
   };
   const gradeCellStyle = grade => {
     const palette = gradePalette[Number(grade)] || gradePalette[9];
@@ -1135,7 +1135,7 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
           ))}
         </div>
 
-        <div style={{ ...card, borderTop: "4px solid #2b2620", marginTop: 0 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>학생별 총점 순위</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>과목별 1~9등급을 모두 색상 배지로 구분했습니다. 숫자와 배지를 함께 보아 등급을 빠르게 확인할 수 있습니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{filtered.length}명</span></div><div style={{ maxHeight: 620, overflow: "auto" }}><table style={{ ...table.base, minWidth: 880, tableLayout: "fixed" }}><colgroup><col style={{ width: 58 }} /><col style={{ width: 72 }} /><col style={{ width: 105 }} /><col style={{ width: 72 }} /><col style={{ width: 66 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} style={{ width: 72 }} />)}</colgroup><thead><tr><th style={table.th}>등수</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{filtered.map(row => {
+        <div style={{ ...card, borderTop: "4px solid #2b2620", marginTop: 0 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>학생별 총점 순위</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>1·2등급은 강조색, 3~9등급은 동일한 중립색으로 표시해 상위 등급을 빠르게 확인할 수 있습니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{filtered.length}명</span></div><div style={{ maxHeight: 620, overflow: "auto" }}><table style={{ ...table.base, minWidth: 880, tableLayout: "fixed" }}><colgroup><col style={{ width: 58 }} /><col style={{ width: 72 }} /><col style={{ width: 105 }} /><col style={{ width: 72 }} /><col style={{ width: 66 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} style={{ width: 72 }} />)}</colgroup><thead><tr><th style={table.th}>등수</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{filtered.map(row => {
           const isTop24 = row.rank != null && row.rank <= 24;
           return <tr key={row.sid} style={{ background: isTop24 ? "#fffdf5" : "#fff" }}><td style={{ ...table.td, fontWeight: 900 }}><span style={isTop24 ? { display: "inline-grid", placeItems: "center", minWidth: 31, height: 25, padding: "0 5px", borderRadius: 7, background: "#171714", color: "#f2d56b", boxShadow: "0 0 0 2px #f3e6a5" } : {}}>{row.rank ?? "-"}</span></td><td style={table.td}>{row.sid}</td><td style={{ ...table.td, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.name}>{row.name}</td><td style={table.td}>{row.classNumber ? `${row.classNumber}반` : "-"}</td><td style={{ ...table.td, fontWeight: 950, color: isTop24 ? "#6d5311" : "#2b2620" }}>{row.isAbsent ? "결시" : (row.total ?? "-")}</td>{MOCK_SUBJECTS.map(subject => {
             const grade = Number(row.grades?.[subject]);
@@ -1153,7 +1153,7 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
         </div>
 
         <div style={{ ...card, borderTop: "4px solid #5969a5", marginTop: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11, flexWrap: "wrap" }}><div><div style={{ fontWeight: 950 }}>{subjectView} 등급 분포</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>모든 등급을 같은 크기의 색상 배지로 표시해 3~9등급도 빠르게 구분할 수 있습니다.</div></div><span style={{fontSize:10.5,fontWeight:900,color:"#647184"}}>평균 {selectedSubjectAverage ?? "-"}점</span></div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11, flexWrap: "wrap" }}><div><div style={{ fontWeight: 950 }}>{subjectView} 등급 분포</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>1등급·2등급만 강조색으로 구분하고 3~9등급은 동일한 중립색으로 정리했습니다.</div></div><span style={{fontSize:10.5,fontWeight:900,color:"#647184"}}>평균 {selectedSubjectAverage ?? "-"}점</span></div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(9,minmax(62px,1fr))", gap: 6, overflowX: "auto", paddingBottom: 2 }}>{selectedSubjectGradeCounts.map((count,index)=><div key={index} style={{...gradeCellStyle(index+1),border:`1px solid ${gradePalette[index+1].border}`,borderRadius:9,padding:"8px 5px",textAlign:"center",minWidth:62}}><b style={{display:"block",fontSize:11}}>{index+1}등급</b><strong style={{display:"block",fontSize:16,marginTop:4}}>{count}</strong><small style={{display:"block",fontSize:8.8,marginTop:2}}>명</small></div>)}</div>
         </div>
 
