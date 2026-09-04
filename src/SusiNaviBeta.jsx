@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
+import { evaluateAdmissionRequirement } from "./gradeEngine.js";
 
 const STORAGE_KEY = "kd_susi_navi_beta_v1";
 const SCHEMA_VERSION = 1;
@@ -645,6 +646,58 @@ function matchesUnit(minimumUnit, recordUnit) {
   if (/전체|전모집|전계열/.test(a)) return true;
   return a === b || a.includes(b) || b.includes(a);
 }
+function naviMinimumAdmissionRow(row) {
+  if (!row) return null;
+  return {
+    university: row[1] || "",
+    track: row[3] || row[2] || "",
+    department: row[5] || "",
+    requiredSubjects: row[6] || "",
+    requiredSubjectCount: row[7] ?? null,
+    requiredSum: row[8] || "",
+    note: [row[10], row[11], row[9] != null ? `평균등급 ${row[9]}` : ""].filter(Boolean).join(" · "),
+  };
+}
+function evaluateNaviMinimum(row, selectedStudent) {
+  if (!row) return null;
+  const admissionRow = naviMinimumAdmissionRow(row);
+  const hasMock = Boolean(selectedStudent?.latestMockGrades && Object.keys(selectedStudent.latestMockGrades || {}).length);
+  const result = evaluateAdmissionRequirement(
+    admissionRow,
+    selectedStudent?.latestMockSums || null,
+    selectedStudent?.latestMockGrades || null,
+  );
+  if (!hasMock && result?.status === "unsatisfied") return { ...result, status: "unavailable", satisfied: null };
+  return result;
+}
+function minimumAppliesToAdmission(row, admissionType = "") {
+  const type = compactText(admissionType);
+  if (!type || !row) return true;
+  const rowType = compactText(`${row[2] || ""} ${row[3] || ""}`);
+  if (!rowType) return true;
+  if (type.includes("교과")) return /교과|지역균형|추천|학교장/.test(rowType);
+  if (type.includes("종합")) return /종합|학종|서류/.test(rowType);
+  return true;
+}
+
+function minimumEvaluationSummary(evaluations = []) {
+  const valid = evaluations.filter(Boolean);
+  return {
+    total: valid.length,
+    unsatisfied: valid.filter(item => item.status === "unsatisfied").length,
+    satisfied: valid.filter(item => item.status === "satisfied").length,
+    unavailable: valid.filter(item => item.status === "unavailable").length,
+    manual: valid.filter(item => item.status === "manual").length,
+  };
+}
+function naviMinimumStatusMeta(status) {
+  if (status === "unsatisfied") return { label: "최저 미도달", style: ui.minimumStatusDanger };
+  if (status === "satisfied") return { label: "최저 충족", style: ui.minimumStatusSuccess };
+  if (status === "unavailable") return { label: "성적 미입력", style: ui.minimumStatusNeutral };
+  if (status === "manual") return { label: "조건 확인", style: ui.minimumStatusWarning };
+  return null;
+}
+
 function caseCutForGroup(stat, group) {
   const index = { 전교과: 8, 국수영사과: 9, 국수영사: 10, 국수영과: 11 }[group] ?? 8;
   return stat?.[index] || null;
@@ -720,7 +773,7 @@ function schoolCaseTrend(caseRows, university, region = "", department = "", adm
 
 function supportConnectionEntries(enrichedRows, cutoffBasis, conversionGroup) {
   const entries = [];
-  (enrichedRows || []).forEach(({ row, caseStats = [] }) => {
+  (enrichedRows || []).forEach(({ row, caseStats = [], minimums = [], minimumEvaluations = [] }) => {
     const [regionGroup, region, detailRegion, university, , department, field, teaching = [], holistic = []] = row || [];
     const append = (items, admissionType) => items.forEach(item => {
       const stat = bestCaseStat(caseStats, university, region, item?.[0], admissionType, conversionGroup);
@@ -748,6 +801,7 @@ function supportConnectionEntries(enrichedRows, cutoffBasis, conversionGroup) {
         referenceSource: official ? "대학 공개 모집단위 컷" : "NAVI 통합 사례 · 대학·전형·계열 통합컷",
         integratedScope: !official,
         caseCount: Number(cuts?.[0] || 0),
+        minimumSummary: minimumEvaluationSummary(minimumEvaluations.filter((_, evaluationIndex) => minimumAppliesToAdmission(minimums[evaluationIndex], admissionType))),
       });
     });
     append(teaching, "교과");
@@ -1243,15 +1297,17 @@ export default function SusiNaviBetaView({
     const changes2028 = indexedUniversityRows(changeIndex, row[3], row[1]).filter(item => !item[6] || /O|변경|신설/.test(item[6])).slice(0, 5);
     const schedules = indexedUniversityRows(scheduleIndex, row[3], row[1]).filter(item => !item[5] || matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 5);
     const caseStats = indexedUniversityRows(caseStatIndex, row[3], row[1]);
+    const minimumEvaluations = minimums.map(item => evaluateNaviMinimum(item, selectedStudent));
     return {
       row,
       minimums,
+      minimumEvaluations,
       courseRules,
       changes2028,
       schedules,
       caseStats,
     };
-  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex]);
+  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, selectedStudent?.sid, selectedStudent?.latestMockKey, selectedStudent?.latestMockGrades, selectedStudent?.latestMockSums]);
 
   const connectionFocusDepartmentMatched = useMemo(() => {
     if (!connectionFocus?.university || !connectionFocus?.department) return false;
@@ -1615,10 +1671,12 @@ export default function SusiNaviBetaView({
           </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
-            {visible.length ? visible.map(({ row, minimums, courseRules, changes2028, schedules, caseStats }, index) => <ResultCard
+            {visible.length ? visible.map(({ row, minimums, minimumEvaluations, courseRules, changes2028, schedules, caseStats }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
               row={row}
               minimums={minimums}
+              minimumEvaluations={minimumEvaluations}
+              latestMockLabel={selectedStudent?.latestMockLabel || ""}
               courseRules={courseRules}
               changes2028={changes2028}
               schedules={schedules}
@@ -1842,7 +1900,7 @@ function SupportConnectionExplorer({
       const selected = selectedKey === item.key;
       return <article key={`${mode}-${item.key}`} onClick={() => setSelectedKey(item.key)} style={{ ...ui.connectionCard, ...(selected ? ui.connectionCardSelected : {}) }}>
         <div style={ui.connectionCardHead}>
-          <div style={ui.connectionUniversityWrap}><small style={ui.connectionEntityLabel}>대학</small><b style={ui.connectionUniversityName}>{item.university}</b><span>{item.admissionType}</span></div>
+          <div style={ui.connectionUniversityWrap}><small style={ui.connectionEntityLabel}>대학</small><b style={ui.connectionUniversityName}>{item.university}</b><span>{item.admissionType}</span>{item.minimumSummary?.unsatisfied > 0 && <em style={ui.connectionMinimumDanger}>최저 미도달</em>}</div>
           <button type="button" aria-label={favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"} disabled={!favoriteEnabled} onClick={event => { event.stopPropagation(); onToggleFavorite?.(favoriteItem); }} style={{ ...ui.connectionFavoriteBtn, ...(favorite ? ui.favoriteBtnActive : {}), ...(!favoriteEnabled ? ui.favoriteBtnDisabled : {}) }}><Star size={16} fill={favorite ? "currentColor" : "none"}/></button>
         </div>
         <div style={ui.connectionDepartmentWrap}><small style={ui.connectionEntityLabel}>모집단위</small><strong style={ui.connectionDepartment}>{item.department}</strong></div>
@@ -1924,10 +1982,11 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
   </div>;
 }
 
-function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedules = [], caseStats = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity }) {
+function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity }) {
   const [open, setOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("all");
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
+  const minimumSummary = minimumEvaluationSummary(minimumEvaluations);
   const favoriteItem = {
     source: "susiNaviBeta",
     university,
@@ -1953,6 +2012,7 @@ function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedul
           <div style={ui.universityLine}><span style={ui.resultEntityLabel}>대학</span><h3 style={ui.universityName}>{university}</h3><span style={ui.fieldBadge}>{field}</span><span style={ui.naviInlineBadge}>NAVI 통합 데이터</span></div>
           <div style={ui.resultDepartmentLine}><span style={ui.resultEntityLabel}>2027 모집단위</span><b style={ui.unitTitle}>{unit2027}</b></div>
           <span style={ui.location}>{[regionGroup, region, detailRegion].filter(Boolean).join(" · ")}</span>
+          {minimumSummary.unsatisfied > 0 && <span style={ui.minimumAlertBadge}><AlertTriangle size={12}/>{minimumSummary.unsatisfied === minimumSummary.total ? "수능최저 미도달" : `수능최저 일부 미도달 ${minimumSummary.unsatisfied}건`}</span>}
         </div>
         <div style={ui.resultQuickStats}>
           <span><small>교과전형</small><b>{teaching?.length || 0}개</b></span>
@@ -1981,7 +2041,7 @@ function ResultCard({ row, minimums, courseRules = [], changes2028 = [], schedul
             {(detailTab === "all" || detailTab === "teaching") && <AdmissionGroup title="교과전형" year="2026 입시결과" admissionType="교과" items={teaching} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="teaching" university={university} region={region} caseStats={caseStats} conversionGroup={conversionGroup} />}
             {(detailTab === "all" || detailTab === "holistic") && <AdmissionGroup title="종합전형" year="2026 입시결과" admissionType="종합" items={holistic} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="holistic" university={university} region={region} caseStats={caseStats} conversionGroup={conversionGroup} />}
             {(detailTab === "all" || detailTab === "regularMinimum") && <RegularGroup info={regular} />}
-            {(detailTab === "all" || detailTab === "regularMinimum") && <MinimumGroup rows={minimums} />}
+            {(detailTab === "all" || detailTab === "regularMinimum") && <MinimumGroup rows={minimums} evaluations={minimumEvaluations} latestMockLabel={latestMockLabel} />}
           </div>
         </div>
       </div>}
@@ -2067,12 +2127,17 @@ function RegularGroup({ info }) {
     <p style={ui.regularSubjects}>{info[4] || info[1] || "대학별 반영영역 확인 필요"}</p>
   </div> : <span style={ui.none}>정시 참고 자료 없음</span>}</div>;
 }
-function MinimumGroup({ rows = [] }) {
-  return <div style={ui.resultSection}><SectionTitle tone="minimum" title="수능최저" year="2027 기준"/>{rows.length ? <div style={ui.minimumList}>{rows.slice(0, 2).map((row, index) => <div key={`${row[3]}-${index}`} style={ui.minimumItem}>
-    <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{row[2] || "수시"}</span></div>
-    <strong style={ui.minimumCriteria}>{row[8] || "기준 원문 확인"}</strong>
-    <small style={ui.minimumNote}>{[row[6] && `반영영역 ${row[6]}`, row[10] && row[10] !== "-" ? row[10] : ""].filter(Boolean).join(" · ")}</small>
-  </div>)}</div> : <span style={ui.none}>해당 모집단위 수능최저 자료 없음</span>}</div>;
+function MinimumGroup({ rows = [], evaluations = [], latestMockLabel = "" }) {
+  return <div style={ui.resultSection}><SectionTitle tone="minimum" title="수능최저" year="2027 기준"/>{rows.length ? <div style={ui.minimumList}>{rows.slice(0, 2).map((row, index) => {
+    const evaluation = evaluations[index];
+    const meta = naviMinimumStatusMeta(evaluation?.status);
+    return <div key={`${row[3]}-${index}`} style={{ ...ui.minimumItem, ...(evaluation?.status === "unsatisfied" ? ui.minimumItemDanger : {}) }}>
+      <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{row[2] || "수시"}</span></div>
+      <div style={ui.minimumCriteriaRow}><strong style={ui.minimumCriteria}>{row[8] || "기준 원문 확인"}</strong>{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
+      <small style={ui.minimumNote}>{[row[6] && `반영영역 ${row[6]}`, row[10] && row[10] !== "-" ? row[10] : ""].filter(Boolean).join(" · ")}</small>
+      {meta && latestMockLabel && <small style={ui.minimumEvaluationNote}>{latestMockLabel} 기준 판정</small>}
+    </div>;
+  })}</div> : <span style={ui.none}>해당 모집단위 수능최저 자료 없음</span>}</div>;
 }
 
 const ui = {
@@ -2266,6 +2331,7 @@ const ui = {
   connectionUniversityWrap: { minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
   connectionEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 20, padding: "0 6px", borderRadius: 6, background: "#e8eef7", color: "#536785", fontSize: 10.5, fontWeight: 950 },
   connectionUniversityName: { minWidth: 0, fontSize: 16, lineHeight: 1.3, color: "#173a68", fontWeight: 950, overflowWrap: "anywhere" },
+  connectionMinimumDanger: { display: "inline-flex", width: "fit-content", padding: "3px 6px", borderRadius: 999, border: "1px solid #efb6b6", background: "#fff0f0", color: "#b22f2f", fontSize: 9.2, fontWeight: 950, fontStyle: "normal", lineHeight: 1 },
   connectionDepartmentWrap: { display: "grid", gap: 4, padding: "9px 10px", border: "1px solid #d7e2ed", borderRadius: 9, background: "linear-gradient(135deg,#f4f8fc,#fff)" },
   connectionFavoriteBtn: { flex: "0 0 auto", width: 29, height: 29, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #d4dce7", borderRadius: 8, background: "#fff", color: "#8b95a3", cursor: "pointer" },
   connectionDepartment: { minHeight: 0, fontSize: 16, lineHeight: 1.45, color: "#244f75", fontWeight: 900, wordBreak: "keep-all", overflowWrap: "anywhere" },
@@ -2381,11 +2447,20 @@ const ui = {
   regularMeta: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#647386" },
   regularSubjects: { margin: 0, paddingTop: 5, borderTop: "1px dashed #d7e4df", color: "#4f625c", fontSize: 9.5, lineHeight: 1.45, wordBreak: "keep-all" },
   none: { padding: "11px 8px", borderRadius: 9, background: "#f5f6f8", color: "#9aa1ad", fontSize: 10.5, lineHeight: 1.4, textAlign: "center" },
+  minimumAlertBadge: { display: "inline-flex", alignItems: "center", gap: 4, width: "fit-content", marginTop: 6, padding: "5px 8px", borderRadius: 999, border: "1px solid #efb6b6", background: "#fff0f0", color: "#b12f2f", fontSize: 10.5, fontWeight: 950, lineHeight: 1 },
   minimumList: { display: "grid", gap: 7 },
   minimumItem: { display: "grid", gap: 5, padding: "10px", borderRadius: 10, border: "1px solid #ead6a5", background: "#fffaf0", fontSize: 10.5 },
+  minimumItemDanger: { border: "1.5px solid #e7a5a5", background: "#fff7f7" },
   minimumHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7 },
-  minimumCriteria: { padding: "6px 7px", borderRadius: 7, background: "#fff2cc", color: "#7a5718", lineHeight: 1.48, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  minimumCriteriaRow: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },
+  minimumCriteria: { flex: 1, minWidth: 0, padding: "6px 7px", borderRadius: 7, background: "#fff2cc", color: "#7a5718", lineHeight: 1.48, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  minimumStatusBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "5px 7px", borderRadius: 999, fontSize: 9.5, fontWeight: 950, lineHeight: 1, whiteSpace: "nowrap" },
+  minimumStatusDanger: { border: "1px solid #efb2b2", background: "#ffeded", color: "#b32424" },
+  minimumStatusSuccess: { border: "1px solid #b9ddc4", background: "#edf8f1", color: "#276443" },
+  minimumStatusWarning: { border: "1px solid #e6cf9a", background: "#fff8e6", color: "#89631b" },
+  minimumStatusNeutral: { border: "1px solid #d8dce4", background: "#f4f6f8", color: "#687384" },
   minimumNote: { color: "#786e5e", lineHeight: 1.5, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  minimumEvaluationNote: { color: "#8a7d6a", fontSize: 9.2, fontWeight: 800 },
   noResult: { padding: 42, borderRadius: 15, border: "1px dashed #d5dae2", background: "#fafbfc", textAlign: "center", color: "#838b99" },
   pagination: { display: "flex", justifyContent: "center", alignItems: "center", gap: 7, padding: "14px 8px 5px", flexWrap: "wrap" },
   pageNavBtn: { minHeight: 34, display: "inline-flex", alignItems: "center", gap: 3, padding: "0 11px", border: "1px solid #d4dce8", borderRadius: 9, background: "#fff", color: "#536075", fontSize: 10.5, fontWeight: 850, cursor: "pointer" },

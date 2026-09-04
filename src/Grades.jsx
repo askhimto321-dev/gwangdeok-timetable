@@ -202,6 +202,30 @@ function normalizeCohortSettings(value) {
 }
 function cohortDataKey(entryYear, key) { return `${Number(entryYear)}:${key}`; }
 function cohortRecord(data, entryYear, key) { return data?.[cohortDataKey(entryYear, key)] || data?.[key] || null; }
+function semesterCohortRecord(data, entryYear, key) {
+  const scopedKey = cohortDataKey(entryYear, key);
+  const scopedContainer = data?.[scopedKey];
+  if (scopedContainer) return scopedContainer;
+
+  const scopedKeys = Object.keys(data || {})
+    .filter(value => value.startsWith(`${Number(entryYear)}:`))
+    .map(value => value.split(":").slice(1).join(":"));
+  if (!scopedKeys.length) return data?.[key] || null;
+
+  // 입학연도별 저장이 시작된 뒤에는 아직 업로드하지 않은 '미래 학기'에
+  // 예전 비분리(legacy) 데이터가 섞여 들어가면 안 됩니다.
+  // 다만 최신 업로드 학기 이전의 legacy 데이터는 과거 성적 호환을 위해 유지합니다.
+  const requestedIndex = SEMESTER_KEYS.indexOf(key);
+  const latestScopedIndex = scopedKeys
+    .map(value => SEMESTER_KEYS.indexOf(value))
+    .filter(index => index >= 0)
+    .reduce((max, index) => Math.max(max, index), -1);
+  if (requestedIndex > latestScopedIndex) return null;
+  return data?.[key] || null;
+}
+function semesterStudentRecord(data, entryYear, key, sid) {
+  return semesterCohortRecord(data, entryYear, key)?.students?.[sid] || null;
+}
 function inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord, cohortSettings }) {
   const direct = asNumber(studentInfo?.entryYear ?? metaRecord?.entryYear ?? latestSemesterRecord?.entryYear);
   if (direct) return direct;
@@ -539,11 +563,14 @@ export default function GradesSection({
     const legacyRecords = SEMESTER_KEYS.map(key => gdb.semesterData?.[key]?.students?.[sid] || null);
     const legacyLatest = legacyRecords.slice().reverse().find(Boolean) || null;
     const entryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatest, cohortSettings: gdb.cohortSettings });
-    const semesterRecords = SEMESTER_KEYS.map((key, index) => cohortRecord(gdb.semesterData, entryYear, key)?.students?.[sid] || legacyRecords[index] || null);
+    const semesterRecords = SEMESTER_KEYS.map(key => semesterStudentRecord(gdb.semesterData, entryYear, key, sid));
     const latest = semesterRecords.slice().reverse().find(Boolean) || legacyLatest;
     const subjectLists = semesterRecords.map(record => record?.subjects || null);
     const gradeSystem = Number(entryYear) >= 2025 ? 5 : 9;
     const groups = computeAllGroupAverages(subjectLists, gradeSystem);
+    const latestMockKey = MOCK_MONTH_KEYS.slice().reverse().find(key => cohortRecord(gdb.mockData, entryYear, key)?.students?.[sid]) || null;
+    const latestMockGrades = latestMockKey ? cohortRecord(gdb.mockData, entryYear, latestMockKey)?.students?.[sid] || null : null;
+    const latestMockSums = latestMockGrades ? computeMockExamSums(latestMockGrades) : null;
     return {
       sid,
       name: studentInfo?.name || latest?.name || metaRecord?.name || "",
@@ -556,6 +583,10 @@ export default function GradesSection({
         국수영사: groups?.국영수사?.avg5 ?? null,
       } : {},
       entryYear,
+      latestMockKey,
+      latestMockGrades,
+      latestMockSums,
+      latestMockLabel: latestMockKey ? mockCalendarLabel(latestMockKey, entryYear) : "",
     };
   }, [activeStudentSid, gdb, roster]);
   const toggleFavorite = useCallback(async (targetSid, item) => {
@@ -806,7 +837,7 @@ function mockStudentName(sid, roster, gdb, entryYear) {
   const rosterInfo = roster?.[sid];
   if (rosterInfo?.name) return rosterInfo.name;
   for (const key of SEMESTER_KEYS.slice().reverse()) {
-    const record = cohortRecord(gdb.semesterData, entryYear, key)?.students?.[sid];
+    const record = semesterStudentRecord(gdb.semesterData, entryYear, key, sid);
     if (record?.name) return record.name;
   }
   return "";
@@ -819,7 +850,7 @@ function buildStudentComparisonRow(sid, studentInfo, gdb) {
     ? gdb.studentAccounts.find(student => String(student.id) === String(sid))
     : gdb.studentAccounts?.[sid];
   const entryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatest, cohortSettings: gdb.cohortSettings });
-  const semesterRecords = SEMESTER_KEYS.map((key, index) => cohortRecord(gdb.semesterData, entryYear, key)?.students?.[sid] || legacySemesterRecords[index] || null);
+  const semesterRecords = SEMESTER_KEYS.map(key => semesterStudentRecord(gdb.semesterData, entryYear, key, sid));
   const latestRecord = semesterRecords.slice().reverse().find(Boolean) || legacyLatest;
   const gradeSystem = Number(entryYear) >= 2025 ? 5 : 9;
   const subjectLists = semesterRecords.map(record => record?.subjects || null);
@@ -1505,7 +1536,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
     ? studentAccounts.find(student => String(student.id) === String(sid))
     : studentAccounts?.[sid];
   const initialEntryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatestSemesterRecord, cohortSettings });
-  const semesterRecords = SEMESTER_KEYS.map((key, index) => cohortRecord(semesterData, initialEntryYear, key)?.students?.[sid] || legacySemesterRecords[index] || null);
+  const semesterRecords = SEMESTER_KEYS.map(key => semesterStudentRecord(semesterData, initialEntryYear, key, sid));
   const latestSemesterRecord = semesterRecords.slice().reverse().find(Boolean) || legacyLatestSemesterRecord;
 
   const inferredGrade = asNumber(studentInfo?.grade)
@@ -2652,7 +2683,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
     ? studentAccounts.find(student => String(student.id) === String(sid))
     : studentAccounts?.[sid];
   const initialEntryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatestSemesterRecord, cohortSettings });
-  const semesterRecords = SEMESTER_KEYS.map(key => cohortRecord(semesterData, initialEntryYear, key)?.students?.[sid] || legacySemesterRecords[SEMESTER_KEYS.indexOf(key)] || null);
+  const semesterRecords = SEMESTER_KEYS.map(key => semesterStudentRecord(semesterData, initialEntryYear, key, sid));
   const latestSemesterRecord = semesterRecords.slice().reverse().find(Boolean) || legacyLatestSemesterRecord;
   const inferredGrade = asNumber(studentInfo?.grade)
     ?? asNumber(String(sid || "").charAt(0))
@@ -3055,7 +3086,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                   return (
                     <tr key={`${row.university}-${row._index}`}>
                       <td style={{ ...admissionTable.td, ...admissionTable.favoriteCell }}>{onToggleFavorite&&<button type="button" style={{...admissionTable.starButton,...(favoriteActive({source:"admission",university:row.university,region:row.region,department:row.department,admissionType:row.track})?admissionTable.starButtonActive:{})}} onClick={()=>onToggleFavorite({source:"admission",favoriteKind:"전형",university:row.university,department:row.department,admissionType:row.track,region:row.region,field:(row._fieldTags||[]).join(", "),label:`${row.university} ${row.department||row.track||""}`})} title="상담·관심 대학에 저장"><Star size={13} fill="currentColor"/></button>}</td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{caseLink.count>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} title={`${caseLink.label} 사례 ${caseLink.count}건을 엽니다.`} onClick={()=>onOpenCases(caseLink.university,caseLink.department,caseLink.admissionType)}>{caseLink.label} {caseLink.count}건</button>:<span style={admissionTable.caseBadge} title={`${caseLink.label} 사례 ${caseLink.count}건`}>{caseLink.label} {caseLink.count}건</span>)}</div></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.university }}><div style={admissionTable.universityWrap}><span>{row.university}</span>{result.status === "unsatisfied" && <span style={admissionStatusInlineDanger}>최저 미도달</span>}{caseLink.count>0&&(onOpenCases?<button type="button" style={admissionTable.caseLink} title={`${caseLink.label} 사례 ${caseLink.count}건을 엽니다.`} onClick={()=>onOpenCases(caseLink.university,caseLink.department,caseLink.admissionType)}>{caseLink.label} {caseLink.count}건</button>:<span style={admissionTable.caseBadge} title={`${caseLink.label} 사례 ${caseLink.count}건`}>{caseLink.label} {caseLink.count}건</span>)}</div></td>
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
                       {admissionTableView === "focus" && <td style={{ ...admissionTable.td, ...admissionTable.fieldCell }}><AdmissionFieldBadges tags={row._fieldTags} /></td>}
                       {admissionTableView === "full" && <td style={{ ...admissionTable.td, ...admissionTable.regionCell }}><span style={regionBadge}>{(row.region || "미지정") !== "미지정" && <MapPin size={9} />}{row.region || "미지정"}</span></td>}
@@ -5197,8 +5228,8 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
           <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
             <span>{SEMESTER_LABELS[k]}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: cohortRecord(gdb.semesterData, entryYear, k) ? "#3d5c3a" : "#a39d8c" }}>{cohortRecord(gdb.semesterData, entryYear, k) ? `${Object.keys(cohortRecord(gdb.semesterData, entryYear, k).students).length}명 (${new Date(cohortRecord(gdb.semesterData, entryYear, k).updatedAt).toLocaleDateString("ko-KR")})` : "미등록"}</span>
-              {cohortRecord(gdb.semesterData, entryYear, k) && <button style={btn.link} onClick={() => removeSemester(k)}>삭제</button>}
+              <span style={{ color: semesterCohortRecord(gdb.semesterData, entryYear, k) ? "#3d5c3a" : "#a39d8c" }}>{semesterCohortRecord(gdb.semesterData, entryYear, k) ? `${Object.keys(semesterCohortRecord(gdb.semesterData, entryYear, k).students || {}).length}명 (${new Date(semesterCohortRecord(gdb.semesterData, entryYear, k).updatedAt).toLocaleDateString("ko-KR")})` : "미등록"}</span>
+              {gdb.semesterData?.[cohortDataKey(entryYear, k)] && <button style={btn.link} onClick={() => removeSemester(k)}>삭제</button>}
             </div>
           </div>
         ))}
@@ -6751,6 +6782,23 @@ const subjectRule = {
     overflowWrap: "anywhere",
     letterSpacing: "-0.2px",
   },
+};
+
+const admissionStatusInlineDanger = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: "fit-content",
+  marginTop: 3,
+  padding: "3px 6px",
+  borderRadius: 999,
+  border: "1px solid #efb6b6",
+  background: "#fff0f0",
+  color: "#b22f2f",
+  fontSize: 8.8,
+  fontWeight: 950,
+  lineHeight: 1,
+  whiteSpace: "nowrap",
 };
 
 const minimumBadge = {
