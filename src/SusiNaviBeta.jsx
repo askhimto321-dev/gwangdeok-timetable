@@ -29,7 +29,11 @@ const CONVERSION_GROUPS = ["전교과", "국수영사과", "국수영과", "국�
 const CONVERSION_PREF_KEY = "kd_susi_navi_conversion_pref_v1";
 const CUTOFF_PREF_KEY = "kd_susi_navi_cutoff_pref_v1";
 const CONNECTION_PAGE_SIZE = 12;
-const NAVI_VIEW_STATE_PREFIX = "kd_susi_navi_view_state_patch51";
+const RECOMMENDED_SUBJECT_STORAGE_KEY = "kd_2028_recommended_subjects_v1";
+const SUPPORT_PLAN_PREFIX = "kd_susi_support_plan_v1";
+const COMPARE_TRAY_PREFIX = "kd_susi_compare_tray_v1";
+const OFFICIAL_RECOMMENDED_SOURCE_URL = "https://www.adiga.kr/uct/ces/archiveView.do?menuId=PCUCTCES1000&prtlBbsId=26634";
+const NAVI_VIEW_STATE_PREFIX = "kd_susi_navi_view_state_patch64";
 
 function naviViewStateKey(studentSid = "") {
   return `${NAVI_VIEW_STATE_PREFIX}:${String(studentSid || "staff")}`;
@@ -64,6 +68,82 @@ function writeNaviViewState(studentSid = "", value = {}) {
 
 let betaCache = null;
 let betaCachePromise = null;
+let recommendedSubjectCache = null;
+let recommendedSubjectCachePromise = null;
+
+function supportPlanStorageKey(studentSid = "") {
+  return `${SUPPORT_PLAN_PREFIX}:${String(studentSid || "staff")}`;
+}
+function compareTrayStorageKey(studentSid = "") {
+  return `${COMPARE_TRAY_PREFIX}:${String(studentSid || "staff")}`;
+}
+function courseMatchKey(value) {
+  return normalizeText(value)
+    .replace(/[Ⅰ]/g, "1").replace(/[Ⅱ]/g, "2").replace(/[Ⅲ]/g, "3")
+    .replace(/[()（）\[\]{}·ㆍ,./\\\-_:：]/g, "")
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
+function splitCourseNames(value) {
+  const raw = normalizeText(value);
+  if (!raw) return [];
+  return Array.from(new Set(raw
+    .replace(/[•●○]/g, "·")
+    .split(/[\n,;；|]+|\s*[·ㆍ]\s*|\s*\/\s*/)
+    .map(item => item
+      .replace(/^(?:권장|반영|핵심|필수|선택|교과군|교과)\s*(?:과목)?\s*[:：]?\s*/i, "")
+      .replace(/^(?:국어|수학|영어|사회|과학|정보|제2외국어|한문)\s*[:：]\s*/i, "")
+      .trim())
+    .filter(item => item && item !== "-" && !/^(?:없음|미지정|해당없음|자율선택)$/i.test(item))));
+}
+function uniqueCourseNames(values = []) {
+  const map = new Map();
+  values.flat(Infinity).filter(Boolean).forEach(value => {
+    const key = courseMatchKey(value);
+    if (key && !map.has(key)) map.set(key, normalizeText(value));
+  });
+  return Array.from(map.values());
+}
+function uniqueStudentSubjects(values = []) {
+  const map = new Map();
+  (values || []).flat(Infinity).filter(Boolean).forEach(value => {
+    const subjectName = typeof value === "string" ? value : value?.subject;
+    const key = courseMatchKey(subjectName);
+    if (!key || map.has(key)) return;
+    map.set(key, typeof value === "string" ? { subject: normalizeText(value), category: "", subjectType: "", semesterKey: "" } : {
+      subject: normalizeText(value?.subject),
+      category: normalizeText(value?.category),
+      subjectType: normalizeText(value?.subjectType),
+      semesterKey: normalizeText(value?.semesterKey),
+    });
+  });
+  return Array.from(map.values());
+}
+function broadCourseGroup(value) {
+  const key = courseMatchKey(value);
+  const direct = {
+    국어: "국어", 수학: "수학", 영어: "영어", 사회: "사회", 과학: "과학",
+    정보: "기술가정/정보", 기술가정: "기술가정/정보", 제2외국어: "제2외국어/한문", 한문: "제2외국어/한문",
+  };
+  return direct[key] || "";
+}
+function studentCourseMatch(studentCourses = [], course = "") {
+  const target = courseMatchKey(course);
+  if (!target) return false;
+  const targetGroup = broadCourseGroup(course);
+  return (studentCourses || []).some(subject => {
+    const subjectName = typeof subject === "string" ? subject : subject?.subject;
+    const key = courseMatchKey(subjectName);
+    if (!key) return false;
+    if (key === target) return true;
+    if (targetGroup && normalizeText(subject?.category) === targetGroup) return true;
+    // 구체적인 과목명끼리만 부분 일치를 허용해 '수학'이 모든 수학 과목과 무분별하게 매칭되는 것을 막습니다.
+    return key.length >= 4 && target.length >= 4 && (key.includes(target) || target.includes(key));
+  });
+}
+function recommendationIdentityKey(item = {}) {
+  return `${universityIdentityKey(item.university, item.region || "")}|${compactText(item.department || "전체")}|${compactText(item.field || "")}`;
+}
 
 function normalizeText(value) {
   return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
@@ -485,6 +565,268 @@ function parseScheduleRows(rows) {
     result.push([cleanCell(row[1]), university, cleanCell(row[3]), cleanCell(row[4]), cleanCell(row[5]), cleanCell(row[6]), cleanCell(row[7])]);
   }
   return result;
+}
+
+
+function recommendationHeaderSpec(rows = []) {
+  const maxRows = Math.min(30, rows.length);
+  let best = null;
+  const scoreHeaders = headers => {
+    const joined = headers.join(" ");
+    let score = 0;
+    if (/대학명|대학교|(^|\s)대학($|\s)/.test(joined)) score += 5;
+    if (/권장|반영|핵심/.test(joined)) score += 4;
+    if (/과목/.test(joined)) score += 2;
+    if (/모집단위|학과|전공|계열/.test(joined)) score += 2;
+    if (/권역|지역/.test(joined)) score += 1;
+    return score;
+  };
+  for (let start = 0; start < maxRows; start += 1) {
+    for (let depth = 1; depth <= 3 && start + depth <= maxRows; depth += 1) {
+      const width = Math.max(0, ...rows.slice(start, start + depth).map(row => row?.length || 0));
+      const headers = Array.from({ length: width }, (_, column) => {
+        const parts = [];
+        for (let offset = 0; offset < depth; offset += 1) {
+          const value = normalizeText(rows[start + offset]?.[column]);
+          if (value && !parts.includes(value)) parts.push(value);
+        }
+        return parts.join(" ");
+      });
+      const score = scoreHeaders(headers);
+      if (!best || score > best.score || (score === best.score && depth < best.depth)) {
+        best = { start, end: start + depth - 1, depth, headers, score };
+      }
+    }
+  }
+  return best && best.score >= 7 ? best : null;
+}
+function recommendationColumnIndices(headers = []) {
+  const normalized = headers.map(value => normalizeText(value));
+  const first = regex => normalized.findIndex(value => regex.test(value));
+  const all = regex => normalized.map((value, index) => regex.test(value) ? index : -1).filter(index => index >= 0);
+  const university = first(/대학명|대학교|^대학$/);
+  const region = first(/권역|지역|소재지/);
+  const department = first(/모집단위|모집학과|학과|전공/);
+  const field = first(/계열|분야/);
+  const reflected = all(/반영.*과목|반영교과|반영.*교과/);
+  const core = all(/핵심.*과목|핵심권장|필수.*과목|필수이수/);
+  const recommended = all(/권장.*과목|권장교과|추천.*과목/).filter(index => !core.includes(index));
+  const notes = all(/비고|참고|안내|유의|특이사항/);
+  const occupied = new Set([...reflected, ...core, ...recommended, ...notes, university, region, department, field].filter(index => index >= 0));
+  const genericCourse = all(/과목/).filter(index => !occupied.has(index));
+  return {
+    university,
+    region,
+    department,
+    field,
+    reflected,
+    core,
+    recommended: recommended.length ? recommended : genericCourse,
+    notes,
+  };
+}
+function cellCourseNames(row = [], indices = []) {
+  return uniqueCourseNames(indices.flatMap(index => splitCourseNames(row[index])));
+}
+function coalesceRecommendationRecords(records = []) {
+  const map = new Map();
+  records.forEach(record => {
+    const key = recommendationIdentityKey(record);
+    if (!key) return;
+    if (!map.has(key)) {
+      map.set(key, {
+        ...record,
+        reflected: [...(record.reflected || [])],
+        core: [...(record.core || [])],
+        recommended: [...(record.recommended || [])],
+        notes: [...(record.notes || [])],
+        sheets: [...(record.sheets || [])],
+      });
+      return;
+    }
+    const current = map.get(key);
+    current.reflected = uniqueCourseNames([current.reflected, record.reflected]);
+    current.core = uniqueCourseNames([current.core, record.core]);
+    current.recommended = uniqueCourseNames([current.recommended, record.recommended]);
+    current.notes = Array.from(new Set([...(current.notes || []), ...(record.notes || [])].filter(Boolean)));
+    current.sheets = Array.from(new Set([...(current.sheets || []), ...(record.sheets || [])].filter(Boolean)));
+    if (!current.region) current.region = record.region || "";
+    if (!current.field) current.field = record.field || "";
+  });
+  return Array.from(map.values());
+}
+export async function parseRecommendedSubjectsWorkbook(file, onProgress = () => {}) {
+  onProgress("대교협·어디가 권장과목 자료를 읽는 중입니다.");
+  const XLSX = await import("xlsx");
+  const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false, dense: true });
+  const records = [];
+  const skippedSheets = [];
+  workbook.SheetNames.forEach(sheetName => {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) return;
+    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true, blankrows: false });
+    const header = recommendationHeaderSpec(rows);
+    if (!header) {
+      skippedSheets.push(sheetName);
+      return;
+    }
+    const columns = recommendationColumnIndices(header.headers);
+    const courseColumns = [...columns.reflected, ...columns.core, ...columns.recommended];
+    if (columns.university < 0 || !courseColumns.length) {
+      skippedSheets.push(sheetName);
+      return;
+    }
+    let lastUniversity = "";
+    let lastRegion = "";
+    let lastField = "";
+    for (let index = header.end + 1; index < rows.length; index += 1) {
+      const row = rows[index] || [];
+      const explicitUniversity = cleanCell(row[columns.university]);
+      if (explicitUniversity) lastUniversity = explicitUniversity;
+      if (columns.region >= 0 && cleanCell(row[columns.region])) lastRegion = cleanCell(row[columns.region]);
+      if (columns.field >= 0 && cleanCell(row[columns.field])) lastField = cleanCell(row[columns.field]);
+      const university = explicitUniversity || lastUniversity;
+      if (!university || /대학명|합계|총계|^계$/.test(university)) continue;
+      const department = columns.department >= 0 ? cleanCell(row[columns.department]) : "";
+      const reflected = cellCourseNames(row, columns.reflected);
+      const core = cellCourseNames(row, columns.core);
+      const recommended = cellCourseNames(row, columns.recommended);
+      if (!reflected.length && !core.length && !recommended.length) continue;
+      const notes = columns.notes.map(column => cleanCell(row[column])).filter(Boolean);
+      records.push({
+        region: columns.region >= 0 ? (cleanCell(row[columns.region]) || lastRegion) : lastRegion,
+        university,
+        department,
+        field: columns.field >= 0 ? (cleanCell(row[columns.field]) || lastField) : lastField,
+        reflected,
+        core,
+        recommended,
+        notes,
+        sheets: [sheetName],
+      });
+    }
+  });
+  const merged = coalesceRecommendationRecords(records);
+  if (!merged.length) throw new Error("권장과목 자료를 읽지 못했습니다. 어디가의 ‘2028학년도 권역별 대학별 권장과목(반영과목)’ XLSX 파일인지 확인해주세요.");
+  onProgress(`권장과목 ${merged.length.toLocaleString()}개 대학·모집단위 연결 정보를 정리했습니다.`);
+  return {
+    schemaVersion: 2,
+    source: {
+      fileName: file.name,
+      fileSize: file.size,
+      parsedAt: new Date().toISOString(),
+      reference: "대입정보포털 어디가 · 2028학년도 권역별 대학별 권장과목(반영과목)",
+      referenceDate: "2025-09-30 대학 발표자료 탑재 기준",
+      publishedDate: "2026-02-20",
+      url: OFFICIAL_RECOMMENDED_SOURCE_URL,
+    },
+    stats: {
+      records: merged.length,
+      universities: unique(merged.map(item => universityIdentityKey(item.university, item.region || ""))).length,
+      sheets: workbook.SheetNames.length,
+      skippedSheets,
+    },
+    records: merged,
+  };
+}
+async function loadRecommendedSubjectData(force = false) {
+  if (!force && recommendedSubjectCache) return recommendedSubjectCache;
+  if (!force && recommendedSubjectCachePromise) return recommendedSubjectCachePromise;
+  recommendedSubjectCachePromise = readStorage(RECOMMENDED_SUBJECT_STORAGE_KEY, null).then(value => {
+    recommendedSubjectCache = value && [1, 2].includes(Number(value.schemaVersion)) ? value : null;
+    recommendedSubjectCachePromise = null;
+    return recommendedSubjectCache;
+  });
+  return recommendedSubjectCachePromise;
+}
+function updateRecommendedSubjectCache(value) {
+  recommendedSubjectCache = value;
+  recommendedSubjectCachePromise = null;
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(new CustomEvent("kd-recommended-subjects-updated", { detail: value || null }));
+    } catch {
+      // CustomEvent를 사용할 수 없는 오래된 환경에서는 다음 화면 진입 시 다시 읽습니다.
+    }
+  }
+}
+function recommendationForUnit(recommendationData, university, region = "", department = "") {
+  const records = recommendationData?.records || [];
+  const exactCampus = records.filter(item => sameUniversityCampus(item.university, item.region || "", university, region));
+  const baseMatches = records.filter(item => universityBaseKey(item.university) === universityBaseKey(university));
+  // 캠퍼스가 명확한 경우 서울/Wise처럼 같은 대학명의 다른 캠퍼스 자료를 섞지 않습니다.
+  const sameUniversity = exactCampus.length ? exactCampus : baseMatches;
+  if (!sameUniversity.length) return null;
+  const exactDepartment = department
+    ? sameUniversity.filter(item => item.department && unitSimilar(item.department, department))
+    : [];
+  const commonDepartment = sameUniversity.filter(item => !item.department || /전체|전모집|공통|대학전체|전학과/.test(compactText(item.department)));
+  const source = exactDepartment.length ? exactDepartment : commonDepartment;
+  // 특정 모집단위 연결에 실패했다고 다른 학과 권장과목을 합쳐 보여주지 않습니다.
+  if (!source.length) return null;
+  const reflected = uniqueCourseNames(source.flatMap(item => item.reflected || []));
+  const core = uniqueCourseNames(source.flatMap(item => item.core || item.required || []));
+  const recommended = uniqueCourseNames(source.flatMap(item => item.recommended || []));
+  if (!reflected.length && !core.length && !recommended.length) return null;
+  return {
+    university,
+    department,
+    matchedDepartment: exactDepartment.length ? (exactDepartment[0]?.department || "") : "",
+    scope: exactDepartment.length ? "모집단위 기준" : "대학 공통 기준",
+    reflected,
+    core,
+    recommended,
+    notes: Array.from(new Set(source.flatMap(item => item.notes || []).filter(Boolean))).slice(0, 4),
+    source: recommendationData?.source || null,
+  };
+}
+function recommendationProgress(recommendation, studentSubjects = []) {
+  if (!recommendation) return null;
+  const targets = uniqueCourseNames([
+    recommendation.reflected || [],
+    recommendation.core || recommendation.required || [],
+    recommendation.recommended || [],
+  ]);
+  const matched = targets.filter(course => studentCourseMatch(studentSubjects, course));
+  return {
+    total: targets.length,
+    matched: matched.length,
+    matchedCourses: matched,
+    missingCourses: targets.filter(course => !matched.includes(course)),
+    ratio: targets.length ? matched.length / targets.length : null,
+  };
+}
+function findEnrichedWorkspaceEntry(enriched = [], item = {}) {
+  const unitMatches = ({ row }) => unitSimilar(row?.[5], item.department);
+  const exact = enriched.find(entry => universityIdentityKey(entry.row?.[3], entry.row?.[1]) === universityIdentityKey(item.university, item.region || "") && unitMatches(entry));
+  if (exact) return exact;
+  // 과거 저장본처럼 지역/캠퍼스 정보가 없는 항목만 대학명 기준으로 완화합니다.
+  if (!normalizeText(item.region)) return enriched.find(entry => universityBaseKey(entry.row?.[3]) === universityBaseKey(item.university) && unitMatches(entry)) || null;
+  return null;
+}
+
+function supportPlanItemKey(item = {}) {
+  return `${universityIdentityKey(item.university, item.region || "")}|${compactText(item.department)}|${compactText(item.admissionType)}|${compactText(item.track)}`;
+}
+function compareItemKey(item = {}) {
+  return `${universityIdentityKey(item.university, item.region || "")}|${compactText(item.department)}`;
+}
+function matchingMinimumStatus(minimums = [], evaluations = [], admissionType = "", track = "") {
+  const typeMatches = minimums.map((row, index) => ({ row, evaluation: evaluations[index] }))
+    .filter(({ row }) => minimumAppliesToAdmission(row, admissionType));
+  const trackKey = compactText(track);
+  const exact = trackKey ? typeMatches.filter(({ row }) => {
+    const rowKey = compactText(`${row?.[3] || ""} ${row?.[2] || ""}`);
+    return rowKey.includes(trackKey) || trackKey.includes(rowKey);
+  }) : [];
+  const source = exact.length ? exact : typeMatches;
+  const statuses = source.map(item => item.evaluation?.status).filter(Boolean);
+  if (!statuses.length) return "none";
+  if (statuses.includes("unsatisfied")) return "unsatisfied";
+  if (statuses.includes("satisfied")) return "satisfied";
+  if (statuses.includes("manual")) return "manual";
+  if (statuses.includes("unavailable")) return "unavailable";
+  return "none";
 }
 
 export async function parseSusiNaviWorkbook(file, onProgress = () => {}) {
@@ -991,8 +1333,15 @@ export function SusiNaviBetaAdmin({ showToast }) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const inputRef = useRef(null);
+  const [recommendedData, setRecommendedData] = useState(null);
+  const [recommendedDraft, setRecommendedDraft] = useState(null);
+  const [recommendedFile, setRecommendedFile] = useState(null);
+  const recommendedInputRef = useRef(null);
 
-  useEffect(() => { loadBetaData().then(setSchoolData); }, []);
+  useEffect(() => {
+    loadBetaData().then(setSchoolData);
+    loadRecommendedSubjectData().then(setRecommendedData);
+  }, []);
 
   const parseFile = async () => {
     if (!file) return showToast?.("수시NAVI 엑셀 파일을 선택해주세요.", "warning");
@@ -1041,6 +1390,53 @@ export function SusiNaviBetaAdmin({ showToast }) {
       setBusy(false);
     }
   };
+  const parseRecommendedFile = async () => {
+    if (!recommendedFile) return showToast?.("어디가 권장과목 XLSX 파일을 선택해주세요.", "warning");
+    setBusy(true);
+    try {
+      const parsed = await parseRecommendedSubjectsWorkbook(recommendedFile, setStatus);
+      setRecommendedDraft(parsed);
+      showToast?.(`${parsed.stats.records.toLocaleString()}개 권장과목 연결 정보를 확인했습니다.`, "success");
+    } catch (error) {
+      console.error(error);
+      showToast?.(error?.message || "권장과목 파일을 분석하지 못했습니다.", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const saveRecommended = async () => {
+    if (!recommendedDraft) return showToast?.("먼저 권장과목 파일을 분석해주세요.", "warning");
+    setBusy(true);
+    setStatus("대학별 권장과목 자료를 학교 공용 데이터에 저장하는 중입니다.");
+    try {
+      const saved = { ...recommendedDraft, source: { ...recommendedDraft.source, savedAt: new Date().toISOString() } };
+      const result = await writeStorage(RECOMMENDED_SUBJECT_STORAGE_KEY, saved);
+      if (!result?.ok) throw new Error(result?.error || "저장 실패");
+      updateRecommendedSubjectCache(saved);
+      setRecommendedData(saved);
+      showToast?.("2028 대학별 권장과목 자료를 반영했습니다.", "success");
+    } catch (error) {
+      showToast?.(`권장과목 자료를 저장하지 못했습니다: ${error?.message || error}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const clearRecommended = async () => {
+    if (!window.confirm("2028 대학별 권장과목 학교 공용 자료를 초기화할까요?")) return;
+    setBusy(true);
+    try {
+      const result = await writeStorage(RECOMMENDED_SUBJECT_STORAGE_KEY, null);
+      if (!result?.ok) throw new Error(result?.error || "초기화 실패");
+      updateRecommendedSubjectCache(null);
+      setRecommendedData(null);
+      setRecommendedDraft(null);
+      showToast?.("권장과목 자료를 초기화했습니다.", "success");
+    } catch (error) {
+      showToast?.(`권장과목 자료를 초기화하지 못했습니다: ${error?.message || error}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <section style={ui.adminWrap}>
@@ -1062,6 +1458,25 @@ export function SusiNaviBetaAdmin({ showToast }) {
       </div>
       {status && <div style={ui.statusLine}>{busy && <Loader2 size={13} className="spin" />}{status}</div>}
       <div style={ui.notice}><AlertTriangle size={15} /><span>원본 엑셀 전체를 저장하지 않고, Beta 검색에 필요한 대학·모집단위·입시결과·수능최저·통계 변환·합격사례 분포·2028 변화·교과반영·일정 자료만 추출해 저장합니다.</span></div>
+
+      <div style={ui.recommendAdminPanel}>
+        <div style={ui.recommendAdminHead}>
+          <div><span style={ui.recommendSourceBadge}>공식 자료</span><b>2028 대학별 권장과목 · 반영과목</b><p>대입정보포털 어디가의 「2028학년도 권역별 대학별 권장과목(반영과목)」 XLSX를 업로드합니다. 학생에게는 ‘필수 요건’이 아니라 대학 발표 기반 참고자료로 표시합니다.</p><a href={OFFICIAL_RECOMMENDED_SOURCE_URL} target="_blank" rel="noreferrer" style={ui.recommendOfficialLink}>어디가 공식 게시물 열기 ↗</a></div>
+          {recommendedData && <button type="button" style={ui.dangerGhost} onClick={clearRecommended} disabled={busy}><X size={14}/>권장과목 자료 초기화</button>}
+        </div>
+        <div style={ui.recommendDataGrid}>
+          <article style={ui.recommendDataCard}><small>현재 학교 반영본</small><b>{recommendedData ? `${Number(recommendedData.stats?.universities || 0).toLocaleString()}개 대학` : "자료 없음"}</b><span>{recommendedData ? `${Number(recommendedData.stats?.records || 0).toLocaleString()}개 대학·모집단위 연결 · ${recommendedData.source?.referenceDate || ""}` : "어디가 공식 XLSX를 반영해주세요."}</span></article>
+          <article style={ui.recommendDataCard}><small>업로드 미리보기</small><b>{recommendedDraft ? `${Number(recommendedDraft.stats?.universities || 0).toLocaleString()}개 대학` : "미분석"}</b><span>{recommendedDraft ? `${Number(recommendedDraft.stats?.records || 0).toLocaleString()}개 연결 정보${recommendedDraft.stats?.skippedSheets?.length ? ` · 미인식 시트 ${recommendedDraft.stats.skippedSheets.length}개` : ""}` : "파일 선택 후 분석합니다."}</span></article>
+        </div>
+        <div style={ui.recommendUploadRow}>
+          <input ref={recommendedInputRef} type="file" accept=".xlsx,.xlsm,.xls" style={{display:"none"}} onChange={event => { setRecommendedFile(event.target.files?.[0] || null); setRecommendedDraft(null); }} />
+          <button type="button" style={ui.secondaryBtn} onClick={() => recommendedInputRef.current?.click()} disabled={busy}><FileSpreadsheet size={15}/>권장과목 XLSX 선택</button>
+          <div style={ui.fileName}>{recommendedFile ? <><b>{recommendedFile.name}</b><span>{humanBytes(recommendedFile.size)}</span></> : <span>어디가 ‘2028학년도 권역별 대학별 권장과목(반영과목).xlsx’</span>}</div>
+          <button type="button" style={ui.secondaryBtn} onClick={parseRecommendedFile} disabled={!recommendedFile || busy}>{busy ? <Loader2 size={15} className="spin"/> : <RefreshCw size={15}/>}분석</button>
+          <button type="button" style={ui.primaryBtn} onClick={saveRecommended} disabled={!recommendedDraft || busy}><Upload size={15}/>학교 자료에 반영</button>
+        </div>
+        <div style={ui.recommendOfficialNote}><Database size={14}/><span><b>자료 기준:</b> 한국대학교육협의회 대입정보포털 어디가의 공식 XLSX입니다. 해당 파일은 2025.9.30 어디가에 탑재된 각 대학의 2028학년도 모집단위별 반영·권장과목 발표를 요약한 자료이며, 대학 발표가 바뀔 수 있으므로 실제 지원 전에는 대학 입학처 공지를 최종 확인합니다.</span></div>
+      </div>
     </section>
   );
 }
@@ -1103,6 +1518,11 @@ export default function SusiNaviBetaView({
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [recommendedData, setRecommendedData] = useState(null);
+  const [supportPlan, setSupportPlan] = useState([]);
+  const [compareTray, setCompareTray] = useState([]);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [workspaceMessage, setWorkspaceMessage] = useState("");
   const conversionPreference = useMemo(() => readConversionPreference(), []);
   const restoredViewState = useMemo(() => readNaviViewState(selectedStudent?.sid), []);
   const restoredSupportFilters = Array.isArray(restoredViewState?.supportFilters)
@@ -1131,14 +1551,14 @@ export default function SusiNaviBetaView({
   const [connectionRange, setConnectionRange] = useState(restoredViewState?.connectionRange || "0.30");
   const [connectionUniversity, setConnectionUniversity] = useState(restoredViewState?.connectionUniversity || "");
   const [favoriteOnly, setFavoriteOnly] = useState(Boolean(restoredViewState?.favoriteOnly));
-  const [viewTab, setViewTab] = useState(["search", "results", "connection"].includes(restoredViewState?.viewTab) ? restoredViewState.viewTab : "search");
+  const [viewTab, setViewTab] = useState(["search", "results", "connection", "workspace"].includes(restoredViewState?.viewTab) ? restoredViewState.viewTab : "search");
   const [connectionFocus, setConnectionFocus] = useState(restoredViewState?.connectionFocus || null);
   const [page, setPage] = useState(Math.max(1, Number(restoredViewState?.page || 1)));
   const naviHistorySessionRef = useRef(`kd-susi-navi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const naviHistoryDepthRef = useRef(0);
 
   const navigateViewTab = (nextTab, { replace = false } = {}) => {
-    if (!["search", "results", "connection"].includes(nextTab)) return;
+    if (!["search", "results", "connection", "workspace"].includes(nextTab)) return;
     setViewTab(nextTab);
     if (typeof window === "undefined") return;
     const session = naviHistorySessionRef.current;
@@ -1183,7 +1603,7 @@ export default function SusiNaviBetaView({
     const handlePopState = event => {
       const state = event.state || {};
       if (state.kdSusiNaviSession !== session) return;
-      if (!["search", "results", "connection"].includes(state.kdSusiNaviTab)) return;
+      if (!["search", "results", "connection", "workspace"].includes(state.kdSusiNaviTab)) return;
       naviHistoryDepthRef.current = Math.max(0, Number(state.kdSusiNaviDepth || 0));
       setViewTab(state.kdSusiNaviTab);
     };
@@ -1193,9 +1613,40 @@ export default function SusiNaviBetaView({
 
   useEffect(() => {
     let active = true;
-    loadBetaData().then(value => { if (active) { setData(value); setLoading(false); } });
-    return () => { active = false; };
+    Promise.all([loadBetaData(), loadRecommendedSubjectData()]).then(([value, recommendations]) => {
+      if (!active) return;
+      setData(value);
+      setRecommendedData(recommendations);
+      setLoading(false);
+    });
+    const handleRecommendedUpdate = event => setRecommendedData(event?.detail || null);
+    if (typeof window !== "undefined") window.addEventListener("kd-recommended-subjects-updated", handleRecommendedUpdate);
+    return () => {
+      active = false;
+      if (typeof window !== "undefined") window.removeEventListener("kd-recommended-subjects-updated", handleRecommendedUpdate);
+    };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const sid = String(selectedStudent?.sid || "").trim();
+    // 학생을 바꾸는 순간 이전 학생의 지원판/비교함이 잠깐 보이지 않도록 먼저 비웁니다.
+    setSupportPlan([]);
+    setCompareTray([]);
+    setWorkspaceMessage("");
+    if (!sid) {
+      return () => { active = false; };
+    }
+    Promise.all([
+      readStorage(supportPlanStorageKey(sid), { items: [] }),
+      readStorage(compareTrayStorageKey(sid), { items: [] }),
+    ]).then(([plan, compare]) => {
+      if (!active) return;
+      setSupportPlan(Array.isArray(plan?.items) ? plan.items.slice(0, 6) : []);
+      setCompareTray(Array.isArray(compare?.items) ? compare.items.slice(0, 5) : []);
+    });
+    return () => { active = false; };
+  }, [selectedStudent?.sid]);
 
   const handledExternalFocusRef = useRef("");
   useEffect(() => {
@@ -1254,7 +1705,7 @@ export default function SusiNaviBetaView({
 
   useEffect(() => {
     writeNaviViewState(selectedStudent?.sid, {
-      version: 57,
+      version: 64,
       viewTab,
       query,
       regionFilters,
@@ -1282,6 +1733,76 @@ export default function SusiNaviBetaView({
   ]);
 
   const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, grade5), [data, conversionMethod, conversionGroup, grade5]);
+  const studentSubjects = useMemo(() => uniqueStudentSubjects(selectedStudent?.subjects || []), [selectedStudent?.subjects]);
+
+  const persistSupportPlan = async nextItems => {
+    const sid = String(selectedStudent?.sid || "").trim();
+    if (!sid) {
+      setWorkspaceMessage("학생을 먼저 선택해주세요.");
+      return false;
+    }
+    setWorkspaceBusy(true);
+    const normalized = nextItems.slice(0, 6);
+    const result = await writeStorage(supportPlanStorageKey(sid), { items: normalized, updatedAt: new Date().toISOString() });
+    setWorkspaceBusy(false);
+    if (!result?.ok) {
+      setWorkspaceMessage(`지원판을 저장하지 못했습니다: ${result?.error || "저장 오류"}`);
+      return false;
+    }
+    setSupportPlan(normalized);
+    setWorkspaceMessage(`수시 지원판을 저장했습니다. (${normalized.length}/6)`);
+    return true;
+  };
+  const persistCompareTray = async nextItems => {
+    const sid = String(selectedStudent?.sid || "").trim();
+    if (!sid) {
+      setWorkspaceMessage("학생을 먼저 선택해주세요.");
+      return false;
+    }
+    setWorkspaceBusy(true);
+    const normalized = nextItems.slice(0, 5);
+    const result = await writeStorage(compareTrayStorageKey(sid), { items: normalized, updatedAt: new Date().toISOString() });
+    setWorkspaceBusy(false);
+    if (!result?.ok) {
+      setWorkspaceMessage(`대학 비교함을 저장하지 못했습니다: ${result?.error || "저장 오류"}`);
+      return false;
+    }
+    setCompareTray(normalized);
+    setWorkspaceMessage(`대학 비교함을 저장했습니다. (${normalized.length}/5)`);
+    return true;
+  };
+  const addSupportPlanItem = async item => {
+    if (!selectedStudent?.sid) return setWorkspaceMessage("학생을 먼저 선택해주세요.");
+    const key = supportPlanItemKey(item);
+    if (supportPlan.some(value => supportPlanItemKey(value) === key)) {
+      setWorkspaceMessage("이미 수시 지원판에 들어 있는 전형입니다.");
+      return;
+    }
+    if (supportPlan.length >= 6) {
+      setWorkspaceMessage("수시 지원판은 6장까지 저장할 수 있습니다. 먼저 한 항목을 삭제해주세요.");
+      navigateViewTab("workspace");
+      return;
+    }
+    const next = [...supportPlan, { ...item, addedAt: new Date().toISOString() }];
+    await persistSupportPlan(next);
+  };
+  const removeSupportPlanItem = item => persistSupportPlan(supportPlan.filter(value => supportPlanItemKey(value) !== supportPlanItemKey(item)));
+  const addCompareItem = async item => {
+    if (!selectedStudent?.sid) return setWorkspaceMessage("학생을 먼저 선택해주세요.");
+    const key = compareItemKey(item);
+    if (compareTray.some(value => compareItemKey(value) === key)) {
+      setWorkspaceMessage("이미 대학 비교함에 들어 있는 모집단위입니다.");
+      return;
+    }
+    if (compareTray.length >= 5) {
+      setWorkspaceMessage("대학 비교함은 5개 모집단위까지 저장할 수 있습니다.");
+      navigateViewTab("workspace");
+      return;
+    }
+    await persistCompareTray([...compareTray, { ...item, addedAt: new Date().toISOString() }]);
+  };
+  const removeCompareItem = item => persistCompareTray(compareTray.filter(value => compareItemKey(value) !== compareItemKey(item)));
+
   const canonicalRecords = useMemo(() => coalesceNaviRecords(data?.records || []), [data?.records]);
   const regions = useMemo(() => unique(canonicalRecords.map(row => row[1])), [canonicalRecords]);
   const fields = useMemo(() => unique(canonicalRecords.flatMap(row => fieldValuesOf(row))), [canonicalRecords]);
@@ -1298,6 +1819,7 @@ export default function SusiNaviBetaView({
     const schedules = indexedUniversityRows(scheduleIndex, row[3], row[1]).filter(item => !item[5] || matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 5);
     const caseStats = indexedUniversityRows(caseStatIndex, row[3], row[1]);
     const minimumEvaluations = minimums.map(item => evaluateNaviMinimum(item, selectedStudent));
+    const recommendation = recommendationForUnit(recommendedData, row[3], row[1], row[5]);
     return {
       row,
       minimums,
@@ -1306,8 +1828,10 @@ export default function SusiNaviBetaView({
       changes2028,
       schedules,
       caseStats,
+      recommendation,
+      recommendationProgress: recommendationProgress(recommendation, studentSubjects),
     };
-  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, selectedStudent?.sid, selectedStudent?.latestMockKey, selectedStudent?.latestMockGrades, selectedStudent?.latestMockSums]);
+  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, studentSubjects, selectedStudent?.sid, selectedStudent?.latestMockKey, selectedStudent?.latestMockGrades, selectedStudent?.latestMockSums]);
 
   const connectionFocusDepartmentMatched = useMemo(() => {
     if (!connectionFocus?.university || !connectionFocus?.department) return false;
@@ -1406,6 +1930,35 @@ export default function SusiNaviBetaView({
       : linkedSupportResults(connectionEntries, conversion?.value, connectionRange)
   ), [connectionMode, connectionEntries, connectionUniversity, connectionRange, conversion?.value]);
 
+  const resolvedSupportPlan = useMemo(() => supportPlan.map(item => {
+    const entry = findEnrichedWorkspaceEntry(enriched, item);
+    if (!entry) return { stored: item, missing: true };
+    const sourceItems = item.admissionType === "종합" ? (entry.row[8] || []) : (entry.row[7] || []);
+    const admissionItem = sourceItems.find(value => compactText(value?.[0]) === compactText(item.track))
+      || sourceItems.find(value => unitSimilar(value?.[0], item.track))
+      || sourceItems[0] || null;
+    const cut = admissionItem ? cutoffValue(admissionItem, cutoffBasis) : null;
+    const support = cut != null ? supportBand(conversion?.value, cut) : null;
+    const naviCaseStat = admissionItem ? bestCaseStat(entry.caseStats, entry.row[3], entry.row[1], admissionItem?.[0], item.admissionType, conversionGroup) : null;
+    const naviCaseCuts = caseCutForGroup(naviCaseStat, conversionGroup);
+    const schoolTrend = schoolCaseTrend(caseRows, entry.row[3], entry.row[1], entry.row[5], item.track || item.admissionType);
+    return {
+      stored: item,
+      entry,
+      admissionItem,
+      support,
+      minimumStatus: matchingMinimumStatus(entry.minimums, entry.minimumEvaluations, item.admissionType, item.track),
+      recommendation: entry.recommendation,
+      recommendationProgress: entry.recommendationProgress,
+      naviCaseCount: Number(naviCaseCuts?.[0] || 0),
+      schoolTrend,
+    };
+  }), [supportPlan, enriched, cutoffBasis, conversion?.value, conversionGroup, caseRows]);
+  const resolvedCompareTray = useMemo(() => compareTray.map(item => {
+    const entry = findEnrichedWorkspaceEntry(enriched, item);
+    return { stored: item, entry: entry || null };
+  }), [compareTray, enriched]);
+
   useEffect(() => { setPage(1); }, [connectionFocus, query, regionFilters, fieldFilters, admissionFilters, minimumFilters, supportFilters, cutoffBasis, favoriteOnly, resultSort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -1445,6 +1998,7 @@ export default function SusiNaviBetaView({
             <button type="button" role="tab" aria-selected={viewTab === "search"} onClick={() => navigateViewTab("search")} style={{ ...ui.viewTab, ...(viewTab === "search" ? ui.viewTabActive : {}) }}><span>1</span><b>기준 설정</b><small>환산·검색 조건</small></button>
             <button type="button" role="tab" aria-selected={viewTab === "results"} onClick={() => navigateViewTab("results")} style={{ ...ui.viewTab, ...(viewTab === "results" ? ui.viewTabActive : {}) }}><span>2</span><b>대학 상세</b><small>{filtered.length.toLocaleString()}개 모집단위</small></button>
             <button type="button" role="tab" aria-selected={viewTab === "connection"} onClick={() => navigateViewTab("connection")} style={{ ...ui.viewTab, ...(viewTab === "connection" ? ui.viewTabActive : {}) }}><span>3</span><b>지원 연결</b><small>유사 대학 탐색</small></button>
+            <button type="button" role="tab" aria-selected={viewTab === "workspace"} onClick={() => navigateViewTab("workspace")} style={{ ...ui.viewTab, ...(viewTab === "workspace" ? ui.viewTabActive : {}) }}><span>4</span><b>지원판·비교</b><small>{supportPlan.length}/6 · 비교 {compareTray.length}/5</small></button>
           </div>
           <div className="susi-beta-view-actions" style={ui.viewToolbarActions}>
             <span style={ui.cutoffStatusChip}><small>현재 지원 판정 기준</small><b>{cutoffBasis}%컷</b></span>
@@ -1671,7 +2225,7 @@ export default function SusiNaviBetaView({
           </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
-            {visible.length ? visible.map(({ row, minimums, minimumEvaluations, courseRules, changes2028, schedules, caseStats }, index) => <ResultCard
+            {visible.length ? visible.map(({ row, minimums, minimumEvaluations, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
               row={row}
               minimums={minimums}
@@ -1681,6 +2235,9 @@ export default function SusiNaviBetaView({
               changes2028={changes2028}
               schedules={schedules}
               caseStats={caseStats}
+              recommendation={recommendation}
+              recommendationProgress={recommendationProgress}
+              studentSubjects={studentSubjects}
               schoolTrend={schoolCaseTrend(caseRows, row[3], row[1], row[5])}
               conversionGroup={conversionGroup}
               convertedGrade={conversion?.value}
@@ -1694,6 +2251,11 @@ export default function SusiNaviBetaView({
                 setConnectionUniversity(row[3]);
                 navigateViewTab("connection");
               }}
+              onAddSupportPlan={addSupportPlanItem}
+              supportPlan={supportPlan}
+              onAddCompare={addCompareItem}
+              compareTray={compareTray}
+              onOpenWorkspace={() => navigateViewTab("workspace")}
             />) : <div style={ui.noResult}>조건에 맞는 결과가 없습니다. 위의 ‘현재 적용 조건’을 확인하고 연결 조건이나 검색 필터를 해제해주세요.</div>}
           </div>
           {pageCount > 1 && <Pagination page={page} pageCount={pageCount} onChange={changePage} />}
@@ -1702,6 +2264,24 @@ export default function SusiNaviBetaView({
             <button type="button" style={ui.resultConnectPrimary} onClick={() => { setConnectionMode("grade"); setConnectionUniversity(""); navigateViewTab("connection"); }}>다음: 지원 연결 탐색 ›</button>
           </div>
         </div>}
+
+        {viewTab === "workspace" && <SupportDecisionWorkspace
+          selectedStudent={selectedStudent}
+          convertedGrade={conversion?.value}
+          conversionMethod={conversionMethod}
+          conversionGroup={conversionGroup}
+          cutoffBasis={cutoffBasis}
+          planItems={resolvedSupportPlan}
+          compareItems={resolvedCompareTray}
+          onRemovePlan={removeSupportPlanItem}
+          onRemoveCompare={removeCompareItem}
+          onGoResults={() => navigateViewTab("results")}
+          onGoConnection={() => navigateViewTab("connection")}
+          workspaceBusy={workspaceBusy}
+          workspaceMessage={workspaceMessage}
+          recommendedData={recommendedData}
+          caseRows={caseRows}
+        />}
 
         <PrintResultSheet
           rows={visible}
@@ -1982,7 +2562,7 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
   </div>;
 }
 
-function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity }) {
+function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
   const [open, setOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("all");
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
@@ -1999,6 +2579,8 @@ function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = 
     field,
     note: "2027 수시NAVI Beta 모집단위",
   };
+  const compareItem = { university, region, department: unit2027, field };
+  const compareActive = compareTray.some(item => compareItemKey(item) === compareItemKey(compareItem));
   const tabs = [
     ["all", "전체"],
     ["teaching", `교과 ${teaching?.length || 0}`],
@@ -2021,6 +2603,7 @@ function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = 
         </div>
         <div style={ui.resultActions}>
           <button type="button" title={favoriteEnabled ? (favorite ? "즐겨찾기 해제" : "즐겨찾기 추가") : "학생을 먼저 선택하세요"} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(favoriteItem)} style={{ ...ui.favoriteBtn, ...(favorite ? ui.favoriteBtnActive : {}), ...(!favoriteEnabled ? ui.favoriteBtnDisabled : {}) }}><Star size={16} fill={favorite ? "currentColor" : "none"}/></button>
+          <button type="button" onClick={() => compareActive ? onOpenWorkspace?.() : onAddCompare?.(compareItem)} style={{ ...ui.compareAddButton, ...(compareActive ? ui.compareAddButtonActive : {}) }}>{compareActive ? "비교함 보기" : "비교함 추가"}</button>
           <button type="button" onClick={onConnectUniversity} style={ui.resultConnectButton}><Network size={15}/>이 대학과 비슷한 대학 찾기</button>
           <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={ui.resultToggle}>{open ? <ChevronUp size={16}/> : <ChevronDown size={16}/>} {open ? "상세 접기" : "상세 펼치기"}</button>
         </div>
@@ -2031,6 +2614,7 @@ function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = 
           <span style={ui.identitySourceNote}>경기도교육청 제공 2027 모집단위와<br/>대학 공개 2026 입시결과를 연결한 정보입니다.</span>
           {unit2026 && unit2026 !== unit2027 ? <div style={ui.previousUnit}><span>2026 모집단위</span><b>{unit2026}</b><span>2027 모집단위 <strong>{unit2027}</strong>(으)로 연결됩니다.</span></div> : <div style={ui.sameUnitNote}>2026·2027 모집단위명이 동일합니다.</div>}
           <div style={ui.detailTabGuide}><b>정보 항목</b><span>교과·종합·정시·수능최저 중 필요한 항목만 선택해 넓게 볼 수 있습니다.</span></div>
+          <RecommendedSubjectPanel recommendation={recommendation} progress={recommendationProgressData} studentSubjects={studentSubjects} />
           <RelatedInfo courseRules={courseRules} changes2028={changes2028} schedules={schedules} />
         </div>
         <div style={ui.resultDetailArea}>
@@ -2038,8 +2622,8 @@ function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = 
             {tabs.map(([key, label]) => <button type="button" key={key} role="tab" aria-selected={detailTab === key} onClick={() => setDetailTab(key)} style={{ ...ui.detailTabButton, ...(detailTab === key ? ui.detailTabActive : {}) }}>{label}</button>)}
           </div>
           <div className="susi-beta-admission-columns" style={{ ...ui.admissionColumns, ...(detailTab !== "all" ? ui.admissionColumnsSingle : {}) }}>
-            {(detailTab === "all" || detailTab === "teaching") && <AdmissionGroup title="교과전형" year="2026 입시결과" admissionType="교과" items={teaching} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="teaching" university={university} region={region} caseStats={caseStats} conversionGroup={conversionGroup} />}
-            {(detailTab === "all" || detailTab === "holistic") && <AdmissionGroup title="종합전형" year="2026 입시결과" admissionType="종합" items={holistic} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="holistic" university={university} region={region} caseStats={caseStats} conversionGroup={conversionGroup} />}
+            {(detailTab === "all" || detailTab === "teaching") && <AdmissionGroup title="교과전형" year="2026 입시결과" admissionType="교과" items={teaching} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="teaching" university={university} region={region} department={unit2027} field={field} caseStats={caseStats} conversionGroup={conversionGroup} minimums={minimums} minimumEvaluations={minimumEvaluations} onAddSupportPlan={onAddSupportPlan} supportPlan={supportPlan} onOpenWorkspace={onOpenWorkspace} />}
+            {(detailTab === "all" || detailTab === "holistic") && <AdmissionGroup title="종합전형" year="2026 입시결과" admissionType="종합" items={holistic} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="holistic" university={university} region={region} department={unit2027} field={field} caseStats={caseStats} conversionGroup={conversionGroup} minimums={minimums} minimumEvaluations={minimumEvaluations} onAddSupportPlan={onAddSupportPlan} supportPlan={supportPlan} onOpenWorkspace={onOpenWorkspace} />}
             {(detailTab === "all" || detailTab === "regularMinimum") && <RegularGroup info={regular} />}
             {(detailTab === "all" || detailTab === "regularMinimum") && <MinimumGroup rows={minimums} evaluations={minimumEvaluations} latestMockLabel={latestMockLabel} />}
           </div>
@@ -2070,21 +2654,26 @@ function SectionTitle({ tone, title, year }) {
         : ui.sectionMinimum;
   return <div style={ui.resultSectionTitle}><span style={{ ...ui.sectionTypeBadge, ...toneStyle }}>{title}</span><b>{year}</b></div>;
 }
-function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade, cutoffBasis, tone, university, region, caseStats, conversionGroup }) {
+function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade, cutoffBasis, tone, university, region, department = "", field = "", caseStats, conversionGroup, minimums = [], minimumEvaluations = [], onAddSupportPlan, supportPlan = [], onOpenWorkspace }) {
   return <div style={ui.resultSection}><SectionTitle tone={tone} title={title} year={year}/>{items.length ? <div style={{ ...ui.admissionItems, ...(items.length >= 4 ? ui.admissionItemsDense : {}) }}>{items.map((item, index) => {
     const selectedCutoff = cutoffValue(item, cutoffBasis);
     const diff = differenceLabel(convertedGrade, selectedCutoff);
     const support = supportBand(convertedGrade, selectedCutoff);
     const stat = bestCaseStat(caseStats, university, region, item[0], admissionType, conversionGroup);
     const cuts = caseCutForGroup(stat, conversionGroup);
+    const planItem = { university, region, department, field, admissionType, track: item[0] || admissionType };
+    const inPlan = supportPlan.some(value => supportPlanItemKey(value) === supportPlanItemKey(planItem));
+    const minimumStatus = matchingMinimumStatus(minimums, minimumEvaluations, admissionType, item[0]);
+    const minimumMeta = naviMinimumStatusMeta(minimumStatus);
     return <div key={`${item[0]}-${index}`} style={{ ...ui.admissionItem, ...(tone === "teaching" ? ui.teachingItem : ui.holisticItem) }}>
-      <div style={ui.admissionItemHead}><b style={ui.admissionName}>{item[0]}</b>{support && <span style={{ ...ui.supportBadge, color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span>}</div>
+      <div style={ui.admissionItemHead}><b style={ui.admissionName}>{item[0]}</b><span style={ui.admissionHeadBadges}>{support && <span style={{ ...ui.supportBadge, color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span>}{minimumMeta && <span style={{ ...ui.minimumStatusBadge, ...minimumMeta.style }}>{minimumMeta.label}</span>}</span></div>
       <small style={ui.officialCutLabel}><span>대학 공개 2026 입시결과</span><b style={ui.officialCutBasisTag}>{cutoffBasis}%컷 기준 판정</b></small>
       <div style={ui.cutoffGrid}>
         <div style={{ ...ui.cutoffBox, ...(cutoffBasis === "50" ? ui.cutoffBoxActive : {}) }}><span style={ui.cutoffBoxLabel}>50%컷</span><b style={ui.cutoffBoxValue}>{item[1] ?? "-"}</b></div>
         <div style={{ ...ui.cutoffBox, ...(cutoffBasis === "70" ? ui.cutoffBoxActive : {}) }}><span style={ui.cutoffBoxLabel}>70%컷</span><b style={ui.cutoffBoxValue}>{item[2] ?? "-"}</b></div>
       </div>
       {diff && <small style={{ ...ui.studentDifference, color: diff.favorable ? "#287348" : "#b05244" }}>학생 환산 − {cutoffBasis}%컷 <b>{diff.text}</b></small>}
+      <button type="button" style={{ ...ui.planAddButton, ...(inPlan ? ui.planAddButtonActive : {}) }} onClick={() => inPlan ? onOpenWorkspace?.() : onAddSupportPlan?.(planItem)}>{inPlan ? "지원판에서 보기" : "수시 6장 지원판에 추가"}</button>
       {cuts?.[0] ? <CaseDistribution cuts={cuts} cutoffBasis={cutoffBasis} /> : <small style={ui.caseNone}>NAVI 통합 사례 분포 없음</small>}
     </div>;
   })}</div> : <span style={ui.none}>자료 없음</span>}</div>;
@@ -2105,6 +2694,144 @@ function CaseDistribution({ cuts, cutoffBasis = "70" }) {
         return <div key={label} style={{ ...ui.caseCutCard, ...toneStyle, ...(selected ? ui.caseCutSelected : {}) }}><span style={ui.caseCutLabel}>{label} 컷{selected ? " · 현재 기준" : ""}</span><b style={ui.caseCutValue}>{Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "-"}</b></div>;
       })}
     </div><small style={ui.caseScopeNote}><b>선택한 교과 조합 기준</b><span>경기도교육청 NAVI 사례를 학과 구분 없이 대학·전형·계열 단위로 통합한 통계입니다.</span></small></>}
+  </div>;
+}
+
+
+function RecommendedSubjectPanel({ recommendation, progress, studentSubjects = [] }) {
+  if (!recommendation) return <div style={ui.recommendEmpty}><span>2028 권장과목</span><b>이 모집단위에 연결된 공식 자료 없음</b><small>다른 학과의 과목을 임의로 합쳐 보여주지 않습니다. 관리자가 어디가 공식 XLSX를 반영했는지와 대학 입학처 공지를 함께 확인해주세요.</small></div>;
+  const reflected = recommendation.reflected || [];
+  const core = recommendation.core || recommendation.required || [];
+  const recommended = recommendation.recommended || [];
+  const renderCourse = (course, tone) => {
+    const matched = studentCourseMatch(studentSubjects, course);
+    return <span key={`${tone}-${course}`} title={matched ? "현재 저장된 학생 이수과목에서 확인됨" : "현재 저장된 학생 이수과목에서 확인되지 않음"} style={{ ...ui.recommendCourseChip, ...(matched ? ui.recommendCourseMatched : ui.recommendCourseMissing) }}><b>{matched ? "✓" : "○"}</b>{course}</span>;
+  };
+  return <div className="susi-beta-recommend-panel" style={ui.recommendPanel}>
+    <div style={ui.recommendPanelHead}>
+      <div><span style={ui.recommendSourceBadge}>2028 대학 발표 기반</span><b>반영과목 · 핵심과목 · 권장과목</b><small>{recommendation.scope}{recommendation.matchedDepartment ? ` · ${recommendation.matchedDepartment}` : ""}</small></div>
+      {progress?.total ? <span style={ui.recommendProgress}><small>저장 성적 기준 이수 확인</small><b>{progress.matched}/{progress.total}</b></span> : null}
+    </div>
+    {!!reflected.length && <div style={ui.recommendCourseGroup}><strong>반영과목</strong><div>{reflected.map(course => renderCourse(course, "reflected"))}</div></div>}
+    {!!core.length && <div style={ui.recommendCourseGroup}><strong>핵심·중요 과목</strong><div>{core.map(course => renderCourse(course, "core"))}</div></div>}
+    {!!recommended.length && <div style={ui.recommendCourseGroup}><strong>권장과목</strong><div>{recommended.map(course => renderCourse(course, "recommended"))}</div></div>}
+    {!!recommendation.notes?.length && <div style={ui.recommendNotes}><strong>대학 안내</strong>{recommendation.notes.map((note, index) => <span key={`${note}-${index}`}>{note}</span>)}</div>}
+    <p style={ui.recommendDisclaimer}>✓는 kdtime에 저장된 학생 이수과목과 명칭을 대조한 결과입니다. 대학이 공개한 이 자료는 원문 취지상 ‘필수 이수 기준’이 아니라 모집단위 이해와 진로·전공 탐색을 위한 참고자료이며, 최종 지원 전 대학 입학처 발표를 확인해야 합니다.</p>
+    <a href={recommendation.source?.url || OFFICIAL_RECOMMENDED_SOURCE_URL} target="_blank" rel="noreferrer" style={ui.recommendSourceLink}>어디가 공식 자료 출처 확인 ↗</a>
+  </div>;
+}
+
+function compactCutSummary(items = []) {
+  const values50 = items.map(item => Number(item?.[1])).filter(Number.isFinite);
+  const values70 = items.map(item => Number(item?.[2])).filter(Number.isFinite);
+  return {
+    cut50: values50.length ? Math.min(...values50) : null,
+    cut70: values70.length ? Math.min(...values70) : null,
+  };
+}
+function minimumWorkspaceMeta(status) {
+  if (status === "unsatisfied") return { label: "최저 미도달", style: ui.workspaceMinimumDanger };
+  if (status === "satisfied") return { label: "최저 충족", style: ui.workspaceMinimumSuccess };
+  if (status === "manual") return { label: "조건 확인", style: ui.workspaceMinimumWarning };
+  if (status === "unavailable") return { label: "모평 미입력", style: ui.workspaceMinimumNeutral };
+  return { label: "최저 없음/미연결", style: ui.workspaceMinimumNeutral };
+}
+function SupportDecisionWorkspace({
+  selectedStudent,
+  convertedGrade,
+  conversionMethod,
+  conversionGroup,
+  cutoffBasis,
+  planItems = [],
+  compareItems = [],
+  onRemovePlan,
+  onRemoveCompare,
+  onGoResults,
+  onGoConnection,
+  workspaceBusy,
+  workspaceMessage,
+  recommendedData,
+  caseRows = [],
+}) {
+  const supportCounts = planItems.reduce((acc, item) => {
+    const label = item.support?.label || "판정없음";
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+  const admissionCounts = planItems.reduce((acc, item) => {
+    const label = item.stored?.admissionType || "미정";
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+  const minimumCounts = planItems.reduce((acc, item) => {
+    const key = item.minimumStatus || "none";
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+  const uniqueUniversityCount = new Set(planItems.map(item => universityIdentityKey(item?.stored?.university, item?.stored?.region || "")).filter(Boolean)).size;
+  const slots = Array.from({ length: 6 }, (_, index) => planItems[index] || null);
+
+  return <div className="susi-beta-tab-panel susi-beta-workspace" style={ui.tabPanel}>
+    <div style={ui.workspaceHero}>
+      <div><span style={ui.workspaceEyebrow}>상담 의사결정 보드</span><h3>수시 6장 지원판 · 대학 비교함</h3><p>검색 결과를 단순히 저장하는 대신, 실제 상담에서 검토할 전형 6장과 비교 대학을 한 화면에 모읍니다.</p></div>
+      <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {Number.isFinite(Number(convertedGrade)) ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
+    </div>
+    {workspaceMessage && <div style={ui.workspaceMessage}>{workspaceBusy && <Loader2 size={13} className="spin"/>}{workspaceMessage}</div>}
+
+    <section style={ui.workspaceSection}>
+      <div style={ui.workspaceSectionHead}><div><b>수시 6장 지원판</b><span>대학 상세의 교과·종합 전형에서 ‘지원판에 추가’를 눌러 구성합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
+      <div className="susi-beta-workspace-summary" style={ui.workspaceSummaryGrid}>
+        <div><small>지원 구간</small><b>{["상향","소신","적정","안정","하향"].filter(label => supportCounts[label]).map(label => `${label} ${supportCounts[label]}`).join(" · ") || "판정 자료 없음"}</b></div>
+        <div><small>전형 구성</small><b>{Object.entries(admissionCounts).map(([label,count]) => `${label} ${count}`).join(" · ") || "-"}</b></div>
+        <div><small>수능최저</small><b>{`충족 ${minimumCounts.satisfied || 0} · 미도달 ${minimumCounts.unsatisfied || 0} · 확인 ${minimumCounts.manual || 0}`}</b></div>
+        <div><small>대학 분산</small><b>{planItems.length ? `${uniqueUniversityCount}개 대학 · ${planItems.length}개 전형` : "지원 후보 없음"}</b></div>
+      </div>
+      <div className="susi-beta-plan-grid" style={ui.planGrid}>{slots.map((item, index) => {
+        if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>지원 후보 비어 있음</b><small>대학 상세에서 전형을 추가하세요.</small></article>;
+        if (item.missing) return <article className="susi-beta-plan-card" key={supportPlanItemKey(item.stored)} style={ui.planCard}><div style={ui.planNumber}>{index + 1}</div><div style={ui.planIdentity}><b>{item.stored.university}</b><span>{item.stored.department}</span><small>{item.stored.admissionType} · {item.stored.track}</small></div><span style={ui.planMissing}>현재 NAVI 자료에서 연결되지 않음</span><button type="button" style={ui.workspaceRemove} onClick={() => onRemovePlan?.(item.stored)}>삭제</button></article>;
+        const [,,,,,department] = item.entry.row;
+        const minimumMeta = minimumWorkspaceMeta(item.minimumStatus);
+        const progress = item.recommendationProgress;
+        return <article className="susi-beta-plan-card" key={supportPlanItemKey(item.stored)} style={ui.planCard}>
+          <div style={ui.planNumber}>{index + 1}</div>
+          <div style={ui.planIdentity}><b>{item.stored.university}</b><span>{department}</span><small>{item.stored.admissionType} · {item.stored.track}</small></div>
+          <div style={ui.planBadges}>{item.support && <span style={{...ui.planSupportBadge,color:item.support.color,background:item.support.background,borderColor:item.support.border}}>{item.support.label}</span>}<span style={{...ui.planMinimumBadge,...minimumMeta.style}}>{minimumMeta.label}</span></div>
+          <div className="susi-beta-plan-metrics" style={ui.planMetrics}><span><small>50%컷</small><b>{item.admissionItem?.[1] ?? "-"}</b></span><span><small>70%컷</small><b>{item.admissionItem?.[2] ?? "-"}</b></span><span><small>저장 이수 확인</small><b>{progress?.total ? `${progress.matched}/${progress.total}` : "-"}</b></span></div>
+          <div className="susi-beta-plan-evidence" style={ui.planEvidence}>
+            <span><small>NAVI 통합 사례</small><b>{item.naviCaseCount ? `${item.naviCaseCount.toLocaleString()}건` : "자료 없음"}</b></span>
+            <span><small>광덕고 별도 사례</small><b>{item.schoolTrend?.total ? `지원 ${item.schoolTrend.total} · 합격 ${item.schoolTrend.accepted}` : "연결 없음"}</b></span>
+          </div>
+          <button type="button" style={ui.workspaceRemove} onClick={() => onRemovePlan?.(item.stored)}>삭제</button>
+        </article>;
+      })}</div>
+      <div style={ui.workspaceFooter}><span>지원 구간은 현재 학생 환산등급과 선택한 {cutoffBasis}%컷 기준으로 다시 계산됩니다.</span><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세에서 후보 추가</button></div>
+    </section>
+
+    <section style={ui.workspaceSection}>
+      <div style={ui.workspaceSectionHead}><div><b>대학 비교함</b><span>같은 화면에서 50·70%컷, 수능최저, 권장과목 연결을 비교합니다.</span></div><span style={ui.workspaceCount}>{compareItems.length}/5</span></div>
+      {compareItems.length ? <div style={ui.compareTableWrap}><table className="susi-beta-workspace-table" style={ui.compareTable}><thead><tr><th>대학·모집단위</th><th>교과 50/70</th><th>종합 50/70</th><th>현재 구간</th><th>수능최저</th><th>사례 근거</th><th>저장 이수 확인</th><th></th></tr></thead><tbody>{compareItems.map(item => {
+        if (!item.entry) return <tr key={compareItemKey(item.stored)}><td><b>{item.stored.university}</b><small>{item.stored.department}</small></td><td colSpan="6">현재 NAVI 자료에서 연결되지 않음</td><td><button type="button" style={ui.workspaceRemove} onClick={() => onRemoveCompare?.(item.stored)}>삭제</button></td></tr>;
+        const row = item.entry.row;
+        const teaching = compactCutSummary(row[7] || []);
+        const holistic = compactCutSummary(row[8] || []);
+        const supports = rowSupportLabels(row, convertedGrade, cutoffBasis);
+        const minimumSummary = minimumEvaluationSummary(item.entry.minimumEvaluations || []);
+        const progress = item.entry.recommendationProgress;
+        const naviCaseCount = Math.max(0, ...(item.entry.caseStats || []).map(stat => Number(caseCutForGroup(stat, conversionGroup)?.[0] || 0)));
+        const schoolTrend = schoolCaseTrend(caseRows, row[3], row[1], row[5]);
+        return <tr key={compareItemKey(item.stored)}>
+          <td><b>{row[3]}</b><small>{row[5]}</small></td>
+          <td>{teaching.cut50 ?? "-"} / {teaching.cut70 ?? "-"}</td>
+          <td>{holistic.cut50 ?? "-"} / {holistic.cut70 ?? "-"}</td>
+          <td>{supports.length ? <span style={ui.compareSupportText}>{supports.join(" · ")}</span> : "-"}</td>
+          <td>{minimumSummary.unsatisfied ? <b style={{color:"#b84444"}}>미도달 {minimumSummary.unsatisfied}</b> : minimumSummary.satisfied ? <b style={{color:"#2c7048"}}>충족</b> : minimumSummary.total ? "확인 필요" : "없음"}</td>
+          <td><span style={ui.compareEvidence}><b>NAVI {naviCaseCount ? `${naviCaseCount.toLocaleString()}건` : "-"}</b><small>광덕고 {schoolTrend.total ? `${schoolTrend.total}/${schoolTrend.accepted}` : "-"}</small></span></td>
+          <td>{progress?.total ? `${progress.matched}/${progress.total}` : item.entry.recommendation ? "과목 확인" : "자료 없음"}</td>
+          <td><button type="button" style={ui.workspaceRemove} onClick={() => onRemoveCompare?.(item.stored)}>삭제</button></td>
+        </tr>;
+      })}</tbody></table></div> : <div style={ui.workspaceEmpty}><b>비교할 모집단위가 없습니다.</b><span>대학 상세 카드의 ‘비교함 추가’를 눌러 최대 5개까지 모아보세요.</span></div>}
+      <div style={ui.workspaceFooter}><span>{recommendedData ? `권장과목 자료: ${recommendedData.source?.referenceDate || "어디가 공식 자료"}` : "권장과목 공식 자료가 아직 반영되지 않았습니다."}</span><div style={{display:"flex",gap:7}}><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세</button><button type="button" style={ui.workspacePrimary} onClick={onGoConnection}>지원 연결 탐색</button></div></div>
+    </section>
   </div>;
 }
 
@@ -2150,8 +2877,8 @@ const ui = {
   heroStats: { minWidth: 170, display: "grid", gap: 4, textAlign: "right" },
   betaBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#eee8ff", color: "#6b55a0", fontSize: 10, fontWeight: 900, verticalAlign: "middle" },
   betaNotice: { display: "flex", gap: 9, alignItems: "flex-start", padding: "11px 14px", border: "1px solid #e5d9b7", borderRadius: 12, background: "#fff9e9", color: "#6e5923", fontSize: 13.5, lineHeight: 1.6 },
-  viewToolbar: { position: "sticky", top: 6, zIndex: 12, display: "grid", gridTemplateColumns: "minmax(520px,720px) auto", justifyContent: "center", alignItems: "stretch", gap: 12, padding: 8, border: "1px solid #d8deea", borderRadius: 16, background: "rgba(255,255,255,.97)", boxShadow: "0 8px 22px rgba(44,53,69,.09)", backdropFilter: "blur(8px)" },
-  viewTabs: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6 },
+  viewToolbar: { position: "sticky", top: 6, zIndex: 12, display: "grid", gridTemplateColumns: "minmax(680px,860px) auto", justifyContent: "center", alignItems: "stretch", gap: 12, padding: 8, border: "1px solid #d8deea", borderRadius: 16, background: "rgba(255,255,255,.97)", boxShadow: "0 8px 22px rgba(44,53,69,.09)", backdropFilter: "blur(8px)" },
+  viewTabs: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 6 },
   viewTab: { minWidth: 0, minHeight: 56, display: "grid", gridTemplateColumns: "28px minmax(0,1fr)", gridTemplateRows: "auto auto", columnGap: 9, alignContent: "center", textAlign: "left", padding: "8px 12px", border: "1px solid transparent", borderRadius: 12, background: "transparent", color: "#5e6a7d", cursor: "pointer" },
   viewTabActive: { borderColor: "#d6cbea", background: "linear-gradient(135deg,#f4f0fb,#fff)", color: "#594681", boxShadow: "0 3px 10px rgba(86,69,126,.12)" },
   viewToolbarActions: { display: "grid", gridTemplateColumns: "auto auto", alignItems: "stretch", gap: 7 },
@@ -2499,6 +3226,62 @@ const ui = {
   primaryBtn: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 13px", border: 0, borderRadius: 10, color: "#fff", background: "#66558e", fontWeight: 850, cursor: "pointer" },
   secondaryBtn: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 12px", border: "1px solid #cbd5e3", borderRadius: 10, color: "#455166", background: "#fff", fontWeight: 800, cursor: "pointer" },
   dangerGhost: { minHeight: 34, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px", border: "1px solid #ebc7c2", borderRadius: 9, color: "#ae4c42", background: "#fff8f7", fontWeight: 800, cursor: "pointer" },
+  recommendAdminPanel: { display: "grid", gap: 12, padding: 15, border: "1px solid #cfe0d8", borderRadius: 15, background: "linear-gradient(135deg,#f5fbf8,#fff)" },
+  recommendAdminHead: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
+  recommendDataGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 },
+  recommendDataCard: { minWidth: 0, display: "grid", gap: 4, padding: 11, border: "1px solid #d7e5de", borderRadius: 10, background: "#fff", color: "#596b63" },
+  recommendUploadRow: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto auto", gap: 8, alignItems: "center" },
+  recommendOfficialNote: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 10px", borderRadius: 9, background: "#eef7f2", color: "#4d665a", fontSize: 10.5, lineHeight: 1.5 },
+  recommendOfficialLink: { width: "fit-content", display: "inline-flex", marginTop: 5, color: "#315f88", fontSize: 10.5, fontWeight: 900, textDecoration: "none" },
+  recommendSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#e2f2e8", color: "#2e6a49", fontSize: 9.3, fontWeight: 950 },
+  compareAddButton: { minHeight: 38, padding: "0 10px", border: "1px solid #c9d9d1", borderRadius: 10, background: "#f5faf7", color: "#3f6c57", fontSize: 11, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  compareAddButtonActive: { borderColor: "#6d927f", background: "#e7f3ec", color: "#285c43" },
+  admissionHeadBadges: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5, flexWrap: "wrap" },
+  planAddButton: { minHeight: 32, border: "1px solid #cbd8e8", borderRadius: 8, background: "#fff", color: "#3d5879", fontSize: 10.3, fontWeight: 900, cursor: "pointer" },
+  planAddButtonActive: { borderColor: "#7d6aa5", background: "#f1edf8", color: "#5a4783" },
+  recommendEmpty: { display: "grid", gap: 3, padding: 10, border: "1px dashed #d5dfda", borderRadius: 9, background: "#fbfdfc", color: "#75837c", fontSize: 9.5, lineHeight: 1.45 },
+  recommendPanel: { display: "grid", gap: 9, padding: 11, border: "1px solid #cfe0d8", borderRadius: 10, background: "linear-gradient(135deg,#f4fbf7,#fff)" },
+  recommendPanelHead: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  recommendProgress: { flex: "0 0 auto", minWidth: 70, display: "grid", justifyItems: "center", gap: 2, padding: "7px 8px", borderRadius: 9, background: "#e5f4eb", color: "#2f694b" },
+  recommendCourseGroup: { display: "grid", gap: 5, fontSize: 9.5, color: "#51665b" },
+  recommendCourseChip: { display: "inline-flex", alignItems: "center", gap: 4, margin: "2px 4px 2px 0", padding: "4px 6px", border: "1px solid", borderRadius: 999, fontSize: 9.2, fontWeight: 850 },
+  recommendCourseMatched: { color: "#2d6b49", background: "#eaf7ef", borderColor: "#bddfc9" },
+  recommendCourseMissing: { color: "#7a6650", background: "#fff8ed", borderColor: "#e8d6b9" },
+  recommendNotes: { display: "grid", gap: 3, padding: "7px 8px", borderRadius: 8, background: "#f7faf8", color: "#617268", fontSize: 9.2, lineHeight: 1.45 },
+  recommendDisclaimer: { margin: 0, paddingTop: 6, borderTop: "1px dashed #d9e5de", color: "#718078", fontSize: 8.9, lineHeight: 1.45 },
+  recommendSourceLink: { color: "#315f88", fontSize: 9.2, fontWeight: 900, textDecoration: "none" },
+  workspaceHero: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 16, alignItems: "center", padding: "18px 19px", border: "1px solid #d3ddea", borderRadius: 16, background: "linear-gradient(135deg,#f8fafc,#f6f3fb)" },
+  workspaceEyebrow: { fontSize: 10, fontWeight: 950, color: "#66558e" },
+  workspaceStudent: { minWidth: 250, display: "grid", gap: 3, padding: "11px 13px", border: "1px solid #d6deea", borderRadius: 12, background: "#fff", color: "#617086" },
+  workspaceMessage: { display: "flex", alignItems: "center", gap: 7, padding: "9px 11px", border: "1px solid #d8dfeb", borderRadius: 10, background: "#f7f9fc", color: "#53627a", fontSize: 11.5, fontWeight: 800 },
+  workspaceSection: { display: "grid", gap: 12, padding: 16, border: "1px solid #d8e0ea", borderRadius: 15, background: "#fff" },
+  workspaceSectionHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  workspaceCount: { minWidth: 48, minHeight: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#edf1f7", color: "#50617a", fontSize: 12, fontWeight: 950 },
+  workspaceSummaryGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8 },
+  planGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 9 },
+  planEmpty: { minHeight: 150, display: "grid", placeItems: "center", alignContent: "center", gap: 5, padding: 12, border: "1px dashed #d6dde8", borderRadius: 12, background: "#fafbfc", color: "#9aa3b1", textAlign: "center" },
+  planCard: { position: "relative", minWidth: 0, minHeight: 150, display: "grid", alignContent: "start", gap: 9, padding: "13px", border: "1px solid #d6dfeb", borderRadius: 12, background: "#fbfcfe" },
+  planNumber: { position: "absolute", top: 9, right: 9, width: 25, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#5e5188", color: "#fff", fontSize: 10, fontWeight: 950 },
+  planIdentity: { minWidth: 0, display: "grid", gap: 3, paddingRight: 32 },
+  planBadges: { display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" },
+  planSupportBadge: { display: "inline-flex", alignItems: "center", padding: "4px 7px", borderRadius: 999, border: "1px solid", fontSize: 9.5, fontWeight: 950 },
+  planMinimumBadge: { display: "inline-flex", alignItems: "center", padding: "4px 7px", borderRadius: 999, border: "1px solid", fontSize: 9.2, fontWeight: 900 },
+  workspaceMinimumDanger: { color: "#a92d2d", background: "#fff0f0", borderColor: "#efbcbc" },
+  workspaceMinimumSuccess: { color: "#2c7048", background: "#edf8f1", borderColor: "#bedfc9" },
+  workspaceMinimumWarning: { color: "#8a641e", background: "#fff8e7", borderColor: "#e6cf9a" },
+  workspaceMinimumNeutral: { color: "#667385", background: "#f2f4f7", borderColor: "#d8dde5" },
+  planMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
+  planEvidence: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 },
+  planMissing: { color: "#a45b4b", fontSize: 10, fontWeight: 850 },
+  workspaceRemove: { minHeight: 27, padding: "0 8px", border: "1px solid #e2c1bd", borderRadius: 7, background: "#fff8f7", color: "#a74b40", fontSize: 9.5, fontWeight: 900, cursor: "pointer" },
+  workspaceFooter: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingTop: 3, color: "#728095", fontSize: 10.5, flexWrap: "wrap" },
+  workspaceSecondary: { minHeight: 34, padding: "0 11px", border: "1px solid #ccd7e5", borderRadius: 9, background: "#fff", color: "#50617a", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
+  workspacePrimary: { minHeight: 34, padding: "0 11px", border: "1px solid #5f4f88", borderRadius: 9, background: "#66558e", color: "#fff", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
+  workspaceEmpty: { display: "grid", gap: 4, padding: 24, border: "1px dashed #d5dce6", borderRadius: 11, background: "#fafbfc", color: "#7e8898", textAlign: "center" },
+  compareTableWrap: { overflowX: "auto", border: "1px solid #dce3ec", borderRadius: 11 },
+  compareTable: { width: "100%", minWidth: 1040, borderCollapse: "collapse", fontSize: 10.5 },
+  compareSupportText: { color: "#5a4b79", fontWeight: 900 },
+  compareEvidence: { display: "grid", gap: 2, color: "#52667c" },
 };
 
 const betaCss = `
@@ -2672,6 +3455,8 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-result-description{white-space:normal!important}
 }
 @media(max-width:900px){
+  .susi-beta-view-toolbar [role="tab"]{min-width:0!important}
+  .susi-beta-view-toolbar>div:first-child{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .susi-beta-connection-panel [style*="connectionSummaryGuide"]{grid-template-columns:1fr!important}
   .susi-beta-connection-criteria{grid-template-columns:repeat(2,minmax(0,1fr))!important}
   .susi-beta-connection-criteria>div:first-child{grid-column:1/-1!important}
@@ -2802,5 +3587,40 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   .susi-beta-result-controls>div:nth-child(2){grid-template-columns:1fr 1fr!important}
   .susi-beta-source-guide .susi-beta-source-legend{grid-template-columns:1fr!important}
   .susi-beta-connection-panel>div:first-child>div:last-child{width:100%;justify-content:flex-start!important}
+}
+
+/* Patch 64: 상담 의사결정 보드 · 공식 권장과목 연결 */
+@media(max-width:1180px) and (min-width:901px){
+  .susi-beta-view-toolbar{grid-template-columns:minmax(0,1fr) auto!important}
+  .susi-beta-view-toolbar>div:first-child{grid-template-columns:repeat(4,minmax(0,1fr))!important}
+  .susi-beta-view-toolbar [role="tab"]{padding-left:8px!important;padding-right:8px!important}
+}
+.susi-beta-workspace{gap:14px!important}
+.susi-beta-workspace h3{margin:3px 0 5px;font-size:18px;line-height:1.25;color:#26364f;letter-spacing:-.025em}
+.susi-beta-workspace p{margin:0;color:#6b778a;font-size:11.5px;line-height:1.55;word-break:keep-all}
+.susi-beta-workspace-summary>div{min-width:0;display:grid;gap:4px;padding:10px 11px;border:1px solid #dbe2eb;border-radius:10px;background:#f8fafc}
+.susi-beta-workspace-summary small{font-size:9.5px;font-weight:850;color:#7d8797}
+.susi-beta-workspace-summary b{font-size:11.5px;line-height:1.45;color:#34475f;word-break:keep-all}
+.susi-beta-plan-card,.susi-beta-plan-empty{box-sizing:border-box;min-width:0}
+.susi-beta-plan-card b,.susi-beta-plan-card span,.susi-beta-plan-card small{min-width:0;overflow-wrap:anywhere;word-break:keep-all}
+.susi-beta-plan-card>div:nth-child(2)>b{font-size:13px;color:#273b56}.susi-beta-plan-card>div:nth-child(2)>span{font-size:11.5px;font-weight:850;color:#3f526c}.susi-beta-plan-card>div:nth-child(2)>small{font-size:9.5px;color:#7a8696}
+.susi-beta-plan-metrics>span,.susi-beta-plan-evidence>span{display:grid;gap:2px;align-content:center;min-height:48px;padding:7px;border:1px solid #dfe5ed;border-radius:8px;background:#fff;text-align:center}
+.susi-beta-plan-metrics small,.susi-beta-plan-evidence small{font-size:8.8px;color:#8791a0;font-weight:850}
+.susi-beta-plan-metrics b,.susi-beta-plan-evidence b{font-size:10.5px;color:#354a65;font-weight:950}
+.susi-beta-plan-evidence>span:first-child{background:#f4f8fc;border-color:#d6e2ee}.susi-beta-plan-evidence>span:last-child{background:#fff6f7;border-color:#ead3d8}
+.susi-beta-workspace-table th,.susi-beta-workspace-table td{padding:9px 8px;border-bottom:1px solid #e1e6ed;text-align:center;vertical-align:middle;word-break:keep-all;overflow-wrap:anywhere}
+.susi-beta-workspace-table th{position:sticky;top:0;background:#f0f3f7;color:#58677b;font-size:9.5px;font-weight:950;white-space:nowrap}
+.susi-beta-workspace-table td{color:#46566d;background:#fff}.susi-beta-workspace-table tbody tr:last-child td{border-bottom:0}
+.susi-beta-workspace-table td:first-child{text-align:left;min-width:185px}.susi-beta-workspace-table td:first-child b,.susi-beta-workspace-table td:first-child small{display:block}.susi-beta-workspace-table td:first-child b{font-size:11.5px;color:#263c58}.susi-beta-workspace-table td:first-child small{margin-top:2px;color:#788497;font-size:9.5px}
+.susi-beta-workspace-table tbody tr:hover td{background:#fbfcfe}
+.susi-beta-recommend-panel a:focus-visible{outline:2px solid #5984ab;outline-offset:2px}
+@media(max-width:1100px){
+  .susi-beta-workspace-summary{grid-template-columns:1fr 1fr!important}
+  .susi-beta-plan-grid{grid-template-columns:1fr 1fr!important}
+}
+@media(max-width:760px){
+  .susi-beta-workspace>div:first-child{grid-template-columns:1fr!important}
+  .susi-beta-workspace-summary,.susi-beta-plan-grid{grid-template-columns:1fr!important}
+  .susi-beta-workspace-table{min-width:920px!important}
 }
 `;

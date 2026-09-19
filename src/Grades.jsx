@@ -583,6 +583,12 @@ export default function GradesSection({
         국수영사: groups?.국영수사?.avg5 ?? null,
       } : {},
       entryYear,
+      subjects: subjectLists.flatMap((list, semesterIndex) => (list || []).map(subject => ({
+        subject: subject?.subject || "",
+        category: categoryMeta(subject?.category, subject?.subject).key,
+        subjectType: inferSubjectType(subject?.subject, subject?.subjectType),
+        semesterKey: SEMESTER_KEYS[semesterIndex] || subject?.semesterKey || "",
+      }))).filter(item => item.subject),
       latestMockKey,
       latestMockGrades,
       latestMockSums,
