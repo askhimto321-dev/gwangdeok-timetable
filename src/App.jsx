@@ -20,15 +20,15 @@ const DEFAULT_ADMIN = { id: "admin", pw: "kd2026" };
 const SITE_TITLE = "광덕고 데이터베이스 [BETA]";
 const STUDENT_WORKSPACE_VIEWS = [
   ["grades", "성적 리포트"],
-  ["admission", "대학 지원 진단"],
-  ["consultation", "상담·관심 대학"],
+  ["admission", "대학 탐색"],
+  ["consultation", "관심대학·상담"],
   ["timetable", "개인 시간표"],
-  ["susiNaviBeta", "수시NAVI Beta"],
+  ["susiNaviBeta", "NAVI 분석"],
   ["admissionCases", "광덕고 대입 결과"],
 ];
 const STUDENT_WORKSPACE_GROUPS = [
-  { label: "학생 분석", views: ["grades", "admission", "consultation"] },
-  { label: "진학·조회", views: ["timetable", "susiNaviBeta", "admissionCases"] },
+  { label: "학생 조회", views: ["grades", "timetable", "admissionCases"] },
+  { label: "진학 상담", views: ["admission", "consultation", "susiNaviBeta"] },
 ];
 const STUDENT_WORKSPACE_VIEW_KEYS = STUDENT_WORKSPACE_VIEWS.map(([key]) => key);
 
@@ -2083,10 +2083,11 @@ function StaffStudentWorkspaceBar({
           <div style={styles.workspaceOpenersHeader}><span style={styles.workspaceOpenersLabel}>새 작업 열기</span><small>화면을 열어두고 빠르게 전환</small></div>
           <div style={styles.workspaceOpenerRows}>
             {STUDENT_WORKSPACE_GROUPS.map(group => <div key={group.label} className="kd-workspace-opener-row" style={styles.workspaceOpenerRow}>
-              <span style={styles.workspaceOpenerGroupLabel}>{group.label}</span>
+              <span style={{...styles.workspaceOpenerGroupLabel,...(group.label === "진학 상담" ? styles.workspaceOpenerGroupLabelCounsel : {})}}>{group.label}</span>
               <div style={styles.workspaceOpenerGrid}>{group.views.map(key => {
                 const label = labelFor(key);
-                return <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceOpenerBtn, ...(openTabs.includes(key) ? styles.workspaceOpenerBtnOpened : {}) }}><span>{openTabs.includes(key) ? "✓" : "+"}</span>{label}</button>;
+                const counselView = group.label === "진학 상담";
+                return <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceOpenerBtn, ...(counselView ? styles.workspaceOpenerBtnCounsel : {}), ...(openTabs.includes(key) ? (counselView ? styles.workspaceOpenerBtnCounselOpened : styles.workspaceOpenerBtnOpened) : {}) }}><span>{openTabs.includes(key) ? "✓" : "+"}</span>{label}</button>;
               })}</div>
             </div>)}
           </div>
@@ -5762,9 +5763,12 @@ const styles = {
   workspaceOpenerRows: { display: "grid", gap: 4 },
   workspaceOpenerRow: { minWidth: 0, display: "grid", gridTemplateColumns: "62px minmax(0,1fr)", gap: 6, alignItems: "center" },
   workspaceOpenerGroupLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 29, borderRadius: 8, background: "#e8eef5", color: "#6a788a", fontSize: 9.4, fontWeight: 950, whiteSpace: "nowrap" },
+  workspaceOpenerGroupLabelCounsel: { background: "#e8f2fb", color: "#315f91" },
   workspaceOpenerGrid: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   workspaceOpenerBtn: { minHeight:30, minWidth:0, display:"inline-flex", alignItems:"center", justifyContent:"center", gap:5, border:"1px solid #d5dee9", borderRadius:8, background:"#fff", color:"#53657a", padding:"0 8px", fontSize:10.4, fontWeight:900, cursor:"pointer", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" },
   workspaceOpenerBtnOpened: { background:"#eef5fb", borderColor:"#bfd3e6", color:"#315f91" },
+  workspaceOpenerBtnCounsel: { borderColor:"#d5e1ed", background:"#fbfdff", color:"#48657f" },
+  workspaceOpenerBtnCounselOpened: { background:"#315f91", borderColor:"#315f91", color:"#fff" },
   workspaceTabStrip: { display:"grid", gridTemplateColumns:"auto minmax(0,1fr) auto", alignItems:"center", gap:9, paddingTop:8, borderTop:"1px solid #dde6ef" },
   workspaceTabStripLabel: { fontSize:11, fontWeight:950, color:"#42566f", whiteSpace:"nowrap" },
   workspaceTabHint: { fontSize:10, fontWeight:750, color:"#8a96a6", whiteSpace:"nowrap" },

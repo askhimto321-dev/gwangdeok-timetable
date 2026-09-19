@@ -1512,6 +1512,7 @@ export default function SusiNaviBetaView({
   favorites = [],
   onToggleFavorite,
   onOpenCases,
+  onOpenConsultation,
   caseRows = [],
   focusUniversity = "",
   focusDepartment = "",
@@ -1746,11 +1747,11 @@ export default function SusiNaviBetaView({
     const result = await writeStorage(supportPlanStorageKey(sid), { items: normalized, updatedAt: new Date().toISOString() });
     setWorkspaceBusy(false);
     if (!result?.ok) {
-      setWorkspaceMessage(`지원판을 저장하지 못했습니다: ${result?.error || "저장 오류"}`);
+      setWorkspaceMessage(`수시 지원 구성을 저장하지 못했습니다: ${result?.error || "저장 오류"}`);
       return false;
     }
     setSupportPlan(normalized);
-    setWorkspaceMessage(`수시 지원판을 저장했습니다. (${normalized.length}/6)`);
+    setWorkspaceMessage(`수시 지원 구성을 저장했습니다. (${normalized.length}/6)`);
     return true;
   };
   const persistCompareTray = async nextItems => {
@@ -1764,22 +1765,22 @@ export default function SusiNaviBetaView({
     const result = await writeStorage(compareTrayStorageKey(sid), { items: normalized, updatedAt: new Date().toISOString() });
     setWorkspaceBusy(false);
     if (!result?.ok) {
-      setWorkspaceMessage(`대학 비교함을 저장하지 못했습니다: ${result?.error || "저장 오류"}`);
+      setWorkspaceMessage(`대학 비교 목록을 저장하지 못했습니다: ${result?.error || "저장 오류"}`);
       return false;
     }
     setCompareTray(normalized);
-    setWorkspaceMessage(`대학 비교함을 저장했습니다. (${normalized.length}/5)`);
+    setWorkspaceMessage(`대학 비교 목록을 저장했습니다. (${normalized.length}/5)`);
     return true;
   };
   const addSupportPlanItem = async item => {
     if (!selectedStudent?.sid) return setWorkspaceMessage("학생을 먼저 선택해주세요.");
     const key = supportPlanItemKey(item);
     if (supportPlan.some(value => supportPlanItemKey(value) === key)) {
-      setWorkspaceMessage("이미 수시 지원판에 들어 있는 전형입니다.");
+      setWorkspaceMessage("이미 수시 지원 구성에 들어 있는 전형입니다.");
       return;
     }
     if (supportPlan.length >= 6) {
-      setWorkspaceMessage("수시 지원판은 6장까지 저장할 수 있습니다. 먼저 한 항목을 삭제해주세요.");
+      setWorkspaceMessage("수시 지원 구성은 6개 전형까지 저장할 수 있습니다. 먼저 한 항목을 삭제해주세요.");
       navigateViewTab("workspace");
       return;
     }
@@ -1791,11 +1792,11 @@ export default function SusiNaviBetaView({
     if (!selectedStudent?.sid) return setWorkspaceMessage("학생을 먼저 선택해주세요.");
     const key = compareItemKey(item);
     if (compareTray.some(value => compareItemKey(value) === key)) {
-      setWorkspaceMessage("이미 대학 비교함에 들어 있는 모집단위입니다.");
+      setWorkspaceMessage("이미 대학 비교 목록에 들어 있는 모집단위입니다.");
       return;
     }
     if (compareTray.length >= 5) {
-      setWorkspaceMessage("대학 비교함은 5개 모집단위까지 저장할 수 있습니다.");
+      setWorkspaceMessage("대학 비교는 5개 모집단위까지 저장할 수 있습니다.");
       navigateViewTab("workspace");
       return;
     }
@@ -1998,12 +1999,18 @@ export default function SusiNaviBetaView({
             <button type="button" role="tab" aria-selected={viewTab === "search"} onClick={() => navigateViewTab("search")} style={{ ...ui.viewTab, ...(viewTab === "search" ? ui.viewTabActive : {}) }}><span>1</span><b>기준 설정</b><small>환산·검색 조건</small></button>
             <button type="button" role="tab" aria-selected={viewTab === "results"} onClick={() => navigateViewTab("results")} style={{ ...ui.viewTab, ...(viewTab === "results" ? ui.viewTabActive : {}) }}><span>2</span><b>대학 상세</b><small>{filtered.length.toLocaleString()}개 모집단위</small></button>
             <button type="button" role="tab" aria-selected={viewTab === "connection"} onClick={() => navigateViewTab("connection")} style={{ ...ui.viewTab, ...(viewTab === "connection" ? ui.viewTabActive : {}) }}><span>3</span><b>지원 연결</b><small>유사 대학 탐색</small></button>
-            <button type="button" role="tab" aria-selected={viewTab === "workspace"} onClick={() => navigateViewTab("workspace")} style={{ ...ui.viewTab, ...(viewTab === "workspace" ? ui.viewTabActive : {}) }}><span>4</span><b>지원판·비교</b><small>{supportPlan.length}/6 · 비교 {compareTray.length}/5</small></button>
+            <button type="button" role="tab" aria-selected={viewTab === "workspace"} onClick={() => navigateViewTab("workspace")} style={{ ...ui.viewTab, ...(viewTab === "workspace" ? ui.viewTabActive : {}) }}><span>4</span><b>상담 전략</b><small>지원 {supportPlan.length}/6 · 비교 {compareTray.length}/5</small></button>
           </div>
           <div className="susi-beta-view-actions" style={ui.viewToolbarActions}>
             <span style={ui.cutoffStatusChip}><small>현재 지원 판정 기준</small><b>{cutoffBasis}%컷</b></span>
             <button type="button" style={ui.printButton} onClick={() => { navigateViewTab("results", { replace: true }); window.setTimeout(() => window.print(), 90); }}><Printer size={16}/>대학 상세 인쇄·PDF</button>
           </div>
+        </div>
+
+        <div className="susi-beta-consult-linkbar" style={ui.consultLinkBar}>
+          <div style={ui.consultLinkCopy}><span style={ui.consultLinkEyebrow}>상담 연계</span><b>관심 대학 → NAVI 분석 → 지원 구성 → 상담 기록</b><small>저장한 관심 대학과 NAVI 분석 결과를 같은 학생 상담 흐름에서 이어서 확인합니다.</small></div>
+          <div style={ui.consultLinkStats}><span><small>관심 대학</small><b>{favorites.length}</b></span><span><small>지원 구성</small><b>{supportPlan.length}/6</b></span><span><small>대학 비교</small><b>{compareTray.length}/5</b></span></div>
+          <div style={ui.consultLinkActions}><button type="button" style={ui.consultStrategyButton} onClick={() => navigateViewTab("workspace")}>상담 전략 보기</button>{onOpenConsultation && <button type="button" style={ui.consultReturnButton} onClick={onOpenConsultation}>관심대학·상담으로</button>}</div>
         </div>
 
         {viewTab === "search" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
@@ -2273,10 +2280,12 @@ export default function SusiNaviBetaView({
           cutoffBasis={cutoffBasis}
           planItems={resolvedSupportPlan}
           compareItems={resolvedCompareTray}
+          favoriteCount={favorites.length}
           onRemovePlan={removeSupportPlanItem}
           onRemoveCompare={removeCompareItem}
           onGoResults={() => navigateViewTab("results")}
           onGoConnection={() => navigateViewTab("connection")}
+          onOpenConsultation={onOpenConsultation}
           workspaceBusy={workspaceBusy}
           workspaceMessage={workspaceMessage}
           recommendedData={recommendedData}
@@ -2603,7 +2612,7 @@ function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = 
         </div>
         <div style={ui.resultActions}>
           <button type="button" title={favoriteEnabled ? (favorite ? "즐겨찾기 해제" : "즐겨찾기 추가") : "학생을 먼저 선택하세요"} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(favoriteItem)} style={{ ...ui.favoriteBtn, ...(favorite ? ui.favoriteBtnActive : {}), ...(!favoriteEnabled ? ui.favoriteBtnDisabled : {}) }}><Star size={16} fill={favorite ? "currentColor" : "none"}/></button>
-          <button type="button" onClick={() => compareActive ? onOpenWorkspace?.() : onAddCompare?.(compareItem)} style={{ ...ui.compareAddButton, ...(compareActive ? ui.compareAddButtonActive : {}) }}>{compareActive ? "비교함 보기" : "비교함 추가"}</button>
+          <button type="button" onClick={() => compareActive ? onOpenWorkspace?.() : onAddCompare?.(compareItem)} style={{ ...ui.compareAddButton, ...(compareActive ? ui.compareAddButtonActive : {}) }}>{compareActive ? "대학 비교 보기" : "대학 비교에 담기"}</button>
           <button type="button" onClick={onConnectUniversity} style={ui.resultConnectButton}><Network size={15}/>이 대학과 비슷한 대학 찾기</button>
           <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={ui.resultToggle}>{open ? <ChevronUp size={16}/> : <ChevronDown size={16}/>} {open ? "상세 접기" : "상세 펼치기"}</button>
         </div>
@@ -2673,7 +2682,7 @@ function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade
         <div style={{ ...ui.cutoffBox, ...(cutoffBasis === "70" ? ui.cutoffBoxActive : {}) }}><span style={ui.cutoffBoxLabel}>70%컷</span><b style={ui.cutoffBoxValue}>{item[2] ?? "-"}</b></div>
       </div>
       {diff && <small style={{ ...ui.studentDifference, color: diff.favorable ? "#287348" : "#b05244" }}>학생 환산 − {cutoffBasis}%컷 <b>{diff.text}</b></small>}
-      <button type="button" style={{ ...ui.planAddButton, ...(inPlan ? ui.planAddButtonActive : {}) }} onClick={() => inPlan ? onOpenWorkspace?.() : onAddSupportPlan?.(planItem)}>{inPlan ? "지원판에서 보기" : "수시 6장 지원판에 추가"}</button>
+      <button type="button" style={{ ...ui.planAddButton, ...(inPlan ? ui.planAddButtonActive : {}) }} onClick={() => inPlan ? onOpenWorkspace?.() : onAddSupportPlan?.(planItem)}>{inPlan ? "상담 전략에서 보기" : "지원 구성에 담기"}</button>
       {cuts?.[0] ? <CaseDistribution cuts={cuts} cutoffBasis={cutoffBasis} /> : <small style={ui.caseNone}>NAVI 통합 사례 분포 없음</small>}
     </div>;
   })}</div> : <span style={ui.none}>자료 없음</span>}</div>;
@@ -2744,10 +2753,12 @@ function SupportDecisionWorkspace({
   cutoffBasis,
   planItems = [],
   compareItems = [],
+  favoriteCount = 0,
   onRemovePlan,
   onRemoveCompare,
   onGoResults,
   onGoConnection,
+  onOpenConsultation,
   workspaceBusy,
   workspaceMessage,
   recommendedData,
@@ -2773,13 +2784,20 @@ function SupportDecisionWorkspace({
 
   return <div className="susi-beta-tab-panel susi-beta-workspace" style={ui.tabPanel}>
     <div style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 의사결정 보드</span><h3>수시 6장 지원판 · 대학 비교함</h3><p>검색 결과를 단순히 저장하는 대신, 실제 상담에서 검토할 전형 6장과 비교 대학을 한 화면에 모읍니다.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략</span><h3>수시 지원 구성과 대학 비교</h3><p>관심 대학을 검토한 뒤 실제 상담에서 논의할 전형과 비교 대학을 정리하는 화면입니다.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {Number.isFinite(Number(convertedGrade)) ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
+
+    <div className="susi-beta-counsel-flow" style={ui.workspaceFlow}>
+      <div style={ui.workspaceFlowCopy}><b>상담 흐름</b><span>관심 대학 저장 → NAVI 기준 확인 → 지원 구성/비교 → 상담 기록으로 이어집니다.</span></div>
+      <div style={ui.workspaceFlowStats}><span><small>관심 대학</small><b>{favoriteCount}개</b></span><span><small>지원 구성</small><b>{planItems.length}/6</b></span><span><small>대학 비교</small><b>{compareItems.length}/5</b></span></div>
+      {onOpenConsultation && <button type="button" style={ui.workspaceConsultButton} onClick={onOpenConsultation}><Star size={14}/>관심대학·상담으로</button>}
+    </div>
+
     {workspaceMessage && <div style={ui.workspaceMessage}>{workspaceBusy && <Loader2 size={13} className="spin"/>}{workspaceMessage}</div>}
 
     <section style={ui.workspaceSection}>
-      <div style={ui.workspaceSectionHead}><div><b>수시 6장 지원판</b><span>대학 상세의 교과·종합 전형에서 ‘지원판에 추가’를 눌러 구성합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
+      <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>상담에서 실제로 검토할 교과·종합 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
       <div className="susi-beta-workspace-summary" style={ui.workspaceSummaryGrid}>
         <div><small>지원 구간</small><b>{["상향","소신","적정","안정","하향"].filter(label => supportCounts[label]).map(label => `${label} ${supportCounts[label]}`).join(" · ") || "판정 자료 없음"}</b></div>
         <div><small>전형 구성</small><b>{Object.entries(admissionCounts).map(([label,count]) => `${label} ${count}`).join(" · ") || "-"}</b></div>
@@ -2787,7 +2805,7 @@ function SupportDecisionWorkspace({
         <div><small>대학 분산</small><b>{planItems.length ? `${uniqueUniversityCount}개 대학 · ${planItems.length}개 전형` : "지원 후보 없음"}</b></div>
       </div>
       <div className="susi-beta-plan-grid" style={ui.planGrid}>{slots.map((item, index) => {
-        if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>지원 후보 비어 있음</b><small>대학 상세에서 전형을 추가하세요.</small></article>;
+        if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>대학 상세에서 ‘지원 구성에 담기’를 눌러 추가하세요.</small></article>;
         if (item.missing) return <article className="susi-beta-plan-card" key={supportPlanItemKey(item.stored)} style={ui.planCard}><div style={ui.planNumber}>{index + 1}</div><div style={ui.planIdentity}><b>{item.stored.university}</b><span>{item.stored.department}</span><small>{item.stored.admissionType} · {item.stored.track}</small></div><span style={ui.planMissing}>현재 NAVI 자료에서 연결되지 않음</span><button type="button" style={ui.workspaceRemove} onClick={() => onRemovePlan?.(item.stored)}>삭제</button></article>;
         const [,,,,,department] = item.entry.row;
         const minimumMeta = minimumWorkspaceMeta(item.minimumStatus);
@@ -2796,7 +2814,7 @@ function SupportDecisionWorkspace({
           <div style={ui.planNumber}>{index + 1}</div>
           <div style={ui.planIdentity}><b>{item.stored.university}</b><span>{department}</span><small>{item.stored.admissionType} · {item.stored.track}</small></div>
           <div style={ui.planBadges}>{item.support && <span style={{...ui.planSupportBadge,color:item.support.color,background:item.support.background,borderColor:item.support.border}}>{item.support.label}</span>}<span style={{...ui.planMinimumBadge,...minimumMeta.style}}>{minimumMeta.label}</span></div>
-          <div className="susi-beta-plan-metrics" style={ui.planMetrics}><span><small>50%컷</small><b>{item.admissionItem?.[1] ?? "-"}</b></span><span><small>70%컷</small><b>{item.admissionItem?.[2] ?? "-"}</b></span><span><small>저장 이수 확인</small><b>{progress?.total ? `${progress.matched}/${progress.total}` : "-"}</b></span></div>
+          <div className="susi-beta-plan-metrics" style={ui.planMetrics}><span><small>50%컷</small><b>{item.admissionItem?.[1] ?? "-"}</b></span><span><small>70%컷</small><b>{item.admissionItem?.[2] ?? "-"}</b></span><span><small>권장과목 확인</small><b>{progress?.total ? `${progress.matched}/${progress.total}` : "-"}</b></span></div>
           <div className="susi-beta-plan-evidence" style={ui.planEvidence}>
             <span><small>NAVI 통합 사례</small><b>{item.naviCaseCount ? `${item.naviCaseCount.toLocaleString()}건` : "자료 없음"}</b></span>
             <span><small>광덕고 별도 사례</small><b>{item.schoolTrend?.total ? `지원 ${item.schoolTrend.total} · 합격 ${item.schoolTrend.accepted}` : "연결 없음"}</b></span>
@@ -2804,13 +2822,13 @@ function SupportDecisionWorkspace({
           <button type="button" style={ui.workspaceRemove} onClick={() => onRemovePlan?.(item.stored)}>삭제</button>
         </article>;
       })}</div>
-      <div style={ui.workspaceFooter}><span>지원 구간은 현재 학생 환산등급과 선택한 {cutoffBasis}%컷 기준으로 다시 계산됩니다.</span><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세에서 후보 추가</button></div>
+      <div style={ui.workspaceFooter}><span>지원 구간은 현재 학생 환산등급과 선택한 {cutoffBasis}%컷을 기준으로 다시 계산됩니다.</span><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세에서 추가</button></div>
     </section>
 
     <section style={ui.workspaceSection}>
-      <div style={ui.workspaceSectionHead}><div><b>대학 비교함</b><span>같은 화면에서 50·70%컷, 수능최저, 권장과목 연결을 비교합니다.</span></div><span style={ui.workspaceCount}>{compareItems.length}/5</span></div>
-      {compareItems.length ? <div style={ui.compareTableWrap}><table className="susi-beta-workspace-table" style={ui.compareTable}><thead><tr><th>대학·모집단위</th><th>교과 50/70</th><th>종합 50/70</th><th>현재 구간</th><th>수능최저</th><th>사례 근거</th><th>저장 이수 확인</th><th></th></tr></thead><tbody>{compareItems.map(item => {
-        if (!item.entry) return <tr key={compareItemKey(item.stored)}><td><b>{item.stored.university}</b><small>{item.stored.department}</small></td><td colSpan="6">현재 NAVI 자료에서 연결되지 않음</td><td><button type="button" style={ui.workspaceRemove} onClick={() => onRemoveCompare?.(item.stored)}>삭제</button></td></tr>;
+      <div style={ui.workspaceSectionHead}><div><b>대학 비교</b><span>최대 5개 모집단위를 카드로 나란히 비교합니다. 가로 스크롤 없이 핵심 정보만 확인할 수 있습니다.</span></div><span style={ui.workspaceCount}>{compareItems.length}/5</span></div>
+      {compareItems.length ? <div className="susi-beta-compare-card-grid" style={ui.compareCardGrid}>{compareItems.map((item,index) => {
+        if (!item.entry) return <article className="susi-beta-compare-card" key={compareItemKey(item.stored)} style={ui.compareCard}><div style={ui.compareCardHead}><span style={ui.compareIndex}>비교 {index+1}</span><div><b>{item.stored.university}</b><small>{item.stored.department}</small></div><button type="button" style={ui.workspaceRemove} onClick={() => onRemoveCompare?.(item.stored)}>삭제</button></div><div style={ui.compareMissing}>현재 NAVI 자료에서 연결되지 않습니다.</div></article>;
         const row = item.entry.row;
         const teaching = compactCutSummary(row[7] || []);
         const holistic = compactCutSummary(row[8] || []);
@@ -2819,18 +2837,19 @@ function SupportDecisionWorkspace({
         const progress = item.entry.recommendationProgress;
         const naviCaseCount = Math.max(0, ...(item.entry.caseStats || []).map(stat => Number(caseCutForGroup(stat, conversionGroup)?.[0] || 0)));
         const schoolTrend = schoolCaseTrend(caseRows, row[3], row[1], row[5]);
-        return <tr key={compareItemKey(item.stored)}>
-          <td><b>{row[3]}</b><small>{row[5]}</small></td>
-          <td>{teaching.cut50 ?? "-"} / {teaching.cut70 ?? "-"}</td>
-          <td>{holistic.cut50 ?? "-"} / {holistic.cut70 ?? "-"}</td>
-          <td>{supports.length ? <span style={ui.compareSupportText}>{supports.join(" · ")}</span> : "-"}</td>
-          <td>{minimumSummary.unsatisfied ? <b style={{color:"#b84444"}}>미도달 {minimumSummary.unsatisfied}</b> : minimumSummary.satisfied ? <b style={{color:"#2c7048"}}>충족</b> : minimumSummary.total ? "확인 필요" : "없음"}</td>
-          <td><span style={ui.compareEvidence}><b>NAVI {naviCaseCount ? `${naviCaseCount.toLocaleString()}건` : "-"}</b><small>광덕고 {schoolTrend.total ? `${schoolTrend.total}/${schoolTrend.accepted}` : "-"}</small></span></td>
-          <td>{progress?.total ? `${progress.matched}/${progress.total}` : item.entry.recommendation ? "과목 확인" : "자료 없음"}</td>
-          <td><button type="button" style={ui.workspaceRemove} onClick={() => onRemoveCompare?.(item.stored)}>삭제</button></td>
-        </tr>;
-      })}</tbody></table></div> : <div style={ui.workspaceEmpty}><b>비교할 모집단위가 없습니다.</b><span>대학 상세 카드의 ‘비교함 추가’를 눌러 최대 5개까지 모아보세요.</span></div>}
-      <div style={ui.workspaceFooter}><span>{recommendedData ? `권장과목 자료: ${recommendedData.source?.referenceDate || "어디가 공식 자료"}` : "권장과목 공식 자료가 아직 반영되지 않았습니다."}</span><div style={{display:"flex",gap:7}}><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세</button><button type="button" style={ui.workspacePrimary} onClick={onGoConnection}>지원 연결 탐색</button></div></div>
+        return <article className="susi-beta-compare-card" key={compareItemKey(item.stored)} style={ui.compareCard}>
+          <div style={ui.compareCardHead}><span style={ui.compareIndex}>비교 {index+1}</span><div><b>{row[3]}</b><small>{row[5]}</small></div><button type="button" style={ui.workspaceRemove} onClick={() => onRemoveCompare?.(item.stored)}>삭제</button></div>
+          <div style={ui.compareStatusRow}>{supports.length ? supports.map(label => { const tone = SUPPORT_META[label] || {}; return <span key={label} style={{...ui.compareSupportChip,color:tone.color,background:tone.background,borderColor:tone.border}}>{label}</span>; }) : <span style={ui.compareNeutralChip}>구간 판정 없음</span>}{minimumSummary.unsatisfied ? <span style={ui.compareMinimumDanger}>최저 미도달 {minimumSummary.unsatisfied}</span> : minimumSummary.satisfied ? <span style={ui.compareMinimumSuccess}>최저 충족</span> : minimumSummary.total ? <span style={ui.compareNeutralChip}>최저 확인 필요</span> : <span style={ui.compareNeutralChip}>최저 없음</span>}</div>
+          <div className="susi-beta-compare-metrics" style={ui.compareMetricGrid}>
+            <span><small>교과 50 / 70</small><b>{teaching.cut50 ?? "-"} / {teaching.cut70 ?? "-"}</b></span>
+            <span><small>종합 50 / 70</small><b>{holistic.cut50 ?? "-"} / {holistic.cut70 ?? "-"}</b></span>
+            <span><small>NAVI 통합 사례</small><b>{naviCaseCount ? `${naviCaseCount.toLocaleString()}건` : "-"}</b></span>
+            <span><small>광덕고 사례</small><b>{schoolTrend.total ? `지원 ${schoolTrend.total} · 합격 ${schoolTrend.accepted}` : "-"}</b></span>
+            <span><small>권장과목 확인</small><b>{progress?.total ? `${progress.matched}/${progress.total}` : item.entry.recommendation ? "과목 확인" : "자료 없음"}</b></span>
+          </div>
+        </article>;
+      })}</div> : <div style={ui.workspaceEmpty}><b>아직 비교할 대학이 없습니다.</b><span>대학 상세 카드에서 ‘대학 비교에 담기’를 눌러 최대 5개까지 모아보세요.</span></div>}
+      <div style={ui.workspaceFooter}><span>{recommendedData ? `권장과목 자료: ${recommendedData.source?.referenceDate || "어디가 공식 자료"}` : "권장과목 공식 자료가 아직 반영되지 않았습니다."}</span><div style={{display:"flex",gap:7,flexWrap:"wrap"}}><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세</button><button type="button" style={ui.workspacePrimary} onClick={onGoConnection}>유사 대학 찾기</button>{onOpenConsultation && <button type="button" style={ui.workspaceConsultButton} onClick={onOpenConsultation}>상담 기록으로</button>}</div></div>
     </section>
   </div>;
 }
@@ -3250,8 +3269,19 @@ const ui = {
   recommendNotes: { display: "grid", gap: 3, padding: "7px 8px", borderRadius: 8, background: "#f7faf8", color: "#617268", fontSize: 9.2, lineHeight: 1.45 },
   recommendDisclaimer: { margin: 0, paddingTop: 6, borderTop: "1px dashed #d9e5de", color: "#718078", fontSize: 8.9, lineHeight: 1.45 },
   recommendSourceLink: { color: "#315f88", fontSize: 9.2, fontWeight: 900, textDecoration: "none" },
-  workspaceHero: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 16, alignItems: "center", padding: "18px 19px", border: "1px solid #d3ddea", borderRadius: 16, background: "linear-gradient(135deg,#f8fafc,#f6f3fb)" },
-  workspaceEyebrow: { fontSize: 10, fontWeight: 950, color: "#66558e" },
+  consultLinkBar: { display: "grid", gridTemplateColumns: "minmax(0,1.45fr) minmax(270px,.8fr) auto", gap: 12, alignItems: "center", padding: "13px 15px", border: "1px solid #d4dfeb", borderRadius: 14, background: "linear-gradient(135deg,#f8fbff,#f7faf8)", boxShadow: "0 4px 14px rgba(42,63,88,.035)" },
+  consultLinkCopy: { minWidth: 0, display: "grid", gap: 3 },
+  consultLinkEyebrow: { width: "fit-content", display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e7f1fb", color: "#315f91", fontSize: 9.5, fontWeight: 950 },
+  consultLinkStats: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6 },
+  consultLinkActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
+  consultStrategyButton: { minHeight: 36, padding: "0 11px", border: "1px solid #315f91", borderRadius: 9, background: "#315f91", color: "#fff", fontSize: 10.8, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
+  consultReturnButton: { minHeight: 36, padding: "0 11px", border: "1px solid #c7d5e3", borderRadius: 9, background: "#fff", color: "#435e79", fontSize: 10.8, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
+  workspaceHero: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 16, alignItems: "center", padding: "18px 19px", border: "1px solid #d3ddea", borderRadius: 16, background: "linear-gradient(135deg,#f8fafc,#f4f8fb)" },
+  workspaceEyebrow: { fontSize: 10, fontWeight: 950, color: "#315f91" },
+  workspaceFlow: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", gap: 12, alignItems: "center", padding: "11px 13px", border: "1px solid #dce5ed", borderRadius: 12, background: "#fbfcfd" },
+  workspaceFlowCopy: { minWidth: 0, display: "grid", gap: 2, color: "#647287" },
+  workspaceFlowStats: { display: "grid", gridTemplateColumns: "repeat(3,minmax(72px,1fr))", gap: 5 },
+  workspaceConsultButton: { minHeight: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 10px", border: "1px solid #315f91", borderRadius: 9, background: "#fff", color: "#315f91", fontSize: 10.3, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceStudent: { minWidth: 250, display: "grid", gap: 3, padding: "11px 13px", border: "1px solid #d6deea", borderRadius: 12, background: "#fff", color: "#617086" },
   workspaceMessage: { display: "flex", alignItems: "center", gap: 7, padding: "9px 11px", border: "1px solid #d8dfeb", borderRadius: 10, background: "#f7f9fc", color: "#53627a", fontSize: 11.5, fontWeight: 800 },
   workspaceSection: { display: "grid", gap: 12, padding: 16, border: "1px solid #d8e0ea", borderRadius: 15, background: "#fff" },
@@ -3278,10 +3308,17 @@ const ui = {
   workspaceSecondary: { minHeight: 34, padding: "0 11px", border: "1px solid #ccd7e5", borderRadius: 9, background: "#fff", color: "#50617a", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
   workspacePrimary: { minHeight: 34, padding: "0 11px", border: "1px solid #5f4f88", borderRadius: 9, background: "#66558e", color: "#fff", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
   workspaceEmpty: { display: "grid", gap: 4, padding: 24, border: "1px dashed #d5dce6", borderRadius: 11, background: "#fafbfc", color: "#7e8898", textAlign: "center" },
-  compareTableWrap: { overflowX: "auto", border: "1px solid #dce3ec", borderRadius: 11 },
-  compareTable: { width: "100%", minWidth: 1040, borderCollapse: "collapse", fontSize: 10.5 },
-  compareSupportText: { color: "#5a4b79", fontWeight: 900 },
-  compareEvidence: { display: "grid", gap: 2, color: "#52667c" },
+  compareCardGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 9 },
+  compareCard: { minWidth: 0, display: "grid", gap: 9, padding: 12, border: "1px solid #d8e1eb", borderRadius: 12, background: "linear-gradient(135deg,#fff,#f9fbfd)" },
+  compareCardHead: { minWidth: 0, display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", gap: 8, alignItems: "start" },
+  compareIndex: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 24, padding: "0 7px", borderRadius: 999, background: "#e7eef7", color: "#3d5b7c", fontSize: 9, fontWeight: 950, whiteSpace: "nowrap" },
+  compareStatusRow: { display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" },
+  compareSupportChip: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid", fontSize: 9.2, fontWeight: 950 },
+  compareNeutralChip: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #d9dfe7", background: "#f4f6f8", color: "#6c7786", fontSize: 9.2, fontWeight: 900 },
+  compareMinimumDanger: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #efc3c3", background: "#fff1f1", color: "#b84444", fontSize: 9.2, fontWeight: 950 },
+  compareMinimumSuccess: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #c3dfcd", background: "#eef8f1", color: "#2c7048", fontSize: 9.2, fontWeight: 950 },
+  compareMetricGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 6 },
+  compareMissing: { padding: 12, borderRadius: 9, background: "#faf6f5", color: "#9b5d54", fontSize: 10.5, fontWeight: 850, textAlign: "center" },
 };
 
 const betaCss = `
@@ -3621,6 +3658,30 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 @media(max-width:760px){
   .susi-beta-workspace>div:first-child{grid-template-columns:1fr!important}
   .susi-beta-workspace-summary,.susi-beta-plan-grid{grid-template-columns:1fr!important}
-  .susi-beta-workspace-table{min-width:920px!important}
+}
+
+/* Patch 65: 상담 흐름·비교 UI 재구성 */
+.susi-beta-consult-linkbar b{font-size:12.5px;line-height:1.35;color:#2e435d;word-break:keep-all}
+.susi-beta-consult-linkbar small{font-size:9.8px;line-height:1.45;color:#7a8798;word-break:keep-all}
+.susi-beta-consult-linkbar>div:nth-child(2)>span,.susi-beta-counsel-flow>div:nth-child(2)>span{display:grid;justify-items:center;gap:2px;min-width:0;padding:7px 6px;border:1px solid #dce5ed;border-radius:9px;background:#fff}
+.susi-beta-consult-linkbar>div:nth-child(2) small,.susi-beta-counsel-flow>div:nth-child(2) small{font-size:8.7px;color:#8793a2;font-weight:850}
+.susi-beta-consult-linkbar>div:nth-child(2) b,.susi-beta-counsel-flow>div:nth-child(2) b{font-size:11.5px;color:#31526f;font-weight:950}
+.susi-beta-counsel-flow>div:first-child b{font-size:11.5px;color:#304862}.susi-beta-counsel-flow>div:first-child span{font-size:9.8px;line-height:1.45;word-break:keep-all}
+.susi-beta-compare-card>div:first-child>div{min-width:0;display:grid;gap:2px}.susi-beta-compare-card>div:first-child>div>b{font-size:13px;line-height:1.3;color:#243a55;word-break:keep-all;overflow-wrap:anywhere}.susi-beta-compare-card>div:first-child>div>small{font-size:10.5px;line-height:1.4;color:#748196;word-break:keep-all;overflow-wrap:anywhere}
+.susi-beta-compare-metrics>span{min-width:0;display:grid;gap:3px;padding:8px 9px;border:1px solid #dfe6ee;border-radius:9px;background:#fff}
+.susi-beta-compare-metrics>span small{font-size:8.8px;color:#8792a1;font-weight:850}.susi-beta-compare-metrics>span b{font-size:11px;line-height:1.35;color:#344a65;font-weight:950;word-break:keep-all;overflow-wrap:anywhere}
+.susi-beta-compare-metrics>span:nth-child(3){background:#f4f8fc;border-color:#d5e2ef}.susi-beta-compare-metrics>span:nth-child(4){background:#fff6f7;border-color:#ead3d8}.susi-beta-compare-metrics>span:nth-child(5){grid-column:1/-1;background:#f5faf7;border-color:#d4e5db}
+@media(max-width:1100px){
+  .susi-beta-consult-linkbar{grid-template-columns:1fr 1fr!important}.susi-beta-consult-linkbar>div:last-child{grid-column:1/-1;justify-content:flex-end!important}
+  .susi-beta-counsel-flow{grid-template-columns:1fr auto!important}.susi-beta-counsel-flow>button{grid-column:1/-1;justify-self:end}
+}
+@media(max-width:900px){
+  .susi-beta-compare-card-grid{grid-template-columns:1fr!important}
+}
+@media(max-width:720px){
+  .susi-beta-consult-linkbar,.susi-beta-counsel-flow{grid-template-columns:1fr!important}
+  .susi-beta-consult-linkbar>div:last-child,.susi-beta-counsel-flow>button{grid-column:auto!important;justify-self:stretch!important}
+  .susi-beta-consult-linkbar>div:last-child button{flex:1 1 auto}
+  .susi-beta-compare-metrics{grid-template-columns:1fr!important}.susi-beta-compare-metrics>span:nth-child(5){grid-column:auto!important}
 }
 `;

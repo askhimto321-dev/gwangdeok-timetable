@@ -698,10 +698,27 @@ export default function GradesSection({
     if (requestedStudentView === "mockAnalysis") navigateGradeTab("mockAnalysis", { replace: true });
   }, [requestedStudentView, loggedInStudent]);
 
+  const counselingFlowItems = loggedInStudent
+    ? [
+        { key: "grades", label: "성적 확인", sub: "내신·모의고사" },
+        { key: "admission", label: "대학 탐색", sub: "지원 진단" },
+        { key: "consultation", label: "관심대학·상담", sub: "저장·상담 기록" },
+        { key: "susiNaviBeta", label: "NAVI 분석", sub: "컷·최저·지원 전략" },
+      ]
+    : [
+        { key: "lookup", label: "성적 확인", sub: "내신·모의고사" },
+        { key: "lookupAdmission", label: "대학 탐색", sub: "지원 진단" },
+        { key: "consultation", label: "관심대학·상담", sub: "저장·상담 기록" },
+        { key: "susiNaviBeta", label: "NAVI 분석", sub: "컷·최저·지원 전략" },
+      ];
+  const activeFlowStudentName = loggedInStudent?.name || roster?.[activeStudentSid]?.name || "";
+  const activeFlowFavoriteCount = activeStudentSid ? favoriteItemsFor(activeStudentSid).length : 0;
+
   if (!gdb) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
 
   return (
     <div>
+      <style>{GRADES_UI_CSS}</style>
       <div style={{ padding: "16px 20px", borderBottom: "1px solid #e6e1d3", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 16 }}>성적</div>
@@ -719,11 +736,9 @@ export default function GradesSection({
       </div>
 
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
-        {loggedInStudent && <div style={{ display: "flex", gap: 7, marginBottom: 18, flexWrap: "wrap", padding:6, border:"1px solid #dfe5ef", borderRadius:12, background:"linear-gradient(135deg,#f7faff,#fbf9ff)" }}>
-          <TabBtn active={tab === "grades"} onClick={() => navigateGradeTab("grades")} label="내 성적 리포트" />
-          <TabBtn active={tab === "admission"} onClick={() => navigateGradeTab("admission")} label="대학 지원 진단" />
-          <TabBtn active={tab === "consultation"} onClick={() => navigateGradeTab("consultation")} label="상담·관심 대학" />
-          <TabBtn active={tab === "susiNaviBeta"} onClick={() => navigateGradeTab("susiNaviBeta")} label="2027 수시NAVI Beta" />
+        {activeStudentSid && <div className="kd-counsel-flow no-print" style={counselFlow.wrap}>
+          <div style={counselFlow.head}><div><b>학생 상담 흐름</b><span>{activeFlowStudentName ? `${activeFlowStudentName} 학생 · ` : ""}성적 확인부터 관심대학·NAVI 분석·상담 기록까지 같은 흐름에서 이어집니다.</span></div><span style={counselFlow.favoriteCount}><Star size={12} fill="currentColor"/> 관심 {activeFlowFavoriteCount}</span></div>
+          <div style={counselFlow.steps}>{counselingFlowItems.map((item,index)=><button key={item.key} type="button" onClick={()=>navigateGradeTab(item.key)} style={{...counselFlow.step,...(tab===item.key?counselFlow.stepActive:{})}}><span style={{...counselFlow.stepNumber,...(tab===item.key?counselFlow.stepNumberActive:{})}}>{index+1}</span><span style={counselFlow.stepText}><b>{item.label}</b><small>{item.sub}</small></span>{index<counselingFlowItems.length-1&&<em style={counselFlow.arrow}>›</em>}</button>)}</div>
         </div>}
         {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <div style={staffToolNav.wrap}>
@@ -818,6 +833,7 @@ export default function GradesSection({
             favorites={favoriteItemsFor(activeStudentSid)}
             onToggleFavorite={activeStudentSid ? item => toggleFavorite(activeStudentSid, item) : undefined}
             onOpenCases={!loggedInStudent ? (name, department, admissionType) => openCaseUniversity(name, false, department, admissionType) : undefined}
+            onOpenConsultation={activeStudentSid ? () => navigateGradeTab("consultation") : undefined}
             focusUniversity={linkedUniversity}
             focusDepartment={linkedDepartment}
             caseRows={gdb?.admissionCases || []}
@@ -3275,12 +3291,12 @@ function StudentIdentityBanner({ sid, name, grade, classNumber, number, entryYea
     <div className="student-identity-banner" style={{ ...studentBanner.box, ...(admissionView || favoritesView ? studentBanner.admissionBox : {}) }}>
       <div className="student-identity-top" style={studentBanner.topRow}>
         <div className="student-identity-main" style={studentBanner.main}>
-          <div className="student-identity-eyebrow" style={{ ...studentBanner.eyebrow, ...(admissionView ? studentBanner.admissionEyebrow : {}) }}>{favoritesView ? "학생 상담·관심 대학" : admissionView ? "학생 대학 지원 진단" : "학생 성적 리포트"}</div>
+          <div className="student-identity-eyebrow" style={{ ...studentBanner.eyebrow, ...(admissionView ? studentBanner.admissionEyebrow : {}) }}>{favoritesView ? "학생 관심대학·상담" : admissionView ? "학생 대학 탐색" : "학생 성적 리포트"}</div>
           <div className="student-identity-title-row" style={studentBanner.titleRow}>
             <span className="student-identity-name" style={studentBanner.identity}>{sid}{name ? ` ${name}` : ""}</span>
-            <span className="student-identity-tag" style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : favoritesView ? studentBanner.favoritesTitleTag : studentBanner.gradeTitleTag) }}>{favoritesView ? "상담 기록" : admissionView ? "대학 지원" : "성적 분석"}</span>
+            <span className="student-identity-tag" style={{ ...studentBanner.titleTag, ...(admissionView ? studentBanner.admissionTitleTag : favoritesView ? studentBanner.favoritesTitleTag : studentBanner.gradeTitleTag) }}>{favoritesView ? "관심대학·상담" : admissionView ? "대학 탐색" : "성적 분석"}</span>
           </div>
-          <div className="student-identity-subtitle" style={studentBanner.subtitle}>{favoritesView ? "상담 기록과 저장한 대학·학과의 지원 기준·광덕고 사례를 함께 확인합니다." : admissionView ? "현재 성적과 대학별 지원 기준을 비교한 상담용 진단입니다." : "학기별 내신 성적과 성취도 흐름을 확인합니다."}</div>
+          <div className="student-identity-subtitle" style={studentBanner.subtitle}>{favoritesView ? "상담 기록과 저장한 대학·학과의 지원 기준·광덕고 사례를 함께 확인합니다." : admissionView ? "현재 성적과 대학별 지원 기준을 비교하고 관심 대학으로 이어지는 탐색 화면입니다." : "학기별 내신 성적과 성취도 흐름을 확인합니다."}</div>
           <div className="student-identity-badges" style={studentBanner.badges}>
             {location && <span style={studentBanner.badge}>{location}</span>}
             <span style={studentBanner.badge}>{entryYear}학년도 입학생</span>
@@ -4043,9 +4059,9 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
   }, [visibleFavorites]);
 
   const favoriteContent = !(favorites || []).length
-    ? <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 지원 진단 또는 광덕고 대입 결과의 별 아이콘을 눌러 저장하세요." />
+    ? <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 탐색이나 NAVI에서 별 아이콘을 눌러 상담 후보를 저장하세요." />
     : <div className="favorite-print-section" style={card}>
-        <SectionHeading title="관심 대학·학과" description="저장한 대학·학과를 대학 지원 진단, 광덕고 대입 사례, 2027 수시NAVI Beta와 같은 대학·캠퍼스 기준으로 연결합니다." />
+        <SectionHeading title="관심 대학·학과" description="저장한 관심 대학을 중심으로 대학 지원 기준, NAVI 컷, 광덕고 실제 사례를 한 카드에서 연결해 상담할 수 있습니다." />
         <div className="no-print" style={favoriteView.filters}>{["전체","대학","학과","전형"].map(value=><button key={value} type="button" onClick={()=>setFavoriteFilter(value)} style={{...favoriteView.filterButton,...(favoriteFilter===value?favoriteView.filterActive:{})}}>{value}<span>{categoryCounts[value]||0}</span></button>)}</div>
         {!groups.length ? <div style={favoriteView.filteredEmpty}>선택한 분류에 저장된 관심 항목이 없습니다.</div> : <div className="favorite-print-grid" style={favoriteView.grid}>{groups.map(group=>{
           const baseKey = universityKey(group.university);
@@ -4082,11 +4098,11 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
           ).map(cut => ({ ...cut, favoriteDepartment: item.department || "" })));
           const uniqueGroupNaviCuts = Array.from(new Map(groupNaviCuts.map(item => [`${item.favoriteDepartment}|${item.kind}|${item.name}|${item.cut50}|${item.cut70}`, item])).values());
           return <article className="favorite-print-card" key={`${group.university}-${resolvedCampus || "common"}`} style={favoriteView.card}>
-            <div className="favorite-print-header" style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b className="favorite-print-university" style={favoriteView.universityTitle}>{resolvedUniversity}</b><span className="favorite-print-count" style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div className="no-print" style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>{onOpenAdmission&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(resolvedUniversity)}>지원 진단 <ExternalLink size={12}/></button>}{onOpenCases&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(resolvedUniversity,target?.department||"",favoriteCaseAdmissionType(target))}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"광덕고 사례"} <ExternalLink size={12}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>수시NAVI Beta <ExternalLink size={12}/></button>}</div></div>
+            <div className="favorite-print-header" style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b className="favorite-print-university" style={favoriteView.universityTitle}>{resolvedUniversity}</b><span className="favorite-print-count" style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div className="no-print" style={favoriteView.linkCluster}><span style={favoriteView.linkClusterLabel}>상담 연결</span>{onOpenAdmission&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(resolvedUniversity)}>지원 기준 <ExternalLink size={12}/></button>}{onOpenSusiNavi&&<button type="button" style={{...favoriteView.link,...favoriteView.linkPrimary}} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>NAVI 분석 <ExternalLink size={12}/></button>}{onOpenCases&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(resolvedUniversity,target?.department||"",favoriteCaseAdmissionType(target))}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"광덕고 사례"} <ExternalLink size={12}/></button>}</div></div>
             <div className="favorite-print-source-grid" style={favoriteView.sourceGrid}>
-              <div className="favorite-print-source-box favorite-print-source-admission" style={favoriteView.sourceBox}><small className="favorite-print-source-label" style={favoriteView.sourceLabel}>대학 지원 진단</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div>
+              <div className="favorite-print-source-box favorite-print-source-admission" style={favoriteView.sourceBox}><small className="favorite-print-source-label" style={favoriteView.sourceLabel}>지원 기준</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div>
               <div className="favorite-print-source-box favorite-print-source-cases" style={favoriteView.sourceBox}><small className="favorite-print-source-label" style={favoriteView.sourceLabel}>광덕고 대입 사례</small><div style={favoriteView.sourceHeadline}><span>지원 <b>{cases.length}건</b></span><span>합격 <b>{accepted.length}건</b></span></div>{cases.length?<div style={favoriteView.sourceMetrics}><span style={favoriteView.sourceMetric}><small>합격자 50%컷</small><b>{cut50==null?"-":Math.round(cut50*100)/100}</b></span><span style={favoriteView.sourceMetric}><small>합격 사례 비율</small><b>{Math.round(accepted.length/cases.length*1000)/10}%</b></span></div>:<span style={favoriteView.sourceDetail}>연결 사례 없음</span>}</div>
-              <div className="favorite-print-source-box favorite-print-source-navi" style={{...favoriteView.sourceBox,background:"#f4f8fd",borderColor:"#cfdceb"}}><small className="favorite-print-source-label" style={{...favoriteView.sourceLabel,color:"#315f91"}}>2027 수시NAVI Beta</small>{uniqueGroupNaviCuts.length?<><b style={favoriteView.sourceValue}>저장 학과 NAVI 컷 연결</b><div className="favorite-print-navi-cut-list" style={favoriteView.naviCutList}>{uniqueGroupNaviCuts.slice(0,3).map((cut,index)=><span className="favorite-print-navi-cut-pill" key={`${cut.favoriteDepartment}-${cut.kind}-${cut.name}-${index}`} style={favoriteView.naviCutPill}><small>{cut.favoriteDepartment||cut.department}</small><b>{naviCutText(cut)}</b></span>)}</div>{uniqueGroupNaviCuts.length>3&&<span style={favoriteView.sourceDetail}>외 {uniqueGroupNaviCuts.length-3}개 전형 컷은 NAVI에서 확인합니다.</span>}</>:<><b style={favoriteView.sourceValue}>교육청 모집단위 검색</b><span style={favoriteView.sourceDetail}>{group.items.some(item=>item.department)?"저장 학과와 일치하는 2026 공개 50·70%컷을 찾지 못했습니다.":"학과를 즐겨찾기하면 NAVI 50·70%컷을 함께 표시합니다."}</span></>}{onOpenSusiNavi&&<button type="button" className="no-print" style={{...favoriteView.itemLink,justifySelf:"start"}} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>NAVI에서 열기 <ExternalLink size={10}/></button>}</div>
+              <div className="favorite-print-source-box favorite-print-source-navi" style={{...favoriteView.sourceBox,background:"#f4f8fd",borderColor:"#cfdceb"}}><small className="favorite-print-source-label" style={{...favoriteView.sourceLabel,color:"#315f91"}}>NAVI 통합 기준</small>{uniqueGroupNaviCuts.length?<><b style={favoriteView.sourceValue}>저장 학과 NAVI 컷 연결</b><div className="favorite-print-navi-cut-list" style={favoriteView.naviCutList}>{uniqueGroupNaviCuts.slice(0,3).map((cut,index)=><span className="favorite-print-navi-cut-pill" key={`${cut.favoriteDepartment}-${cut.kind}-${cut.name}-${index}`} style={favoriteView.naviCutPill}><small>{cut.favoriteDepartment||cut.department}</small><b>{naviCutText(cut)}</b></span>)}</div>{uniqueGroupNaviCuts.length>3&&<span style={favoriteView.sourceDetail}>외 {uniqueGroupNaviCuts.length-3}개 전형 컷은 NAVI에서 확인합니다.</span>}</>:<><b style={favoriteView.sourceValue}>교육청 모집단위 검색</b><span style={favoriteView.sourceDetail}>{group.items.some(item=>item.department)?"저장 학과와 일치하는 2026 공개 50·70%컷을 찾지 못했습니다.":"학과를 즐겨찾기하면 NAVI 50·70%컷을 함께 표시합니다."}</span></>}{onOpenSusiNavi&&<button type="button" className="no-print" style={{...favoriteView.itemLink,justifySelf:"start"}} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>NAVI에서 열기 <ExternalLink size={10}/></button>}</div>
             </div>
             <div className="favorite-print-items" style={favoriteView.items}>{group.items.map(item=>{
               const itemNaviCuts = favoriteNaviCutRows(favoriteNaviData,resolvedUniversity,resolvedRegion,item.department||"",item.admissionType||"").slice(0,3);
@@ -4185,6 +4201,11 @@ function StudentConsultationView({
     <style>{COUNSELING_PRINT_CSS}</style>
     <div className="counseling-print-root" style={{display:"grid",gap:14}}>
     <div className="counseling-print-student-banner"><StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" /></div>
+    <div className="kd-consult-linkhub no-print" style={consultationView.linkHub}>
+      <div style={consultationView.linkHubCopy}><span>상담 연결</span><b>관심 대학과 NAVI·광덕고 사례를 함께 확인하세요.</b><small>대학 탐색에서 저장한 관심 항목은 아래 카드에 모이고, 같은 대학을 NAVI와 광덕고 실제 사례로 바로 이어서 볼 수 있습니다.</small></div>
+      <div style={consultationView.linkHubStats}><span><small>관심 항목</small><b>{favorites.length}개</b></span><span><small>상담 기록</small><b>{notes.length}건</b></span></div>
+      <div style={consultationView.linkHubActions}>{onOpenAdmission&&<button type="button" onClick={()=>onOpenAdmission("")} style={consultationView.linkHubButton}><GraduationCap size={13}/>대학 탐색</button>}{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi("","")} style={{...consultationView.linkHubButton,...consultationView.linkHubPrimary}}><BookOpen size={13}/>NAVI 분석</button>}{onOpenCases&&<button type="button" onClick={()=>onOpenCases("","","")} style={consultationView.linkHubButton}><BarChart3 size={13}/>광덕고 사례</button>}</div>
+    </div>
     <div className="counseling-print-notes" style={consultationView.card}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={()=>setPrintOptionsOpen(true)} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="상담 기록과 관심 대학·학과의 포함 여부를 선택해 인쇄합니다."><Printer size={13}/>인쇄·PDF</button></div>
       {canEdit && <div className="no-print" style={consultationView.editor}>
@@ -6560,6 +6581,15 @@ const admissionToolbar = {
   filterLabel: { fontSize: 9.1, fontWeight: 900, color: "#766f63", whiteSpace: "nowrap", paddingRight: 2 },
   filterGroup: { display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap" },
 };
+const GRADES_UI_CSS = `
+.kd-counsel-flow button:focus-visible,.kd-consult-linkhub button:focus-visible{outline:2px solid #5f86ae;outline-offset:2px}
+.kd-counsel-flow>div:first-child>div>b{display:block;font-size:12.5px;color:#304a68}.kd-counsel-flow>div:first-child>div>span{display:block;margin-top:2px;font-size:10px;line-height:1.45;color:#758296;word-break:keep-all}
+.kd-counsel-flow button b{font-size:11px;line-height:1.25}.kd-counsel-flow button small{font-size:8.8px;line-height:1.3;color:#8490a0}.kd-counsel-flow button[style*="background: rgb(238, 245, 252)"] small{color:#5d7895}
+.kd-consult-linkhub>div:first-child>span{width:fit-content;display:inline-flex;padding:3px 7px;border-radius:999px;background:#e8f2fb;color:#315f91;font-size:9px;font-weight:950}.kd-consult-linkhub>div:first-child>b{font-size:12.5px;color:#304a68;line-height:1.35}.kd-consult-linkhub>div:first-child>small{font-size:9.8px;line-height:1.5;color:#778598;word-break:keep-all}
+.kd-consult-linkhub>div:nth-child(2)>span{display:grid;justify-items:center;gap:2px;padding:7px 8px;border:1px solid #dde5ed;border-radius:9px;background:#fff}.kd-consult-linkhub>div:nth-child(2) small{font-size:8.5px;color:#8792a1}.kd-consult-linkhub>div:nth-child(2) b{font-size:11px;color:#31516f}
+@media(max-width:900px){.kd-counsel-flow>div:last-child{grid-template-columns:repeat(2,minmax(0,1fr))!important}.kd-consult-linkhub{grid-template-columns:1fr auto!important}.kd-consult-linkhub>div:last-child{grid-column:1/-1;justify-content:flex-start!important}}
+@media(max-width:620px){.kd-counsel-flow>div:last-child{grid-template-columns:1fr!important}.kd-counsel-flow button em{display:none}.kd-consult-linkhub{grid-template-columns:1fr!important}.kd-consult-linkhub>div:nth-child(2){grid-template-columns:1fr 1fr!important}.kd-consult-linkhub>div:last-child{grid-column:auto!important}.kd-consult-linkhub>div:last-child button{flex:1 1 auto}}
+`;
 const staffToolNav = {
   wrap: { marginBottom: 18, padding: "11px 13px", borderRadius: 13, border: "1px solid #dce2ec", background: "linear-gradient(135deg,#f7f9fc,#ffffff)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", boxShadow: "0 4px 14px rgba(58,72,96,.05)" },
   heading: { display: "flex", alignItems: "center", gap: 9, color: "#405575" },
@@ -6567,6 +6597,18 @@ const staffToolNav = {
   buttons: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
   button: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d6dce7", borderRadius: 9, background: "#fff", color: "#687386", padding: "7px 10px", fontSize: 11.5, fontWeight: 850, cursor: "pointer" },
   active: { background: "#405b86", color: "#fff", borderColor: "#405b86", boxShadow: "0 4px 10px rgba(64,91,134,.18)" },
+};
+const counselFlow = {
+  wrap: { marginBottom: 18, padding: 12, border: "1px solid #d7e1eb", borderRadius: 14, background: "linear-gradient(135deg,#f8fbff,#fbfcfd)", display: "grid", gap: 9, boxShadow: "0 4px 14px rgba(48,72,102,.04)" },
+  head: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", color: "#5d6d82" },
+  favoriteCount: { display: "inline-flex", alignItems: "center", gap: 5, minHeight: 28, padding: "0 9px", borderRadius: 999, background: "#fff7d9", border: "1px solid #ead9a1", color: "#7d651e", fontSize: 10, fontWeight: 950 },
+  steps: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 6 },
+  step: { position: "relative", minWidth: 0, minHeight: 54, display: "grid", gridTemplateColumns: "28px minmax(0,1fr) auto", alignItems: "center", gap: 7, padding: "7px 9px", border: "1px solid #dde5ee", borderRadius: 10, background: "#fff", color: "#5e6b7e", cursor: "pointer", textAlign: "left" },
+  stepActive: { borderColor: "#7397bc", background: "#eef5fc", color: "#294d74", boxShadow: "0 3px 10px rgba(49,95,145,.10)" },
+  stepNumber: { width: 25, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#eef2f6", color: "#708096", fontSize: 9.5, fontWeight: 950 },
+  stepNumberActive: { background: "#315f91", color: "#fff" },
+  stepText: { minWidth: 0, display: "grid", gap: 2 },
+  arrow: { fontStyle: "normal", color: "#a2acb9", fontSize: 17, fontWeight: 500 },
 };
 const admissionFieldBadge = {
   wrap: { display: "flex", alignItems: "center", justifyContent: "center", gap: 3, flexWrap: "wrap" },
@@ -6591,6 +6633,12 @@ const admissionStatus = {
   neutral: { background: "#f4f2ed", color: "#716b5f", border: "1px solid #ded9cd" },
 };
 const consultationView = {
+  linkHub:{display:"grid",gridTemplateColumns:"minmax(0,1fr) auto auto",gap:12,alignItems:"center",padding:"13px 14px",border:"1px solid #d5e1ec",borderRadius:14,background:"linear-gradient(135deg,#f7fbff,#f9fbf8)"},
+  linkHubCopy:{minWidth:0,display:"grid",gap:3,color:"#6b798b"},
+  linkHubStats:{display:"grid",gridTemplateColumns:"repeat(2,minmax(78px,1fr))",gap:6},
+  linkHubActions:{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6,flexWrap:"wrap"},
+  linkHubButton:{minHeight:34,display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,border:"1px solid #ccd9e6",borderRadius:9,padding:"0 10px",background:"#fff",color:"#43617f",fontSize:10.5,fontWeight:900,cursor:"pointer",whiteSpace:"nowrap"},
+  linkHubPrimary:{background:"#315f91",borderColor:"#315f91",color:"#fff"},
   card:{border:"1px solid #dce3ee",borderRadius:15,padding:16,background:"linear-gradient(135deg,#ffffff,#f7f9fd)",display:"grid",gap:13},
   editor:{display:"grid",gap:9,padding:12,borderRadius:12,background:"#f5f8fc",border:"1px solid #dce4ef"},
   editorTop:{display:"flex",alignItems:"center",justifyContent:"space-between",gap:10,flexWrap:"wrap"},
@@ -6621,7 +6669,10 @@ const favoriteView = {
   grid:{display:"grid",gridTemplateColumns:"1fr",gap:14},
   card:{border:"1px solid #d8e1ed",borderRadius:15,padding:15,background:"linear-gradient(135deg,#fff,#f7f9fd)",display:"grid",gap:13,boxShadow:"0 5px 16px rgba(46,58,78,.045)",minWidth:0},
   header:{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:12,flexWrap:"wrap",minWidth:0},
+  linkCluster:{display:"flex",alignItems:"center",justifyContent:"flex-end",gap:6,flexWrap:"wrap",padding:"5px 6px",borderRadius:10,background:"#f4f7fb",border:"1px solid #e0e6ef"},
+  linkClusterLabel:{fontSize:9.5,fontWeight:950,color:"#78869a",padding:"0 3px",whiteSpace:"nowrap"},
   link:{display:"inline-flex",alignItems:"center",justifyContent:"center",gap:5,minHeight:34,border:"1px solid #c9d5e4",background:"#fff",color:"#2e5784",borderRadius:9,padding:"0 10px",fontSize:10.5,fontWeight:900,cursor:"pointer",whiteSpace:"nowrap"},
+  linkPrimary:{background:"#315f91",borderColor:"#315f91",color:"#fff"},
   sourceGrid:{display:"grid",gridTemplateColumns:"repeat(3,minmax(0,1fr))",gap:9,minWidth:0},
   sourceBox:{display:"grid",alignContent:"start",gap:7,minHeight:112,padding:"12px",borderRadius:11,background:"#f7f9fc",border:"1px solid #dce4ee",minWidth:0,overflow:"hidden"},
   sourceLabel:{fontSize:10.5,fontWeight:950,color:"#5f6e83",lineHeight:1.3},
