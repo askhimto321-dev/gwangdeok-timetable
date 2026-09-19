@@ -77,6 +77,47 @@ function supportPlanStorageKey(studentSid = "") {
 function compareTrayStorageKey(studentSid = "") {
   return `${COMPARE_TRAY_PREFIX}:${String(studentSid || "staff")}`;
 }
+
+export async function loadSusiSupportPlanExternal(studentSid = "") {
+  const sid = String(studentSid || "").trim();
+  if (!sid) return [];
+  const stored = await readStorage(supportPlanStorageKey(sid), { items: [] });
+  return Array.isArray(stored?.items) ? stored.items.slice(0, 6) : [];
+}
+
+export async function addSusiSupportPlanExternal(studentSid = "", item = {}) {
+  const sid = String(studentSid || "").trim();
+  if (!sid) return { ok: false, error: "학생을 먼저 선택해주세요." };
+  const university = normalizeText(item?.university);
+  const department = normalizeText(item?.department);
+  const admissionTypeRaw = normalizeText(item?.admissionType);
+  const admissionType = /종합/.test(admissionTypeRaw) ? "종합" : /교과/.test(admissionTypeRaw) ? "교과" : admissionTypeRaw;
+  const track = normalizeText(item?.track || item?.detailType || item?.admissionType);
+  if (!university || !department) return { ok: false, error: "대학과 모집단위 정보가 필요합니다." };
+  const normalizedItem = {
+    university,
+    region: normalizeText(item?.region),
+    department,
+    field: normalizeText(item?.field),
+    admissionType,
+    track: track || admissionType || "전형 미지정",
+    source: normalizeText(item?.source) || "외부 상담 화면",
+    sourceCaseId: normalizeText(item?.sourceCaseId),
+  };
+  const stored = await readStorage(supportPlanStorageKey(sid), { items: [] });
+  const current = Array.isArray(stored?.items) ? stored.items : [];
+  const key = supportPlanItemKey(normalizedItem);
+  if (current.some(value => supportPlanItemKey(value) === key)) {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("kd:susi-support-plan-updated", { detail: { sid } }));
+    return { ok: true, duplicate: true, items: current, item: normalizedItem };
+  }
+  if (current.length >= 6) return { ok: false, full: true, error: "수시 지원 구성은 6개 전형까지 저장할 수 있습니다." };
+  const next = [...current, { ...normalizedItem, addedAt: new Date().toISOString() }].slice(0, 6);
+  const result = await writeStorage(supportPlanStorageKey(sid), { items: next, updatedAt: new Date().toISOString() });
+  if (!result?.ok) return { ok: false, error: result?.error || "저장 오류" };
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("kd:susi-support-plan-updated", { detail: { sid } }));
+  return { ok: true, items: next, item: normalizedItem };
+}
 function courseMatchKey(value) {
   return normalizeText(value)
     .replace(/[Ⅰ]/g, "1").replace(/[Ⅱ]/g, "2").replace(/[Ⅲ]/g, "3")
@@ -1649,6 +1690,27 @@ export default function SusiNaviBetaView({
     return () => { active = false; };
   }, [selectedStudent?.sid]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const sid = String(selectedStudent?.sid || "").trim();
+    if (!sid) return undefined;
+    const reload = async event => {
+      if (event?.detail?.sid && String(event.detail.sid) !== sid) return;
+      const plan = await readStorage(supportPlanStorageKey(sid), { items: [] });
+      setSupportPlan(Array.isArray(plan?.items) ? plan.items.slice(0, 6) : []);
+    };
+    const openWorkspace = event => {
+      if (event?.detail?.sid && String(event.detail.sid) !== sid) return;
+      navigateViewTab("workspace");
+    };
+    window.addEventListener("kd:susi-support-plan-updated", reload);
+    window.addEventListener("kd:susi-open-workspace", openWorkspace);
+    return () => {
+      window.removeEventListener("kd:susi-support-plan-updated", reload);
+      window.removeEventListener("kd:susi-open-workspace", openWorkspace);
+    };
+  }, [selectedStudent?.sid]);
+
   const handledExternalFocusRef = useRef("");
   useEffect(() => {
     if (!focusUniversity) {
@@ -1934,7 +1996,7 @@ export default function SusiNaviBetaView({
   const resolvedSupportPlan = useMemo(() => supportPlan.map(item => {
     const entry = findEnrichedWorkspaceEntry(enriched, item);
     if (!entry) return { stored: item, missing: true };
-    const sourceItems = item.admissionType === "종합" ? (entry.row[8] || []) : (entry.row[7] || []);
+    const sourceItems = item.admissionType === "종합" ? (entry.row[8] || []) : item.admissionType === "교과" ? (entry.row[7] || []) : [];
     const admissionItem = sourceItems.find(value => compactText(value?.[0]) === compactText(item.track))
       || sourceItems.find(value => unitSimilar(value?.[0], item.track))
       || sourceItems[0] || null;
@@ -2010,7 +2072,7 @@ export default function SusiNaviBetaView({
         <div className="susi-beta-consult-linkbar" style={ui.consultLinkBar}>
           <div style={ui.consultLinkCopy}><span style={ui.consultLinkEyebrow}>상담 연계</span><b>관심 대학 → NAVI 분석 → 지원 구성 → 상담 기록</b><small>저장한 관심 대학과 NAVI 분석 결과를 같은 학생 상담 흐름에서 이어서 확인합니다.</small></div>
           <div style={ui.consultLinkStats}><span><small>관심 대학</small><b>{favorites.length}</b></span><span><small>지원 구성</small><b>{supportPlan.length}/6</b></span><span><small>대학 비교</small><b>{compareTray.length}/5</b></span></div>
-          <div style={ui.consultLinkActions}><button type="button" style={ui.consultStrategyButton} onClick={() => navigateViewTab("workspace")}>상담 전략 보기</button>{onOpenConsultation && <button type="button" style={ui.consultReturnButton} onClick={onOpenConsultation}>관심대학·상담으로</button>}</div>
+          <div style={ui.consultLinkActions}><button type="button" style={ui.consultStrategyButton} onClick={() => navigateViewTab("workspace")}>수시 지원 구성 보기</button>{onOpenConsultation && <button type="button" style={ui.consultReturnButton} onClick={onOpenConsultation}>관심대학·상담으로</button>}</div>
         </div>
 
         {viewTab === "search" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
@@ -2670,7 +2732,7 @@ function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade
     const support = supportBand(convertedGrade, selectedCutoff);
     const stat = bestCaseStat(caseStats, university, region, item[0], admissionType, conversionGroup);
     const cuts = caseCutForGroup(stat, conversionGroup);
-    const planItem = { university, region, department, field, admissionType, track: item[0] || admissionType };
+    const planItem = { university, region, department, field, admissionType, track: item[0] || admissionType, source: "NAVI 통합 기준" };
     const inPlan = supportPlan.some(value => supportPlanItemKey(value) === supportPlanItemKey(planItem));
     const minimumStatus = matchingMinimumStatus(minimums, minimumEvaluations, admissionType, item[0]);
     const minimumMeta = naviMinimumStatusMeta(minimumStatus);
@@ -2682,7 +2744,7 @@ function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade
         <div style={{ ...ui.cutoffBox, ...(cutoffBasis === "70" ? ui.cutoffBoxActive : {}) }}><span style={ui.cutoffBoxLabel}>70%컷</span><b style={ui.cutoffBoxValue}>{item[2] ?? "-"}</b></div>
       </div>
       {diff && <small style={{ ...ui.studentDifference, color: diff.favorable ? "#287348" : "#b05244" }}>학생 환산 − {cutoffBasis}%컷 <b>{diff.text}</b></small>}
-      <button type="button" style={{ ...ui.planAddButton, ...(inPlan ? ui.planAddButtonActive : {}) }} onClick={() => inPlan ? onOpenWorkspace?.() : onAddSupportPlan?.(planItem)}>{inPlan ? "상담 전략에서 보기" : "지원 구성에 담기"}</button>
+      <button type="button" style={{ ...ui.planAddButton, ...(inPlan ? ui.planAddButtonActive : {}) }} onClick={() => inPlan ? onOpenWorkspace?.() : onAddSupportPlan?.(planItem)}>{inPlan ? "수시 지원 구성에서 보기" : "수시 지원 구성에 추가"}</button>
       {cuts?.[0] ? <CaseDistribution cuts={cuts} cutoffBasis={cutoffBasis} /> : <small style={ui.caseNone}>NAVI 통합 사례 분포 없음</small>}
     </div>;
   })}</div> : <span style={ui.none}>자료 없음</span>}</div>;
@@ -2805,14 +2867,14 @@ function SupportDecisionWorkspace({
         <div><small>대학 분산</small><b>{planItems.length ? `${uniqueUniversityCount}개 대학 · ${planItems.length}개 전형` : "지원 후보 없음"}</b></div>
       </div>
       <div className="susi-beta-plan-grid" style={ui.planGrid}>{slots.map((item, index) => {
-        if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>대학 상세에서 ‘지원 구성에 담기’를 눌러 추가하세요.</small></article>;
-        if (item.missing) return <article className="susi-beta-plan-card" key={supportPlanItemKey(item.stored)} style={ui.planCard}><div style={ui.planNumber}>{index + 1}</div><div style={ui.planIdentity}><b>{item.stored.university}</b><span>{item.stored.department}</span><small>{item.stored.admissionType} · {item.stored.track}</small></div><span style={ui.planMissing}>현재 NAVI 자료에서 연결되지 않음</span><button type="button" style={ui.workspaceRemove} onClick={() => onRemovePlan?.(item.stored)}>삭제</button></article>;
+        if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>NAVI 대학 상세 또는 광덕고 대입결과에서 ‘수시 지원 구성에 추가’를 눌러 담으세요.</small></article>;
+        if (item.missing) return <article className="susi-beta-plan-card" key={supportPlanItemKey(item.stored)} style={ui.planCard}><div style={ui.planNumber}>{index + 1}</div><div style={ui.planIdentity}><b>{item.stored.university}</b><span>{item.stored.department}</span><small>{item.stored.admissionType} · {item.stored.track}</small>{item.stored.source&&<em style={ui.planSourceBadge}>{item.stored.source}</em>}</div><span style={ui.planMissing}>현재 NAVI 자료에서 연결되지 않음</span><button type="button" style={ui.workspaceRemove} onClick={() => onRemovePlan?.(item.stored)}>삭제</button></article>;
         const [,,,,,department] = item.entry.row;
         const minimumMeta = minimumWorkspaceMeta(item.minimumStatus);
         const progress = item.recommendationProgress;
         return <article className="susi-beta-plan-card" key={supportPlanItemKey(item.stored)} style={ui.planCard}>
           <div style={ui.planNumber}>{index + 1}</div>
-          <div style={ui.planIdentity}><b>{item.stored.university}</b><span>{department}</span><small>{item.stored.admissionType} · {item.stored.track}</small></div>
+          <div style={ui.planIdentity}><b>{item.stored.university}</b><span>{department}</span><small>{item.stored.admissionType} · {item.stored.track}</small>{item.stored.source&&<em style={ui.planSourceBadge}>{item.stored.source}</em>}</div>
           <div style={ui.planBadges}>{item.support && <span style={{...ui.planSupportBadge,color:item.support.color,background:item.support.background,borderColor:item.support.border}}>{item.support.label}</span>}<span style={{...ui.planMinimumBadge,...minimumMeta.style}}>{minimumMeta.label}</span></div>
           <div className="susi-beta-plan-metrics" style={ui.planMetrics}><span><small>50%컷</small><b>{item.admissionItem?.[1] ?? "-"}</b></span><span><small>70%컷</small><b>{item.admissionItem?.[2] ?? "-"}</b></span><span><small>권장과목 확인</small><b>{progress?.total ? `${progress.matched}/${progress.total}` : "-"}</b></span></div>
           <div className="susi-beta-plan-evidence" style={ui.planEvidence}>
