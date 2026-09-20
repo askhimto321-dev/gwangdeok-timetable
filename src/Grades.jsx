@@ -6631,7 +6631,7 @@ const staffToolNav = {
   heading: { display: "flex", alignItems: "center", gap: 9, color: "#405575" },
   headingText: { display: "grid", gap: 2, fontSize: 12.5, lineHeight: 1.25 },
   buttons: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  button: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d6dce7", borderRadius: 9, background: "#fff", color: "#687386", padding: "7px 10px", fontSize: 11.5, fontWeight: 850, cursor: "pointer" },
+  button: { display: "inline-flex", alignItems: "center", gap: 6, borderWidth: 1, borderStyle: "solid", borderColor: "#d6dce7", borderRadius: 9, background: "#fff", color: "#687386", padding: "7px 10px", fontSize: 11.5, fontWeight: 850, cursor: "pointer" },
   active: { background: "#405b86", color: "#fff", borderColor: "#405b86", boxShadow: "0 4px 10px rgba(64,91,134,.18)" },
 };
 const counselFlow = {
@@ -6639,7 +6639,7 @@ const counselFlow = {
   head: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", color: "#5d6d82" },
   favoriteCount: { display: "inline-flex", alignItems: "center", gap: 5, minHeight: 28, padding: "0 9px", borderRadius: 999, background: "#fff7d9", border: "1px solid #ead9a1", color: "#7d651e", fontSize: 10, fontWeight: 950 },
   steps: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 6 },
-  step: { position: "relative", minWidth: 0, minHeight: 54, display: "grid", gridTemplateColumns: "28px minmax(0,1fr) auto", alignItems: "center", gap: 7, padding: "7px 9px", border: "1px solid #dde5ee", borderRadius: 10, background: "#fff", color: "#5e6b7e", cursor: "pointer", textAlign: "left" },
+  step: { position: "relative", minWidth: 0, minHeight: 54, display: "grid", gridTemplateColumns: "28px minmax(0,1fr) auto", alignItems: "center", gap: 7, padding: "7px 9px", borderWidth: 1, borderStyle: "solid", borderColor: "#dde5ee", borderRadius: 10, background: "#fff", color: "#5e6b7e", cursor: "pointer", textAlign: "left" },
   stepActive: { borderColor: "#7397bc", background: "#eef5fc", color: "#294d74", boxShadow: "0 3px 10px rgba(49,95,145,.10)" },
   stepNumber: { width: 25, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#eef2f6", color: "#708096", fontSize: 9.5, fontWeight: 950 },
   stepNumberActive: { background: "#315f91", color: "#fff" },

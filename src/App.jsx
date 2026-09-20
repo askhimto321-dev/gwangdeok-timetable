@@ -5773,7 +5773,7 @@ const styles = {
   workspaceTabStripLabel: { fontSize:11, fontWeight:950, color:"#42566f", whiteSpace:"nowrap" },
   workspaceTabHint: { fontSize:10, fontWeight:750, color:"#8a96a6", whiteSpace:"nowrap" },
   workspaceViewTabs: { display: "flex", gap: 6, overflowX:"auto", minWidth:0, padding:"2px 0" },
-  workspaceTabShell: { display:"inline-flex", alignItems:"center", flex:"0 0 auto", border:"1px solid #d5dfea", borderRadius:10, background:"#f6f8fb", overflow:"hidden" },
+  workspaceTabShell: { display:"inline-flex", alignItems:"center", flex:"0 0 auto", borderWidth:1, borderStyle:"solid", borderColor:"#d5dfea", borderRadius:10, background:"#f6f8fb", overflow:"hidden" },
   workspaceTabShellActive: { background:"#fff", borderColor:"#6f98c2", boxShadow:"0 3px 10px rgba(48,65,90,.12)" },
   workspaceViewBtn: { minHeight:31, border: 0, borderRadius: 0, background: "transparent", color: "#607187", padding: "0 10px 0 12px", fontSize: 11.2, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceViewBtnActive: { background: "#fff", color: "#244f86" },
