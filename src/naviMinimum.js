@@ -68,6 +68,49 @@ export function evaluateStoredMinimum(row, student) {
   return result(evaluation.status,each?`${calculation} / 선택 ${count}개 영역 각각 ${threshold}등급 이내`:`${calculation} = ${evaluation.studentSum} / 기준 ${threshold} 이내`,{studentSum:evaluation.studentSum,selectedSubjects:selected,count,threshold,ruleType:each?'each':'sum'});
 }
 
+// 3순위(모평 선택·시뮬레이션): 학생이 응시한 회차별로 같은 판정 함수를 그대로 다시 돌려,
+// "최근 N회 중 M회 충족"을 계산합니다. 회차마다 그 회차 성적만 통째로 사용하고(한 회차 내에서만
+// 값을 가져옴), 서로 다른 회차의 과목별 최고 등급을 섞어 쓰지 않습니다.
+export function minimumHistorySummary(row, student, exams = []) {
+  if (!row || !exams?.length) return null;
+  const results = exams.map(exam => ({
+    key: exam.key,
+    label: exam.label,
+    evaluation: evaluateNaviMinimumSafe(row, { ...student, latestMockGrades: exam.grades }),
+  }));
+  const decided = results.filter(item => ["satisfied", "unsatisfied"].includes(item.evaluation.status));
+  const satisfiedCount = results.filter(item => item.evaluation.status === "satisfied").length;
+  return { results, satisfiedCount, decidedCount: decided.length, total: results.length };
+}
+
+// 4번 요청: 등급이 몇 등급 개선되면 이 최저를 충족하는지 계산합니다.
+// 규칙별 계산 로직을 새로 만들지 않고, 실제 판정 함수(evaluateNaviMinimumSafe)를 그대로 다시
+// 호출해서 확인합니다. "각각" 조건에서 특정 과목이 기준을 못 넘기면 다른 과목을 올려도 충족되지
+// 않는 것 역시 이 방식으로 자연히 반영됩니다(별도로 "필수 과목" 여부를 하드코딩하지 않습니다).
+const IMPROVEMENT_CANDIDATE_SUBJECTS = ["국어", "수학", "영어", "통합사회", "통합과학"];
+export function minimumImprovementAdvice(row, student) {
+  const base = evaluateNaviMinimumSafe(row, student);
+  if (base.status !== "unsatisfied") return null;
+  const grades = student?.latestMockGrades || {};
+  const options = IMPROVEMENT_CANDIDATE_SUBJECTS.map(name => {
+    const current = validGrade(grades[name]);
+    if (current == null || !Number.isInteger(current) || current <= 1) return null;
+    for (let candidate = current - 1; candidate >= 1; candidate--) {
+      const trial = evaluateNaviMinimumSafe(row, { ...student, latestMockGrades: { ...grades, [name]: candidate } });
+      if (trial.status === "satisfied") return { name, from: current, to: candidate, steps: current - candidate };
+    }
+    return null;
+  }).filter(Boolean).sort((a, b) => a.steps - b.steps);
+  return { possible: options.length > 0, options };
+}
+
+export function improvementAdviceText(advice) {
+  if (!advice) return "";
+  if (!advice.possible) return "한 과목만 올려서는 충족되지 않습니다 (여러 과목 개선이 필요합니다).";
+  const best = advice.options[0];
+  return `${best.name} ${best.from}→${best.to}등급이면 충족`;
+}
+
 export function minimumDisplay(evaluation, status) {
   const state=evaluation?.status || status || 'unlinked';
   const labels={satisfied:'모평 기준 충족',unsatisfied:'모평 기준 미충족','no-minimum':'수능최저 없음',manual:'조건 확인 필요',unavailable:'모평 성적 필요',unlinked:'최저 자료 미연결'};

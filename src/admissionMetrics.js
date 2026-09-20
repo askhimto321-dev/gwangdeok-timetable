@@ -60,6 +60,17 @@ export function trackAccentKey(admissionType) {
 export function trackChipClassName(admissionType) {
   return `kd-track-chip is-${trackAccentKey(admissionType)}`;
 }
+// 7번 요청: 내신컷 위치·최저충족과는 별도로 "지원자격"을 세 번째 판정으로 분리합니다.
+// 전형 비고(특이사항) 문구를 해석해서 "지원 가능"이라고 단정하지 않고, 지원 자격을 제한하는
+// 표현이 있는지 사실대로만 보여줍니다(재학생 한정, 지역인재, 추천 인원 제한 등). 표현을 못
+// 찾았다고 해서 "지원 가능"으로 단정하지도 않습니다 — 원문 확인이 필요하다는 점을 항상 남깁니다.
+const ELIGIBILITY_RESTRICTION_PATTERN = /재학생만|재학생\s*한정|졸업생\s*(?:지원\s*)?(?:불가|제외)|재수생\s*(?:지원\s*)?(?:불가|제외)|지역인재|정원\s*외|추천\s*인원|학교장\s*추천\s*\d|인원\s*제한|자격\s*제한|남학생만|여학생만|여자만|남자만|특성화고|마이스터고|졸업\s*예정자만|자격\s*요건/;
+export function admissionEligibilityInfo(noteText) {
+  const note = String(noteText ?? "").trim();
+  if (!note || note === "-") return { status: "none", label: "특이사항 없음" };
+  if (ELIGIBILITY_RESTRICTION_PATTERN.test(note)) return { status: "restricted", label: "지원자격 제한 표현 있음 · 원문 확인" };
+  return { status: "note", label: "특이사항 있음 · 원문 확인" };
+}
 export function cutoffRange(items = [], index) {
   const values = items.map(item => validGrade(item?.[index])).filter(value => value != null);
   if (!values.length) return null;

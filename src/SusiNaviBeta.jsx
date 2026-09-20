@@ -25,10 +25,10 @@ import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META } from "./
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
-import { buildComparisonRows } from "./admissionComparison.js";
+import { buildComparisonRows, minimumScopeRank, comparisonType } from "./admissionComparison.js";
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
-import { evaluateNaviMinimumSafe, minimumDisplay } from "./naviMinimum.js";
+import { evaluateNaviMinimumSafe, minimumDisplay, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
 
 const STORAGE_KEY = "kd_susi_navi_beta_v1";
 const SCHEMA_VERSION = 1;
@@ -1033,8 +1033,32 @@ function naviMinimumAdmissionRow(row) {
     note: [row[10], row[11], row[9] != null ? `평균등급 ${row[9]}` : ""].filter(Boolean).join(" · "),
   };
 }
-function evaluateNaviMinimum(row, selectedStudent) {
-  return evaluateNaviMinimumSafe(row, selectedStudent);
+// 1순위(최저 자료 통합): 검색 결과 카드가 NAVI 최저 자료만 보고, 학교 자체 "대입 전형" 진단
+// 자료(학생별 minimumRows)는 전형별 비교표(admissionComparison.js)에서만 반영되던 문제를
+// 고칩니다. 같은 minimumScopeRank 기준(학생 지원연도 → 대학·캠퍼스 → 전형 → 모집단위)으로
+// 학교 자료를 먼저 찾고, 있으면 그걸로 판정합니다(학교 자료가 NAVI보다 우선). evaluateNaviMinimumSafe는
+// 이미 배열(NAVI 행)과 객체(학교 자료 행)를 모두 처리하므로 판정 함수 자체는 바꾸지 않습니다.
+function findStoredMinimumForUnit(student, { university, region, department, field, admissionType, track }) {
+  const rows = student?.minimumRows;
+  if (!rows?.length) return null;
+  const trackKey = trackIdentity(track);
+  const candidates = rows.filter(value => {
+    if (!sameUniversityCampus(value.university, value.region, university, region)) return false;
+    if (value.admissionYear && student?.admissionYear && Number(value.admissionYear) !== Number(student.admissionYear)) return false;
+    const type = comparisonType(value.admissionType || value.track);
+    if (["교과", "종합"].includes(type) && admissionType && type !== comparisonType(admissionType)) return false;
+    if (trackKey && value.track && trackIdentity(value.track) !== trackKey) return false;
+    return minimumScopeRank(value.department, department, field) >= 0;
+  });
+  if (!candidates.length) return null;
+  const rank = value => minimumScopeRank(value.department, department, field);
+  const bestRank = Math.max(...candidates.map(rank));
+  const best = candidates.filter(value => rank(value) === bestRank);
+  return best.length === 1 ? best[0] : null;
+}
+function evaluateNaviMinimum(row, selectedStudent, unit) {
+  const stored = unit ? findStoredMinimumForUnit(selectedStudent, unit) : null;
+  return evaluateNaviMinimumSafe(stored || row, selectedStudent);
 }
 function minimumAppliesToAdmission(row, admissionType = "") {
   const type = compactText(admissionType);
@@ -1590,6 +1614,9 @@ export default function SusiNaviBetaView({
   const [viewTab, setViewTab] = useState(["search", "results", "connection", "workspace"].includes(restoredViewState?.viewTab) ? restoredViewState.viewTab : "search");
   const [connectionFocus, setConnectionFocus] = useState(restoredViewState?.connectionFocus || null);
   const [page, setPage] = useState(Math.max(1, Number(restoredViewState?.page || 1)));
+  // 3순위(모평 선택·시뮬레이션): 최저 판정에 사용할 모의고사 회차를 학생이 직접 고를 수 있게 합니다.
+  // null이면 최신 회차를 그대로 씁니다.
+  const [selectedMockKey, setSelectedMockKey] = useState(null);
   const naviHistorySessionRef = useRef(`kd-susi-navi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const naviHistoryDepthRef = useRef(0);
 
@@ -1739,6 +1766,9 @@ export default function SusiNaviBetaView({
     if (!selectedStudent?.sid) setFavoriteOnly(false);
   }, [selectedStudent?.sid, selectedStudent?.grade5, selectedStudent?.grade5ByGroup, conversionMethod, conversionGroup]);
 
+  // 학생이 바뀌면 이전 학생의 회차 선택이 남아있지 않도록 초기화합니다(다시 "최신 회차"로).
+  useEffect(() => { setSelectedMockKey(null); }, [selectedStudent?.sid]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(CONVERSION_PREF_KEY, JSON.stringify({ method: conversionMethod, group: conversionGroup }));
@@ -1779,6 +1809,15 @@ export default function SusiNaviBetaView({
 
   const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, grade5), [data, conversionMethod, conversionGroup, grade5]);
   const studentSubjects = useMemo(() => uniqueStudentSubjects(selectedStudent?.subjects || []), [selectedStudent?.subjects]);
+  // 3순위(모평 선택·시뮬레이션): 선택한 회차가 있으면 그 회차 성적으로, 없으면 기존처럼 최신 회차로
+  // 최저를 판정합니다. sid·내신·minimumRows 등 다른 필드는 그대로 두고 모의고사 관련 필드만 바꿔치기하므로,
+  // 아래에서 selectedStudent 대신 effectiveStudent를 쓰는 곳은 모두 100% 호환됩니다.
+  const effectiveStudent = useMemo(() => {
+    if (!selectedStudent) return selectedStudent;
+    const exam = selectedMockKey ? (selectedStudent.availableMockExams || []).find(item => item.key === selectedMockKey) : null;
+    if (!exam) return selectedStudent;
+    return { ...selectedStudent, latestMockKey: exam.key, latestMockGrades: exam.grades, latestMockSums: exam.sums, latestMockLabel: exam.label };
+  }, [selectedStudent, selectedMockKey]);
 
   const mutateWorkspace = async (kind, action, item) => {
     const sid = String(selectedStudent?.sid || "").trim();
@@ -1817,12 +1856,28 @@ export default function SusiNaviBetaView({
     const changes2028 = indexedUniversityRows(changeIndex, row[3], row[1]).filter(item => !item[6] || /O|변경|신설/.test(item[6])).slice(0, 5);
     const schedules = indexedUniversityRows(scheduleIndex, row[3], row[1]).filter(item => !item[5] || matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 5);
     const caseStats = indexedUniversityRows(caseStatIndex, row[3], row[1]);
-    const minimumEvaluations = minimums.map(item => evaluateNaviMinimum(item, selectedStudent));
+    const unit = { university: row[3], region: row[1], department: row[5], field: row[6] };
+    const minimumEvaluations = minimums.map(item => evaluateNaviMinimum(item, effectiveStudent, { ...unit, admissionType: item[2], track: item[3] }));
+    // 3번 요청: 여러 회차를 응시했다면 "최근 N회 중 M회 충족"도 함께 계산합니다.
+    const minimumHistories = minimums.map(item => {
+      const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
+      return (selectedStudent?.availableMockExams?.length > 1)
+        ? minimumHistorySummary(stored || item, effectiveStudent, selectedStudent.availableMockExams)
+        : null;
+    });
+    // 4번 요청: 미충족 항목에 한해 등급 개선 시뮬레이션을 미리 계산해둡니다.
+    const minimumImprovements = minimums.map((item, idx) => {
+      if (minimumEvaluations[idx]?.status !== "unsatisfied") return null;
+      const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
+      return minimumImprovementAdvice(stored || item, effectiveStudent);
+    });
     const recommendation = recommendationForUnit(recommendedData, row[3], row[1], row[5]);
     return {
       row,
       minimums,
       minimumEvaluations,
+      minimumHistories,
+      minimumImprovements,
       courseRules,
       changes2028,
       schedules,
@@ -1830,7 +1885,7 @@ export default function SusiNaviBetaView({
       recommendation,
       recommendationProgress: recommendationProgress(recommendation, studentSubjects),
     };
-  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, studentSubjects, selectedStudent?.sid, selectedStudent?.latestMockKey, selectedStudent?.latestMockGrades, selectedStudent?.latestMockSums]);
+  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, studentSubjects, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.admissionYear, selectedStudent?.availableMockExams]);
 
   const connectionFocusDepartmentMatched = useMemo(() => {
     if (!connectionFocus?.university || !connectionFocus?.department) return false;
@@ -1935,7 +1990,7 @@ export default function SusiNaviBetaView({
     const matchingItems = sourceItems.filter(value => trackIdentity(value?.[0]) === trackIdentity(item.track));
     const admissionItem = matchingItems.length === 1 ? matchingItems[0] : null;
     const cut = admissionItem ? cutoffValue(admissionItem, cutoffBasis) : null;
-    const evidence = admissionItem ? buildComparisonRows({ compareItems: [{ stored: item, entry }], data: data || {}, caseRows, convertedGrade: conversion?.value, cutoffBasis, conversionGroup, identity: universityIdentityKey, minimumContext:selectedStudent, evaluateMinimum: row => evaluateNaviMinimum(row, selectedStudent) }).find(value => value.admissionType === item.admissionType && trackIdentity(value.track) === trackIdentity(item.track)) : null;
+    const evidence = admissionItem ? buildComparisonRows({ compareItems: [{ stored: item, entry }], data: data || {}, caseRows, convertedGrade: conversion?.value, cutoffBasis, conversionGroup, identity: universityIdentityKey, minimumContext:effectiveStudent, evaluateMinimum: row => evaluateNaviMinimum(row, effectiveStudent) }).find(value => value.admissionType === item.admissionType && trackIdentity(value.track) === trackIdentity(item.track)) : null;
     return {
       stored: item, entry, admissionItem,
       missing: !entry, trackMissing: !admissionItem,
@@ -1947,7 +2002,7 @@ export default function SusiNaviBetaView({
       comparisonEvidence: evidence,
       schoolTrend: evidence?.school || schoolCaseTrend(caseRows, item.university, item.region, item.department, item.track || item.admissionType, true),
     };
-  }), [supportPlan, enriched, cutoffBasis, conversion?.value, conversionGroup, caseRows, data, selectedStudent]);
+  }), [supportPlan, enriched, cutoffBasis, conversion?.value, conversionGroup, caseRows, data, effectiveStudent]);
   const resolvedCompareTray = useMemo(() => compareTray.map(item => {
     const entry = findEnrichedWorkspaceEntry(enriched, item);
     return { stored: item, entry: entry || null };
@@ -2017,6 +2072,27 @@ export default function SusiNaviBetaView({
               <div style={ui.studentAutoGrade}><small>5등급제 {conversionMethod === "statistical" ? conversionGroup : "전교과"} 내신</small><b>{grade5 ? Number(grade5).toFixed(2) : "자료 없음"}</b></div>
               <p>{grade5 ? `학생 성적표의 등록 학기 ${conversionMethod === "statistical" ? conversionGroup : "전교과"} 평균을 불러왔습니다. 아래 입력값은 필요할 때 직접 수정할 수 있습니다.` : "선택 학생에게 해당 5등급제 내신 자료가 없어 수동 입력을 사용합니다."}</p>
             </div>}
+            {/* 3순위(모평 선택·시뮬레이션): 수능최저 판정에 쓸 모의고사 회차를 직접 고를 수 있습니다.
+                회차마다 그 회차 성적만 통째로 사용하고, 서로 다른 회차의 과목별 최고 등급을 섞어 쓰지 않습니다. */}
+            {selectedStudent?.sid && (selectedStudent.availableMockExams?.length > 1) && (
+              <div style={{ marginBottom: 12, padding: "11px 13px", border: "1px solid #d4deed", borderRadius: 12, background: "linear-gradient(135deg,#f7faff,#fbfcff)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+                  <span style={{ fontSize: 9.5, color: "#728097", fontWeight: 800 }}>수능최저 판정 기준 회차</span>
+                  <b style={{ fontSize: 13, color: "#2b3f60" }}>{effectiveStudent?.latestMockLabel || "회차 선택"}</b>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+                  {selectedStudent.availableMockExams.map(exam => (
+                    <button
+                      key={exam.key}
+                      type="button"
+                      onClick={() => setSelectedMockKey(exam.key)}
+                      style={{ ...ui.segmentBtn, ...(effectiveStudent?.latestMockKey === exam.key ? ui.segmentActive : {}) }}
+                    >{exam.label}</button>
+                  ))}
+                </div>
+                <p style={{ margin: 0, fontSize: 10.5, lineHeight: 1.5, color: "#6d7889" }}>여러 회차 중 하나를 고르면 아래 대학 상세 결과의 수능최저 판정이 그 회차 성적만으로 다시 계산됩니다.</p>
+              </div>
+            )}
             <div className="susi-beta-converter-grid" style={ui.converterGrid}>
               <label style={ui.fieldLabel}><span>5등급제 내신</span><input type="number" min="1" max="5" step="0.01" value={grade5} onChange={event => setGrade5(event.target.value)} style={ui.input} /></label>
               <div style={ui.methodBox}><span style={ui.labelText}>환산 방식</span><div style={ui.segmented}>
@@ -2031,6 +2107,10 @@ export default function SusiNaviBetaView({
               </div>
             </div>
             {conversionMethod === "statistical" && <div style={ui.statDisclaimer}>53,149명 일반고 학생 자료를 활용한 통계적 추정값입니다. 대학별 공식 환산등급이 아니며, 예상 범위와 함께 참고해야 합니다.</div>}
+            {/* 2순위 핵심 발견: 대학별 실제 반영교과·학년별 비율·진로선택 처리 방식을 계산하는 엔진은
+                아직 없습니다. "기존 환산"도 모든 대학에 똑같이 적용하는 공통 참고값이라는 점을
+                통계 기반 방식과 똑같이 분명히 밝혀, 대학별 공식 값으로 오인하지 않게 합니다. */}
+            {conversionMethod === "legacy" && <div style={ui.statDisclaimer}>모든 대학에 동일하게 적용하는 공통 참고 환산값입니다. 대학마다 실제 반영교과·학년별 비율·진로선택 처리 방식이 달라 이 값과 다를 수 있으니, 최종 지원 전 대학별 모집요강을 확인하세요.</div>}
           </div>
 
           <div style={ui.searchPanel}>
@@ -2227,12 +2307,14 @@ export default function SusiNaviBetaView({
           </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
-            {visible.length ? visible.map(({ row, minimums, minimumEvaluations, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress }, index) => <ResultCard
+            {visible.length ? visible.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
               row={row}
               minimums={minimums}
               minimumEvaluations={minimumEvaluations}
-              latestMockLabel={selectedStudent?.latestMockLabel || ""}
+              minimumHistories={minimumHistories}
+              minimumImprovements={minimumImprovements}
+              latestMockLabel={effectiveStudent?.latestMockLabel || ""}
               courseRules={courseRules}
               changes2028={changes2028}
               schedules={schedules}
@@ -2268,7 +2350,7 @@ export default function SusiNaviBetaView({
         </div>}
 
         {viewTab === "workspace" && <SupportDecisionWorkspace
-          selectedStudent={selectedStudent}
+          selectedStudent={effectiveStudent}
           convertedGrade={conversion?.value}
           conversionMethod={conversionMethod}
           conversionGroup={conversionGroup}
@@ -2571,7 +2653,7 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
   </div>;
 }
 
-function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
+function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
   const [open, setOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("all");
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
@@ -2634,7 +2716,7 @@ function ResultCard({ row, minimums, minimumEvaluations = [], latestMockLabel = 
             {(detailTab === "all" || detailTab === "teaching") && <AdmissionGroup title="교과전형" year="2026 입시결과" admissionType="교과" items={teaching} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="teaching" university={university} region={region} department={unit2027} field={field} caseStats={caseStats} conversionGroup={conversionGroup} minimums={minimums} minimumEvaluations={minimumEvaluations} onAddSupportPlan={onAddSupportPlan} supportPlan={supportPlan} onOpenWorkspace={onOpenWorkspace} />}
             {(detailTab === "all" || detailTab === "holistic") && <AdmissionGroup title="종합전형" year="2026 입시결과" admissionType="종합" items={holistic} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="holistic" university={university} region={region} department={unit2027} field={field} caseStats={caseStats} conversionGroup={conversionGroup} minimums={minimums} minimumEvaluations={minimumEvaluations} onAddSupportPlan={onAddSupportPlan} supportPlan={supportPlan} onOpenWorkspace={onOpenWorkspace} />}
             {(detailTab === "all" || detailTab === "regularMinimum") && <RegularGroup info={regular} />}
-            {(detailTab === "all" || detailTab === "regularMinimum") && <MinimumGroup rows={minimums} evaluations={minimumEvaluations} latestMockLabel={latestMockLabel} />}
+            {(detailTab === "all" || detailTab === "regularMinimum") && <MinimumGroup rows={minimums} evaluations={minimumEvaluations} histories={minimumHistories} improvements={minimumImprovements} latestMockLabel={latestMockLabel} />}
           </div>
         </div>
       </div>}
@@ -2814,6 +2896,19 @@ function SupportDecisionWorkspace({
   const comparisonSectionRef = useRef(null);
   const [planFocused, setPlanFocused] = useState(false);
   const goToSection = ref => { ref.current?.scrollIntoView({ behavior: "auto", block: "start" }); ref.current?.focus({ preventScroll: true }); };
+  // 15번 요청: 전체 카드를 인쇄할지, 상담 중인 일부 전형만 인쇄할지 고를 수 있게 합니다.
+  // 기본값은 "전체"이며, 지원 구성이 바뀌면(학생 전환 등) 선택 상태를 안전하게 초기화합니다.
+  const [printAll, setPrintAll] = useState(true);
+  const [printSelection, setPrintSelection] = useState(() => new Set());
+  useEffect(() => { setPrintAll(true); setPrintSelection(new Set()); }, [selectedStudent?.sid]);
+  // 카드 번호(1~6)가 실제 지원 구성 순서와 어긋나지 않도록, 선택 인쇄에서도 배열 안 위치는
+  // 그대로 두고 선택되지 않은 자리만 비웁니다(예: 3번·5번만 골라도 인쇄물에 3번·5번으로 나옵니다).
+  const printItems = printAll ? planItems : planItems.map(item => printSelection.has(supportPlanItemKey(item.stored)) ? item : null);
+  const togglePrintSelection = itemKey => setPrintSelection(current => {
+    const next = new Set(current);
+    if (next.has(itemKey)) next.delete(itemKey); else next.add(itemKey);
+    return next;
+  });
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
@@ -2834,7 +2929,22 @@ function SupportDecisionWorkspace({
 
     <section className="kd-plan-section" ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:12}}>
       <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
-      <div className="kd-plan-tools"><button type="button" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={planItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={workspaceBusy || workspaceLoading || Boolean(workspaceLoadError) || !selectedStudent?.sid}/><small>{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
+      <div className="kd-plan-tools"><button type="button" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={workspaceBusy || workspaceLoading || Boolean(workspaceLoadError) || !selectedStudent?.sid || !printItems.filter(Boolean).length}/><small>{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
+      {/* 15번 요청: 카드 전체를 인쇄할지 상담 중인 일부 전형만 인쇄할지 선택합니다. */}
+      {planItems.length > 0 && <div className="kd-plan-tools" style={{ flexWrap: "wrap", gap: 8 }}>
+        <span style={{ fontSize: 11.5, color: "#6b7688", fontWeight: 700 }}>인쇄 대상</span>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12 }}><input type="radio" checked={printAll} onChange={() => setPrintAll(true)} />전체 {planItems.length}개</label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12 }}><input type="radio" checked={!printAll} onChange={() => setPrintAll(false)} />선택한 전형만 ({printSelection.size}개)</label>
+        {!printAll && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", width: "100%" }}>
+          {planItems.map(item => {
+            const itemKey = supportPlanItemKey(item.stored);
+            return <label key={itemKey} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, border: "1px solid #d7e1ea", borderRadius: 8, padding: "3px 8px" }}>
+              <input type="checkbox" checked={printSelection.has(itemKey)} onChange={() => togglePrintSelection(itemKey)} />
+              {item.stored.university} {item.stored.department}
+            </label>;
+          })}
+        </div>}
+      </div>}
       <div className="kd-plan-tools"><button type="button" disabled={!planItems.length || workspaceBusy || workspaceLoading || Boolean(workspaceLoadError)} onClick={()=>triggerSectionPrint('kd-print-target-plan')}>요약표 인쇄·PDF</button></div>
       <PrintPlanSheet items={slots} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent}/>
       <div className="susi-beta-workspace-summary" style={ui.workspaceSummaryGrid}>
@@ -2875,15 +2985,21 @@ function RegularGroup({ info }) {
     <p style={ui.regularSubjects}>{info[4] || info[1] || "대학별 반영영역 확인 필요"}</p>
   </div> : <span style={ui.none}>정시 참고 자료 없음</span>}</div>;
 }
-function MinimumGroup({ rows = [], evaluations = [], latestMockLabel = "" }) {
+function MinimumGroup({ rows = [], evaluations = [], histories = [], improvements = [], latestMockLabel = "" }) {
   return <div style={ui.resultSection}><SectionTitle tone="minimum" title="수능최저" year="2027 기준"/>{rows.length ? <div style={ui.minimumList}>{rows.slice(0, 2).map((row, index) => {
     const evaluation = evaluations[index];
     const meta = naviMinimumStatusMeta(evaluation?.status);
+    const history = histories[index];
+    const improvement = improvements[index];
     return <div key={`${row[3]}-${index}`} style={{ ...ui.minimumItem, ...(evaluation?.status === "unsatisfied" ? ui.minimumItemDanger : {}) }}>
       <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{row[2] || "수시"}</span></div>
       <div style={ui.minimumCriteriaRow}><strong style={ui.minimumCriteria}>{row[8] || "기준 원문 확인"}</strong>{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
       <small style={ui.minimumNote}>{[row[6] && `반영영역 ${row[6]}`, row[10] && row[10] !== "-" ? row[10] : ""].filter(Boolean).join(" · ")}</small>
       {meta && latestMockLabel && <small style={ui.minimumEvaluationNote}>{latestMockLabel} 기준 판정</small>}
+      {/* 3번 요청: 여러 회차를 응시했다면 "최근 N회 중 M회 충족"을 함께 보여줍니다. */}
+      {history && history.decidedCount > 0 && <small style={ui.minimumEvaluationNote}>최근 {history.decidedCount}회 중 {history.satisfiedCount}회 충족</small>}
+      {/* 4번 요청: 미충족일 때 어느 과목을 몇 등급 올리면 충족되는지 미리 계산해 보여줍니다. */}
+      {evaluation?.status === "unsatisfied" && improvement && <small style={{ ...ui.minimumEvaluationNote, color: "#8a6d1f" }}>{improvementAdviceText(improvement)}</small>}
     </div>;
   })}</div> : <span style={ui.none}>해당 모집단위 수능최저 자료 없음</span>}</div>;
 }

@@ -6,18 +6,18 @@ import { extractPdfFilesFromZip } from "./zipReader.js";
 import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
 import SusiNaviBetaView, { conversionDetails, loadSusiNaviBetaData, addSusiSupportPlanExternal } from "./SusiNaviBeta.jsx";
 import FavoritePlanPicker from "./FavoritePlanPicker.jsx";
+import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
+import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
   parseSemesterSheet,
   computeAllGroupAverages,
   computeMockExamSums,
-  matchUniversities,
   gradeAnalysisComment,
   inferCategory,
   inferSubjectType,
   normalizeCategory,
   getSubjectGrade,
   grade5to9,
-  evaluateAdmissionRequirement,
   parseAdmissionSubjectGroups,
 } from "./gradeEngine.js";
 
@@ -575,6 +575,14 @@ export default function GradesSection({
     const latestMockKey = MOCK_MONTH_KEYS.slice().reverse().find(key => cohortRecord(gdb.mockData, entryYear, key)?.students?.[sid]) || null;
     const latestMockGrades = latestMockKey ? cohortRecord(gdb.mockData, entryYear, latestMockKey)?.students?.[sid] || null : null;
     const latestMockSums = latestMockGrades ? computeMockExamSums(latestMockGrades) : null;
+    // 3순위(모평 선택·시뮬레이션): 최신 모평뿐 아니라 학생이 응시한 모든 회차를 시간순으로 넘겨,
+    // 화면에서 어느 회차를 기준으로 최저를 판정할지 고를 수 있게 합니다. 회차마다 그 회차 성적만
+    // 통째로 사용하고(=한 회차 내 값만 사용), 서로 다른 회차의 과목별 최고 등급을 섞어 쓰지 않습니다.
+    const availableMockExams = MOCK_MONTH_KEYS.map(key => {
+      const grades = cohortRecord(gdb.mockData, entryYear, key)?.students?.[sid] || null;
+      if (!grades) return null;
+      return { key, label: mockCalendarLabel(key, entryYear), grades, sums: computeMockExamSums(grades) };
+    }).filter(Boolean);
     return {
       sid,
       name: studentInfo?.name || latest?.name || metaRecord?.name || "",
@@ -599,6 +607,7 @@ export default function GradesSection({
       latestMockGrades,
       latestMockSums,
       latestMockLabel: latestMockKey ? mockCalendarLabel(latestMockKey, entryYear) : "",
+      availableMockExams,
     };
   }, [activeStudentSid, gdb, roster]);
   const toggleFavorite = useCallback(async (targetSid, item) => {
@@ -1680,21 +1689,26 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const mockGrades = activeMockKey ? cohortRecord(mockData, entryYear, activeMockKey)?.students?.[sid] || {} : {};
   const sums = useMemo(() => computeMockExamSums(mockGrades || {}), [mockGrades]);
 
-  const latestMockKey = useMemo(() => {
-    const order = MOCK_MONTH_KEYS.slice().reverse();
-    return order.find(key => cohortRecord(mockData, entryYear, key)?.students?.[sid]) || null;
-  }, [mockData, sid]);
-  const latestMockGrades = latestMockKey ? cohortRecord(mockData, entryYear, latestMockKey)?.students?.[sid] || {} : {};
-  const latestSums = useMemo(() => computeMockExamSums(latestMockGrades || {}), [latestMockGrades]);
-
   const overallAverage = gradeSystem === 5
     ? groups["전과목"]?.avg5 ?? null
     : groups["전과목"]?.avg9 ?? null;
-  const matchedUniversities = useMemo(
-    () => matchUniversities(latestSums, scopedAdmissionRows),
-    [latestSums, scopedAdmissionRows],
+  // 3순위(모평 선택·시뮬레이션): "수능 최저 도달 대학"도 위 모의고사 성적 카드에서 고른 회차
+  // (activeMockKey/mockGrades)를 그대로 따라가도록 통일합니다. 예전에는 이 목록만 항상
+  // "최신 회차"로 별도 계산해서, 위에서 다른 회차를 선택해도 최저 판정에는 반영되지 않았습니다.
+  // 판정 자체도 evaluateStoredMinimum을 거쳐 1순위에서 통일한 안전장치(지원연도 일치·비고 확인 등)를 그대로 적용합니다.
+  const reportMinimumStudent = useMemo(
+    () => ({ admissionYear: admissionYearForGrade(inferredGrade), latestMockGrades: mockGrades }),
+    [inferredGrade, mockGrades],
   );
-  const comment = gradeAnalysisComment(overallAverage, latestSums.sum2, latestSums.sum3, latestSums.sum4, gradeSystem);
+  const matchedUniversities = useMemo(() => {
+    const set = new Set();
+    (scopedAdmissionRows || []).forEach(row => {
+      if (!row.university) return;
+      if (evaluateStoredMinimum(row, reportMinimumStudent).status === "satisfied") set.add(row.university);
+    });
+    return Array.from(set);
+  }, [scopedAdmissionRows, reportMinimumStudent]);
+  const comment = gradeAnalysisComment(overallAverage, sums.sum2, sums.sum3, sums.sum4, gradeSystem);
 
   const [trendTab, setTrendTab] = useState("category");
   const [selectedCategoryTrend, setSelectedCategoryTrend] = useState("전과목");
@@ -2104,7 +2118,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         <div style={card}>
           <SectionHeading
             title="수능 최저 도달 대학 (교과전형 기준)"
-            description={latestMockKey ? `${mockCalendarLabel(latestMockKey, entryYear)} 모의고사를 기준으로 판정했습니다.` : "등록된 최신 모의고사를 기준으로 판정합니다."}
+            description={activeMockKey ? `위에서 선택한 ${mockCalendarLabel(activeMockKey, entryYear)} 모의고사를 기준으로 판정했습니다. 다른 회차를 보려면 위 '모의고사 성적' 칩을 눌러 바꾸세요.` : "등록된 모의고사 성적이 없어 판정할 수 없습니다."}
           />
           <div style={{ fontSize: 13, color: matchedUniversities.length ? "#3d5c3a" : "#8a8578", lineHeight: 1.7 }}>
             {matchedUniversities.length ? matchedUniversities.join(", ") : "도달 대학 없음"}
@@ -2743,8 +2757,19 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
     [semesterData, sid, gradeSystem], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
-  const latestMockKey = MOCK_MONTH_KEYS.slice().reverse().find(key => cohortRecord(mockData, entryYear, key)?.students?.[sid]) || null;
-  const latestMockGrades = latestMockKey ? cohortRecord(mockData, entryYear, latestMockKey)?.students?.[sid] || {} : {};
+  // 3순위(모평 선택·시뮬레이션): 최신 회차뿐 아니라 학생이 응시한 모든 회차를 나열해 사용자가
+  // 판정 기준 회차를 직접 고를 수 있게 합니다. 기본값은 그대로 최신 회차입니다.
+  const availableMockExams = useMemo(() => MOCK_MONTH_KEYS.map(key => {
+    const grades = cohortRecord(mockData, entryYear, key)?.students?.[sid] || null;
+    if (!grades) return null;
+    return { key, label: mockCalendarLabel(key, entryYear), grades };
+  }).filter(Boolean), [mockData, entryYear, sid]);
+  const [selectedMockKey, setSelectedMockKey] = useState(null);
+  const activeMockExam = (selectedMockKey && availableMockExams.find(exam => exam.key === selectedMockKey))
+    || availableMockExams[availableMockExams.length - 1]
+    || null;
+  const latestMockKey = activeMockExam?.key || null;
+  const latestMockGrades = activeMockExam?.grades || {};
   const latestSums = useMemo(() => computeMockExamSums(latestMockGrades || {}), [latestMockGrades]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -2759,20 +2784,37 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
 
   const admissionDocumentIndex = useMemo(() => buildAdmissionDocumentIndex(scopedAdmissionDocs), [scopedAdmissionDocs]);
 
+  // 1순위: 이 화면의 최저 판정도 SusiNaviBeta·대학비교표와 동일한 evaluateStoredMinimum을 거칩니다.
+  // (기존에는 evaluateAdmissionRequirement를 직접 호출해 지원연도 확인·비고 확인 등
+  //  evaluateStoredMinimum의 안전장치 없이 판정될 수 있었습니다.)
+  const minimumStudent = useMemo(
+    () => ({ admissionYear: admissionYearForGrade(inferredGrade), latestMockGrades }),
+    [inferredGrade, latestMockGrades],
+  );
   const evaluatedRows = useMemo(() => scopedAdmissionRows.map((row, index) => {
-    const evaluation = evaluateAdmissionRequirement(row, latestSums, latestMockGrades);
+    const evaluation = evaluateStoredMinimum(row, minimumStudent);
+    // 4번 요청: 미충족 전형에 한해 "어느 과목을 몇 등급 올리면 충족되는지" 미리 계산합니다.
+    const improvementAdvice = evaluation.status === "unsatisfied" ? minimumImprovementAdvice(row, minimumStudent) : null;
+    // 3번 요청: 여러 회차를 응시한 경우 "최근 N회 중 M회 충족"을 함께 보여줍니다.
+    const historySummary = availableMockExams.length > 1 ? minimumHistorySummary(row, minimumStudent, availableMockExams) : null;
+    // 7번 요청: 내신컷 위치는 이 화면에 없지만(사례 탭에서 다룸), 최저충족과는 별도로
+    // "지원자격"(비고의 제한 표현 유무)을 세 번째 판정으로 분리해서 보여줍니다.
+    const eligibility = admissionEligibilityInfo(row.note);
     const rowDocs = admissionDocumentsForRow(admissionDocumentIndex, row);
     return {
       ...row,
       _index: index,
       evaluation,
+      improvementAdvice,
+      historySummary,
+      eligibility,
       docs: rowDocs,
       guideDocs: rowDocs.filter(item => admissionDocumentType(item) === "guide"),
       reflectionDocs: rowDocs.filter(item => admissionDocumentType(item) === "reflection"),
       region: String(row.region || rowDocs[0]?.region || "미지정"),
       _fieldTags: admissionFieldTags(row),
     };
-  }), [scopedAdmissionRows, latestSums, latestMockGrades, admissionDocumentIndex]);
+  }), [scopedAdmissionRows, minimumStudent, admissionDocumentIndex, availableMockExams]);
 
   const caseIndexByUniversity = useMemo(() => {
     const map = new Map();
@@ -2947,6 +2989,19 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
         <div style={admissionHero.content}>
           {admissionViewMode === "mock" ? (
             <>
+              {availableMockExams.length > 1 && (
+                <div className="no-print" style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+                  <span style={{ fontSize: 11.5, color: "#6b7688", fontWeight: 700 }}>판정 기준 회차</span>
+                  {availableMockExams.map(exam => (
+                    <button
+                      key={exam.key}
+                      type="button"
+                      onClick={() => setSelectedMockKey(exam.key)}
+                      style={{ ...btn.chip, ...((activeMockExam?.key === exam.key) ? btn.chipActive : {}) }}
+                    >{exam.label}</button>
+                  ))}
+                </div>
+              )}
               <MockSumCards sums={latestSums} />
               <div style={admissionSummary.grid}>
                 <div style={{ ...admissionSummary.card, ...admissionSummary.success }}><b>{statusCounts.satisfied}</b><span>충족·최저 없음</span></div>
@@ -3155,7 +3210,18 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                           ? <span style={admissionTable.empty}>-</span>
                           : <span style={{ ...studentSumBadge, ...(result.ruleType === "each" ? eachStudentBadge : {}) }}>{admissionStudentResultText(result)}</span>}
                       </td>
-                      <td style={{ ...admissionTable.td, ...admissionTable.statusCell }}><span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span></td>
+                      <td style={{ ...admissionTable.td, ...admissionTable.statusCell }}>
+                        <span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span>
+                        {row.historySummary && row.historySummary.decidedCount > 0 && (
+                          <small style={{ display: "block", marginTop: 3, color: "#6b7688", fontSize: 9.6 }}>최근 {row.historySummary.decidedCount}회 중 {row.historySummary.satisfiedCount}회 충족</small>
+                        )}
+                        {result.status === "unsatisfied" && row.improvementAdvice && (
+                          <small style={{ display: "block", marginTop: 3, color: "#8a6d1f", fontSize: 9.6 }}>{improvementAdviceText(row.improvementAdvice)}</small>
+                        )}
+                        {row.eligibility && row.eligibility.status !== "none" && (
+                          <small style={{ display: "block", marginTop: 3, color: row.eligibility.status === "restricted" ? "#9c5a1d" : "#6b7688", fontSize: 9.6 }}>지원자격 · {row.eligibility.label}</small>
+                        )}
+                      </td>
                       <td style={admissionTable.td}>
                         {row.guideDocs.length ? (
                           <div style={{ display: "flex", justifyContent: "center", gap: 4, flexWrap: "wrap" }}>

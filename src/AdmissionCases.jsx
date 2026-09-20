@@ -1095,6 +1095,27 @@ function ResultQuickFilters({filters,setFilters,profile}){
   </div>;
 }
 
+// 8번 요청: 대학 상세의 "학생 유사 사례"는 사용자가 고른 범위(0.3/0.5/1.0)를 그대로 좁게 먼저
+// 적용하고, 그 범위 안에 사례가 너무 적을 때만(minSample 미만) 다음으로 넓은 범위로 자동
+// 확대합니다. widened가 true면 화면에서 "범위를 넓혔습니다"라고 표시해 사용자가 알 수 있게 합니다.
+const CASE_RANGE_PRESETS=[0.3,0.5,1.0];
+function narrowSimilarCases(rows,convertedGrade,baseRange,minSample=3){
+  if(convertedGrade==null)return{rows:[],rangeUsed:baseRange,widened:false,total:0};
+  const candidates=CASE_RANGE_PRESETS.filter(value=>value>=baseRange);
+  const orderedRanges=candidates.length?candidates:[baseRange];
+  for(let index=0;index<orderedRanges.length;index+=1){
+    const currentRange=orderedRanges[index];
+    const matched=rows.filter(row=>row.overallGrade!=null&&Math.abs(row.overallGrade-convertedGrade)<=currentRange);
+    if(matched.length>=minSample||index===orderedRanges.length-1){
+      return{rows:matched,rangeUsed:currentRange,widened:currentRange>baseRange,total:matched.length};
+    }
+  }
+  return{rows:[],rangeUsed:baseRange,widened:false,total:0};
+}
+function caseYearLabel(row){
+  if(row?.dataFlags?.yearMissing||row?.admissionYear==null)return row?.periodLabel||"연도 미제공";
+  return`${row.admissionYear}`;
+}
 function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmission,onOpenSusiNavi,onAddSupportPlan,onOpenSupportPlan,admissionRows=[],selectedUniversity="",onSelectUniversity,onBackUniversity,onOpenDepartmentCases,quickFilters=null,supportBands=[]}){
   const[range,setRange]=useState(0.5);
   const similar=useMemo(()=>{
@@ -1130,8 +1151,10 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
 
   const accepted=visibleSimilar.filter(x=>x.finalResult==="합격").length;
   if(selectedUniversity){
-    const selectedSimilar=visibleSimilar.filter(row=>(row.universityNormalized||row.university)===selectedUniversity);
     const selectedAll=rows.filter(row=>(row.universityNormalized||row.university)===selectedUniversity);
+    // 8번 요청: 사용자가 고른 범위를 먼저 적용하고, 표본이 너무 적을 때만 자동으로 넓힙니다.
+    const autoSimilar=narrowSimilarCases(selectedAll,profile.converted,range);
+    const selectedSimilar=autoSimilar.rows;
     const acceptedAll=selectedAll.filter(row=>row.finalResult==="합격");
     const detailRows=buildUniversityDetails(selectedAll);
     const cut50=median(acceptedAll.map(row=>row.overallGrade));
@@ -1167,8 +1190,10 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
       <Section title="모집단위·전형별 결과" description="해당 대학의 모집단위와 전형을 지원 사례 수와 합격자 전교과 50%컷으로 비교합니다.">
         <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"20%"}}/><col style={{width:"21%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"10%"}}/><col style={{width:"7%"}}/><col style={{width:"14%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률</th><th>전교과<br/>50%컷</th><th>상담 연계</th></tr></thead><tbody>{detailRows.map(row=><tr key={`${row.department}|${row.type}`}><td><button type="button" className="admission-department-link" onClick={()=>onOpenDepartmentCases?.(selectedUniversity,row.department,"")} title="이 모집단위의 전체 사례 조회">{row.department}</button></td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td><td><div className="admission-row-actions">{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi(selectedUniversity,row.department)}>NAVI</button>}{onAddSupportPlan&&<SupportPlanButton compact onClick={()=>onAddSupportPlan(supportPlanFromCase(row.sample||{department:row.department,detailType:row.type},selectedUniversity))}>수시지원 추가</SupportPlanButton>}</div></td></tr>)}</tbody></Table>
       </Section>
-      <Section title={`학생 유사 사례 ${selectedSimilar.length}건`} description={`현재 9등급 환산 ${fmt(profile.converted)}에서 ±${range.toFixed(1)} 범위의 사례입니다.`} aside={<div className="admission-current-university"><small>현재 조회 대학</small><b>{selectedUniversity}</b></div>}>
-        {selectedSimilar.length?<Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"7%"}}/><col style={{width:"20%"}}/><col style={{width:"23%"}}/><col style={{width:"10%"}}/><col style={{width:"10%"}}/><col style={{width:"14%"}}/><col style={{width:"16%"}}/></colgroup><thead><tr><th>관심</th><th>모집단위</th><th>전형</th><th>전교과</th><th>대학 환산</th><th>최종 결과</th><th>등록 여부</th></tr></thead><tbody>{selectedSimilar.slice(0,40).map(row=>{const registration=registrationDisplay(row);const favoriteItem={source:"case",favoriteKind:"학과",university:selectedUniversity,department:row.department,admissionType:row.detailType||row.admissionType,label:`${selectedUniversity} ${row.department}`};return <tr key={row.caseId}><td>{onToggleFavorite&&<button type="button" className={`admission-favorite-button ${isFavorite(favorites,favoriteItem)?"is-active":""}`} onClick={()=>onToggleFavorite(favoriteItem)} title="이 유사 사례를 상담·관심 대학에 저장" aria-label="유사 사례 즐겨찾기"><Star size={13} fill="currentColor"/></button>}</td><td style={{textAlign:"left",fontWeight:800}}>{row.department}</td><td style={{textAlign:"left"}}>{row.detailType||row.admissionType}</td><td>{fmt(row.overallGrade)}</td><td>{fmt(row.universityGrade)}</td><td><span style={{...styles.badge,...resultStyle(row.finalResultDetail)}}>{row.finalResultDetail}</span></td><td><span style={{...styles.registrationBadge,color:registration.color,background:registration.background}}>{registration.label}</span></td></tr>})}</tbody></Table>:<Empty title="현재 범위의 유사 사례가 없습니다." text="대학 전체 지원 결과는 위 표에서 확인할 수 있습니다."/>}
+      <Section title={`학생 유사 사례 ${selectedSimilar.length}건`} description={`현재 9등급 환산 ${fmt(profile.converted)}에서 ±${autoSimilar.rangeUsed.toFixed(1)} 범위의 사례입니다.`} aside={<div className="admission-current-university"><small>현재 조회 대학</small><b>{selectedUniversity}</b></div>}>
+        {/* 8번 요청: 선택한 범위(±{range})에 사례가 부족해 자동으로 넓혔다면 그 사실을 분명히 표시합니다. */}
+        {autoSimilar.widened&&<div className="admission-holistic-notice" style={{marginBottom:10}}><AlertTriangle size={15}/><span>선택한 ±{range.toFixed(1)} 범위에는 사례가 너무 적어 <b>±{autoSimilar.rangeUsed.toFixed(1)}까지 자동으로 넓혔습니다.</b> 범위를 넓혀 나온 결과이니 그 점을 감안해서 참고하세요.</span></div>}
+        {selectedSimilar.length?<Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"6%"}}/><col style={{width:"9%"}}/><col style={{width:"17%"}}/><col style={{width:"20%"}}/><col style={{width:"9%"}}/><col style={{width:"9%"}}/><col style={{width:"14%"}}/><col style={{width:"16%"}}/></colgroup><thead><tr><th>관심</th><th>연도</th><th>모집단위</th><th>전형</th><th>전교과</th><th>대학 환산</th><th>최종 결과</th><th>등록 여부</th></tr></thead><tbody>{selectedSimilar.slice(0,40).map(row=>{const registration=registrationDisplay(row);const favoriteItem={source:"case",favoriteKind:"학과",university:selectedUniversity,department:row.department,admissionType:row.detailType||row.admissionType,label:`${selectedUniversity} ${row.department}`};return <tr key={row.caseId}><td>{onToggleFavorite&&<button type="button" className={`admission-favorite-button ${isFavorite(favorites,favoriteItem)?"is-active":""}`} onClick={()=>onToggleFavorite(favoriteItem)} title="이 유사 사례를 상담·관심 대학에 저장" aria-label="유사 사례 즐겨찾기"><Star size={13} fill="currentColor"/></button>}</td><td style={{color:"#7b8491"}}>{caseYearLabel(row)}</td><td style={{textAlign:"left",fontWeight:800}}>{row.department}</td><td style={{textAlign:"left"}}>{row.detailType||row.admissionType}</td><td>{fmt(row.overallGrade)}</td><td>{fmt(row.universityGrade)}</td><td><span style={{...styles.badge,...resultStyle(row.finalResultDetail)}}>{row.finalResultDetail}</span></td><td><span style={{...styles.registrationBadge,color:registration.color,background:registration.background}}>{registration.label}</span></td></tr>})}</tbody></Table>:<Empty title="현재 범위의 유사 사례가 없습니다." text="대학 전체 지원 결과는 위 표에서 확인할 수 있습니다."/>}
       </Section>
     </div>;
   }

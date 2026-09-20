@@ -27,6 +27,13 @@
    이름표+값 한 줄 스타일(.kd-evidence-row)은 theme.css의 공용 규칙을 SupportDecisionCard.jsx와 함께 씁니다. */
 .kd-evidence-more{margin-top:4px}.kd-evidence-more summary{cursor:pointer;color:#52667a;font-size:11.5px;font-weight:700;list-style:none}.kd-evidence-more summary::-webkit-details-marker{display:none}.kd-evidence-more[open] summary{margin-bottom:4px}.kd-evidence-more small{margin-top:2px}
 .kd-comparison-empty{padding:20px 12px;color:#52667a;background:#f7f9fb;border-radius:8px;margin-top:12px}.kd-track-comparison footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:16px}.kd-track-comparison footer>span{font-size:12px;color:#52667a}
+/* 7번 요청: 내신컷 위치·최저충족과 분리된 세 번째 판정(지원자격)입니다. 제한 표현을 찾았을 때만
+   경고색을 쓰고, 나머지는 "확인이 더 필요하다"는 뜻의 중립색으로 남겨 과신을 주지 않습니다. */
+.kd-eligibility-note{font-weight:700!important}
+.kd-eligibility-note.is-restricted{color:#9c5a1d!important}
+.kd-eligibility-note.is-note{color:#52667a!important}
+.kd-eligibility-note.is-none{color:#8a96a8!important}
+.kd-eligibility-note.is-unavailable{color:#8a96a8!important;font-style:italic}
 .susi-beta-workspace-hero{min-width:0}.susi-beta-workspace-hero>div{min-width:0!important;overflow-wrap:anywhere}.kd-workspace-jumps{display:flex;gap:8px;flex-wrap:wrap}.kd-workspace-jumps button{min-height:44px;padding:8px 12px;border:1px solid #becfe0;border-radius:8px;color:#315f91;background:#fff;font:inherit;font-weight:750;cursor:pointer}.kd-workspace-jumps button:focus-visible{outline:3px solid #397bb8;outline-offset:3px}
 @media(max-width:760px){.kd-track-comparison{padding:12px}.kd-comparison-table{min-width:620px}.susi-beta-workspace-hero{grid-template-columns:minmax(0,1fr)!important}.susi-beta-workspace .susi-beta-counsel-flow{grid-template-columns:minmax(0,1fr)!important}.kd-comparison-heading h3{font-size:18px}.kd-track-comparison footer button{width:100%}.kd-workspace-jumps button{flex:1 1 140px}.susi-beta-workspace>section{min-width:0}}
 @media print{.kd-comparison-toolbar,.kd-comparison-selection,.kd-workspace-jumps,.kd-track-comparison footer button{display:none}.kd-comparison-scroll{overflow:visible}.kd-comparison-table{min-width:0;font-size:9px}.kd-comparison-table th,.kd-comparison-table td{padding:5px}}

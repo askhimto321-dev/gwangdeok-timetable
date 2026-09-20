@@ -15,7 +15,7 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
   const saved = new Set(planItems.map(row => planKey(row.stored)));
   return <section className="kd-track-comparison" aria-labelledby="kd-comparison-title" aria-busy={loading || busy || undefined}>
     <header className="kd-comparison-heading"><div><h3 id="kd-comparison-title">전형별 비교</h3><p>최대 5개 모집단위를 담고, 각 전형의 컷·반영 교과·최저를 한 행에서 비교하세요.</p></div><strong>{loading ? '조회 중' : `${compareItems.length}/5 모집단위`}</strong></header>
-    <div className="kd-comparison-note">입시결과 {COMPARISON_YEARS.result} · 모집단위/교과 반영 {COMPARISON_YEARS.recruitment}. 최저는 학생 지원연도의 기존 대학 지원 진단 자료를 우선 연결하며, 없으면 NAVI 2027 참고자료를 표시합니다. 최종 지원 조건은 해당 연도 모집요강을 확인하세요.</div>
+    <div className="kd-comparison-note">입시결과 {COMPARISON_YEARS.result} · 모집단위/교과 반영 {COMPARISON_YEARS.recruitment}. 최저는 학생 지원연도의 기존 대학 지원 진단 자료를 우선 연결하며, 없으면 NAVI 2027 참고자료를 표시합니다. 최종 지원 조건은 해당 연도 모집요강을 확인하세요.<br/>위 &apos;학생&apos; 내신은 모든 대학에 동일하게 적용하는 공통 참고 환산값입니다. 대학별 실제 반영교과·학년별 비율·진로선택 처리 방식은 이 값과 다를 수 있습니다.</div>
     <details className="kd-comparison-source"><summary>출처와 집계 범위 확인</summary><p>출처: 경기도교육청 NAVI 업로드 자료. 현재 파서(schema v1)는 2026 입시결과와 2027 전형 정보를 연결합니다.</p><p>원본 파일: {source?.fileName || source?.name || '파일명 미제공'}<br/>파일 기준일: {source?.sourceDate || '미제공'} · 저장일: {source?.savedAt?.slice(0,10) || '미제공'}</p><p>공개 컷의 표본 수와 NAVI 통합 사례의 연도는 현재 저장 자료에 없습니다. NAVI 건수는 대학·전형·계열 단위로, 해당 학과의 합격자 수가 아닙니다. 광덕고 사례와 합산하지 않습니다.</p></details>
     {!studentSid && <p className="kd-comparison-note">학생을 선택하면 비교 목록과 지원 구성을 저장할 수 있습니다.</p>}
     {loading && <p role="status">저장된 목록을 확인하고 있습니다. 조회 완료 전에는 목록을 수정할 수 없습니다.</p>}
@@ -35,7 +35,10 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
         const disabled = busy || !studentSid || !row.track || saved.has(planKey(row.planItem)) || planItems.length >= 6;
         return <tr key={row.id}>
         {/* 전형(교과/종합·전형명)을 배지로 올려 표 안에서 가장 먼저 눈에 들어오게 합니다. 유형별로 배지 색을 다르게 해 구분도 쉽게 했습니다. */}
-        <th scope="row"><b>{row.university}</b><small>{row.region || '지역 미제공'} · {row.department}</small><span className={trackChipClassName(row.admissionType)}>{row.admissionType} · {row.track || '전형명 미제공'}</span>{row.previousDepartment !== row.department && <small>2026: {row.previousDepartment || '미제공'}</small>}</th>
+        <th scope="row"><b>{row.university}</b><small>{row.region || '지역 미제공'} · {row.department}</small><span className={trackChipClassName(row.admissionType)}>{row.admissionType} · {row.track || '전형명 미제공'}</span>{row.previousDepartment !== row.department && <small>2026: {row.previousDepartment || '미제공'}</small>}
+          {/* 7번 요청: 내신컷 위치·최저충족과 별도로 지원자격을 세 번째 판정으로 분리해 보여줍니다. */}
+          <small className={`kd-eligibility-note is-${row.eligibility?.status || 'unavailable'}`}>지원자격 · {row.eligibility?.label || '확인 불가'}</small>
+        </th>
         {/* 상담에서 가장 먼저 비교하는 두 숫자(학생 현재 내신 vs 공개 컷)를 한 줄로 강조합니다.
             아래 참고 줄은 위에서 이미 보여준 컷을 또 적지 않고, '다른 쪽 컷' 하나만 보조로 붙입니다. */}
         <td><div className="kd-comparison-headline">

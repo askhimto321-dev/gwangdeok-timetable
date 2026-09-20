@@ -5,7 +5,10 @@ import {validGrade} from './admissionMetrics.js';
 
 const grade=x=>validGrade(x)==null?'—':Number(x).toFixed(2);
 export function SupportPlanReport({items,student,studentGrade,cutoffBasis}) {
-  return <main><header><h1>수시지원 상담 카드</h1><p>{student?.sid} {student?.name} · {student?.latestMockLabel || '모평 미선택'} · {items.length}/6개 전형</p><p>학생 9등급 환산 {grade(studentGrade)} · {cutoffBasis}%컷 비교 · 작성 {new Date().toLocaleDateString('ko-KR')}</p></header><div className="grid">{Array.from({length:6},(_,i)=>{
+  // 15번 요청: "선택한 전형만" 인쇄할 때 items는 안 고른 자리가 비어 있는(null) 배열로 옵니다.
+  // 카드 번호가 실제 지원 구성 순서와 어긋나지 않도록 자리는 그대로 두고 개수만 실제 선택 수로 셉니다.
+  const printedCount=items.filter(Boolean).length;
+  return <main><header><h1>수시지원 상담 카드</h1><p>{student?.sid} {student?.name} · {student?.latestMockLabel || '모평 미선택'} · {printedCount}/6개 전형</p><p>학생 9등급 환산 {grade(studentGrade)} · {cutoffBasis}%컷 비교 · 작성 {new Date().toLocaleDateString('ko-KR')}</p></header><div className="grid">{Array.from({length:6},(_,i)=>{
     const item=items[i];if(!item)return <article key={i} className="empty">{i+1}. 비어 있음</article>;
     const ev=item.comparisonEvidence?.minimumEvaluation || item.minimumEvaluation;
     const min=minimumDisplay(ev,item.minimumStatus), progress=item.recommendationProgress;
@@ -25,7 +28,7 @@ export default function SupportPlanPrint(props) {
   const frame=useRef(null), [busy,setBusy]=useState(false), [message,setMessage]=useState('');
   useEffect(()=>{setBusy(false);setMessage('');return ()=>{frame.current?.remove();frame.current=null;};},[props.student?.sid]);
   const print=()=>{
-    if(busy || props.disabled || !props.items.length)return;
+    if(busy || props.disabled || !props.items.filter(Boolean).length)return;
     frame.current?.remove();setBusy(true);setMessage('인쇄 문서를 준비합니다.');
     const el=document.createElement('iframe');frame.current=el;
     el.title='수시지원 카드 인쇄 문서';el.setAttribute('aria-hidden','true');
@@ -42,5 +45,5 @@ export default function SupportPlanPrint(props) {
     el.srcdoc='<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>수시지원 상담 카드</title><style>'+supportPlanPrintCss+'</style></head><body>'+renderToStaticMarkup(<SupportPlanReport {...props}/>)+'</body></html>';
     document.body.appendChild(el);
   };
-  return <><button type="button" disabled={props.disabled || busy || !props.items.length} onClick={print}>{busy?'인쇄 준비 중…':'카드 인쇄 / PDF 저장'}</button>{message && <small role="status">{message}</small>}</>;
+  return <><button type="button" disabled={props.disabled || busy || !props.items.filter(Boolean).length} onClick={print}>{busy?'인쇄 준비 중…':'카드 인쇄 / PDF 저장'}</button>{message && <small role="status">{message}</small>}</>;
 }
