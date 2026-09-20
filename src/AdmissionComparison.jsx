@@ -15,7 +15,7 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
   const saved = new Set(planItems.map(row => planKey(row.stored)));
   return <section className="kd-track-comparison" aria-labelledby="kd-comparison-title" aria-busy={loading || busy || undefined}>
     <header className="kd-comparison-heading"><div><h3 id="kd-comparison-title">전형별 비교</h3><p>최대 5개 모집단위를 담고, 각 전형의 컷·반영 교과·최저를 한 행에서 비교하세요.</p></div><strong>{loading ? '조회 중' : `${compareItems.length}/5 모집단위`}</strong></header>
-    <div className="kd-comparison-note">입시결과 {COMPARISON_YEARS.result} · 모집단위/교과 반영/최저 {COMPARISON_YEARS.recruitment}. 연도가 다른 참고자료이며, 최종 지원 조건은 해당 연도 모집요강을 확인하세요.</div>
+    <div className="kd-comparison-note">입시결과 {COMPARISON_YEARS.result} · 모집단위/교과 반영 {COMPARISON_YEARS.recruitment}. 최저는 학생 지원연도의 기존 대학 지원 진단 자료를 우선 연결하며, 없으면 NAVI 2027 참고자료를 표시합니다. 최종 지원 조건은 해당 연도 모집요강을 확인하세요.</div>
     <details className="kd-comparison-source"><summary>출처와 집계 범위 확인</summary><p>출처: 경기도교육청 NAVI 업로드 자료. 현재 파서(schema v1)는 2026 입시결과와 2027 전형 정보를 연결합니다.</p><p>원본 파일: {source?.fileName || source?.name || '파일명 미제공'}<br/>파일 기준일: {source?.sourceDate || '미제공'} · 저장일: {source?.savedAt?.slice(0,10) || '미제공'}</p><p>공개 컷의 표본 수와 NAVI 통합 사례의 연도는 현재 저장 자료에 없습니다. NAVI 건수는 대학·전형·계열 단위로, 해당 학과의 합격자 수가 아닙니다. 광덕고 사례와 합산하지 않습니다.</p></details>
     {!studentSid && <p className="kd-comparison-note">학생을 선택하면 비교 목록과 지원 구성을 저장할 수 있습니다.</p>}
     {loading && <p role="status">저장된 목록을 확인하고 있습니다. 조회 완료 전에는 목록을 수정할 수 없습니다.</p>}
@@ -48,14 +48,14 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
         {/* 최저충족여부는 표 안에서 유일하게 '합격 가능성'에 직접 관계된 정보라 배지로 강조합니다.
             일치하는 대학 자료가 없으면(unlinked) 안내 문구 대신 학생 본인의 최근 모의고사 등급을 보여줍니다. */}
         <td><span className={`kd-status-pill is-${minimum.status}`}>{minimum.label}</span>
-          {hasEvidence ? <><small>{row.minimumText}</small><small>{minimum.reason}</small></> : chips ? <div className="kd-mock-chips">
+          {hasEvidence ? <><small>{row.minimumEvaluation.year || '연도 확인'} · {row.minimumEvaluation.source || 'NAVI 최저 참고자료'}</small><small>{row.minimumText}</small><small>{minimum.reason}</small></> : chips ? <div className="kd-mock-chips">
             {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
             {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}
           </div> : <small>{minimum.reason}</small>}
         </td>
         {/* 기본값은 지원 구성 버튼만 바로 보이게 하고, 교과 반영·NAVI/광덕고 근거는 접어서(details) 표 너비를 줄였습니다. */}
         <td className="kd-comparison-detail-cell">
-          <SupportPlanButton compact active={saved.has(planKey(row.planItem))} disabled={disabled} onClick={() => onAddPlan(row.planItem)}>{saved.has(planKey(row.planItem)) ? '지원 구성에 담김' : planItems.length >= 6 ? '6개 구성 완료' : '지원 구성에 추가'}</SupportPlanButton>
+          <SupportPlanButton compact active={saved.has(planKey(row.planItem))} disabled={disabled} onClick={() => onAddPlan(row.planItem)}>{saved.has(planKey(row.planItem)) ? '지원 구성에 담김' : planItems.length >= 6 ? '6개 구성 완료' : '수시지원 추가'}</SupportPlanButton>
           <details className="kd-evidence-more"><summary>교과반영·근거 자세히</summary>
             <p className="kd-comparison-detail-course">{row.course}</p>
             <RecommendedCourseDetails progress={row.recommendationProgress}/>

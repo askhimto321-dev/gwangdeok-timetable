@@ -587,6 +587,8 @@ export default function GradesSection({
         국수영사: groups?.국영수사?.avg5 ?? null,
       } : {},
       entryYear,
+      admissionYear: Number(entryYear) + 3,
+      minimumRows: admissionItemsForGrade(gdb.admissionRows || [], gradeForEntryYear(gdb.cohortSettings, entryYear)),
       subjects: subjectLists.flatMap((list, semesterIndex) => (list || []).map(subject => ({
         subject: subject?.subject || "",
         category: categoryMeta(subject?.category, subject?.subject).key,

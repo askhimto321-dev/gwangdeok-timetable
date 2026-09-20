@@ -27,6 +27,7 @@ import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
 import { buildComparisonRows } from "./admissionComparison.js";
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
+import SupportPlanPrint from "./SupportPlanPrint.jsx";
 import { evaluateNaviMinimumSafe, minimumDisplay } from "./naviMinimum.js";
 
 const STORAGE_KEY = "kd_susi_navi_beta_v1";
@@ -39,6 +40,7 @@ const CONVERSION_GROUPS = ["전교과", "국수영사과", "국수영과", "국�
 // body에 표시용 클래스를 붙였다가 인쇄가 끝나면(afterprint) 지워서, 누른 버튼에 맞는 표 하나만 보이게 합니다.
 function triggerSectionPrint(targetClass) {
   if (typeof document === "undefined") return;
+  document.body.classList.remove("kd-print-target-result", "kd-print-target-plan");
   document.body.classList.add(targetClass);
   const cleanup = () => {
     document.body.classList.remove("kd-print-target-result", "kd-print-target-plan");
@@ -1933,7 +1935,7 @@ export default function SusiNaviBetaView({
     const matchingItems = sourceItems.filter(value => trackIdentity(value?.[0]) === trackIdentity(item.track));
     const admissionItem = matchingItems.length === 1 ? matchingItems[0] : null;
     const cut = admissionItem ? cutoffValue(admissionItem, cutoffBasis) : null;
-    const evidence = admissionItem ? buildComparisonRows({ compareItems: [{ stored: item, entry }], data: data || {}, caseRows, convertedGrade: conversion?.value, cutoffBasis, conversionGroup, identity: universityIdentityKey, evaluateMinimum: row => evaluateNaviMinimum(row, selectedStudent) }).find(value => value.admissionType === item.admissionType && trackIdentity(value.track) === trackIdentity(item.track)) : null;
+    const evidence = admissionItem ? buildComparisonRows({ compareItems: [{ stored: item, entry }], data: data || {}, caseRows, convertedGrade: conversion?.value, cutoffBasis, conversionGroup, identity: universityIdentityKey, minimumContext:selectedStudent, evaluateMinimum: row => evaluateNaviMinimum(row, selectedStudent) }).find(value => value.admissionType === item.admissionType && trackIdentity(value.track) === trackIdentity(item.track)) : null;
     return {
       stored: item, entry, admissionItem,
       missing: !entry, trackMissing: !admissionItem,
@@ -2661,7 +2663,7 @@ function PrintPlanSheet({ items = [], convertedGrade, cutoffBasis, student }) {
   const rows = items.filter(Boolean);
   const studentText = validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-";
   return <section className="susi-beta-plan-print-sheet">
-    <header><div><h1>수시 지원 구성</h1><p>2026 공개 컷 · 2027 수능최저 참고 자료</p></div><div><b>{student?.name ? `${student.name} 학생` : "학생 미선택"}</b><span>내신 9등급 환산 {studentText} · {cutoffBasis}%컷 판정</span></div></header>
+    <header><div><h1>수시 지원 구성</h1><p>2026 공개 컷 · 수능최저 연도는 전형별 표시</p></div><div><b>{student?.name ? `${student.sid || ''} ${student.name} 학생` : "학생 미선택"}</b><span>내신 9등급 환산 {studentText} · {cutoffBasis}%컷 판정</span></div></header>
     {rows.length ? <table><thead><tr><th>#</th><th>대학·학과</th><th>전형</th><th>학생 ↔ 컷</th><th>지원 구간</th><th>수능최저</th></tr></thead><tbody>{rows.map((item, index) => {
       const cut = item.admissionItem?.[cutoffBasis === "50" ? 1 : 2];
       const cutText = validGrade(cut) != null ? Number(cut).toFixed(2) : "-";
@@ -2672,7 +2674,7 @@ function PrintPlanSheet({ items = [], convertedGrade, cutoffBasis, student }) {
         <td>{item.stored.admissionType || "-"} · {item.stored.track || "-"}</td>
         <td>{studentText} ↔ {cutText}</td>
         <td>{item.support?.label || "판정 자료 없음"}</td>
-        <td>{minimum.label}</td>
+        <td>{minimum.label}<span>{item.comparisonEvidence?.minimumEvaluation?.year || '연도 확인'} · {item.comparisonEvidence?.minimumText || '자료 미연결'}</span></td>
       </tr>;
     })}</tbody></table> : <p>담긴 지원 구성이 없습니다.</p>}
     <footer>※ 지원 구간·수능최저 판정은 참고용입니다. 대학 공식 모집요강을 반드시 최종 확인하세요.</footer>
@@ -2705,7 +2707,7 @@ function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade
         <div style={{ ...ui.cutoffBox, ...(cutoffBasis === "70" ? ui.cutoffBoxActive : {}) }}><span style={ui.cutoffBoxLabel}>70%컷</span><b style={ui.cutoffBoxValue}>{item[2] ?? "-"}</b></div>
       </div>
       {diff && <small style={{ ...ui.studentDifference, color: diff.favorable ? "#287348" : "#b05244" }}>학생 환산 − {cutoffBasis}%컷 <b>{diff.text}</b></small>}
-      <SupportPlanButton compact active={inPlan} onClick={() => inPlan ? onOpenWorkspace?.() : onAddSupportPlan?.(planItem)}>{inPlan ? "저장됨 · 지원 구성 보기" : "수시 지원 구성에 추가"}</SupportPlanButton>
+      <SupportPlanButton compact active={inPlan} onClick={() => inPlan ? onOpenWorkspace?.() : onAddSupportPlan?.(planItem)}>{inPlan ? "저장됨 · 지원 구성 보기" : "수시지원 추가"}</SupportPlanButton>
       {cuts?.[0] ? <CaseDistribution cuts={cuts} cutoffBasis={cutoffBasis} /> : <small style={ui.caseNone}>NAVI 통합 사례 분포 없음</small>}
     </div>;
   })}</div> : <span style={ui.none}>자료 없음</span>}</div>;
@@ -2807,14 +2809,15 @@ function SupportDecisionWorkspace({
   }, {});
   const uniqueUniversityCount = new Set(planItems.map(item => universityIdentityKey(item?.stored?.university, item?.stored?.region || "")).filter(Boolean)).size;
   const slots = Array.from({ length: 6 }, (_, index) => planItems[index] || null);
-  const comparisonRows = useMemo(() => buildComparisonRows({ compareItems, data: data || {}, caseRows, convertedGrade, cutoffBasis, conversionGroup, identity: universityIdentityKey, evaluateMinimum: row => evaluateNaviMinimum(row, selectedStudent) }), [compareItems, data, caseRows, convertedGrade, cutoffBasis, conversionGroup, selectedStudent]);
+  const comparisonRows = useMemo(() => buildComparisonRows({ compareItems, data: data || {}, caseRows, convertedGrade, cutoffBasis, conversionGroup, identity: universityIdentityKey, minimumContext:selectedStudent, evaluateMinimum: row => evaluateNaviMinimum(row, selectedStudent) }), [compareItems, data, caseRows, convertedGrade, cutoffBasis, conversionGroup, selectedStudent]);
   const planSectionRef = useRef(null);
   const comparisonSectionRef = useRef(null);
+  const [planFocused, setPlanFocused] = useState(false);
   const goToSection = ref => { ref.current?.scrollIntoView({ behavior: "auto", block: "start" }); ref.current?.focus({ preventScroll: true }); };
 
-  return <div className="susi-beta-tab-panel susi-beta-workspace" style={ui.tabPanel}>
+  return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch69</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch70</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
@@ -2829,8 +2832,10 @@ function SupportDecisionWorkspace({
     {workspaceLoading && <p role="status">지원 구성·비교 목록을 불러오는 중입니다.</p>}
     {workspaceMessage && <div role="status" style={ui.workspaceMessage}>{workspaceBusy && <Loader2 size={13} className="spin"/>}{workspaceMessage}</div>}
 
-    <section ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:100}}>
-      <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><button type="button" className="no-print" disabled={!planItems.length} style={ui.planPrintButton} onClick={() => triggerSectionPrint("kd-print-target-plan")} title="담긴 지원 구성을 표로 인쇄하거나 PDF로 저장합니다."><Printer size={13}/>지원 구성 인쇄·PDF</button><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
+    <section className="kd-plan-section" ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:12}}>
+      <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
+      <div className="kd-plan-tools"><button type="button" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={planItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={workspaceBusy || workspaceLoading || Boolean(workspaceLoadError) || !selectedStudent?.sid}/><small>{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
+      <div className="kd-plan-tools"><button type="button" disabled={!planItems.length || workspaceBusy || workspaceLoading || Boolean(workspaceLoadError)} onClick={()=>triggerSectionPrint('kd-print-target-plan')}>요약표 인쇄·PDF</button></div>
       <PrintPlanSheet items={slots} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent}/>
       <div className="susi-beta-workspace-summary" style={ui.workspaceSummaryGrid}>
         <div><small>지원 구간</small><b>{["상향","소신","적정","안정","하향"].filter(label => supportCounts[label]).map(label => `${label} ${supportCounts[label]}`).join(" · ") || "판정 자료 없음"}</b></div>
@@ -2839,10 +2844,10 @@ function SupportDecisionWorkspace({
         <div><small>대학 분산</small><b>{planItems.length ? `${uniqueUniversityCount}개 대학 · ${planItems.length}개 전형` : "지원 후보 없음"}</b></div>
       </div>
       <div className="susi-beta-plan-grid" style={ui.planGrid}>{slots.map((item, index) => {
-        if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>아래 전형 비교, NAVI 대학 상세 또는 광덕고 대입결과에서 ‘수시 지원 구성에 추가’를 눌러 담으세요.</small></article>;
+        if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>아래 전형 비교, NAVI 대학 상세 또는 광덕고 대입결과에서 ‘수시지원 추가’를 눌러 담으세요.</small></article>;
         return <SupportDecisionCard key={supportPlanItemKey(item.stored)} item={item} index={index} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent} busy={workspaceBusy} onRemove={onRemovePlan} onOpenCases={onOpenCases}/>;
       })}</div>
-      <div style={ui.workspaceFooter}><span>지원 구간은 현재 학생 환산등급과 선택한 {cutoffBasis}%컷을 기준으로 다시 계산됩니다.</span><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세에서 추가</button></div>
+      <div className="kd-plan-footer" style={ui.workspaceFooter}><span>지원 구간은 현재 학생 환산등급과 선택한 {cutoffBasis}%컷을 기준으로 다시 계산됩니다.</span><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세에서 추가</button></div>
     </section>
 
     <div ref={comparisonSectionRef} tabIndex={-1} aria-label="전형별 비교 영역" style={{minWidth:0,scrollMarginTop:100}}>

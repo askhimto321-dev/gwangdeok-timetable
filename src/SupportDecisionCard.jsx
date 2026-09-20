@@ -23,13 +23,16 @@ function MinimumFacts({ minimum, ev, student }) {
     <strong className="kd-decision-verdict">{minimum.label}</strong>
     {hasEvidence ? <>
       <p className="kd-decision-rule">{ev.ruleText || '연결 조건 없음'}</p>
-      <small className="kd-decision-reason">{minimum.reason}</small>
+      {ev.studentSum!=null && <small className="kd-decision-reason">{ev.ruleType==='each' ? `선택 ${ev.count}개 영역 각각 ${ev.threshold}등급 이내` : `학생 ${ev.studentSum} / 기준 ${ev.threshold} 이내`}</small>}
     </> : chips ? <div className="kd-mock-chips">
       {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
       {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}
     </div> : <small className="kd-decision-reason">{minimum.reason}</small>}
     <details className="kd-decision-min-detail"><summary>자세히</summary>
+      {hasEvidence && <small className="kd-decision-reason">{minimum.reason}</small>}
       {hasEvidence && ev.subjectsText && <small className="kd-decision-reason">반영 영역 {ev.subjectsText}</small>}
+      {ev?.note && <small className="kd-decision-reason">비고: {ev.note}</small>}
+      {hasEvidence && <small className="kd-decision-reason">{ev.source || 'NAVI 수능최저 자료'}</small>}
       <small className="kd-decision-reason">{student?.latestMockLabel ? `${student.latestMockLabel} 기준 판정` : '판정 기준 모평 미선택'}</small>
       {!hasEvidence && <small className="kd-decision-reason">연도·캠퍼스·모집단위·전형이 일치하는 원자료를 확인하세요.</small>}
     </details>
@@ -50,7 +53,7 @@ export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis
           한눈에 비교할 수 있게 했습니다. 아래 참고 줄도 이미 위에서 보여준 컷을 다시 적지 않고
           '다른 쪽 컷' 하나만 보조로 붙입니다(예전에는 50%·70%를 위아래로 중복 표시했습니다). */}
       <section className="kd-decision-grade"><h5>내신 컷 비교 <span>2026 공개 결과</span></h5><div className="kd-decision-numbers"><div className="kd-decision-num-box is-student"><small>내 환산등급</small><b>{fmt(studentGrade)}</b></div><span aria-hidden="true">↔</span><div className="kd-decision-num-box"><small>{cutoffBasis}%컷</small><b>{fmt(cut)}</b></div></div><div className="kd-decision-band-row">{item.support?.label ? <span className={supportBandClassName(item.support.label)}>{item.support.label}</span> : <span className={supportBandClassName()}>판정 자료 없음</span>}{difference!=null && <span className="kd-decision-diff">차이 {difference>0?'+':''}{difference.toFixed(2)}</span>}</div><small className="kd-decision-subref">{altIndex===1?'50':'70'}%컷 참고 {fmt(altCut)}</small></section>
-      <section className={`kd-decision-minimum is-${minimum.status}`}><h5>수능최저 <span>2027 참고 기준</span></h5><MinimumFacts minimum={minimum} ev={ev} student={student}/></section>
+      <section className={`kd-decision-minimum is-${minimum.status}`}><h5>수능최저 <span>{ev ? (ev.year || '연도 미확인') : '연도 확인'} 참고 기준</span></h5><MinimumFacts minimum={minimum} ev={ev} student={student}/></section>
     </div>
     {item.trackMissing && <p className="kd-decision-warning">NAVI 전형 미연결 · 다른 전형의 컷을 대신 사용하지 않습니다.</p>}
     <RecommendedCourseDetails progress={item.recommendationProgress}/>
@@ -58,7 +61,7 @@ export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis
       <div className="kd-evidence-row"><b>담은 경로</b><span>{item.stored.source || '미제공'}</span></div>
       <div className="kd-evidence-row"><b>NAVI 통합 사례</b><span>{item.naviCaseCount!=null?`${item.naviCaseCount}건`:'미연결/미제공'}</span></div>
       <div className="kd-evidence-row"><b>광덕고 별도 사례</b><span>{item.schoolTrend?.total?`지원 ${item.schoolTrend.total} · 합격 ${item.schoolTrend.accepted}`:'연결 없음'}</span></div>
-      <small>NAVI 사례는 대학·전형·계열 기준이며 학과 합격자 수가 아닙니다. 공개 컷 2026 · 최저 2027 · 사례 연도 미제공. 실제 지원연도 모집요강을 우선 확인하세요.</small>
+      <small>NAVI 사례는 대학·전형·계열 기준이며 학과 합격자 수가 아닙니다. 공개 컷 2026 · 최저 {ev?.year || '연도 확인'} · 사례 연도 미제공. 실제 지원연도 모집요강을 우선 확인하세요.</small>
     </details>
     <footer>{onOpenCases && item.stored.source==='광덕고 별도 사례' && <button type="button" onClick={()=>onOpenCases(item.stored.university,item.stored.department,item.stored.track)}>광덕고 사례 보기</button>}<button type="button" disabled={busy} onClick={()=>onRemove(item.stored)} aria-label={`${item.stored.university} ${item.stored.track} 지원 구성에서 삭제`}>삭제</button></footer>
   </article>;
