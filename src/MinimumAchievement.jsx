@@ -16,7 +16,7 @@ import {
   Users,
 } from "lucide-react";
 
-const FONT='"Pretendard","SUIT","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
+const FONT='"KDRound","Pretendard","SUIT","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
 const round=(value,digits=1)=>{const n=Number(value);if(!Number.isFinite(n))return null;const f=10**digits;return Math.round((n+Number.EPSILON)*f)/f};
 const num=value=>{if(value==null||value==="")return null;const n=Number(value);return Number.isFinite(n)?n:null};
 const txt=value=>String(value??"").trim();

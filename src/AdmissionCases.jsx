@@ -32,7 +32,7 @@ function printAdmissionCaseSearch(printMode="a4-portrait"){
 }
 const CSS=`
 .admission-case-ui{
-  font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  font-family:KDRound,Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
   color:#202832;
   letter-spacing:-.015em;
   line-height:1.45;
@@ -281,7 +281,7 @@ const CSS=`
 .admission-department-link:hover{color:#163d69;text-decoration-color:#315f95}
 .admission-summary-card::after{content:"";position:absolute;right:-18px;bottom:-24px;width:62px;height:62px;border-radius:50%;background:color-mix(in srgb,var(--summary-accent) 9%,transparent);pointer-events:none}
 .admission-summary-card:hover{transform:translateY(-1px);box-shadow:0 7px 17px rgba(45,57,76,.07)!important}
-.admission-summary-card b,.admission-summary-card span,.admission-summary-card small{font-family:Pretendard,"Noto Sans KR",system-ui,sans-serif}
+.admission-summary-card b,.admission-summary-card span,.admission-summary-card small{font-family:KDRound,Pretendard,"Noto Sans KR",system-ui,sans-serif}
 @media(max-width:1000px){.admission-method-category-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.admission-quick-filter{grid-template-columns:1fr}.admission-case-student-benchmark{min-width:150px}}
 @media(max-width:640px){.admission-method-category-grid{grid-template-columns:1fr}.admission-quick-filter-group{grid-template-columns:1fr}.admission-quick-filter-label{min-width:0}}
 
@@ -321,7 +321,7 @@ const CSS=`
 .admission-method-filter,
 .admission-method-filter button,
 .admission-method-filter input{
-  font-family:Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif!important;
+  font-family:KDRound,Pretendard,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif!important;
   letter-spacing:-.025em!important;
   font-synthesis:none;
 }
@@ -693,7 +693,7 @@ const CSS=`
 @media(max-width:1050px){.admission-case-conversion-body{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:650px){.admission-case-conversion-head{align-items:flex-start;flex-direction:column}.admission-case-conversion-head>span{width:100%;text-align:center}.admission-case-conversion-body{grid-template-columns:1fr}.admission-case-conversion-method{grid-template-columns:1fr 1fr}}
 /* Patch 42: 환산 선택 가독성 및 연결 범위 자동 보정 안내 */
-.admission-case-conversion,.admission-case-conversion *{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+.admission-case-conversion,.admission-case-conversion *{font-family:KDRound,Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .admission-case-conversion-head small{font-size:11px!important;letter-spacing:-.01em}.admission-case-conversion-head b{font-size:14px!important;font-weight:900!important;letter-spacing:-.015em}
 .admission-case-conversion-method button{min-height:64px!important;border-radius:11px!important}.admission-case-conversion-method b{font-size:13.5px!important;font-weight:950!important;letter-spacing:-.02em}.admission-case-conversion-method small{font-size:10.5px!important;font-weight:750!important}.admission-case-conversion-method em{font-size:10px!important;font-weight:950!important}
 .admission-case-conversion-source small,.admission-case-conversion-result small,.admission-case-conversion-group span{font-size:10.5px!important}.admission-case-conversion-source b,.admission-case-conversion-result b{font-size:18px!important;font-weight:950!important}
@@ -707,7 +707,7 @@ const CSS=`
 .admission-region-bar-row>b{font-size:11.5px!important;white-space:nowrap}
 .admission-region-bar-row .admission-case-count-pill{padding:4px 7px!important;font-size:9.8px!important}
 .admission-region-bar-row>div:last-child{display:grid!important;grid-template-columns:1fr!important;justify-items:end!important;gap:2px!important}
-.admission-sample-badge{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;letter-spacing:-.02em;box-shadow:0 4px 10px rgba(20,27,36,.14)!important;text-shadow:0 1px 0 rgba(0,0,0,.18)}
+.admission-sample-badge{font-family:KDRound,Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;letter-spacing:-.02em;box-shadow:0 4px 10px rgba(20,27,36,.14)!important;text-shadow:0 1px 0 rgba(0,0,0,.18)}
 .admission-sample-badge.is-many{padding:6px 11px!important;background:#203b55!important;border-color:#5892b8!important;color:#e8f7ff!important;font-size:11.5px!important;font-weight:950!important}
 .admission-sample-badge.is-adequate{padding:6px 10px!important;background:#403752!important;border-color:#8d79b5!important;color:#f5edff!important;font-size:11px!important;font-weight:925!important}
 .admission-sample-badge.is-low{padding:5px 9px!important;background:#4a3524!important;border-color:#bd8849!important;color:#fff1ca!important;font-size:10.5px!important;font-weight:900!important}

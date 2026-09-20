@@ -2,6 +2,21 @@
    Loaded once globally (see main.jsx) so every screen that shows 전형/등급컷/
    현재내신등급/최저충족여부 uses the same colors instead of each file inventing its own. */
 
+/* "이름을 포함해 조금 더 둥글둥글한 폰트로" 요청에 따라 추가한 서체입니다.
+   Gmarket이 무료로 배포하는 Gmarket Sans(둥근 산세리프)를 'KDRound'라는 이름으로 등록하고,
+   모든 font-family 선언 맨 앞에 "KDRound,Pretendard,..." 형태로 세워두었습니다
+   (Pretendard 등 기존 폰트는 그대로 다음 순서에 남아 있어, 혹시 이 CDN이 응답하지
+   않아도 화면이 깨지지 않고 이전 폰트로 자연스럽게 대체됩니다).
+   Gmarket Sans는 Light(300)/Medium(500)/Bold(700) 3단계만 있어서, 그보다 굵은 값
+   (850, 900, 950 등 — 숫자·라벨 강조에 쓰는 값들)을 요청해도 브라우저가 가장 가까운
+   Bold로 자동 매칭합니다. */
+@font-face{font-family:'KDRound';font-weight:300;font-style:normal;font-display:swap;
+  src:url('https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSansLight.woff2') format('woff2');}
+@font-face{font-family:'KDRound';font-weight:500;font-style:normal;font-display:swap;
+  src:url('https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSansMedium.woff2') format('woff2');}
+@font-face{font-family:'KDRound';font-weight:700;font-style:normal;font-display:swap;
+  src:url('https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSansBold.woff2') format('woff2');}
+
 :root{
   --kd-ink:#1f2f42;
   --kd-ink-soft:#45586d;
@@ -25,10 +40,17 @@
 .kd-key-fact>b{font-size:20px;font-weight:850;color:var(--kd-ink);line-height:1.2;letter-spacing:-.01em}
 .kd-key-fact.is-student>b{color:var(--kd-primary-dark)}
 
-/* 전형(교과/종합 · 전형명) 배지 — 표/카드에서 가장 먼저 눈에 들어와야 하는 분류 정보입니다. */
+/* 전형(교과/종합 · 전형명) 배지 — 표/카드에서 가장 먼저 눈에 들어와야 하는 분류 정보입니다.
+   전형 유형마다 다른 색을 써서(교과=청록, 종합=보라, 논술=갈색, 실기=로즈) 화면 전체가
+   파란색 한 가지로만 보이지 않도록 했습니다. admissionMetrics.js의 trackChipClassName과 짝입니다. */
 .kd-track-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;margin-top:8px;
   border-radius:999px;background:var(--kd-primary);color:#fff;font-size:12.5px;font-weight:800;
   letter-spacing:-.01em;white-space:normal;word-break:keep-all;line-height:1.4}
+.kd-track-chip.is-other{background:var(--kd-primary)}
+.kd-track-chip.is-academic{background:#0f7a72}
+.kd-track-chip.is-general{background:#6d4aa8}
+.kd-track-chip.is-essay{background:#a3651f}
+.kd-track-chip.is-talent{background:#b23a63}
 
 /* 지원 구간(상향/소신/적정/안정/하향) 배지. 색상표는 admissionMetrics.js의 SUPPORT_BAND_META와 1:1로 맞춥니다. */
 .kd-band-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;

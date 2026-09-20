@@ -2178,7 +2178,7 @@ function TeacherZoneWorkspace({
 const teacherZoneWorkspaceStyles = {
   toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14, padding: "10px 12px", border: "1px solid #dbe3ef", borderRadius: 14, background: "linear-gradient(135deg,#f7fbff,#faf8ff)", boxShadow: "0 7px 20px rgba(55,72,110,.06)", flexWrap: "wrap" },
   modeTabs: { display: "flex", gap: 7, flexWrap: "wrap" },
-  modeButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d3ddea", borderRadius: 10, padding: "8px 12px", color: "#5d6b7e", background: "#fff", fontFamily: '"Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 12.2, fontWeight: 850, cursor: "pointer" },
+  modeButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d3ddea", borderRadius: 10, padding: "8px 12px", color: "#5d6b7e", background: "#fff", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 12.2, fontWeight: 850, cursor: "pointer" },
   modeButtonActive: { color: "#fff", background: "#3568a3", borderColor: "#3568a3", boxShadow: "0 6px 15px rgba(53,104,163,.2)" },
   gradeGroup: { display: "flex", alignItems: "center", gap: 5, color: "#738095", fontSize: 11.5, fontWeight: 850 },
   gradeButton: { border: "1px solid #d5dfeb", borderRadius: 999, padding: "6px 9px", color: "#5f6f82", background: "#fff", fontWeight: 850, cursor: "pointer" },
@@ -5378,7 +5378,7 @@ const globalCss = `
   .kd-history-edge-left{left:8px}.kd-history-edge-right{right:8px}
   .kd-history-edge:hover:not(:disabled){background:#315a86;color:#fff;border-color:#315a86}
   .kd-history-edge:disabled{opacity:.24;cursor:default;box-shadow:none}
-  .kd-quick-links{position:fixed;right:18px;bottom:78px;z-index:125;display:flex;align-items:flex-end;gap:9px;font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+  .kd-quick-links{position:fixed;right:18px;bottom:78px;z-index:125;display:flex;align-items:flex-end;gap:9px;font-family:KDRound,Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
   .kd-quick-links-trigger{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:9px 12px;border:1px solid #cfd9e7;border-radius:13px;background:linear-gradient(135deg,#315f95,#6c62a9);color:#fff;box-shadow:0 9px 26px rgba(42,63,94,.22);font-size:11px;font-weight:900;cursor:pointer;white-space:nowrap}
   .kd-quick-links-trigger:hover{transform:translateY(-1px);filter:brightness(1.04)}
   .kd-quick-links-panel{width:min(330px,calc(100vw - 82px));padding:11px;border:1px solid #d5deea;border-radius:15px;background:rgba(255,255,255,.98);box-shadow:0 15px 38px rgba(36,52,76,.20);backdrop-filter:blur(12px)}
@@ -5396,13 +5396,13 @@ const globalCss = `
 .subject-roster-table td{padding:10px 12px;border:1px solid #e0e7f0;text-align:center;color:#33445b}
 .subject-roster-table tbody tr:nth-child(even){background:#f8fbff}
 .subject-roster-table tbody tr:hover{background:#eef5ff} @keyframes spin { to { transform: rotate(360deg); } }
-  .student-timetable-card { font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; letter-spacing: -0.014em; }
+  .student-timetable-card { font-family: KDRound,Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; letter-spacing: -0.014em; }
   .timetable-print-header { padding: 2px 2px 13px; margin-bottom: 3px; border-bottom: 1px solid #dfe5ed; }
   .timetable-print-identity { display: grid; gap: 3px; min-width: 0; }
   .timetable-print-title { color: #1f2d3d; letter-spacing: -0.028em; }
   .timetable-print-class { display: inline-flex; align-items: center; margin-left: 7px; padding: 3px 7px; border-radius: 999px; background: #f0f4f9; border: 1px solid #d8e1ec; color: #52647b; font-weight: 800; vertical-align: middle; }
   .timetable-print-meta { letter-spacing: .01em; }
-  .student-timetable-table { font-family: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; letter-spacing: -0.012em; line-height: 1.36; }
+  .student-timetable-table { font-family: KDRound,Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; letter-spacing: -0.012em; line-height: 1.36; }
   .student-timetable-table th { letter-spacing: -0.018em; }
   .student-timetable-subject { text-wrap: balance; }
   .timetable-long-subject-break { display: none; }
@@ -5552,7 +5552,7 @@ const styles = {
   subjectRosterHeader: { display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, padding:"15px 18px", background:"linear-gradient(135deg,#294f7f,#4e78ad)", color:"#fff" },
   subjectRosterTable: { width:"100%", borderCollapse:"collapse", background:"#fff", fontSize:13 },
 
-  app: { minHeight: "100vh", background: COLORS.paper, color: COLORS.ink, fontFamily: "'Pretendard','Apple SD Gothic Neo',sans-serif" },
+  app: { minHeight: "100vh", background: COLORS.paper, color: COLORS.ink, fontFamily: "'KDRound','Pretendard','Apple SD Gothic Neo',sans-serif" },
   loadingScreen: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 },
   loadingText: { fontSize: 13.5, color: "#8a8578" },
   loginBox: { textAlign: "center", padding: "36px 20px", background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 12, maxWidth: 320, margin: "20px auto", display: "flex", flexDirection: "column", alignItems: "center" },

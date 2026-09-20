@@ -21,7 +21,7 @@ import {
   Users,
 } from "lucide-react";
 
-const FONT_STACK = '"Pretendard", "SUIT", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+const FONT_STACK = '"KDRound","Pretendard", "SUIT", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
 const GRADE_CUMULATIVE = {
   5: [10, 34, 66, 90, 100],
   9: [4, 11, 23, 40, 60, 77, 89, 96, 100],

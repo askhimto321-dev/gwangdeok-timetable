@@ -45,6 +45,18 @@ export const SUPPORT_BAND_META = {
 export function supportBandClassName(label) {
   return `kd-band-pill is-${SUPPORT_BAND_META[label]?.key || "none"}`;
 }
+
+// UI patch: 전형(교과/종합/논술/실기)마다 다른 색의 배지를 써서 화면이 파란색 한 가지로만
+// 보이지 않게 합니다. 표(AdmissionComparison)와 카드(SupportDecisionCard)가 같은 함수를 써서
+// 항상 같은 전형은 같은 색으로 보이게 맞춥니다.
+export function trackChipClassName(admissionType) {
+  const type = String(admissionType || "");
+  if (type.includes("교과")) return "kd-track-chip is-academic";
+  if (type.includes("종합")) return "kd-track-chip is-general";
+  if (type.includes("논술")) return "kd-track-chip is-essay";
+  if (type.includes("실기") || type.includes("특기")) return "kd-track-chip is-talent";
+  return "kd-track-chip is-other";
+}
 export function cutoffRange(items = [], index) {
   const values = items.map(item => validGrade(item?.[index])).filter(value => value != null);
   if (!values.length) return null;

@@ -1333,7 +1333,7 @@ function printStudentGradeReport(options = {}) {
 const STUDENT_GRADE_PRINT_CSS = `
 .student-grade-print-sheet,.student-grade-print-sheet-clone{display:none}
 .grade-print-option-overlay{position:fixed;inset:0;z-index:1400;display:grid;place-items:center;padding:20px;background:rgba(25,35,48,.42);backdrop-filter:blur(3px)}
-.grade-print-option-modal{width:min(520px,100%);border:1px solid #d5dfea;border-radius:17px;background:#fff;box-shadow:0 22px 60px rgba(25,39,58,.22);overflow:hidden;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif}
+.grade-print-option-modal{width:min(520px,100%);border:1px solid #d5dfea;border-radius:17px;background:#fff;box-shadow:0 22px 60px rgba(25,39,58,.22);overflow:hidden;font-family:"KDRound","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif}
 .grade-print-option-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:17px 18px 13px;border-bottom:1px solid #e2e8ef}.grade-print-option-head b{display:block;font-size:15px;color:#263d59}.grade-print-option-head span{display:block;margin-top:4px;color:#748398;font-size:10.5px;line-height:1.45}.grade-print-option-head button{display:grid;place-items:center;width:31px;height:31px;border:1px solid #d6e0ea;border-radius:9px;background:#fff;color:#61748a;cursor:pointer}
 .grade-print-option-body{display:grid;gap:9px;padding:14px 18px;max-height:min(68vh,610px);overflow:auto}.grade-print-option-body label{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:start;padding:10px 11px;border:1px solid #dce4ec;border-radius:11px;background:#fafbfd;cursor:pointer}.grade-print-option-body label input{margin-top:2px}.grade-print-option-body label b{display:block;font-size:11.5px;color:#344d69}.grade-print-option-body label span{display:block;margin-top:3px;font-size:9.8px;line-height:1.45;color:#7b8999}.grade-print-conversion-box{display:grid;gap:10px;padding:12px;border:1px solid #d5dfec;border-radius:12px;background:linear-gradient(135deg,#f6f9fd,#fbf8ff)}
 .grade-print-conversion-box>div:first-child>b{display:block;font-size:12px;color:#294462}.grade-print-conversion-box>div:first-child>span{display:block;margin-top:4px;font-size:9.8px;line-height:1.45;color:#748397}
@@ -1350,7 +1350,7 @@ const STUDENT_GRADE_PRINT_CSS = `
   body.print-student-grade-report>.student-grade-print-sheet-clone *{visibility:visible!important}
   body.print-student-grade-report>.student-grade-print-sheet-clone{
     display:block!important;position:relative!important;width:100%!important;height:auto!important;margin:0!important;padding:0!important;
-    color:#24364c;background:#fff;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;
+    color:#24364c;background:#fff;font-family:"KDRound","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;
     -webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;
   }
   .student-grade-print-sheet-clone *{box-sizing:border-box}
@@ -3913,7 +3913,7 @@ function printCounselingHistory(options = {}) {
 }
 
 const COUNSELING_PRINT_CSS = `
-.kd-consultation-ui,.kd-consultation-ui button,.kd-consultation-ui input,.kd-consultation-ui textarea,.kd-consultation-ui select{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important}
+.kd-consultation-ui,.kd-consultation-ui button,.kd-consultation-ui input,.kd-consultation-ui textarea,.kd-consultation-ui select{font-family:KDRound,Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important}
 .kd-consultation-ui{font-size:13px;line-height:1.45;color:#27364a;letter-spacing:-.012em}
 .kd-consultation-ui button{letter-spacing:-.012em}
 .kd-consultation-ui .section-heading-title{font-size:16px!important;line-height:1.3!important;font-weight:900!important}
@@ -3932,7 +3932,7 @@ const COUNSELING_PRINT_CSS = `
 .kd-consultation-ui .favorite-print-navi-cut-pill>b{font-size:11.2px!important;line-height:1.3!important}
 .counseling-print-root-clone{display:none}
 .counseling-print-option-overlay{position:fixed;inset:0;z-index:1500;display:grid;place-items:center;padding:20px;background:rgba(24,34,49,.42);backdrop-filter:blur(3px)}
-.counseling-print-option-modal{width:min(470px,100%);overflow:hidden;border:1px solid #d6e0ec;border-radius:16px;background:#fff;box-shadow:0 22px 60px rgba(29,43,61,.22);font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif}
+.counseling-print-option-modal{width:min(470px,100%);overflow:hidden;border:1px solid #d6e0ec;border-radius:16px;background:#fff;box-shadow:0 22px 60px rgba(29,43,61,.22);font-family:"KDRound","Pretendard","Noto Sans KR","Malgun Gothic",sans-serif}
 .counseling-print-option-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 17px 12px;border-bottom:1px solid #e6ebf1}.counseling-print-option-head b{display:block;font-size:15px;color:#263b56}.counseling-print-option-head span{display:block;margin-top:4px;font-size:10.5px;line-height:1.5;color:#758397}.counseling-print-option-head button{display:grid;place-items:center;width:30px;height:30px;border:1px solid #d9e1ea;border-radius:8px;background:#fff;color:#64748a;cursor:pointer}
 .counseling-print-option-body{display:grid;gap:8px;padding:13px 17px}.counseling-print-option-body label{display:grid;grid-template-columns:auto minmax(0,1fr);gap:9px;align-items:start;padding:11px 12px;border:1px solid #dce4ed;border-radius:11px;background:#fafbfd;cursor:pointer}.counseling-print-option-body label.is-disabled{opacity:.48;cursor:not-allowed}.counseling-print-option-body input{margin-top:2px}.counseling-print-option-body b{display:block;font-size:12px;color:#344c68}.counseling-print-option-body span{display:block;margin-top:3px;font-size:10px;line-height:1.45;color:#7b899a}
 .counseling-print-paper-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 11px;border:1px solid #dce4ed;border-radius:11px;background:#f7f9fc}.counseling-print-paper-row>span>b{display:block;font-size:11.5px;color:#344c68}.counseling-print-paper-row>span>small{display:block;margin-top:3px;font-size:9.5px;color:#7b899a}.counseling-print-paper-row>div{display:flex;gap:5px}.counseling-print-paper-row button{min-width:48px;border:1px solid #d1dbe7;border-radius:8px;padding:7px 9px;background:#fff;color:#62748a;font-size:10.5px;font-weight:900;cursor:pointer}.counseling-print-paper-row button.is-active{background:#315f95;border-color:#315f95;color:#fff}

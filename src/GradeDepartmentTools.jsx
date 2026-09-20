@@ -7,7 +7,7 @@ import {
   FileText, UserRound, Filter, CheckCircle2, CircleDashed, Printer,
 } from "lucide-react";
 
-const FONT = '"Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif';
+const FONT = '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif';
 const IAM_TEACHER_URL = "https://id.iamservice.net/login";
 const ACADEMIC_STATUS_OPTIONS = ["재학", "전입", "전출", "자퇴"];
 const LEADERSHIP_ROLE_OPTIONS = [
@@ -533,7 +533,7 @@ function openPrintDocument({ title, subtitle = "", headers, rows, columnWidths =
   popup.document.open();
   popup.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
     @page{size:A4 landscape;margin:8mm}
-    *{box-sizing:border-box}html,body{margin:0;padding:0;color:#23364d;font-family:"Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    *{box-sizing:border-box}html,body{margin:0;padding:0;color:#23364d;font-family:"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
     body{padding:4mm;background:#fff}.print-head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-bottom:8px;margin-bottom:10px;border-bottom:2px solid #456f9b}.print-head h1{margin:0;font-size:18px}.print-head p{margin:4px 0 0;color:#687b90;font-size:10px;line-height:1.5}.print-head small{color:#7d8b9b;font-size:9px;white-space:nowrap}
     table{width:100%;border-collapse:collapse;table-layout:fixed}th{background:#edf4fb;color:#3d5875;font-size:9px;font-weight:900;text-align:center;padding:6px 5px;border:1px solid #cbd8e5}td{font-size:8.8px;line-height:1.45;padding:6px 5px;border:1px solid #d8e1eb;text-align:center;vertical-align:top;overflow-wrap:anywhere;word-break:break-word;white-space:normal}td.text{text-align:left;white-space:pre-wrap}.status{display:inline-block;padding:2px 6px;border-radius:999px;font-weight:900}.submitted{background:#e9f6ee;color:#24704c}.missing{background:#fff0ed;color:#aa493f}
     tr{break-inside:avoid;page-break-inside:avoid}thead{display:table-header-group}

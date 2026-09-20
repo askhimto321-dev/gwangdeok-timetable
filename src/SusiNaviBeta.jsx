@@ -27,7 +27,7 @@ import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
 import { buildComparisonRows } from "./admissionComparison.js";
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
-import { evaluateNaviMinimumSafe } from "./naviMinimum.js";
+import { evaluateNaviMinimumSafe, minimumDisplay } from "./naviMinimum.js";
 
 const STORAGE_KEY = "kd_susi_navi_beta_v1";
 const SCHEMA_VERSION = 1;
@@ -2640,6 +2640,31 @@ function PrintResultSheet({ rows = [], page, total, conversionMethod, conversion
   </section>;
 }
 
+// '수시카드' 인쇄·PDF 버튼: 기존에 이 화면(지원 구성 워크스페이스)에는 인쇄 기능이 아예 없어서
+// 눌러도 아무 반응이 없었습니다. PrintResultSheet와 같은 방식으로, 화면에는 보이지 않다가
+// window.print() 시에만 나타나는 전용 인쇄용 표를 추가했습니다.
+function PrintPlanSheet({ items = [], convertedGrade, cutoffBasis, student }) {
+  const rows = items.filter(Boolean);
+  const studentText = validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-";
+  return <section className="susi-beta-plan-print-sheet">
+    <header><div><h1>수시 지원 구성</h1><p>2026 공개 컷 · 2027 수능최저 참고 자료</p></div><div><b>{student?.name ? `${student.name} 학생` : "학생 미선택"}</b><span>내신 9등급 환산 {studentText} · {cutoffBasis}%컷 판정</span></div></header>
+    {rows.length ? <table><thead><tr><th>#</th><th>대학·학과</th><th>전형</th><th>학생 ↔ 컷</th><th>지원 구간</th><th>수능최저</th></tr></thead><tbody>{rows.map((item, index) => {
+      const cut = item.admissionItem?.[cutoffBasis === "50" ? 1 : 2];
+      const cutText = validGrade(cut) != null ? Number(cut).toFixed(2) : "-";
+      const minimum = minimumDisplay(item.comparisonEvidence?.minimumEvaluation || item.minimumEvaluation, item.minimumStatus);
+      return <tr key={supportPlanItemKey(item.stored)}>
+        <td>{index + 1}</td>
+        <td><b>{item.stored.university}</b><span>{item.stored.department}</span></td>
+        <td>{item.stored.admissionType || "-"} · {item.stored.track || "-"}</td>
+        <td>{studentText} ↔ {cutText}</td>
+        <td>{item.support?.label || "판정 자료 없음"}</td>
+        <td>{minimum.label}</td>
+      </tr>;
+    })}</tbody></table> : <p>담긴 지원 구성이 없습니다.</p>}
+    <footer>※ 지원 구간·수능최저 판정은 참고용입니다. 대학 공식 모집요강을 반드시 최종 확인하세요.</footer>
+  </section>;
+}
+
 function SectionTitle({ tone, title, year }) {
   const toneStyle = tone === "teaching" ? ui.sectionTeaching
     : tone === "holistic" ? ui.sectionHolistic
@@ -2791,7 +2816,8 @@ function SupportDecisionWorkspace({
     {workspaceMessage && <div role="status" style={ui.workspaceMessage}>{workspaceBusy && <Loader2 size={13} className="spin"/>}{workspaceMessage}</div>}
 
     <section ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:100}}>
-      <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
+      <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><button type="button" className="no-print" disabled={!planItems.length} style={ui.planPrintButton} onClick={() => window.print()} title="담긴 지원 구성을 표로 인쇄하거나 PDF로 저장합니다."><Printer size={13}/>지원 구성 인쇄·PDF</button><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
+      <PrintPlanSheet items={slots} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent}/>
       <div className="susi-beta-workspace-summary" style={ui.workspaceSummaryGrid}>
         <div><small>지원 구간</small><b>{["상향","소신","적정","안정","하향"].filter(label => supportCounts[label]).map(label => `${label} ${supportCounts[label]}`).join(" · ") || "판정 자료 없음"}</b></div>
         <div><small>전형 구성</small><b>{Object.entries(admissionCounts).map(([label,count]) => `${label} ${count}`).join(" · ") || "-"}</b></div>
@@ -2844,7 +2870,7 @@ function MinimumGroup({ rows = [], evaluations = [], latestMockLabel = "" }) {
 }
 
 const ui = {
-  root: { display: "grid", gap: 15, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", color: "#222a3a", fontSize: 14, lineHeight: 1.55 },
+  root: { display: "grid", gap: 15, fontFamily: "KDRound,Pretendard, 'Noto Sans KR', system-ui, sans-serif", color: "#222a3a", fontSize: 14, lineHeight: 1.55 },
   loading: { minHeight: 320, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#647086", fontWeight: 750 },
   hero: { padding: "23px 25px", borderRadius: 18, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#fff", background: "linear-gradient(135deg,#63558e,#8a5d82)", boxShadow: "0 14px 34px rgba(86,67,119,.18)" },
   heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 850, opacity: .86 },
@@ -3088,13 +3114,13 @@ const ui = {
   detailTabGuide: { display: "grid", gap: 3, padding: "9px", borderRadius: 8, border: "1px solid #e0e5ed", background: "#fff", color: "#6c788a", fontSize: 9.3, lineHeight: 1.4 },
   sameUnitNote: { minWidth: 0, padding: "9px", borderRadius: 8, background: "#eef3f8", color: "#667488", fontSize: 12.5, lineHeight: 1.55, wordBreak: "keep-all", overflowWrap: "anywhere" },
   universityLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
-  universityName: { margin: 0, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 17.5, lineHeight: 1.3, fontWeight: 850, letterSpacing: "-.015em", color: "#18304f" },
+  universityName: { margin: 0, fontFamily: "KDRound,Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 17.5, lineHeight: 1.3, fontWeight: 850, letterSpacing: "-.015em", color: "#18304f" },
   fieldBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e8edf5", color: "#506078", fontSize: 9.3, fontWeight: 900 },
   naviInlineBadge: { display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#eee9f8", color: "#66518e", fontSize: 9.2, fontWeight: 950 },
   favoriteBtn: { flex: "0 0 auto", width: 34, height: 34, borderRadius: 9, border: "1px solid #d2dbe8", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#7b8799", background: "#fff", cursor: "pointer" },
   favoriteBtnActive: { color: "#a96f08", background: "#fff7d8", borderColor: "#dec06a" },
   favoriteBtnDisabled: { opacity: .42, cursor: "not-allowed" },
-  unitTitle: { minWidth: 0, fontFamily: "Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 14.5, lineHeight: 1.5, fontWeight: 850, color: "#2b3d55", wordBreak: "keep-all", overflowWrap: "anywhere" },
+  unitTitle: { minWidth: 0, fontFamily: "KDRound,Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 14.5, lineHeight: 1.5, fontWeight: 850, color: "#2b3d55", wordBreak: "keep-all", overflowWrap: "anywhere" },
   location: { fontSize: 11.3, color: "#6f7d91" },
   previousUnit: { minWidth: 0, display: "grid", gap: 7, padding: "12px", border: "1px solid #dce4ef", borderRadius: 10, background: "#fff", fontSize: 11.5, lineHeight: 1.55, color: "#657286", wordBreak: "keep-all", overflowWrap: "anywhere" },
   resultDetailArea: { minWidth: 0, display: "grid", alignContent: "start", gap: 10 },
@@ -3119,7 +3145,7 @@ const ui = {
   officialCutBasisTag: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", minHeight: 20, padding: "0 6px", borderRadius: 999, background: "#ebe5f6", color: "#5b4387", fontSize: 9, fontWeight: 950 },
   supportBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 38, padding: "3px 7px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 900 },
   cutoffGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 },
-  cutoffBox: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, minHeight: 39, padding: "7px 9px", border: "1px solid #e0e5ed", borderRadius: 9, background: "rgba(255,255,255,.78)", color: "#677387", fontFamily: "Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif" },
+  cutoffBox: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, minHeight: 39, padding: "7px 9px", border: "1px solid #e0e5ed", borderRadius: 9, background: "rgba(255,255,255,.78)", color: "#677387", fontFamily: "KDRound,Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif" },
   cutoffBoxActive: { borderColor: "#66558e", background: "linear-gradient(135deg,#f3effb,#fff)", color: "#5b4787", boxShadow: "0 0 0 2px rgba(102,85,142,.12),0 4px 10px rgba(86,69,126,.10)" },
   cutoffBoxLabel: { fontSize: 11.5, lineHeight: 1.2, fontWeight: 900, letterSpacing: "-.01em" },
   cutoffBoxValue: { fontSize: 15, lineHeight: 1.1, fontWeight: 950, letterSpacing: "-.02em" },
@@ -3134,8 +3160,8 @@ const ui = {
   caseScopeNote: { display: "grid", gap: 2, color: "#7d8797", fontSize: 8.7, lineHeight: 1.4, textAlign: "center" },
   caseCutCard: { display: "grid", gap: 2, padding: "7px 5px", borderRadius: 8, border: "1px solid", textAlign: "center" },
   caseCutSelected: { boxShadow: "0 0 0 2px rgba(91,67,136,.17),0 4px 10px rgba(91,67,136,.10)", transform: "translateY(-1px)" },
-  caseCutLabel: { fontFamily: "Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif", fontSize: 10.5, fontWeight: 900, letterSpacing: "-.01em" },
-  caseCutValue: { fontFamily: "Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif", fontSize: 14, lineHeight: 1.1, fontWeight: 950, letterSpacing: "-.02em" },
+  caseCutLabel: { fontFamily: "KDRound,Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif", fontSize: 10.5, fontWeight: 900, letterSpacing: "-.01em" },
+  caseCutValue: { fontFamily: "KDRound,Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif", fontSize: 14, lineHeight: 1.1, fontWeight: 950, letterSpacing: "-.02em" },
   case30: { color: "#39638d", background: "#eef5fd", borderColor: "#cbdced" },
   case50: { color: "#64518e", background: "#f4effb", borderColor: "#d9cdea" },
   case70: { color: "#8b5f22", background: "#fff6e6", borderColor: "#ead3aa" },
@@ -3244,6 +3270,7 @@ const ui = {
   workspaceSection: { display: "grid", gap: 12, padding: 16, border: "1px solid #d8e0ea", borderRadius: 15, background: "#fff" },
   workspaceSectionHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
   workspaceCount: { minWidth: 48, minHeight: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#edf1f7", color: "#50617a", fontSize: 12, fontWeight: 950 },
+  planPrintButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #cfdbe7", borderRadius: 10, padding: "8px 12px", background: "#fff", color: "#2d5c8c", fontSize: 12, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceSummaryGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8 },
   planGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 9 },
   planEmpty: { minHeight: 150, display: "grid", placeItems: "center", alignContent: "center", gap: 5, padding: 12, border: "1px dashed #d6dde8", borderRadius: 12, background: "#fafbfc", color: "#9aa3b1", textAlign: "center" },
@@ -3371,7 +3398,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-connection-panel article button{font:inherit}
 /* Patch 40 source separation and spacing overrides */
 .susi-beta-tab-panel [style*="display: grid"]>b+span{margin-top:0}
-.susi-beta-result-card h3,.susi-beta-result-card b{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+.susi-beta-result-card h3,.susi-beta-result-card b{font-family:KDRound,Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .susi-beta-school-trend-heading>div>small{font-size:9.5px!important;line-height:1.25}
 .susi-beta-school-trend-heading>div>b{font-size:12px!important;line-height:1.4}.susi-beta-school-trend-heading>span{font-size:10px!important;line-height:1.5;word-break:keep-all}
 .susi-beta-school-trend-types>span{min-width:0!important;display:grid!important;gap:6px!important;padding:8px 9px!important}
@@ -3399,7 +3426,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-connection-navi-metrics>span:first-child b{color:#8a5d17;font-size:14px!important}
 .susi-beta-connection-compare section>small>b{font-size:9.5px!important;color:#49637d}.susi-beta-connection-compare section>small>span{font-size:9.8px;line-height:1.4}.susi-beta-connection-compare section>small>em{font-size:8.8px;line-height:1.4;font-style:normal;color:#847b90}
 .susi-beta-school-trend-heading>span strong{font-size:10.5px;line-height:1.35;color:#456855}.susi-beta-school-trend-heading>span em{font-size:9.5px;line-height:1.35;font-style:normal;color:#788a80}
-.susi-beta-result-card [style*="대학 공개 2026"]{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+.susi-beta-result-card [style*="대학 공개 2026"]{font-family:KDRound,Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .susi-beta-result-card [style*="justify-content: space-between"]>span+ b{white-space:nowrap}
 @media(max-width:1050px){
   .susi-beta-view-toolbar{grid-template-columns:minmax(0,1fr) auto!important}
@@ -3419,7 +3446,7 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
 .susi-beta-school-trend-metrics b,.susi-beta-school-trend-types>span>b,.susi-beta-school-trend-types>span>span>small>strong{color:#713f49!important}
 .susi-beta-connection-school-metrics>span{border-color:#e6cbd0!important;background:rgba(255,255,255,.92)!important}
 .susi-beta-connection-school-metrics b{color:#713f49!important}
-.susi-beta-print-sheet{display:none}
+.susi-beta-print-sheet,.susi-beta-plan-print-sheet{display:none}
 /* Patch 39 readability overrides */
 .susi-beta-view-toolbar [role="tab"]>b{font-size:14px}.susi-beta-view-toolbar [role="tab"]>small{font-size:11.5px}
 .susi-beta-detail-search input,.susi-beta-connection-panel input{font-size:14.5px;font-weight:800}
@@ -3503,20 +3530,22 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   @page{size:A4 landscape;margin:7mm}
   html,body{background:#fff!important}
   body *{visibility:hidden!important}
-  .susi-beta-print-sheet,.susi-beta-print-sheet *{visibility:visible!important}
-  .susi-beta-print-sheet{display:block!important;position:absolute!important;left:0!important;top:0!important;width:100%!important;color:#111!important;font-family:"Noto Sans KR",Arial,sans-serif!important}
-  .susi-beta-print-sheet header{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding-bottom:5px;border-bottom:2px solid #27364c}
-  .susi-beta-print-sheet h1{margin:0;font-size:15pt;line-height:1.1}
-  .susi-beta-print-sheet header p{margin:2px 0 0;font-size:7.5pt;color:#596579}
-  .susi-beta-print-sheet header>div:last-child{display:grid;gap:1px;text-align:right;font-size:7.5pt}
+  .susi-beta-print-sheet,.susi-beta-print-sheet *,.susi-beta-plan-print-sheet,.susi-beta-plan-print-sheet *{visibility:visible!important}
+  .susi-beta-print-sheet,.susi-beta-plan-print-sheet{display:block!important;position:absolute!important;left:0!important;top:0!important;width:100%!important;color:#111!important;font-family:"Noto Sans KR",Arial,sans-serif!important}
+  .susi-beta-print-sheet header,.susi-beta-plan-print-sheet header{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding-bottom:5px;border-bottom:2px solid #27364c}
+  .susi-beta-print-sheet h1,.susi-beta-plan-print-sheet h1{margin:0;font-size:15pt;line-height:1.1}
+  .susi-beta-print-sheet header p,.susi-beta-plan-print-sheet header p{margin:2px 0 0;font-size:7.5pt;color:#596579}
+  .susi-beta-print-sheet header>div:last-child,.susi-beta-plan-print-sheet header>div:last-child{display:grid;gap:1px;text-align:right;font-size:7.5pt}
   .susi-beta-print-sheet .print-criteria{display:flex;gap:4px;flex-wrap:wrap;padding:5px 0}
   .susi-beta-print-sheet .print-criteria span{padding:3px 5px;border:1px solid #cbd3df;border-radius:4px;font-size:6.8pt;line-height:1.2}
-  .susi-beta-print-sheet table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.4pt;line-height:1.25}
-  .susi-beta-print-sheet th,.susi-beta-print-sheet td{border:1px solid #aeb8c6;padding:3px 4px;vertical-align:middle;word-break:keep-all;overflow-wrap:anywhere}
-  .susi-beta-print-sheet th{background:#e9edf3;font-weight:900;text-align:center}
+  .susi-beta-print-sheet table,.susi-beta-plan-print-sheet table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:6.4pt;line-height:1.25}
+  .susi-beta-print-sheet th,.susi-beta-print-sheet td,.susi-beta-plan-print-sheet th,.susi-beta-plan-print-sheet td{border:1px solid #aeb8c6;padding:3px 4px;vertical-align:middle;word-break:keep-all;overflow-wrap:anywhere}
+  .susi-beta-print-sheet th,.susi-beta-plan-print-sheet th{background:#e9edf3;font-weight:900;text-align:center}
   .susi-beta-print-sheet th:nth-child(1){width:10%}.susi-beta-print-sheet th:nth-child(2){width:14%}.susi-beta-print-sheet th:nth-child(3){width:9%}.susi-beta-print-sheet th:nth-child(4),.susi-beta-print-sheet th:nth-child(5){width:17%}.susi-beta-print-sheet th:nth-child(6){width:13%}.susi-beta-print-sheet th:nth-child(7){width:20%}
-  .susi-beta-print-sheet tr{break-inside:avoid;height:10.5mm}
-  .susi-beta-print-sheet footer{margin-top:4px;font-size:6.3pt;color:#555f70}
+  .susi-beta-plan-print-sheet th:nth-child(1){width:5%}.susi-beta-plan-print-sheet th:nth-child(2){width:26%}.susi-beta-plan-print-sheet th:nth-child(3){width:22%}.susi-beta-plan-print-sheet th:nth-child(4){width:17%}.susi-beta-plan-print-sheet th:nth-child(5){width:15%}.susi-beta-plan-print-sheet th:nth-child(6){width:15%}
+  .susi-beta-plan-print-sheet td>span{display:block;color:#596579;font-size:6pt;margin-top:1px}
+  .susi-beta-print-sheet tr,.susi-beta-plan-print-sheet tr{break-inside:avoid;height:10.5mm}
+  .susi-beta-print-sheet footer,.susi-beta-plan-print-sheet footer{margin-top:4px;font-size:6.3pt;color:#555f70}
 }
 
 /* Patch 43: 상세 카드 여백·기준 설정 안내·탭 가독성 */
