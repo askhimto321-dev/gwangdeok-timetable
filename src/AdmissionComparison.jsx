@@ -48,17 +48,19 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
         {/* 최저충족여부는 표 안에서 유일하게 '합격 가능성'에 직접 관계된 정보라 배지로 강조합니다.
             일치하는 대학 자료가 없으면(unlinked) 안내 문구 대신 학생 본인의 최근 모의고사 등급을 보여줍니다. */}
         <td><span className={`kd-status-pill is-${minimum.status}`}>{minimum.label}</span>
-          {hasEvidence ? <><small>{row.minimumEvaluation.year || '연도 확인'} · {row.minimumEvaluation.source || 'NAVI 최저 참고자료'}</small><small>{row.minimumText}</small><small>{minimum.reason}</small></> : chips ? <div className="kd-mock-chips">
+          {hasEvidence ? <><small className="kd-comparison-rule">{row.minimumText}</small><small>{minimum.reason}</small></> : chips ? <div className="kd-mock-chips">
             {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
             {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}
           </div> : <small>{minimum.reason}</small>}
         </td>
-        {/* 기본값은 지원 구성 버튼만 바로 보이게 하고, 교과 반영·NAVI/광덕고 근거는 접어서(details) 표 너비를 줄였습니다. */}
+        {/* 기본값은 지원 구성 버튼만 바로 보이게 하고, 교과 반영·최저 연도/출처·NAVI/광덕고 근거는
+            접어서(details) 표 너비와 셀 안 줄 수를 줄였습니다(예전에는 최저 칸에 3줄이 항상 떠 있었습니다). */}
         <td className="kd-comparison-detail-cell">
           <SupportPlanButton compact active={saved.has(planKey(row.planItem))} disabled={disabled} onClick={() => onAddPlan(row.planItem)}>{saved.has(planKey(row.planItem)) ? '지원 구성에 담김' : planItems.length >= 6 ? '6개 구성 완료' : '수시지원 추가'}</SupportPlanButton>
           <details className="kd-evidence-more"><summary>교과반영·근거 자세히</summary>
             <p className="kd-comparison-detail-course">{row.course}</p>
             <RecommendedCourseDetails progress={row.recommendationProgress}/>
+            {hasEvidence && <div className="kd-evidence-row"><b>최저 연도·출처</b><span>{row.minimumEvaluation.year || '연도 확인'} · {row.minimumEvaluation.source || 'NAVI 최저 참고자료'}</span></div>}
             <div className="kd-evidence-row"><b>NAVI</b><span>{row.naviCount == null ? '미연결/미제공' : `${row.naviCount}건`}</span></div>
             <div className="kd-evidence-row"><b>광덕고</b><span>{row.school.total ? `지원 ${row.school.total} · 합격 ${row.school.accepted}` : '일치 사례 없음'}</span></div>
             <small>{row.naviCount == null ? row.naviReason : '대학·전형·계열 기준 · 연도 미제공'}</small>

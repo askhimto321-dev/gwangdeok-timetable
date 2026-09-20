@@ -27,6 +27,17 @@
   --kd-primary:#2d5c8c;
   --kd-primary-dark:#1c3f63;
 
+  /* 앱 전체의 '강조 액션' 색(브랜드 색). 원래 "수시 지원 구성" 탭 활성 색(#9a3412, 진한 테라코타)이
+     이미 이 앱의 고유 강조색이었는데, 인쇄 버튼은 남색, NAVI 링크는 보라, 상단 배너는 다른 보라
+     계열 그라데이션 등 화면마다 서로 다른 색을 강조색으로 쓰고 있었습니다. "강조색을 버튼처럼
+     통일해달라"는 요청에 따라, 버튼·배너처럼 클릭을 유도하거나 브랜드를 나타내는 요소는 모두
+     이 한 가지 색 계열로 맞췄습니다. 전형(교과/종합/논술/실기) 구분색과 충족/미충족 같은 상태색은
+     각자 다른 의미를 담고 있어 그대로 유지합니다. */
+  --kd-brand:#9a3412;
+  --kd-brand-dark:#7a290d;
+  --kd-brand-soft:#fff4e9;
+  --kd-brand-border:#c36e3e;
+
   /* 수능최저/지원 요건 상태 — "자료 없음"과 "진짜 확인이 필요한 상태"를 다른 색으로 구분합니다. */
   --kd-status-ok-text:#1f6b3f;      --kd-status-ok-bg:#e9f8ee;   --kd-status-ok-border:#a9d9bb;
   --kd-status-bad-text:#a3271f;     --kd-status-bad-bg:#fdeceb;  --kd-status-bad-border:#f0bcb7;

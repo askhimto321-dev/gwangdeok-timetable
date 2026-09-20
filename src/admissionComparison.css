@@ -12,6 +12,10 @@
 /* 마지막 열: 지원 구성 버튼은 항상 보이고, 교과 반영·근거는 접어서 필요할 때만 폅니다. */
 .kd-comparison-detail-cell{display:flex;flex-direction:column;gap:6px}
 .kd-comparison-detail-course{font-size:12px!important;font-weight:700;color:#33475c;margin:0!important}
+/* "2개합 5"처럼 최저 조건 원문 중간의 띄어쓰기에서 줄이 꺾여 숫자만 다음 줄에 혼자 남는 문제가
+   있었습니다(supportDecision.css의 .kd-decision-rule과 같은 원인·같은 해법). 표 칸 너비는
+   table-layout:fixed로 이미 고정돼 있으니, 원문은 한 줄로 두고 넘치면 말줄임표로 정리합니다. */
+.kd-comparison-rule{white-space:nowrap!important;overflow:hidden;text-overflow:ellipsis;font-weight:700!important;color:#33475c!important}
 /* 가로 스크롤 중에도 어떤 대학·모집단위 행인지 계속 보이도록 첫 컬럼을 고정합니다. */
 .kd-comparison-table th:first-child{position:sticky;left:0;box-shadow:2px 0 4px rgba(20,30,45,.07)}
 .kd-comparison-table thead th:first-child{z-index:3}.kd-comparison-table tbody th:first-child{z-index:1}

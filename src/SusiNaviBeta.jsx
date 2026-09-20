@@ -2891,7 +2891,11 @@ function MinimumGroup({ rows = [], evaluations = [], latestMockLabel = "" }) {
 const ui = {
   root: { display: "grid", gap: 15, fontFamily: "KDRound,Pretendard, 'Noto Sans KR', system-ui, sans-serif", color: "#222a3a", fontSize: 14, lineHeight: 1.55 },
   loading: { minHeight: 320, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#647086", fontWeight: 750 },
-  hero: { padding: "23px 25px", borderRadius: 18, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#fff", background: "linear-gradient(135deg,#63558e,#8a5d82)", boxShadow: "0 14px 34px rgba(86,67,119,.18)" },
+  // 배너·인쇄 버튼처럼 클릭을 유도하거나 브랜드를 나타내는 요소는 "수시 지원 구성" 탭의
+  // 강조색(#9a3412, --kd-brand)과 같은 계열로 통일했습니다(예전엔 배너는 보라, 인쇄 버튼은
+  // 남색으로 서로 달랐습니다). NAVI 대학찾기 화면의 보라/파랑 배지·활성탭 색은 그 화면 안에서
+  // 이미 서로 다른 의미(활성 탭, NAVI 자료, 광덕고 자료 등)를 구분하고 있어 그대로 두었습니다.
+  hero: { padding: "23px 25px", borderRadius: 18, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#fff", background: "linear-gradient(135deg,var(--kd-brand),#c2622f)", boxShadow: "0 14px 34px rgba(154,52,18,.22)" },
   heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 850, opacity: .86 },
   heroTitle: { margin: "6px 0 4px", fontSize: 25, lineHeight: 1.15, letterSpacing: "-.03em" },
   heroText: { margin: 0, fontSize: 13.5, lineHeight: 1.6, opacity: .9 },
@@ -2904,7 +2908,7 @@ const ui = {
   viewTabActive: { borderColor: "#d6cbea", background: "linear-gradient(135deg,#f4f0fb,#fff)", color: "#594681", boxShadow: "0 3px 10px rgba(86,69,126,.12)" },
   viewToolbarActions: { display: "grid", gridTemplateColumns: "auto auto", alignItems: "stretch", gap: 7 },
   cutoffStatusChip: { minWidth: 132, display: "grid", placeItems: "center", alignContent: "center", gap: 1, padding: "6px 11px", border: "1px solid #d7cbea", borderRadius: 12, background: "linear-gradient(135deg,#f4effb,#fff)", color: "#5a4584", textAlign: "center", boxShadow: "0 4px 10px rgba(86,69,126,.08)" },
-  printButton: { minWidth: 176, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, border: "1px solid #263c61", borderRadius: 12, background: "#263c61", color: "#fff", fontSize: 13, fontWeight: 900, cursor: "pointer", boxShadow: "0 5px 12px rgba(38,60,97,.18)" },
+  printButton: { minWidth: 176, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, border: "1px solid var(--kd-brand)", borderRadius: 12, background: "var(--kd-brand)", color: "#fff", fontSize: 13, fontWeight: 900, cursor: "pointer", boxShadow: "0 5px 12px rgba(154,52,18,.22)" },
   tabPanel: { display: "grid", gap: 13 },
   tabGuide: { display: "grid", gridTemplateColumns: "180px minmax(0,1fr)", gap: 14, alignItems: "center", padding: "14px 16px", border: "1px solid #dce3ed", borderRadius: 14, background: "linear-gradient(135deg,#f7f9fd,#fff)", color: "#536176", fontSize: 13.5, lineHeight: 1.6 },
   goResultButton: { minHeight: 43, padding: "0 16px", border: "1px solid #5f4e87", borderRadius: 11, background: "#66558e", color: "#fff", fontSize: 13, fontWeight: 900, cursor: "pointer", boxShadow: "0 6px 14px rgba(86,69,126,.20)" },
@@ -3283,13 +3287,13 @@ const ui = {
   workspaceFlow: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", gap: 12, alignItems: "center", padding: "11px 13px", border: "1px solid #dce5ed", borderRadius: 12, background: "#fbfcfd" },
   workspaceFlowCopy: { minWidth: 0, display: "grid", gap: 2, color: "#647287" },
   workspaceFlowStats: { display: "grid", gridTemplateColumns: "repeat(3,minmax(72px,1fr))", gap: 5 },
-  workspaceConsultButton: { minHeight: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 10px", border: "1px solid #315f91", borderRadius: 9, background: "#fff", color: "#315f91", fontSize: 10.3, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
+  workspaceConsultButton: { minHeight: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 10px", border: "1px solid var(--kd-brand-border)", borderRadius: 9, background: "#fff", color: "var(--kd-brand)", fontSize: 10.3, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceStudent: { minWidth: 250, display: "grid", gap: 3, padding: "11px 13px", border: "1px solid #d6deea", borderRadius: 12, background: "#fff", color: "#617086" },
   workspaceMessage: { display: "flex", alignItems: "center", gap: 7, padding: "9px 11px", border: "1px solid #d8dfeb", borderRadius: 10, background: "#f7f9fc", color: "#53627a", fontSize: 11.5, fontWeight: 800 },
   workspaceSection: { display: "grid", gap: 12, padding: 16, border: "1px solid #d8e0ea", borderRadius: 15, background: "#fff" },
   workspaceSectionHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
   workspaceCount: { minWidth: 48, minHeight: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#edf1f7", color: "#50617a", fontSize: 12, fontWeight: 950 },
-  planPrintButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #cfdbe7", borderRadius: 10, padding: "8px 12px", background: "#fff", color: "#2d5c8c", fontSize: 12, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
+  planPrintButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--kd-brand-border)", borderRadius: 10, padding: "8px 12px", background: "#fff", color: "var(--kd-brand)", fontSize: 12, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceSummaryGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8 },
   planGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 9 },
   planEmpty: { minHeight: 150, display: "grid", placeItems: "center", alignContent: "center", gap: 5, padding: 12, border: "1px dashed #d6dde8", borderRadius: 12, background: "#fafbfc", color: "#9aa3b1", textAlign: "center" },
