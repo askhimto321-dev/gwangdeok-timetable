@@ -1,5 +1,5 @@
 import React from 'react';
-import { validGrade, supportBandClassName } from './admissionMetrics.js';
+import { validGrade, supportBandClassName, trackChipClassName, trackAccentKey } from './admissionMetrics.js';
 import { minimumDisplay } from './naviMinimum.js';
 import './supportDecision.css';
 
@@ -16,10 +16,10 @@ export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis
   const minimum=minimumDisplay(ev,item.minimumStatus);
   const difference=validGrade(studentGrade)!=null && validGrade(cut)!=null ? Number(studentGrade)-Number(cut) : null;
   return <article className="susi-beta-plan-card kd-decision-card">
-    <header><div><h4>{item.stored.university}</h4><p>{item.stored.department}</p><span className="kd-track-chip kd-decision-type-chip">{item.stored.admissionType || '전형 확인'} · {item.stored.track}</span></div><span className="kd-decision-number">{index+1}</span></header>
+    <header><div><h4>{item.stored.university}</h4><p>{item.stored.department}</p><span className={trackChipClassName(item.stored.admissionType)}>{item.stored.admissionType || '전형 확인'} · {item.stored.track}</span></div><span className={`kd-decision-number is-${trackAccentKey(item.stored.admissionType)}`}>{index+1}</span></header>
     <div className="kd-decision-primary">
-      <section className="kd-decision-grade"><h5>내신 컷 비교 <span>2026 공개 결과</span></h5><div className="kd-decision-numbers"><div className="is-student"><small>학생 9등급 환산</small><b>{fmt(studentGrade)}</b></div><span aria-hidden="true">↔</span><div><small>{cutoffBasis}%컷</small><b>{fmt(cut)}</b></div></div><p>{item.support?.label ? <span className={supportBandClassName(item.support.label)}>{item.support.label}</span> : <span className={supportBandClassName()}>판정 자료 없음</span>}{difference!=null && <span className="kd-decision-diff">학생 − 컷 {difference>0?'+':''}{difference.toFixed(2)}</span>}</p><small>50% {fmt(item.admissionItem?.[1])} · 70% {fmt(item.admissionItem?.[2])} · 등급은 낮을수록 유리</small></section>
-      <section className={`kd-decision-minimum is-${minimum.status}`}><h5>수능최저 <span>2027 참고 기준</span></h5><strong className="kd-decision-verdict">{minimum.label}</strong><p className="kd-decision-rule">{ev?.ruleText || item.comparisonEvidence?.minimumText || '연결 조건 없음'}</p><small>{ev?.subjectsText ? `반영 영역: ${ev.subjectsText} · ` : ''}{student?.latestMockLabel || '판정 기준 모평 미선택'}</small><p>{minimum.reason}</p></section>
+      <section className="kd-decision-grade"><h5>내신 컷 비교 <span>2026 공개 결과</span></h5><div className="kd-decision-numbers"><div className="is-student"><small>내 환산등급</small><b>{fmt(studentGrade)}</b></div><span aria-hidden="true">↔</span><div><small>{cutoffBasis}%컷</small><b>{fmt(cut)}</b></div></div><div className="kd-decision-band-row">{item.support?.label ? <span className={supportBandClassName(item.support.label)}>{item.support.label}</span> : <span className={supportBandClassName()}>판정 자료 없음</span>}{difference!=null && <span className="kd-decision-diff">차이 {difference>0?'+':''}{difference.toFixed(2)}</span>}</div><small>50% {fmt(item.admissionItem?.[1])} · 70% {fmt(item.admissionItem?.[2])}</small></section>
+      <section className={`kd-decision-minimum is-${minimum.status}`}><h5>수능최저 <span>2027 참고 기준</span></h5><strong className="kd-decision-verdict">{minimum.label}</strong><p className="kd-decision-rule">{ev?.ruleText || item.comparisonEvidence?.minimumText || '연결 조건 없음'}</p><small className="kd-decision-reason">{ev?.subjectsText ? `반영 영역 ${ev.subjectsText} · ` : ''}{student?.latestMockLabel || '판정 기준 모평 미선택'}</small><small className="kd-decision-reason">{minimum.reason}</small></section>
     </div>
     {item.trackMissing && <p className="kd-decision-warning">NAVI 전형 미연결 · 다른 전형의 컷을 대신 사용하지 않습니다.</p>}
     <RecommendedCourseDetails progress={item.recommendationProgress}/>
