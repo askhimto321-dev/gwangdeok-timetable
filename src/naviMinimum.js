@@ -39,3 +39,16 @@ export function minimumDisplay(evaluation, status) {
   const labels={satisfied:'모평 기준 충족',unsatisfied:'모평 기준 미충족','no-minimum':'수능최저 없음',manual:'조건 확인 필요',unavailable:'모평 성적 필요',unlinked:'최저 자료 미연결'};
   return {status:state,label:labels[state] || '조건 확인 필요',reason:evaluation?.reason || '연도·캠퍼스·모집단위·전형이 일치하는 원자료를 확인하세요.'};
 }
+
+// UI patch: 대학별 최저 자료가 연결되지 않아도(=unlinked), 학생 본인의 최근 모의고사 등급은
+// 이미 저장돼 있으므로 그것만이라도 보여줍니다. "대학 정보가 없어도 내 최저 현황은 보여달라"는
+// 요청에 대응합니다. 2028 체계 5과목(국/수/영/통합사회/통합과학) 중 값이 있는 것만 반환합니다.
+const MOCK_SUBJECT_LABELS = { 국어: '국', 수학: '수', 영어: '영', 통합사회: '사회', 통합과학: '과학' };
+export function studentMockChips(student) {
+  const grades = student?.latestMockGrades || student?.latestMockSums?.subjectGrades;
+  if (!grades) return null;
+  const chips = Object.entries(MOCK_SUBJECT_LABELS)
+    .map(([key, label]) => [label, grades[key]])
+    .filter(([, value]) => value != null && Number.isFinite(Number(value)));
+  return chips.length ? chips : null;
+}

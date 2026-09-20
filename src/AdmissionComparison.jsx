@@ -4,11 +4,11 @@ import { COMPARISON_YEARS } from './admissionComparison.js';
 import './admissionComparison.css';
 import { RecommendedCourseDetails } from './SupportDecisionCard.jsx';
 import { supportBandClassName, trackChipClassName } from './admissionMetrics.js';
-import { minimumDisplay } from './naviMinimum.js';
+import { minimumDisplay, studentMockChips } from './naviMinimum.js';
 
 const grade = value => value == null ? '—' : value.toFixed(2);
 
-export default function AdmissionComparison({ rows = [], compareItems = [], planItems = [], source, cutoffBasis, convertedGrade, busy, studentSid, loading, error, onAddPlan, onRemoveCompare, onGoResults, planKey }) {
+export default function AdmissionComparison({ rows = [], compareItems = [], planItems = [], source, cutoffBasis, convertedGrade, student, busy, studentSid, loading, error, onAddPlan, onRemoveCompare, onGoResults, planKey }) {
   const [type, setType] = useState('전체');
   const visible = rows.filter(row => row.missing || type === '전체' || row.admissionType === type);
   const tracks = visible.filter(row => !row.missing);
@@ -23,33 +23,48 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
     {compareItems.length > 0 && <>
       <ul className="kd-comparison-selection" aria-label="비교할 모집단위">{compareItems.map(item => <li key={JSON.stringify(item.stored)}><span><b>{item.stored.university}</b> · {item.stored.department}</span><button type="button" disabled={busy} aria-label={`${item.stored.university} ${item.stored.department} 비교에서 제거`} onClick={() => onRemoveCompare(item.stored)}>제거</button></li>)}</ul>
       <div className="kd-comparison-toolbar"><div role="group" aria-label="비교 전형 유형">{['전체', '교과', '종합'].map(value => <button key={value} type="button" aria-pressed={type === value} onClick={() => setType(value)}>{value}</button>)}</div><span role="status">표시 {tracks.length}개 전형 · {cutoffBasis}%컷 기준</span></div>
-      {visible.length ? <div className="kd-comparison-scroll" tabIndex={0} role="region" aria-label="전형별 비교표. 좁은 화면에서는 가로로 스크롤하세요."><table className="kd-comparison-table"><caption>전형별 비교 — 대학 공개 컷은 9등급 기준, 서로 다른 대학의 산출 방식은 다를 수 있습니다.</caption><thead><tr>{['대학·모집단위 / 전형','2026 공개 컷 / 현재 내신','2027 교과 반영','2027 수능최저','사례 근거 / 표본','지원 구성'].map(title => <th key={title} scope="col">{title}</th>)}</tr></thead><tbody>{visible.map(row => {
-        if (row.missing) return <tr key={row.id}><th scope="row">{row.stored.university}<small>{row.stored.department}</small></th><td colSpan={5}>{row.reason}</td></tr>;
+      {/* 예전에는 대학·컷비교·교과반영·수능최저·사례근거·지원구성 6개 열이 한 화면에 다 있어서
+          1000px 넘게 필요해 항상 가로 스크롤이 생겼습니다. 지금 바로 봐야 할 4가지(대학/컷비교/
+          수능최저/지원)만 열로 남기고, 교과 반영·NAVI·광덕고 사례처럼 상담 중 필요할 때만 보는
+          정보는 마지막 열의 '자세히'로 접어서 한 페이지 안에 들어오게 했습니다. */}
+      {visible.length ? <div className="kd-comparison-scroll" tabIndex={0} role="region" aria-label="전형별 비교표. 좁은 화면에서는 가로로 스크롤하세요."><table className="kd-comparison-table"><caption>전형별 비교 — 대학 공개 컷은 9등급 기준, 서로 다른 대학의 산출 방식은 다를 수 있습니다.</caption><thead><tr>{['대학·모집단위 / 전형','내신 컷 비교','수능최저','상세 · 지원 구성'].map(title => <th key={title} scope="col">{title}</th>)}</tr></thead><tbody>{visible.map(row => {
+        if (row.missing) return <tr key={row.id}><th scope="row">{row.stored.university}<small>{row.stored.department}</small></th><td colSpan={3}>{row.reason}</td></tr>;
         const minimum = minimumDisplay(row.minimumEvaluation, row.minimumStatus);
+        const hasEvidence = !!row.minimumEvaluation;
+        const chips = !hasEvidence ? studentMockChips(student) : null;
+        const disabled = busy || !studentSid || !row.track || saved.has(planKey(row.planItem)) || planItems.length >= 6;
         return <tr key={row.id}>
         {/* 전형(교과/종합·전형명)을 배지로 올려 표 안에서 가장 먼저 눈에 들어오게 합니다. 유형별로 배지 색을 다르게 해 구분도 쉽게 했습니다. */}
         <th scope="row"><b>{row.university}</b><small>{row.region || '지역 미제공'} · {row.department}</small><span className={trackChipClassName(row.admissionType)}>{row.admissionType} · {row.track || '전형명 미제공'}</span>{row.previousDepartment !== row.department && <small>2026: {row.previousDepartment || '미제공'}</small>}</th>
-        {/* 상담에서 가장 먼저 비교하는 두 숫자(학생 현재 내신 vs 공개 컷)를 한 줄로 강조하고, 나머지 컷 정보는 아래 한 줄로 압축해 행 높이를 줄였습니다. */}
+        {/* 상담에서 가장 먼저 비교하는 두 숫자(학생 현재 내신 vs 공개 컷)를 한 줄로 강조합니다.
+            아래 참고 줄은 위에서 이미 보여준 컷을 또 적지 않고, '다른 쪽 컷' 하나만 보조로 붙입니다. */}
         <td><div className="kd-comparison-headline">
             <div className="kd-key-fact is-student"><small>학생</small><b>{grade(convertedGrade)}</b></div>
             <span className="kd-comparison-arrow" aria-hidden="true">↔</span>
             <div className="kd-key-fact"><small>{cutoffBasis}%컷</small><b>{grade(cutoffBasis === '50' ? row.cut50 : row.cut70)}</b></div>
             <span className={supportBandClassName(row.support?.label)}>{row.support?.label || '판정 자료 없음'}{row.support?.diff != null && <em>{row.support.diff > 0 ? '+' : ''}{row.support.diff.toFixed(2)}</em>}</span>
           </div>
-          <small>50% {grade(row.cut50)} · 70% {grade(row.cut70)} · 표본 수 미제공</small></td>
-        <td>{row.course}<RecommendedCourseDetails progress={row.recommendationProgress}/></td>
-        {/* 최저충족여부는 표 안에서 유일하게 '합격 가능성'에 직접 관계된 정보라 배지로 강조합니다. */}
-        <td><span className={`kd-status-pill is-${minimum.status}`}>{minimum.label}</span><small>{row.minimumText}</small><small>{minimum.reason}</small></td>
-        {/* 기본값은 핵심 숫자 두 줄만 보이게 하고, 근거 문구는 접어서(details) 행 높이를 줄였습니다. */}
-        <td>
-          <div className="kd-evidence-row"><b>NAVI</b><span>{row.naviCount == null ? '미연결/미제공' : `${row.naviCount}건`}</span></div>
-          <div className="kd-evidence-row"><b>광덕고</b><span>{row.school.total ? `지원 ${row.school.total} · 합격 ${row.school.accepted}` : '일치 사례 없음'}</span></div>
-          <details className="kd-evidence-more"><summary>근거 자세히</summary>
+          <small>{cutoffBasis === '50' ? '70' : '50'}%컷 참고 {grade(cutoffBasis === '50' ? row.cut70 : row.cut50)}</small></td>
+        {/* 최저충족여부는 표 안에서 유일하게 '합격 가능성'에 직접 관계된 정보라 배지로 강조합니다.
+            일치하는 대학 자료가 없으면(unlinked) 안내 문구 대신 학생 본인의 최근 모의고사 등급을 보여줍니다. */}
+        <td><span className={`kd-status-pill is-${minimum.status}`}>{minimum.label}</span>
+          {hasEvidence ? <><small>{row.minimumText}</small><small>{minimum.reason}</small></> : chips ? <div className="kd-mock-chips">
+            {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
+            {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}
+          </div> : <small>{minimum.reason}</small>}
+        </td>
+        {/* 기본값은 지원 구성 버튼만 바로 보이게 하고, 교과 반영·NAVI/광덕고 근거는 접어서(details) 표 너비를 줄였습니다. */}
+        <td className="kd-comparison-detail-cell">
+          <SupportPlanButton compact active={saved.has(planKey(row.planItem))} disabled={disabled} onClick={() => onAddPlan(row.planItem)}>{saved.has(planKey(row.planItem)) ? '지원 구성에 담김' : planItems.length >= 6 ? '6개 구성 완료' : '지원 구성에 추가'}</SupportPlanButton>
+          <details className="kd-evidence-more"><summary>교과반영·근거 자세히</summary>
+            <p className="kd-comparison-detail-course">{row.course}</p>
+            <RecommendedCourseDetails progress={row.recommendationProgress}/>
+            <div className="kd-evidence-row"><b>NAVI</b><span>{row.naviCount == null ? '미연결/미제공' : `${row.naviCount}건`}</span></div>
+            <div className="kd-evidence-row"><b>광덕고</b><span>{row.school.total ? `지원 ${row.school.total} · 합격 ${row.school.accepted}` : '일치 사례 없음'}</span></div>
             <small>{row.naviCount == null ? row.naviReason : '대학·전형·계열 기준 · 연도 미제공'}</small>
             <small>{row.school.total ? `${row.school.years}${row.school.yearUnknown ? ` · 연도 미입력 ${row.school.yearUnknown}건` : ''}` : '대학·캠퍼스·학과·전형 정확 일치 기준'}</small>
           </details>
         </td>
-        <td><SupportPlanButton compact active={saved.has(planKey(row.planItem))} disabled={busy || !studentSid || !row.track || saved.has(planKey(row.planItem)) || planItems.length >= 6} onClick={() => onAddPlan(row.planItem)}>{saved.has(planKey(row.planItem)) ? '지원 구성에 담김' : planItems.length >= 6 ? '6개 구성 완료' : '지원 구성에 추가'}</SupportPlanButton></td>
       </tr>;
       })}</tbody></table></div> : <p className="kd-comparison-empty">선택한 유형의 전형이 없습니다. ‘전체’를 선택하거나 다른 모집단위를 담아주세요.</p>}
     </>}

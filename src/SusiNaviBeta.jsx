@@ -33,6 +33,20 @@ const STORAGE_KEY = "kd_susi_navi_beta_v1";
 const SCHEMA_VERSION = 1;
 const PAGE_SIZE = 12;
 const CONVERSION_GROUPS = ["전교과", "국수영사과", "국수영과", "국수영사"];
+
+// Patch (print-overlap fix): 대학 상세 인쇄용 표와 지원 구성 인쇄용 표가 항상 함께 DOM에 있어서,
+// 어느 버튼을 눌러도 두 표가 겹쳐서 인쇄되는 문제가 있었습니다. 인쇄 버튼을 누르는 순간에만
+// body에 표시용 클래스를 붙였다가 인쇄가 끝나면(afterprint) 지워서, 누른 버튼에 맞는 표 하나만 보이게 합니다.
+function triggerSectionPrint(targetClass) {
+  if (typeof document === "undefined") return;
+  document.body.classList.add(targetClass);
+  const cleanup = () => {
+    document.body.classList.remove("kd-print-target-result", "kd-print-target-plan");
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+  window.print();
+}
 const CONVERSION_PREF_KEY = "kd_susi_navi_conversion_pref_v1";
 const CUTOFF_PREF_KEY = "kd_susi_navi_cutoff_pref_v1";
 const CONNECTION_PAGE_SIZE = 12;
@@ -1980,7 +1994,7 @@ export default function SusiNaviBetaView({
           </div>
           <div className="susi-beta-view-actions" style={ui.viewToolbarActions}>
             <span style={ui.cutoffStatusChip}><small>현재 지원 판정 기준</small><b>{cutoffBasis}%컷</b></span>
-            <button type="button" style={ui.printButton} onClick={() => { navigateViewTab("results", { replace: true }); window.setTimeout(() => window.print(), 90); }}><Printer size={16}/>대학 상세 인쇄·PDF</button>
+            <button type="button" style={ui.printButton} onClick={() => { navigateViewTab("results", { replace: true }); window.setTimeout(() => triggerSectionPrint("kd-print-target-result"), 90); }}><Printer size={16}/>대학 상세 인쇄·PDF</button>
           </div>
         </div>
 
@@ -2816,7 +2830,7 @@ function SupportDecisionWorkspace({
     {workspaceMessage && <div role="status" style={ui.workspaceMessage}>{workspaceBusy && <Loader2 size={13} className="spin"/>}{workspaceMessage}</div>}
 
     <section ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:100}}>
-      <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><button type="button" className="no-print" disabled={!planItems.length} style={ui.planPrintButton} onClick={() => window.print()} title="담긴 지원 구성을 표로 인쇄하거나 PDF로 저장합니다."><Printer size={13}/>지원 구성 인쇄·PDF</button><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
+      <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><button type="button" className="no-print" disabled={!planItems.length} style={ui.planPrintButton} onClick={() => triggerSectionPrint("kd-print-target-plan")} title="담긴 지원 구성을 표로 인쇄하거나 PDF로 저장합니다."><Printer size={13}/>지원 구성 인쇄·PDF</button><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
       <PrintPlanSheet items={slots} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent}/>
       <div className="susi-beta-workspace-summary" style={ui.workspaceSummaryGrid}>
         <div><small>지원 구간</small><b>{["상향","소신","적정","안정","하향"].filter(label => supportCounts[label]).map(label => `${label} ${supportCounts[label]}`).join(" · ") || "판정 자료 없음"}</b></div>
@@ -2832,7 +2846,7 @@ function SupportDecisionWorkspace({
     </section>
 
     <div ref={comparisonSectionRef} tabIndex={-1} aria-label="전형별 비교 영역" style={{minWidth:0,scrollMarginTop:100}}>
-      <AdmissionComparison rows={comparisonRows} compareItems={compareItems} planItems={planItems} source={data?.source} cutoffBasis={cutoffBasis} convertedGrade={convertedGrade} busy={workspaceBusy} loading={workspaceLoading} error={workspaceLoadError} studentSid={selectedStudent?.sid} onAddPlan={onAddPlan} onRemoveCompare={onRemoveCompare} onGoResults={onGoResults} planKey={supportPlanItemKey}/>
+      <AdmissionComparison rows={comparisonRows} compareItems={compareItems} planItems={planItems} source={data?.source} cutoffBasis={cutoffBasis} convertedGrade={convertedGrade} student={selectedStudent} busy={workspaceBusy} loading={workspaceLoading} error={workspaceLoadError} studentSid={selectedStudent?.sid} onAddPlan={onAddPlan} onRemoveCompare={onRemoveCompare} onGoResults={onGoResults} planKey={supportPlanItemKey}/>
     </div>
   </div>;
 }
@@ -3530,8 +3544,12 @@ nav[aria-label="검색 결과 페이지 이동"] button:disabled{opacity:.38;cur
   @page{size:A4 landscape;margin:7mm}
   html,body{background:#fff!important}
   body *{visibility:hidden!important}
-  .susi-beta-print-sheet,.susi-beta-print-sheet *,.susi-beta-plan-print-sheet,.susi-beta-plan-print-sheet *{visibility:visible!important}
-  .susi-beta-print-sheet,.susi-beta-plan-print-sheet{display:block!important;position:absolute!important;left:0!important;top:0!important;width:100%!important;color:#111!important;font-family:"Noto Sans KR",Arial,sans-serif!important}
+  /* Patch (print-overlap fix): 대학 상세 인쇄와 지원 구성 인쇄, 두 인쇄용 표가 항상 DOM에 함께 있어서
+     예전에는 어느 버튼을 눌러도 둘 다 강제로 보이며 서로 겹쳐 찍혔습니다. 이제는 버튼을 누를 때
+     body에 표시용 클래스를 붙이고, 그 클래스가 있을 때만 해당 표를 보이게 해서 하나만 인쇄됩니다. */
+  body.kd-print-target-result .susi-beta-print-sheet,body.kd-print-target-result .susi-beta-print-sheet *,
+  body.kd-print-target-plan .susi-beta-plan-print-sheet,body.kd-print-target-plan .susi-beta-plan-print-sheet *{visibility:visible!important}
+  body.kd-print-target-result .susi-beta-print-sheet,body.kd-print-target-plan .susi-beta-plan-print-sheet{display:block!important;position:absolute!important;left:0!important;top:0!important;width:100%!important;color:#111!important;font-family:"Noto Sans KR",Arial,sans-serif!important}
   .susi-beta-print-sheet header,.susi-beta-plan-print-sheet header{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding-bottom:5px;border-bottom:2px solid #27364c}
   .susi-beta-print-sheet h1,.susi-beta-plan-print-sheet h1{margin:0;font-size:15pt;line-height:1.1}
   .susi-beta-print-sheet header p,.susi-beta-plan-print-sheet header p{margin:2px 0 0;font-size:7.5pt;color:#596579}

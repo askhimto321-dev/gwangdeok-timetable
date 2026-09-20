@@ -9,29 +9,51 @@
 /* 카드 하나가 세로로 너무 길어지지 않도록 '내신 컷 비교'와 '수능최저' 두 섹션을 항상 좌우로 배치합니다
    (예전에는 넓은 화면일수록 오히려 위아래로 쌓여서 카드가 더 길어지는 반대 구조였습니다). */
 .kd-decision-primary{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kd-decision-primary section{padding:11px;border-radius:10px;border:1px solid #d6e1ec;background:#f6f9fc;min-width:0}.kd-decision-primary h5{margin:0 0 8px;font-size:12.5px;font-weight:800}.kd-decision-primary h5>span{font-size:10.5px;font-weight:600;float:right;color:#53677b}
-.kd-decision-numbers{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}.kd-decision-numbers>div{flex:1 1 auto;min-width:0}.kd-decision-numbers>span{color:#9aa8b8;font-weight:700}.kd-decision-card .kd-decision-numbers small{display:block;font-size:10.5px;color:#5c7086;font-weight:700}.kd-decision-card .kd-decision-numbers b{display:block;font-size:19px;line-height:1.2;color:#233f5e;font-weight:850}
-/* '내신 컷 비교' 섹션은 파란색 계열로, 카드 안에서도 두 섹션이 같은 회색 상자로만 보이지 않도록 구분합니다. */
+/* 학생 등급 · 컷을 각각 색이 다른 상자로 나눠서, 두 숫자를 문장처럼 줄줄이 읽는 대신
+   '박스 두 개를 나란히 비교'하는 느낌으로 바꿨습니다. */
+.kd-decision-numbers{display:flex;align-items:stretch;gap:7px}
+.kd-decision-numbers>span{align-self:center;color:#9aa8b8;font-weight:700}
+.kd-decision-num-box{flex:1 1 0;min-width:0;padding:6px 8px;border-radius:8px;background:#fff;border:1px solid #dbe4ee;text-align:center}
+.kd-decision-num-box.is-student{background:#e4edfa;border-color:#b9d2ee}
+.kd-decision-card .kd-decision-num-box small{display:block;font-size:10.5px;color:#5c7086;font-weight:700}
+.kd-decision-card .kd-decision-num-box b{display:block;font-size:19px;line-height:1.2;color:#233f5e;font-weight:850}
+.kd-decision-num-box.is-student b{color:#1c3f63}.kd-decision-num-box.is-student small{color:#2d5c8c}
 .kd-decision-grade{background:#eef4fb!important;border-color:#c9dbee!important}
-/* 학생 본인의 환산 등급 숫자를 컷 숫자보다 진한 강조색으로 구분합니다(둘 다 같은 크기·색이면 어느 쪽이 '내 점수'인지 헷갈립니다). */
-.kd-decision-numbers>div.is-student b{color:#1c3f63}.kd-decision-numbers>div.is-student small{color:#2d5c8c}
 .kd-decision-card small{font-size:11.5px;line-height:1.55;color:#506479;word-break:keep-all;overflow-wrap:anywhere}
 /* 지원 구간 배지와 '차이' 숫자를 한 줄에, 컷 숫자 아래로 배치해 시선이 위→아래로 자연스럽게 흐르게 했습니다. */
 .kd-decision-band-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
 .kd-decision-diff{font-size:11.5px;font-weight:750;color:#52667a}
+/* 위에서 이미 보여준 컷(예: 70%컷)을 아래에서 또 적지 않고, '다른 쪽 컷'만 참고로 한 줄 붙입니다. */
+.kd-decision-subref{display:block;margin-top:2px}
 /* 예전에는 이 글자가 21px로 나머지 카드 내용보다 훨씬 커서 '자료 없음'까지 경고처럼 보였습니다.
    섹션 배경색(충족=초록/미충족=빨강/확인필요=주황/미연결=회색)이 이미 상태를 보여주므로,
    글자 크기는 낮추고 그 색으로 구분되게 했습니다. */
 .kd-decision-verdict{display:block;font-size:15px;line-height:1.35;font-weight:850;word-break:keep-all;margin-bottom:3px}
-.kd-decision-rule{font-size:12.5px!important;font-weight:750!important;word-break:keep-all}
-.kd-decision-reason{display:block;margin-top:3px}
+/* 판정 원문(조건)과 판정 사유는 검정·회색·파란색이 한꺼번에 섞이지 않도록 두 단계 색으로만 정리했습니다
+   — 원문은 진한 남색(핵심 값), 사유는 옅은 회색(보충 설명). */
+.kd-decision-rule{font-size:12.5px!important;font-weight:750!important;word-break:keep-all;color:#33475c!important}
+.kd-decision-reason{display:block;margin-top:3px;color:#5c7086}
+/* '자세히'는 판정에 곁들는 부가 정보(반영 영역, 모평 기준, 미연결 안내문)를 접어 기본 화면을
+   1~2줄로 유지합니다. 다른 접기 토글과 같은 모양을 씁니다. */
+.kd-decision-min-detail{margin-top:6px}
+.kd-decision-min-detail summary{cursor:pointer;font-size:11px;font-weight:750;color:#53677b;list-style:none}
+.kd-decision-min-detail summary::-webkit-details-marker{display:none}
+.kd-decision-min-detail summary:before{content:'▸ ';font-size:9px}
+.kd-decision-min-detail[open] summary:before{content:'▾ '}
+.kd-decision-min-detail small{display:block;margin-top:3px}
 .kd-decision-primary .is-satisfied{border-color:#b7d9c4;background:#f0faf3;color:#236040}.kd-decision-primary .is-unsatisfied{border-color:#e9bebe;background:#fff4f3;color:#9a3131}.kd-decision-primary .is-manual,.kd-decision-primary .is-unavailable{border-color:#e4cea2;background:#fffaf0;color:#77561e}
 /* '최저 자료 미연결'은 실제 경고가 아니라 단순 미연결 상태라서, 확인이 꼭 필요한 manual/unavailable과 다른 중립 회색으로 분리했습니다. */
 .kd-decision-primary .is-unlinked{border-color:#d7dee6;background:#f3f5f8;color:#5a6b7d}
 .kd-decision-warning{padding:10px;border-left:3px solid #c58b3d;background:#fff8eb;word-break:keep-all}
-.kd-course-details,.kd-decision-evidence{border:1px solid #d9e2eb;border-radius:9px;padding:11px 12px}.kd-course-details summary{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;min-height:28px;font-size:14px;font-weight:700}.kd-course-details summary:after{content:'펼치기';font-size:12px;color:#536b84}.kd-course-details[open] summary:after{content:'접기'}.kd-course-details summary strong{color:#315f91}.kd-course-chips{display:flex;flex-wrap:wrap;gap:6px}.kd-course-chips span{padding:4px 8px;border:1px solid #d9e1e9;background:#f7f9fb;border-radius:6px;font-size:13px}.kd-course-chips .is-matched{color:#276541;background:#eef8f1;border-color:#c6dfcd}.kd-course-details>small{display:block;margin-top:10px}.kd-decision-evidence summary{cursor:pointer;color:#506479}.kd-decision-card footer{display:flex;justify-content:flex-end;gap:8px;margin-top:auto}.kd-decision-card footer button,.kd-favorite-plan-picker button{font:inherit;color:#49617a;background:#fff;border:1px solid #cbd8e4;border-radius:7px;min-height:36px;padding:6px 10px;cursor:pointer}.kd-decision-card button:disabled{opacity:.5;cursor:not-allowed}.kd-decision-card :focus-visible,.kd-favorite-plan-picker :focus-visible{outline:3px solid #467bb3;outline-offset:3px}
+.kd-course-details,.kd-decision-evidence{border:1px solid #d9e2eb;border-radius:9px;padding:11px 12px}.kd-course-details summary,.kd-decision-evidence summary{display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;min-height:28px;font-size:14px;font-weight:700;list-style:none}.kd-course-details summary::-webkit-details-marker,.kd-decision-evidence summary::-webkit-details-marker{display:none}.kd-course-details summary:after,.kd-decision-evidence summary:after{content:'펼치기';font-size:12px;font-weight:600;color:#536b84}.kd-course-details[open] summary:after,.kd-decision-evidence[open] summary:after{content:'접기'}.kd-course-details summary strong{color:#315f91}.kd-course-chips{display:flex;flex-wrap:wrap;gap:6px}.kd-course-chips span{padding:4px 8px;border:1px solid #d9e1e9;background:#f7f9fb;border-radius:6px;font-size:13px}.kd-course-chips .is-matched{color:#276541;background:#eef8f1;border-color:#c6dfcd}.kd-course-details>small{display:block;margin-top:10px}
+/* 출처·사례 근거: 예전에는 <p>문장을 그냥 나열해 폰트·정렬이 표와 달랐습니다.
+   이제 이름표(왼쪽)+값(오른쪽) 한 줄 규칙(.kd-evidence-row, theme.css 공용)을 표와 동일하게 씁니다. */
+.kd-decision-evidence[open]{padding-bottom:12px}
+.kd-decision-evidence>small{display:block;margin-top:8px}
+.kd-decision-card footer{display:flex;justify-content:flex-end;gap:8px;margin-top:auto}.kd-decision-card footer button,.kd-favorite-plan-picker button{font:inherit;color:#49617a;background:#fff;border:1px solid #cbd8e4;border-radius:7px;min-height:36px;padding:6px 10px;cursor:pointer}.kd-decision-card button:disabled{opacity:.5;cursor:not-allowed}.kd-decision-card :focus-visible,.kd-favorite-plan-picker :focus-visible{outline:3px solid #467bb3;outline-offset:3px}
 .kd-favorite-plan-picker{display:grid;gap:8px;max-width:320px}.kd-favorite-plan-picker select{font:inherit;max-width:100%;min-width:0;min-height:38px;border:1px solid #bdcddd;border-radius:6px;background:white;padding:7px}.kd-favorite-plan-picker small{font-size:12px;color:#53687d}
 /* Contextual row actions stay quieter than the primary page-level CTA. */
 .admission-row-actions button.kd-support-plan-button.kd-support-plan-button,.admission-case-row-tools button.kd-support-plan-button.kd-support-plan-button{min-height:30px;padding:4px 7px;border:1px solid #c7d7e5;border-radius:6px;background:#f5f8fb;color:#355879;box-shadow:none;font-size:11px;gap:4px;line-height:1.4}
 .admission-row-actions button.kd-support-plan-button svg,.admission-case-row-tools button.kd-support-plan-button svg{display:none}.admission-row-actions button.kd-support-plan-button:hover:not(:disabled){background:#e9f1f8;color:#254c72}.admission-row-actions button{min-height:30px!important}.admission-link-button.is-navi{box-shadow:none!important;font-size:12px!important;padding:6px 10px!important;min-height:32px!important}
 @media(max-width:1100px){.susi-beta-workspace .susi-beta-plan-grid{grid-template-columns:1fr!important}}
-@media(max-width:620px){.susi-beta-workspace .kd-decision-card{padding:14px}.kd-decision-primary{grid-template-columns:1fr}.kd-decision-card h4{font-size:18px}.kd-decision-card .kd-decision-numbers b{font-size:22px}.kd-decision-verdict{font-size:16px}.kd-course-details summary{flex-wrap:wrap}.kd-decision-card footer button{min-height:44px}}
+@media(max-width:620px){.susi-beta-workspace .kd-decision-card{padding:14px}.kd-decision-primary{grid-template-columns:1fr}.kd-decision-card h4{font-size:18px}.kd-decision-card .kd-decision-num-box b{font-size:22px}.kd-decision-verdict{font-size:16px}.kd-course-details summary{flex-wrap:wrap}.kd-decision-card footer button{min-height:44px}}

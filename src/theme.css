@@ -70,3 +70,21 @@
 .kd-status-pill.is-unsatisfied{color:var(--kd-status-bad-text);background:var(--kd-status-bad-bg);border-color:var(--kd-status-bad-border)}
 .kd-status-pill.is-manual,.kd-status-pill.is-unavailable{color:var(--kd-status-caution-text);background:var(--kd-status-caution-bg);border-color:var(--kd-status-caution-border)}
 .kd-status-pill.is-unlinked,.kd-status-pill.is-no-minimum{color:var(--kd-status-neutral-text);background:var(--kd-status-neutral-bg);border-color:var(--kd-status-neutral-border)}
+
+/* 대학별 최저 자료가 안 붙어 있어도(=최저 자료 미연결) 학생 본인의 최근 모의고사 등급은
+   저장돼 있으니 칩으로 보여줍니다. 문장이 아니라 태그 형태라 다른 회색 문장들 사이에서도
+   눈에 잘 띄고, 정보량도 한 줄로 압축됩니다. admissionMetrics.js/naviMinimum.js의
+   studentMockChips()와 짝입니다. */
+.kd-mock-chips{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px}
+.kd-mock-chips-label{font-size:10.5px;font-weight:750;color:var(--kd-ink-muted);margin-right:1px}
+.kd-mock-chip{padding:2px 8px;border-radius:6px;background:var(--kd-surface-soft);border:1px solid var(--kd-line);
+  font-size:11.5px;font-weight:800;color:var(--kd-ink-soft);white-space:nowrap}
+
+/* 출처·근거처럼 "이름표 + 값"으로 된 정보를 표/카드 어디서나 같은 모양으로 보여주는 공용 한 줄 규칙입니다.
+   전에는 컴포넌트마다 <p>문장 나열이라 서체·색이 제각각이었습니다(AdmissionComparison.jsx,
+   SupportDecisionCard.jsx가 함께 씁니다). */
+.kd-evidence-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:3px 0;
+  border-bottom:1px dashed var(--kd-line)}
+.kd-evidence-row:last-of-type{border-bottom:0}
+.kd-evidence-row b{font-size:11px;font-weight:750;color:var(--kd-ink-muted);font-family:inherit}
+.kd-evidence-row span{font-size:12.5px;font-weight:800;color:var(--kd-ink);text-align:right}
