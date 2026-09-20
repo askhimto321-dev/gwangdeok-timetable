@@ -26,6 +26,8 @@ import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupport
 import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
 import { buildComparisonRows } from "./admissionComparison.js";
+import SupportDecisionCard from "./SupportDecisionCard.jsx";
+import { evaluateNaviMinimumSafe } from "./naviMinimum.js";
 
 const STORAGE_KEY = "kd_susi_navi_beta_v1";
 const SCHEMA_VERSION = 1;
@@ -160,8 +162,8 @@ function studentCourseMatch(studentCourses = [], course = "") {
     if (!key) return false;
     if (key === target) return true;
     if (targetGroup && normalizeText(subject?.category) === targetGroup) return true;
-    // 구체적인 과목명끼리만 부분 일치를 허용해 '수학'이 모든 수학 과목과 무분별하게 매칭되는 것을 막습니다.
-    return key.length >= 4 && target.length >= 4 && (key.includes(target) || target.includes(key));
+    // Similar course names (e.g. 미적분 I / II) are not interchangeable.
+    return false;
   });
 }
 function recommendationIdentityKey(item = {}) {
@@ -775,15 +777,12 @@ function updateRecommendedSubjectCache(value) {
 }
 function recommendationForUnit(recommendationData, university, region = "", department = "") {
   const records = recommendationData?.records || [];
-  const exactCampus = records.filter(item => sameUniversityCampus(item.university, item.region || "", university, region));
-  const baseMatches = records.filter(item => universityBaseKey(item.university) === universityBaseKey(university));
-  // 캠퍼스가 명확한 경우 서울/Wise처럼 같은 대학명의 다른 캠퍼스 자료를 섞지 않습니다.
-  const sameUniversity = exactCampus.length ? exactCampus : baseMatches;
+  const sameUniversity = records.filter(item => universityIdentityKey(item.university, item.region || "") === universityIdentityKey(university, region));
   if (!sameUniversity.length) return null;
   const exactDepartment = department
-    ? sameUniversity.filter(item => item.department && unitSimilar(item.department, department))
+    ? sameUniversity.filter(item => item.department && compactText(item.department) === compactText(department))
     : [];
-  const commonDepartment = sameUniversity.filter(item => !item.department || /전체|전모집|공통|대학전체|전학과/.test(compactText(item.department)));
+  const commonDepartment = sameUniversity.filter(item => !item.department || ["전체","전모집단위","공통","대학전체","전학과"].includes(compactText(item.department)));
   const source = exactDepartment.length ? exactDepartment : commonDepartment;
   // 특정 모집단위 연결에 실패했다고 다른 학과 권장과목을 합쳐 보여주지 않습니다.
   if (!source.length) return null;
@@ -829,6 +828,12 @@ function findEnrichedWorkspaceEntry(enriched = [], item = {}) {
 }
 function trackIdentity(value) {
   return compactText(normalizeText(value).replace(/^(?:학생부)?(?:교과|종합)\s*[·:：]\s*/, ""));
+}
+export function supportOptionsForFavorite(data, favorite = {}) {
+  const entry = findEnrichedWorkspaceEntry(coalesceNaviRecords(data?.records || []).map(row=>({row})), favorite);
+  if (!entry) return [];
+  const row=entry.row;
+  return [["교과",7],["종합",8]].flatMap(([admissionType,index])=>(row[index]||[]).filter(value=>value?.[0]).map(value=>({university:row[3],region:row[1],department:row[5],field:row[6],admissionType,track:value[0],source:"즐겨찾기 전형 선택"})));
 }
 
 function supportPlanItemKey(item = {}) {
@@ -1017,20 +1022,7 @@ function naviMinimumAdmissionRow(row) {
   };
 }
 function evaluateNaviMinimum(row, selectedStudent) {
-  if (!row) return null;
-  const admissionRow = naviMinimumAdmissionRow(row);
-  const hasMock = Boolean(selectedStudent?.latestMockGrades && Object.keys(selectedStudent.latestMockGrades || {}).length);
-  const result = evaluateAdmissionRequirement(
-    admissionRow,
-    selectedStudent?.latestMockSums || null,
-    selectedStudent?.latestMockGrades || null,
-  );
-  if (result?.status === "no-minimum") {
-    const explicitNone = /^(?:없음|미적용|해당없음|수능최저(?:학력기준)?\s*(?:없음|미적용))$/.test(normalizeText(row[8]).replace(/\s+/g, ""));
-    return explicitNone ? result : { ...result, status: "manual", satisfied: null };
-  }
-  if (!hasMock && result?.status === "unsatisfied") return { ...result, status: "unavailable", satisfied: null };
-  return result;
+  return evaluateNaviMinimumSafe(row, selectedStudent);
 }
 function minimumAppliesToAdmission(row, admissionType = "") {
   const type = compactText(admissionType);
@@ -2785,7 +2777,7 @@ function SupportDecisionWorkspace({
 
   return <div className="susi-beta-tab-panel susi-beta-workspace" style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch69</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
@@ -2810,22 +2802,7 @@ function SupportDecisionWorkspace({
       </div>
       <div className="susi-beta-plan-grid" style={ui.planGrid}>{slots.map((item, index) => {
         if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>아래 전형 비교, NAVI 대학 상세 또는 광덕고 대입결과에서 ‘수시 지원 구성에 추가’를 눌러 담으세요.</small></article>;
-        const department = item.stored.department;
-        const minimumMeta = minimumWorkspaceMeta(item.minimumStatus);
-        const progress = item.recommendationProgress;
-        return <article className="susi-beta-plan-card" key={supportPlanItemKey(item.stored)} style={ui.planCard}>
-          <div style={ui.planNumber}>{index + 1}</div>
-          <div style={ui.planIdentity}><b>{item.stored.university}</b><span>{department}</span><small>{item.stored.admissionType} · {item.stored.track}</small>{item.stored.source&&<em style={ui.planSourceBadge}>{item.stored.source}</em>}</div>
-          {item.trackMissing && <span style={ui.planMissing}>NAVI 전형 미연결 · 다른 전형의 컷을 적용하지 않습니다.</span>}
-          <div style={ui.planBadges}>{item.support && <span style={{...ui.planSupportBadge,color:item.support.color,background:item.support.background,borderColor:item.support.border}}>{item.support.label}</span>}<span style={{...ui.planMinimumBadge,...minimumMeta.style}}>{minimumMeta.label}</span></div>
-          <div className="susi-beta-plan-metrics" style={ui.planMetrics}><span><small>50%컷</small><b>{item.admissionItem?.[1] ?? "-"}</b></span><span><small>70%컷</small><b>{item.admissionItem?.[2] ?? "-"}</b></span><span><small>권장과목 확인</small><b>{progress?.total ? `${progress.matched}/${progress.total}` : "-"}</b></span></div>
-          <div className="susi-beta-plan-evidence" style={ui.planEvidence}>
-            <span><small>NAVI 대학·전형·계열 사례</small><b>{item.naviCaseCount != null ? `${item.naviCaseCount.toLocaleString()}건` : "미연결/미제공"}</b></span>
-            <span><small>광덕고 별도 사례</small><b>{item.schoolTrend?.total ? `지원 ${item.schoolTrend.total} · 합격 ${item.schoolTrend.accepted}` : "연결 없음"}</b></span>
-          </div>
-          {item.comparisonEvidence && <small style={{color:"#52667a",fontSize:12,lineHeight:1.6}}>공개 컷 2026 · 최저 2027 · NAVI 사례 연도 미제공{item.comparisonEvidence.school.total ? ` · 광덕고 ${item.comparisonEvidence.school.years}` : ""}</small>}
-          <div style={{display:"flex",justifyContent:"space-between",gap:8,flexWrap:"wrap"}}>{onOpenCases && item.stored.source === "광덕고 별도 사례" && <button type="button" style={ui.workspaceSecondary} onClick={() => onOpenCases(item.stored.university,item.stored.department,item.stored.track)}>광덕고 사례 보기</button>}<button type="button" disabled={workspaceBusy} style={ui.workspaceRemove} onClick={() => onRemovePlan?.(item.stored)}>삭제</button></div>
-        </article>;
+        return <SupportDecisionCard key={supportPlanItemKey(item.stored)} item={item} index={index} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent} busy={workspaceBusy} onRemove={onRemovePlan} onOpenCases={onOpenCases}/>;
       })}</div>
       <div style={ui.workspaceFooter}><span>지원 구간은 현재 학생 환산등급과 선택한 {cutoffBasis}%컷을 기준으로 다시 계산됩니다.</span><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세에서 추가</button></div>
     </section>

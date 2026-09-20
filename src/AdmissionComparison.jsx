@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import SupportPlanButton from './SupportPlanButton.jsx';
 import { COMPARISON_YEARS } from './admissionComparison.js';
 import './admissionComparison.css';
+import { RecommendedCourseDetails } from './SupportDecisionCard.jsx';
 
-const minimumLabels = { satisfied: '최저 충족', unsatisfied: '최저 미도달', 'no-minimum': '최저 없음', unavailable: '모평 성적 없음', manual: '조건 확인 필요', unlinked: '최저 자료 미연결' };
+const minimumLabels = { satisfied: '모평 기준 충족', unsatisfied: '모평 기준 미충족', 'no-minimum': '최저 없음', unavailable: '모평 성적 없음', manual: '조건 확인 필요', unlinked: '최저 자료 미연결' };
 const grade = value => value == null ? '—' : value.toFixed(2);
 
 export default function AdmissionComparison({ rows = [], compareItems = [], planItems = [], source, cutoffBasis, busy, studentSid, loading, error, onAddPlan, onRemoveCompare, onGoResults, planKey }) {
@@ -24,8 +25,8 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
       {visible.length ? <div className="kd-comparison-scroll" tabIndex={0} role="region" aria-label="전형별 비교표. 좁은 화면에서는 가로로 스크롤하세요."><table className="kd-comparison-table"><caption>전형별 비교 — 대학 공개 컷은 9등급 기준, 서로 다른 대학의 산출 방식은 다를 수 있습니다.</caption><thead><tr>{['대학·모집단위 / 전형','2026 공개 컷 / 지원 구간','2027 교과 반영','2027 수능최저','사례 근거 / 표본','지원 구성'].map(title => <th key={title} scope="col">{title}</th>)}</tr></thead><tbody>{visible.map(row => row.missing ? <tr key={row.id}><th scope="row">{row.stored.university}<small>{row.stored.department}</small></th><td colSpan={5}>{row.reason}</td></tr> : <tr key={row.id}>
         <th scope="row"><b>{row.university}</b><small>{row.region || '지역 미제공'} · {row.department}</small><strong className="kd-track-name">{row.admissionType} · {row.track || '전형명 미제공'}</strong>{row.previousDepartment !== row.department && <small>2026: {row.previousDepartment || '미제공'}</small>}</th>
         <td><div className="kd-comparison-cuts"><span className={cutoffBasis === '50' ? 'is-current' : ''}>50% <b>{grade(row.cut50)}</b></span><span className={cutoffBasis === '70' ? 'is-current' : ''}>70% <b>{grade(row.cut70)}</b></span></div><strong className="kd-comparison-band">{row.support?.label || '판정 자료 없음'}</strong><small>공개 컷 표본 수: 미제공</small></td>
-        <td>{row.course}<small>2028 권장과목 이수 확인: {row.recommendationProgress?.total ? `${row.recommendationProgress.matched}/${row.recommendationProgress.total}` : '자료 없음'}</small></td>
-        <td><strong className={`kd-minimum-status is-${row.minimumStatus}`}>{minimumLabels[row.minimumStatus] || '조건 확인 필요'}</strong><small>{row.minimumText}</small></td>
+        <td>{row.course}<RecommendedCourseDetails progress={row.recommendationProgress}/></td>
+        <td><strong className={`kd-minimum-status is-${row.minimumStatus}`}>{minimumLabels[row.minimumStatus] || '조건 확인 필요'}</strong><small>{row.minimumText}</small><small>{row.minimumEvaluation?.reason}</small></td>
         <td><b>NAVI 통합 사례</b><span>{row.naviCount == null ? '미연결/미제공' : `${row.naviCount}건`}</span><small>{row.naviCount == null ? row.naviReason : '대학·전형·계열 기준 · 연도 미제공'}</small><b>광덕고 별도 사례</b><span>{row.school.total ? `지원 ${row.school.total} · 합격 ${row.school.accepted}` : '일치 사례 없음'}</span><small>{row.school.total ? `${row.school.years}${row.school.yearUnknown ? ` · 연도 미입력 ${row.school.yearUnknown}건` : ''}` : '대학·캠퍼스·학과·전형 정확 일치 기준'}</small></td>
         <td><SupportPlanButton compact active={saved.has(planKey(row.planItem))} disabled={busy || !studentSid || !row.track || saved.has(planKey(row.planItem)) || planItems.length >= 6} onClick={() => onAddPlan(row.planItem)}>{saved.has(planKey(row.planItem)) ? '지원 구성에 담김' : planItems.length >= 6 ? '6개 구성 완료' : '지원 구성에 추가'}</SupportPlanButton></td>
       </tr>)}</tbody></table></div> : <p className="kd-comparison-empty">선택한 유형의 전형이 없습니다. ‘전체’를 선택하거나 다른 모집단위를 담아주세요.</p>}

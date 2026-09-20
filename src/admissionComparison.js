@@ -53,7 +53,8 @@ export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [
       const rules = (data.courseRules || []).filter(value => sameCampus(value[1], value[0]) && sameType(value[2]) && sameTrack(value[3]) && comparisonUnitMatches(value[5], department));
       const minimums = (data.minimums || []).filter(value => sameCampus(value[1], value[0]) && sameType(value[2]) && sameTrack(value[3]) && comparisonUnitMatches(value[5], department));
       const minimum = minimums.length === 1 ? minimums[0] : null;
-      const minimumStatus = minimum ? evaluateMinimum(minimum)?.status || 'manual' : minimums.length ? 'manual' : 'unlinked';
+      const minimumEvaluation = minimum ? evaluateMinimum(minimum) : null;
+      const minimumStatus = minimumEvaluation?.status || (minimums.length ? 'manual' : 'unlinked');
       const stats = (data.caseStats || []).filter(value => sameCampus(value[5] || value[1], value[0]) && sameType(value[2]) && sameTrack(value[6] || value[3]) && key(value[4]) === key(row[6]) && key(row[6]));
       const groupIndex = { 전교과: 8, 국수영사과: 9, 국수영사: 10, 국수영과: 11 }[conversionGroup] ?? 8;
       const naviCount = stats.length === 1 ? sampleCount(stats[0]?.[groupIndex]?.[0]) : null;
@@ -64,7 +65,7 @@ export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [
         planItem: { university, region, department, field: row[6], admissionType, track, source: 'NAVI 전형 비교' },
         cut50, cut70, support: supportBandValue(convertedGrade, cutoffBasis === '50' ? cut50 : cut70),
         course: rules.length === 1 ? [rules[0][6], rules[0][7], rules[0][8], rules[0][17]].map(text).filter(Boolean).join(' · ') || '반영 내용 미제공' : rules.length ? '복수 조건 연결 · 원문 확인' : '교과 반영 자료 미연결',
-        minimumStatus, minimumText: minimum ? text(minimum[8]) || '조건 원문 미제공' : minimums.length ? '복수 조건 연결 · 원문 확인' : '일치하는 전형·모집단위 자료 없음',
+        minimumStatus, minimumEvaluation, minimumText: minimum ? text(minimum[8]) || '조건 원문 미제공' : minimums.length ? '복수 조건 연결 · 원문 확인' : '일치하는 전형·모집단위 자료 없음',
         naviCount, naviReason: stats.length > 1 ? '동일 범위 통계 복수 · 임의 합산 안 함' : stats.length === 1 ? '표본 수 미제공' : '대학·캠퍼스·전형·계열 일치 자료 없음',
         school: schoolEvidence(schoolRows),
         recommendationProgress: entry?.recommendationProgress,

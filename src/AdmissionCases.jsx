@@ -5,6 +5,7 @@ import { conversionDetails, loadSusiNaviBetaData } from "./SusiNaviBeta.jsx";
 
 import { median, percentile, supportBandValue } from "./admissionMetrics.js";
 import SupportPlanButton from "./SupportPlanButton.jsx";
+import "./supportDecision.css";
 
 const SEMESTERS=["1-1","1-2","2-1","2-2","3-1","3-2"];
 const MOCKS=["1-3","1-6","1-9","1-10","2-3","2-6","2-9","3-3","3-6","3-9"];
