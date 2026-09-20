@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { initializeFirestore, doc, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, runTransaction } from "firebase/firestore";
 import { getStorage, ref as storageRef, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { firebaseConfig } from "./firebaseConfig.js";
@@ -43,10 +43,11 @@ const STORAGE_UPLOAD_TIMEOUT_MS = 120000;
 let anonymousAuthPromise = null;
 
 function withTimeout(promise, ms, label) {
+  let timer;
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} 응답 없음 (연결 시간 초과)`)), ms)),
-  ]);
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} 응답 없음 (연결 시간 초과)`)), ms); }),
+  ]).finally(() => clearTimeout(timer));
 }
 
 function utf8Bytes(text) {
@@ -87,14 +88,21 @@ async function removeChunkBatch(key, manifest) {
   await Promise.all(jobs);
 }
 
-export async function readStorage(key, fallback) {
+const failedReadKeys = new Set();
+
+export async function readStorage(key, fallback, options = {}) {
   try {
     const data = await readManifest(key);
-    if (!data) return fallback;
-    if (!data.chunked) return data.value !== undefined ? JSON.parse(data.value) : fallback;
+    if (!data) { failedReadKeys.delete(key); return fallback; }
+    if (!data.chunked) {
+      if (typeof data.value !== "string") throw new Error("저장 데이터 형식을 확인할 수 없습니다.");
+      const value = JSON.parse(data.value);
+      failedReadKeys.delete(key);
+      return value;
+    }
 
     const chunkCount = Number(data.chunks || 0);
-    if (!chunkCount || !data.batchId) return fallback;
+    if (!chunkCount || !data.batchId) throw new Error("분할 데이터 목록이 올바르지 않습니다.");
     const snaps = await withTimeout(Promise.all(Array.from({ length: chunkCount }, (_, index) => (
       getDoc(doc(db, COLLECTION, chunkDocumentId(key, data.batchId, index)))
     ))), Math.max(30000, chunkCount * 7000), "분할 데이터 읽기");
@@ -106,19 +114,24 @@ export async function readStorage(key, fallback) {
     const merged = new Uint8Array(totalLength);
     let offset = 0;
     parts.forEach(bytes => { merged.set(bytes, offset); offset += bytes.length; });
-    return JSON.parse(new TextDecoder().decode(merged));
+    const value = JSON.parse(new TextDecoder().decode(merged));
+    failedReadKeys.delete(key);
+    return value;
   } catch (error) {
     console.error("storage read failed", key, error);
+    failedReadKeys.add(key);
+    if (options.throwOnError) throw error;
     return fallback;
   }
 }
 
 export async function writeStorage(key, value) {
+  if (failedReadKeys.has(key)) return { ok: false, error: "자료를 불러오지 못한 상태에서는 저장할 수 없습니다. 새로고침 후 다시 시도해주세요." };
   let previousManifest = null;
   try {
     const serialized = JSON.stringify(value);
     const bytes = utf8Bytes(serialized);
-    previousManifest = await readManifest(key).catch(() => null);
+    previousManifest = await readManifest(key);
 
     if (bytes.length <= DIRECT_VALUE_LIMIT_BYTES) {
       await withTimeout(setDoc(doc(db, COLLECTION, key), {
@@ -166,6 +179,30 @@ export async function writeStorage(key, value) {
     console.error("storage write failed", key, error);
     const detail = error?.code || error?.message || String(error);
     return { ok: false, error: detail };
+  }
+}
+
+// Small shared lists are merged against the server version, never a stale screen copy.
+export async function updateStorage(key, fallback, updater) {
+  try {
+    const result = await runTransaction(db, async transaction => {
+      const target = doc(db, COLLECTION, key);
+      const snap = await transaction.get(target);
+      const data = snap.exists() ? snap.data() : null;
+      if (data?.chunked) throw new Error("이 목록의 저장 형식은 별도 확인이 필요합니다. 기존 자료는 유지됩니다.");
+      if (data && typeof data.value !== "string") throw new Error("저장 목록 형식을 확인할 수 없습니다. 기존 자료는 유지됩니다.");
+      const current = data?.value !== undefined ? JSON.parse(data.value) : fallback;
+      const value = updater(current);
+      if (value === current) return { value, changed: false };
+      const serialized = JSON.stringify(value);
+      const byteLength = utf8Bytes(serialized).length;
+      if (byteLength > DIRECT_VALUE_LIMIT_BYTES) throw new Error("목록 크기를 확인해주세요. 기존 자료는 유지됩니다.");
+      transaction.set(target, { value: serialized, chunked: false, byteLength, updatedAt: new Date().toISOString() });
+      return { value, changed: true };
+    });
+    return { ok: true, ...result };
+  } catch (error) {
+    return { ok: false, error: error?.message || error?.code || "목록 저장 실패" };
   }
 }
 
@@ -319,7 +356,7 @@ const ADMISSION_FIRESTORE_FILE_LIMIT_BYTES = 30 * 1024 * 1024;
 
 async function writeBinaryAttachment(key, file, metadata = {}, options = {}) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const previousManifest = await readManifest(key).catch(() => null);
+  const previousManifest = await readManifest(key);
   const batchId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   const chunks = [];
   for (let offset = 0; offset < bytes.length; offset += CHUNK_RAW_BYTES) {
