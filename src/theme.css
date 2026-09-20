@@ -1,0 +1,50 @@
+/* Shared design tokens + "key fact" components for the admission/상담 screens.
+   Loaded once globally (see main.jsx) so every screen that shows 전형/등급컷/
+   현재내신등급/최저충족여부 uses the same colors instead of each file inventing its own. */
+
+:root{
+  --kd-ink:#1f2f42;
+  --kd-ink-soft:#45586d;
+  --kd-ink-muted:#6b7c90;
+  --kd-line:#d7e1ea;
+  --kd-surface:#ffffff;
+  --kd-surface-soft:#f6f9fc;
+  --kd-primary:#2d5c8c;
+  --kd-primary-dark:#1c3f63;
+
+  /* 수능최저/지원 요건 상태 — "자료 없음"과 "진짜 확인이 필요한 상태"를 다른 색으로 구분합니다. */
+  --kd-status-ok-text:#1f6b3f;      --kd-status-ok-bg:#e9f8ee;   --kd-status-ok-border:#a9d9bb;
+  --kd-status-bad-text:#a3271f;     --kd-status-bad-bg:#fdeceb;  --kd-status-bad-border:#f0bcb7;
+  --kd-status-caution-text:#8a5a12; --kd-status-caution-bg:#fff3d9; --kd-status-caution-border:#eecd8a;
+  --kd-status-neutral-text:#5a6b7d; --kd-status-neutral-bg:#eef1f5; --kd-status-neutral-border:#d7dee6;
+}
+
+/* 강조 수치 하나(전형/등급컷/현재내신등급 등)를 라벨+큰 숫자 형태로 보여줄 때 공용으로 사용합니다. */
+.kd-key-fact{display:flex;flex-direction:column;gap:2px;min-width:0}
+.kd-key-fact>small{font-size:11.5px;font-weight:700;color:var(--kd-ink-muted)}
+.kd-key-fact>b{font-size:20px;font-weight:850;color:var(--kd-ink);line-height:1.2;letter-spacing:-.01em}
+.kd-key-fact.is-student>b{color:var(--kd-primary-dark)}
+
+/* 전형(교과/종합 · 전형명) 배지 — 표/카드에서 가장 먼저 눈에 들어와야 하는 분류 정보입니다. */
+.kd-track-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;margin-top:8px;
+  border-radius:999px;background:var(--kd-primary);color:#fff;font-size:12.5px;font-weight:800;
+  letter-spacing:-.01em;white-space:normal;word-break:keep-all;line-height:1.4}
+
+/* 지원 구간(상향/소신/적정/안정/하향) 배지. 색상표는 admissionMetrics.js의 SUPPORT_BAND_META와 1:1로 맞춥니다. */
+.kd-band-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+  font-size:13px;font-weight:850;border:1px solid transparent;letter-spacing:-.01em;white-space:nowrap}
+.kd-band-pill em{font-style:normal;opacity:.8;font-weight:800}
+.kd-band-pill.is-up{color:#b3413a;background:#fdeceb;border-color:#eeb9b3}
+.kd-band-pill.is-reach{color:#9c5a1d;background:#fff1de;border-color:#eecb96}
+.kd-band-pill.is-fit{color:#7a6412;background:#fdf3bd;border-color:#e3cd63}
+.kd-band-pill.is-safe{color:#236b45;background:#e7f7ee;border-color:#aedcc0}
+.kd-band-pill.is-down{color:#2b5588;background:#e7f0fb;border-color:#b7cfe9}
+.kd-band-pill.is-none,.kd-band-pill.is-unlinked{color:var(--kd-status-neutral-text);background:var(--kd-status-neutral-bg);border-color:var(--kd-status-neutral-border)}
+
+/* 최저충족여부 등 상태 배지. '자료 미연결'은 경고가 아니라 중립으로 표시해 실제 경고(주의/미충족)와 구분합니다. */
+.kd-status-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;
+  font-size:13px;font-weight:850;border:1px solid transparent;letter-spacing:-.01em}
+.kd-status-pill.is-satisfied{color:var(--kd-status-ok-text);background:var(--kd-status-ok-bg);border-color:var(--kd-status-ok-border)}
+.kd-status-pill.is-unsatisfied{color:var(--kd-status-bad-text);background:var(--kd-status-bad-bg);border-color:var(--kd-status-bad-border)}
+.kd-status-pill.is-manual,.kd-status-pill.is-unavailable{color:var(--kd-status-caution-text);background:var(--kd-status-caution-bg);border-color:var(--kd-status-caution-border)}
+.kd-status-pill.is-unlinked,.kd-status-pill.is-no-minimum{color:var(--kd-status-neutral-text);background:var(--kd-status-neutral-bg);border-color:var(--kd-status-neutral-border)}

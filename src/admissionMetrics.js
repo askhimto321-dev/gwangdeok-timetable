@@ -29,6 +29,22 @@ export function supportBandValue(studentGrade, cutoffGrade) {
   const label = units > 50 ? "상향" : units > 20 ? "소신" : units < -50 ? "하향" : units < -20 ? "안정" : "적정";
   return { label, diff: units / 100 };
 }
+
+// UI patch: one shared color/label table for the 상향/소신/적정/안정/하향 support bands so every
+// screen (전형 비교표, 지원 구성 카드, 결과 목록) renders the same badge instead of each file
+// re-declaring its own slightly different colors. `key` is the ASCII-safe CSS class suffix.
+export const SUPPORT_BAND_META = {
+  상향: { key: "up", color: "#b3413a", background: "#fdeceb", border: "#eeb9b3", detail: "+0.5 초과" },
+  소신: { key: "reach", color: "#9c5a1d", background: "#fff1de", border: "#eecb96", detail: "+0.2~+0.5" },
+  적정: { key: "fit", color: "#7a6412", background: "#fdf3bd", border: "#e3cd63", detail: "-0.2~+0.2" },
+  안정: { key: "safe", color: "#236b45", background: "#e7f7ee", border: "#aedcc0", detail: "-0.5~-0.2" },
+  하향: { key: "down", color: "#2b5588", background: "#e7f0fb", border: "#b7cfe9", detail: "-0.5 미만" },
+};
+// Returns the shared pill className for a support-band label (falls back to a neutral pill
+// when the label is missing, e.g. no grade entered yet).
+export function supportBandClassName(label) {
+  return `kd-band-pill is-${SUPPORT_BAND_META[label]?.key || "none"}`;
+}
 export function cutoffRange(items = [], index) {
   const values = items.map(item => validGrade(item?.[index])).filter(value => value != null);
   if (!values.length) return null;

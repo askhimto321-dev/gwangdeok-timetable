@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
 import { evaluateAdmissionRequirement } from "./gradeEngine.js";
-import { validGrade, supportBandValue, cutoffRange } from "./admissionMetrics.js";
+import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META } from "./admissionMetrics.js";
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
@@ -975,13 +975,9 @@ function differenceLabel(student, cutoff) {
   return { value: diff, text: `${diff > 0 ? "+" : ""}${diff.toFixed(2)}`, favorable: diff <= 0 };
 }
 
-const SUPPORT_META = {
-  상향: { color: "#b84444", background: "#fff0f0", border: "#efc0c0", detail: "+0.5 초과" },
-  소신: { color: "#a75b18", background: "#fff6e8", border: "#efd3aa", detail: "+0.2~+0.5" },
-  적정: { color: "#7a6412", background: "#fff9db", border: "#eadb92", detail: "-0.2~+0.2" },
-  안정: { color: "#2c7048", background: "#edf8f1", border: "#bedfc9", detail: "-0.5~-0.2" },
-  하향: { color: "#315f91", background: "#eef5ff", border: "#bfd2e9", detail: "-0.5 미만" },
-};
+// Colors now come from admissionMetrics.js (SUPPORT_BAND_META) so this list, the 전형 비교표,
+// and the 지원 구성 카드 all show the exact same 상향/소신/적정/안정/하향 palette.
+const SUPPORT_META = SUPPORT_BAND_META;
 const RESULT_SORT_LABELS = {
   default: "기본 정렬",
   cut50: "50%컷 낮은순",
@@ -2727,7 +2723,9 @@ function minimumWorkspaceMeta(status) {
   if (status === "manual") return { label: "최저 조건 확인", style: ui.workspaceMinimumWarning };
   if (status === "unavailable") return { label: "모평 미입력", style: ui.workspaceMinimumNeutral };
   if (status === "no-minimum") return { label: "최저 없음", style: ui.workspaceMinimumNeutral };
-  return { label: "최저 자료 미연결", style: ui.workspaceMinimumWarning };
+  // "자료가 아직 연결되지 않음"은 경고가 아니라 중립 상태이므로, 진짜 확인이 필요한
+  // manual과는 다른 회색 배지로 표시합니다(주의색 남용 방지).
+  return { label: "최저 자료 미연결", style: ui.workspaceMinimumNeutral };
 }
 function SupportDecisionWorkspace({
   selectedStudent,
@@ -2808,7 +2806,7 @@ function SupportDecisionWorkspace({
     </section>
 
     <div ref={comparisonSectionRef} tabIndex={-1} aria-label="전형별 비교 영역" style={{minWidth:0,scrollMarginTop:100}}>
-      <AdmissionComparison rows={comparisonRows} compareItems={compareItems} planItems={planItems} source={data?.source} cutoffBasis={cutoffBasis} busy={workspaceBusy} loading={workspaceLoading} error={workspaceLoadError} studentSid={selectedStudent?.sid} onAddPlan={onAddPlan} onRemoveCompare={onRemoveCompare} onGoResults={onGoResults} planKey={supportPlanItemKey}/>
+      <AdmissionComparison rows={comparisonRows} compareItems={compareItems} planItems={planItems} source={data?.source} cutoffBasis={cutoffBasis} convertedGrade={convertedGrade} busy={workspaceBusy} loading={workspaceLoading} error={workspaceLoadError} studentSid={selectedStudent?.sid} onAddPlan={onAddPlan} onRemoveCompare={onRemoveCompare} onGoResults={onGoResults} planKey={supportPlanItemKey}/>
     </div>
   </div>;
 }
