@@ -1,28 +1,56 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
-import {minimumDisplay} from './naviMinimum.js';
 import {validGrade} from './admissionMetrics.js';
+import SupportDecisionCard from './SupportDecisionCard.jsx';
+// 3번 요청: "인쇄했을 때 수시카드가 홈페이지 UI 그대로 나오게" — 예전에는 이 파일이 직접 만든
+// 별도 카드 마크업(<article><h2>...)과 별도 CSS(supportPlanPrintCss)를 써서, 실제 화면의
+// SupportDecisionCard와 생김새가 달랐습니다. 이제는 화면에서 쓰는 카드 컴포넌트와 실제 CSS
+// 파일 두 개(theme.css, supportDecision.css)를 그대로 가져와 인쇄 문서에 심습니다.
+import themeCss from './theme.css?raw';
+import supportDecisionCss from './supportDecision.css?raw';
 
 const grade=x=>validGrade(x)==null?'—':Number(x).toFixed(2);
 export function SupportPlanReport({items,student,studentGrade,cutoffBasis}) {
   // 15번 요청: "선택한 전형만" 인쇄할 때 items는 안 고른 자리가 비어 있는(null) 배열로 옵니다.
   // 카드 번호가 실제 지원 구성 순서와 어긋나지 않도록 자리는 그대로 두고 개수만 실제 선택 수로 셉니다.
   const printedCount=items.filter(Boolean).length;
-  return <main><header><h1>수시지원 상담 카드</h1><p>{student?.sid} {student?.name} · {student?.latestMockLabel || '모평 미선택'} · {printedCount}/6개 전형</p><p>학생 9등급 환산 {grade(studentGrade)} · {cutoffBasis}%컷 비교 · 작성 {new Date().toLocaleDateString('ko-KR')}</p></header><div className="grid">{Array.from({length:6},(_,i)=>{
-    const item=items[i];if(!item)return <article key={i} className="empty">{i+1}. 비어 있음</article>;
-    const ev=item.comparisonEvidence?.minimumEvaluation || item.minimumEvaluation;
-    const min=minimumDisplay(ev,item.minimumStatus), progress=item.recommendationProgress;
-    return <article key={i}><h2>{i+1}. {item.stored.university}</h2><p>{item.stored.department}</p><p>{item.stored.admissionType} · {item.stored.track}</p>
-      <section><b>내신 컷 비교</b><p className="numbers">학생 {grade(studentGrade)} ↔ {cutoffBasis}%컷 {grade(item.admissionItem?.[cutoffBasis==='50'?1:2])}</p><p>{item.support?.label || '판정 자료 없음'} · 50% {grade(item.admissionItem?.[1])} / 70% {grade(item.admissionItem?.[2])}</p></section>
-      <section className={`minimum ${min.status}`}><b>{min.label}</b><p>{ev?.year || '연도 확인'} 참고 · {ev?.ruleText || item.comparisonEvidence?.minimumText || '자료 미연결'}</p><p>반영 영역: {ev?.subjectsText || '미제공'}</p><p>{min.reason}</p>{ev?.note && <p>비고: {ev.note}</p>}<p>출처: {ev ? (ev.source || 'NAVI 수능최저 자료') : '연결 확인 필요'}</p></section>
-      <section><b>권장과목 {progress?.total?`${progress.matched}/${progress.total}과목 확인`:'자료 미연결'}</b>{progress?.total>0 && <><p>확인: {progress.matchedCourses?.join(', ') || '없음'}</p><p>미확인: {progress.missingCourses?.join(', ') || '없음'}</p></>}</section>
-      <p className="source">NAVI 통합 사례 {item.naviCaseCount==null?'미제공':`${item.naviCaseCount}건`} · 광덕고 {item.schoolTrend?.total==null?'미연결':`지원 ${item.schoolTrend.total}건 / 합격 ${item.schoolTrend.accepted ?? '미제공'}건`} · {item.schoolTrend?.years || '사례 연도 미제공'}</p>
-    </article>;
-  })}</div><footer>상담 참고용 · 공개 컷 2026 / 권장과목 2028 / 최저 연도는 각 카드 표시. NAVI 사례는 대학·전형·계열 기준이며 연도 미제공. 미확인은 미이수 확정이 아닙니다. 모평 충족은 실제 수능 충족이나 합격을 보장하지 않습니다. 최종 모집요강 확인이 필요합니다.</footer></main>;
+  return <main className="kd-print-doc">
+    <header className="kd-print-head">
+      <h1>수시지원 상담 카드</h1>
+      <p>{student?.sid} {student?.name} · {student?.latestMockLabel || '모평 미선택'} · {printedCount}/6개 전형</p>
+      <p>학생 9등급 환산 {grade(studentGrade)} · {cutoffBasis}%컷 비교 · 작성 {new Date().toLocaleDateString('ko-KR')}</p>
+    </header>
+    {/* 실제 "수시 지원 구성" 화면과 같은 .susi-beta-workspace > .susi-beta-plan-grid 구조로 감싸서,
+        supportDecision.css의 화면 전용(.susi-beta-workspace 안에서만 적용되는) 규칙이 인쇄 문서에도 그대로 먹습니다. */}
+    <div className="susi-beta-workspace">
+      <div className="susi-beta-plan-grid">{Array.from({length:6},(_,i)=>{
+        const item=items[i];
+        if(!item) return <article key={i} className="susi-beta-plan-empty"><span>{i+1}</span><b>비어 있음</b></article>;
+        return <SupportDecisionCard key={i} item={item} index={i} studentGrade={studentGrade} cutoffBasis={cutoffBasis} student={student} printMode/>;
+      })}</div>
+    </div>
+    <footer className="kd-print-foot">상담 참고용 · 공개 컷 2026 / 권장과목 2028 / 최저 연도는 각 카드 표시. NAVI 사례는 대학·전형·계열 기준이며 연도 미제공. 미확인은 미이수 확정이 아닙니다. 모평 충족은 실제 수능 충족이나 합격을 보장하지 않습니다. 최종 모집요강 확인이 필요합니다.</footer>
+  </main>;
 }
 
 // A separate same-origin print document avoids existing whole-app print CSS.
-export const supportPlanPrintCss=`@page{size:A4 landscape;margin:8mm}*{box-sizing:border-box}body{margin:0;color:#20334c;font:10px/1.35 'Malgun Gothic',system-ui,sans-serif}h1{font-size:18px;margin:0}header{border-bottom:2px solid #264a76;padding-bottom:5px;margin-bottom:7px}header p{display:inline-block;margin:3px 16px 0 0}h2{font-size:14px;margin:0 0 3px;color:#253d61}p{margin:3px 0;overflow-wrap:anywhere}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;align-items:start}article{border:1px solid #b9c8d9;border-top:3px solid #476da6;border-radius:6px;padding:8px;break-inside:avoid}section{border-top:1px solid #d8e1eb;margin-top:5px;padding-top:5px}.numbers{font-size:16px;font-weight:800;color:#194f91;font-variant-numeric:tabular-nums}.minimum>b{font-size:13px}.satisfied>b{color:#17613e}.unsatisfied>b{color:#a22430}.manual>b,.unlinked>b,.unavailable>b{color:#88550d}.source,footer{color:#536170;font-size:9px}footer{margin-top:8px}.empty{min-height:100px;color:#67778b;display:grid;place-items:center}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}`;
+// theme.css/supportDecisionCss를 그대로 심어서 배지·박스 색이 화면과 100% 동일합니다.
+// 그 위에 인쇄 전용 레이아웃(A4 가로, 2열 카드, 페이지 나눔 방지)만 추가합니다.
+export const supportPlanPrintCss=`${themeCss}
+${supportDecisionCss}
+.susi-beta-plan-card,.susi-beta-plan-empty{box-sizing:border-box;min-width:0}
+.susi-beta-plan-card b,.susi-beta-plan-card span,.susi-beta-plan-card small{min-width:0;overflow-wrap:anywhere;word-break:keep-all}
+.susi-beta-plan-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@page{size:A4 landscape;margin:9mm}
+*{box-sizing:border-box}
+body{margin:0;color:var(--kd-ink);font:12px/1.4 KDRound,Pretendard,'Malgun Gothic',system-ui,sans-serif;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.kd-print-head{border-bottom:2px solid var(--kd-brand);padding-bottom:6px;margin-bottom:10px}
+.kd-print-head h1{font-size:19px;margin:0 0 4px;color:var(--kd-brand)}
+.kd-print-head p{margin:2px 0;font-size:11.5px;color:#536170}
+.susi-beta-plan-empty{min-height:120px;display:grid;place-items:center;gap:4px;border:1px dashed #d6dde8;border-radius:12px;background:#fafbfc;color:#9aa3b1;text-align:center;padding:12px}
+.susi-beta-plan-empty span{font-weight:800}
+.kd-decision-card{break-inside:avoid}
+.kd-print-foot{margin-top:10px;color:#536170;font-size:9.5px;line-height:1.5}`;
 
 export default function SupportPlanPrint(props) {
   const frame=useRef(null), [busy,setBusy]=useState(false), [message,setMessage]=useState('');

@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
 import { evaluateAdmissionRequirement } from "./gradeEngine.js";
-import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META } from "./admissionMetrics.js";
+import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAccentKey } from "./admissionMetrics.js";
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
@@ -818,6 +818,49 @@ function recommendationForUnit(recommendationData, university, region = "", depa
     source: recommendationData?.source || null,
   };
 }
+// 5번 요청: 이 대학·모집단위에는 권장과목 자료가 아예 연결돼 있지 않을 때, 빈 화면 대신
+// 서울대·경희대·중앙대처럼 자료가 이미 들어와 있는 다른 대학의 같은 학과명(1순위) 또는
+// 같은 계열(2순위) 자료를 참고해 "추정치"를 보여줍니다. 실제 이 대학이 발표한 자료가 아니므로
+// recommendationForUnit()의 결과와 절대 섞지 않고(정확한 대학 자료가 있으면 그걸 그대로 쓰고,
+// 없을 때만 이 함수를 부르며), 결과에는 항상 estimated:true와 참고한 대학명을 남겨서 화면에서
+// "공식 자료"와 구분되는 추정 표시를 할 수 있게 합니다.
+const RECOMMENDATION_REFERENCE_UNIVERSITIES = ["서울대학교", "경희대학교", "중앙대학교"];
+function estimateRecommendationForUnit(recommendationData, university, region = "", department = "", field = "") {
+  const records = recommendationData?.records || [];
+  if (!records.length) return null;
+  const targetKey = universityIdentityKey(university, region);
+  const deptKey = compactText(department);
+  const fieldKey = compactText(field);
+  const others = records.filter(item => universityIdentityKey(item.university, item.region || "") !== targetKey);
+  if (!others.length) return null;
+  let pool = deptKey ? others.filter(item => item.department && compactText(item.department) === deptKey) : [];
+  let matchedBy = "department";
+  if (!pool.length && fieldKey) {
+    pool = others.filter(item => item.field && compactText(item.field) === fieldKey);
+    matchedBy = "field";
+  }
+  if (!pool.length) return null;
+  const referenceKeys = RECOMMENDATION_REFERENCE_UNIVERSITIES.map(name => universityBaseKey(name));
+  const prioritized = pool.filter(item => referenceKeys.includes(universityBaseKey(item.university)));
+  const source = (prioritized.length ? prioritized : pool).slice(0, 6);
+  const reflected = uniqueCourseNames(source.flatMap(item => item.reflected || []));
+  const core = uniqueCourseNames(source.flatMap(item => item.core || item.required || []));
+  const recommended = uniqueCourseNames(source.flatMap(item => item.recommended || []));
+  if (!reflected.length && !core.length && !recommended.length) return null;
+  return {
+    university,
+    department,
+    matchedDepartment: matchedBy === "department" ? department : "",
+    scope: matchedBy === "department" ? "동일 학과명 다른 대학 자료 기반 추정" : "동일 계열 다른 대학 자료 기반 추정",
+    reflected,
+    core,
+    recommended,
+    notes: [],
+    source: recommendationData?.source || null,
+    estimated: true,
+    estimatedFrom: Array.from(new Set(source.map(item => item.university).filter(Boolean))).slice(0, 3),
+  };
+}
 function recommendationProgress(recommendation, studentSubjects = []) {
   if (!recommendation) return null;
   const targets = uniqueCourseNames([
@@ -832,6 +875,8 @@ function recommendationProgress(recommendation, studentSubjects = []) {
     matchedCourses: matched,
     missingCourses: targets.filter(course => !matched.includes(course)),
     ratio: targets.length ? matched.length / targets.length : null,
+    estimated: !!recommendation.estimated,
+    estimatedFrom: recommendation.estimatedFrom || [],
   };
 }
 function findEnrichedWorkspaceEntry(enriched = [], item = {}) {
@@ -994,6 +1039,15 @@ function differenceLabel(student, cutoff) {
 // Colors now come from admissionMetrics.js (SUPPORT_BAND_META) so this list, the 전형 비교표,
 // and the 지원 구성 카드 all show the exact same 상향/소신/적정/안정/하향 palette.
 const SUPPORT_META = SUPPORT_BAND_META;
+// 1번 요청: 전형 구성 요약 배지 색상. trackAccentKey()가 반환하는 academic/general/essay/talent/other
+// 각각에 색을 지정해, 표(AdmissionComparison)·카드(SupportDecisionCard)와 톤을 맞춥니다.
+const ADMISSION_TYPE_CHIP_META = {
+  academic: { color: "#1f5f9e", background: "#eaf3fc", borderColor: "#b9d7f0" },
+  general: { color: "#6a3fa0", background: "#f3edfb", borderColor: "#d7c3ee" },
+  essay: { color: "#a3631b", background: "#fdf1e2", borderColor: "#eecfa0" },
+  talent: { color: "#1c7a63", background: "#e8f7f1", borderColor: "#b7e2d1" },
+  other: { color: "#5c6577", background: "#f0f2f6", borderColor: "#d4d9e2" },
+};
 const RESULT_SORT_LABELS = {
   default: "기본 정렬",
   cut50: "50%컷 낮은순",
@@ -1858,26 +1912,16 @@ export default function SusiNaviBetaView({
     const caseStats = indexedUniversityRows(caseStatIndex, row[3], row[1]);
     const unit = { university: row[3], region: row[1], department: row[5], field: row[6] };
     const minimumEvaluations = minimums.map(item => evaluateNaviMinimum(item, effectiveStudent, { ...unit, admissionType: item[2], track: item[3] }));
-    // 3번 요청: 여러 회차를 응시했다면 "최근 N회 중 M회 충족"도 함께 계산합니다.
-    const minimumHistories = minimums.map(item => {
-      const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
-      return (selectedStudent?.availableMockExams?.length > 1)
-        ? minimumHistorySummary(stored || item, effectiveStudent, selectedStudent.availableMockExams)
-        : null;
-    });
-    // 4번 요청: 미충족 항목에 한해 등급 개선 시뮬레이션을 미리 계산해둡니다.
-    const minimumImprovements = minimums.map((item, idx) => {
-      if (minimumEvaluations[idx]?.status !== "unsatisfied") return null;
-      const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
-      return minimumImprovementAdvice(stored || item, effectiveStudent);
-    });
-    const recommendation = recommendationForUnit(recommendedData, row[3], row[1], row[5]);
+    // 성능 개선: 회차별 이력(minimumHistories)·등급개선 시뮬레이션(minimumImprovements)은 계산 비용이
+    // 커서(회차 수·과목 수만큼 반복 재판정), 전체 모집단위(수천 건)가 아니라 실제로 화면에 보이는
+    // 12건(visible)에 대해서만 아래에서 따로 계산합니다. 예전에는 여기서 전체에 대해 계산해
+    // 검색/필터를 바꿀 때마다 불필요하게 느려졌습니다.
+    const recommendation = recommendationForUnit(recommendedData, row[3], row[1], row[5])
+      || estimateRecommendationForUnit(recommendedData, row[3], row[1], row[5], row[6]);
     return {
       row,
       minimums,
       minimumEvaluations,
-      minimumHistories,
-      minimumImprovements,
       courseRules,
       changes2028,
       schedules,
@@ -1885,7 +1929,7 @@ export default function SusiNaviBetaView({
       recommendation,
       recommendationProgress: recommendationProgress(recommendation, studentSubjects),
     };
-  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, studentSubjects, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.admissionYear, selectedStudent?.availableMockExams]);
+  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, studentSubjects, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.admissionYear]);
 
   const connectionFocusDepartmentMatched = useMemo(() => {
     if (!connectionFocus?.university || !connectionFocus?.department) return false;
@@ -2012,6 +2056,23 @@ export default function SusiNaviBetaView({
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const changePage = nextPage => setPage(Math.min(pageCount, Math.max(1, Number(nextPage) || 1)));
+  // 성능 개선: 회차 이력·등급개선 시뮬레이션은 화면에 실제로 보이는 이 페이지의 12건에 대해서만
+  // 계산합니다(전체 결과에 대해 계산하면 검색·필터를 바꿀 때마다 수천 건을 다시 계산해 느려집니다).
+  const visibleWithSimulation = useMemo(() => visible.map(entry => {
+    const { row, minimums, minimumEvaluations } = entry;
+    const unit = { university: row[3], region: row[1], department: row[5], field: row[6] };
+    const minimumHistories = minimums.map(item => {
+      if (!(selectedStudent?.availableMockExams?.length > 1)) return null;
+      const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
+      return minimumHistorySummary(stored || item, effectiveStudent, selectedStudent.availableMockExams);
+    });
+    const minimumImprovements = minimums.map((item, idx) => {
+      if (minimumEvaluations[idx]?.status !== "unsatisfied") return null;
+      const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
+      return minimumImprovementAdvice(stored || item, effectiveStudent);
+    });
+    return { ...entry, minimumHistories, minimumImprovements };
+  }), [visible, effectiveStudent, selectedStudent?.availableMockExams]);
   const activeFilterLabels = [
     connectionFocus?.university ? `${connectionFocus.source || "연결"}: ${connectionFocus.university}${connectionFocus.department ? ` · ${connectionFocus.department}${connectionFocusDepartmentMatched ? "" : " (학과명 불일치 → 대학 전체)"}` : ""}` : "",
     query ? `검색: ${query}` : "",
@@ -2035,9 +2096,12 @@ export default function SusiNaviBetaView({
   return (
     <section style={ui.root}>
       <style>{betaCss}</style>
+      {/* 2번 요청: 왼쪽 소개 글이 자기 내용만큼만 폭을 차지하고 늘어나지 않아서, space-between이
+          가운데에 큰 빈 공간을 만들고 있었습니다. 왼쪽 블록에 flex:1을 줘서 남는 폭을 항상 채우게
+          하고, 오른쪽 버튼·통계 묶음은 줄바꿈 없이 한 덩어리로 붙어 다니게 고정합니다. */}
       <div style={ui.hero}>
-        <div><div style={ui.heroEyebrow}><Sparkles size={14} /> 경기도교육청 교사용 자료 기반 · 독립 시험 운영</div><h2 style={ui.heroTitle}>2027 수시NAVI <span>Beta</span></h2><p style={ui.heroText}>경기도교육청 통합 자료를 기반으로 대학·모집단위, 전년도 입시결과와 NAVI 통합 사례를 조회합니다.</p></div>
-        <div className="kd-support-plan-entry-actions"><SupportPlanButton onClick={() => navigateViewTab("workspace")} count={workspaceLoadError ? null : supportPlan.length}/>{data && <div style={ui.heroStats}><b>{data.stats?.universities?.toLocaleString()}개 대학</b><span>{data.stats?.records?.toLocaleString()}개 모집단위</span><small>자료 기준 {data.source?.sourceDate || "확인 필요"}</small></div>}</div>
+        <div style={ui.heroIntro}><div style={ui.heroEyebrow}><Sparkles size={14} /> 경기도교육청 교사용 자료 기반 · 독립 시험 운영</div><h2 style={ui.heroTitle}>2027 수시NAVI <span>Beta</span></h2><p style={ui.heroText}>경기도교육청 통합 자료를 기반으로 대학·모집단위, 전년도 입시결과와 NAVI 통합 사례를 조회합니다.</p></div>
+        <div className="kd-support-plan-entry-actions" style={ui.heroActions}><SupportPlanButton onClick={() => navigateViewTab("workspace")} count={workspaceLoadError ? null : supportPlan.length}/>{data && <div style={ui.heroStats}><b>{data.stats?.universities?.toLocaleString()}개 대학</b><span>{data.stats?.records?.toLocaleString()}개 모집단위</span><small>자료 기준 {data.source?.sourceDate || "확인 필요"}</small></div>}</div>
       </div>
       <div className="susi-beta-beta-notice" style={ui.betaNotice}><AlertTriangle size={15} /><div><b>시험 운영 기능입니다.</b><span>2027 모집단위와 2026 입시결과를 연결한 참고자료입니다.<br/>2024–2026 광덕고 대입 결과 탭과는 별도의 데이터베이스이며, 광덕고 사례에는 영향을 주지 않습니다.</span>{data && !data.caseStats?.length && <strong>NAVI 통합 사례 분포·2028 변화 자료를 사용하려면 관리자에서 최신 원본 파일을 다시 분석·반영해주세요.</strong>}</div></div>
 
@@ -2307,7 +2371,7 @@ export default function SusiNaviBetaView({
           </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
-            {visible.length ? visible.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress }, index) => <ResultCard
+            {visibleWithSimulation.length ? visibleWithSimulation.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
               row={row}
               minimums={minimums}
@@ -2825,15 +2889,18 @@ function RecommendedSubjectPanel({ recommendation, progress, studentSubjects = [
   };
   return <div className="susi-beta-recommend-panel" style={ui.recommendPanel}>
     <div style={ui.recommendPanelHead}>
-      <div><span style={ui.recommendSourceBadge}>2028 대학 발표 기반</span><b>반영과목 · 핵심과목 · 권장과목</b><small>{recommendation.scope}{recommendation.matchedDepartment ? ` · ${recommendation.matchedDepartment}` : ""}</small></div>
+      {/* 5번 요청: 이 대학 자체 공식 자료가 아니라 다른 대학 자료로 만든 추정치일 때는
+          배지 색과 문구를 다르게 해서 "공식 자료"와 절대 혼동되지 않게 합니다. */}
+      <div><span style={recommendation.estimated ? ui.recommendSourceBadgeEstimate : ui.recommendSourceBadge}>{recommendation.estimated ? "다른 대학 자료 기반 추정" : "2028 대학 발표 기반"}</span><b>반영과목 · 핵심과목 · 권장과목</b><small>{recommendation.scope}{recommendation.matchedDepartment ? ` · ${recommendation.matchedDepartment}` : ""}</small></div>
       {progress?.total ? <span style={ui.recommendProgress}><small>저장 성적 기준 이수 확인</small><b>{progress.matched}/{progress.total}</b></span> : null}
     </div>
+    {recommendation.estimated && <p style={ui.recommendEstimateNotice}>이 대학·모집단위에는 공식 권장과목 자료가 아직 연결되지 않아, {recommendation.estimatedFrom?.length ? recommendation.estimatedFrom.join(", ") : "같은 학과·계열의 다른 대학"} 자료를 참고한 추정치입니다. 실제 이 대학의 발표 내용과 다를 수 있으니 대학 입학처 공지로 반드시 다시 확인하세요.</p>}
     {!!reflected.length && <div style={ui.recommendCourseGroup}><strong>반영과목</strong><div>{reflected.map(course => renderCourse(course, "reflected"))}</div></div>}
     {!!core.length && <div style={ui.recommendCourseGroup}><strong>핵심·중요 과목</strong><div>{core.map(course => renderCourse(course, "core"))}</div></div>}
     {!!recommended.length && <div style={ui.recommendCourseGroup}><strong>권장과목</strong><div>{recommended.map(course => renderCourse(course, "recommended"))}</div></div>}
     {!!recommendation.notes?.length && <div style={ui.recommendNotes}><strong>대학 안내</strong>{recommendation.notes.map((note, index) => <span key={`${note}-${index}`}>{note}</span>)}</div>}
     <p style={ui.recommendDisclaimer}>✓는 kdtime에 저장된 학생 이수과목과 명칭을 대조한 결과입니다. 대학이 공개한 이 자료는 원문 취지상 ‘필수 이수 기준’이 아니라 모집단위 이해와 진로·전공 탐색을 위한 참고자료이며, 최종 지원 전 대학 입학처 발표를 확인해야 합니다.</p>
-    <a href={recommendation.source?.url || OFFICIAL_RECOMMENDED_SOURCE_URL} target="_blank" rel="noreferrer" style={ui.recommendSourceLink}>어디가 공식 자료 출처 확인 ↗</a>
+    {!recommendation.estimated && <a href={recommendation.source?.url || OFFICIAL_RECOMMENDED_SOURCE_URL} target="_blank" rel="noreferrer" style={ui.recommendSourceLink}>어디가 공식 자료 출처 확인 ↗</a>}
   </div>;
 }
 
@@ -2947,10 +3014,33 @@ function SupportDecisionWorkspace({
       </div>}
       <div className="kd-plan-tools"><button type="button" disabled={!planItems.length || workspaceBusy || workspaceLoading || Boolean(workspaceLoadError)} onClick={()=>triggerSectionPrint('kd-print-target-plan')}>요약표 인쇄·PDF</button></div>
       <PrintPlanSheet items={slots} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent}/>
+      {/* 1번 요청: 긴 문장 하나를 그대로 넣으면 좁은 칸에서 단어 중간이 아니라 " · " 뒤에서
+          꺾여 마지막 항목만 혼자 남는 문제가 있었습니다. 항목마다 색이 있는 배지로 나누면
+          몇 개가 남든 배지 단위로만 줄바꿈되어 항상 자연스럽습니다. */}
       <div className="susi-beta-workspace-summary" style={ui.workspaceSummaryGrid}>
-        <div><small>지원 구간</small><b>{["상향","소신","적정","안정","하향"].filter(label => supportCounts[label]).map(label => `${label} ${supportCounts[label]}`).join(" · ") || "판정 자료 없음"}</b></div>
-        <div><small>전형 구성</small><b>{Object.entries(admissionCounts).map(([label,count]) => `${label} ${count}`).join(" · ") || "-"}</b></div>
-        <div><small>수능최저</small><b>{`충족 ${minimumCounts.satisfied || 0} · 미도달 ${minimumCounts.unsatisfied || 0} · 최저 없음 ${minimumCounts['no-minimum'] || 0} · 확인 ${(minimumCounts.manual || 0) + (minimumCounts.unlinked || 0)} · 성적 없음 ${minimumCounts.unavailable || 0}`}</b></div>
+        <div><small>지원 구간</small><div style={ui.summaryChipRow}>
+          {["상향","소신","적정","안정","하향"].filter(label => supportCounts[label]).map(label => {
+            const meta = SUPPORT_META[label];
+            return <span key={label} style={{ ...ui.summaryChip, color: meta.color, background: meta.background, borderColor: meta.border }}>{label} {supportCounts[label]}</span>;
+          })}
+          {!Object.keys(supportCounts).length && <span style={ui.summaryChipEmpty}>판정 자료 없음</span>}
+        </div></div>
+        <div><small>전형 구성</small><div style={ui.summaryChipRow}>
+          {Object.entries(admissionCounts).map(([label,count]) => {
+            const accent = ADMISSION_TYPE_CHIP_META[trackAccentKey(label)] || ADMISSION_TYPE_CHIP_META.other;
+            return <span key={label} style={{ ...ui.summaryChip, ...accent }}>{label} {count}</span>;
+          })}
+          {!Object.keys(admissionCounts).length && <span style={ui.summaryChipEmpty}>-</span>}
+        </div></div>
+        <div><small>수능최저</small><div style={ui.summaryChipRow}>
+          {[["satisfied","충족"],["unsatisfied","미도달"],["no-minimum","최저 없음"],["manual","확인 필요"],["unavailable","성적 없음"]].map(([key,label]) => {
+            const count = key === "manual" ? (minimumCounts.manual || 0) + (minimumCounts.unlinked || 0) : (minimumCounts[key] || 0);
+            if (!count) return null;
+            const meta = naviMinimumStatusMeta(key === "manual" ? "manual" : key)?.style || ui.minimumStatusNeutral;
+            return <span key={key} style={{ ...ui.summaryChip, color: meta.color, background: meta.background, borderColor: (meta.border||"").replace("1px solid ","") }}>{label} {count}</span>;
+          })}
+          {!planItems.length && <span style={ui.summaryChipEmpty}>판정 자료 없음</span>}
+        </div></div>
         <div><small>대학 분산</small><b>{planItems.length ? `${uniqueUniversityCount}개 대학 · ${planItems.length}개 전형` : "지원 후보 없음"}</b></div>
       </div>
       <div className="susi-beta-plan-grid" style={ui.planGrid}>{slots.map((item, index) => {
@@ -3011,11 +3101,13 @@ const ui = {
   // 강조색(#9a3412, --kd-brand)과 같은 계열로 통일했습니다(예전엔 배너는 보라, 인쇄 버튼은
   // 남색으로 서로 달랐습니다). NAVI 대학찾기 화면의 보라/파랑 배지·활성탭 색은 그 화면 안에서
   // 이미 서로 다른 의미(활성 탭, NAVI 자료, 광덕고 자료 등)를 구분하고 있어 그대로 두었습니다.
-  hero: { padding: "23px 25px", borderRadius: 18, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#fff", background: "linear-gradient(135deg,var(--kd-brand),#c2622f)", boxShadow: "0 14px 34px rgba(154,52,18,.22)" },
+  hero: { padding: "23px 25px", borderRadius: 18, display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#fff", background: "linear-gradient(135deg,var(--kd-brand),#c2622f)", boxShadow: "0 14px 34px rgba(154,52,18,.22)" },
+  heroIntro: { flex: "1 1 320px", minWidth: 0 },
+  heroActions: { flex: "0 0 auto", flexWrap: "nowrap" },
   heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 850, opacity: .86 },
   heroTitle: { margin: "6px 0 4px", fontSize: 25, lineHeight: 1.15, letterSpacing: "-.03em" },
-  heroText: { margin: 0, fontSize: 13.5, lineHeight: 1.6, opacity: .9 },
-  heroStats: { minWidth: 170, display: "grid", gap: 4, textAlign: "right" },
+  heroText: { margin: 0, fontSize: 13.5, lineHeight: 1.6, opacity: .9, maxWidth: 560 },
+  heroStats: { minWidth: 170, display: "grid", gap: 4, textAlign: "right", whiteSpace: "nowrap" },
   betaBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#eee8ff", color: "#6b55a0", fontSize: 10, fontWeight: 900, verticalAlign: "middle" },
   betaNotice: { display: "flex", gap: 9, alignItems: "flex-start", padding: "11px 14px", border: "1px solid #e5d9b7", borderRadius: 12, background: "#fff9e9", color: "#6e5923", fontSize: 13.5, lineHeight: 1.6 },
   viewToolbar: { position: "sticky", top: 6, zIndex: 12, display: "grid", gridTemplateColumns: "minmax(680px,860px) auto", justifyContent: "center", alignItems: "stretch", gap: 12, padding: 8, border: "1px solid #d8deea", borderRadius: 16, background: "rgba(255,255,255,.97)", boxShadow: "0 8px 22px rgba(44,53,69,.09)", backdropFilter: "blur(8px)" },
@@ -3375,6 +3467,9 @@ const ui = {
   recommendOfficialNote: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 10px", borderRadius: 9, background: "#eef7f2", color: "#4d665a", fontSize: 10.5, lineHeight: 1.5 },
   recommendOfficialLink: { width: "fit-content", display: "inline-flex", marginTop: 5, color: "#315f88", fontSize: 10.5, fontWeight: 900, textDecoration: "none" },
   recommendSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#e2f2e8", color: "#2e6a49", fontSize: 9.3, fontWeight: 950 },
+  // 5번 요청: "공식 자료"(초록)와 "다른 대학 기반 추정"(주황)이 색으로도 바로 구분되게 합니다.
+  recommendSourceBadgeEstimate: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#fff3d9", color: "#8a5a12", fontSize: 9.3, fontWeight: 950 },
+  recommendEstimateNotice: { margin: "0 0 8px", padding: "7px 9px", borderRadius: 8, border: "1px solid #eecd8a", background: "#fff8e6", color: "#7a5718", fontSize: 10, lineHeight: 1.5, wordBreak: "keep-all", overflowWrap: "anywhere" },
   compareAddButton: { minHeight: 38, padding: "0 10px", border: "1px solid #c9d9d1", borderRadius: 10, background: "#f5faf7", color: "#3f6c57", fontSize: 11, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   compareAddButtonActive: { borderColor: "#6d927f", background: "#e7f3ec", color: "#285c43" },
   admissionHeadBadges: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5, flexWrap: "wrap" },
@@ -3411,6 +3506,9 @@ const ui = {
   workspaceCount: { minWidth: 48, minHeight: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#edf1f7", color: "#50617a", fontSize: 12, fontWeight: 950 },
   planPrintButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--kd-brand-border)", borderRadius: 10, padding: "8px 12px", background: "#fff", color: "var(--kd-brand)", fontSize: 12, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceSummaryGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8 },
+  summaryChipRow: { display: "flex", flexWrap: "wrap", gap: 4, marginTop: 3 },
+  summaryChip: { display: "inline-flex", alignItems: "center", padding: "3px 7px", borderRadius: 999, border: "1px solid", fontSize: 10.8, fontWeight: 850, whiteSpace: "nowrap" },
+  summaryChipEmpty: { fontSize: 11.5, color: "#9aa3b1", fontWeight: 700 },
   planGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 9 },
   planEmpty: { minHeight: 150, display: "grid", placeItems: "center", alignContent: "center", gap: 5, padding: 12, border: "1px dashed #d6dde8", borderRadius: 12, background: "#fafbfc", color: "#9aa3b1", textAlign: "center" },
   planCard: { position: "relative", minWidth: 0, minHeight: 150, display: "grid", alignContent: "start", gap: 9, padding: "13px", border: "1px solid #d6dfeb", borderRadius: 12, background: "#fbfcfe" },
