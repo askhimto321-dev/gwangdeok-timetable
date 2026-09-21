@@ -7,6 +7,7 @@ import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx
 import SusiNaviBetaView, { conversionDetails, loadSusiNaviBetaData, addSusiSupportPlanExternal } from "./SusiNaviBeta.jsx";
 import MinimumCatalogAdmin from './MinimumCatalogAdmin.jsx';
 import minimumCatalogSeed from './minimumCatalogSeed.json';
+import { normalizeMinimumCatalog } from './minimumCatalog.js';
 import FavoritePlanPicker from "./FavoritePlanPicker.jsx";
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
@@ -600,7 +601,7 @@ export default function GradesSection({
       entryYear,
       admissionYear: Number(entryYear) + 3,
       minimumRows: admissionItemsForGrade(gdb.admissionRows || [], gradeForEntryYear(gdb.cohortSettings, entryYear)),
-      minimumCatalogRows: gdb.minimumCatalog?.rows || minimumCatalogSeed,
+      minimumCatalogRows: normalizeMinimumCatalog(gdb.minimumCatalog?.rows || minimumCatalogSeed),
       subjects: subjectLists.flatMap((list, semesterIndex) => (list || []).map(subject => ({
         subject: subject?.subject || "",
         category: categoryMeta(subject?.category, subject?.subject).key,

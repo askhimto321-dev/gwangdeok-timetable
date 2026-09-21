@@ -1,4 +1,5 @@
-// Patch72: versioned, explicit workbook contract. Never infer missing admission facts.
+import {repairMinimumRow} from './minimumMapping.js';
+// Patch77: relationship-aware scope mapping and mandatory alternative groups.
 export const MINIMUM_SCHEMA = 'KD_MINIMUM_V1';
 export const MINIMUM_COLUMNS = {
  schema:'양식버전', id:'규칙ID', sourceId:'원문ID', admissionYear:'학년도', season:'모집시기',
@@ -29,7 +30,7 @@ export function validateMinimumRow(row) {
  for(const k of ['count','threshold','englishMax','historyMax'])if(row[k]!=null&&!Number.isFinite(row[k]))errors.push(`${MINIMUM_COLUMNS[k]} 숫자 형식 오류`);
  if(!['수시','정시','특별법대학 선발'].includes(row.season))errors.push('모집시기 오류');
  if(!['계산가능','검토필요','사용안함'].includes(row.reviewStatus))errors.push('검토상태 오류');
- if(!['전체','학과','계열','미확정'].includes(row.scopeType))errors.push('범위유형 오류');
+ if(!['전체','학과','계열','혼합','미확정'].includes(row.scopeType))errors.push('범위유형 오류');
  if(row.reviewStatus==='계산가능') {
   if(!row.track||/미기재|미확정/.test(row.track)||row.scopeType==='미확정')errors.push('전형명·적용범위 확정 필요');
   if(row.scopeType!=='전체'&&!list(row.department).length)errors.push('적용범위 필수');
@@ -41,11 +42,11 @@ export function validateMinimumRow(row) {
    if(!groups.length||flat.some(s=>!subjects.includes(s))||new Set(flat).size!==flat.length)errors.push('반영영역 오류 또는 중복');
    if(!Number.isInteger(row.count)||row.count<1||row.count>groups.length)errors.push('반영수 오류');
    if(!Number.isFinite(row.threshold)||row.threshold<(row.ruleType==='각'?1:row.count)||row.threshold>(row.ruleType==='각'?9:row.count*9))errors.push('기준등급 오류');
-   if(list(row.mandatory).some(s=>!flat.includes(s)))errors.push('필수영역이 반영영역에 없음');
+   if(list(row.mandatory).some(group=>group.split('/').some(s=>!flat.includes(s))))errors.push('필수영역이 반영영역에 없음');
    if(list(row.mandatory).length>row.count)errors.push('필수영역 수가 반영수보다 많음');
    for(const k of ['englishMax','historyMax'])if(row[k]!=null&&(!Number.isInteger(row[k])||row[k]<1||row[k]>9))errors.push(`${MINIMUM_COLUMNS[k]} 오류`);
    if(!['해당없음','통합개별','통합평균','선택탐구'].includes(row.inquiryMode))errors.push('탐구처리 오류');
-   if(!['없음','절사','올림'].includes(row.rounding))errors.push('평균처리 오류');
+   if(!['없음','절사','올림','반올림'].includes(row.rounding))errors.push('평균처리 오류');
    if(!['없음','2등급까지1'].includes(row.englishConversion))errors.push('영어환산 오류');
    if(row.admissionYear<2028&&flat.some(s=>['사','과','탐'].includes(s)))errors.push('2027 선택탐구는 검토필요로 보관');
    if(flat.includes('탐')&&row.inquiryMode!=='통합평균')errors.push('탐 영역의 평균 규칙 필요');
@@ -53,6 +54,65 @@ export function validateMinimumRow(row) {
   } else if(row.subjects||row.count!=null||row.threshold!=null||row.mandatory||row.englishMax!=null||row.historyMax!=null)errors.push('미적용 행에 계산조건이 남아 있음');
  }
  return errors;
+}
+const normalizedCatalogs=new WeakMap();
+const EXCLUSION_REVIEW='다른 예외 모집단위의 제외범위 확정 필요';
+const PARSE_REVIEW='복합 문장·추가조건 또는 생략된 반영영역을 원문과 대조해야 함';
+const splitScope=x=>String(x||'').split('|').map(unitKey).filter(Boolean);
+const scopedBranches=value=>String(value||'').split(/\n|\s+\/\s+(?=[^⇨\n]+⇨)/).map(s=>s.match(/^\s*(.+?)\s*⇨\s*(.+)$/)).filter(Boolean);
+const ruleCore=value=>compactMinimum(value).replace(/※.*$/,'').replace(/수능최저학력기준|수능최저기준|수능최저/g,'').replace(/등급|이내|[,.]/g,'');
+const structuredKeys=['ruleType','subjects','count','threshold','mandatory','englishMax','historyMax','inquiryMode','rounding','englishConversion'];
+const structuredSignature=row=>JSON.stringify(structuredKeys.map(k=>row[k]));
+function relationshipMapped(rows) {
+ const groups=new Map();
+ for(const row of rows){const key=[row.admissionYear,row.season,row.university,row.campus,row.admissionType,minimumTrackKey(row.track)].join('\u0001');if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);}
+ return rows.map(row=>{
+  if(row.reviewStatus==='사용안함')return row;
+  const key=[row.admissionYear,row.season,row.university,row.campus,row.admissionType,minimumTrackKey(row.track)].join('\u0001'),group=groups.get(key)||[];
+  const scoped=group.filter(r=>r.id!==row.id&&['학과','계열','혼합'].includes(r.scopeType)&&r.department);
+  let next={...row},reasons=String(row.reviewReason||'').split(' · ').filter(Boolean);
+  // A whole-scope source summary is redundant after every explicit branch has
+  // its own row. Keep the source row for audit, but exclude it from matching.
+  const branches=scopedBranches(row.note);
+  if(row.reviewStatus==='검토필요'&&row.scopeType==='전체'&&branches.length>=1&&scoped.length){
+   const covered=branches.every(b=>scopeUnitsForLink(b[1]).every(t=>scoped.some(s=>splitScope(s.department).includes(t))));
+   if(covered)return {...next,reviewStatus:'사용안함',reviewReason:''};
+  }
+  const childScopes=scoped.filter(s=>s.scopeType==='학과'&&(
+   reasons.includes(EXCLUSION_REVIEW)||branches.some(b=>scopeUnitsForLink(b[1]).some(t=>splitScope(s.department).includes(t)))
+  ));
+  if(['전체','계열','혼합'].includes(row.scopeType)&&childScopes.length){
+   next.excluded=[...new Set([...splitScope(row.excluded),...childScopes.flatMap(s=>splitScope(s.department))])].join('|');
+  }
+  if(reasons.includes(EXCLUSION_REVIEW)&&childScopes.length){
+   reasons=reasons.filter(r=>r!==EXCLUSION_REVIEW);
+  }
+  // If the same source group contains a fully structured duplicate for exactly
+  // the same scope and literal grade rule, reuse its missing calculation detail.
+  // This mainly resolves rows where one source omitted only the inquiry-average
+  // sentence while another source recorded it explicitly.
+  const reusable=scoped.filter(s=>s.reviewStatus==='계산가능'&&s.scopeType===row.scopeType&&splitScope(s.department).join('|')===splitScope(row.department).join('|')&&ruleCore(s.ruleText)===ruleCore(row.ruleText));
+  const reusableSignatures=new Set(reusable.map(structuredSignature));
+  if(row.reviewStatus==='검토필요'&&reusable.length&&reusableSignatures.size===1&&reasons.length&&reasons.every(r=>r===PARSE_REVIEW||r==='탐구 (2)의 계산 방법·적용 범위 확인 필요')){
+   for(const key of structuredKeys)next[key]=reusable[0][key];
+   reasons=[];
+  }
+  next.reviewReason=reasons.join(' · ');
+  if(!next.reviewReason)next.reviewStatus='계산가능';
+  return next;
+ });
+}
+function scopeUnitsForLink(value){return compactMinimum(value).split(/[,/|]/).filter(Boolean).map(unitKey);}
+export function normalizeMinimumCatalog(rows=[]) {
+ if(normalizedCatalogs.has(rows))return normalizedCatalogs.get(rows);
+ const repaired=rows.map(original=>repairMinimumRow(original));
+ const linked=relationshipMapped(repaired);
+ const normalized=linked.map((mapped,i)=>{
+  // Do not promote a parsed row unless the complete contract validates.
+  return mapped.reviewStatus==='계산가능'&&validateMinimumRow(mapped).length?rows[i]:mapped;
+ });
+ normalizedCatalogs.set(rows,normalized);normalizedCatalogs.set(normalized,normalized);
+ return normalized;
 }
 export function parseMinimumWorkbook(workbook, XLSX) {
  const sheet=workbook.Sheets['홈페이지 연동'];
@@ -67,8 +127,9 @@ export function parseMinimumWorkbook(workbook, XLSX) {
  const rows=[], errors=[], ids=new Set();
  matrix.slice(hi+1).forEach((values,i)=>{
   if(!values.some(x=>String(x).trim()))return;
-  const row=Object.fromEntries(Object.entries(MINIMUM_COLUMNS).map(([k,h])=>[k,String(values[header.indexOf(h)]??'').trim()]));
+  let row=Object.fromEntries(Object.entries(MINIMUM_COLUMNS).map(([k,h])=>[k,String(values[header.indexOf(h)]??'').trim()]));
   for(const k of ['admissionYear','count','threshold','englishMax','historyMax'])row[k]=numberOrNull(row[k]);
+  row=normalizeMinimumCatalog([row])[0];
   const issues=validateMinimumRow(row);
   if(ids.has(row.id))issues.push('중복 규칙ID');ids.add(row.id);
   if(issues.length)errors.push({line:hi+i+2,id:row.id,reason:issues.join(' · ')});
@@ -94,7 +155,7 @@ export function evaluateCatalogMinimum(row,student) {
  if(row.ruleType==='없음')return result('no-minimum','해당 적용 범위에 수능최저 미적용이 명시되어 있습니다.');
  const grades=student?.latestMockGrades||{},groups=list(row.subjects).map(x=>x.split('/')),mandatory=list(row.mandatory);
  const get=(s,fill)=>{
-  if(s==='탐') {let v=(get('사',fill)+get('과',fill))/2;return row.rounding==='절사'?Math.floor(v):row.rounding==='올림'?Math.ceil(v):v;}
+  if(s==='탐') {let v=(get('사',fill)+get('과',fill))/2;return row.rounding==='절사'?Math.floor(v):row.rounding==='올림'?Math.ceil(v):row.rounding==='반올림'?Math.round(v):v;}
   let v=gradeValue(grades[gradeNames[s]])??fill;
   return s==='영'&&row.englishConversion==='2등급까지1'&&v<=2?1:v;
  };
@@ -103,7 +164,7 @@ export function evaluateCatalogMinimum(row,student) {
  const simulate=fill=>{
   const candidates=[];
   const walk=(i,chosen)=>{
-   if(chosen.length===row.count){if(mandatory.every(s=>chosen.some(c=>c.code===s)))candidates.push(chosen);return;}
+   if(chosen.length===row.count){if(mandatory.every(group=>group.split('/').some(s=>chosen.some(c=>c.code===s))))candidates.push(chosen);return;}
    if(i>=groups.length)return;walk(i+1,chosen);for(const s of groups[i])walk(i+1,[...chosen,{code:s,name:gradeNames[s]||'사·과 평균',grade:get(s,fill)}]);
   };walk(0,[]);
   const passes=c=>(row.ruleType==='각'?c.every(x=>x.grade<=row.threshold):c.reduce((n,x)=>n+x.grade,0)<=row.threshold)
@@ -121,13 +182,14 @@ export function evaluateCatalogMinimum(row,student) {
  const extra=[row.mandatory?`필수 ${row.mandatory}`:'',row.englishMax?`영어 ${grades.영어} / ${row.englishMax} 이내`:'',row.historyMax?`한국사 ${grades.한국사} / ${row.historyMax} 이내`:'',row.englishConversion!=='없음'?'영어 2등급까지 1등급 환산':''].filter(Boolean).join(' · ');
  return result(pass?'satisfied':'unsatisfied',`${selected.map(x=>`${x.name} ${x.grade}`).join(' + ')}${row.ruleType==='합'?` = ${sum} / 합 ${row.threshold} 이내`:` / 각각 ${row.threshold} 이내`}${extra?' · '+extra:''}`,{studentSum:sum,selectedSubjects:selected,count:row.count,threshold:row.threshold,ruleType:row.ruleType==='합'?'sum':'each'});
 }
-const unitKey=x=>compactMinimum(x).replace(/의학과$/,'의예과').replace(/치의학과$/,'치의예과').replace(/한의학과$/,'한의예과').replace(/수의학과$/,'수의예과').replace(/약학(?:부|대학|전공)$/,'약학과');
+const unitKey=x=>compactMinimum(x).replace(/^의(?:과대학|학과)$/,'의예과').replace(/^치의학과$/,'치의예과').replace(/^한의학과$/,'한의예과').replace(/^수의학과$/,'수의예과').replace(/^약학(?:부|대학|전공)?$/,'약학과').replace(/^간호(?:대학|학부)?$/,'간호학과');
 function scopeRank(row,target) {
  const unit=unitKey(target.department),field=compactMinimum(target.field).replace(/계열$/,'');
  if(!unit)return -1;
  if(list(row.excluded).some(x=>unitKey(x)===unit||compactMinimum(x).replace(/계열$/,'')===field))return -1;
  if(row.scopeType==='학과')return list(row.department).some(x=>unitKey(x)===unit)?3:-1;
  if(row.scopeType==='계열')return field&&list(row.department).some(x=>compactMinimum(x).replace(/계열$/,'')===field)?1:-1;
+ if(row.scopeType==='혼합')return list(row.department).some(x=>unitKey(x)===unit||field&&compactMinimum(x).replace(/계열$/,'')===field)?2:-1;
  return row.scopeType==='전체'?0:-1;
 }
 function universityMatch(row,target,identity) {
