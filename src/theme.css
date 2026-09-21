@@ -47,7 +47,7 @@
 
 /* 강조 수치 하나(전형/등급컷/현재내신등급 등)를 라벨+큰 숫자 형태로 보여줄 때 공용으로 사용합니다. */
 .kd-key-fact{display:flex;flex-direction:column;gap:2px;min-width:0}
-.kd-key-fact>small{font-size:11.5px;font-weight:700;color:var(--kd-ink-muted)}
+.kd-key-fact>small{font-size:12.5px;font-weight:700;color:var(--kd-ink-muted)}
 .kd-key-fact>b{font-size:20px;font-weight:850;color:var(--kd-ink);line-height:1.2;letter-spacing:-.01em}
 .kd-key-fact.is-student>b{color:var(--kd-primary-dark)}
 
@@ -87,9 +87,9 @@
    눈에 잘 띄고, 정보량도 한 줄로 압축됩니다. admissionMetrics.js/naviMinimum.js의
    studentMockChips()와 짝입니다. */
 .kd-mock-chips{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px}
-.kd-mock-chips-label{font-size:10.5px;font-weight:750;color:var(--kd-ink-muted);margin-right:1px}
-.kd-mock-chip{padding:2px 8px;border-radius:6px;background:var(--kd-surface-soft);border:1px solid var(--kd-line);
-  font-size:11.5px;font-weight:800;color:var(--kd-ink-soft);white-space:nowrap}
+.kd-mock-chips-label{font-size:11.5px;font-weight:750;color:var(--kd-ink-muted);margin-right:1px}
+.kd-mock-chip{padding:3px 9px;border-radius:6px;background:var(--kd-surface-soft);border:1px solid var(--kd-line);
+  font-size:12.5px;font-weight:800;color:var(--kd-ink-soft);white-space:nowrap}
 
 /* 출처·근거처럼 "이름표 + 값"으로 된 정보를 표/카드 어디서나 같은 모양으로 보여주는 공용 한 줄 규칙입니다.
    전에는 컴포넌트마다 <p>문장 나열이라 서체·색이 제각각이었습니다(AdmissionComparison.jsx,
@@ -97,5 +97,5 @@
 .kd-evidence-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:3px 0;
   border-bottom:1px dashed var(--kd-line)}
 .kd-evidence-row:last-of-type{border-bottom:0}
-.kd-evidence-row b{font-size:11px;font-weight:750;color:var(--kd-ink-muted);font-family:inherit}
-.kd-evidence-row span{font-size:12.5px;font-weight:800;color:var(--kd-ink);text-align:right}
+.kd-evidence-row b{font-size:12px;font-weight:750;color:var(--kd-ink-muted);font-family:inherit}
+.kd-evidence-row span{font-size:13px;font-weight:800;color:var(--kd-ink);text-align:right}

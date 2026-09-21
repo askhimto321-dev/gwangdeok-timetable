@@ -825,28 +825,65 @@ function recommendationForUnit(recommendationData, university, region = "", depa
 // 없을 때만 이 함수를 부르며), 결과에는 항상 estimated:true와 참고한 대학명을 남겨서 화면에서
 // "공식 자료"와 구분되는 추정 표시를 할 수 있게 합니다.
 const RECOMMENDATION_REFERENCE_UNIVERSITIES = ["서울대학교", "경희대학교", "중앙대학교"];
-function estimateRecommendationForUnit(recommendationData, university, region = "", department = "", field = "") {
+// 성능 개선(전반적인 렉): 위 estimateRecommendationForUnit()을 처음 추가했을 때는 호출될 때마다
+// recommendationData.records 전체(수천 건 가능)를 여러 번 filter()해서 훑었습니다. 이 함수는
+// enriched useMemo 안에서 전체 모집단위(6,373건)마다 호출되므로, "6,373 × 자료 전체 스캔"이
+// 되어 버벅임의 새로운 원인이 됐습니다. 학과명·계열 자료를 한 번만 Map으로 미리 묶어두고
+// (recommendedData가 바뀔 때만 다시 계산), 각 모집단위에서는 그 Map에서 바로 꺼내 쓰게 바꿨습니다.
+function buildRecommendationEstimateIndexes(recommendationData) {
   const records = recommendationData?.records || [];
-  if (!records.length) return null;
+  const byDepartment = new Map();
+  const byField = new Map();
+  records.forEach(item => {
+    const deptKey = compactText(item.department);
+    if (deptKey) {
+      if (!byDepartment.has(deptKey)) byDepartment.set(deptKey, []);
+      byDepartment.get(deptKey).push(item);
+    }
+    const fieldKey = compactText(item.field);
+    if (fieldKey) {
+      if (!byField.has(fieldKey)) byField.set(fieldKey, []);
+      byField.get(fieldKey).push(item);
+    }
+  });
+  return { byDepartment, byField, source: recommendationData?.source || null };
+}
+function estimateRecommendationForUnit(indexes, university, region = "", department = "", field = "") {
+  if (!indexes || (!indexes.byDepartment.size && !indexes.byField.size)) return null;
   const targetKey = universityIdentityKey(university, region);
   const deptKey = compactText(department);
   const fieldKey = compactText(field);
-  const others = records.filter(item => universityIdentityKey(item.university, item.region || "") !== targetKey);
-  if (!others.length) return null;
-  let pool = deptKey ? others.filter(item => item.department && compactText(item.department) === deptKey) : [];
+  let pool = deptKey ? (indexes.byDepartment.get(deptKey) || []) : [];
   let matchedBy = "department";
+  pool = pool.filter(item => universityIdentityKey(item.university, item.region || "") !== targetKey);
   if (!pool.length && fieldKey) {
-    pool = others.filter(item => item.field && compactText(item.field) === fieldKey);
+    pool = (indexes.byField.get(fieldKey) || []).filter(item => universityIdentityKey(item.university, item.region || "") !== targetKey);
     matchedBy = "field";
   }
   if (!pool.length) return null;
   const referenceKeys = RECOMMENDATION_REFERENCE_UNIVERSITIES.map(name => universityBaseKey(name));
   const prioritized = pool.filter(item => referenceKeys.includes(universityBaseKey(item.university)));
-  const source = (prioritized.length ? prioritized : pool).slice(0, 6);
+  // 3번 요청: "해당 학과의 권장이수과목을 모두 불러오게" — 예전에는 참고 대학을 6곳까지만 잘라서
+  // 합쳤는데, 이제는 (지나치게 흔한 학과명이 아닌 한) 같은 학과명·계열의 자료가 있는 대학을
+  // 전부 모읍니다. 다만 자료 오류로 학과명이 너무 흔하게 겹치는 극단적 경우를 대비해 40곳으로만
+  // 상한을 둡니다(색인 덕분에 이 정도는 비용 부담이 거의 없습니다).
+  const source = (prioritized.length ? prioritized : pool).slice(0, 40);
   const reflected = uniqueCourseNames(source.flatMap(item => item.reflected || []));
   const core = uniqueCourseNames(source.flatMap(item => item.core || item.required || []));
   const recommended = uniqueCourseNames(source.flatMap(item => item.recommended || []));
   if (!reflected.length && !core.length && !recommended.length) return null;
+  // 3번 요청: "중복해서 언급되는 과목은 따로 표시" — 참고한 여러 대학 중 2곳 이상에서 똑같이
+  // 나온 과목을 "공통 언급 과목"으로 따로 뽑아 둡니다(한 대학 자료만 그대로 보여주는 게 아니라
+  // 여러 대학이 겹치는 부분이라 더 믿을 만하다는 것을 알 수 있게).
+  const mentionCounts = new Map();
+  source.forEach(item => {
+    uniqueCourseNames([item.reflected || [], item.core || item.required || [], item.recommended || []])
+      .forEach(course => mentionCounts.set(course, (mentionCounts.get(course) || 0) + 1));
+  });
+  const commonCourses = Array.from(mentionCounts.entries())
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .map(([course]) => course);
   return {
     university,
     department,
@@ -855,8 +892,10 @@ function estimateRecommendationForUnit(recommendationData, university, region = 
     reflected,
     core,
     recommended,
+    commonCourses,
+    referenceCount: source.length,
     notes: [],
-    source: recommendationData?.source || null,
+    source: indexes.source,
     estimated: true,
     estimatedFrom: Array.from(new Set(source.map(item => item.university).filter(Boolean))).slice(0, 3),
   };
@@ -877,6 +916,8 @@ function recommendationProgress(recommendation, studentSubjects = []) {
     ratio: targets.length ? matched.length / targets.length : null,
     estimated: !!recommendation.estimated,
     estimatedFrom: recommendation.estimatedFrom || [],
+    commonCourses: recommendation.commonCourses || [],
+    referenceCount: recommendation.referenceCount || 0,
   };
 }
 function findEnrichedWorkspaceEntry(enriched = [], item = {}) {
@@ -1903,6 +1944,9 @@ export default function SusiNaviBetaView({
   const changeIndex = useMemo(() => buildUniversityIndex(data?.changes2028 || [], 1, 0), [data]);
   const scheduleIndex = useMemo(() => buildUniversityIndex(data?.schedules || [], 1, 0), [data]);
   const caseStatIndex = useMemo(() => buildUniversityIndex(data?.caseStats || [], 5, 0), [data]);
+  // 성능 개선(렉): recommendedData가 바뀔 때만 한 번 학과명·계열별 Map을 만들어 두고,
+  // 아래 enriched에서는 모집단위마다 이 Map에서 바로 찾아 씁니다(전체 자료를 매번 훑지 않음).
+  const recommendationEstimateIndexes = useMemo(() => buildRecommendationEstimateIndexes(recommendedData), [recommendedData]);
 
   const enriched = useMemo(() => canonicalRecords.map(row => {
     const minimums = indexedUniversityRows(minimumIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5]));
@@ -1917,7 +1961,7 @@ export default function SusiNaviBetaView({
     // 12건(visible)에 대해서만 아래에서 따로 계산합니다. 예전에는 여기서 전체에 대해 계산해
     // 검색/필터를 바꿀 때마다 불필요하게 느려졌습니다.
     const recommendation = recommendationForUnit(recommendedData, row[3], row[1], row[5])
-      || estimateRecommendationForUnit(recommendedData, row[3], row[1], row[5], row[6]);
+      || estimateRecommendationForUnit(recommendationEstimateIndexes, row[3], row[1], row[5], row[6]);
     return {
       row,
       minimums,
@@ -1929,7 +1973,7 @@ export default function SusiNaviBetaView({
       recommendation,
       recommendationProgress: recommendationProgress(recommendation, studentSubjects),
     };
-  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, studentSubjects, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.admissionYear]);
+  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, recommendationEstimateIndexes, studentSubjects, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.admissionYear]);
 
   const connectionFocusDepartmentMatched = useMemo(() => {
     if (!connectionFocus?.university || !connectionFocus?.department) return false;
@@ -2883,9 +2927,13 @@ function RecommendedSubjectPanel({ recommendation, progress, studentSubjects = [
   const reflected = recommendation.reflected || [];
   const core = recommendation.core || recommendation.required || [];
   const recommended = recommendation.recommended || [];
+  // 3번 요청: 추정치일 때 참고한 여러 대학 중 2곳 이상에서 겹치는 과목은 ★로 표시해,
+  // 한 대학만의 특이한 과목과 구분되게 합니다.
+  const isCommon = course => recommendation.estimated && recommendation.commonCourses?.includes(course);
   const renderCourse = (course, tone) => {
     const matched = studentCourseMatch(studentSubjects, course);
-    return <span key={`${tone}-${course}`} title={matched ? "현재 저장된 학생 이수과목에서 확인됨" : "현재 저장된 학생 이수과목에서 확인되지 않음"} style={{ ...ui.recommendCourseChip, ...(matched ? ui.recommendCourseMatched : ui.recommendCourseMissing) }}><b>{matched ? "✓" : "○"}</b>{course}</span>;
+    const common = isCommon(course);
+    return <span key={`${tone}-${course}`} title={(matched ? "현재 저장된 학생 이수과목에서 확인됨" : "현재 저장된 학생 이수과목에서 확인되지 않음") + (common ? " · 참고한 대학 2곳 이상에서 공통으로 나온 과목" : "")} style={{ ...ui.recommendCourseChip, ...(matched ? ui.recommendCourseMatched : ui.recommendCourseMissing) }}><b>{matched ? "✓" : "○"}</b>{common ? "★ " : ""}{course}</span>;
   };
   return <div className="susi-beta-recommend-panel" style={ui.recommendPanel}>
     <div style={ui.recommendPanelHead}>
@@ -2894,7 +2942,7 @@ function RecommendedSubjectPanel({ recommendation, progress, studentSubjects = [
       <div><span style={recommendation.estimated ? ui.recommendSourceBadgeEstimate : ui.recommendSourceBadge}>{recommendation.estimated ? "다른 대학 자료 기반 추정" : "2028 대학 발표 기반"}</span><b>반영과목 · 핵심과목 · 권장과목</b><small>{recommendation.scope}{recommendation.matchedDepartment ? ` · ${recommendation.matchedDepartment}` : ""}</small></div>
       {progress?.total ? <span style={ui.recommendProgress}><small>저장 성적 기준 이수 확인</small><b>{progress.matched}/{progress.total}</b></span> : null}
     </div>
-    {recommendation.estimated && <p style={ui.recommendEstimateNotice}>이 대학·모집단위에는 공식 권장과목 자료가 아직 연결되지 않아, {recommendation.estimatedFrom?.length ? recommendation.estimatedFrom.join(", ") : "같은 학과·계열의 다른 대학"} 자료를 참고한 추정치입니다. 실제 이 대학의 발표 내용과 다를 수 있으니 대학 입학처 공지로 반드시 다시 확인하세요.</p>}
+    {recommendation.estimated && <p style={ui.recommendEstimateNotice}>이 대학·모집단위에는 공식 권장과목 자료가 아직 연결되지 않아, {recommendation.estimatedFrom?.length ? recommendation.estimatedFrom.join(", ") : "같은 학과·계열의 다른 대학"} 등 {recommendation.referenceCount || recommendation.estimatedFrom?.length || ""}개 대학 자료를 참고한 추정치입니다. ★ 표시는 그중 2곳 이상에서 공통으로 나온 과목입니다. 실제 이 대학의 발표 내용과 다를 수 있으니 대학 입학처 공지로 반드시 다시 확인하세요.</p>}
     {!!reflected.length && <div style={ui.recommendCourseGroup}><strong>반영과목</strong><div>{reflected.map(course => renderCourse(course, "reflected"))}</div></div>}
     {!!core.length && <div style={ui.recommendCourseGroup}><strong>핵심·중요 과목</strong><div>{core.map(course => renderCourse(course, "core"))}</div></div>}
     {!!recommended.length && <div style={ui.recommendCourseGroup}><strong>권장과목</strong><div>{recommended.map(course => renderCourse(course, "recommended"))}</div></div>}
@@ -3081,10 +3129,14 @@ function MinimumGroup({ rows = [], evaluations = [], histories = [], improvement
     const meta = naviMinimumStatusMeta(evaluation?.status);
     const history = histories[index];
     const improvement = improvements[index];
+    // 4번 요청: "조건 확인 필요" 상태에서 원문 조각(예: 그냥 숫자 "5")만 뚝 떨어져 나오면
+    // 무슨 뜻인지 알기 어렵습니다. 자동 판정이 안 되는 상태(manual)에서는 원문 대신 왜
+    // 확인이 필요한지 이유를 보여줍니다.
+    const isManual = evaluation?.status === "manual";
     return <div key={`${row[3]}-${index}`} style={{ ...ui.minimumItem, ...(evaluation?.status === "unsatisfied" ? ui.minimumItemDanger : {}) }}>
       <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{row[2] || "수시"}</span></div>
-      <div style={ui.minimumCriteriaRow}><strong style={ui.minimumCriteria}>{row[8] || "기준 원문 확인"}</strong>{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
-      <small style={ui.minimumNote}>{[row[6] && `반영영역 ${row[6]}`, row[10] && row[10] !== "-" ? row[10] : ""].filter(Boolean).join(" · ")}</small>
+      <div style={ui.minimumCriteriaRow}>{isManual ? <small style={ui.minimumNote}>{evaluation.reason}</small> : <strong style={ui.minimumCriteria}>{row[8] || "기준 원문 확인"}</strong>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
+      {!isManual && <small style={ui.minimumNote}>{[row[6] && `반영영역 ${row[6]}`, row[10] && row[10] !== "-" ? row[10] : ""].filter(Boolean).join(" · ")}</small>}
       {meta && latestMockLabel && <small style={ui.minimumEvaluationNote}>{latestMockLabel} 기준 판정</small>}
       {/* 3번 요청: 여러 회차를 응시했다면 "최근 N회 중 M회 충족"을 함께 보여줍니다. */}
       {history && history.decidedCount > 0 && <small style={ui.minimumEvaluationNote}>최근 {history.decidedCount}회 중 {history.satisfiedCount}회 충족</small>}
@@ -3104,11 +3156,15 @@ const ui = {
   hero: { padding: "23px 25px", borderRadius: 18, display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#fff", background: "linear-gradient(135deg,var(--kd-brand),#c2622f)", boxShadow: "0 14px 34px rgba(154,52,18,.22)" },
   heroIntro: { flex: "1 1 320px", minWidth: 0 },
   heroActions: { flex: "0 0 auto", flexWrap: "nowrap" },
-  heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 850, opacity: .86 },
-  heroTitle: { margin: "6px 0 4px", fontSize: 25, lineHeight: 1.15, letterSpacing: "-.03em" },
-  heroText: { margin: 0, fontSize: 13.5, lineHeight: 1.6, opacity: .9, maxWidth: 560 },
+  heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 850, opacity: .86, wordBreak: "keep-all" },
+  heroTitle: { margin: "6px 0 4px", fontSize: 25, lineHeight: 1.15, letterSpacing: "-.03em", wordBreak: "keep-all" },
+  // 2번 요청: "조회합니다"처럼 한 단어 중간이 다음 줄로 잘려 나가는 문제 — 폭을 좁게 제한(maxWidth)해둔
+  // 상태에서 word-break 지정이 없어 한글이 어절 단위가 아니라 글자 단위로 끊기고 있었습니다.
+  // 폭 제한을 없애 한 줄에 다 들어가게 하고, 혹시 더 좁은 화면에서 줄바꿈이 필요해지더라도
+  // keep-all로 어절 단위로만 꺾이게 합니다.
+  heroText: { margin: 0, fontSize: 13.5, lineHeight: 1.6, opacity: .9, wordBreak: "keep-all" },
   heroStats: { minWidth: 170, display: "grid", gap: 4, textAlign: "right", whiteSpace: "nowrap" },
-  betaBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#eee8ff", color: "#6b55a0", fontSize: 10, fontWeight: 900, verticalAlign: "middle" },
+  betaBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#eee8ff", color: "#6b55a0", fontSize: 11, fontWeight: 900, verticalAlign: "middle" },
   betaNotice: { display: "flex", gap: 9, alignItems: "flex-start", padding: "11px 14px", border: "1px solid #e5d9b7", borderRadius: 12, background: "#fff9e9", color: "#6e5923", fontSize: 13.5, lineHeight: 1.6 },
   viewToolbar: { position: "sticky", top: 6, zIndex: 12, display: "grid", gridTemplateColumns: "minmax(680px,860px) auto", justifyContent: "center", alignItems: "stretch", gap: 12, padding: 8, border: "1px solid #d8deea", borderRadius: 16, background: "rgba(255,255,255,.97)", boxShadow: "0 8px 22px rgba(44,53,69,.09)", backdropFilter: "blur(8px)" },
   viewTabs: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 6 },
@@ -3128,13 +3184,13 @@ const ui = {
   resultContextMain: { minWidth: 0, display: "grid", gap: 9 },
   resultHeadlineRow: { minWidth: 0, display: "flex", alignItems: "stretch", gap: 10, flexWrap: "wrap" },
   resultCountHero: { minWidth: 150, display: "grid", alignContent: "center", gap: 2, padding: "10px 13px", border: "1px solid #cfdae9", borderRadius: 11, background: "#fff", color: "#52627a" },
-  resultMetricLabel: { fontSize: 10.5, fontWeight: 900, color: "#6d798b" },
+  resultMetricLabel: { fontSize: 11.5, fontWeight: 900, color: "#6d798b" },
   resultMetricValue: { fontSize: 25, lineHeight: 1.05, fontWeight: 950, letterSpacing: "-.03em", color: "#263c62" },
   resultCountUnit: { marginLeft: 3, fontStyle: "normal", fontSize: 12, fontWeight: 900, color: "#6d7b8d" },
   currentGradeHero: { minWidth: 310, display: "grid", gridTemplateColumns: "auto auto minmax(0,1fr)", alignItems: "center", gap: 9, padding: "10px 13px", border: "1px solid #c9d8ee", borderRadius: 11, background: "linear-gradient(135deg,#eaf3ff,#f8fbff)", color: "#315a91" },
-  currentGradeLabel: { fontSize: 10.5, fontWeight: 950, color: "#58708f", whiteSpace: "nowrap" },
+  currentGradeLabel: { fontSize: 11.5, fontWeight: 950, color: "#58708f", whiteSpace: "nowrap" },
   currentGradeValue: { fontSize: 24, lineHeight: 1, fontWeight: 950, letterSpacing: "-.03em", color: "#244f86" },
-  currentGradeHelp: { minWidth: 0, fontSize: 10.5, lineHeight: 1.35, fontWeight: 800, color: "#60799a", whiteSpace: "nowrap" },
+  currentGradeHelp: { minWidth: 0, fontSize: 11.5, lineHeight: 1.35, fontWeight: 800, color: "#60799a", whiteSpace: "nowrap" },
   resultContextOneLine: { minWidth: 0, color: "#617087", fontSize: 12.2, lineHeight: 1.45, whiteSpace: "nowrap" },
   guideCopy: { minWidth: 0, display: "grid", gap: 6 },
   resultContextActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
@@ -3145,28 +3201,28 @@ const ui = {
   resultControlGrid: { display: "grid", gridTemplateColumns: "repeat(5,minmax(0,1fr))", gap: 8, alignItems: "stretch" },
   resultSortControl: { position: "relative", minWidth: 0, minHeight: 42, display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 7, padding: "0 10px", border: "1px solid #ced8e5", borderRadius: 10, background: "#fff", color: "#59687c", boxSizing: "border-box", cursor: "pointer", overflow: "hidden" },
   resultSortNative: { position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" },
-  resultSupportQuick: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "8px 9px", border: "1px solid #e1e7ef", borderRadius: 10, background: "rgba(255,255,255,.82)", color: "#5c6d82", fontSize: 10.5, fontWeight: 900 },
-  resultSupportQuickBtn: { minHeight: 30, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 10.5, fontWeight: 950, cursor: "pointer" },
-  resultSupportReset: { minHeight: 28, padding: "0 10px", border: "1px solid #d7dfe9", borderRadius: 999, background: "#fff", color: "#69768a", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
+  resultSupportQuick: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", padding: "8px 9px", border: "1px solid #e1e7ef", borderRadius: 10, background: "rgba(255,255,255,.82)", color: "#5c6d82", fontSize: 11.5, fontWeight: 900 },
+  resultSupportQuickBtn: { minHeight: 30, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 11.5, fontWeight: 950, cursor: "pointer" },
+  resultSupportReset: { minHeight: 28, padding: "0 10px", border: "1px solid #d7dfe9", borderRadius: 999, background: "#fff", color: "#69768a", fontSize: 11.5, fontWeight: 900, cursor: "pointer" },
   dataSourceLegend: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
   naviSourceCard: { minWidth: 0, display: "grid", gap: 4, padding: "12px 14px", border: "1px solid #d8d1e8", borderRadius: 12, background: "linear-gradient(135deg,#f6f2fb,#fff)", color: "#5f5277", fontSize: 11.5, lineHeight: 1.5 },
   schoolSourceCard: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", columnGap: 10, rowGap: 4, alignItems: "center", padding: "12px 14px", border: "1px solid #e4c3ca", borderRadius: 12, background: "linear-gradient(135deg,#fff3f5,#fffafb)", color: "#724650", fontSize: 11.5, lineHeight: 1.5 },
   sourceCardCopy: { minWidth: 0, display: "grid", gap: 3 },
-  sourceLegendLink: { minHeight: 36, padding: "0 11px", border: "1px solid #ddb5bd", borderRadius: 9, background: "#fff", color: "#8a4050", fontSize: 11, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  sourceLegendLink: { minHeight: 36, padding: "0 11px", border: "1px solid #ddb5bd", borderRadius: 9, background: "#fff", color: "#8a4050", fontSize: 12, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultConnectPrimary: { minHeight: 40, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 14px", border: "1px solid #58447f", borderRadius: 10, background: "#604c89", color: "#fff", fontSize: 12.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(86,69,126,.18)" },
   resultWorkflowFooter: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "16px 17px", border: "1px solid #d8d0e8", borderRadius: 13, background: "linear-gradient(135deg,#f7f3fc,#fff)", color: "#566276", fontSize: 12.5, lineHeight: 1.55 },
   detailSearchPanel: { display: "grid", gridTemplateColumns: "minmax(230px,.75fr) minmax(310px,1.15fr) minmax(260px,.9fr)", gap: 13, alignItems: "end", padding: "17px 18px", border: "1px solid #d9e2ef", borderRadius: 14, background: "linear-gradient(135deg,#f7faff,#fbf9ff)" },
   detailSearchHeading: { display: "grid", gap: 4, color: "#26384f" },
   detailSearchBox: { minWidth: 0, minHeight: 48, display: "flex", alignItems: "center", gap: 9, padding: "0 12px", border: "1px solid #c8d5e5", borderRadius: 11, background: "#fff", color: "#52657f", boxShadow: "0 3px 10px rgba(48,65,88,.05)" },
-  detailUniversitySelect: { display: "grid", gap: 6, color: "#59687c", fontSize: 11, fontWeight: 900 },
-  backToSearchButton: { flex: "0 0 auto", minHeight: 39, padding: "0 13px", border: "1px solid #cfd8e5", borderRadius: 10, background: "#fff", color: "#40516a", fontSize: 11.2, fontWeight: 850, cursor: "pointer" },
+  detailUniversitySelect: { display: "grid", gap: 6, color: "#59687c", fontSize: 12, fontWeight: 900 },
+  backToSearchButton: { flex: "0 0 auto", minHeight: 39, padding: "0 13px", border: "1px solid #cfd8e5", borderRadius: 10, background: "#fff", color: "#40516a", fontSize: 12.2, fontWeight: 850, cursor: "pointer" },
   resultFilterBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #e0e5ed", borderRadius: 12, background: "#fbfcfe", flexWrap: "wrap" },
   activeFilterWrap: { minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  activeFilterLabel: { color: "#7b8797", fontSize: 9.5, fontWeight: 900 },
-  activeFilterChip: { display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 8px", borderRadius: 999, background: "#edf2f8", color: "#445875", border: "1px solid #d6e0ec", fontSize: 11, fontWeight: 850 },
-  activeFilterEmpty: { color: "#9aa2ae", fontSize: 9.5 },
+  activeFilterLabel: { color: "#7b8797", fontSize: 10.5, fontWeight: 900 },
+  activeFilterChip: { display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 8px", borderRadius: 999, background: "#edf2f8", color: "#445875", border: "1px solid #d6e0ec", fontSize: 12, fontWeight: 850 },
+  activeFilterEmpty: { color: "#9aa2ae", fontSize: 10.5 },
   clearFilterButton: { minHeight: 34, padding: "0 12px", border: "1px solid #e59a9a", borderRadius: 9, background: "#fff0f0", color: "#c83232", fontSize: 13, fontWeight: 950, cursor: "pointer", boxShadow: "0 3px 8px rgba(190,48,48,.08)" },
-  resultCutoffControl: { display: "inline-flex", alignItems: "center", gap: 5, padding: 5, border: "1px solid #ddd5ea", borderRadius: 11, background: "#f2eef8", color: "#706480", fontSize: 10.5, fontWeight: 900 },
+  resultCutoffControl: { display: "inline-flex", alignItems: "center", gap: 5, padding: 5, border: "1px solid #ddd5ea", borderRadius: 11, background: "#f2eef8", color: "#706480", fontSize: 11.5, fontWeight: 900 },
   resultCutoffButton: { minWidth: 63, height: 33, border: "1px solid transparent", borderRadius: 8, background: "transparent", color: "#786f85", fontSize: 11.5, fontWeight: 950, cursor: "pointer" },
   resultCutoffActive: { background: "#65518d", color: "#fff", borderColor: "#5a477e", boxShadow: "0 3px 8px rgba(86,69,126,.18)" },
   empty: { minHeight: 280, padding: 32, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, border: "1px dashed #cfd5df", borderRadius: 16, background: "#fafbfc", color: "#667085", textAlign: "center" },
@@ -3177,8 +3233,8 @@ const ui = {
   sectionSub: { display: "block", marginTop: 3, fontSize: 12.5, lineHeight: 1.55, color: "#707c8f" },
   step: { width: 26, height: 26, borderRadius: 9, background: "#665690", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 12 },
   converterGrid: { display: "grid", gridTemplateColumns: "150px minmax(270px,1.4fr) minmax(160px,.8fr) minmax(190px,.9fr)", gap: 10, alignItems: "stretch" },
-  fieldLabel: { display: "grid", gap: 6, minWidth: 0, fontSize: 11, fontWeight: 800, color: "#5d6678" },
-  labelText: { fontSize: 11, fontWeight: 800, color: "#5d6678" },
+  fieldLabel: { display: "grid", gap: 6, minWidth: 0, fontSize: 12, fontWeight: 800, color: "#5d6678" },
+  labelText: { fontSize: 12, fontWeight: 800, color: "#5d6678" },
   input: { width: "100%", boxSizing: "border-box", height: 42, border: "1px solid #ced7e5", borderRadius: 10, padding: "0 12px", fontSize: 16, fontWeight: 900, color: "#263c62", outline: "none" },
   select: { width: "100%", height: 42, border: "1px solid #ced7e5", borderRadius: 10, padding: "0 10px", background: "#fff", fontWeight: 750, color: "#344054" },
   methodBox: { display: "grid", gap: 6 },
@@ -3186,61 +3242,61 @@ const ui = {
   segmentBtn: { minHeight: 34, border: 0, borderRadius: 8, background: "transparent", color: "#657085", fontWeight: 800, cursor: "pointer" },
   segmentActive: { background: "#fff", color: "#5c4a89", boxShadow: "0 3px 8px rgba(57,65,83,.12)" },
   conversionResult: { display: "grid", alignContent: "center", gap: 2, padding: "9px 13px", borderRadius: 12, background: "linear-gradient(135deg,#f5f1ff,#faf8ff)", border: "1px solid #dcd2f0" },
-  conversionLabel: { fontSize: 10, fontWeight: 850, color: "#73658d" },
+  conversionLabel: { fontSize: 11, fontWeight: 850, color: "#73658d" },
   conversionValue: { fontSize: 21, lineHeight: 1.1, color: "#543f82" },
-  conversionHelp: { fontSize: 9.5, color: "#817795" },
-  statDisclaimer: { marginTop: 10, padding: "9px 11px", borderRadius: 10, background: "#f7f5fb", color: "#6d6381", fontSize: 10.5, lineHeight: 1.5 },
+  conversionHelp: { fontSize: 10.5, color: "#817795" },
+  statDisclaimer: { marginTop: 10, padding: "9px 11px", borderRadius: 10, background: "#f7f5fb", color: "#6d6381", fontSize: 11.5, lineHeight: 1.5 },
   studentAutoBar: { marginBottom: 12, display: "grid", gridTemplateColumns: "minmax(180px,.8fr) minmax(130px,.45fr) minmax(260px,1.4fr)", alignItems: "center", gap: 12, padding: "11px 13px", border: "1px solid #d4deed", borderRadius: 12, background: "linear-gradient(135deg,#f7faff,#fbfcff)" },
   studentAutoIdentity: { display: "grid", gap: 3, minWidth: 0 },
   studentAutoGrade: { display: "grid", gap: 2, padding: "7px 10px", borderRadius: 9, background: "#edf4ff", color: "#315a91" },
   filterGrid: { display: "grid", gridTemplateColumns: "minmax(260px,2fr) repeat(4,minmax(120px,.65fr))", gap: 11, alignItems: "end" },
   searchBox: { minHeight: 46, display: "flex", alignItems: "center", gap: 9, padding: "0 13px", border: "1px solid #cdd7e6", borderRadius: 12, background: "#fff", boxShadow: "0 2px 7px rgba(50,65,90,.025)" },
-  filterLabel: { display: "grid", gridTemplateRows: "auto 1fr", gap: 5, fontSize: 10, fontWeight: 850, color: "#68758a" },
+  filterLabel: { display: "grid", gridTemplateRows: "auto 1fr", gap: 5, fontSize: 11, fontWeight: 850, color: "#68758a" },
   multiFilter: { position: "relative", minWidth: 0, alignSelf: "stretch" },
   multiFilterCompact: { minHeight: 42 },
   multiFilterSummary: { minHeight: 42, display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 7, padding: "0 10px", border: "1px solid #ced8e5", borderRadius: 10, background: "#fff", color: "#59687c", cursor: "pointer", listStyle: "none", boxSizing: "border-box" },
   multiFilterMenu: { position: "absolute", top: "calc(100% + 5px)", left: 0, zIndex: 40, minWidth: "100%", width: "max-content", maxWidth: 280, maxHeight: 300, overflowY: "auto", display: "grid", gap: 3, padding: 6, border: "1px solid #d6dee9", borderRadius: 11, background: "#fff", boxShadow: "0 14px 32px rgba(40,54,75,.16)" },
   multiFilterOption: { minWidth: 145, minHeight: 31, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "0 9px", border: 0, borderRadius: 7, background: "transparent", color: "#526177", fontSize: 11.5, fontWeight: 850, textAlign: "left", cursor: "pointer" },
   multiFilterOptionActive: { background: "#eaf2fb", color: "#285b8d" },
-  multiFilterClear: { minHeight: 30, marginTop: 3, border: "1px solid #efc2c2", borderRadius: 7, background: "#fff5f5", color: "#bd3e3e", fontSize: 11, fontWeight: 900, cursor: "pointer" },
+  multiFilterClear: { minHeight: 30, marginTop: 3, border: "1px solid #efc2c2", borderRadius: 7, background: "#fff5f5", color: "#bd3e3e", fontSize: 12, fontWeight: 900, cursor: "pointer" },
   resultCount: { display: "flex", alignItems: "baseline", gap: 7, color: "#687386", fontSize: 11.5 },
   searchSummaryRow: { marginTop: 16, paddingTop: 14, borderTop: "1px solid #edf0f5", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap" },
   searchSummaryTools: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
   favoriteFilterWrap: { display: "flex", alignItems: "center", gap: 9, padding: "5px 6px 5px 10px", border: "1px solid #e3e7ee", borderRadius: 11, background: "#fafbfc" },
-  favoriteFilterLabel: { fontSize: 9.5, fontWeight: 850, color: "#8490a2" },
-  favoriteFilterBtn: { minHeight: 32, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 11px", border: "1px solid #d5ddea", borderRadius: 9, background: "#fff", color: "#667085", fontSize: 10.5, fontWeight: 850, cursor: "pointer" },
+  favoriteFilterLabel: { fontSize: 10.5, fontWeight: 850, color: "#8490a2" },
+  favoriteFilterBtn: { minHeight: 32, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 11px", border: "1px solid #d5ddea", borderRadius: 9, background: "#fff", color: "#667085", fontSize: 11.5, fontWeight: 850, cursor: "pointer" },
   favoriteFilterActive: { borderColor: "#e1c36d", background: "#fff7d9", color: "#9a660d", boxShadow: "0 3px 9px rgba(181,126,18,.11)" },
   supportFilterRow: { marginTop: 15, padding: "14px 15px", border: "1px solid #e0e5ef", borderRadius: 13, background: "linear-gradient(135deg,#fafbff,#f8f7fc)", display: "grid", gap: 12 },
   supportFilterTop: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, flexWrap: "wrap" },
   supportFilterHeading: { minWidth: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, lineHeight: 1.4, color: "#344055", flexWrap: "wrap" },
-  supportFilterEyebrow: { fontSize: 9.5, fontWeight: 900, color: "#735e9a", letterSpacing: ".02em", whiteSpace: "nowrap" },
-  supportFilterOneLine: { minWidth: 0, display: "grid", gap: 2, fontSize: 10.4, color: "#4e596d", fontWeight: 780, lineHeight: 1.4 },
+  supportFilterEyebrow: { fontSize: 10.5, fontWeight: 900, color: "#735e9a", letterSpacing: ".02em", whiteSpace: "nowrap" },
+  supportFilterOneLine: { minWidth: 0, display: "grid", gap: 2, fontSize: 11.4, color: "#4e596d", fontWeight: 780, lineHeight: 1.4 },
   globalConversionControls: { display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" },
-  globalConversionBtn: { minHeight: 29, padding: "0 9px", border: "1px solid #d9dfea", borderRadius: 8, background: "#fff", color: "#6b7587", fontSize: 9.5, fontWeight: 850, cursor: "pointer" },
+  globalConversionBtn: { minHeight: 29, padding: "0 9px", border: "1px solid #d9dfea", borderRadius: 8, background: "#fff", color: "#6b7587", fontSize: 10.5, fontWeight: 850, cursor: "pointer" },
   globalConversionActive: { color: "#fff", background: "#66558e", borderColor: "#66558e", boxShadow: "0 3px 8px rgba(86,69,126,.16)" },
-  globalConversionSelect: { height: 29, border: "1px solid #d4dce8", borderRadius: 8, background: "#fff", padding: "0 7px", color: "#4f5b70", fontSize: 9.5, fontWeight: 800 },
+  globalConversionSelect: { height: 29, border: "1px solid #d4dce8", borderRadius: 8, background: "#fff", padding: "0 7px", color: "#4f5b70", fontSize: 10.5, fontWeight: 800 },
   supportFilterControls: { minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" },
   cutoffBasisToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 6, padding: 5, borderRadius: 13, background: "#e8ecf3", border: "1px solid #d9dfeb" },
   cutoffBasisBtn: { minWidth: 122, minHeight: 48, display: "grid", placeItems: "center", gap: 2, padding: "7px 12px", border: "1px solid transparent", borderRadius: 10, background: "transparent", color: "#727d8e", cursor: "pointer" },
   cutoffBasisActive: { background: "linear-gradient(135deg,#66558e,#7d6195)", color: "#fff", borderColor: "#5f4e87", boxShadow: "0 7px 16px rgba(86,69,126,.24)", transform: "translateY(-1px)" },
   supportLegend: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
-  supportFilterBtn: { minHeight: 30, padding: "0 11px", border: "1px solid #d7deea", borderRadius: 999, background: "#fff", color: "#657085", fontSize: 10, fontWeight: 850, cursor: "pointer" },
+  supportFilterBtn: { minHeight: 30, padding: "0 11px", border: "1px solid #d7deea", borderRadius: 999, background: "#fff", color: "#657085", fontSize: 11, fontWeight: 850, cursor: "pointer" },
   supportFilterBtnActive: { background: "#5e5188", borderColor: "#5e5188", color: "#fff", boxShadow: "0 4px 10px rgba(94,81,136,.18)" },
-  supportLegendItem: { minHeight: 30, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 800, cursor: "pointer" },
+  supportLegendItem: { minHeight: 30, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px", border: "1px solid", borderRadius: 999, fontSize: 10.5, fontWeight: 800, cursor: "pointer" },
   supportSelected: { boxShadow: "0 0 0 2px rgba(74,85,115,.17)", transform: "translateY(-1px)" },
-  caseStatsGuide: { display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", border: "1px solid #d9e1ee", borderRadius: 11, background: "#f7f9fd", color: "#5c687c", fontSize: 10.5, lineHeight: 1.5 },
+  caseStatsGuide: { display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px", border: "1px solid #d9e1ee", borderRadius: 11, background: "#f7f9fd", color: "#5c687c", fontSize: 11.5, lineHeight: 1.5 },
   connectionPanel: { display: "grid", gap: 18, padding: 21, border: "1px solid #cbd8e7", borderRadius: 18, background: "linear-gradient(145deg,#ffffff,#f5f8fb)", boxShadow: "0 10px 26px rgba(44,62,86,.07)" },
   connectionHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" },
   connectionHeadActions: { marginLeft: "auto", display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" },
   connectionBandFilterTop: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5, flexWrap: "wrap", padding: "5px 7px", border: "1px solid #d8e0e9", borderRadius: 11, background: "#f7f9fc" },
-  connectionBandLabel: { fontSize: 10.5, fontWeight: 950, color: "#66758a", marginRight: 2, whiteSpace: "nowrap" },
-  connectionBandBtn: { minHeight: 28, padding: "0 8px", border: "1px solid", borderRadius: 999, fontSize: 10.2, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
+  connectionBandLabel: { fontSize: 11.5, fontWeight: 950, color: "#66758a", marginRight: 2, whiteSpace: "nowrap" },
+  connectionBandBtn: { minHeight: 28, padding: "0 8px", border: "1px solid", borderRadius: 999, fontSize: 11.2, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
   connectionTitleWrap: { display: "flex", alignItems: "center", gap: 11, minWidth: 0 },
   connectionIcon: { width: 40, height: 40, flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 12, color: "#285d87", background: "#e8f1f8" },
   connectionTitle: { display: "block", fontSize: 20, lineHeight: 1.25, color: "#21324a" },
   connectionSub: { display: "block", maxWidth: 720, marginTop: 5, fontSize: 13, lineHeight: 1.6, color: "#69768a", wordBreak: "break-word", overflowWrap: "anywhere" },
   connectionModeToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 11, background: "#e9edf4" },
-  connectionModeBtn: { minHeight: 34, padding: "0 13px", border: 0, borderRadius: 8, background: "transparent", color: "#687488", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
+  connectionModeBtn: { minHeight: 34, padding: "0 13px", border: 0, borderRadius: 8, background: "transparent", color: "#687488", fontSize: 11.5, fontWeight: 900, cursor: "pointer" },
   connectionModeActive: { color: "#fff", background: "#5f4f88", boxShadow: "0 3px 9px rgba(86,69,126,.2)" },
   connectionModeChooser: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
   connectionModeCard: { minWidth: 0, display: "grid", gridTemplateColumns: "auto minmax(0,1fr)", gridTemplateRows: "auto auto", columnGap: 12, rowGap: 5, alignItems: "center", padding: "15px 16px", border: "1px solid #d4deea", borderRadius: 14, background: "#fff", color: "#526075", textAlign: "left", cursor: "pointer" },
@@ -3248,9 +3304,9 @@ const ui = {
   connectionUniversitySelector: { minHeight: 78, padding: "9px 10px", border: "1px solid #d9e1ec", borderRadius: 12, background: "#f8fafd" },
   connectionControls: { display: "grid", gridTemplateColumns: "minmax(0,1.65fr) minmax(185px,.55fr) minmax(155px,.42fr)", gap: 12, alignItems: "stretch" },
   connectionCriterion: { minHeight: 112, minWidth: 0, display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8, padding: 9, border: "1px solid #cfdae7", borderRadius: 15, background: "#eef3f7", overflow: "hidden" },
-  connectionCriteriaHeading: { gridColumn: "1/-1", display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "4px 5px 2px", color: "#566579", fontSize: 10.5, lineHeight: 1.4, flexWrap: "wrap" },
+  connectionCriteriaHeading: { gridColumn: "1/-1", display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, padding: "4px 5px 2px", color: "#566579", fontSize: 11.5, lineHeight: 1.4, flexWrap: "wrap" },
   criterionItem: { minWidth: 0, display: "grid", alignContent: "center", justifyItems: "center", gap: 6, padding: "12px 10px", borderRadius: 11, background: "#fff", color: "#405069", border: "1px solid #dbe3ec", textAlign: "center", boxShadow: "0 2px 7px rgba(51,70,94,.035)" },
-  criterionLabel: { display: "block", fontSize: 10.5, lineHeight: 1.3, fontWeight: 850, color: "#758196" },
+  criterionLabel: { display: "block", fontSize: 11.5, lineHeight: 1.3, fontWeight: 850, color: "#758196" },
   criterionValue: { display: "block", maxWidth: "100%", fontSize: 14, lineHeight: 1.3, fontWeight: 900, color: "#35475f", wordBreak: "break-word", overflowWrap: "anywhere" },
   criterionValueStrong: { display: "block", fontSize: 18, lineHeight: 1.15, fontWeight: 950, color: "inherit" },
   criterionMethod: { background: "#f9fbfd", color: "#344b64", border: "1px solid #d7e1eb" },
@@ -3261,66 +3317,66 @@ const ui = {
   connectionRangeCard: { padding: "12px 13px", border: "1px solid #d6e0ea", borderRadius: 14, background: "#fbfcfe" },
   connectionSelect: { width: "100%", height: 48, border: "1px solid #b9c8dc", borderRadius: 11, background: "#fff", padding: "0 12px", color: "#25354c", fontSize: 13.5, fontWeight: 800, outline: "none" },
   connectionResultCount: { minHeight: 112, display: "grid", alignContent: "center", justifyItems: "center", gap: 6, padding: "12px 9px", border: "1px solid #bfd1e2", borderRadius: 14, background: "linear-gradient(135deg,#eaf3fa,#f8fbfd)", color: "#244f75", textAlign: "center" },
-  resultCountLabel: { display: "block", fontSize: 10.8, lineHeight: 1.3, fontWeight: 900, color: "#58728b" },
+  resultCountLabel: { display: "block", fontSize: 11.8, lineHeight: 1.3, fontWeight: 900, color: "#58728b" },
   resultCountValue: { display: "block", fontSize: 22, lineHeight: 1.05, fontWeight: 950, color: "#1e4f79" },
-  resultCountMeta: { display: "block", fontSize: 10.8, lineHeight: 1.4, color: "#60788e" },
+  resultCountMeta: { display: "block", fontSize: 11.8, lineHeight: 1.4, color: "#60788e" },
   connectionStats: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 9 },
   connectionStatCard: { minWidth: 0, minHeight: 70, display: "grid", alignContent: "center", justifyItems: "center", gap: 5, padding: "10px 9px", border: "1px solid #dfe5ee", borderRadius: 12, background: "#f8fafc", textAlign: "center" },
   connectionStatExact: { background: "#edf5fb", borderColor: "#c8dce9" },
   connectionStatDistinct: { background: "#f3f5f8", borderColor: "#d9dfe7" },
   connectionStatOfficial: { background: "#eef8f3", borderColor: "#c9e1d5" },
   connectionStatIntegrated: { background: "#fff6e8", borderColor: "#ead2aa" },
-  connectionStatLabel: { display: "block", fontSize: 10.5, lineHeight: 1.35, fontWeight: 850, color: "#748196", wordBreak: "keep-all" },
+  connectionStatLabel: { display: "block", fontSize: 11.5, lineHeight: 1.35, fontWeight: 850, color: "#748196", wordBreak: "keep-all" },
   connectionStatValue: { display: "block", fontSize: 15.5, lineHeight: 1.15, fontWeight: 950, color: "#2f435e" },
   connectionNotice: { minWidth: 0, display: "flex", alignItems: "center", gap: 9, padding: "10px 13px", border: "1px solid #ead39b", borderRadius: 11, background: "#fff8e7", color: "#66501d", fontSize: 11.8, lineHeight: 1.45, whiteSpace: "normal", overflowWrap: "anywhere" },
-  sameCutNotice: { flex: "0 0 auto", marginLeft: "auto", padding: "3px 8px", borderRadius: 999, background: "#f4e4b9", color: "#73571d", fontStyle: "normal", fontSize: 10.5, fontWeight: 900 },
+  sameCutNotice: { flex: "0 0 auto", marginLeft: "auto", padding: "3px 8px", borderRadius: 999, background: "#f4e4b9", color: "#73571d", fontStyle: "normal", fontSize: 11.5, fontWeight: 900 },
   connectionEmpty: { padding: 21, border: "1px dashed #cfd9e6", borderRadius: 11, background: "#fafbfc", color: "#7f8998", fontSize: 12.5, textAlign: "center" },
   connectionDisplayBar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", border: "1px solid #dce3ed", borderRadius: 11, background: "#fafbfe", color: "#657186", fontSize: 11.5, lineHeight: 1.5, flexWrap: "wrap" },
   connectionSummaryGuide: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", alignItems: "center", gap: 12, padding: "12px 14px", border: "1px solid #cdd9e7", borderRadius: 12, background: "linear-gradient(135deg,#f4f8fc,#fff)", color: "#536278" },
   connectionSummaryCopy: { minWidth: 0, display: "grid", gap: 3, fontSize: 11.5, lineHeight: 1.55 },
   connectionSummaryChips: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" },
-  connectionSummaryChip: { display: "inline-grid", gridTemplateColumns: "auto auto", alignItems: "center", gap: 5, minHeight: 30, padding: "0 9px", border: "1px solid #d5deea", borderRadius: 999, background: "#fff", color: "#4d5f76", fontSize: 10.5, fontWeight: 900, whiteSpace: "nowrap" },
+  connectionSummaryChip: { display: "inline-grid", gridTemplateColumns: "auto auto", alignItems: "center", gap: 5, minHeight: 30, padding: "0 9px", border: "1px solid #d5deea", borderRadius: 999, background: "#fff", color: "#4d5f76", fontSize: 11.5, fontWeight: 900, whiteSpace: "nowrap" },
   connectionDisplayToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 4, padding: 4, borderRadius: 10, background: "#e9edf4" },
-  connectionDisplayButton: { minHeight: 31, padding: "0 10px", border: "1px solid transparent", borderRadius: 7, background: "transparent", color: "#68758a", fontSize: 11, fontWeight: 900, cursor: "pointer" },
+  connectionDisplayButton: { minHeight: 31, padding: "0 10px", border: "1px solid transparent", borderRadius: 7, background: "transparent", color: "#68758a", fontSize: 12, fontWeight: 900, cursor: "pointer" },
   connectionDisplayActive: { background: "#315f88", color: "#fff", borderColor: "#315f88", boxShadow: "0 4px 10px rgba(49,95,136,.18)" },
   connectionCandidateSearch: { minHeight: 46, display: "flex", alignItems: "center", gap: 9, padding: "0 12px", border: "1px solid #cbd7e6", borderRadius: 11, background: "#fff", color: "#52657e", boxShadow: "0 3px 10px rgba(48,65,88,.04)" },
   connectionGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 12 },
   connectionCard: { minWidth: 0, display: "grid", alignContent: "start", gap: 9, padding: 14, border: "1px solid #d5e0ed", borderRadius: 14, background: "#fff", color: "#303e54", textAlign: "left", boxShadow: "0 4px 12px rgba(48,60,80,.045)", cursor: "pointer", transition: "border-color .15s,box-shadow .15s,transform .15s" },
   connectionCardSelected: { borderColor: "#315f88", boxShadow: "0 0 0 2px rgba(49,95,136,.14),0 8px 18px rgba(43,79,112,.12)", transform: "translateY(-1px)" },
-  connectionCardHead: { minWidth: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 7, fontSize: 11 },
+  connectionCardHead: { minWidth: 0, display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 7, fontSize: 12 },
   connectionUniversityWrap: { minWidth: 0, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  connectionEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 20, padding: "0 6px", borderRadius: 6, background: "#e8eef7", color: "#536785", fontSize: 10.5, fontWeight: 950 },
+  connectionEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 20, padding: "0 6px", borderRadius: 6, background: "#e8eef7", color: "#536785", fontSize: 11.5, fontWeight: 950 },
   connectionUniversityName: { minWidth: 0, fontSize: 16, lineHeight: 1.3, color: "#173a68", fontWeight: 950, overflowWrap: "anywhere" },
-  connectionMinimumDanger: { display: "inline-flex", width: "fit-content", padding: "3px 6px", borderRadius: 999, border: "1px solid #efb6b6", background: "#fff0f0", color: "#b22f2f", fontSize: 9.2, fontWeight: 950, fontStyle: "normal", lineHeight: 1 },
+  connectionMinimumDanger: { display: "inline-flex", width: "fit-content", padding: "3px 6px", borderRadius: 999, border: "1px solid #efb6b6", background: "#fff0f0", color: "#b22f2f", fontSize: 10.2, fontWeight: 950, fontStyle: "normal", lineHeight: 1 },
   connectionDepartmentWrap: { display: "grid", gap: 4, padding: "9px 10px", border: "1px solid #d7e2ed", borderRadius: 9, background: "linear-gradient(135deg,#f4f8fc,#fff)" },
   connectionFavoriteBtn: { flex: "0 0 auto", width: 29, height: 29, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #d4dce7", borderRadius: 8, background: "#fff", color: "#8b95a3", cursor: "pointer" },
   connectionDepartment: { minHeight: 0, fontSize: 16, lineHeight: 1.45, color: "#244f75", fontWeight: 900, wordBreak: "keep-all", overflowWrap: "anywhere" },
-  connectionMeta: { minHeight: 21, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", color: "#6f7c90", fontSize: 11 },
+  connectionMeta: { minHeight: 21, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", color: "#6f7c90", fontSize: 12 },
   integratedBadge: { padding: "3px 6px", borderRadius: 999, background: "#fff3d9", color: "#86601c", fontWeight: 900 },
   officialBadge: { padding: "3px 6px", borderRadius: 999, background: "#e9f5ef", color: "#2e7358", fontWeight: 900 },
   connectionDataCompare: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(0,1fr)", gap: 8 },
   connectionNaviBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #cbdbea", borderRadius: 11, background: "linear-gradient(135deg,#f2f7fb,#fff)", color: "#35536f" },
   connectionSchoolBlock: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: 10, border: "1px solid #e6c2c8", borderRadius: 11, background: "linear-gradient(135deg,#fff3f5,#fffafb)", color: "#713f49" },
   connectionDataHeading: { minWidth: 0, display: "grid", gap: 3 },
-  connectionNaviBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#dfeaf4", color: "#315f88", fontSize: 9.5, fontWeight: 950 },
-  connectionSchoolBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f3dce1", color: "#8a4050", fontSize: 9.5, fontWeight: 950 },
+  connectionNaviBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#dfeaf4", color: "#315f88", fontSize: 10.5, fontWeight: 950 },
+  connectionSchoolBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f3dce1", color: "#8a4050", fontSize: 10.5, fontWeight: 950 },
   connectionNaviMetrics: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 5 },
   connectionSchoolMetrics: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   connectionCutBasisMetric: { borderColor: "#e2bd78", background: "#fff2d8" },
-  connectionSchoolBlockFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, flexWrap: "wrap", color: "#86656c", fontSize: 9.5 },
-  connectionSchoolLink: { minHeight: 35, padding: "0 9px", border: "1px solid #dfb7bf", borderRadius: 8, background: "#fff", color: "#8a4050", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
-  connectionSource: { display: "grid", gap: 2, padding: "7px 8px", borderRadius: 8, background: "rgba(255,255,255,.72)", color: "#6e6680", fontSize: 10.2, lineHeight: 1.45 },
+  connectionSchoolBlockFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, flexWrap: "wrap", color: "#86656c", fontSize: 10.5 },
+  connectionSchoolLink: { minHeight: 35, padding: "0 9px", border: "1px solid #dfb7bf", borderRadius: 8, background: "#fff", color: "#8a4050", fontSize: 11.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  connectionSource: { display: "grid", gap: 2, padding: "7px 8px", borderRadius: 8, background: "rgba(255,255,255,.72)", color: "#6e6680", fontSize: 11.2, lineHeight: 1.45 },
   connectionCardFoot: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, paddingTop: 8, borderTop: "1px dashed #dce3ec", fontSize: 11.5, flexWrap: "wrap" },
   connectionFooterNav: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", alignItems: "center", gap: 10, paddingTop: 11, borderTop: "1px solid #e1e6ee" },
   connectionBackButton: { minHeight: 40, padding: "0 13px", border: "1px solid #cbd6e5", borderRadius: 10, background: "#fff", color: "#465873", fontSize: 12.5, fontWeight: 900, cursor: "pointer" },
   connectionSelectionStatus: { minWidth: 0, display: "grid", justifyItems: "center", gap: 3, color: "#707c8f", fontSize: 11.5, textAlign: "center" },
   connectionNextButton: { minHeight: 42, padding: "0 15px", border: 0, borderRadius: 10, background: "#315f88", color: "#fff", fontSize: 12.5, fontWeight: 950, cursor: "pointer", boxShadow: "0 5px 12px rgba(49,95,136,.18)" },
-  focusFallbackNotice: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 11px", border: "1px solid #edd2a8", borderRadius: 10, background: "#fff8ea", color: "#7a5b25", fontSize: 9.8, lineHeight: 1.5 },
+  focusFallbackNotice: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 11px", border: "1px solid #edd2a8", borderRadius: 10, background: "#fff8ea", color: "#7a5b25", fontSize: 10.8, lineHeight: 1.5 },
   resultList: { display: "grid", gap: 10 },
   resultCard: { display: "grid", gap: 0, border: "1px solid #d6e0ec", borderRadius: 15, background: "#fff", overflow: "hidden", boxShadow: "0 5px 15px rgba(52,62,78,.04)" },
   resultSummary: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(300px,1fr) auto auto", alignItems: "center", gap: 14, padding: "17px 18px", background: "linear-gradient(135deg,#fff,#f8fafe)" },
   resultSummaryIdentity: { minWidth: 0, display: "grid", gap: 5 },
-  resultEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 22, padding: "0 7px", borderRadius: 7, background: "#e7edf6", color: "#48617f", fontSize: 10.5, fontWeight: 950, whiteSpace: "nowrap" },
+  resultEntityLabel: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 22, padding: "0 7px", borderRadius: 7, background: "#e7edf6", color: "#48617f", fontSize: 11.5, fontWeight: 950, whiteSpace: "nowrap" },
   resultDepartmentLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
   resultQuickStats: { display: "grid", gridTemplateColumns: "repeat(3,74px)", gap: 5 },
   resultActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
@@ -3330,39 +3386,39 @@ const ui = {
   schoolTrendCompact: { paddingTop: 11, paddingBottom: 11 },
   schoolTrendExpanded: { marginTop: 14, borderTop: "1px solid #dfb6be", boxShadow: "inset 0 5px 0 rgba(181,86,105,.08)" },
   schoolTrendHeading: { minWidth: 0, display: "grid", gap: 5 },
-  schoolTrendSeparation: { display: "grid", gap: 1, fontSize: 10, lineHeight: 1.4, color: "#87676e" },
-  schoolSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f3dce1", color: "#8a4050", fontSize: 9.5, fontWeight: 950 },
+  schoolTrendSeparation: { display: "grid", gap: 1, fontSize: 11, lineHeight: 1.4, color: "#87676e" },
+  schoolSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#f3dce1", color: "#8a4050", fontSize: 10.5, fontWeight: 950 },
   schoolTrendMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   schoolTrendTypes: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(155px,1fr))", alignItems: "stretch", gap: 7 },
   schoolTrendTypeMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 4 },
-  schoolTrendMore: { gridColumn: "1/-1", padding: "4px 2px", fontSize: 9.5, color: "#8b6f75" },
-  schoolTrendAction: { minWidth: 150, display: "grid", justifyItems: "end", gap: 5, color: "#86656c", fontSize: 10, lineHeight: 1.45 },
-  schoolTrendOpenButton: { minHeight: 38, padding: "0 11px", border: "1px solid #dfb7bf", borderRadius: 9, background: "#fff", color: "#8a4050", fontSize: 10.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  schoolTrendMore: { gridColumn: "1/-1", padding: "4px 2px", fontSize: 10.5, color: "#8b6f75" },
+  schoolTrendAction: { minWidth: 150, display: "grid", justifyItems: "end", gap: 5, color: "#86656c", fontSize: 11, lineHeight: 1.45 },
+  schoolTrendOpenButton: { minHeight: 38, padding: "0 11px", border: "1px solid #dfb7bf", borderRadius: 9, background: "#fff", color: "#8a4050", fontSize: 11.5, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   resultCardBody: { minWidth: 0, display: "grid", gridTemplateColumns: "minmax(245px,285px) minmax(0,1fr)", gap: 16, padding: "18px", borderTop: "1px solid #e1e7ef", background: "#fff" },
   resultIdentity: { minWidth: 0, display: "grid", alignContent: "start", gap: 10, padding: 14, borderRadius: 12, background: "linear-gradient(180deg,#f5f8fc,#fafbfd)", border: "1px solid #e3e8f0", overflow: "visible", wordBreak: "keep-all", overflowWrap: "anywhere" },
-  identityLabel: { fontSize: 10.5, color: "#5c6d84", fontWeight: 950 },
-  identitySourceNote: { display: "block", minWidth: 0, fontSize: 10.5, lineHeight: 1.55, color: "#768398", wordBreak: "keep-all", overflowWrap: "anywhere" },
-  detailTabGuide: { display: "grid", gap: 3, padding: "9px", borderRadius: 8, border: "1px solid #e0e5ed", background: "#fff", color: "#6c788a", fontSize: 9.3, lineHeight: 1.4 },
+  identityLabel: { fontSize: 11.5, color: "#5c6d84", fontWeight: 950 },
+  identitySourceNote: { display: "block", minWidth: 0, fontSize: 11.5, lineHeight: 1.55, color: "#768398", wordBreak: "keep-all", overflowWrap: "anywhere" },
+  detailTabGuide: { display: "grid", gap: 3, padding: "9px", borderRadius: 8, border: "1px solid #e0e5ed", background: "#fff", color: "#6c788a", fontSize: 10.3, lineHeight: 1.4 },
   sameUnitNote: { minWidth: 0, padding: "9px", borderRadius: 8, background: "#eef3f8", color: "#667488", fontSize: 12.5, lineHeight: 1.55, wordBreak: "keep-all", overflowWrap: "anywhere" },
   universityLine: { minWidth: 0, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" },
   universityName: { margin: 0, fontFamily: "KDRound,Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 17.5, lineHeight: 1.3, fontWeight: 850, letterSpacing: "-.015em", color: "#18304f" },
-  fieldBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e8edf5", color: "#506078", fontSize: 9.3, fontWeight: 900 },
-  naviInlineBadge: { display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#eee9f8", color: "#66518e", fontSize: 9.2, fontWeight: 950 },
+  fieldBadge: { display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e8edf5", color: "#506078", fontSize: 10.3, fontWeight: 900 },
+  naviInlineBadge: { display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#eee9f8", color: "#66518e", fontSize: 10.2, fontWeight: 950 },
   favoriteBtn: { flex: "0 0 auto", width: 34, height: 34, borderRadius: 9, border: "1px solid #d2dbe8", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#7b8799", background: "#fff", cursor: "pointer" },
   favoriteBtnActive: { color: "#a96f08", background: "#fff7d8", borderColor: "#dec06a" },
   favoriteBtnDisabled: { opacity: .42, cursor: "not-allowed" },
   unitTitle: { minWidth: 0, fontFamily: "KDRound,Pretendard, 'Noto Sans KR', system-ui, sans-serif", fontSize: 14.5, lineHeight: 1.5, fontWeight: 850, color: "#2b3d55", wordBreak: "keep-all", overflowWrap: "anywhere" },
-  location: { fontSize: 11.3, color: "#6f7d91" },
+  location: { fontSize: 12.3, color: "#6f7d91" },
   previousUnit: { minWidth: 0, display: "grid", gap: 7, padding: "12px", border: "1px solid #dce4ef", borderRadius: 10, background: "#fff", fontSize: 11.5, lineHeight: 1.55, color: "#657286", wordBreak: "keep-all", overflowWrap: "anywhere" },
   resultDetailArea: { minWidth: 0, display: "grid", alignContent: "start", gap: 10 },
   detailTabs: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 5, padding: 5, border: "1px solid #dce3ed", borderRadius: 11, background: "#edf1f6" },
-  detailTabButton: { minHeight: 38, border: "1px solid transparent", borderRadius: 9, background: "transparent", color: "#5f6d82", fontSize: 11, fontWeight: 900, cursor: "pointer" },
+  detailTabButton: { minHeight: 38, border: "1px solid transparent", borderRadius: 9, background: "transparent", color: "#5f6d82", fontSize: 12, fontWeight: 900, cursor: "pointer" },
   detailTabActive: { background: "#fff", borderColor: "#d4dce8", color: "#56417f", boxShadow: "0 3px 8px rgba(70,55,105,.12)" },
   admissionColumns: { minWidth: 0, display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 10 },
   admissionColumnsSingle: { gridTemplateColumns: "minmax(0,1fr)" },
   resultSection: { minWidth: 0, display: "grid", alignContent: "start", gap: 7 },
-  resultSectionTitle: { minHeight: 26, display: "flex", alignItems: "center", gap: 6, fontSize: 10, fontWeight: 850, color: "#697487" },
-  sectionTypeBadge: { display: "inline-flex", alignItems: "center", padding: "4px 7px", borderRadius: 7, fontSize: 10.5, fontWeight: 900 },
+  resultSectionTitle: { minHeight: 26, display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 850, color: "#697487" },
+  sectionTypeBadge: { display: "inline-flex", alignItems: "center", padding: "4px 7px", borderRadius: 7, fontSize: 11.5, fontWeight: 900 },
   sectionTeaching: { color: "#315f9a", background: "#eaf2ff" },
   sectionHolistic: { color: "#76518f", background: "#f3eafb" },
   sectionRegular: { color: "#27715b", background: "#e9f7f1" },
@@ -3372,63 +3428,63 @@ const ui = {
   admissionItem: { minWidth: 0, display: "grid", alignContent: "start", gap: 8, padding: "12px", borderRadius: 11, border: "1px solid #dce3ed", background: "#fbfcfd", fontSize: 12.5, lineHeight: 1.5 },
   admissionItemHead: { minWidth: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 },
   admissionName: { minWidth: 0, color: "#26384f", fontSize: 13.5, fontWeight: 900, lineHeight: 1.45, wordBreak: "keep-all", overflowWrap: "anywhere" },
-  officialCutLabel: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, paddingTop: 2, color: "#728096", fontSize: 9.5, fontWeight: 900 },
-  officialCutBasisTag: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", minHeight: 20, padding: "0 6px", borderRadius: 999, background: "#ebe5f6", color: "#5b4387", fontSize: 9, fontWeight: 950 },
-  supportBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 38, padding: "3px 7px", border: "1px solid", borderRadius: 999, fontSize: 9.5, fontWeight: 900 },
+  officialCutLabel: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, paddingTop: 2, color: "#728096", fontSize: 10.5, fontWeight: 900 },
+  officialCutBasisTag: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", minHeight: 20, padding: "0 6px", borderRadius: 999, background: "#ebe5f6", color: "#5b4387", fontSize: 10, fontWeight: 950 },
+  supportBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 38, padding: "3px 7px", border: "1px solid", borderRadius: 999, fontSize: 10.5, fontWeight: 900 },
   cutoffGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 },
   cutoffBox: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7, minHeight: 39, padding: "7px 9px", border: "1px solid #e0e5ed", borderRadius: 9, background: "rgba(255,255,255,.78)", color: "#677387", fontFamily: "KDRound,Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif" },
   cutoffBoxActive: { borderColor: "#66558e", background: "linear-gradient(135deg,#f3effb,#fff)", color: "#5b4787", boxShadow: "0 0 0 2px rgba(102,85,142,.12),0 4px 10px rgba(86,69,126,.10)" },
   cutoffBoxLabel: { fontSize: 11.5, lineHeight: 1.2, fontWeight: 900, letterSpacing: "-.01em" },
   cutoffBoxValue: { fontSize: 15, lineHeight: 1.1, fontWeight: 950, letterSpacing: "-.02em" },
-  studentDifference: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 9.5, fontWeight: 750 },
-  caseNone: { color: "#9aa2af", fontSize: 9 },
+  studentDifference: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 10.5, fontWeight: 750 },
+  caseNone: { color: "#9aa2af", fontSize: 10 },
   caseDisclosure: { marginTop: 2, padding: "8px", border: "1px solid #ded5ec", borderRadius: 10, background: "#faf7fe", display: "grid", gap: 7 },
   caseToggleBtn: { minHeight: 54, display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", alignItems: "center", gap: 9, padding: "7px 9px", border: "1px solid #d6deea", borderRadius: 10, background: "linear-gradient(135deg,#fff,#f8f9fc)", color: "#526078", cursor: "pointer", textAlign: "left" },
   caseToggleIdentity: { minWidth: 0, display: "grid", gap: 2 },
   caseToggleCount: { minWidth: 56, display: "grid", justifyItems: "center", gap: 0, padding: "4px 7px", borderRadius: 8, background: "#eee9f8", color: "#614d88" },
-  caseToggleAction: { whiteSpace: "nowrap", fontSize: 8.8, fontWeight: 850, color: "#697589" },
+  caseToggleAction: { whiteSpace: "nowrap", fontSize: 9.8, fontWeight: 850, color: "#697589" },
   caseCutGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
-  caseScopeNote: { display: "grid", gap: 2, color: "#7d8797", fontSize: 8.7, lineHeight: 1.4, textAlign: "center" },
+  caseScopeNote: { display: "grid", gap: 2, color: "#7d8797", fontSize: 9.7, lineHeight: 1.4, textAlign: "center" },
   caseCutCard: { display: "grid", gap: 2, padding: "7px 5px", borderRadius: 8, border: "1px solid", textAlign: "center" },
   caseCutSelected: { boxShadow: "0 0 0 2px rgba(91,67,136,.17),0 4px 10px rgba(91,67,136,.10)", transform: "translateY(-1px)" },
-  caseCutLabel: { fontFamily: "KDRound,Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif", fontSize: 10.5, fontWeight: 900, letterSpacing: "-.01em" },
+  caseCutLabel: { fontFamily: "KDRound,Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif", fontSize: 11.5, fontWeight: 900, letterSpacing: "-.01em" },
   caseCutValue: { fontFamily: "KDRound,Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', system-ui, sans-serif", fontSize: 14, lineHeight: 1.1, fontWeight: 950, letterSpacing: "-.02em" },
   case30: { color: "#39638d", background: "#eef5fd", borderColor: "#cbdced" },
   case50: { color: "#64518e", background: "#f4effb", borderColor: "#d9cdea" },
   case70: { color: "#8b5f22", background: "#fff6e6", borderColor: "#ead3aa" },
   relatedDetails: { marginTop: 8, borderTop: "1px solid #e0e5ed", paddingTop: 8 },
-  relatedSummary: { cursor: "pointer", listStyle: "none", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 10, fontWeight: 850, color: "#526078" },
-  relatedBody: { marginTop: 7, display: "grid", gap: 8, fontSize: 9.5 },
+  relatedSummary: { cursor: "pointer", listStyle: "none", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 11, fontWeight: 850, color: "#526078" },
+  relatedBody: { marginTop: 7, display: "grid", gap: 8, fontSize: 10.5 },
   teachingItem: { borderColor: "#d3dff0", background: "#f5f8ff" },
   holisticItem: { borderColor: "#e1d8ea", background: "#fbf7fe" },
   regularItem: { borderColor: "#cee2da", background: "#f3faf7" },
   regularHead: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 7 },
-  regularPercentile: { flex: "0 0 auto", padding: "4px 7px", borderRadius: 8, background: "#dff1e9", color: "#276e57", fontSize: 9.5, fontWeight: 800 },
+  regularPercentile: { flex: "0 0 auto", padding: "4px 7px", borderRadius: 8, background: "#dff1e9", color: "#276e57", fontSize: 10.5, fontWeight: 800 },
   regularMeta: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "#647386" },
-  regularSubjects: { margin: 0, paddingTop: 5, borderTop: "1px dashed #d7e4df", color: "#4f625c", fontSize: 9.5, lineHeight: 1.45, wordBreak: "keep-all" },
-  none: { padding: "11px 8px", borderRadius: 9, background: "#f5f6f8", color: "#9aa1ad", fontSize: 10.5, lineHeight: 1.4, textAlign: "center" },
-  minimumAlertBadge: { display: "inline-flex", alignItems: "center", gap: 4, width: "fit-content", marginTop: 6, padding: "5px 8px", borderRadius: 999, border: "1px solid #efb6b6", background: "#fff0f0", color: "#b12f2f", fontSize: 10.5, fontWeight: 950, lineHeight: 1 },
+  regularSubjects: { margin: 0, paddingTop: 5, borderTop: "1px dashed #d7e4df", color: "#4f625c", fontSize: 10.5, lineHeight: 1.45, wordBreak: "keep-all" },
+  none: { padding: "11px 8px", borderRadius: 9, background: "#f5f6f8", color: "#9aa1ad", fontSize: 11.5, lineHeight: 1.4, textAlign: "center" },
+  minimumAlertBadge: { display: "inline-flex", alignItems: "center", gap: 4, width: "fit-content", marginTop: 6, padding: "5px 8px", borderRadius: 999, border: "1px solid #efb6b6", background: "#fff0f0", color: "#b12f2f", fontSize: 11.5, fontWeight: 950, lineHeight: 1 },
   minimumList: { display: "grid", gap: 7 },
-  minimumItem: { display: "grid", gap: 5, padding: "10px", borderRadius: 10, border: "1px solid #ead6a5", background: "#fffaf0", fontSize: 10.5 },
+  minimumItem: { display: "grid", gap: 5, padding: "10px", borderRadius: 10, border: "1px solid #ead6a5", background: "#fffaf0", fontSize: 11.5 },
   minimumItemDanger: { border: "1.5px solid #e7a5a5", background: "#fff7f7" },
   minimumHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7 },
   minimumCriteriaRow: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },
   minimumCriteria: { flex: 1, minWidth: 0, padding: "6px 7px", borderRadius: 7, background: "#fff2cc", color: "#7a5718", lineHeight: 1.48, wordBreak: "keep-all", overflowWrap: "anywhere" },
-  minimumStatusBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "5px 7px", borderRadius: 999, fontSize: 9.5, fontWeight: 950, lineHeight: 1, whiteSpace: "nowrap" },
+  minimumStatusBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "5px 7px", borderRadius: 999, fontSize: 10.5, fontWeight: 950, lineHeight: 1, whiteSpace: "nowrap" },
   minimumStatusDanger: { border: "1px solid #efb2b2", background: "#ffeded", color: "#b32424" },
   minimumStatusSuccess: { border: "1px solid #b9ddc4", background: "#edf8f1", color: "#276443" },
   minimumStatusWarning: { border: "1px solid #e6cf9a", background: "#fff8e6", color: "#89631b" },
   minimumStatusNeutral: { border: "1px solid #d8dce4", background: "#f4f6f8", color: "#687384" },
   minimumNote: { color: "#786e5e", lineHeight: 1.5, wordBreak: "keep-all", overflowWrap: "anywhere" },
-  minimumEvaluationNote: { color: "#8a7d6a", fontSize: 9.2, fontWeight: 800 },
+  minimumEvaluationNote: { color: "#8a7d6a", fontSize: 10.2, fontWeight: 800 },
   noResult: { padding: 42, borderRadius: 15, border: "1px dashed #d5dae2", background: "#fafbfc", textAlign: "center", color: "#838b99" },
   pagination: { display: "flex", justifyContent: "center", alignItems: "center", gap: 7, padding: "14px 8px 5px", flexWrap: "wrap" },
-  pageNavBtn: { minHeight: 34, display: "inline-flex", alignItems: "center", gap: 3, padding: "0 11px", border: "1px solid #d4dce8", borderRadius: 9, background: "#fff", color: "#536075", fontSize: 10.5, fontWeight: 850, cursor: "pointer" },
+  pageNavBtn: { minHeight: 34, display: "inline-flex", alignItems: "center", gap: 3, padding: "0 11px", border: "1px solid #d4dce8", borderRadius: 9, background: "#fff", color: "#536075", fontSize: 11.5, fontWeight: 850, cursor: "pointer" },
   pageIconBtn: { width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #d4dce8", borderRadius: 9, background: "#fff", color: "#697588", cursor: "pointer" },
   pageNumbers: { display: "flex", gap: 4 },
-  pageNumberBtn: { width: 32, height: 32, border: "1px solid #d9e0ea", borderRadius: 8, background: "#fff", color: "#637084", fontSize: 10.5, fontWeight: 800, cursor: "pointer" },
+  pageNumberBtn: { width: 32, height: 32, border: "1px solid #d9e0ea", borderRadius: 8, background: "#fff", color: "#637084", fontSize: 11.5, fontWeight: 800, cursor: "pointer" },
   pageNumberActive: { color: "#fff", background: "#65548f", borderColor: "#65548f", boxShadow: "0 4px 10px rgba(77,62,116,.18)" },
-  pageStatus: { minWidth: 60, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 8px", height: 32, borderRadius: 8, background: "#f1f3f7", color: "#707b8d", fontSize: 10.5 },
+  pageStatus: { minWidth: 60, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 8px", height: 32, borderRadius: 8, background: "#f1f3f7", color: "#707b8d", fontSize: 11.5 },
   adminWrap: { display: "grid", gap: 16, padding: 18, border: "1px solid #d9dfeb", borderRadius: 18, background: "linear-gradient(180deg,#fff,#fcfcfe)", boxShadow: "0 8px 24px rgba(52,62,78,.05)" },
   adminHead: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
   adminHeadingText: { display: "grid", gap: 1, minWidth: 0 },
@@ -3440,22 +3496,22 @@ const ui = {
   summaryDraft: { background: "#f5f8ff", borderColor: "#ccd8ec" },
   summaryTop: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" },
   summaryHeading: { display: "grid", gap: 3, minWidth: 0 },
-  summaryEyebrow: { fontSize: 9.5, color: "#778398", fontWeight: 850 },
+  summaryEyebrow: { fontSize: 10.5, color: "#778398", fontWeight: 850 },
   summaryTitle: { fontSize: 15.5, lineHeight: 1.25, color: "#29374c", letterSpacing: "-.015em" },
   summaryDescription: { fontSize: 12, lineHeight: 1.5, color: "#738094" },
-  statePill: { padding: "4px 8px", borderRadius: 999, fontSize: 9.5, fontWeight: 900 },
+  statePill: { padding: "4px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 900 },
   stateSchool: { color: "#287348", background: "#e1f3e8" },
   stateDraft: { color: "#315a9b", background: "#e7efff" },
   statGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 7 },
   miniStat: { display: "grid", gap: 3, padding: "10px 8px", borderRadius: 10, background: "rgba(255,255,255,.82)", textAlign: "center", border: "1px solid rgba(210,219,233,.62)" },
-  miniStatLabel: { fontSize: 9.5, color: "#718095", fontWeight: 800 },
+  miniStatLabel: { fontSize: 10.5, color: "#718095", fontWeight: 800 },
   miniStatValue: { fontSize: 19, lineHeight: 1.1, color: "#243d64", fontWeight: 900 },
   sourceMeta: { display: "grid", gap: 4, paddingTop: 2, fontSize: 12, lineHeight: 1.5, color: "#6f7888", minWidth: 0 },
-  summaryEmpty: { padding: 22, textAlign: "center", color: "#9299a6", fontSize: 11 },
+  summaryEmpty: { padding: 22, textAlign: "center", color: "#9299a6", fontSize: 12 },
   uploadPanel: { display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 9, alignItems: "center", padding: 12, borderRadius: 13, border: "1px solid #e2e6ee", background: "#f7f8fb" },
-  fileName: { minWidth: 0, display: "grid", gap: 2, fontSize: 11, color: "#737c8c", overflow: "hidden" },
-  statusLine: { display: "flex", alignItems: "center", gap: 7, padding: "8px 10px", borderRadius: 9, background: "#f1f3f7", color: "#667085", fontSize: 10.5 },
-  notice: { display: "flex", gap: 7, padding: 10, borderRadius: 10, background: "#fff8e7", color: "#725d26", fontSize: 10.5, lineHeight: 1.5 },
+  fileName: { minWidth: 0, display: "grid", gap: 2, fontSize: 12, color: "#737c8c", overflow: "hidden" },
+  statusLine: { display: "flex", alignItems: "center", gap: 7, padding: "8px 10px", borderRadius: 9, background: "#f1f3f7", color: "#667085", fontSize: 11.5 },
+  notice: { display: "flex", gap: 7, padding: 10, borderRadius: 10, background: "#fff8e7", color: "#725d26", fontSize: 11.5, lineHeight: 1.5 },
   primaryBtn: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 13px", border: 0, borderRadius: 10, color: "#fff", background: "#66558e", fontWeight: 850, cursor: "pointer" },
   secondaryBtn: { minHeight: 38, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "0 12px", border: "1px solid #cbd5e3", borderRadius: 10, color: "#455166", background: "#fff", fontWeight: 800, cursor: "pointer" },
   dangerGhost: { minHeight: 34, display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px", border: "1px solid #ebc7c2", borderRadius: 9, color: "#ae4c42", background: "#fff8f7", fontWeight: 800, cursor: "pointer" },
@@ -3464,41 +3520,41 @@ const ui = {
   recommendDataGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 },
   recommendDataCard: { minWidth: 0, display: "grid", gap: 4, padding: 11, border: "1px solid #d7e5de", borderRadius: 10, background: "#fff", color: "#596b63" },
   recommendUploadRow: { display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto auto", gap: 8, alignItems: "center" },
-  recommendOfficialNote: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 10px", borderRadius: 9, background: "#eef7f2", color: "#4d665a", fontSize: 10.5, lineHeight: 1.5 },
-  recommendOfficialLink: { width: "fit-content", display: "inline-flex", marginTop: 5, color: "#315f88", fontSize: 10.5, fontWeight: 900, textDecoration: "none" },
-  recommendSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#e2f2e8", color: "#2e6a49", fontSize: 9.3, fontWeight: 950 },
+  recommendOfficialNote: { display: "flex", alignItems: "flex-start", gap: 7, padding: "9px 10px", borderRadius: 9, background: "#eef7f2", color: "#4d665a", fontSize: 11.5, lineHeight: 1.5 },
+  recommendOfficialLink: { width: "fit-content", display: "inline-flex", marginTop: 5, color: "#315f88", fontSize: 11.5, fontWeight: 900, textDecoration: "none" },
+  recommendSourceBadge: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#e2f2e8", color: "#2e6a49", fontSize: 10.3, fontWeight: 950 },
   // 5번 요청: "공식 자료"(초록)와 "다른 대학 기반 추정"(주황)이 색으로도 바로 구분되게 합니다.
-  recommendSourceBadgeEstimate: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#fff3d9", color: "#8a5a12", fontSize: 9.3, fontWeight: 950 },
-  recommendEstimateNotice: { margin: "0 0 8px", padding: "7px 9px", borderRadius: 8, border: "1px solid #eecd8a", background: "#fff8e6", color: "#7a5718", fontSize: 10, lineHeight: 1.5, wordBreak: "keep-all", overflowWrap: "anywhere" },
-  compareAddButton: { minHeight: 38, padding: "0 10px", border: "1px solid #c9d9d1", borderRadius: 10, background: "#f5faf7", color: "#3f6c57", fontSize: 11, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
+  recommendSourceBadgeEstimate: { width: "fit-content", display: "inline-flex", alignItems: "center", minHeight: 21, padding: "0 7px", borderRadius: 7, background: "#fff3d9", color: "#8a5a12", fontSize: 10.3, fontWeight: 950 },
+  recommendEstimateNotice: { margin: "0 0 8px", padding: "7px 9px", borderRadius: 8, border: "1px solid #eecd8a", background: "#fff8e6", color: "#7a5718", fontSize: 11, lineHeight: 1.5, wordBreak: "keep-all", overflowWrap: "anywhere" },
+  compareAddButton: { minHeight: 38, padding: "0 10px", border: "1px solid #c9d9d1", borderRadius: 10, background: "#f5faf7", color: "#3f6c57", fontSize: 12, fontWeight: 900, cursor: "pointer", whiteSpace: "nowrap" },
   compareAddButtonActive: { borderColor: "#6d927f", background: "#e7f3ec", color: "#285c43" },
   admissionHeadBadges: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 5, flexWrap: "wrap" },
-  planAddButton: { minHeight: 32, border: "1px solid #cbd8e8", borderRadius: 8, background: "#fff", color: "#3d5879", fontSize: 10.3, fontWeight: 900, cursor: "pointer" },
+  planAddButton: { minHeight: 32, border: "1px solid #cbd8e8", borderRadius: 8, background: "#fff", color: "#3d5879", fontSize: 11.3, fontWeight: 900, cursor: "pointer" },
   planAddButtonActive: { borderColor: "#7d6aa5", background: "#f1edf8", color: "#5a4783" },
-  recommendEmpty: { display: "grid", gap: 3, padding: 10, border: "1px dashed #d5dfda", borderRadius: 9, background: "#fbfdfc", color: "#75837c", fontSize: 9.5, lineHeight: 1.45 },
+  recommendEmpty: { display: "grid", gap: 3, padding: 10, border: "1px dashed #d5dfda", borderRadius: 9, background: "#fbfdfc", color: "#75837c", fontSize: 10.5, lineHeight: 1.45 },
   recommendPanel: { display: "grid", gap: 9, padding: 11, border: "1px solid #cfe0d8", borderRadius: 10, background: "linear-gradient(135deg,#f4fbf7,#fff)" },
   recommendPanelHead: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
   recommendProgress: { flex: "0 0 auto", minWidth: 70, display: "grid", justifyItems: "center", gap: 2, padding: "7px 8px", borderRadius: 9, background: "#e5f4eb", color: "#2f694b" },
-  recommendCourseGroup: { display: "grid", gap: 5, fontSize: 9.5, color: "#51665b" },
-  recommendCourseChip: { display: "inline-flex", alignItems: "center", gap: 4, margin: "2px 4px 2px 0", padding: "4px 6px", border: "1px solid", borderRadius: 999, fontSize: 9.2, fontWeight: 850 },
+  recommendCourseGroup: { display: "grid", gap: 5, fontSize: 10.5, color: "#51665b" },
+  recommendCourseChip: { display: "inline-flex", alignItems: "center", gap: 4, margin: "2px 4px 2px 0", padding: "4px 6px", border: "1px solid", borderRadius: 999, fontSize: 10.2, fontWeight: 850 },
   recommendCourseMatched: { color: "#2d6b49", background: "#eaf7ef", borderColor: "#bddfc9" },
   recommendCourseMissing: { color: "#7a6650", background: "#fff8ed", borderColor: "#e8d6b9" },
-  recommendNotes: { display: "grid", gap: 3, padding: "7px 8px", borderRadius: 8, background: "#f7faf8", color: "#617268", fontSize: 9.2, lineHeight: 1.45 },
-  recommendDisclaimer: { margin: 0, paddingTop: 6, borderTop: "1px dashed #d9e5de", color: "#718078", fontSize: 8.9, lineHeight: 1.45 },
-  recommendSourceLink: { color: "#315f88", fontSize: 9.2, fontWeight: 900, textDecoration: "none" },
+  recommendNotes: { display: "grid", gap: 3, padding: "7px 8px", borderRadius: 8, background: "#f7faf8", color: "#617268", fontSize: 10.2, lineHeight: 1.45 },
+  recommendDisclaimer: { margin: 0, paddingTop: 6, borderTop: "1px dashed #d9e5de", color: "#718078", fontSize: 9.9, lineHeight: 1.45 },
+  recommendSourceLink: { color: "#315f88", fontSize: 10.2, fontWeight: 900, textDecoration: "none" },
   consultLinkBar: { display: "grid", gridTemplateColumns: "minmax(0,1.45fr) minmax(270px,.8fr) auto", gap: 12, alignItems: "center", padding: "13px 15px", border: "1px solid #d4dfeb", borderRadius: 14, background: "linear-gradient(135deg,#f8fbff,#f7faf8)", boxShadow: "0 4px 14px rgba(42,63,88,.035)" },
   consultLinkCopy: { minWidth: 0, display: "grid", gap: 3 },
-  consultLinkEyebrow: { width: "fit-content", display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e7f1fb", color: "#315f91", fontSize: 9.5, fontWeight: 950 },
+  consultLinkEyebrow: { width: "fit-content", display: "inline-flex", padding: "3px 7px", borderRadius: 999, background: "#e7f1fb", color: "#315f91", fontSize: 10.5, fontWeight: 950 },
   consultLinkStats: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 6 },
   consultLinkActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 7, flexWrap: "wrap" },
-  consultStrategyButton: { minHeight: 36, padding: "0 11px", border: "1px solid #315f91", borderRadius: 9, background: "#315f91", color: "#fff", fontSize: 10.8, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
-  consultReturnButton: { minHeight: 36, padding: "0 11px", border: "1px solid #c7d5e3", borderRadius: 9, background: "#fff", color: "#435e79", fontSize: 10.8, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
+  consultStrategyButton: { minHeight: 36, padding: "0 11px", border: "1px solid #315f91", borderRadius: 9, background: "#315f91", color: "#fff", fontSize: 11.8, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
+  consultReturnButton: { minHeight: 36, padding: "0 11px", border: "1px solid #c7d5e3", borderRadius: 9, background: "#fff", color: "#435e79", fontSize: 11.8, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceHero: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 16, alignItems: "center", padding: "18px 19px", border: "1px solid #d3ddea", borderRadius: 16, background: "linear-gradient(135deg,#f8fafc,#f4f8fb)" },
-  workspaceEyebrow: { fontSize: 10, fontWeight: 950, color: "#315f91" },
+  workspaceEyebrow: { fontSize: 11, fontWeight: 950, color: "#315f91" },
   workspaceFlow: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto auto", gap: 12, alignItems: "center", padding: "11px 13px", border: "1px solid #dce5ed", borderRadius: 12, background: "#fbfcfd" },
   workspaceFlowCopy: { minWidth: 0, display: "grid", gap: 2, color: "#647287" },
   workspaceFlowStats: { display: "grid", gridTemplateColumns: "repeat(3,minmax(72px,1fr))", gap: 5 },
-  workspaceConsultButton: { minHeight: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 10px", border: "1px solid var(--kd-brand-border)", borderRadius: 9, background: "#fff", color: "var(--kd-brand)", fontSize: 10.3, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
+  workspaceConsultButton: { minHeight: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "0 10px", border: "1px solid var(--kd-brand-border)", borderRadius: 9, background: "#fff", color: "var(--kd-brand)", fontSize: 11.3, fontWeight: 950, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceStudent: { minWidth: 250, display: "grid", gap: 3, padding: "11px 13px", border: "1px solid #d6deea", borderRadius: 12, background: "#fff", color: "#617086" },
   workspaceMessage: { display: "flex", alignItems: "center", gap: 7, padding: "9px 11px", border: "1px solid #d8dfeb", borderRadius: 10, background: "#f7f9fc", color: "#53627a", fontSize: 11.5, fontWeight: 800 },
   workspaceSection: { display: "grid", gap: 12, padding: 16, border: "1px solid #d8e0ea", borderRadius: 15, background: "#fff" },
@@ -3507,39 +3563,39 @@ const ui = {
   planPrintButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid var(--kd-brand-border)", borderRadius: 10, padding: "8px 12px", background: "#fff", color: "var(--kd-brand)", fontSize: 12, fontWeight: 850, cursor: "pointer", whiteSpace: "nowrap" },
   workspaceSummaryGrid: { display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 8 },
   summaryChipRow: { display: "flex", flexWrap: "wrap", gap: 4, marginTop: 3 },
-  summaryChip: { display: "inline-flex", alignItems: "center", padding: "3px 7px", borderRadius: 999, border: "1px solid", fontSize: 10.8, fontWeight: 850, whiteSpace: "nowrap" },
+  summaryChip: { display: "inline-flex", alignItems: "center", padding: "3px 7px", borderRadius: 999, border: "1px solid", fontSize: 11.8, fontWeight: 850, whiteSpace: "nowrap" },
   summaryChipEmpty: { fontSize: 11.5, color: "#9aa3b1", fontWeight: 700 },
   planGrid: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 9 },
   planEmpty: { minHeight: 150, display: "grid", placeItems: "center", alignContent: "center", gap: 5, padding: 12, border: "1px dashed #d6dde8", borderRadius: 12, background: "#fafbfc", color: "#9aa3b1", textAlign: "center" },
   planCard: { position: "relative", minWidth: 0, minHeight: 150, display: "grid", alignContent: "start", gap: 9, padding: "13px", border: "1px solid #d6dfeb", borderRadius: 12, background: "#fbfcfe" },
-  planNumber: { position: "absolute", top: 9, right: 9, width: 25, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#5e5188", color: "#fff", fontSize: 10, fontWeight: 950 },
+  planNumber: { position: "absolute", top: 9, right: 9, width: 25, height: 25, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 999, background: "#5e5188", color: "#fff", fontSize: 11, fontWeight: 950 },
   planIdentity: { minWidth: 0, display: "grid", gap: 3, paddingRight: 32 },
   planBadges: { display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" },
-  planSupportBadge: { display: "inline-flex", alignItems: "center", padding: "4px 7px", borderRadius: 999, border: "1px solid", fontSize: 9.5, fontWeight: 950 },
-  planMinimumBadge: { display: "inline-flex", alignItems: "center", padding: "4px 7px", borderRadius: 999, border: "1px solid", fontSize: 9.2, fontWeight: 900 },
+  planSupportBadge: { display: "inline-flex", alignItems: "center", padding: "4px 7px", borderRadius: 999, border: "1px solid", fontSize: 10.5, fontWeight: 950 },
+  planMinimumBadge: { display: "inline-flex", alignItems: "center", padding: "4px 7px", borderRadius: 999, border: "1px solid", fontSize: 10.2, fontWeight: 900 },
   workspaceMinimumDanger: { color: "#a92d2d", background: "#fff0f0", borderColor: "#efbcbc" },
   workspaceMinimumSuccess: { color: "#2c7048", background: "#edf8f1", borderColor: "#bedfc9" },
   workspaceMinimumWarning: { color: "#8a641e", background: "#fff8e7", borderColor: "#e6cf9a" },
   workspaceMinimumNeutral: { color: "#667385", background: "#f2f4f7", borderColor: "#d8dde5" },
   planMetrics: { display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 5 },
   planEvidence: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 },
-  planMissing: { color: "#a45b4b", fontSize: 10, fontWeight: 850 },
-  workspaceRemove: { minHeight: 27, padding: "0 8px", border: "1px solid #e2c1bd", borderRadius: 7, background: "#fff8f7", color: "#a74b40", fontSize: 9.5, fontWeight: 900, cursor: "pointer" },
-  workspaceFooter: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingTop: 3, color: "#728095", fontSize: 10.5, flexWrap: "wrap" },
-  workspaceSecondary: { minHeight: 34, padding: "0 11px", border: "1px solid #ccd7e5", borderRadius: 9, background: "#fff", color: "#50617a", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
-  workspacePrimary: { minHeight: 34, padding: "0 11px", border: "1px solid #5f4f88", borderRadius: 9, background: "#66558e", color: "#fff", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
+  planMissing: { color: "#a45b4b", fontSize: 11, fontWeight: 850 },
+  workspaceRemove: { minHeight: 27, padding: "0 8px", border: "1px solid #e2c1bd", borderRadius: 7, background: "#fff8f7", color: "#a74b40", fontSize: 10.5, fontWeight: 900, cursor: "pointer" },
+  workspaceFooter: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingTop: 3, color: "#728095", fontSize: 11.5, flexWrap: "wrap" },
+  workspaceSecondary: { minHeight: 34, padding: "0 11px", border: "1px solid #ccd7e5", borderRadius: 9, background: "#fff", color: "#50617a", fontSize: 11.5, fontWeight: 900, cursor: "pointer" },
+  workspacePrimary: { minHeight: 34, padding: "0 11px", border: "1px solid #5f4f88", borderRadius: 9, background: "#66558e", color: "#fff", fontSize: 11.5, fontWeight: 900, cursor: "pointer" },
   workspaceEmpty: { display: "grid", gap: 4, padding: 24, border: "1px dashed #d5dce6", borderRadius: 11, background: "#fafbfc", color: "#7e8898", textAlign: "center" },
   compareCardGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 9 },
   compareCard: { minWidth: 0, display: "grid", gap: 9, padding: 12, border: "1px solid #d8e1eb", borderRadius: 12, background: "linear-gradient(135deg,#fff,#f9fbfd)" },
   compareCardHead: { minWidth: 0, display: "grid", gridTemplateColumns: "auto minmax(0,1fr) auto", gap: 8, alignItems: "start" },
-  compareIndex: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 24, padding: "0 7px", borderRadius: 999, background: "#e7eef7", color: "#3d5b7c", fontSize: 9, fontWeight: 950, whiteSpace: "nowrap" },
+  compareIndex: { display: "inline-flex", alignItems: "center", justifyContent: "center", minHeight: 24, padding: "0 7px", borderRadius: 999, background: "#e7eef7", color: "#3d5b7c", fontSize: 10, fontWeight: 950, whiteSpace: "nowrap" },
   compareStatusRow: { display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" },
-  compareSupportChip: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid", fontSize: 9.2, fontWeight: 950 },
-  compareNeutralChip: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #d9dfe7", background: "#f4f6f8", color: "#6c7786", fontSize: 9.2, fontWeight: 900 },
-  compareMinimumDanger: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #efc3c3", background: "#fff1f1", color: "#b84444", fontSize: 9.2, fontWeight: 950 },
-  compareMinimumSuccess: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #c3dfcd", background: "#eef8f1", color: "#2c7048", fontSize: 9.2, fontWeight: 950 },
+  compareSupportChip: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid", fontSize: 10.2, fontWeight: 950 },
+  compareNeutralChip: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #d9dfe7", background: "#f4f6f8", color: "#6c7786", fontSize: 10.2, fontWeight: 900 },
+  compareMinimumDanger: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #efc3c3", background: "#fff1f1", color: "#b84444", fontSize: 10.2, fontWeight: 950 },
+  compareMinimumSuccess: { display: "inline-flex", alignItems: "center", minHeight: 23, padding: "0 7px", borderRadius: 999, border: "1px solid #c3dfcd", background: "#eef8f1", color: "#2c7048", fontSize: 10.2, fontWeight: 950 },
   compareMetricGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 6 },
-  compareMissing: { padding: 12, borderRadius: 9, background: "#faf6f5", color: "#9b5d54", fontSize: 10.5, fontWeight: 850, textAlign: "center" },
+  compareMissing: { padding: 12, borderRadius: 9, background: "#faf6f5", color: "#9b5d54", fontSize: 11.5, fontWeight: 850, textAlign: "center" },
 };
 
 const betaCss = `

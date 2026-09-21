@@ -8,21 +8,21 @@
 .kd-decision-number.is-academic{background:#e3f4f1;color:#0f7a72}.kd-decision-number.is-general{background:#f0e9f8;color:#6d4aa8}.kd-decision-number.is-essay{background:#f7ecdd;color:#a3651f}.kd-decision-number.is-talent{background:#fbe6ee;color:#b23a63}
 /* 카드 하나가 세로로 너무 길어지지 않도록 '내신 컷 비교'와 '수능최저' 두 섹션을 항상 좌우로 배치합니다
    (예전에는 넓은 화면일수록 오히려 위아래로 쌓여서 카드가 더 길어지는 반대 구조였습니다). */
-.kd-decision-primary{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kd-decision-primary section{padding:11px;border-radius:10px;border:1px solid #d6e1ec;background:#f6f9fc;min-width:0}.kd-decision-primary h5{margin:0 0 8px;font-size:12.5px;font-weight:800}.kd-decision-primary h5>span{font-size:10.5px;font-weight:600;float:right;color:#53677b}
+.kd-decision-primary{display:grid;grid-template-columns:1fr 1fr;gap:10px}.kd-decision-primary section{padding:11px;border-radius:10px;border:1px solid #d6e1ec;background:#f6f9fc;min-width:0}.kd-decision-primary h5{margin:0 0 8px;font-size:13.5px;font-weight:800}.kd-decision-primary h5>span{font-size:11.5px;font-weight:600;float:right;color:#53677b}
 /* 학생 등급 · 컷을 각각 색이 다른 상자로 나눠서, 두 숫자를 문장처럼 줄줄이 읽는 대신
    '박스 두 개를 나란히 비교'하는 느낌으로 바꿨습니다. */
 .kd-decision-numbers{display:flex;align-items:stretch;gap:7px}
 .kd-decision-numbers>span{align-self:center;color:#9aa8b8;font-weight:700}
 .kd-decision-num-box{flex:1 1 0;min-width:0;padding:6px 8px;border-radius:8px;background:#fff;border:1px solid #dbe4ee;text-align:center}
 .kd-decision-num-box.is-student{background:#e4edfa;border-color:#b9d2ee}
-.kd-decision-card .kd-decision-num-box small{display:block;font-size:10.5px;color:#5c7086;font-weight:700}
-.kd-decision-card .kd-decision-num-box b{display:block;font-size:19px;line-height:1.2;color:#233f5e;font-weight:850}
+.kd-decision-card .kd-decision-num-box small{display:block;font-size:11.5px;color:#5c7086;font-weight:700}
+.kd-decision-card .kd-decision-num-box b{display:block;font-size:20px;line-height:1.2;color:#233f5e;font-weight:850}
 .kd-decision-num-box.is-student b{color:#1c3f63}.kd-decision-num-box.is-student small{color:#2d5c8c}
 .kd-decision-grade{background:#eef4fb!important;border-color:#c9dbee!important}
-.kd-decision-card small{font-size:11.5px;line-height:1.55;color:#506479;word-break:keep-all;overflow-wrap:anywhere}
+.kd-decision-card small{font-size:12.5px;line-height:1.55;color:#506479;word-break:keep-all;overflow-wrap:anywhere}
 /* 지원 구간 배지와 '차이' 숫자를 한 줄에, 컷 숫자 아래로 배치해 시선이 위→아래로 자연스럽게 흐르게 했습니다. */
 .kd-decision-band-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin:8px 0 4px}
-.kd-decision-diff{font-size:11.5px;font-weight:750;color:#52667a}
+.kd-decision-diff{font-size:12.5px;font-weight:750;color:#52667a}
 /* 위에서 이미 보여준 컷(예: 70%컷)을 아래에서 또 적지 않고, '다른 쪽 컷'만 참고로 한 줄 붙입니다. */
 .kd-decision-subref{display:block;margin-top:2px}
 /* 예전에는 이 글자가 21px로 나머지 카드 내용보다 훨씬 커서 '자료 없음'까지 경고처럼 보였습니다.
@@ -33,12 +33,12 @@
    — 원문은 진한 남색(핵심 값), 사유는 옅은 회색(보충 설명).
    "2개합 5"처럼 짧은 조건 원문 중간의 띄어쓰기에서 줄이 꺾여 숫자만 다음 줄에 혼자 남는 문제가
    있었습니다("문장이 애매하게 끊긴다"는 지적과 동일한 원인). 원문은 항상 한 줄로 보이게 고정합니다. */
-.kd-decision-rule{font-size:12.5px!important;font-weight:750!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#33475c!important}
+.kd-decision-rule{font-size:13.5px!important;font-weight:750!important;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#33475c!important}
 .kd-decision-reason{display:block;margin-top:3px;color:#5c7086}
 /* '자세히'는 판정에 곁들는 부가 정보(반영 영역, 모평 기준, 미연결 안내문)를 접어 기본 화면을
    1~2줄로 유지합니다. 다른 접기 토글과 같은 모양을 씁니다. */
 .kd-decision-min-detail{margin-top:6px}
-.kd-decision-min-detail summary{cursor:pointer;font-size:11px;font-weight:750;color:#53677b;list-style:none}
+.kd-decision-min-detail summary{cursor:pointer;font-size:12px;font-weight:750;color:#53677b;list-style:none}
 .kd-decision-min-detail summary::-webkit-details-marker{display:none}
 .kd-decision-min-detail summary:before{content:'▸ ';font-size:9px}
 .kd-decision-min-detail[open] summary:before{content:'▾ '}

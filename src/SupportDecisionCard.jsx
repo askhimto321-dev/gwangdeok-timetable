@@ -1,6 +1,6 @@
 import React from 'react';
 import { validGrade, supportBandClassName, trackChipClassName, trackAccentKey } from './admissionMetrics.js';
-import { minimumDisplay, studentMockChips } from './naviMinimum.js';
+import { minimumDisplay, studentMockChips, shortSubjectName } from './naviMinimum.js';
 import './supportDecision.css';
 
 const fmt=value=>validGrade(value)==null?'—':Number(value).toFixed(2);
@@ -9,36 +9,48 @@ export function RecommendedCourseDetails({progress, printMode=false}) {
   // 3번 요청: 인쇄본에는 클릭할 수 없으니 <details>를 항상 펼친 채로 찍습니다.
   return <details className="kd-course-details" open={printMode || undefined}><summary><span>권장과목 이수 확인{progress?.estimated ? ' (추정)' : ''}</span><strong>{progress?.total ? `${progress.matched}/${progress.total}과목` : '자료 미연결'}</strong></summary>
     {/* 5번 요청: 이 대학 공식 자료가 아니라 다른 대학 자료로 만든 추정치일 때는 맨 위에 항상 밝힙니다. */}
-    {progress?.estimated && <p><small>{progress.estimatedFrom?.length ? progress.estimatedFrom.join(', ') : '같은 학과·계열의 다른 대학'} 자료를 참고한 추정치이며, 이 대학이 직접 발표한 자료가 아닙니다.</small></p>}
-    {progress?.total ? <><p><b>이수 확인 {matched.length}개</b></p><div className="kd-course-chips">{matched.length ? matched.map(x=><span key={x} className="is-matched">✓ {x}</span>) : <span>저장 성적에서 확인된 과목 없음</span>}</div><p><b>미확인 {missing.length}개</b></p><div className="kd-course-chips">{missing.length ? missing.map(x=><span key={x}>○ {x}</span>) : <span>모든 과목 확인</span>}</div><small>2028 권장과목 자료와 저장된 과목명을 대조합니다. ‘미확인’은 미이수 확정이 아니며, 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</small></> : <p>연결된 권장과목 자료가 없거나 과목 목록이 비어 있습니다.</p>}
+    {progress?.estimated && <p><small>{progress.estimatedFrom?.length ? progress.estimatedFrom.join(', ') : '같은 학과·계열의 다른 대학'} 등 {progress.referenceCount || progress.estimatedFrom?.length || ''}개 대학 자료를 참고한 추정치이며, 이 대학이 직접 발표한 자료가 아닙니다.</small></p>}
+    {progress?.total ? <><p><b>이수 확인 {matched.length}개</b></p><div className="kd-course-chips">{matched.length ? matched.map(x=><span key={x} className="is-matched">✓ {progress.commonCourses?.includes(x) ? '★ ' : ''}{x}</span>) : <span>저장 성적에서 확인된 과목 없음</span>}</div><p><b>미확인 {missing.length}개</b></p><div className="kd-course-chips">{missing.length ? missing.map(x=><span key={x}>○ {progress.commonCourses?.includes(x) ? '★ ' : ''}{x}</span>) : <span>모든 과목 확인</span>}</div>{/* 3번 요청: ★는 참고한 여러 대학 중 2곳 이상에서 똑같이 나온(=중복 언급된) 과목 표시입니다. */}{progress?.estimated && !!progress.commonCourses?.length && <small>★ 표시는 참고한 대학 2곳 이상에서 공통으로 나온 과목입니다.</small>}<small>2028 권장과목 자료와 저장된 과목명을 대조합니다. ‘미확인’은 미이수 확정이 아니며, 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</small></> : <p>연결된 권장과목 자료가 없거나 과목 목록이 비어 있습니다.</p>}
   </details>;
 }
 
-// 카드 안 '수능최저' 상자: 예전에는 판정 문구·반영 영역·모평 라벨·안내문 4줄이 항상 다 보여서
-// 글자만 줄줄이 나열된 느낌이었습니다. 이제는 핵심 한두 줄만 기본으로 보이고 나머지는
-// <details>로 접습니다. 매칭된 대학 자료(ev)가 있으면 그 판정 근거를, 없으면(=최저 자료 미연결)
-// 학생 본인의 최근 모의고사 등급 칩을 대신 보여줘 "대학 정보 없어도 내 최저는 보고 싶다"는
-// 요청에 대응합니다.
+// 카드 안 '수능최저' 상자: 예전에는 판정 문구·반영 영역·모평 라벨·안내문 4~5줄이 항상 다 보여서
+// 글자만 줄줄이 나열된 느낌이었고, "조건 확인 필요" 상태에서는 원문 조각(예: 그냥 숫자 "5")만
+// 뚝 떨어져 나와서 오히려 더 헷갈렸습니다. 이제는:
+// - 충족/미충족처럼 실제로 계산된 경우, 문장 대신 학생의 최근 모평 등급을 칩(표)으로 보여주고
+//   "N합M"(예: 2합5) + 도달/미도달 배지로 한눈에 보이게 합니다.
+// - "조건 확인 필요" 상태는 원문 조각을 그대로 노출하지 않고, 왜 확인이 필요한지 이유 한 줄만
+//   기본으로 보여줍니다. 반영 영역·비고처럼 실제 내용이 있을 때만 "자세히"를 둡니다.
 function MinimumFacts({ minimum, ev, student, printMode=false }) {
   const hasEvidence = !!ev;
+  const isManual = minimum.status === 'manual';
+  const decided = hasEvidence && ev.studentSum != null && (minimum.status === 'satisfied' || minimum.status === 'unsatisfied');
   const chips = !hasEvidence ? studentMockChips(student) : null;
+  const hasDetail = !isManual || ev?.subjectsText || ev?.note;
   return <>
     <strong className="kd-decision-verdict">{minimum.label}</strong>
-    {hasEvidence ? <>
+    {decided ? <>
+      <div className="kd-mock-chips">{(ev.selectedSubjects || []).map(x => <span key={x.name} className="kd-mock-chip">{shortSubjectName(x.name)} {x.grade}</span>)}</div>
+      <div className="kd-decision-band-row">
+        <span className="kd-mock-chip">{ev.ruleType === 'each' ? `각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.studentSum}`}</span>
+        <span className={`kd-status-pill is-${minimum.status}`}>{minimum.status === 'satisfied' ? '도달' : '미도달'}</span>
+      </div>
+      {ev.ruleType !== 'each' && <small className="kd-decision-reason">기준 {ev.threshold}등급 이내</small>}
+    </> : hasEvidence && !isManual ? <>
       <p className="kd-decision-rule">{ev.ruleText || '연결 조건 없음'}</p>
-      {ev.studentSum!=null && <small className="kd-decision-reason">{ev.ruleType==='each' ? `선택 ${ev.count}개 영역 각각 ${ev.threshold}등급 이내` : `학생 ${ev.studentSum} / 기준 ${ev.threshold} 이내`}</small>}
-    </> : chips ? <div className="kd-mock-chips">
+    </> : hasEvidence && isManual ? <small className="kd-decision-reason">{minimum.reason}</small>
+    : chips ? <div className="kd-mock-chips">
       {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
       {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}
     </div> : <small className="kd-decision-reason">{minimum.reason}</small>}
-    <details className="kd-decision-min-detail" open={printMode || undefined}><summary>자세히</summary>
-      {hasEvidence && <small className="kd-decision-reason">{minimum.reason}</small>}
+    {hasDetail && <details className="kd-decision-min-detail" open={printMode || undefined}><summary>자세히</summary>
+      {hasEvidence && !isManual && <small className="kd-decision-reason">{minimum.reason}</small>}
       {hasEvidence && ev.subjectsText && <small className="kd-decision-reason">반영 영역 {ev.subjectsText}</small>}
       {ev?.note && <small className="kd-decision-reason">비고: {ev.note}</small>}
-      {hasEvidence && <small className="kd-decision-reason">{ev.source || 'NAVI 수능최저 자료'}</small>}
-      <small className="kd-decision-reason">{student?.latestMockLabel ? `${student.latestMockLabel} 기준 판정` : '판정 기준 모평 미선택'}</small>
+      {!isManual && hasEvidence && <small className="kd-decision-reason">{ev.source || 'NAVI 수능최저 자료'}</small>}
+      {!isManual && <small className="kd-decision-reason">{student?.latestMockLabel ? `${student.latestMockLabel} 기준 판정` : '판정 기준 모평 미선택'}</small>}
       {!hasEvidence && <small className="kd-decision-reason">연도·캠퍼스·모집단위·전형이 일치하는 원자료를 확인하세요.</small>}
-    </details>
+    </details>}
   </>;
 }
 
