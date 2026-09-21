@@ -30,7 +30,7 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
       {visible.length ? <div className="kd-comparison-scroll" tabIndex={0} role="region" aria-label="전형별 비교표. 좁은 화면에서는 가로로 스크롤하세요."><table className="kd-comparison-table"><caption>전형별 비교 — 대학 공개 컷은 9등급 기준, 서로 다른 대학의 산출 방식은 다를 수 있습니다.</caption><thead><tr>{['대학·모집단위 / 전형','내신 컷 비교','수능최저','상세 · 지원 구성'].map(title => <th key={title} scope="col">{title}</th>)}</tr></thead><tbody>{visible.map(row => {
         if (row.missing) return <tr key={row.id}><th scope="row">{row.stored.university}<small>{row.stored.department}</small></th><td colSpan={3}>{row.reason}</td></tr>;
         const minimum = minimumDisplay(row.minimumEvaluation, row.minimumStatus);
-        const hasEvidence = !!row.minimumEvaluation;
+        const hasEvidence = !!row.minimumEvaluation && minimum.status !== 'unlinked';
         const chips = !hasEvidence ? studentMockChips(student) : null;
         const disabled = busy || !studentSid || !row.track || saved.has(planKey(row.planItem)) || planItems.length >= 6;
         return <tr key={row.id}>
@@ -55,6 +55,7 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
             {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
             {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}
           </div> : <small>{minimum.reason}</small>}
+          {!hasEvidence && chips && <details><summary>연결 확인</summary><small>{minimum.reason}</small></details>}
         </td>
         {/* 기본값은 지원 구성 버튼만 바로 보이게 하고, 교과 반영·최저 연도/출처·NAVI/광덕고 근거는
             접어서(details) 표 너비와 셀 안 줄 수를 줄였습니다(예전에는 최저 칸에 3줄이 항상 떠 있었습니다). */}

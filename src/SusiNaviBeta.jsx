@@ -25,7 +25,7 @@ import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAcce
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
-import { buildComparisonRows, minimumScopeRank, comparisonType } from "./admissionComparison.js";
+import { buildComparisonRows, minimumScopeRank, comparisonType, resolveMinimumLink } from "./admissionComparison.js";
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
 import { evaluateNaviMinimumSafe, minimumDisplay, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
@@ -2079,11 +2079,13 @@ export default function SusiNaviBetaView({
     const admissionItem = matchingItems.length === 1 ? matchingItems[0] : null;
     const cut = admissionItem ? cutoffValue(admissionItem, cutoffBasis) : null;
     const evidence = admissionItem ? buildComparisonRows({ compareItems: [{ stored: item, entry }], data: data || {}, caseRows, convertedGrade: conversion?.value, cutoffBasis, conversionGroup, identity: universityIdentityKey, minimumContext:effectiveStudent, evaluateMinimum: row => evaluateNaviMinimum(row, effectiveStudent) }).find(value => value.admissionType === item.admissionType && trackIdentity(value.track) === trackIdentity(item.track)) : null;
+    const minimumEvaluation = evidence?.minimumEvaluation || resolveMinimumLink({target:item,data:data || {},student:effectiveStudent,identity:universityIdentityKey,evaluateMinimum:row=>evaluateNaviMinimum(row,effectiveStudent),ambiguousType:true}).evaluation;
     return {
       stored: item, entry, admissionItem,
       missing: !entry, trackMissing: !admissionItem,
       support: supportBand(conversion?.value, cut),
-      minimumStatus: evidence?.minimumStatus || "unlinked",
+      minimumEvaluation,
+      minimumStatus: minimumEvaluation.status,
       recommendation: entry?.recommendation,
       recommendationProgress: entry?.recommendationProgress,
       naviCaseCount: evidence?.naviCount ?? null,
@@ -2864,7 +2866,7 @@ function PrintPlanSheet({ items = [], convertedGrade, cutoffBasis, student }) {
         <td>{item.stored.admissionType || "-"} · {item.stored.track || "-"}</td>
         <td>{studentText} ↔ {cutText}</td>
         <td>{item.support?.label || "판정 자료 없음"}</td>
-        <td>{minimum.label}<span>{item.comparisonEvidence?.minimumEvaluation?.year || '연도 확인'} · {item.comparisonEvidence?.minimumText || '자료 미연결'}</span></td>
+        <td>{minimum.label}<span>{(item.comparisonEvidence?.minimumEvaluation || item.minimumEvaluation)?.year || '연도 확인'} · {item.comparisonEvidence?.minimumText || item.minimumEvaluation?.ruleText || minimum.reason}</span></td>
       </tr>;
     })}</tbody></table> : <p>담긴 지원 구성이 없습니다.</p>}
     <footer>※ 지원 구간·수능최저 판정은 참고용입니다. 대학 공식 모집요강을 반드시 최종 확인하세요.</footer>
@@ -2922,11 +2924,17 @@ function CaseDistribution({ cuts, cutoffBasis = "70" }) {
 }
 
 
-function RecommendedSubjectPanel({ recommendation, progress, studentSubjects = [] }) {
+export function RecommendedSubjectPanel({ recommendation, progress, studentSubjects = [] }) {
   if (!recommendation) return <div style={ui.recommendEmpty}><span>2028 권장과목</span><b>이 모집단위에 연결된 공식 자료 없음</b><small>다른 학과의 과목을 임의로 합쳐 보여주지 않습니다. 관리자가 어디가 공식 XLSX를 반영했는지와 대학 입학처 공지를 함께 확인해주세요.</small></div>;
   const reflected = recommendation.reflected || [];
-  const core = recommendation.core || recommendation.required || [];
+  const core = recommendation.core?.length ? recommendation.core : recommendation.required || [];
   const recommended = recommendation.recommended || [];
+  const primary = [...new Set(core.length ? core : reflected.length ? reflected : recommended)];
+  const primaryLabel = core.length ? '핵심 권장과목' : reflected.length ? '반영과목' : '권장과목';
+  const confirmed = primary.filter(course => studentCourseMatch(studentSubjects, course)).length;
+  const otherGroups = [['반영과목', reflected], ['권장과목', recommended]]
+    .map(([label, courses]) => [label, [...new Set(courses)].filter(course => !primary.includes(course))])
+    .filter(([, courses]) => courses.length);
   // 3번 요청: 추정치일 때 참고한 여러 대학 중 2곳 이상에서 겹치는 과목은 ★로 표시해,
   // 한 대학만의 특이한 과목과 구분되게 합니다.
   const isCommon = course => recommendation.estimated && recommendation.commonCourses?.includes(course);
@@ -2936,19 +2944,22 @@ function RecommendedSubjectPanel({ recommendation, progress, studentSubjects = [
     return <span key={`${tone}-${course}`} title={(matched ? "현재 저장된 학생 이수과목에서 확인됨" : "현재 저장된 학생 이수과목에서 확인되지 않음") + (common ? " · 참고한 대학 2곳 이상에서 공통으로 나온 과목" : "")} style={{ ...ui.recommendCourseChip, ...(matched ? ui.recommendCourseMatched : ui.recommendCourseMissing) }}><b>{matched ? "✓" : "○"}</b>{common ? "★ " : ""}{course}</span>;
   };
   return <div className="susi-beta-recommend-panel" style={ui.recommendPanel}>
-    <div style={ui.recommendPanelHead}>
-      {/* 5번 요청: 이 대학 자체 공식 자료가 아니라 다른 대학 자료로 만든 추정치일 때는
-          배지 색과 문구를 다르게 해서 "공식 자료"와 절대 혼동되지 않게 합니다. */}
-      <div><span style={recommendation.estimated ? ui.recommendSourceBadgeEstimate : ui.recommendSourceBadge}>{recommendation.estimated ? "다른 대학 자료 기반 추정" : "2028 대학 발표 기반"}</span><b>반영과목 · 핵심과목 · 권장과목</b><small>{recommendation.scope}{recommendation.matchedDepartment ? ` · ${recommendation.matchedDepartment}` : ""}</small></div>
-      {progress?.total ? <span style={ui.recommendProgress}><small>저장 성적 기준 이수 확인</small><b>{progress.matched}/{progress.total}</b></span> : null}
+    <div className="kd-recommend-heading">
+      <strong>{primaryLabel}</strong>
+      {primary.length > 0 && <span className="kd-recommend-count">이수 확인 <b>{confirmed}/{primary.length}</b></span>}
     </div>
-    {recommendation.estimated && <p style={ui.recommendEstimateNotice}>이 대학·모집단위에는 공식 권장과목 자료가 아직 연결되지 않아, {recommendation.estimatedFrom?.length ? recommendation.estimatedFrom.join(", ") : "같은 학과·계열의 다른 대학"} 등 {recommendation.referenceCount || recommendation.estimatedFrom?.length || ""}개 대학 자료를 참고한 추정치입니다. ★ 표시는 그중 2곳 이상에서 공통으로 나온 과목입니다. 실제 이 대학의 발표 내용과 다를 수 있으니 대학 입학처 공지로 반드시 다시 확인하세요.</p>}
-    {!!reflected.length && <div style={ui.recommendCourseGroup}><strong>반영과목</strong><div>{reflected.map(course => renderCourse(course, "reflected"))}</div></div>}
-    {!!core.length && <div style={ui.recommendCourseGroup}><strong>핵심·중요 과목</strong><div>{core.map(course => renderCourse(course, "core"))}</div></div>}
-    {!!recommended.length && <div style={ui.recommendCourseGroup}><strong>권장과목</strong><div>{recommended.map(course => renderCourse(course, "recommended"))}</div></div>}
-    {!!recommendation.notes?.length && <div style={ui.recommendNotes}><strong>대학 안내</strong>{recommendation.notes.map((note, index) => <span key={`${note}-${index}`}>{note}</span>)}</div>}
-    <p style={ui.recommendDisclaimer}>✓는 kdtime에 저장된 학생 이수과목과 명칭을 대조한 결과입니다. 대학이 공개한 이 자료는 원문 취지상 ‘필수 이수 기준’이 아니라 모집단위 이해와 진로·전공 탐색을 위한 참고자료이며, 최종 지원 전 대학 입학처 발표를 확인해야 합니다.</p>
-    {!recommendation.estimated && <a href={recommendation.source?.url || OFFICIAL_RECOMMENDED_SOURCE_URL} target="_blank" rel="noreferrer" style={ui.recommendSourceLink}>어디가 공식 자료 출처 확인 ↗</a>}
+    <small className={`kd-recommend-source${recommendation.estimated ? ' is-estimated' : ''}`}>{recommendation.estimated ? '타 대학 참고 · 추정 (공식 자료 아님)' : '2028 대학 발표 자료'}</small>
+    <div className="kd-recommend-courses">{primary.slice(0, 4).map(course => renderCourse(course, 'primary'))}</div>
+    <small className="kd-recommend-legend">✓ 이수 확인 · ○ 저장 성적에서 미확인</small>
+    <details className="kd-recommend-more"><summary>{primary.length > 4 ? `과목 ${primary.length - 4}개 더 보기 · ` : ''}전체 과목·출처</summary>
+      {primary.length > 4 && <div className="kd-recommend-courses">{primary.slice(4).map(course => renderCourse(course, 'more'))}</div>}
+      {otherGroups.map(([label, courses]) => <div key={label} style={ui.recommendCourseGroup}><strong>{label}</strong><div>{courses.map(course => renderCourse(course, label))}</div></div>)}
+      <p>{recommendation.scope}{recommendation.matchedDepartment ? ` · ${recommendation.matchedDepartment}` : ''}</p>
+      {recommendation.estimated && <p>{recommendation.estimatedFrom?.join(', ') || '동일 학과·계열의 다른 대학'} 자료를 참고한 추정입니다. ★는 참고 대학 2곳 이상 공통 과목입니다. 해당 대학 공식 기준과 다를 수 있습니다.</p>}
+      {!!recommendation.notes?.length && <div style={ui.recommendNotes}><strong>대학 안내</strong>{recommendation.notes.map((note, index) => <span key={`${note}-${index}`}>{note}</span>)}</div>}
+      <p>미확인은 미이수 확정이 아닙니다. 과목명 대조 결과이며, 권장과목은 필수 지원자격과 다릅니다.</p>
+      {!recommendation.estimated && <a href={recommendation.source?.url || OFFICIAL_RECOMMENDED_SOURCE_URL} target="_blank" rel="noreferrer">어디가 공식 자료 ↗</a>}
+    </details>
   </div>;
 }
 
@@ -3027,7 +3038,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch70</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch71</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 

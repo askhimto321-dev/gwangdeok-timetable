@@ -120,7 +120,7 @@ export function minimumDisplay(evaluation, status) {
 // UI patch: 대학별 최저 자료가 연결되지 않아도(=unlinked), 학생 본인의 최근 모의고사 등급은
 // 이미 저장돼 있으므로 그것만이라도 보여줍니다. "대학 정보가 없어도 내 최저 현황은 보여달라"는
 // 요청에 대응합니다. 2028 체계 5과목(국/수/영/통합사회/통합과학) 중 값이 있는 것만 반환합니다.
-const MOCK_SUBJECT_LABELS = { 국어: '국', 수학: '수', 영어: '영', 통합사회: '사회', 통합과학: '과학' };
+const MOCK_SUBJECT_LABELS = { 국어: '국', 수학: '수', 영어: '영', 통합사회: '사', 통합과학: '과' };
 // 화면 곳곳(모평 칩, 최저 판정 근거)에서 과목 전체 이름 대신 같은 짧은 이름을 쓰도록 공용 함수로 뺐습니다.
 export function shortSubjectName(name) {
   return MOCK_SUBJECT_LABELS[name] || name;

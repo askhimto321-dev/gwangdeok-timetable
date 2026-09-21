@@ -81,3 +81,28 @@
 .admission-row-actions button.kd-support-plan-button.kd-support-plan-button,.admission-case-row-tools button.kd-support-plan-button.kd-support-plan-button{color:var(--kd-brand)!important;background:var(--kd-brand-soft)!important;border-color:var(--kd-brand-border)!important;font-size:12px;font-weight:800}
 .admission-row-actions button.kd-support-plan-button:hover:not(:disabled),.admission-case-row-tools button.kd-support-plan-button:hover:not(:disabled){color:#fff!important;background:var(--kd-brand)!important}
 @media(max-width:620px){.kd-plan-tools button{min-height:40px}}
+
+/* Patch71: readable text in narrow course and CSAT panels. */
+.susi-beta-recommend-panel,.kd-decision-minimum,.kd-comparison-table .kd-mock-chips{font-family:Pretendard,'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;font-style:normal;font-weight:400;line-height:1.55}
+.susi-beta-recommend-panel{min-width:0;font-size:13px}
+.susi-beta-recommend-panel b,.susi-beta-recommend-panel strong{font-weight:600!important;font-size:inherit}
+.kd-recommend-heading{display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.kd-recommend-heading>strong{font-size:14px!important;color:#294d3e}
+.kd-recommend-count{font-size:12px;color:#365c48;white-space:nowrap}
+.kd-recommend-count b{font-variant-numeric:tabular-nums}
+.kd-recommend-source{font-size:12px;color:#61736a}
+.kd-recommend-source.is-estimated{color:#825b23}
+.kd-recommend-courses{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.susi-beta-recommend-panel .kd-recommend-courses>span,.susi-beta-recommend-panel details span[title]{font-size:13px!important;font-weight:500!important;line-height:1.5;margin:0!important;padding:5px 8px!important;max-width:100%;overflow-wrap:anywhere}
+.kd-recommend-legend{font-size:12px;color:#61736a}
+.kd-recommend-more{border-top:1px solid #d9e5de;padding-top:7px;font-size:12px;color:#53675c}
+.kd-recommend-more summary{cursor:pointer;font-size:12px;font-weight:500}
+.susi-beta-recommend-panel .kd-recommend-more p{font-size:12px;line-height:1.6;margin:8px 0;font-weight:400;color:#53675c}
+.kd-recommend-more>div{margin-top:8px}.kd-recommend-more a{color:#315f88}
+.kd-recommend-more summary:focus-visible{outline:2px solid #5984ab;outline-offset:3px}
+.kd-decision-primary .kd-decision-minimum h5{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:3px 8px;font-size:13px;font-weight:600;line-height:1.5}
+.kd-decision-primary .kd-decision-minimum h5>span{float:none;font-size:11px;font-weight:400}
+.kd-decision-minimum .kd-decision-verdict{font-size:14px;font-weight:600;line-height:1.5}
+.kd-decision-minimum .kd-mock-chips-label{flex-basis:100%;font-size:12px;font-weight:400}
+.kd-decision-minimum .kd-mock-chip{font-size:13px;font-weight:500;padding:3px 7px;font-variant-numeric:tabular-nums}
+.kd-decision-minimum .kd-decision-min-detail summary{font-weight:500}

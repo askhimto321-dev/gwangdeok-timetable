@@ -9,7 +9,7 @@ export const comparisonTrackKey = value => {
 };
 export function comparisonType(value) {
   const label = key(value);
-  return /종합|학종/.test(label) ? '종합' : /교과/.test(label) ? '교과' : label;
+  return /종합|학종/.test(label) ? '종합' : /교과/.test(label) ? '교과' : /논술/.test(label) ? '논술' : /실기|실적|특기/.test(label) ? '실기' : label;
 }
 export function comparisonUnitMatches(source, target) {
   const unit = key(source);
@@ -45,6 +45,33 @@ export function minimumScopeRank(source, department, field) {
   if(['인문','자연','예체능','인문계열','자연계열','예체능계열'].includes(key(source)) && key(source).replace(/계열$/,'')===key(field).replace(/계열$/,''))return 1;
   return comparisonUnitMatches(source,department)?0:-1;
 }
+// Match minimum requirements independently of NAVI cutoff availability.
+export function resolveMinimumLink({target, data = {}, student, identity, evaluateMinimum, ambiguousType = false}) {
+  const normalize = value => Array.isArray(value)
+    ? {raw:value, university:value[1], region:value[0], type:value[2], track:value[3], department:value[5], year:2027, stored:false}
+    : {raw:value, university:value.university, region:value.region, type:value.admissionType || value.track, track:value.track, department:value.department, year:Number(value.admissionYear) || null, stored:true};
+  const all = [...(student?.minimumRows || []), ...(data.minimums || [])].map(normalize);
+  const campus = identity(target.university, target.region);
+  const byCampus = all.filter(x => identity(x.university, x.region) === campus);
+  const byTrack = byCampus.filter(x => comparisonTrackKey(x.track) && comparisonTrackKey(x.track) === comparisonTrackKey(target.track)
+    && (['교과','종합','논술','실기'].includes(comparisonType(x.type)) ? comparisonType(x.type) === comparisonType(target.admissionType) : !ambiguousType));
+  const byScope = byTrack.filter(x => minimumScopeRank(x.department, target.department, target.field) >= 0);
+  const current = byScope.filter(x => x.stored && (!x.year || x.year === Number(student?.admissionYear)));
+  const pool = current.length ? current : byScope.filter(x => !x.stored);
+  const rank = x => minimumScopeRank(x.department, target.department, target.field);
+  const best = Math.max(-1, ...pool.map(rank));
+  const matches = pool.filter(x => rank(x) === best);
+  if (matches.length === 1) return {minimum:matches[0].raw, evaluation:evaluateMinimum(matches[0].raw)};
+  if (matches.length > 1) return {minimum:null, evaluation:{status:'manual', linkCode:'ambiguous', year:matches[0].year,
+    ruleText:matches.map(x => text(Array.isArray(x.raw) ? x.raw[8] : x.raw.requiredSum)).join(' / '),
+    reason:`같은 적용 범위의 최저 자료가 ${matches.length}개입니다. 중복 또는 별도 조건인지 확인하세요.`}};
+  const [linkCode, reason] = !all.length ? ['no_data','등록된 최저 자료 없음 · 대학 지원 진단 또는 NAVI 자료를 확인하세요.']
+    : !byCampus.length ? ['campus','대학·캠퍼스 불일치 · 대학명과 지역 표기를 확인하세요.']
+    : !byTrack.length ? ['track',`전형 불일치 · ${target.admissionType || ''} ${target.track || ''}의 전형명·유형을 확인하세요.`]
+    : !byScope.length ? ['scope',`모집단위 미연결 · ${target.department}의 적용 범위·제외 조건을 확인하세요.`]
+    : ['year',`연도 불일치 · 학생 ${student?.admissionYear || '미확인'} / 자료 ${[...new Set(byScope.map(x => x.year || '미확인'))].join('·')}`];
+  return {minimum:null, evaluation:{status:'unlinked', linkCode, reason, year:null, source:'최저 자료 연결 점검'}};
+}
 export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [], convertedGrade, cutoffBasis = '70', conversionGroup = '전교과', identity, evaluateMinimum, minimumContext }) {
   const result = [];
   for (const { stored, entry } of compareItems) {
@@ -62,20 +89,8 @@ export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [
       const sameTrack = value => Boolean(comparisonTrackKey(track)) && comparisonTrackKey(value) === comparisonTrackKey(track);
       const sameType = value => comparisonType(value) === admissionType;
       const rules = (data.courseRules || []).filter(value => sameCampus(value[1], value[0]) && sameType(value[2]) && sameTrack(value[3]) && comparisonUnitMatches(value[5], department));
-      const naviMinimums = (data.minimums || []).filter(value => sameCampus(value[1], value[0]) && sameType(value[2]) && sameTrack(value[3]) && minimumScopeRank(value[5], department, row[6])>=0);
-      const storedMinimums = (minimumContext?.minimumRows || []).filter(value => {
-        const type=comparisonType(value.admissionType || value.track);
-        const typeMatches=['교과','종합'].includes(type)?type===admissionType:tracks.filter(x=>sameTrack(x.item[0])).length===1;
-        return sameCampus(value.university,value.region) && sameTrack(value.track) && typeMatches && minimumScopeRank(value.department,department,row[6])>=0 && (!value.admissionYear || Number(value.admissionYear)===Number(minimumContext.admissionYear));
-      });
-      // Student-year diagnosis data has priority. Never silently combine different years.
-      const pool=storedMinimums.length?storedMinimums:naviMinimums;
-      const rank=value=>minimumScopeRank(Array.isArray(value)?value[5]:value.department,department,row[6]);
-      const bestRank=Math.max(-1,...pool.map(rank));
-      const minimums=pool.filter(value=>rank(value)===bestRank);
-      const minimum = minimums.length === 1 ? minimums[0] : null;
-      const minimumEvaluation = minimum ? evaluateMinimum(minimum) : null;
-      const minimumStatus = minimumEvaluation?.status || (minimums.length ? 'manual' : 'unlinked');
+      const {minimum, evaluation:minimumEvaluation} = resolveMinimumLink({target:{university,region,department,field:row[6],admissionType,track},data,student:minimumContext,identity,evaluateMinimum,ambiguousType:tracks.filter(x=>sameTrack(x.item[0])).length>1});
+      const minimumStatus = minimumEvaluation.status;
       const stats = (data.caseStats || []).filter(value => sameCampus(value[5] || value[1], value[0]) && sameType(value[2]) && sameTrack(value[6] || value[3]) && key(value[4]) === key(row[6]) && key(row[6]));
       const groupIndex = { 전교과: 8, 국수영사과: 9, 국수영사: 10, 국수영과: 11 }[conversionGroup] ?? 8;
       const naviCount = stats.length === 1 ? sampleCount(stats[0]?.[groupIndex]?.[0]) : null;
@@ -92,7 +107,7 @@ export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [
         planItem: { university, region, department, field: row[6], admissionType, track, source: 'NAVI 전형 비교' },
         cut50, cut70, support: supportBandValue(convertedGrade, cutoffBasis === '50' ? cut50 : cut70), eligibility,
         course: rules.length === 1 ? [rules[0][6], rules[0][7], rules[0][8], rules[0][17]].map(text).filter(Boolean).join(' · ') || '반영 내용 미제공' : rules.length ? '복수 조건 연결 · 원문 확인' : '교과 반영 자료 미연결',
-        minimumStatus, minimumEvaluation, minimumText: minimum ? text(Array.isArray(minimum)?minimum[8]:minimum.requiredSum) || '조건 원문 미제공' : minimums.length ? '복수 조건 연결 · 원문 확인' : '일치하는 전형·모집단위 자료 없음',
+        minimumStatus, minimumEvaluation, minimumText: minimum ? text(Array.isArray(minimum)?minimum[8]:minimum.requiredSum) || '조건 원문 미제공' : minimumEvaluation.ruleText || minimumEvaluation.reason,
         naviCount, naviReason: stats.length > 1 ? '동일 범위 통계 복수 · 임의 합산 안 함' : stats.length === 1 ? '표본 수 미제공' : '대학·캠퍼스·전형·계열 일치 자료 없음',
         school: schoolEvidence(schoolRows),
         recommendationProgress: entry?.recommendationProgress,

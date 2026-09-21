@@ -22,7 +22,7 @@ export function RecommendedCourseDetails({progress, printMode=false}) {
 // - "조건 확인 필요" 상태는 원문 조각을 그대로 노출하지 않고, 왜 확인이 필요한지 이유 한 줄만
 //   기본으로 보여줍니다. 반영 영역·비고처럼 실제 내용이 있을 때만 "자세히"를 둡니다.
 function MinimumFacts({ minimum, ev, student, printMode=false }) {
-  const hasEvidence = !!ev;
+  const hasEvidence = !!ev && minimum.status !== 'unlinked';
   const isManual = minimum.status === 'manual';
   const decided = hasEvidence && ev.studentSum != null && (minimum.status === 'satisfied' || minimum.status === 'unsatisfied');
   const chips = !hasEvidence ? studentMockChips(student) : null;
@@ -49,7 +49,7 @@ function MinimumFacts({ minimum, ev, student, printMode=false }) {
       {ev?.note && <small className="kd-decision-reason">비고: {ev.note}</small>}
       {!isManual && hasEvidence && <small className="kd-decision-reason">{ev.source || 'NAVI 수능최저 자료'}</small>}
       {!isManual && <small className="kd-decision-reason">{student?.latestMockLabel ? `${student.latestMockLabel} 기준 판정` : '판정 기준 모평 미선택'}</small>}
-      {!hasEvidence && <small className="kd-decision-reason">연도·캠퍼스·모집단위·전형이 일치하는 원자료를 확인하세요.</small>}
+      {!hasEvidence && <small className="kd-decision-reason">{minimum.reason}</small>}
     </details>}
   </>;
 }
