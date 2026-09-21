@@ -1,4 +1,5 @@
 import { validGrade } from './admissionMetrics.js';
+import {evaluateCatalogMinimum,MINIMUM_SCHEMA} from './minimumCatalog.js';
 import {evaluateAdmissionRequirement, parseAdmissionSubjectGroups} from './gradeEngine.js';
 const compact = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, '').trim();
 const empty = value => !compact(value) || compact(value) === '-';
@@ -6,6 +7,8 @@ const empty = value => !compact(value) || compact(value) === '-';
 // Auto-evaluate only an explicitly understood rule. Complex requirements stay manual.
 export function evaluateNaviMinimumSafe(row, student) {
   if (!row) return { status:'unlinked', reason:'일치하는 최저 자료가 없습니다.' };
+  if (row.catalogRule) return evaluateCatalogMinimum(row.catalogRule,student);
+  if (row.schema===MINIMUM_SCHEMA) return evaluateCatalogMinimum(row,student);
   if (!Array.isArray(row)) return evaluateStoredMinimum(row, student);
   const rule=compact(row[8]), area=compact(row[6]), notes=[row[10],row[11]].filter(x=>!empty(x)).join(' · ');
   const base={ruleText:String(row[8] || ''),subjectsText:String(row[6] || ''),note:notes,year:2027};
@@ -40,6 +43,7 @@ export function evaluateNaviMinimumSafe(row, student) {
 // Reuse the existing diagnosis engine, with explicit grammar/year/input guards.
 // Scoped 2028+ rows can use integrated subjects; 2027 inquiry is never substituted.
 export function evaluateStoredMinimum(row, student) {
+  if (row.schema===MINIMUM_SCHEMA) return evaluateCatalogMinimum(row,student);
   const year=Number(row.admissionYear) || null;
   const base={year,ruleText:String(row.requiredSum ?? ''),subjectsText:String(row.requiredSubjects || ''),note:String(row.note || ''),source:'기존 대학 지원 진단 · 학년별 최저 자료'};
   const result=(status,reason,extra={})=>({...base,status,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,reason,...extra});

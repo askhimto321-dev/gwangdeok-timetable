@@ -1264,6 +1264,7 @@ export default function App() {
 
   const persistGrades = useCallback(async (patch) => {
     const jobs = [];
+    if (patch.minimumCatalog) jobs.push(writeStorage("kd_grades_minimum_catalog_v1", patch.minimumCatalog));
     if (patch.semesterData) jobs.push(writeStorage("kd_grades_semesters", patch.semesterData));
     if (patch.mockData) jobs.push(writeStorage("kd_grades_mocks", patch.mockData));
     if (patch.admissionRows) {

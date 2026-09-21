@@ -5,6 +5,8 @@ import SupportPlanButton, { useSupportPlanCount } from "./SupportPlanButton.jsx"
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
 import SusiNaviBetaView, { conversionDetails, loadSusiNaviBetaData, addSusiSupportPlanExternal } from "./SusiNaviBeta.jsx";
+import MinimumCatalogAdmin from './MinimumCatalogAdmin.jsx';
+import minimumCatalogSeed from './minimumCatalogSeed.json';
 import FavoritePlanPicker from "./FavoritePlanPicker.jsx";
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
@@ -501,7 +503,7 @@ export async function loadGradesDB() {
     semesterData, mockData,
     legacyAdmissionRows, admissionRows1, admissionRows2, admissionRows3,
     legacyAdmissionDocs, admissionDocs1, admissionDocs2, admissionDocs3,
-    studentAccounts, cohortSettings, admissionCaseSources, admissionCases, admissionFavorites, admissionCounseling,
+    studentAccounts, cohortSettings, admissionCaseSources, admissionCases, admissionFavorites, admissionCounseling, minimumCatalog,
   ] = await Promise.all([
     readStorage("kd_grades_semesters", {}), readStorage("kd_grades_mocks", {}),
     readStorage("kd_grades_admission", []),
@@ -510,10 +512,11 @@ export async function loadGradesDB() {
     readStorage("kd_grades_admission_docs_grade_1", []), readStorage("kd_grades_admission_docs_grade_2", []), readStorage("kd_grades_admission_docs_grade_3", []),
     readStorage("kd_grades_students_meta", {}), readStorage("kd_grades_cohorts", DEFAULT_COHORT_SETTINGS),
     readStorage("kd_grades_admission_case_sources", []), readStorage("kd_grades_admission_cases", []), readStorage("kd_grades_admission_favorites", {}), readStorage("kd_grades_admission_counseling", {}),
+    readStorage("kd_grades_minimum_catalog_v1", null),
   ]);
   const admissionRows = mergeScopedAdmissionStorage(legacyAdmissionRows, [admissionRows1, admissionRows2, admissionRows3]);
   const admissionDocs = deduplicateAdmissionDocuments(mergeScopedAdmissionStorage(legacyAdmissionDocs, [admissionDocs1, admissionDocs2, admissionDocs3]));
-  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases, admissionFavorites: admissionFavorites || {}, admissionCounseling: admissionCounseling || {} };
+  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases, admissionFavorites: admissionFavorites || {}, admissionCounseling: admissionCounseling || {}, minimumCatalog };
 }
 
 export default function GradesSection({
@@ -597,6 +600,7 @@ export default function GradesSection({
       entryYear,
       admissionYear: Number(entryYear) + 3,
       minimumRows: admissionItemsForGrade(gdb.admissionRows || [], gradeForEntryYear(gdb.cohortSettings, entryYear)),
+      minimumCatalogRows: gdb.minimumCatalog?.rows || minimumCatalogSeed,
       subjects: subjectLists.flatMap((list, semesterIndex) => (list || []).map(subject => ({
         subject: subject?.subject || "",
         category: categoryMeta(subject?.category, subject?.subject).key,
@@ -4606,6 +4610,7 @@ export function AdminGradesUpload({ gdb, persistGrades, showToast, roster = {}, 
         <TabBtn active={subtab === "semester"} onClick={() => setSubtab("semester")} label="학기별 성적표 (개별)" />
         <TabBtn active={subtab === "mock"} onClick={() => setSubtab("mock")} label="모의고사 (개별)" />
         <TabBtn active={subtab === "admission"} onClick={() => setSubtab("admission")} label="대입 전형표 (개별)" />
+        <TabBtn active={subtab === "minimumCatalog"} onClick={() => setSubtab("minimumCatalog")} label="수능최저 자료 연결" />
         <TabBtn active={subtab === "admissionPdf"} onClick={() => setSubtab("admissionPdf")} label="모집요강·반영표 자료" />
         <TabBtn active={subtab === "admissionCases"} onClick={() => setSubtab("admissionCases")} label="2024–2026 대입 사례 데이터" />
         <TabBtn active={subtab === "cohorts"} onClick={() => setSubtab("cohorts")} label="학년·입학연도 관리" />
@@ -4614,6 +4619,7 @@ export function AdminGradesUpload({ gdb, persistGrades, showToast, roster = {}, 
       {subtab === "semester" && <SemesterUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "mock" && <MockUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "admission" && <AdmissionUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} currentGrade={currentGrade} />}
+      {subtab === "minimumCatalog" && <MinimumCatalogAdmin gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "admissionPdf" && <AdmissionPdfManager gdb={gdb} persistGrades={persistGrades} showToast={showToast} currentGrade={currentGrade} />}
       {subtab === "admissionCases" && <AdmissionCaseAdmin gdb={gdb} persistGrades={persistGrades} showToast={showToast} roster={roster} currentGrade={currentGrade} />}
       {subtab === "cohorts" && <CohortManager gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}

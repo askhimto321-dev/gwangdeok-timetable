@@ -1,4 +1,5 @@
 import { finiteNumber, validGrade, supportBandValue, admissionEligibilityInfo } from './admissionMetrics.js';
+import {resolveCatalogMinimum} from './minimumCatalog.js';
 
 const text = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, ' ').trim();
 const key = value => text(value).replace(/\s+/g, '').toLowerCase();
@@ -47,6 +48,8 @@ export function minimumScopeRank(source, department, field) {
 }
 // Match minimum requirements independently of NAVI cutoff availability.
 export function resolveMinimumLink({target, data = {}, student, identity, evaluateMinimum, ambiguousType = false}) {
+  const catalog = resolveCatalogMinimum({target,student,identity});
+  if (catalog && catalog.evaluation.status!=='unlinked') return catalog;
   const normalize = value => Array.isArray(value)
     ? {raw:value, university:value[1], region:value[0], type:value[2], track:value[3], department:value[5], year:2027, stored:false}
     : {raw:value, university:value.university, region:value.region, type:value.admissionType || value.track, track:value.track, department:value.department, year:Number(value.admissionYear) || null, stored:true};
@@ -65,6 +68,7 @@ export function resolveMinimumLink({target, data = {}, student, identity, evalua
   if (matches.length > 1) return {minimum:null, evaluation:{status:'manual', linkCode:'ambiguous', year:matches[0].year,
     ruleText:matches.map(x => text(Array.isArray(x.raw) ? x.raw[8] : x.raw.requiredSum)).join(' / '),
     reason:`같은 적용 범위의 최저 자료가 ${matches.length}개입니다. 중복 또는 별도 조건인지 확인하세요.`}};
+  if(catalog)return catalog;
   const [linkCode, reason] = !all.length ? ['no_data','등록된 최저 자료 없음 · 대학 지원 진단 또는 NAVI 자료를 확인하세요.']
     : !byCampus.length ? ['campus','대학·캠퍼스 불일치 · 대학명과 지역 표기를 확인하세요.']
     : !byTrack.length ? ['track',`전형 불일치 · ${target.admissionType || ''} ${target.track || ''}의 전형명·유형을 확인하세요.`]
@@ -107,7 +111,7 @@ export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [
         planItem: { university, region, department, field: row[6], admissionType, track, source: 'NAVI 전형 비교' },
         cut50, cut70, support: supportBandValue(convertedGrade, cutoffBasis === '50' ? cut50 : cut70), eligibility,
         course: rules.length === 1 ? [rules[0][6], rules[0][7], rules[0][8], rules[0][17]].map(text).filter(Boolean).join(' · ') || '반영 내용 미제공' : rules.length ? '복수 조건 연결 · 원문 확인' : '교과 반영 자료 미연결',
-        minimumStatus, minimumEvaluation, minimumText: minimum ? text(Array.isArray(minimum)?minimum[8]:minimum.requiredSum) || '조건 원문 미제공' : minimumEvaluation.ruleText || minimumEvaluation.reason,
+        minimumStatus, minimumEvaluation, minimumText: minimum ? text(Array.isArray(minimum)?minimum[8]:(minimum.ruleText || minimum.requiredSum)) || '조건 원문 미제공' : minimumEvaluation.ruleText || minimumEvaluation.reason,
         naviCount, naviReason: stats.length > 1 ? '동일 범위 통계 복수 · 임의 합산 안 함' : stats.length === 1 ? '표본 수 미제공' : '대학·캠퍼스·전형·계열 일치 자료 없음',
         school: schoolEvidence(schoolRows),
         recommendationProgress: entry?.recommendationProgress,

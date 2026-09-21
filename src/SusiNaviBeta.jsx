@@ -26,6 +26,7 @@ import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupport
 import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
 import { buildComparisonRows, minimumScopeRank, comparisonType, resolveMinimumLink } from "./admissionComparison.js";
+import {catalogRowsForTarget,resolveCatalogMinimum,minimumTrackKey} from './minimumCatalog.js';
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
 import { evaluateNaviMinimumSafe, minimumDisplay, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
@@ -948,7 +949,7 @@ function matchingMinimumStatus(minimums = [], evaluations = [], admissionType = 
   const key = trackIdentity(track);
   if (!key) return "unlinked";
   const matches = minimums.map((row, index) => ({ row, evaluation: evaluations[index] }))
-    .filter(({ row }) => minimumAppliesToAdmission(row, admissionType) && trackIdentity(row?.[3]) === key);
+    .filter(({ row }) => minimumAppliesToAdmission(row, admissionType) && (trackIdentity(row?.[3]) === key || (row.catalogRule?.trackAliases || '').split('|').some(name=>trackIdentity(name)===key)));
   if (!matches.length) return "unlinked";
   const statuses = matches.map(({ evaluation }) => evaluation?.status || "manual");
   if (statuses.includes("unsatisfied")) return "unsatisfied";
@@ -1152,10 +1153,11 @@ function findStoredMinimumForUnit(student, { university, region, department, fie
   return best.length === 1 ? best[0] : null;
 }
 function evaluateNaviMinimum(row, selectedStudent, unit) {
-  const stored = unit ? findStoredMinimumForUnit(selectedStudent, unit) : null;
-  return evaluateNaviMinimumSafe(stored || row, selectedStudent);
+  if(unit)return resolveMinimumLink({target:unit,student:selectedStudent,data:{minimums:row&&!row.catalogRule?[row]:[]},identity:universityIdentityKey,evaluateMinimum:value=>evaluateNaviMinimumSafe(value,selectedStudent)}).evaluation;
+  return evaluateNaviMinimumSafe(row, selectedStudent);
 }
 function minimumAppliesToAdmission(row, admissionType = "") {
+  if(row?.catalogRule)return !admissionType || row.catalogRule.admissionType===admissionType;
   const type = compactText(admissionType);
   if (!type || !row) return true;
   const rowType = compactText(`${row[2] || ""} ${row[3] || ""}`);
@@ -1949,7 +1951,15 @@ export default function SusiNaviBetaView({
   const recommendationEstimateIndexes = useMemo(() => buildRecommendationEstimateIndexes(recommendedData), [recommendedData]);
 
   const enriched = useMemo(() => canonicalRecords.map(row => {
+    const target={university:row[3],region:row[1],department:row[5],field:row[6]};
+    const catalogRows=catalogRowsForTarget(effectiveStudent?.minimumCatalogRows||[],target,effectiveStudent?.admissionYear,universityIdentityKey);
     const minimums = indexedUniversityRows(minimumIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5]));
+    // Supply rows even when NAVI has no minimum entry. Keep original NAVI data intact.
+    for(const value of catalogRows){
+      if(minimums.some(item=>item[2]===value.admissionType&&minimumTrackKey(item[3])===minimumTrackKey(value.track)))continue;
+      const synthetic=['',value.campus?`${value.university}(${value.campus})`:value.university,value.admissionType,value.track,'',row[5],value.subjects,value.count,value.ruleText,null,value.note,`${value.source} ${value.page}쪽`];
+      synthetic.catalogRule=value;minimums.push(synthetic);
+    }
     const courseRules = indexedUniversityRows(courseRuleIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 4);
     const changes2028 = indexedUniversityRows(changeIndex, row[3], row[1]).filter(item => !item[6] || /O|변경|신설/.test(item[6])).slice(0, 5);
     const schedules = indexedUniversityRows(scheduleIndex, row[3], row[1]).filter(item => !item[5] || matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 5);
@@ -1996,8 +2006,9 @@ export default function SusiNaviBetaView({
       if (regionFilters.length && !regionFilters.includes(row[1])) return [];
       if (fieldFilters.length && !fieldFilters.some(field => fieldValuesOf(row).includes(field))) return [];
       if (minimumFilters.length === 1) {
-        if (minimumFilters[0] === "있음" && !minimums.length) return [];
-        if (minimumFilters[0] === "없음" && minimums.length) return [];
+        const states=(entry.minimumEvaluations||[]).filter((_,i)=>!admissionFilters.length||admissionFilters.some(type=>minimumAppliesToAdmission(minimums[i],type))).map(x=>x?.status);
+        if (minimumFilters[0] === "있음" && !states.some(s=>['satisfied','unsatisfied','unavailable'].includes(s))) return [];
+        if (minimumFilters[0] === "없음" && !states.includes('no-minimum')) return [];
       }
       if (favoriteOnly && !favorites.some(item => favoriteMatches(item, row))) return [];
 
@@ -2109,11 +2120,15 @@ export default function SusiNaviBetaView({
     const unit = { university: row[3], region: row[1], department: row[5], field: row[6] };
     const minimumHistories = minimums.map(item => {
       if (!(selectedStudent?.availableMockExams?.length > 1)) return null;
+      const catalog=resolveCatalogMinimum({target:{...unit,admissionType:item[2],track:item[3]},student:effectiveStudent,identity:universityIdentityKey});
+      if(catalog&&catalog.evaluation.status!=='unlinked')return catalog.minimum&&['satisfied','unsatisfied','unavailable','no-minimum'].includes(catalog.evaluation.status)?minimumHistorySummary(catalog.minimum,effectiveStudent,selectedStudent.availableMockExams):null;
       const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
       return minimumHistorySummary(stored || item, effectiveStudent, selectedStudent.availableMockExams);
     });
     const minimumImprovements = minimums.map((item, idx) => {
       if (minimumEvaluations[idx]?.status !== "unsatisfied") return null;
+      const catalog=resolveCatalogMinimum({target:{...unit,admissionType:item[2],track:item[3]},student:effectiveStudent,identity:universityIdentityKey});
+      if(catalog&&catalog.evaluation.status!=='unlinked')return catalog.minimum?minimumImprovementAdvice(catalog.minimum,effectiveStudent):null;
       const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
       return minimumImprovementAdvice(stored || item, effectiveStudent);
     });
@@ -2843,7 +2858,7 @@ function PrintResultSheet({ rows = [], page, total, conversionMethod, conversion
   return <section className="susi-beta-print-sheet">
     <header><div><h1>2027 수시NAVI Beta 검색 결과</h1><p>2027 모집단위 · 2026 입시결과 연결 자료</p></div><div><b>현재 페이지 {page}</b><span>전체 검색 결과 {Number(total || 0).toLocaleString()}건</span></div></header>
     <div className="print-criteria"><span>학생 9등급 환산 <b>{validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"}</b></span><span>환산 <b>{conversionMethod === "statistical" ? `통계 Beta · ${conversionGroup}` : "기존 환산"}</b></span><span>판정 <b>{cutoffBasis}%컷</b></span><span>검색 <b>{query || "전체"}</b></span><span>필터 <b>{[region, field, admissionType, minimumFilter].join(" · ")}</b></span></div>
-    <table><thead><tr><th>대학</th><th>2027 모집단위</th><th>지역·계열</th><th>교과전형</th><th>종합전형</th><th>정시 참고</th><th>2027 수능최저</th></tr></thead><tbody>{rows.map(({ row, minimums }, index) => <tr key={`${row[3]}-${row[5]}-${index}`}><td><b>{row[3]}</b></td><td>{row[5]}</td><td>{[row[1], row[6]].filter(Boolean).join(" · ")}</td><td>{printAdmissionSummary(row[7], cutoffBasis)}</td><td>{printAdmissionSummary(row[8], cutoffBasis)}</td><td>{row[9] ? `${row[9][0] || "일반"} · 70% ${row[9][2] ?? "-"}` : "-"}</td><td>{minimums?.slice(0, 2).map(item => `${item[3] || item[2] || "전형"}: ${item[8] || "확인"}`).join(" / ") || "-"}</td></tr>)}</tbody></table>
+    <table><thead><tr><th>대학</th><th>2027 모집단위</th><th>지역·계열</th><th>교과전형</th><th>종합전형</th><th>정시 참고</th><th>수능최저 · 자료연도 확인</th></tr></thead><tbody>{rows.map(({ row, minimums, minimumEvaluations = [] }, index) => <tr key={`${row[3]}-${row[5]}-${index}`}><td><b>{row[3]}</b></td><td>{row[5]}</td><td>{[row[1], row[6]].filter(Boolean).join(" · ")}</td><td>{printAdmissionSummary(row[7], cutoffBasis)}</td><td>{printAdmissionSummary(row[8], cutoffBasis)}</td><td>{row[9] ? `${row[9][0] || "일반"} · 70% ${row[9][2] ?? "-"}` : "-"}</td><td>{minimums?.slice(0, 2).map((item, i) => `${minimumEvaluations[i]?.year || "연도 확인"} ${item[3] || item[2] || "전형"}: ${minimumEvaluations[i]?.ruleText || item[8] || "확인"}`).join(" / ") || "-"}</td></tr>)}</tbody></table>
     <footer>※ 대학 공식 모집요강을 반드시 최종 확인하세요. 화면의 ‘현재 결과 인쇄·PDF’는 현재 페이지 최대 12개 모집단위를 A4 가로 1페이지로 정리합니다.</footer>
   </section>;
 }
@@ -3038,7 +3053,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch71</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch72</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
@@ -3135,7 +3150,8 @@ function RegularGroup({ info }) {
   </div> : <span style={ui.none}>정시 참고 자료 없음</span>}</div>;
 }
 function MinimumGroup({ rows = [], evaluations = [], histories = [], improvements = [], latestMockLabel = "" }) {
-  return <div style={ui.resultSection}><SectionTitle tone="minimum" title="수능최저" year="2027 기준"/>{rows.length ? <div style={ui.minimumList}>{rows.slice(0, 2).map((row, index) => {
+  const [expanded,setExpanded]=useState(false);
+  return <div style={ui.resultSection}><SectionTitle tone="minimum" title="수능최저" year="지원연도·원문 기준"/>{rows.length>2&&<button type="button" style={ui.caseToggleBtn} onClick={()=>setExpanded(v=>!v)}>{expanded?'접기':`전형 ${rows.length}개 전체 보기`}</button>}{rows.length ? <div style={ui.minimumList}>{(expanded?rows:rows.slice(0, 2)).map((row, index) => {
     const evaluation = evaluations[index];
     const meta = naviMinimumStatusMeta(evaluation?.status);
     const history = histories[index];
@@ -3145,9 +3161,10 @@ function MinimumGroup({ rows = [], evaluations = [], histories = [], improvement
     // 확인이 필요한지 이유를 보여줍니다.
     const isManual = evaluation?.status === "manual";
     return <div key={`${row[3]}-${index}`} style={{ ...ui.minimumItem, ...(evaluation?.status === "unsatisfied" ? ui.minimumItemDanger : {}) }}>
-      <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{row[2] || "수시"}</span></div>
-      <div style={ui.minimumCriteriaRow}>{isManual ? <small style={ui.minimumNote}>{evaluation.reason}</small> : <strong style={ui.minimumCriteria}>{row[8] || "기준 원문 확인"}</strong>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
-      {!isManual && <small style={ui.minimumNote}>{[row[6] && `반영영역 ${row[6]}`, row[10] && row[10] !== "-" ? row[10] : ""].filter(Boolean).join(" · ")}</small>}
+      <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{evaluation?.year || '연도 확인'} · {row[2] || "수시"}</span></div>
+      <div style={ui.minimumCriteriaRow}>{isManual ? <small style={ui.minimumNote}>{evaluation.reason}</small> : <strong style={ui.minimumCriteria}>{evaluation?.ruleText || row[8] || "기준 원문 확인"}</strong>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
+      {evaluation?.source&&<small style={ui.minimumEvaluationNote}>{evaluation.source}</small>}
+      {!isManual && <small style={ui.minimumNote}>{[(evaluation?.subjectsText || row[6]) && `반영영역 ${evaluation?.subjectsText || row[6]}`, (evaluation?.note ?? row[10]) || ''].filter(Boolean).join(" · ")}</small>}
       {meta && latestMockLabel && <small style={ui.minimumEvaluationNote}>{latestMockLabel} 기준 판정</small>}
       {/* 3번 요청: 여러 회차를 응시했다면 "최근 N회 중 M회 충족"을 함께 보여줍니다. */}
       {history && history.decidedCount > 0 && <small style={ui.minimumEvaluationNote}>최근 {history.decidedCount}회 중 {history.satisfiedCount}회 충족</small>}
