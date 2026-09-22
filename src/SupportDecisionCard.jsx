@@ -6,11 +6,12 @@ import './supportDecision.css';
 const fmt=value=>validGrade(value)==null?'—':Number(value).toFixed(2);
 export function RecommendedCourseDetails({progress, printMode=false}) {
   const matched=progress?.matchedCourses || [], missing=progress?.missingCourses || [];
+  const statusLabel=!progress?.total?'권장과목 자료 없음':!progress?.studentCourseCount?'학생 과목자료 없음':`${progress.matched}/${progress.total}과목`;
   // 3번 요청: 인쇄본에는 클릭할 수 없으니 <details>를 항상 펼친 채로 찍습니다.
-  return <details className="kd-course-details" open={printMode || undefined}><summary><span>권장과목 이수 확인{progress?.estimated ? ' (추정)' : ''}</span><strong>{progress?.total ? `${progress.matched}/${progress.total}과목` : '자료 미연결'}</strong></summary>
+  return <details className="kd-course-details" open={printMode || undefined}><summary><span>권장과목 이수 확인{progress?.estimated ? ' (추정)' : ''}</span><strong>{statusLabel}</strong></summary>
     {/* 5번 요청: 이 대학 공식 자료가 아니라 다른 대학 자료로 만든 추정치일 때는 맨 위에 항상 밝힙니다. */}
     {progress?.estimated && <p><small>{progress.estimatedFrom?.length ? progress.estimatedFrom.join(', ') : '같은 학과·계열의 다른 대학'} 등 {progress.referenceCount || progress.estimatedFrom?.length || ''}개 대학 자료를 참고한 추정치이며, 이 대학이 직접 발표한 자료가 아닙니다.</small></p>}
-    {progress?.total ? <><p><b>이수 확인 {matched.length}개</b></p><div className="kd-course-chips">{matched.length ? matched.map(x=><span key={x} className="is-matched">✓ {progress.commonCourses?.includes(x) ? '★ ' : ''}{x}</span>) : <span>저장 성적에서 확인된 과목 없음</span>}</div><p><b>미확인 {missing.length}개</b></p><div className="kd-course-chips">{missing.length ? missing.map(x=><span key={x}>○ {progress.commonCourses?.includes(x) ? '★ ' : ''}{x}</span>) : <span>모든 과목 확인</span>}</div>{/* 3번 요청: ★는 참고한 여러 대학 중 2곳 이상에서 똑같이 나온(=중복 언급된) 과목 표시입니다. */}{progress?.estimated && !!progress.commonCourses?.length && <small>★ 표시는 참고한 대학 2곳 이상에서 공통으로 나온 과목입니다.</small>}<small>2028 권장과목 자료와 저장된 과목명을 대조합니다. ‘미확인’은 미이수 확정이 아니며, 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</small></> : <p>연결된 권장과목 자료가 없거나 과목 목록이 비어 있습니다.</p>}
+    {progress?.total ? <><p><b>이수 확인 {matched.length}개</b></p><div className="kd-course-chips">{matched.length ? matched.map(x=><span key={x} className="is-matched">✓ {progress.commonCourses?.includes(x) ? '★ ' : ''}{x}</span>) : <span>{progress.studentCourseCount ? '저장 성적·시간표에서 확인된 과목 없음' : '학생 성적·시간표 과목자료가 연결되지 않음'}</span>}</div><p><b>미확인 {missing.length}개</b></p><div className="kd-course-chips">{missing.length ? missing.map(x=><span key={x}>○ {progress.commonCourses?.includes(x) ? '★ ' : ''}{x}</span>) : <span>모든 과목 확인</span>}</div>{/* 3번 요청: ★는 참고한 여러 대학 중 2곳 이상에서 똑같이 나온(=중복 언급된) 과목 표시입니다. */}{progress?.estimated && !!progress.commonCourses?.length && <small>★ 표시는 참고한 대학 2곳 이상에서 공통으로 나온 과목입니다.</small>}<small>2028 권장과목 자료와 저장된 성적·시간표 과목명을 대조합니다. ‘미확인’은 미이수 확정이 아니며, 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</small></> : <p>해당 대학·모집단위에 연결된 권장과목 자료가 없거나 과목 목록이 비어 있습니다.</p>}
   </details>;
 }
 

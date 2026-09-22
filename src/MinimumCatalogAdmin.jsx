@@ -38,7 +38,7 @@ export default function MinimumCatalogAdmin({gdb,persistGrades,showToast}) {
   try {const ok=await persistGrades({minimumCatalog:{...gdb.minimumCatalog,rows:gdb.minimumCatalog.previousRows,previousRows:current,updatedAt:new Date().toISOString(),fileName:'직전 자료 복구'}});if(ok)showToast?.('직전 최저자료로 복구했습니다.','success');else setError('복구 저장 실패');}catch(e){setError(e.message);}finally{setBusy(false);}
  }
  return <section className="kd-minimum-admin">
-  <header><div><h3>수능최저 자료 연결</h3><p>학년도·캠퍼스·전형·모집단위 연결과 판정식을 분리해 관리합니다. 통사·통과는 2028 자료에서 사·과로 자동 보정합니다.</p></div><span>{gdb.minimumCatalog?.updatedAt?`최근 반영 ${new Date(gdb.minimumCatalog.updatedAt).toLocaleDateString('ko-KR')}`:'Patch81 기본 자료 적용 중'}</span></header>
+  <header><div><h3>수능최저 자료 연결</h3><p>학년도·캠퍼스·전형·모집단위 연결과 판정식을 분리해 관리합니다. 통사·통과는 2028 자료에서 사·과로 자동 보정합니다.</p></div><span>{gdb.minimumCatalog?.updatedAt?`최근 반영 ${new Date(gdb.minimumCatalog.updatedAt).toLocaleDateString('ko-KR')}`:'Patch82 기본 자료 적용 중'}</span></header>
   <div className="kd-minimum-stats"><b>전체 {stats.total}</b><b>계산 가능 {stats.ready}</b><b>검토 필요 {stats.review}</b><span>사용 안 함 {stats.disabled}</span></div>
   <p>‘계산 가능’은 계산 규칙이 준비된 상태입니다. 학생 성적이나 홈페이지 전형명이 부족하면 판정을 보류합니다. 원문 상충·전형명 누락은 검토 필요로 유지합니다.</p>
   <div className="kd-minimum-actions"><label className="kd-minimum-button">{busy?'처리 중…':'호환 엑셀 선택'}<input ref={fileRef} type="file" accept=".xlsx" disabled={busy} onChange={e=>readFile(e.target.files?.[0])}/></label>{!preview&&gdb.minimumCatalog?.previousRows&&<button disabled={busy} onClick={restore}>직전 자료로 복구</button>}</div>

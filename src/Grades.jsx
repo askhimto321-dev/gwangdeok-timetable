@@ -571,7 +571,9 @@ export default function GradesSection({
   useEffect(() => {
     setVisitedTabs(previous => previous.includes(tab) ? previous : [...previous, tab]);
   }, [tab]);
-  const keepTabMounted = key => tab === key || visitedTabs.includes(key);
+  // NAVI·대입결과·학년비교는 숨겨진 상태에서도 학생 변경 때 대량 계산을 반복하므로
+  // 다른 탭으로 이동하면 해제합니다. NAVI 검색 상태는 sessionStorage에서 복원됩니다.
+  const keepTabMounted = key => tab === key || (!['susiNaviBeta', 'admissionCases', 'gradeCompare'].includes(key) && visitedTabs.includes(key));
   const teacherHasGradeAccess = !loggedInTeacher || (teacherGradeAccess || []).map(String).includes(String(currentGrade));
   const [linkedUniversity, setLinkedUniversity] = useState("");
   const [linkedDepartment, setLinkedDepartment] = useState("");

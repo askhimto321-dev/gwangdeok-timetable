@@ -128,10 +128,14 @@ function normalizeCourseNumerals(value) {
     .replace(/([가-힣])\s*([123])(?=$|[^0-9])/g, "$1$2");
 }
 export function courseMatchKey(value) {
-  return normalizeCourseNumerals(value)
+  const compact = normalizeCourseNumerals(value)
     .replace(/[()（）\[\]{}·ㆍ,./\\\-_:：]/g, "")
     .replace(/\s+/g, "")
     .toLowerCase();
+  // 이동수업 엑셀 시트명에는 '미적분Ⅱ(진로선택)', '기하 A반'처럼 과목 성격이나
+  // 그룹 문자가 붙기도 합니다. 핵심 과목명이 확실한 경우에만 장식 꼬리를 제거합니다.
+  const decoratedCore = compact.match(/^(미적분[12]|기하)(?:(?:일반|진로|융합)?선택|공통과목|선택과목|과목|수강|이수|[123]학년|[12]학기|[a-z](?:반|그룹)?)*$/i);
+  return decoratedCore?.[1] || compact;
 }
 export function splitCourseNames(value) {
   const raw = normalizeText(value);
@@ -964,15 +968,17 @@ export function estimateRecommendationForUnit(indexes, university, region = "", 
 }
 function recommendationProgress(recommendation, studentSubjects = []) {
   if (!recommendation) return null;
+  const normalizedStudentSubjects = uniqueStudentSubjects(studentSubjects);
   const targets = uniqueCourseNames([
     recommendation.reflected || [],
     recommendation.core || recommendation.required || [],
     recommendation.recommended || [],
   ]);
-  const matched = targets.filter(course => studentCourseMatch(studentSubjects, course));
+  const matched = targets.filter(course => studentCourseMatch(normalizedStudentSubjects, course));
   return {
     total: targets.length,
     matched: matched.length,
+    studentCourseCount: normalizedStudentSubjects.length,
     matchedCourses: matched,
     missingCourses: targets.filter(course => !matched.includes(course)),
     ratio: targets.length ? matched.length / targets.length : null,
@@ -2042,9 +2048,8 @@ export default function SusiNaviBetaView({
       schedules,
       caseStats,
       recommendation,
-      recommendationProgress: recommendationProgress(recommendation, studentSubjects),
     };
-  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, recommendationEstimateIndexes, studentSubjects, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.admissionYear]);
+  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, recommendedData, recommendationEstimateIndexes, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.admissionYear]);
 
   const connectionFocusDepartmentMatched = useMemo(() => {
     if (!connectionFocus?.university || !connectionFocus?.department) return false;
@@ -2167,12 +2172,12 @@ export default function SusiNaviBetaView({
       minimumEvaluation,
       minimumStatus: minimumEvaluation.status,
       recommendation: entry?.recommendation,
-      recommendationProgress: entry?.recommendationProgress,
+      recommendationProgress: recommendationProgress(entry?.recommendation, studentSubjects),
       naviCaseCount: evidence?.naviCount ?? null,
       comparisonEvidence: evidence,
       schoolTrend: evidence?.school || schoolCaseTrend(caseRows, item.university, item.region, item.department, item.track || item.admissionType, true),
     };
-  }), [supportPlan, enriched, cutoffBasis, conversion?.value, conversionGroup, caseRows, data, effectiveStudent]);
+  }), [supportPlan, enriched, cutoffBasis, conversion?.value, conversionGroup, caseRows, data, effectiveStudent, studentSubjects]);
   const resolvedCompareTray = useMemo(() => compareTray.map(item => {
     const entry = findEnrichedWorkspaceEntry(enriched, item);
     return { stored: item, entry: entry || null };
@@ -2194,8 +2199,8 @@ export default function SusiNaviBetaView({
       if (minimumEvaluations[idx]?.status !== "unsatisfied") return null;
       return minimumImprovementAdvice(item, effectiveStudent);
     });
-    return { ...entry, minimumHistories, minimumImprovements };
-  }), [visible, effectiveStudent, selectedStudent?.availableMockExams]);
+    return { ...entry, minimumHistories, minimumImprovements, recommendationProgress: recommendationProgress(entry.recommendation, studentSubjects) };
+  }), [visible, effectiveStudent, selectedStudent?.availableMockExams, studentSubjects]);
   const visibleResultRows = useMemo(() => visibleWithSimulation.map(entry => ({
     ...entry,
     schoolTrend: schoolCaseTrend(caseRows, entry.row[3], entry.row[1], entry.row[5]),
@@ -3143,7 +3148,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch81</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch82</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
