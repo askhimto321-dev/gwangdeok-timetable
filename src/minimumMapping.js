@@ -27,23 +27,29 @@ function normalizeUniversity(row,reasons) {
 }
 function normalizeScope(row,reasons) {
  if(!reasons.includes(SCOPE_REVIEW))return reasons;
- const scope=compact(row.department),m=scope.match(/^((?:의|치의|한의|수의)예과)\((지역의사선발)\)$/);
+ let scope=compact(row.department)
+  .replace(/한의예(?:과)?\(인문[·/]자연\)/g,'한의예과')
+  .replace(/^통합\((.+)\)$/,'$1')
+  .replace(/체능/g,'예체능');
+ const m=scope.match(/^((?:의|치의|한의|수의)예과)\((지역의사선발)\)$/);
  if(m&&compact(row.track).includes(m[2])){row.scopeType='학과';row.department=m[1];return removeReason(reasons,r=>r===SCOPE_REVIEW);}
  const units=scopeUnits(scope).map(s=>s.replace(/\((?:인문[·/]?자연|인문|자연)\)$/,''));
  if(units.length&&units.every(s=>/^(?:의예과|치의예과|한의예과|수의예과|약학과|간호학과)$/.test(s))){row.scopeType='학과';row.department=[...new Set(units)].join('|');return removeReason(reasons,r=>r===SCOPE_REVIEW);}
  if(/^(?:인문|자연|체육|예술·체육|예체능|인문사회|인문사회및자연과학계열)(?:[|,/·](?:인문|자연|체육|예술·체육|예체능))*$/.test(scope)){
   row.scopeType='계열';row.department=scope.split(/[|,/]/).map(s=>s.replace(/계열$/,'')).join('|');return removeReason(reasons,r=>r===SCOPE_REVIEW);
  }
- if(/^(?:전체|전모집단위|해당전형모집단위|원문전형모집단위)$/.test(scope)&&row.ruleType==='없음'){
+ if(/^(?:전체|전모집단위|해당전형모집단위|원문전형모집단위)$/.test(scope)){
   row.scopeType='전체';row.department='전체';return removeReason(reasons,r=>r===SCOPE_REVIEW);
  }
  const excluded=scope.match(/^(?:전체|전모집단위)\(([^()]+)제외\)$/);
  if(excluded){row.scopeType='전체';row.department='전체';row.excluded=[...new Set([...scopeUnits(row.excluded),...scopeUnits(excluded[1])])].join('|');return removeReason(reasons,r=>r===SCOPE_REVIEW);}
  if(/^(?:서울|글로벌|다빈치)전?캠(?:퍼스)?$/.test(scope)){row.scopeType='전체';row.campus=scope.replace(/전?캠(?:퍼스)?$/,'');row.department='전체';return removeReason(reasons,r=>r===SCOPE_REVIEW);}
+ const campusAll=scope.match(/^(서울|글로벌|다빈치|평택)전모집단위$/);
+ if(campusAll){row.scopeType='전체';row.campus=campusAll[1];row.department='전체';return removeReason(reasons,r=>r===SCOPE_REVIEW);}
  if(/^(?:일반고전형|일반고\(특별\)-간호학과)$/.test(scope)){row.scopeType='학과';row.department=scope.includes('간호')?'간호학과':'전체';return removeReason(reasons,r=>r===SCOPE_REVIEW);}
  const flat=scope.replace(/\((?:인문[·/]?자연|인문|자연|야)\)$/g,'').split(/[,/|]/).filter(Boolean).map(unitAlias);
  const field=s=>/^(?:인문|자연|상경|체육|예체능|예술·체육|인문사회|보건)(?:계열)?$/.test(s);
- const named=s=>/(?:학과|학부|대학|계열|전공|칼리지|캠)$/.test(s);
+ const named=s=>/(?:학과|학부|대학|계열|계열광역|전공|칼리지|캠)$/.test(s);
  if(flat.length&&flat.every(s=>field(s)||named(s))){row.scopeType=flat.every(field)?'계열':flat.every(named)?'학과':'혼합';row.department=[...new Set(flat.map(s=>s.replace(/^\[?천안\]?/,'').replace(/계열$/,'')))].join('|');return removeReason(reasons,r=>r===SCOPE_REVIEW);}
  return reasons;
 }
@@ -65,12 +71,23 @@ export function normalizeMinimumSubjects(value, year) {
   .replace(Number(year)>=2028?/통합과학|통과|과학탐구|과탐/g:/$^/g,'과');
 }
 export function parseExplicitMinimum(condition, note, year) {
- if(Number(year)!==2028)return null;
  const fields={ruleType:'',subjects:'',count:null,threshold:null,mandatory:'',englishMax:null,historyMax:null,inquiryMode:'해당없음',rounding:'없음',englishConversion:'없음'};
  let text=compact(condition), extra=compact(note);
+ if(Number(year)===2027){
+  const first=text.split(/\n|※/)[0];
+  const sum=first.match(/^([1-4])개(?:영역|과목)?(?:등급)?합(?:계)?([1-9]\d?)/);
+  const each=first.match(/^([1-4])개(?:영역|과목)?(?:각각|각)?([1-9])등급/) || first.match(/^([1-4])개(?:영역|과목)?(?:각각|각)([1-9])등급/);
+  if(!sum&&!each)return null;
+  const count=Number((sum||each)[1]),threshold=Number((sum||each)[2]);
+  const detail=compact(condition);
+  const scienceOnly=/과\(?2\)?|과탐/.test(detail)&&!/탐\(?[12]\)?/.test(detail.replace(/과탐/g,''));
+  const oneInquiry=/탐\(?1\)?|과1/.test(detail);
+  return {...fields,ruleType:sum?'합':'각',subjects:scienceOnly?'국|수|영|과':oneInquiry?'국|수|영|사/과':'국|수|영|사|과',count,threshold,mandatory:/미\/?기/.test(detail)?'수':'',inquiryMode:'통합개별',referenceMapped:true};
+ }
+ if(Number(year)!==2028)return null;
  // A repeated verbatim condition adds no new restriction. Never discard scoped notes.
  if(extra===text)extra='';
- text=[text,extra].filter(Boolean).join('※').replace(/수능최저학력기준|수능최저기준|수능최저|최저/g,'').replace(/^⇨/,'');
+ text=[text,extra].filter(Boolean).join('※').replace(/과팀/g,'과탐').replace(/수능최저학력기준|수능최저기준|수능최저|최저/g,'').replace(/^⇨/,'');
  text=text.replace(/^국수영(?=[1-5](?:개|합|등급))/,'국,수,영');
  text=text.replace(/※?(?:적성·인성|인·적성)면접추가시행/g,'');
  if(/^(?:미적용|없음|기준없음|※|[.,;])+$/u.test(text)&&/미적용|없음/.test(text))return {...fields,ruleType:'없음'};
@@ -78,7 +95,13 @@ export function parseExplicitMinimum(condition, note, year) {
  // need a separate rule model; never mistake these for a simple grade ceiling.
  const mandatory=[];
  text=text.replace(/(?:국어|국),(?:수학|수)중1개(?:영역|과목)?(?:을)?(?:필수)?(?:포함하여|포함)/g,()=>{mandatory.push('국/수');return '';});
- if(/누적|%|경우|간주|대체|⇨|：|:|또는|직|과팀/.test(text))return null;
+ // 판정식과 무관한 전형 안내는 비고에 있어도 최저 계산을 막지 않습니다.
+ text=text.replace(/※?학생부100%전형/g,'').replace(/※?한국사(?:에)?포함/g,'');
+ const inquiryAverageNote=/탐구(?:영역)?[:：]?2(?:개)?과목평균/.test(text);
+ const inquiryTwo=/사\/과\(2\)|탐\(2\)|과탐2개?과목평균/.test(text);
+ if(inquiryAverageNote&&inquiryTwo){fields.inquiryMode='통합평균';text=text.replace(/※?(?:탐구(?:영역)?[:：]?|과탐)2(?:개)?과목평균/g,'');}
+ else if(inquiryAverageNote)return null;
+ if(/누적|%|경우|간주|대체|⇨|：|:|또는|직/.test(text))return null;
  text=text.replace(/수학(?:,|과)(과학|과탐|탐구)필수포함/g,(_,s)=>{mandatory.push('수',s==='탐구'?'탐':'과');return '';});
  text=text.replace(/(국어|수학|영어|탐구)(?:필수포함|필수반영|포함하여|포함)/g,(_,s)=>{mandatory.push({국어:'국',수학:'수',영어:'영',탐구:'탐'}[s]);return '';});
  text=text.replace(/([국수영])(?:필수포함|필수반영|포함하여|포함)/g,(_,s)=>{mandatory.push(s);return '';});
@@ -90,8 +113,8 @@ export function parseExplicitMinimum(condition, note, year) {
   if(new Set(vals).size>1)return null;
   fields[field]=vals[0]??null;
  }
- if(/탐구(?:영역)?[:：]?2(?:개)?과목평균|사\/과\(2\)\(소수점(?:첫째자리(?:에서)?)?(?:절사|올림|반올림)\)/.test(text)) {
-  fields.inquiryMode='통합평균';text=text.replace(/탐구(?:영역)?[:：]?2(?:개)?과목평균/g,'');
+ if(/탐구(?:영역)?[:：]?2(?:개)?과목평균|과탐2개?과목평균|사\/과\(2\)(?:\(소수점(?:첫째자리(?:에서)?)?(?:절사|올림|반올림)\))?/.test(text)) {
+  fields.inquiryMode='통합평균';text=text.replace(/(?:탐구(?:영역)?[:：]?|과탐)2(?:개)?과목평균/g,'');
  }
  const exactAverage=/절사하지않고소수점까지반영/.test(text);
  text=text.replace(/절사하지않고소수점까지반영/g,'');
@@ -99,10 +122,10 @@ export function parseExplicitMinimum(condition, note, year) {
   if(pattern.test(text)){if(fields.rounding!=='없음'&&fields.rounding!==value)return null;fields.rounding=value;text=text.replace(pattern,'');}
  }
  if(/영어1[~～·-]2등급(?:은|을)?(?:모두|통합)?1등급(?:으로)?반영/.test(text)){fields.englishConversion='2등급까지1';text=text.replace(/영어1[~～·-]2등급(?:은|을)?(?:모두|통합)?1등급(?:으로)?반영/g,'');}
- text=text.replace(/(?:적성·인성|인·적성)면접추가시행/g,'').replace(/한국사수능최저학력기준에포함/g,'').replace(/수학,?(?:과학|과탐)필수포함/g,'').replace(/수학과탐구필수포함/g,'');
+ text=text.replace(/(?:적성·인성|인·적성)면접추가시행/g,'').replace(/한국사(?:수능최저학력기준)?(?:에)?포함/g,'').replace(/수학,?(?:과학|과탐)필수포함/g,'').replace(/수학과탐구필수포함/g,'');
  if(/사\/과\(2\)\(필수\)/.test(text)){mandatory.push('탐');text=text.replace(/사\/과\(2\)\(필수\)/g,'사/과(2)');}
  if(exactAverage&&(fields.inquiryMode!=='통합평균'||fields.rounding!=='없음'))return null;
- text=normalizeMinimumSubjects(text,year).replace(/탐\(사\/과\)\(1\)|탐\(1\)/g,'사/과').replace(/사\/과\(1\)/g,'사/과');
+ text=normalizeMinimumSubjects(text,year).replace(/탐\(사\/과\)\(1\)|탐\(1\)/g,'사/과').replace(/사\/과\(1\)/g,'사/과').replace(/중([1-5])개영역중등급합/g,'중$1개영역등급합');
  if(fields.inquiryMode==='통합평균')text=text.replace(/사\/과\(2\)|탐\(2\)/g,'탐');
  text=text.replace(/\[공통\]|\(\)|\(단,?\)|\(단,?/g,'').replace(/\)/g,'').replace(/※|;|및/g,'').replace(/\.(?![0-9])/g,'').replace(/,+$/,'');
  const fixed=text.match(/^국,영,(탐)중상위2개영역과수(?:학)?합산(?:(?:등급)?합)?([1-9][0-9]?)(?:등급)?(?:이내|이하)?$/);
@@ -131,7 +154,7 @@ export function parseExplicitMinimum(condition, note, year) {
 }
 export function repairMinimumRow(input) {
  let row={...input,subjects:normalizeMinimumSubjects(input.subjects,input.admissionYear),mandatory:normalizeMinimumSubjects(input.mandatory,input.admissionYear)};
- if(row.reviewStatus!=='검토필요'||Number(row.admissionYear)!==2028)return row;
+ if(row.reviewStatus!=='검토필요'||![2027,2028].includes(Number(row.admissionYear)))return row;
  let reasons=String(row.reviewReason||'').split(' · ');
  reasons=normalizeUniversity(row,reasons);
  // Patch72 inherited an 의예-only warning into sibling branches; substring
@@ -142,10 +165,15 @@ export function repairMinimumRow(input) {
   ['전체','계열'].includes(row.scopeType)&&scopeUnits(row.excluded).includes('의예과')
  ))reasons=reasons.filter(r=>!['원문 대조 필요: 의예 최저는 2·10·14쪽의 해당 전형 조건을 함께 확인','의예 조건이 일반표와 의예 표에서 다르게 기재됨'].includes(r));
  reasons=normalizeScope(row,reasons);
+ if(Number(row.admissionYear)===2027&&reasons.includes('2027 선택과목·전형명·별도조건 원문 확인 필요')){
+  const parsed=parseExplicitMinimum(row.ruleText,row.note,row.admissionYear);
+  if(parsed){row={...row,...parsed};reasons=removeReason(reasons,r=>r==='2027 선택과목·전형명·별도조건 원문 확인 필요');}
+ }
  if(compact(row.ruleText)==='미선발'&&reasons.includes(PARSE_REVIEW)){row.reviewStatus='사용안함';row.reviewReason='';return row;}
- if(reasons.includes(PARSE_REVIEW)) {
+ const parseableReasons=new Set([PARSE_REVIEW,'탐구 (2)의 계산 방법·적용 범위 확인 필요','원문 오탈자 의심: 과팀 표기를 그대로 보존']);
+ if(reasons.some(reason=>parseableReasons.has(reason))) {
   const parsed=parseExplicitMinimum(row.ruleText,scopedNote(row),row.admissionYear);
-  if(parsed){row={...row,...parsed};reasons=reasons.filter(r=>r!==PARSE_REVIEW);}
+  if(parsed){row={...row,...parsed};reasons=reasons.filter(reason=>!parseableReasons.has(reason));}
  }
  // A clearly stated no-minimum rule remains such even when the same note repeats
  // it or contains a non-CSAT selection notice. Scoped exceptions remain blocked.

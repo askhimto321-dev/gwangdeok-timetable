@@ -49,10 +49,15 @@ export function safeRestoredWorkspaceView(savedView, savedSection = "") {
   return savedView;
 }
 
-export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevMaps = {}) {
+export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevMaps = {}, allRosters = {}, allTimetables = {}) {
   const result = {};
   const seenByStudent = new Map();
   const normalizedAbbrevMaps = new Map();
+  const scopeInfo = scopeKey => {
+    const match = String(scopeKey).normalize("NFKC").trim().match(/^([1-3])\s*(?:학년)?\s*[-_ ]*\s*(?:sem)?\s*([12])\s*(?:학기)?$/i);
+    return match ? { grade: match[1], semesterKey: `${match[1]}-${match[2]}` } : { grade: "", semesterKey: "" };
+  };
+  const normalizedSid = value => String(value ?? "").normalize("NFKC").trim().replace(/\.0$/, "");
   const abbreviationMapForGrade = grade => {
     const key = String(grade || "");
     if (normalizedAbbrevMaps.has(key)) return normalizedAbbrevMaps.get(key);
@@ -65,39 +70,67 @@ export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevM
     normalizedAbbrevMaps.set(key, index);
     return index;
   };
+  const appendSubject = (rawSid, sourceSubjectValue, grade, semesterKey, extra = {}) => {
+    const sid = normalizedSid(rawSid);
+    const sourceSubject = String(sourceSubjectValue || "").normalize("NFKC").trim();
+    if (!sid || !sourceSubject) return;
+    if (!result[sid]) result[sid] = [];
+    if (!seenByStudent.has(sid)) seenByStudent.set(sid, new Set());
+    const seen = seenByStudent.get(sid);
+    const subject = abbreviationMapForGrade(grade).get(normalizeSubjectMatch(sourceSubject)) || sourceSubject;
+    const key = `${normalizeSubjectMatch(subject)}|${semesterKey}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    result[sid].push({
+      subject,
+      sourceSubject: subject !== sourceSubject ? sourceSubject : "",
+      semesterKey,
+      source: "timetable",
+      enrollmentStatus: "enrolled",
+      ...extra,
+    });
+  };
   Object.entries(allEnrollments || {}).forEach(([scopeKey, scopeEnrollments]) => {
-    const scopeMatch = String(scopeKey).normalize("NFKC").trim().match(/^([1-3])\s*(?:학년)?\s*[-_ ]*\s*(?:sem)?\s*([12])\s*(?:학기)?$/i);
-    const defaultSemesterKey = scopeMatch ? `${scopeMatch[1]}-${scopeMatch[2]}` : "";
+    const scope = scopeInfo(scopeKey);
     Object.entries(scopeEnrollments || {}).forEach(([rawSid, courses]) => {
-      // 엑셀·Firebase 이전 자료에는 학번이 20101.0 또는 공백 포함 문자열로 남은 경우가 있습니다.
-      // 성적 화면의 학번(20101)과 같은 키로 정규화해야 2학기 선택과목이 학생에게 합쳐집니다.
-      const sid = String(rawSid ?? "").normalize("NFKC").trim().replace(/\.0$/, "");
-      if (!sid) return;
-      if (!result[sid]) result[sid] = [];
-      if (!seenByStudent.has(sid)) seenByStudent.set(sid, new Set());
-      const seen = seenByStudent.get(sid);
       (Array.isArray(courses) ? courses : []).forEach(course => {
         const sourceSubject = String(typeof course === "string" ? course : (course?.subject || course?.subjectName || course?.name || "")).normalize("NFKC").trim();
         if (!sourceSubject) return;
-        const grade = scopeMatch?.[1] || (/^[1-3]/.test(sid) ? sid.charAt(0) : "");
-        // 이동수업 명단·시간표에는 '미적'처럼 약어만 저장되는 경우가 있습니다.
-        // 관리자 > 약어 매핑의 해당 학년 정식 과목명으로 먼저 확장해야 NAVI의
-        // 미적분I/미적분II/기하 이수 판정과 정확히 대조할 수 있습니다.
-        const subject = abbreviationMapForGrade(grade).get(normalizeSubjectMatch(sourceSubject)) || sourceSubject;
-        const semesterKey = String(course?.semesterKey || defaultSemesterKey || "");
-        const key = `${normalizeSubjectMatch(subject)}|${semesterKey}`;
-        if (seen.has(key)) return;
-        seen.add(key);
-        result[sid].push({
-          subject,
-          sourceSubject: subject !== sourceSubject ? sourceSubject : "",
-          semesterKey,
-          source: "timetable",
-          enrollmentStatus: "enrolled",
+        const sid = normalizedSid(rawSid);
+        const grade = scope.grade || (/^[1-3]/.test(sid) ? sid.charAt(0) : "");
+        appendSubject(sid, sourceSubject, grade, String(course?.semesterKey || scope.semesterKey || ""), {
           group: course?.group || "",
           hostClass: course?.hostClass || "",
         });
       });
+    });
+  });
+
+  // 이동수업 출석부에 없는 공통/학급 과목도 실제 학생 시간표에는 존재합니다. 이전 구현은
+  // enrollments만 읽었기 때문에 학급 시간표의 `미적`을 관리자가 `미적분I`로 매핑해도 NAVI
+  // 이수 목록으로 전달되지 않았습니다. 학급별 고정 칸을 한 번만 추출한 뒤 해당 반 학생에게
+  // 합치며, 이동수업 칸은 학생별 출석부 없이는 소속 그룹을 알 수 없으므로 여기서 제외합니다.
+  Object.entries(allRosters || {}).forEach(([scopeKey, scopeRoster]) => {
+    const scope = scopeInfo(scopeKey);
+    const scopeTimetables = allTimetables?.[scopeKey] || {};
+    const fixedSubjectsByClass = new Map();
+    Object.values(scopeRoster || {}).forEach(student => {
+      const classKey = String(student?.class ?? "").trim();
+      if (!classKey || fixedSubjectsByClass.has(classKey)) return;
+      const grid = scopeTimetables[classKey];
+      const subjects = [];
+      if (grid) DAYS.forEach(day => (grid[day] || []).forEach(cell => {
+        if (!cell || isMoveSlot(cell)) return;
+        const subject = parseCompositeLabel(cell).subject;
+        if (subject && !IGNORED_COMMON_LABELS.has(displaySubjectLabel(subject))) subjects.push(subject);
+      }));
+      fixedSubjectsByClass.set(classKey, subjects);
+    });
+    Object.entries(scopeRoster || {}).forEach(([rawSid, student]) => {
+      const sid = normalizedSid(rawSid);
+      const grade = scope.grade || (/^[1-3]/.test(sid) ? sid.charAt(0) : "");
+      const classKey = String(student?.class ?? "").trim();
+      (fixedSubjectsByClass.get(classKey) || []).forEach(subject => appendSubject(sid, subject, grade, scope.semesterKey, { timetableKind: "fixed", hostClass: classKey }));
     });
   });
   return result;
@@ -1392,8 +1425,8 @@ export default function App() {
   const announcements = db.announcements[scopeKey] || {};
   const materials = db.materials[scopeKey] || {};
   const enrolledSubjectsByStudent = useMemo(
-    () => collectEnrolledSubjectsByStudent(db.enrollments || {}, abbrevMaps),
-    [db.enrollments, abbrevMaps],
+    () => collectEnrolledSubjectsByStudent(db.enrollments || {}, abbrevMaps, db.roster || {}, db.timetables || {}),
+    [db.enrollments, db.roster, db.timetables, abbrevMaps],
   );
 
   const teacherGradeAccessList = useMemo(() => teacherGradeAccess(loggedInTeacher), [loggedInTeacher]);

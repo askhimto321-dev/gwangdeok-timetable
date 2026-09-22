@@ -35,7 +35,7 @@ function MinimumFacts({ minimum, ev, student, printMode=false }) {
   const isManual = minimum.status === 'manual';
   const decided = hasEvidence && ev.studentSum != null && (minimum.status === 'satisfied' || minimum.status === 'unsatisfied');
   const chips = !hasEvidence ? studentMockChips(student) : null;
-  const hasDetail = !isManual || ev?.subjectsText || ev?.note;
+  const hasDetail = !isManual || ev?.subjectsText || ev?.note || ev?.reason || ev?.source;
   return <>
     <strong className="kd-decision-verdict">{minimum.label}</strong>
     {decided ? <>
@@ -47,13 +47,13 @@ function MinimumFacts({ minimum, ev, student, printMode=false }) {
       <span className={`kd-status-pill kd-minimum-status is-${minimum.status}`}>{minimum.status === 'satisfied' ? '기준 도달' : '기준 미도달'}</span>
     </> : hasEvidence && !isManual ? <>
       <p className="kd-decision-rule">{ev.ruleText || '연결 조건 없음'}</p>
-    </> : hasEvidence && isManual ? <small className="kd-decision-reason">{minimum.reason}</small>
+    </> : hasEvidence && isManual ? <div className="kd-minimum-source-rule"><small>확인할 원문 기준</small><b>{ev?.ruleText || '연결된 원문 조건'}</b></div>
     : chips ? <div className="kd-mock-chips">
       {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
       {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}
     </div> : <small className="kd-decision-reason">{minimum.reason}</small>}
     {hasDetail && <details className="kd-decision-min-detail" open={printMode || undefined}><summary>자세히</summary>
-      {hasEvidence && !isManual && <small className="kd-decision-reason">{minimum.reason}</small>}
+      {hasEvidence && <small className="kd-decision-reason">{minimum.reason}</small>}
       {hasEvidence && ev.subjectsText && <small className="kd-decision-reason">반영 영역 {ev.subjectsText}</small>}
       {ev?.note && <small className="kd-decision-reason">비고: {ev.note}</small>}
       {!isManual && hasEvidence && <small className="kd-decision-reason">{ev.source || 'NAVI 수능최저 자료'}</small>}

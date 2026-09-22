@@ -121,4 +121,7 @@
 .kd-minimum-fact.is-result small{color:#54779a}
 .kd-minimum-fact.is-target{border-color:#dfc994;background:#fff8e8;color:#76500f}
 .kd-minimum-fact.is-target small{color:#876b36}
+.kd-minimum-source-rule{margin-top:7px;padding:7px 8px;border:1px solid #dfc994;border-radius:8px;background:#fff8e8;color:#76500f}
+.kd-minimum-source-rule small{display:block;margin-bottom:2px;font-size:10.5px;font-weight:700;color:#876b36}
+.kd-minimum-source-rule b{display:block;font-size:12.5px;font-weight:700;line-height:1.45;overflow-wrap:anywhere}
 .kd-minimum-status{margin-top:7px;font-size:11.5px;font-weight:800}

@@ -1,6 +1,7 @@
 import { validGrade } from './admissionMetrics.js';
 import {evaluateCatalogMinimum,MINIMUM_SCHEMA} from './minimumCatalog.js';
-import {evaluateAdmissionRequirement, parseAdmissionSubjectGroups} from './gradeEngine.js';
+import {parseExplicitMinimum} from './minimumMapping.js';
+import {parseAdmissionSubjectGroups} from './gradeEngine.js';
 const compact = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, '').trim();
 const empty = value => !compact(value) || compact(value) === '-';
 
@@ -58,8 +59,25 @@ export function evaluateStoredMinimum(row, student) {
   const result=(status,reason,extra={})=>({...base,status,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,reason,...extra});
   if(!year)return result('manual','최저 자료의 기준 학년도를 확인할 수 없습니다.');
   const rule=compact(row.requiredSum), area=compact(row.requiredSubjects);
-  if(!empty(row.note))return result('manual','비고의 별도 조건을 확인하세요. 조건을 생략해 충족으로 판정하지 않습니다.');
   if(/^(없음|미적용|해당없음|수능최저(?:학력기준)?(?:없음|미적용))$/.test(rule))return result('no-minimum','자료에 수능최저 미적용이 명시되어 있습니다.');
+  // 기존 학년별 최저 표도 구조화 파서로 먼저 승격합니다. 비고가 있다는 이유만으로 모든
+  // 행을 수동 확인으로 돌리던 동작을 없애고, 영어·한국사 상한/필수영역/탐구 처리처럼
+  // 해석 가능한 조건은 대학별 최저 카탈로그와 같은 엔진으로 계산합니다.
+  const normalizedArea=String(row.requiredSubjects||'')
+    .replace(/\((?:사회|사)\s*[,/]\s*(?:과학|과)\)/g,'사/과')
+    .replace(/(?:사회|사)\s*\/\s*(?:과학|과)/g,'사/과');
+  const explicit=parseExplicitMinimum(`${normalizedArea} 중 ${String(row.requiredSum||'')}`,row.note,year);
+  if(explicit){
+    return evaluateCatalogMinimum({
+      schema:MINIMUM_SCHEMA,id:`LEGACY-${year}-${compact(row.university)}-${compact(row.track)}`,sourceId:'기존-학년별-최저',admissionYear:year,season:'수시',
+      university:row.university||'연결 대학',campus:row.region||'',admissionType:row.admissionType||'',track:row.track||'연결 전형',trackAliases:'',
+      scopeType:'전체',department:'전체',excluded:'',reviewStatus:'계산가능',reviewReason:'',ruleText:`${normalizedArea} 중 ${String(row.requiredSum||'')}`,
+      note:String(row.note||''),source:'기존 대학 지원 진단 · 학년별 최저 자료',page:'-',...explicit,
+    },student);
+  }
+  const noteText=String(row.note||'');
+  const noteChangesMinimum=/(?:누적|%|환산|대체|경우|또는|⇨)|(?:국어|수학|영어|한국사|탐구|사탐|과탐|통합사회|통합과학)[^.\n]{0,30}(?:필수|포함|평균|절사|올림|반올림|[1-9]\s*등급)/.test(noteText);
+  if(noteChangesMinimum)return result('manual',`원문 추가조건: ${noteText}`);
   const sum=rule.match(/^([1-4])(?:개(?:영역|과목))?(?:등급)?합(?:계)?([1-9]\d?)(?:등급)?(?:이내|이하)?$/);
   const each=rule.match(/^(?:([1-4])개(?:영역|과목))?(?:각각|각|모두)([1-9])등급(?:이내|이하)?$/);
   const count=Number(sum?.[1] || each?.[1] || row.requiredSubjectCount);
@@ -68,16 +86,17 @@ export function evaluateStoredMinimum(row, student) {
   if(threshold<(each?1:count) || threshold>(each?9:9*count))return result('manual','최저 기준의 등급 범위를 확인하세요.');
   const residue=area.replace(/통합사회|통합과학|한국사|국어|수학|영어|사회|과학|탐구|[국수영사과한탐(),·ㆍ/＋+]/g,'');
   if(residue || !area || (area.match(/\(/g)||[]).length!==(area.match(/\)/g)||[]).length)return result('manual','필수 포함·평균·복수 조건 등 반영 영역 원문을 확인하세요.');
-  const groups=parseAdmissionSubjectGroups(area);
+  const groupingArea=String(row.requiredSubjects||'').replace(/(?:사회|사)\s*\/\s*(?:과학|과)/g,'(사,과)');
+  const groups=parseAdmissionSubjectGroups(groupingArea);
   const names=groups.flatMap(group=>group.subjects);
   if(count>groups.length || new Set(names).size!==names.length)return result('manual','반영 영역의 중복 또는 선택 조건을 확인하세요.');
   const grades=student.latestMockGrades || {};
-  const missing=names.filter(name=>validGrade(grades[name])==null || !Number.isInteger(Number(grades[name])));
-  if(missing.length)return result('unavailable',`모평 성적 미입력/확인 필요: ${missing.join('·')}`);
-  const selected=groups.map(group=>group.subjects.map(name=>({name,grade:Number(grades[name])})).sort((a,b)=>a.grade-b.grade)[0]).sort((a,b)=>a.grade-b.grade).slice(0,count);
-  const evaluation=evaluateAdmissionRequirement({...row,requiredSubjectCount:count,requiredSum:each?`각 ${threshold}등급 이내`:`${count}합${threshold}`,note:''},null,grades);
+  const candidates=groups.map(group=>group.subjects.map(name=>({name,grade:validGrade(grades[name])})).filter(item=>item.grade!=null&&Number.isInteger(Number(item.grade))).sort((a,b)=>a.grade-b.grade)[0]).filter(Boolean).sort((a,b)=>a.grade-b.grade);
+  if(candidates.length<count)return result('unavailable','반영 가능한 모평 성적이 부족합니다.');
+  const selected=candidates.slice(0,count),studentSum=selected.reduce((sum,item)=>sum+Number(item.grade),0);
+  const status=each?selected.every(item=>item.grade<=threshold)?'satisfied':'unsatisfied':studentSum<=threshold?'satisfied':'unsatisfied';
   const calculation=selected.map(x=>`${x.name} ${x.grade}`).join(' + ');
-  return result(evaluation.status,each?`${calculation} / 선택 ${count}개 영역 각각 ${threshold}등급 이내`:`${calculation} = ${evaluation.studentSum} / 기준 ${threshold} 이내`,{studentSum:evaluation.studentSum,selectedSubjects:selected,count,threshold,ruleType:each?'each':'sum'});
+  return result(status,each?`${calculation} / 선택 ${count}개 영역 각각 ${threshold}등급 이내`:`${calculation} = ${studentSum} / 기준 ${threshold} 이내`,{studentSum,selectedSubjects:selected,count,threshold,ruleType:each?'each':'sum'});
 }
 
 // 3순위(모평 선택·시뮬레이션): 학생이 응시한 회차별로 같은 판정 함수를 그대로 다시 돌려,
@@ -125,8 +144,8 @@ export function improvementAdviceText(advice) {
 
 export function minimumDisplay(evaluation, status) {
   const state=evaluation?.status || status || 'unlinked';
-  const labels={satisfied:'모평 기준 충족',unsatisfied:'모평 기준 미충족','no-minimum':'수능최저 없음',manual:'조건 확인 필요',unavailable:'모평 성적 필요',unlinked:'최저 자료 미연결'};
-  return {status:state,label:labels[state] || '조건 확인 필요',reason:evaluation?.reason || '연도·캠퍼스·모집단위·전형이 일치하는 원자료를 확인하세요.'};
+  const labels={satisfied:'모평 기준 충족',unsatisfied:'모평 기준 미충족','no-minimum':'수능최저 없음',manual:'원문 조건',unavailable:'모평 성적 필요',unlinked:'최저 자료 미연결'};
+  return {status:state,label:labels[state] || '원문 조건',reason:evaluation?.reason || '연도·캠퍼스·모집단위·전형이 일치하는 원자료를 확인하세요.'};
 }
 
 // UI patch: 대학별 최저 자료가 연결되지 않아도(=unlinked), 학생 본인의 최근 모의고사 등급은
