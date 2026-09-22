@@ -80,7 +80,10 @@ function relationshipMapped(rows) {
    const covered=branches.every(b=>scopeUnitsForLink(b[1]).every(t=>scoped.some(s=>splitScope(s.department).includes(t))));
    if(covered)return {...next,reviewStatus:'사용안함',reviewReason:''};
   }
-  const childScopes=scoped.filter(s=>s.scopeType==='학과'&&(
+  // 예외 모집단위가 학과만으로 구성되지 않고 `자연|상경|특정학부`처럼
+  // 계열과 학과가 섞인 행(혼합)으로 분리되는 대학도 있습니다. 이 행도
+  // 일반 규칙의 제외범위에 연결해야 완성된 두 분기가 각각 판정됩니다.
+  const childScopes=scoped.filter(s=>['학과','혼합'].includes(s.scopeType)&&(
    reasons.includes(EXCLUSION_REVIEW)||branches.some(b=>scopeUnitsForLink(b[1]).some(t=>splitScope(s.department).includes(t)))
   ));
   if(['전체','계열','혼합'].includes(row.scopeType)&&childScopes.length){
@@ -200,7 +203,13 @@ function scopeRank(row,target) {
  if(list(row.excluded).some(x=>unitKey(x)===unit||compactMinimum(x).replace(/계열$/,'')===field))return -1;
  if(row.scopeType==='학과')return list(row.department).some(x=>unitKey(x)===unit)?3:-1;
  if(row.scopeType==='계열')return field&&list(row.department).some(x=>compactMinimum(x).replace(/계열$/,'')===field)?1:-1;
- if(row.scopeType==='혼합')return list(row.department).some(x=>unitKey(x)===unit||field&&compactMinimum(x).replace(/계열$/,'')===field)?2:-1;
+ if(row.scopeType==='혼합'){
+  const units=list(row.department);
+  // 혼합 행 안의 정확한 모집단위명은 계열명보다 우선합니다. 그렇지 않으면
+  // `자연` 일반 규칙과 `의류학과` 예외 규칙이 같은 점수로 충돌할 수 있습니다.
+  if(units.some(x=>unitKey(x)===unit))return 3;
+  return field&&units.some(x=>compactMinimum(x).replace(/계열$/,'')===field)?1:-1;
+ }
  return row.scopeType==='전체'?0:-1;
 }
 function universityMatch(row,target,identity) {

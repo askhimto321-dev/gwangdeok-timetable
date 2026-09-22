@@ -179,7 +179,9 @@ export function repairMinimumRow(input) {
  }
  if(compact(row.ruleText)==='미선발'&&reasons.includes(PARSE_REVIEW)){row.reviewStatus='사용안함';row.reviewReason='';return row;}
  const parseableReasons=new Set([PARSE_REVIEW,'탐구 (2)의 계산 방법·적용 범위 확인 필요','원문 오탈자 의심: 과팀 표기를 그대로 보존']);
- const isParseableReason=reason=>parseableReasons.has(reason)||/^탐구 반영 확인:/.test(reason);
+ const isParseableReason=reason=>parseableReasons.has(reason)||/^탐구 반영 확인:/.test(reason)||(
+  reason==='탐구·직탐 선택 방식 확인 필요'&&!/직/.test(`${row.ruleText} ${row.note}`)
+ );
  if(reasons.some(isParseableReason)) {
   const parsed=parseExplicitMinimum(row.ruleText,scopedNote(row),row.admissionYear);
   if(parsed){row={...row,...parsed};reasons=reasons.filter(reason=>!isParseableReason(reason));}

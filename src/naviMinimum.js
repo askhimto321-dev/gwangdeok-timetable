@@ -18,9 +18,15 @@ export function evaluateNaviMinimumSafe(row, student) {
     return notes ? result('manual','미적용 표기와 별도 비고가 함께 있어 원문 확인이 필요합니다.') : result('no-minimum','자료에 수능최저 미적용이 명시되어 있습니다.');
   }
   if (!rule) return result('manual','최저 조건 원문이 비어 있습니다.');
-  if (notes || !empty(row[9])) return result('manual','비고·평균등급 등 추가 조건이 있어 원문 대조가 필요합니다.');
+  // 구형 2027 표에는 판정식과 무관한 안내가 비고에 함께 저장되기도 합니다.
+  // 비고가 존재한다는 이유만으로 단순 합 기준을 막지 않고, 실제 등급·필수·대체
+  // 조건을 바꾸는 문장만 원문 확인 대상으로 남깁니다.
+  const noteChangesMinimum=/(?:누적|%|환산|대체|경우|또는|⇨)|(?:국어|수학|영어|한국사|탐구|사탐|과탐|통합사회|통합과학)[^.\n]{0,30}(?:필수|포함|평균|절사|올림|반올림|[1-9]\s*등급)/.test(notes);
+  if (noteChangesMinimum || !empty(row[9])) return result('manual','비고·평균등급 등 추가 조건이 있어 원문 대조가 필요합니다.');
   let count, threshold;
-  const match=rule.match(/^([1-4])(?:개(?:영역|과목))?(?:등급)?합(?:계)?([1-9]\d?)(?:등급)?(?:이내|이하)?$/);
+  // 원자료에는 같은 뜻이 `2합7`, `2개합7등급`, `2개 영역 합 7`처럼
+  // 섞여 있습니다. bare `개`도 정상 문법으로 받아들입니다.
+  const match=rule.match(/^([1-5])(?:개(?:영역|과목)?)?(?:등급)?합(?:계)?([1-9]\d?)(?:등급)?(?:이내|이하)?$/);
   if(match){count=Number(match[1]);threshold=Number(match[2]);}
   else if (/^[1-9]\d?$/.test(rule) && /^[1-4]$/.test(compact(row[7]))) {count=Number(row[7]);threshold=Number(rule);}
   else return result('manual','영역별·필수 포함·복수 조건 등은 현재 자동 판정 범위 밖입니다.');
