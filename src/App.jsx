@@ -53,14 +53,18 @@ export function collectEnrolledSubjectsByStudent(allEnrollments = {}) {
   const result = {};
   const seenByStudent = new Map();
   Object.entries(allEnrollments || {}).forEach(([scopeKey, scopeEnrollments]) => {
-    const scopeMatch = String(scopeKey).match(/^([1-3])-(?:sem)?([12])$/i);
+    const scopeMatch = String(scopeKey).normalize("NFKC").trim().match(/^([1-3])\s*(?:학년)?\s*[-_ ]*\s*(?:sem)?\s*([12])\s*(?:학기)?$/i);
     const defaultSemesterKey = scopeMatch ? `${scopeMatch[1]}-${scopeMatch[2]}` : "";
-    Object.entries(scopeEnrollments || {}).forEach(([sid, courses]) => {
+    Object.entries(scopeEnrollments || {}).forEach(([rawSid, courses]) => {
+      // 엑셀·Firebase 이전 자료에는 학번이 20101.0 또는 공백 포함 문자열로 남은 경우가 있습니다.
+      // 성적 화면의 학번(20101)과 같은 키로 정규화해야 2학기 선택과목이 학생에게 합쳐집니다.
+      const sid = String(rawSid ?? "").normalize("NFKC").trim().replace(/\.0$/, "");
+      if (!sid) return;
       if (!result[sid]) result[sid] = [];
       if (!seenByStudent.has(sid)) seenByStudent.set(sid, new Set());
       const seen = seenByStudent.get(sid);
-      (courses || []).forEach(course => {
-        const subject = String(course?.subject || "").normalize("NFKC").trim();
+      (Array.isArray(courses) ? courses : []).forEach(course => {
+        const subject = String(typeof course === "string" ? course : (course?.subject || course?.subjectName || course?.name || "")).normalize("NFKC").trim();
         if (!subject) return;
         const semesterKey = String(course?.semesterKey || defaultSemesterKey || "");
         const key = `${subject.replace(/\s+/g, "").toLowerCase()}|${semesterKey}`;
