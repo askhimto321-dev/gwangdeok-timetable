@@ -853,21 +853,23 @@ export function recommendationForUnit(recommendationData, university, region = "
   };
 }
 const RECOMMENDATION_DEPARTMENT_FAMILIES = [
-  ["computing", "컴퓨터·소프트웨어·AI", /컴퓨터|컴퓨팅|소프트웨어|전산|인공지능|데이터사이언|데이터과학|빅데이터|정보보호|사이버보안|클라우드|게임공|ict|it융합|ai학|ai소프트웨어|ai컴퓨터|ai데이터|첨단컴퓨팅/],
+  ["computing", "컴퓨터·소프트웨어·AI", /컴퓨터|컴퓨팅|소프트웨어|전산|인공지능|데이터사이언|데이터과학|빅데이터|정보보호|사이버보안|클라우드|게임공|ict|it융합|ai학|ai소프트웨어|ai컴퓨터|ai데이터|ai융합|ai공|첨단컴퓨팅|지능형소프트웨어/],
   ["electrical", "전기·전자·반도체·통신", /전기|전자|반도체|디스플레이|정보통신|통신공|제어계측|제어공|로봇|임베디드|iot/],
-  ["mechanical", "기계·모빌리티·항공", /기계|자동차|모빌리티|항공우주|항공공|항공기계|항공운항|조선|해양공학|메카트로닉스|철도.*공|냉동공조/],
-  ["chemical", "화학·신소재·에너지", /화공|화학.*공|신소재|재료|에너지|고분자|나노|배터리|이차전지|자원공|원자력/],
+  ["mechanical", "기계·모빌리티·항공", /기계|자동차|미래차|모빌리티|항공우주|항공공|항공기계|항공운항|조선|해양공학|메카트로닉스|철도.*공|냉동공조/],
+  ["chemical", "화학·신소재·에너지", /화공|화학.*공|신소재|재료|에너지.*공|에너지시스템|에너지소재|에너지자원|고분자|나노.*공|나노소재|나노재료|배터리|이차전지|자원공|원자력|세라믹|금속.*재료|섬유.*공/],
   ["industrial", "산업·시스템공학", /산업.*공|시스템경영|경영공학|기술경영|품질경영|스마트팩토리/],
   ["architecture", "건축·도시·토목·환경공학", /건축|도시|토목|환경공|사회기반|건설|교통공|스마트시티|조경|안전공|방재공/],
-  ["agriculture", "농생명·식품·산림", /농업|농학|농생명|원예|산림|식품|축산|동물자원|수산|해양생명/],
-  ["bio", "생명·바이오·의공학", /생명|바이오|의생명|생물|유전|미생물|의공|의료공|바이오메디컬/],
+  ["agriculture", "농생명·식품·산림", /농업|농학|농생명|원예|산림|식품|축산|동물자원|식물자원|생물자원|생명자원|스마트팜|수산|해양생명/],
+  ["bio", "생명·바이오·의공학", /생명|바이오|의생명|생물|유전|미생물|생화학|의공|의료공|바이오메디컬|제약.*공/],
   ["medical", "의·치·한·약·수의학", /의예|의학|치의|한의|약학|수의/],
   ["nursing", "간호", /간호/],
   ["health", "보건·재활", /물리치료|작업치료|방사선|임상병리|보건|응급구조|치위생|안경광학|재활|언어치료|의료경영/],
-  ["math", "수학·통계", /수학|통계|금융수학|경제수학|응용수리/],
-  ["physics", "물리·천문", /물리학|응용물리|전자물리|나노물리|물리교육|천문|우주과학/],
-  ["chemistry", "화학", /화학과|응용화학|화학전공|화학부|화학교육|정밀화학/],
-  ["earth", "지구·환경과학", /지구과학|지질|대기|해양학|환경과학|지구환경|기상/],
+  ["math", "수학·통계", /수학|통계|금융수학|경제수학|응용수리|수리과학/],
+  ["physics", "물리·천문", /물리학|응용물리|전자물리|나노물리|물리교육|물리과학|^물리$|천문|우주과학/],
+  // 화학공학·화학생명공학은 위 chemical에서 먼저 분류됩니다. 여기서는 화학과,
+  // 응용·나노·의약·환경화학처럼 학교마다 이름이 다른 순수/응용화학 계열을 함께 묶습니다.
+  ["chemistry", "화학", /화학/],
+  ["earth", "지구·환경과학", /지구|지질|대기|해양학|환경과학|지구환경|기상/],
   ["engineering", "공학 일반", /공학|공과대|융합공|스마트.*공/],
   ["economics", "경제·금융·통상", /경제|금융|국제통상|무역경제/],
   ["business", "경영·회계·물류", /경영|회계|세무|무역|유통|물류|보험|부동산/],
@@ -913,9 +915,13 @@ export function recommendationConsensus(pool = [], targetUniversityKey = "", { r
   pool.forEach(item => {
     const universityKey = universityIdentityKey(item.university, item.region || "");
     if (!universityKey || universityKey === targetUniversityKey) return;
+    const courses = uniqueCourseNames([item.reflected || [], item.core || item.required || [], item.recommended || []]);
+    // 과목을 발표하지 않은 빈 행은 '권장하지 않은 대학'이 아닙니다. 실제로 과목을
+    // 제시한 대학들만 분모에 넣어야 '자료 제시 대학 중 과반'이 정확히 계산됩니다.
+    if (!courses.length) return;
     if (!universityCourses.has(universityKey)) universityCourses.set(universityKey, new Set());
     universityNames.set(universityKey, item.university);
-    uniqueCourseNames([item.reflected || [], item.core || item.required || [], item.recommended || []]).forEach(course => {
+    courses.forEach(course => {
       const courseKey = courseMatchKey(course);
       if (!courseKey) return;
       universityCourses.get(universityKey).add(courseKey);
@@ -987,8 +993,10 @@ export function estimateRecommendationForUnit(indexes, university, region = "", 
   const fieldKey = compactText(field);
   const family = recommendationDepartmentFamily(department, field);
   const candidates = [
-    { pool: deptKey ? (indexes.byDepartment.get(deptKey) || []) : [], matchedBy: "department", ratio: .5, minUniversities: 8, minMentions: 5 },
-    { pool: family.key ? (indexes.byFamily.get(family.key) || []) : [], matchedBy: "family", ratio: .5, minUniversities: 10, minMentions: 6 },
+    // 희소 학과도 완전히 누락시키지 않되 1~2개 대학의 특이 과목은 일반화하지 않습니다.
+    // 실제 과목을 제시한 대학이 4곳 이상일 때, 최소 3곳이면서 과반인 과목만 채택합니다.
+    { pool: deptKey ? (indexes.byDepartment.get(deptKey) || []) : [], matchedBy: "department", ratio: .5, minUniversities: 4, minMentions: 3 },
+    { pool: family.key ? (indexes.byFamily.get(family.key) || []) : [], matchedBy: "family", ratio: .5, minUniversities: 4, minMentions: 3 },
     { pool: fieldKey ? (indexes.byField.get(fieldKey) || []) : [], matchedBy: "field", ratio: .6, minUniversities: 20, minMentions: 12 },
   ];
   let selected = null;
@@ -3090,7 +3098,7 @@ export function RecommendedSubjectPanel({ recommendation, status = "ready", prog
   if (!recommendation && ["idle", "loading"].includes(status)) return <div role="status" aria-live="polite" style={ui.recommendEmpty}><span>2028 권장과목</span><b><Loader2 className="spin" size={14}/> 권장과목 자료 연결 중</b><small>대학별 공식 자료와 여러 대학 공통 권장과목을 확인하고 있습니다.</small></div>;
   if (!recommendation && status === "error") return <div role="status" style={ui.recommendEmpty}><span>2028 권장과목</span><b>권장과목 자료 연결 실패</b><small>화면 위의 ‘권장과목 다시 연결’을 눌러주세요. 연결 전에는 자료 없음으로 판정하지 않습니다.</small></div>;
   if (!recommendation && status === "empty") return <div style={ui.recommendEmpty}><span>2028 권장과목</span><b>학교 공용 권장과목 자료 미등록</b><small>관리자가 어디가 공식 XLSX를 반영하면 대학 발표 자료와 여러 대학 공통 과목을 연결합니다.</small></div>;
-  if (!recommendation) return <div style={ui.recommendEmpty}><span>2028 권장과목</span><b>이 모집단위에 연결된 공식 자료 없음</b><small>충분한 대학 표본의 공통 권장과목도 확인되지 않았습니다. 다른 학과 자료를 임의로 합치지 않으며, 대학 입학처 공지를 함께 확인해주세요.</small></div>;
+  if (!recommendation) return <div style={ui.recommendEmpty}><span>2028 권장과목</span><b>공식·유사학과 공통 자료 없음</b><small>해당 대학 발표 자료가 없고, 과목을 제시한 4개 이상 대학의 동일·유사학과에서도 과반 공통 과목이 확인되지 않았습니다.</small></div>;
   const reflected = recommendation.reflected || [];
   const core = recommendation.core?.length ? recommendation.core : recommendation.required || [];
   const recommended = recommendation.recommended || [];
@@ -3213,7 +3221,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch84</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch85</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
