@@ -29,7 +29,7 @@ import { buildComparisonRows, minimumScopeRank, comparisonType, resolveMinimumLi
 import {catalogRowsForTarget,resolveCatalogMinimum,minimumTrackKey} from './minimumCatalog.js';
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
-import { evaluateNaviMinimumSafe, minimumDisplay, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
+import { evaluateNaviMinimumSafe, minimumDisplay, minimumYearLabel, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
 import { conversionDetails, loadSusiNaviBetaData, loadSusiNaviBetaDataReliable, updateSusiNaviBetaCache } from "./susiNaviData.js";
 import { recommendedCourseDisplayName } from "./recommendationPresentation.js";
 
@@ -3637,7 +3637,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch89</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch90</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
@@ -3735,7 +3735,7 @@ function RegularGroup({ info }) {
 }
 function MinimumGroup({ rows = [], evaluations = [], histories = [], improvements = [], latestMockLabel = "" }) {
   const [expanded,setExpanded]=useState(false);
-  return <div style={ui.resultSection}><SectionTitle tone="minimum" title="수능최저" year="지원연도·원문 기준"/>{rows.length>2&&<button type="button" style={ui.caseToggleBtn} onClick={()=>setExpanded(v=>!v)}>{expanded?'접기':`전형 ${rows.length}개 전체 보기`}</button>}{rows.length ? <div style={ui.minimumList}>{(expanded?rows:rows.slice(0, 2)).map((row, index) => {
+  return <div style={ui.resultSection}><SectionTitle tone="minimum" title="수능최저" year="자료 학년도 표시"/>{rows.length>2&&<button type="button" style={ui.caseToggleBtn} onClick={()=>setExpanded(v=>!v)}>{expanded?'접기':`전형 ${rows.length}개 전체 보기`}</button>}{rows.length ? <div style={ui.minimumList}>{(expanded?rows:rows.slice(0, 2)).map((row, index) => {
     const evaluation = evaluations[index];
     const meta = naviMinimumStatusMeta(evaluation?.status);
     const history = histories[index];
@@ -3745,7 +3745,7 @@ function MinimumGroup({ rows = [], evaluations = [], histories = [], improvement
     // 확인이 필요한지 이유를 보여줍니다.
     const isManual = evaluation?.status === "manual";
     return <div key={`${row[3]}-${index}`} style={{ ...ui.minimumItem, ...(evaluation?.status === "unsatisfied" ? ui.minimumItemDanger : {}) }}>
-      <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{evaluation?.year || '연도 확인'} · {row[2] || "수시"}{evaluation?.yearMismatch ? " · 연도 다름/참고판정" : ""}</span></div>
+      <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span style={{...ui.minimumYearBadge,...(evaluation?.yearMismatch?ui.minimumYearBadgeReference:{})}}>{minimumYearLabel(evaluation)} · {row[2] || "수시"}</span></div>
       <div style={ui.minimumCriteriaRow}>{isManual ? <small style={ui.minimumNote}>{evaluation.reason}</small> : <strong style={ui.minimumCriteria}>{evaluation?.ruleText || row[8] || "기준 원문 확인"}</strong>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
       {evaluation?.source&&<small style={ui.minimumEvaluationNote}>{evaluation.source}</small>}
       {!isManual && <small style={ui.minimumNote}>{[(evaluation?.subjectsText || row[6]) && `반영영역 ${evaluation?.subjectsText || row[6]}`, (evaluation?.note ?? row[10]) || ''].filter(Boolean).join(" · ")}</small>}
@@ -4083,6 +4083,8 @@ const ui = {
   minimumItem: { display: "grid", gap: 5, padding: "10px", borderRadius: 10, border: "1px solid #ead6a5", background: "#fffaf0", fontSize: 11.5 },
   minimumItemDanger: { border: "1.5px solid #e7a5a5", background: "#fff7f7" },
   minimumHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 7 },
+  minimumYearBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", padding: "3px 6px", border: "1px solid #b8d1ea", borderRadius: 999, background: "#eaf3fc", color: "#245985", fontSize: 10.2, fontWeight: 900, lineHeight: 1.2 },
+  minimumYearBadgeReference: { borderColor: "#e3c88d", background: "#fff4d9", color: "#805b14" },
   minimumCriteriaRow: { display: "flex", alignItems: "center", gap: 7, minWidth: 0 },
   minimumCriteria: { flex: 1, minWidth: 0, padding: "6px 7px", borderRadius: 7, background: "#fff2cc", color: "#7a5718", lineHeight: 1.48, wordBreak: "keep-all", overflowWrap: "anywhere" },
   minimumStatusBadge: { flex: "0 0 auto", display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "5px 7px", borderRadius: 999, fontSize: 10.5, fontWeight: 950, lineHeight: 1, whiteSpace: "nowrap" },

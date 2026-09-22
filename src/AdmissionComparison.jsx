@@ -4,7 +4,7 @@ import { COMPARISON_YEARS } from './admissionComparison.js';
 import './admissionComparison.css';
 import { RecommendedCourseDetails } from './SupportDecisionCard.jsx';
 import { supportBandClassName, trackChipClassName } from './admissionMetrics.js';
-import { minimumDisplay, studentMockChips } from './naviMinimum.js';
+import { minimumDisplay, minimumYearLabel, studentMockChips } from './naviMinimum.js';
 
 const grade = value => value == null ? '—' : value.toFixed(2);
 
@@ -50,7 +50,7 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
           <small>{cutoffBasis === '50' ? '70' : '50'}%컷 참고 {grade(cutoffBasis === '50' ? row.cut70 : row.cut50)}</small></td>
         {/* 최저충족여부는 표 안에서 유일하게 '합격 가능성'에 직접 관계된 정보라 배지로 강조합니다.
             일치하는 대학 자료가 없으면(unlinked) 안내 문구 대신 학생 본인의 최근 모의고사 등급을 보여줍니다. */}
-        <td><span className={`kd-status-pill is-${minimum.status}`}>{minimum.label}</span>
+        <td><div className="kd-comparison-minimum-head"><span className={`kd-status-pill is-${minimum.status}`}>{minimum.label}</span><span className={`kd-comparison-minimum-year ${row.minimumEvaluation?.yearMismatch||(student?.admissionYear&&row.minimumEvaluation?.year&&Number(student.admissionYear)!==Number(row.minimumEvaluation.year))?'is-reference':''}`}>{minimumYearLabel(row.minimumEvaluation,student)}</span></div>
           {hasEvidence ? <><small className="kd-comparison-rule">{row.minimumText}</small><small>{minimum.reason}</small></> : chips ? <div className="kd-mock-chips">
             {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
             {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}

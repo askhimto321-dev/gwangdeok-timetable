@@ -102,6 +102,10 @@
 .kd-recommend-more summary:focus-visible{outline:2px solid #5984ab;outline-offset:3px}
 .kd-decision-primary .kd-decision-minimum h5{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:3px 8px;font-size:13px;font-weight:600;line-height:1.5}
 .kd-decision-primary .kd-decision-minimum h5>span{float:none;font-size:11px;font-weight:400}
+/* 기준 학년은 보조 회색 문장이 아니라 독립 배지로 표시합니다. 지원 학년도와 다른
+   참고자료(주로 2027)는 주황, 같은 학년도 기준은 파랑으로 구분합니다. */
+.kd-decision-primary .kd-decision-minimum h5>.kd-minimum-year{display:inline-flex;align-items:center;padding:3px 6px;border:1px solid #b8d1ea;border-radius:999px;background:#eaf3fc;color:#245985;font-size:10.5px;font-weight:800;line-height:1.2;white-space:nowrap}
+.kd-decision-primary .kd-decision-minimum h5>.kd-minimum-year.is-reference{border-color:#e3c88d;background:#fff4d9;color:#805b14}
 .kd-decision-minimum .kd-decision-verdict{font-size:14px;font-weight:600;line-height:1.5}
 .kd-decision-minimum .kd-mock-chips-label{flex-basis:100%;font-size:12px;font-weight:400}
 .kd-decision-minimum .kd-mock-chip{font-size:13px;font-weight:500;padding:3px 7px;font-variant-numeric:tabular-nums}
@@ -114,6 +118,7 @@
 .kd-minimum-grade-block .kd-mock-chip{background:#fff;border-color:#cedae6;color:#3b5065}
 .kd-minimum-grade-block .kd-mock-chip b{font-size:14px;font-weight:800;color:#203e5c}
 .kd-minimum-rule-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}
+.kd-minimum-rule-grid.is-single{grid-template-columns:1fr}
 .kd-minimum-fact{min-width:0;padding:6px 7px;border:1px solid;border-radius:8px;background:#fff}
 .kd-minimum-fact small{display:block;margin:0;font-size:10.5px;font-weight:700;line-height:1.3}
 .kd-minimum-fact b{display:block;margin-top:2px;font-size:14px;font-weight:850;line-height:1.25;white-space:nowrap;font-variant-numeric:tabular-nums}

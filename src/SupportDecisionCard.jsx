@@ -1,6 +1,6 @@
 import React from 'react';
 import { validGrade, supportBandClassName, trackChipClassName, trackAccentKey } from './admissionMetrics.js';
-import { minimumDisplay, studentMockChips, shortSubjectName } from './naviMinimum.js';
+import { minimumDisplay, minimumYearLabel, studentMockChips, shortSubjectName } from './naviMinimum.js';
 import { recommendedCourseDisplayName } from './recommendationPresentation.js';
 import './supportDecision.css';
 
@@ -33,8 +33,9 @@ export function RecommendedCourseDetails({progress, status='ready', printMode=fa
 function MinimumFacts({ minimum, ev, student, printMode=false }) {
   const hasEvidence = !!ev && minimum.status !== 'unlinked';
   const isManual = minimum.status === 'manual';
+  const needsScore = minimum.status === 'unavailable';
   const decided = hasEvidence && ev.studentSum != null && (minimum.status === 'satisfied' || minimum.status === 'unsatisfied');
-  const chips = !hasEvidence ? studentMockChips(student) : null;
+  const chips = (!hasEvidence || isManual || needsScore) ? studentMockChips(student) : null;
   const hasDetail = !isManual || ev?.subjectsText || ev?.note || ev?.reason || ev?.source;
   return <>
     <strong className="kd-decision-verdict">{minimum.label}</strong>
@@ -45,9 +46,13 @@ function MinimumFacts({ minimum, ev, student, printMode=false }) {
         <div className="kd-minimum-fact is-target"><small>대학 기준</small><b>{ev.ruleType === 'each' ? `각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.threshold} 이내`}</b></div>
       </div>
       <span className={`kd-status-pill kd-minimum-status is-${minimum.status}`}>{minimum.status === 'satisfied' ? '기준 도달' : '기준 미도달'}</span>
+    </> : hasEvidence && needsScore ? <>
+      {chips && <div className="kd-minimum-grade-block"><small>입력된 학생 모평 등급</small><div className="kd-mock-chips">{chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} <b>{value}</b></span>)}</div></div>}
+      {ev?.count && ev?.threshold != null && <div className="kd-minimum-rule-grid is-single"><div className="kd-minimum-fact is-target"><small>대학 기준</small><b>{ev.ruleType === 'each' ? `각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.threshold} 이내`}</b></div></div>}
+      <p className="kd-decision-rule">{ev.ruleText || '연결 조건 없음'}</p>
     </> : hasEvidence && !isManual ? <>
       <p className="kd-decision-rule">{ev.ruleText || '연결 조건 없음'}</p>
-    </> : hasEvidence && isManual ? <div className="kd-minimum-source-rule"><small>확인할 원문 기준</small><b>{ev?.ruleText || '연결된 원문 조건'}</b></div>
+    </> : hasEvidence && isManual ? <><div className="kd-minimum-source-rule"><small>확인할 원문 기준</small><b>{ev?.ruleText || '연결된 원문 조건'}</b></div>{chips && <div className="kd-minimum-grade-block"><small>학생 모평 등급</small><div className="kd-mock-chips">{chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} <b>{value}</b></span>)}</div></div>}</>
     : chips ? <div className="kd-mock-chips">
       {student?.latestMockLabel && <span className="kd-mock-chips-label">{student.latestMockLabel}</span>}
       {chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} {value}</span>)}
@@ -80,7 +85,7 @@ export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis
           한눈에 비교할 수 있게 했습니다. 아래 참고 줄도 이미 위에서 보여준 컷을 다시 적지 않고
           '다른 쪽 컷' 하나만 보조로 붙입니다(예전에는 50%·70%를 위아래로 중복 표시했습니다). */}
       <section className="kd-decision-grade"><h5>내신 컷 비교 <span>2026 공개 결과</span></h5><div className="kd-decision-numbers"><div className="kd-decision-num-box is-student"><small>내 환산등급</small><b>{fmt(studentGrade)}</b></div><span aria-hidden="true">↔</span><div className="kd-decision-num-box"><small>{cutoffBasis}%컷</small><b>{fmt(cut)}</b></div></div><div className="kd-decision-band-row">{item.support?.label ? <span className={supportBandClassName(item.support.label)}>{item.support.label}</span> : <span className={supportBandClassName()}>판정 자료 없음</span>}{difference!=null && <span className="kd-decision-diff">차이 {difference>0?'+':''}{difference.toFixed(2)}</span>}</div><small className="kd-decision-subref">{altIndex===1?'50':'70'}%컷 참고 {fmt(altCut)}</small></section>
-      <section className={`kd-decision-minimum is-${minimum.status}`}><h5>수능최저 <span>{ev ? (ev.year || '연도 미확인') : '연도 확인'} 참고 기준</span></h5><MinimumFacts minimum={minimum} ev={ev} student={student} printMode={printMode}/></section>
+      <section className={`kd-decision-minimum is-${minimum.status}`}><h5>수능최저 <span className={`kd-minimum-year ${ev?.yearMismatch||(student?.admissionYear&&ev?.year&&Number(student.admissionYear)!==Number(ev.year))?'is-reference':'is-current'}`}>{minimumYearLabel(ev,student)}</span></h5><MinimumFacts minimum={minimum} ev={ev} student={student} printMode={printMode}/></section>
     </div>
     {item.trackMissing && <p className="kd-decision-warning">NAVI 전형 미연결 · 다른 전형의 컷을 대신 사용하지 않습니다.</p>}
     <RecommendedCourseDetails progress={item.recommendationProgress} status={item.recommendationStatus} printMode={printMode}/>

@@ -68,7 +68,10 @@ function scopedNote(row) {
 export function normalizeMinimumSubjects(value, year) {
  return String(value ?? '').replace(/한국사/g,'한').replace(/국어/g,'국').replace(/수학/g,'수').replace(/영어/g,'영')
   .replace(Number(year)>=2028?/통합사회|통사|사회탐구|사탐/g:/$^/g,'사')
-  .replace(Number(year)>=2028?/통합과학|통과|과학탐구|과탐/g:/$^/g,'과');
+  .replace(Number(year)>=2028?/통합과학|통과|과학탐구|과탐/g:/$^/g,'과')
+  // 기존 학교 자료는 2028 체계에서도 넓은 영역을 단순히 '탐구'라고 적은 경우가 많습니다.
+  // 이 표기는 통합사회·통합과학 가운데 한 영역을 고르는 뜻으로 구조화합니다.
+  .replace(Number(year)>=2028?/탐구/g:/$^/g,'사/과');
 }
 export function parseExplicitMinimum(condition, note, year) {
  const fields={ruleType:'',subjects:'',count:null,threshold:null,mandatory:'',englishMax:null,historyMax:null,inquiryMode:'해당없음',rounding:'없음',englishConversion:'없음'};
@@ -98,8 +101,13 @@ export function parseExplicitMinimum(condition, note, year) {
  // 판정식과 무관한 전형 안내는 비고에 있어도 최저 계산을 막지 않습니다.
  text=text.replace(/※?학생부100%전형/g,'').replace(/※?한국사(?:에)?포함/g,'');
  const inquiryAverageNote=/탐구(?:영역)?[:：]?2(?:개)?과목평균/.test(text);
+ const inquiryOne=/사\/과\(1\)|탐\(1\)/.test(text);
  const inquiryTwo=/사\/과\(2\)|탐\(2\)|과탐2개?과목평균/.test(text);
  if(inquiryAverageNote&&inquiryTwo){fields.inquiryMode='통합평균';text=text.replace(/※?(?:탐구(?:영역)?[:：]?|과탐)2(?:개)?과목평균/g,'');}
+ // 건국대처럼 본문은 '사/과(1)'로 한 영역을 명시했지만 비고에는 구체제의
+ // '탐구 2과목 평균' 문장이 함께 남은 2028 자료가 있습니다. 2028 모평 입력에는
+ // 선택탐구 2과목이 없으므로 본문의 명시적 (1)을 우선하고 사·과 중 한 영역으로 판정합니다.
+ else if(inquiryAverageNote&&inquiryOne){fields.referenceMapped=true;text=text.replace(/※?(?:탐구(?:영역)?[:：]?|과탐)2(?:개)?과목평균/g,'');}
  else if(inquiryAverageNote)return null;
  if(/누적|%|경우|간주|대체|⇨|：|:|또는|직/.test(text))return null;
  text=text.replace(/수학(?:,|과)(과학|과탐|탐구)필수포함/g,(_,s)=>{mandatory.push('수',s==='탐구'?'탐':'과');return '';});
@@ -171,9 +179,10 @@ export function repairMinimumRow(input) {
  }
  if(compact(row.ruleText)==='미선발'&&reasons.includes(PARSE_REVIEW)){row.reviewStatus='사용안함';row.reviewReason='';return row;}
  const parseableReasons=new Set([PARSE_REVIEW,'탐구 (2)의 계산 방법·적용 범위 확인 필요','원문 오탈자 의심: 과팀 표기를 그대로 보존']);
- if(reasons.some(reason=>parseableReasons.has(reason))) {
+ const isParseableReason=reason=>parseableReasons.has(reason)||/^탐구 반영 확인:/.test(reason);
+ if(reasons.some(isParseableReason)) {
   const parsed=parseExplicitMinimum(row.ruleText,scopedNote(row),row.admissionYear);
-  if(parsed){row={...row,...parsed};reasons=reasons.filter(reason=>!parseableReasons.has(reason));}
+  if(parsed){row={...row,...parsed};reasons=reasons.filter(reason=>!isParseableReason(reason));}
  }
  // A clearly stated no-minimum rule remains such even when the same note repeats
  // it or contains a non-CSAT selection notice. Scoped exceptions remain blocked.

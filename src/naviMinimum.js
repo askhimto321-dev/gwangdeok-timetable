@@ -58,35 +58,55 @@ export function evaluateStoredMinimum(row, student) {
   const base={year,ruleText:String(row.requiredSum ?? ''),subjectsText:String(row.requiredSubjects || ''),note:String(row.note || ''),source:'기존 대학 지원 진단 · 학년별 최저 자료',yearMismatch:Boolean(year&&student?.admissionYear&&year!==Number(student.admissionYear))};
   const result=(status,reason,extra={})=>({...base,status,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,reason,...extra});
   if(!year)return result('manual','최저 자료의 기준 학년도를 확인할 수 없습니다.');
-  const rule=compact(row.requiredSum), area=compact(row.requiredSubjects);
+  const rule=compact(row.requiredSum);
   if(/^(없음|미적용|해당없음|수능최저(?:학력기준)?(?:없음|미적용))$/.test(rule))return result('no-minimum','자료에 수능최저 미적용이 명시되어 있습니다.');
+  const sumRule=rule.match(/^([1-5])(?:개(?:영역|과목)?)?(?:등급)?합(?:계)?([1-9]\d?)(?:등급)?(?:이내|이하)?$/);
+  const eachRule=rule.match(/^(?:([1-5])개(?:영역|과목)?)?(?:각각|각|모두)([1-9])등급(?:이내|이하)?$/);
+  const declaredCount=Number(sumRule?.[1]||eachRule?.[1]||row.requiredSubjectCount);
+  const declaredThreshold=Number(sumRule?.[2]||eachRule?.[2]||(/^[1-9]\d?$/.test(rule)?rule:NaN));
+  let inferredSubjectPool=false;
+  let normalizedArea=String(row.requiredSubjects||'')
+    .replace(/공통수학|수학/g,'수').replace(/국어/g,'국').replace(/영어/g,'영').replace(/한국사/g,'한')
+    .replace(/통합사회|통사|사회탐구|사탐|사회/g,'사').replace(/통합과학|통과|과학탐구|과탐|과학/g,'과')
+    .replace(/탐구영역|탐구|탐/g,'사/과')
+    .replace(/\((?:사회|사)\s*[,/]\s*(?:과학|과)\)/g,'사/과')
+    .replace(/(?:사회|사)\s*\/\s*(?:과학|과)/g,'사/과');
+  // 구형 저장 행에는 '2합 7' 또는 기준 숫자만 있고 반영영역 열이 비어 있는 경우가 있습니다.
+  // 합/반영수가 명시된 경우에만 학년도별 공통 모평 영역을 후보군으로 사용해 참고 판정합니다.
+  if(!compact(normalizedArea)&&Number.isInteger(declaredCount)&&Number.isFinite(declaredThreshold)){
+    normalizedArea=year>=2028?'국,수,영,사,과':'국,수,영,사/과';
+    inferredSubjectPool=true;
+  }
   // 기존 학년별 최저 표도 구조화 파서로 먼저 승격합니다. 비고가 있다는 이유만으로 모든
   // 행을 수동 확인으로 돌리던 동작을 없애고, 영어·한국사 상한/필수영역/탐구 처리처럼
   // 해석 가능한 조건은 대학별 최저 카탈로그와 같은 엔진으로 계산합니다.
-  const normalizedArea=String(row.requiredSubjects||'')
-    .replace(/\((?:사회|사)\s*[,/]\s*(?:과학|과)\)/g,'사/과')
-    .replace(/(?:사회|사)\s*\/\s*(?:과학|과)/g,'사/과');
-  const explicit=parseExplicitMinimum(`${normalizedArea} 중 ${String(row.requiredSum||'')}`,row.note,year);
+  const explicitRule=Number.isInteger(declaredCount)&&Number.isFinite(declaredThreshold)
+    ? `${declaredCount}${eachRule?'개영역각':'합'}${declaredThreshold}${eachRule?'등급':' '}`
+    : String(row.requiredSum||'');
+  const explicit=parseExplicitMinimum(`${normalizedArea} 중 ${explicitRule}`,row.note,year);
   if(explicit){
-    return evaluateCatalogMinimum({
+    const evaluated=evaluateCatalogMinimum({
       schema:MINIMUM_SCHEMA,id:`LEGACY-${year}-${compact(row.university)}-${compact(row.track)}`,sourceId:'기존-학년별-최저',admissionYear:year,season:'수시',
       university:row.university||'연결 대학',campus:row.region||'',admissionType:row.admissionType||'',track:row.track||'연결 전형',trackAliases:'',
       scopeType:'전체',department:'전체',excluded:'',reviewStatus:'계산가능',reviewReason:'',ruleText:`${normalizedArea} 중 ${String(row.requiredSum||'')}`,
       note:String(row.note||''),source:'기존 대학 지원 진단 · 학년별 최저 자료',page:'-',...explicit,
     },student);
+    return {...evaluated,ruleText:`${normalizedArea} 중 ${declaredCount}${eachRule?'개 영역 각':'합'} ${declaredThreshold}${eachRule?'등급 이내':' 이내'}`,subjectsText:normalizedArea,inferredSubjectPool,
+      reason:inferredSubjectPool?`${evaluated.reason} · 반영영역 미기재로 ${year>=2028?'국·수·영·사·과':'국·수·영·탐구'} 공통영역 참고 판정`:evaluated.reason};
   }
   const noteText=String(row.note||'');
   const noteChangesMinimum=/(?:누적|%|환산|대체|경우|또는|⇨)|(?:국어|수학|영어|한국사|탐구|사탐|과탐|통합사회|통합과학)[^.\n]{0,30}(?:필수|포함|평균|절사|올림|반올림|[1-9]\s*등급)/.test(noteText);
   if(noteChangesMinimum)return result('manual',`원문 추가조건: ${noteText}`);
-  const sum=rule.match(/^([1-4])(?:개(?:영역|과목))?(?:등급)?합(?:계)?([1-9]\d?)(?:등급)?(?:이내|이하)?$/);
-  const each=rule.match(/^(?:([1-4])개(?:영역|과목))?(?:각각|각|모두)([1-9])등급(?:이내|이하)?$/);
+  const sum=sumRule;
+  const each=eachRule;
   const count=Number(sum?.[1] || each?.[1] || row.requiredSubjectCount);
   const threshold=Number(sum?.[2] || each?.[2] || (/^[1-9]\d?$/.test(rule)?rule:NaN));
-  if(!Number.isInteger(count) || count<1 || count>4 || !Number.isFinite(threshold) || (!empty(row.requiredSubjectCount) && Number(row.requiredSubjectCount)!==count))return result('manual','반영 영역 수와 최저 조건 원문을 확인하세요.');
+  if(!Number.isInteger(count) || count<1 || count>5 || !Number.isFinite(threshold) || (!empty(row.requiredSubjectCount) && Number(row.requiredSubjectCount)!==count))return result('manual','반영 영역 수와 최저 조건 원문을 확인하세요.');
   if(threshold<(each?1:count) || threshold>(each?9:9*count))return result('manual','최저 기준의 등급 범위를 확인하세요.');
+  const area=compact(normalizedArea);
   const residue=area.replace(/통합사회|통합과학|한국사|국어|수학|영어|사회|과학|탐구|[국수영사과한탐(),·ㆍ/＋+]/g,'');
   if(residue || !area || (area.match(/\(/g)||[]).length!==(area.match(/\)/g)||[]).length)return result('manual','필수 포함·평균·복수 조건 등 반영 영역 원문을 확인하세요.');
-  const groupingArea=String(row.requiredSubjects||'').replace(/(?:사회|사)\s*\/\s*(?:과학|과)/g,'(사,과)');
+  const groupingArea=normalizedArea.replace(/(?:사회|사)\s*\/\s*(?:과학|과)/g,'(사,과)');
   const groups=parseAdmissionSubjectGroups(groupingArea);
   const names=groups.flatMap(group=>group.subjects);
   if(count>groups.length || new Set(names).size!==names.length)return result('manual','반영 영역의 중복 또는 선택 조건을 확인하세요.');
@@ -148,10 +168,18 @@ export function minimumDisplay(evaluation, status) {
   return {status:state,label:labels[state] || '원문 조건',reason:evaluation?.reason || '연도·캠퍼스·모집단위·전형이 일치하는 원자료를 확인하세요.'};
 }
 
+export function minimumYearLabel(evaluation, student) {
+  const year=Number(evaluation?.year);
+  if(!year)return '기준연도 확인';
+  const studentYear=Number(student?.admissionYear);
+  const reference=Boolean(evaluation?.yearMismatch)||(studentYear&&studentYear!==year);
+  return `${year}학년도 ${reference?'참고 기준':'기준'}`;
+}
+
 // UI patch: 대학별 최저 자료가 연결되지 않아도(=unlinked), 학생 본인의 최근 모의고사 등급은
 // 이미 저장돼 있으므로 그것만이라도 보여줍니다. "대학 정보가 없어도 내 최저 현황은 보여달라"는
 // 요청에 대응합니다. 2028 체계 5과목(국/수/영/통합사회/통합과학) 중 값이 있는 것만 반환합니다.
-const MOCK_SUBJECT_LABELS = { 국어: '국', 수학: '수', 영어: '영', 통합사회: '사', 통합과학: '과' };
+const MOCK_SUBJECT_LABELS = { 국어: '국', 수학: '수', 영어: '영', 통합사회: '사', 통합과학: '과', 한국사: '한' };
 // 화면 곳곳(모평 칩, 최저 판정 근거)에서 과목 전체 이름 대신 같은 짧은 이름을 쓰도록 공용 함수로 뺐습니다.
 export function shortSubjectName(name) {
   return MOCK_SUBJECT_LABELS[name] || name;
