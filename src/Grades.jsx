@@ -3,7 +3,6 @@ import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink,
 import { readStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, diagnoseAdmissionFileBackends, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
 import SupportPlanButton, { useSupportPlanCount } from "./SupportPlanButton.jsx";
 import { extractPdfFilesFromZip } from "./zipReader.js";
-import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
 import { conversionDetails, loadSusiNaviBetaData } from "./susiNaviData.js";
 import MinimumCatalogAdmin from './MinimumCatalogAdmin.jsx';
 import minimumCatalogSeed from './minimumCatalogSeed.json';
@@ -23,6 +22,22 @@ import {
   grade5to9,
   parseAdmissionSubjectGroups,
 } from "./gradeEngine.js";
+
+let admissionCasesModulePromise = null;
+function loadAdmissionCasesModule() {
+  if (!admissionCasesModulePromise) {
+    admissionCasesModulePromise = import("./AdmissionCases.jsx").catch(error => {
+      admissionCasesModulePromise = null;
+      throw error;
+    });
+  }
+  return admissionCasesModulePromise;
+}
+const AdmissionCaseAnalytics = React.lazy(() => loadAdmissionCasesModule().then(module => ({ default: module.AdmissionCaseAnalytics })));
+const AdmissionCaseAdmin = React.lazy(() => loadAdmissionCasesModule().then(module => ({ default: module.AdmissionCaseAdmin })));
+function AdmissionCasesLoading() {
+  return <div style={{ padding: 36, textAlign: "center", color: "#415872" }}><Loader2 className="spin" size={20} /> 대입결과 자료를 불러오는 중입니다.</div>;
+}
 
 const SEMESTER_KEYS = ["1-1", "1-2", "2-1", "2-2", "3-1", "3-2"];
 const SEMESTER_LABELS = {
@@ -873,7 +888,7 @@ export default function GradesSection({
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
         )}
         {keepTabMounted("admissionCases") && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{ display: tab === "admissionCases" ? "block" : "none" }}>
-          <MemoAdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} onOpenSusiNavi={(name,department)=>openSusiNaviUniversity(name,false,department)} onAddSupportPlan={addCaseToSupportPlan} onOpenSupportPlan={()=>openSusiNaviWorkspace(false)} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />
+          <React.Suspense fallback={<AdmissionCasesLoading />}><MemoAdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} onOpenSusiNavi={(name,department)=>openSusiNaviUniversity(name,false,department)} onAddSupportPlan={addCaseToSupportPlan} onOpenSupportPlan={()=>openSusiNaviWorkspace(false)} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} /></React.Suspense>
         </div>}
         {(loggedInStudent || loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && keepTabMounted("susiNaviBeta") && <div style={{ display: tab === "susiNaviBeta" ? "block" : "none" }}>
           <React.Suspense fallback={<div style={{ padding: 36, textAlign: "center" }}><Loader2 className="spin" size={20} /> 수시 NAVI를 불러오는 중입니다.</div>}><MemoSusiNaviBetaView
@@ -4639,7 +4654,7 @@ export function AdminGradesUpload({ gdb, persistGrades, showToast, roster = {}, 
       {subtab === "admission" && <AdmissionUpload gdb={gdb} persistGrades={persistGrades} showToast={showToast} currentGrade={currentGrade} />}
       {subtab === "minimumCatalog" && <MinimumCatalogAdmin gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
       {subtab === "admissionPdf" && <AdmissionPdfManager gdb={gdb} persistGrades={persistGrades} showToast={showToast} currentGrade={currentGrade} />}
-      {subtab === "admissionCases" && <AdmissionCaseAdmin gdb={gdb} persistGrades={persistGrades} showToast={showToast} roster={roster} currentGrade={currentGrade} />}
+      {subtab === "admissionCases" && <React.Suspense fallback={<AdmissionCasesLoading />}><AdmissionCaseAdmin gdb={gdb} persistGrades={persistGrades} showToast={showToast} roster={roster} currentGrade={currentGrade} /></React.Suspense>}
       {subtab === "cohorts" && <CohortManager gdb={gdb} persistGrades={persistGrades} showToast={showToast} />}
     </div>
   );

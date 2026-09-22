@@ -120,17 +120,24 @@ export async function addSusiSupportPlanExternal(studentSid = "", item = {}) {
   return mutateWorkspaceList(sid, "plan", "add", normalizedItem, supportPlanItemKey);
 }
 
-function courseMatchKey(value) {
+function normalizeCourseNumerals(value) {
   return normalizeText(value)
-    .replace(/[Ⅰ]/g, "1").replace(/[Ⅱ]/g, "2").replace(/[Ⅲ]/g, "3")
+    // NFKC 정규화 뒤에는 Ⅰ·Ⅱ·Ⅲ도 I·II·III가 됩니다. 과목명 끝의 로마 숫자만
+    // 아라비아 숫자로 통일해 미적분II·미적분Ⅱ·미적분 2를 같은 과목으로 봅니다.
+    .replace(/([가-힣])\s*(III|II|I)(?=$|[^A-Za-z])/gi, (_, prefix, numeral) => `${prefix}${({ I: "1", II: "2", III: "3" })[numeral.toUpperCase()]}`)
+    .replace(/([가-힣])\s*([123])(?=$|[^0-9])/g, "$1$2");
+}
+export function courseMatchKey(value) {
+  return normalizeCourseNumerals(value)
     .replace(/[()（）\[\]{}·ㆍ,./\\\-_:：]/g, "")
     .replace(/\s+/g, "")
     .toLowerCase();
 }
-function splitCourseNames(value) {
+export function splitCourseNames(value) {
   const raw = normalizeText(value);
   if (!raw) return [];
-  return Array.from(new Set(raw
+  const expanded = raw.replace(/(?:국어|수학|영어|사회|과학|정보|제2외국어|한문)\s*[（(]\s*([^()（）]+?)\s*[）)]/gi, "$1");
+  return Array.from(new Set(expanded
     .replace(/[•●○]/g, "·")
     .split(/[\n,;；|]+|\s*[·ㆍ]\s*|\s*\/\s*/)
     .map(item => item
@@ -147,7 +154,7 @@ function uniqueCourseNames(values = []) {
   });
   return Array.from(map.values());
 }
-function uniqueStudentSubjects(values = []) {
+export function uniqueStudentSubjects(values = []) {
   const map = new Map();
   (values || []).flat(Infinity).filter(Boolean).forEach(value => {
     const subjectName = typeof value === "string" ? value : value?.subject;
@@ -3031,13 +3038,15 @@ export function RecommendedSubjectPanel({ recommendation, progress, studentSubje
     const evidence = matchedStudentCourse(studentSubjects, course);
     const matched = Boolean(evidence);
     const timetableOnly = evidence?.source === 'timetable';
+    const evidenceSubject = normalizeText(evidence?.subject);
+    const broadMatch = matched && evidenceSubject && courseMatchKey(evidenceSubject) !== courseMatchKey(course);
     const common = isCommon(course);
     const evidenceLabel = timetableOnly
-      ? `${evidence?.semesterKey || '현재'} 시간표·선택과목 명단에서 수강 중으로 확인`
+      ? `${evidence?.semesterKey || '현재'} 시간표·선택과목 명단에서 ${evidenceSubject || course} 수강 중으로 확인`
       : matched
-        ? "저장된 학생 성적 과목에서 확인"
+        ? `저장된 학생 성적 과목 ${evidenceSubject || course}에서 확인`
         : "성적·시간표·선택과목 명단에서 확인되지 않음";
-    return <span key={`${tone}-${course}`} title={evidenceLabel + (common ? ` · ${recommendation.referenceCount || 0}개 대학 중 ${recommendation.mentionCounts?.[course] || recommendation.consensusThreshold || 0}개 대학이 제시` : "")} style={{ ...ui.recommendCourseChip, ...(timetableOnly ? ui.recommendCourseEnrolled : matched ? ui.recommendCourseMatched : ui.recommendCourseMissing) }}><b>{timetableOnly ? "◇" : matched ? "✓" : "○"}</b>{course}</span>;
+    return <span key={`${tone}-${course}`} title={evidenceLabel + (common ? ` · ${recommendation.referenceCount || 0}개 대학 중 ${recommendation.mentionCounts?.[course] || recommendation.consensusThreshold || 0}개 대학이 제시` : "")} style={{ ...ui.recommendCourseChip, ...(timetableOnly ? ui.recommendCourseEnrolled : matched ? ui.recommendCourseMatched : ui.recommendCourseMissing) }}><b>{timetableOnly ? "◇" : matched ? "✓" : "○"}</b>{course}{broadMatch ? ` (${evidenceSubject})` : ""}</span>;
   };
   return <div className="susi-beta-recommend-panel" style={ui.recommendPanel}>
     <div className="kd-recommend-heading">
@@ -3134,7 +3143,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch80</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch81</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
