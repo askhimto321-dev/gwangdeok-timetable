@@ -1,0 +1,67 @@
+/* Patch93: consultation shares the support-plan card hierarchy. */
+.kd-consultation-ui .kd-consult-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 16px;border:1px solid #ccd8e3;border-radius:14px;background:#fff}
+.kd-consultation-ui .kd-consult-toolbar>div:first-child{flex:1 1 240px}
+.kd-consultation-ui .kd-consult-toolbar h3{margin:0;font-size:18px;font-weight:800;color:#23374b}
+.kd-consultation-ui .kd-consult-toolbar p{margin:4px 0 0;font-size:12px;color:#617287}
+.kd-consultation-ui .kd-consult-action{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px;padding:9px 14px;border:1px solid #b9cfe4;border-radius:10px;background:#eef5fc;color:#285980;font-size:13px;font-weight:800;cursor:pointer}
+.kd-consultation-ui .kd-consult-action[aria-pressed=true]{background:#315f86;color:#fff;border-color:#315f86}
+.kd-consultation-ui .kd-consult-action.is-print{background:linear-gradient(135deg,#a83b16,#8d2d0f);border-color:#9a3412;color:#fff;box-shadow:0 4px 10px #8e2e1620}
+.kd-consultation-ui button:focus-visible,.kd-consultation-ui summary:focus-visible{outline:3px solid #7eabd2;outline-offset:3px}
+.kd-consultation-ui .kd-consult-linkhub{grid-template-columns:minmax(0,1fr)!important;background:#f6f9fc!important;padding:16px!important}
+.kd-consultation-ui .kd-consult-linkhub-stats{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;width:100%}
+.kd-consultation-ui .kd-consult-linkhub-stats>span{padding:12px!important;min-width:0!important;text-align:left!important;border-radius:10px!important}
+.kd-consultation-ui .kd-consult-linkhub-stats small{font-size:12px!important}
+.kd-consultation-ui .kd-consult-linkhub-stats b{font-size:20px!important;color:#245985!important}
+.kd-consultation-ui .favorite-print-section,.kd-consultation-ui .counseling-print-notes{padding:16px!important;border:1px solid #ccd8e3!important;border-radius:14px!important;background:#fff!important;min-width:0}
+.kd-consultation-ui .favorite-print-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;align-items:start;gap:14px!important}
+.kd-consultation-ui.is-card-focus .favorite-print-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+.kd-consultation-ui .favorite-print-card{padding:16px!important;border:1px solid #ccd8e3!important;border-radius:14px!important;background:#fff!important;box-shadow:0 2px 7px #26384a08!important;gap:12px!important;min-width:0}
+.kd-consultation-ui .favorite-print-university{font-size:18px!important;font-weight:800!important;color:#23374b!important;overflow-wrap:anywhere}
+.kd-consultation-ui .favorite-print-header{flex-wrap:wrap!important;gap:10px!important}
+.kd-consultation-ui .favorite-print-source-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
+.kd-consultation-ui .favorite-print-source-box{padding:11px!important;border-radius:10px!important;background:#f6f9fc!important;min-width:0;min-height:0!important}
+.kd-consultation-ui .favorite-print-source-label{font-size:13.5px!important;font-weight:800!important;color:#294968!important}
+.kd-consultation-ui .favorite-print-source-box>b{font-size:17px!important;font-weight:800!important;color:#245985!important}
+.kd-consultation-ui .favorite-print-source-box span{font-size:12px!important;overflow-wrap:anywhere}
+.kd-consultation-ui .favorite-print-source-box small{font-size:11px!important}
+.kd-consultation-ui .favorite-print-source-navi{grid-column:1/-1;background:#edf5ff!important;border-color:#c0d7ef!important}
+.kd-consultation-ui .favorite-print-source-cases{background:#fff7f5!important;border-color:#ecd1ca!important}
+.kd-consultation-ui .favorite-print-navi-cut-list{grid-template-columns:1fr!important}
+.kd-consultation-ui .favorite-print-navi-cut-pill>b{font-size:13px!important}
+.kd-consultation-ui .favorite-print-item{flex-wrap:wrap!important;gap:8px!important;min-width:0}
+.kd-consultation-ui .favorite-print-item-text{font-size:13px!important;min-width:0!important;overflow-wrap:anywhere}
+.kd-consultation-ui .favorite-print-item>span:last-child{width:100%;justify-content:flex-start!important}
+.kd-consultation-ui .favorite-print-card button{min-height:32px;font-size:12px!important}
+.kd-consultation-ui .counseling-print-note{border:1px solid #d6e1ec!important;border-left:3px solid #315f86!important;border-radius:10px!important;background:#f8fbff!important;padding:14px!important}
+.kd-consultation-ui .counseling-print-note-text{font-size:14px!important;line-height:1.7!important;overflow-wrap:anywhere}
+.kd-consultation-ui textarea{font-size:14px!important;line-height:1.6!important;min-height:120px}
+.kd-consultation-ui .counseling-print-option-modal{max-height:90vh;overflow:auto}
+.kd-consultation-ui .counseling-print-option-actions button.primary{background:#9a3412;border-color:#9a3412}
+.kd-consultation-ui .counseling-print-attachment-label{display:none}
+@media(max-width:1050px){.kd-consultation-ui.is-card-focus .favorite-print-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
+@media(max-width:680px){.kd-consultation-ui .favorite-print-grid,.kd-consultation-ui.is-card-focus .favorite-print-grid{grid-template-columns:minmax(0,1fr)!important}.kd-consultation-ui .kd-consult-action{flex:1 1 140px;min-height:44px}.kd-consultation-ui .favorite-print-card{padding:12px!important}}
+/* Dedicated print iframe: continuous notes, one intact university card per page. */
+@media print{
+ body.print-counseling-history{margin:0!important}
+ body.print-counseling-history>.counseling-print-root-clone{display:block!important}
+ .counseling-print-root-clone .counseling-print-notes{display:block!important;margin:4mm 0!important}
+ .counseling-print-root-clone .counseling-print-notes>div{display:block!important}
+ .counseling-print-root-clone .counseling-print-note{display:block!important;margin-bottom:3mm!important;overflow-wrap:anywhere!important}
+ .counseling-print-root-clone .counseling-print-note.is-long-note{break-inside:auto!important;page-break-inside:auto!important}
+ .counseling-print-root-clone .counseling-print-note-text{orphans:3;widows:3}
+ .counseling-print-root-clone .counseling-print-attachment-label{display:block!important;font-size:8pt!important;overflow-wrap:anywhere!important;margin-top:2mm}
+ .counseling-print-root-clone .counseling-print-favorites{break-before:page}
+ .counseling-print-root-clone.is-favorites-only .counseling-print-favorites{break-before:auto}
+ .counseling-print-root-clone .favorite-print-section,.counseling-print-root-clone .favorite-print-grid{display:block!important;border:0!important;padding:0!important}
+ .counseling-print-root-clone .favorite-print-card{display:block!important;break-before:page!important;margin:0!important;break-inside:avoid!important}
+ .counseling-print-root-clone .favorite-print-card:first-child{break-before:auto!important}
+ .counseling-print-root-clone .favorite-print-card.is-long-card{break-inside:auto!important;page-break-inside:auto!important}
+ .counseling-print-root-clone .favorite-print-header{margin-bottom:3mm!important}
+ .counseling-print-root-clone .counseling-print-card-student{font-size:8pt;color:#617287;padding-bottom:2mm;margin-bottom:3mm;border-bottom:1px solid #ccd8e3}
+ .counseling-print-root-clone .favorite-print-source-grid{margin-bottom:3mm!important}
+ .counseling-print-root-clone .favorite-print-item{break-inside:avoid!important;overflow-wrap:anywhere!important}
+ .counseling-print-root-clone .favorite-print-navi-cut-list{grid-template-columns:1fr!important}
+ .counseling-print-root-clone .favorite-print-navi-cut-pill>b{font-size:8pt!important}
+ .counseling-print-root-clone .favorite-print-item-navi-cuts small{font-size:7pt!important}
+ .counseling-print-root-clone .favorite-print-source-label{font-size:9pt!important;font-weight:800!important}
+}

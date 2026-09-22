@@ -1,4 +1,4 @@
-import {repairMinimumRow} from './minimumMapping.js';
+import {repairMinimumRow,parseExplicitMinimum} from './minimumMapping.js';
 // Patch77: relationship-aware scope mapping and mandatory alternative groups.
 export const MINIMUM_SCHEMA = 'KD_MINIMUM_V1';
 export const MINIMUM_COLUMNS = {
@@ -160,12 +160,23 @@ export function mergeMinimumCatalog(current, incoming) {
 const gradeNames={국:'국어',수:'수학',영:'영어',사:'통합사회',과:'통합과학',한:'한국사'};
 const gradeValue=x=>x!==''&&x!=null&&Number.isInteger(Number(x))&&Number(x)>=1&&Number(x)<=9?Number(x):null;
 export function evaluateCatalogMinimum(row,student) {
- const base={year:row.admissionYear,ruleText:row.ruleText,subjectsText:row.subjects,source:`${row.source} · ${row.page}쪽`,note:row.note,ruleId:row.id};
+ const historyInSum=list(row.subjects).some(group=>group.split('/').includes('한'));
+ const base={year:row.admissionYear,ruleText:row.ruleText,subjectsText:row.subjects,source:`${row.source} · ${row.page}쪽`,note:row.note,ruleId:row.id,
+  historyInSum,historyMax:row.historyMax,historyGrade:gradeValue(student?.latestMockGrades?.한국사)};
  const yearMismatch=Number(student?.admissionYear)&&Number(student.admissionYear)!==Number(row.admissionYear);
  const result=(status,reason,extra={})=>({...base,status,reason:yearMismatch?`${reason} · 학생 지원연도 ${student.admissionYear}, 자료 ${row.admissionYear} 기준`:reason,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,yearMismatch,...extra});
  const errors=validateMinimumRow(row);
  if(row.reviewStatus!=='계산가능'||errors.length)return result('manual',row.reviewReason||errors.join(' · ')||'원문 조건 검토가 필요합니다.');
  if(row.ruleType==='없음')return result('no-minimum','해당 적용 범위에 수능최저 미적용이 명시되어 있습니다.');
+ // A separate history ceiling is never evidence that history belongs in the sum.
+ // Detect imported subject pools contradicting a clearly enumerated source pool.
+ const sourcePool=String(row.ruleText||'').split(/중/)[0];
+ const enumeratedPool=/[,·|]/.test(sourcePool)&&/국|수|영/.test(sourcePool)&&/중/.test(row.ruleText||'');
+ if(historyInSum&&enumeratedPool&&!/(?:한국사|(?:^|[,·|\s])한(?:$|[,·|\s]))/.test(sourcePool)){
+  const parsed=parseExplicitMinimum(row.ruleText,row.note,row.admissionYear);
+  if(parsed&&!parsed.subjects.split(/[|/]/).includes('한'))return {...evaluateCatalogMinimum({...row,...parsed,historyMax:parsed.historyMax??row.historyMax,englishMax:parsed.englishMax??row.englishMax},student),correctedHistoryPool:true};
+  return result('manual','반영영역에 한국사가 있으나 원문의 합산 후보에는 없습니다. 반영영역에서 한국사를 제외하고 별도 기준을 확인하세요.');
+ }
  const grades=student?.latestMockGrades||{},groups=list(row.subjects).map(x=>x.split('/')),mandatory=list(row.mandatory);
  const get=(s,fill)=>{
   if(s==='탐') {let v=(get('사',fill)+get('과',fill))/2;return row.rounding==='절사'?Math.floor(v):row.rounding==='올림'?Math.ceil(v):row.rounding==='반올림'?Math.round(v):v;}

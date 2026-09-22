@@ -8,6 +8,8 @@ import MinimumCatalogAdmin from './MinimumCatalogAdmin.jsx';
 import minimumCatalogSeed from './minimumCatalogSeed.json';
 import { normalizeMinimumCatalog } from './minimumCatalog.js';
 import FavoritePlanPicker from "./FavoritePlanPicker.jsx";
+import counselingCss from './counseling.css?raw';
+import { LayoutGrid } from 'lucide-react';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
@@ -3953,7 +3955,7 @@ function formatStoredFileSize(size) {
   return `${Math.round(value / 1024 / 102.4) / 10}MB`;
 }
 
-function printCounselingHistory(options = {}) {
+export function printCounselingHistory(options = {}) {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   const includeNotes = options.notes !== false;
   const includeFavorites = Boolean(options.favorites);
@@ -3968,13 +3970,29 @@ function printCounselingHistory(options = {}) {
   const clone = source.cloneNode(true);
   clone.classList.add("counseling-print-root-clone");
   clone.querySelectorAll(".no-print,button").forEach(node => node.remove());
+  clone.querySelectorAll('details').forEach(node => { node.open = true; });
+  clone.querySelectorAll('.counseling-print-note').forEach(node => {
+    if ((node.textContent || '').length > 1800) node.classList.add('is-long-note');
+  });
   if (!includeNotes) clone.querySelectorAll(".counseling-print-notes").forEach(node => node.remove());
   if (!includeFavorites) clone.querySelectorAll(".counseling-print-favorites").forEach(node => node.remove());
+  const noteSection = clone.querySelector('.counseling-print-notes');
+  const favoriteSection = clone.querySelector('.counseling-print-favorites');
+  if (noteSection) clone.appendChild(noteSection);
+  if (favoriteSection) clone.appendChild(favoriteSection);
+  if (!includeNotes) clone.classList.add('is-favorites-only');
+  const studentLabel = clone.querySelector('.student-identity-name')?.textContent || '상담 자료';
+  clone.querySelectorAll('.favorite-print-card').forEach((node,index) => {
+    const label=document.createElement('div');
+    label.className='counseling-print-card-student';
+    label.textContent=`${studentLabel} · 관심 대학 카드 ${index+1}`;
+    node.prepend(label);
+  });
 
   const frame = document.createElement("iframe");
   frame.setAttribute("title", "상담 기록 인쇄");
   frame.setAttribute("aria-hidden", "true");
-  frame.style.cssText = `position:fixed;left:-12000px;top:0;width:${paper === "B4" ? "250mm" : "210mm"};height:${paper === "B4" ? "353mm" : "297mm"};border:0;background:#fff;pointer-events:none;`;
+  frame.style.cssText = `position:fixed;left:-12000px;top:0;width:${paper === "B4" ? "226mm" : "192mm"};height:${paper === "B4" ? "330mm" : "278mm"};border:0;background:#fff;pointer-events:none;`;
   document.body.appendChild(frame);
 
   let cleaned = false;
@@ -3989,7 +4007,7 @@ function printCounselingHistory(options = {}) {
 
   try {
     printDocument.open();
-    const counselingPrintCss = COUNSELING_PRINT_CSS.replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
+    const counselingPrintCss = (COUNSELING_PRINT_CSS + counselingCss).replace(/@media print/g, '@media all').replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
     printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${counselingPrintCss}</style></head><body class="print-counseling-history ${paper === "B4" ? "counseling-paper-b4" : ""}">${clone.outerHTML}</body></html>`);
     printDocument.close();
   } catch { cleanup(); return; }
@@ -3998,6 +4016,13 @@ function printCounselingHistory(options = {}) {
   const startPrint = () => {
     if (cleaned) return;
     try {
+      // Oversized university groups may continue onto another page; never clip their items.
+      printDocument.querySelectorAll('.favorite-print-card').forEach(node => {
+        if (node.getBoundingClientRect().height > (paper === 'B4' ? 1120 : 890)) node.classList.add('is-long-card');
+      });
+      printDocument.querySelectorAll('.counseling-print-note').forEach(node => {
+        if (node.getBoundingClientRect().height > (paper === 'B4' ? 1120 : 890)) node.classList.add('is-long-note');
+      });
       printWindow.focus();
       printWindow.print();
     } catch { cleanup(); }
@@ -4151,11 +4176,15 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
   const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
   const [favoriteFilter, setFavoriteFilter] = useState("전체");
   const [favoriteNaviData, setFavoriteNaviData] = useState(null);
+  const [favoriteNaviStatus, setFavoriteNaviStatus] = useState('loading');
+  const [favoriteRetry, setFavoriteRetry] = useState(0);
   useEffect(() => {
+    if (!favorites.length) return;
     let active = true;
-    loadSusiNaviBetaData().then(value => { if (active) setFavoriteNaviData(value || null); }).catch(() => { if (active) setFavoriteNaviData(null); });
+    setFavoriteNaviStatus('loading');
+    loadSusiNaviBetaData().then(value => { if (active) { setFavoriteNaviData(value || null); setFavoriteNaviStatus(value ? 'ready' : 'error'); } }).catch(() => { if (active) { setFavoriteNaviData(null); setFavoriteNaviStatus('error'); } });
     return () => { active = false; };
-  }, []);
+  }, [Boolean(favorites.length), favoriteRetry]);
   const categoryCounts = useMemo(() => {
     const counts = {전체:(favorites||[]).length,대학:0,학과:0,전형:0};
     (favorites||[]).forEach(item => { const key=favoriteCategory(item); counts[key]=(counts[key]||0)+1; });
@@ -4204,6 +4233,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
     ? <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 탐색이나 NAVI에서 별 아이콘을 눌러 상담 후보를 저장하세요." />
     : <div className="favorite-print-section" style={card}>
         <SectionHeading title="관심 대학·학과" description="저장한 관심 대학을 중심으로 대학 지원 기준, NAVI 컷, 광덕고 실제 사례를 한 카드에서 연결해 상담할 수 있습니다." />
+        {favoriteNaviStatus !== 'ready' && <div className="no-print" role="status" style={{fontSize:12,color:'#49617b',marginBottom:10}}>{favoriteNaviStatus === 'loading' ? 'NAVI 컷 자료 연결 중…' : <>NAVI 컷 자료를 불러오지 못했습니다. <button type="button" onClick={()=>setFavoriteRetry(value=>value+1)}>다시 불러오기</button></>}</div>}
         <div className="no-print" style={favoriteView.filters}>{["전체","대학","학과","전형"].map(value=><button key={value} type="button" onClick={()=>setFavoriteFilter(value)} style={{...favoriteView.filterButton,...(favoriteFilter===value?favoriteView.filterActive:{})}}>{value}<span>{categoryCounts[value]||0}</span></button>)}</div>
         {!groups.length ? <div style={favoriteView.filteredEmpty}>선택한 분류에 저장된 관심 항목이 없습니다.</div> : <div className="favorite-print-grid" style={favoriteView.grid}>{groups.map(group=>{
           const baseKey = universityKey(group.university);
@@ -4244,11 +4274,11 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
             <div className="favorite-print-source-grid" style={favoriteView.sourceGrid}>
               <div className="favorite-print-source-box favorite-print-source-admission" style={favoriteView.sourceBox}><small className="favorite-print-source-label" style={favoriteView.sourceLabel}>지원 기준</small><b style={favoriteView.sourceValue}>{admissions.length}개 전형</b><span style={favoriteView.sourceDetail}>{admissions.slice(0,3).map(row=>row.department||row.track).filter(Boolean).join(" · ")||"연결 자료 없음"}</span></div>
               <div className="favorite-print-source-box favorite-print-source-cases" style={favoriteView.sourceBox}><small className="favorite-print-source-label" style={favoriteView.sourceLabel}>광덕고 대입 사례</small><div style={favoriteView.sourceHeadline}><span>지원 <b>{cases.length}건</b></span><span>합격 <b>{accepted.length}건</b></span></div>{cases.length?<div style={favoriteView.sourceMetrics}><span style={favoriteView.sourceMetric}><small>합격자 50%컷</small><b>{cut50==null?"-":Math.round(cut50*100)/100}</b></span><span style={favoriteView.sourceMetric}><small>합격 사례 비율</small><b>{Math.round(accepted.length/cases.length*1000)/10}%</b></span></div>:<span style={favoriteView.sourceDetail}>연결 사례 없음</span>}</div>
-              <div className="favorite-print-source-box favorite-print-source-navi" style={{...favoriteView.sourceBox,background:"#f4f8fd",borderColor:"#cfdceb"}}><small className="favorite-print-source-label" style={{...favoriteView.sourceLabel,color:"#315f91"}}>NAVI 통합 기준</small>{uniqueGroupNaviCuts.length?<><b style={favoriteView.sourceValue}>저장 학과 NAVI 컷 연결</b><div className="favorite-print-navi-cut-list" style={favoriteView.naviCutList}>{uniqueGroupNaviCuts.slice(0,3).map((cut,index)=><span className="favorite-print-navi-cut-pill" key={`${cut.favoriteDepartment}-${cut.kind}-${cut.name}-${index}`} style={favoriteView.naviCutPill}><small>{cut.favoriteDepartment||cut.department}</small><b>{naviCutText(cut)}</b></span>)}</div>{uniqueGroupNaviCuts.length>3&&<span style={favoriteView.sourceDetail}>외 {uniqueGroupNaviCuts.length-3}개 전형 컷은 NAVI에서 확인합니다.</span>}</>:<><b style={favoriteView.sourceValue}>교육청 모집단위 검색</b><span style={favoriteView.sourceDetail}>{group.items.some(item=>item.department)?"저장 학과와 일치하는 2026 공개 50·70%컷을 찾지 못했습니다.":"학과를 즐겨찾기하면 NAVI 50·70%컷을 함께 표시합니다."}</span></>}{onOpenSusiNavi&&<button type="button" className="no-print" style={{...favoriteView.itemLink,justifySelf:"start"}} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>NAVI에서 열기 <ExternalLink size={10}/></button>}</div>
+              <div className="favorite-print-source-box favorite-print-source-navi" style={{...favoriteView.sourceBox,background:"#f4f8fd",borderColor:"#cfdceb"}}><small className="favorite-print-source-label" style={{...favoriteView.sourceLabel,color:"#315f91"}}>NAVI 통합 기준</small>{uniqueGroupNaviCuts.length?<><b style={favoriteView.sourceValue}>저장 학과 NAVI 컷 연결</b><div className="favorite-print-navi-cut-list" style={favoriteView.naviCutList}>{uniqueGroupNaviCuts.slice(0,3).map((cut,index)=><span className="favorite-print-navi-cut-pill" key={`${cut.favoriteDepartment}-${cut.kind}-${cut.name}-${index}`} style={favoriteView.naviCutPill}><small>{cut.favoriteDepartment||cut.department}</small><b>{naviCutText(cut)}</b></span>)}</div>{uniqueGroupNaviCuts.length>3&&<span style={favoriteView.sourceDetail}>외 {uniqueGroupNaviCuts.length-3}개 전형 컷은 NAVI에서 확인합니다.</span>}</>:<><b style={favoriteView.sourceValue}>교육청 모집단위 검색</b><span style={favoriteView.sourceDetail}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패 · 다시 불러오기를 눌러주세요." : group.items.some(item=>item.department)?"저장 학과와 일치하는 2026 공개 50·70%컷을 찾지 못했습니다.":"학과를 즐겨찾기하면 NAVI 50·70%컷을 함께 표시합니다."}</span></>}{onOpenSusiNavi&&<button type="button" className="no-print" style={{...favoriteView.itemLink,justifySelf:"start"}} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>NAVI에서 열기 <ExternalLink size={10}/></button>}</div>
             </div>
             <div className="favorite-print-items" style={favoriteView.items}>{group.items.map(item=>{
               const itemNaviCuts = favoriteNaviCutRows(favoriteNaviData,resolvedUniversity,resolvedRegion,item.department||"",item.admissionType||"").slice(0,3);
-              return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-kind" style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}{item.department&&<span className="favorite-print-item-navi-cuts" style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>NAVI 공개컷 연결 없음</small>}</span>}</span><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>;
+              return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-kind" style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}{item.department&&<span className="favorite-print-item-navi-cuts" style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "NAVI 공개컷 연결 없음"}</small>}</span>}</span><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>;
             })}</div>
           </article>
         })}</div>}
@@ -4260,7 +4290,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
   </div>;
 }
 
-function StudentConsultationView({
+export function StudentConsultationView({
   sid,
   gdb,
   studentInfo,
@@ -4282,7 +4312,8 @@ function StudentConsultationView({
   const [fileError, setFileError] = useState("");
   const [printOptionsOpen, setPrintOptionsOpen] = useState(false);
   const [printNotes, setPrintNotes] = useState(true);
-  const [printFavorites, setPrintFavorites] = useState(false);
+  const [printFavorites, setPrintFavorites] = useState(favorites.length > 0);
+  const [cardFocus, setCardFocus] = useState(false);
   const [printPaper, setPrintPaper] = useState("A4");
   const supportPlanCount = useSupportPlanCount(sid);
   const notes = useMemo(
@@ -4341,8 +4372,14 @@ function StudentConsultationView({
     });
   };
 
-  return <div className="kd-consultation-ui" style={{display:"grid",gap:14}}>
+  return <div className={`kd-consultation-ui${cardFocus ? ' is-card-focus' : ''}`} style={{display:"grid",gap:14}}>
     <style>{COUNSELING_PRINT_CSS}</style>
+    <style>{counselingCss}</style>
+    <div className="kd-consult-toolbar no-print">
+      <div><h3>관심 대학·상담</h3><p>관심 대학 카드와 상담 기록을 함께 확인합니다.</p></div>
+      <button type="button" className="kd-consult-action" aria-pressed={cardFocus} onClick={()=>setCardFocus(value=>!value)}><LayoutGrid size={16}/>{cardFocus ? '기본 카드 보기' : '카드 모아보기'}</button>
+      <button type="button" className="kd-consult-action is-print" onClick={()=>setPrintOptionsOpen(true)}><Printer size={16}/>상담 인쇄·PDF 저장</button>
+    </div>
     <div className="counseling-print-root" style={{display:"grid",gap:14}}>
     <div className="counseling-print-student-banner"><StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" /></div>
     <div className="kd-consult-linkhub no-print" style={consultationView.linkHub}>
@@ -4350,6 +4387,7 @@ function StudentConsultationView({
       <div className="kd-consult-linkhub-stats" style={consultationView.linkHubStats}><span><small>관심 항목</small><b>{favorites.length}개</b></span><span><small>지원 구성</small><b>{supportPlanCount == null ? "확인 필요" : `${supportPlanCount}/6`}</b></span><span><small>상담 기록</small><b>{notes.length}건</b></span></div>
       <div style={consultationView.linkHubActions}>{onOpenAdmission&&<button type="button" onClick={()=>onOpenAdmission("")} style={consultationView.linkHubButton}><GraduationCap size={13}/>대학 탐색</button>}{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi("","")} style={consultationView.linkHubButton}><BookOpen size={13}/>NAVI 분석</button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan} count={supportPlanCount}/>}{onOpenCases&&<button type="button" onClick={()=>onOpenCases("","","")} style={consultationView.linkHubButton}><BarChart3 size={13}/>광덕고 사례</button>}</div>
     </div>
+    <div className="counseling-print-favorites"><StudentFavoritesView sid={sid} gdb={gdb} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
     <div className="counseling-print-notes" style={consultationView.card}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={()=>setPrintOptionsOpen(true)} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="상담 기록과 관심 대학·학과의 포함 여부를 선택해 인쇄합니다."><Printer size={13}/>인쇄·PDF</button></div>
       {canEdit && <div className="no-print" style={consultationView.editor}>
@@ -4372,18 +4410,18 @@ function StudentConsultationView({
           <div style={consultationView.noteHeader}><div style={consultationView.noteMeta}><b>{note.date || "날짜 미입력"}</b><span>{note.author || "작성자 미입력"}</span></div>{canEdit&&<button type="button" className="no-print" onClick={()=>removeNote(note.id)} style={consultationView.deleteButton}>삭제</button>}</div>
           {note.text && <p className="counseling-print-note-text" style={consultationView.noteText}>{note.text}</p>}
           <CounselingAttachmentList attachments={note.attachments || []} />
+          {!!note.attachments?.length && <div className="counseling-print-attachment-label">첨부 목록: {note.attachments.map(file=>file.fileName || '첨부파일').join(' · ')} (파일 본문은 별도 확인)</div>}
         </article>) : <div style={consultationView.empty}>저장된 상담 기록이 없습니다.</div>}
       </div>
     </div>
-    <div className="counseling-print-favorites"><StudentFavoritesView sid={sid} gdb={gdb} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
     </div>
     {printOptionsOpen&&<div className="counseling-print-option-overlay no-print" role="dialog" aria-modal="true" aria-label="상담 인쇄 항목 선택">
       <div className="counseling-print-option-modal">
         <div className="counseling-print-option-head"><div><b>상담 인쇄 항목 선택</b><span>상담 기록과 관심 대학·학과 중 PDF에 넣을 항목을 선택하세요.</span></div><button type="button" onClick={()=>setPrintOptionsOpen(false)} aria-label="닫기"><X size={15}/></button></div>
         <div className="counseling-print-option-body">
-          <div className="counseling-print-paper-row"><span><b>인쇄 용지</b><small>B4는 넓은 상담 자료를 여유 있게 배치합니다.</small></span><div><button type="button" className={printPaper==="A4"?"is-active":""} onClick={()=>setPrintPaper("A4")}>A4</button><button type="button" className={printPaper==="B4"?"is-active":""} onClick={()=>setPrintPaper("B4")}>B4</button></div></div>
+          <div className="counseling-print-paper-row"><span><b>인쇄 용지</b><small>관심 대학은 카드별 페이지, 상담 기록은 내용 길이에 맞춰 출력합니다.</small></span><div><button type="button" className={printPaper==="A4"?"is-active":""} onClick={()=>setPrintPaper("A4")}>A4</button><button type="button" className={printPaper==="B4"?"is-active":""} onClick={()=>setPrintPaper("B4")}>B4</button></div></div>
           <label><input type="checkbox" checked={printNotes} onChange={event=>setPrintNotes(event.target.checked)}/><span><b>상담 기록</b><span>상담일·작성자·상담 내용을 인쇄합니다.</span></span></label>
-          <label className={!favorites.length?"is-disabled":""}><input type="checkbox" checked={printFavorites} disabled={!favorites.length} onChange={event=>setPrintFavorites(event.target.checked)}/><span><b>관심 대학·학과</b><span>{favorites.length?`저장된 관심 항목 ${favorites.length}개와 대학 지원·광덕고 사례·NAVI 컷 정보를 함께 인쇄합니다.`:"저장된 관심 대학·학과가 없습니다."}</span></span></label>
+          <label className={!favorites.length?"is-disabled":""}><input type="checkbox" checked={printFavorites} disabled={!favorites.length} onChange={event=>setPrintFavorites(event.target.checked)}/><span><b>관심 대학·학과</b><span>{favorites.length?`현재 분류에 표시된 관심 대학 카드와 지원 기준·광덕고 사례·NAVI 컷을 인쇄합니다. 전체 항목은 분류에서 ‘전체’를 선택하세요.`:"저장된 관심 대학·학과가 없습니다."}</span></span></label>
         </div>
         <div className="counseling-print-option-actions"><button type="button" onClick={()=>setPrintOptionsOpen(false)}>취소</button><button type="button" className="primary" disabled={!printNotes&&!printFavorites} onClick={()=>{setPrintOptionsOpen(false);window.setTimeout(()=>printCounselingHistory({notes:printNotes,favorites:printFavorites,paper:printPaper}),40)}}><Printer size={12}/>선택 항목 인쇄·PDF</button></div>
       </div>

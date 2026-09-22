@@ -109,7 +109,8 @@
 .susi-beta-recommend-panel .kd-recommend-more p{font-size:12px;line-height:1.6;margin:8px 0;font-weight:400;color:#53675c}
 .kd-recommend-more>div{margin-top:8px}.kd-recommend-more a{color:#315f88}
 .kd-recommend-more summary:focus-visible{outline:2px solid #5984ab;outline-offset:3px}
-.kd-decision-primary .kd-decision-minimum h5{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:3px 8px;font-size:13px;font-weight:600;line-height:1.5}
+.kd-decision-primary .kd-decision-minimum h5{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:3px 8px;font-size:13.5px;font-weight:800;line-height:1.5}
+.kd-history-policy{display:block;margin:4px 0 6px;font-size:11px;font-weight:700;line-height:1.45;color:#49617b;overflow-wrap:anywhere}
 .kd-decision-primary .kd-decision-minimum h5>span{float:none;font-size:11px;font-weight:400}
 /* 기준 학년은 보조 회색 문장이 아니라 독립 배지로 표시합니다. 지원 학년도와 다른
    참고자료(주로 2027)는 주황, 같은 학년도 기준은 파랑으로 구분합니다. */

@@ -77,6 +77,10 @@ export function parseExplicitMinimum(condition, note, year) {
  const fields={ruleType:'',subjects:'',count:null,threshold:null,mandatory:'',englishMax:null,historyMax:null,inquiryMode:'해당없음',rounding:'없음',englishConversion:'없음'};
  let text=compact(condition), extra=compact(note);
  if(Number(year)===2027){
+  // A history ceiling in the note is independent of the selected grade sum.
+  const historyCaps=[...`${text} ${extra}`.matchAll(/한국사\s*([1-9])(?!\d|[~～·-])(?:등급)?(?:이내|이하)?/g)].map(m=>Number(m[1]));
+  if(new Set(historyCaps).size>1)return null;
+  fields.historyMax=historyCaps[0]??null;
   const first=text.split(/\n|※/)[0];
   const sum=first.match(/^([1-4])개(?:영역|과목)?(?:등급)?합(?:계)?([1-9]\d?)/);
   const each=first.match(/^([1-4])개(?:영역|과목)?(?:각각|각)?([1-9])등급/) || first.match(/^([1-4])개(?:영역|과목)?(?:각각|각)([1-9])등급/);

@@ -39,6 +39,8 @@ function MinimumFacts({ minimum, ev, student, printMode=false }) {
   const hasDetail = !isManual || ev?.subjectsText || ev?.note || ev?.reason || ev?.source;
   return <>
     <strong className="kd-decision-verdict">{minimum.label}</strong>
+    {ev?.historyInSum && <span className="kd-history-policy">한국사 합산 허용 · 해당 전형 기준</span>}
+    {ev?.historyMax != null && <span className="kd-history-policy">한국사 별도 {ev.historyMax}등급 이내 · 학생 {ev.historyGrade ?? '미입력'}{ev.historyInSum ? '' : ' · 합산 제외'}</span>}
     {decided ? <>
       <div className="kd-minimum-grade-block"><small>반영 과목 등급</small><div className="kd-mock-chips">{(ev.selectedSubjects || []).map(x => <span key={x.name} className="kd-mock-chip">{shortSubjectName(x.name)} <b>{x.grade}</b></span>)}</div></div>
       <div className="kd-minimum-rule-grid">
