@@ -9,6 +9,8 @@ import minimumCatalogSeed from './minimumCatalogSeed.json';
 import { normalizeMinimumCatalog } from './minimumCatalog.js';
 import FavoritePlanPicker from "./FavoritePlanPicker.jsx";
 import counselingCss from './counseling.css?raw';
+import supportDecisionCss from './supportDecision.css?raw';
+import CounselingAdmissionFacts from './CounselingAdmissionFacts.jsx';
 import { LayoutGrid } from 'lucide-react';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
@@ -823,7 +825,7 @@ export default function GradesSection({
 
         {loggedInStudent && keepTabMounted("grades") && <div style={{ display: tab === "grades" ? "block" : "none" }}><StudentGradeReport key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} mode="grades" studentInfo={loggedInStudent} /></div>}
         {loggedInStudent && keepTabMounted("admission") && <div style={{ display: tab === "admission" ? "block" : "none" }}><StudentAdmissionView key={loggedInStudent.id} sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenCases={(name,department,admissionType)=>openCaseUniversity(name,false,department,admissionType)} focusUniversity={linkedUniversity} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} /></div>}
-        {loggedInStudent && keepTabMounted("consultation") && <div style={{ display: tab === "consultation" ? "block" : "none" }}><MemoStudentConsultationView sid={loggedInStudent.id} gdb={gdb} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={name => openAdmissionUniversity(name, true)} onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)} onOpenSusiNavi={(name,department) => openSusiNaviUniversity(name, true, department)} onOpenSupportPlan={() => openSusiNaviWorkspace(true)} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} /></div>}
+        {loggedInStudent && keepTabMounted("consultation") && <div style={{ display: tab === "consultation" ? "block" : "none" }}><MemoStudentConsultationView sid={loggedInStudent.id} gdb={gdb} selectedStudent={susiNaviStudent} studentInfo={loggedInStudent} favorites={favoriteItemsFor(loggedInStudent.id)} onToggleFavorite={item => toggleFavorite(loggedInStudent.id,item)} onOpenAdmission={name => openAdmissionUniversity(name, true)} onOpenCases={(name,department,admissionType) => openCaseUniversity(name, true, department, admissionType)} onOpenSusiNavi={(name,department) => openSusiNaviUniversity(name, true, department)} onOpenSupportPlan={() => openSusiNaviWorkspace(true)} persistGrades={persistGrades} canEdit={false} authorName={loggedInStudent.name || "학생"} /></div>}
 
         {loggedInTeacher && !teacherHasGradeAccess && (
           <EmptyBox text={`${currentGrade}학년 학생 성적 조회 권한이 없습니다. 관리자에게 역할 또는 성적 조회 권한을 요청해주세요.`} />
@@ -873,6 +875,7 @@ export default function GradesSection({
           {lookupSid ? <MemoStudentConsultationView
             sid={lookupSid}
             gdb={gdb}
+            selectedStudent={susiNaviStudent}
             studentInfo={roster?.[lookupSid]}
             favorites={favoriteItemsFor(lookupSid)}
             onToggleFavorite={item => toggleFavorite(lookupSid,item)}
@@ -4007,7 +4010,7 @@ export function printCounselingHistory(options = {}) {
 
   try {
     printDocument.open();
-    const counselingPrintCss = (COUNSELING_PRINT_CSS + counselingCss).replace(/@media print/g, '@media all').replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
+    const counselingPrintCss = (supportDecisionCss + COUNSELING_PRINT_CSS + counselingCss).replace(/@media print/g, '@media all').replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
     printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${counselingPrintCss}</style></head><body class="print-counseling-history ${paper === "B4" ? "counseling-paper-b4" : ""}">${clone.outerHTML}</body></html>`);
     printDocument.close();
   } catch { cleanup(); return; }
@@ -4172,12 +4175,37 @@ function CounselingAttachmentList({ attachments = [] }) {
   return <div style={consultationView.attachmentList}>{attachments.map((file,index)=>{const key=file.dataKey||file.path||file.url||`${file.fileName}-${index}`;return <button key={key} type="button" onClick={()=>openAttachment(file,index)} style={consultationView.attachmentLink}><span style={{display:"inline-flex",alignItems:"center",gap:5}}>{opening===key?<Loader2 size={12} className="spin"/>:<Download size={12}/>}<b>{file.fileName||"첨부파일"}</b></span><small>{formatStoredFileSize(file.size)}</small></button>})}</div>;
 }
 
-function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleFavorite, onOpenAdmission, onOpenCases, onOpenSusiNavi, onOpenSupportPlan, hideBanner = false }) {
+function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorites = [], onToggleFavorite, onOpenAdmission, onOpenCases, onOpenSusiNavi, onOpenSupportPlan, hideBanner = false }) {
   const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
   const [favoriteFilter, setFavoriteFilter] = useState("전체");
   const [favoriteNaviData, setFavoriteNaviData] = useState(null);
   const [favoriteNaviStatus, setFavoriteNaviStatus] = useState('loading');
   const [favoriteRetry, setFavoriteRetry] = useState(0);
+  const [factsModule,setFactsModule]=useState(null);
+  const [factsStatus,setFactsStatus]=useState('loading');
+  const [recommendedData,setRecommendedData]=useState(null);
+  const [recommendationStatus,setRecommendationStatus]=useState('loading');
+  useEffect(()=>{
+    const update=event=>{setRecommendedData(event.detail||null);setRecommendationStatus(event.detail?'ready':'empty');};
+    window.addEventListener('kd-recommended-subjects-updated',update);
+    return()=>window.removeEventListener('kd-recommended-subjects-updated',update);
+  },[]);
+  useEffect(()=>{
+    if(!favorites.length)return;
+    let active=true;
+    setFactsStatus('loading');setRecommendationStatus('loading');
+    loadSusiNaviView().then(module=>{
+      if(!active)return;
+      setFactsModule(module);setFactsStatus('ready');
+      return module.loadRecommendedSubjectData(favoriteRetry>0).then(value=>{
+        if(active){setRecommendedData(value);setRecommendationStatus(value?'ready':'empty');}
+      }).catch(()=>{if(active){setRecommendedData(null);setRecommendationStatus('error');}});
+    }).catch(()=>{if(active)setFactsStatus('error');});
+    return()=>{active=false;};
+  },[Boolean(favorites.length),favoriteRetry]);
+  const factIndexes=useMemo(()=>factsModule?.buildCounselingFactIndex(favoriteNaviData,recommendedData),[factsModule,favoriteNaviData,recommendedData]);
+  const factStudent=useMemo(()=>selectedStudent?.sid===String(sid)?selectedStudent:{sid:String(sid),admissionYear:Number(identity.entryYear)+3,subjects:[],minimumCatalogRows:normalizeMinimumCatalog(gdb.minimumCatalog?.rows||minimumCatalogSeed),minimumRows:[]},[selectedStudent,sid,identity.entryYear,gdb.minimumCatalog]);
+  const favoriteFacts=useMemo(()=>new Map(favorites.map(item=>[item.id,factsModule&&factIndexes?factsModule.counselingFactsForFavorite({favorite:item,data:favoriteNaviData||{},student:factStudent,recommendedData,indexes:factIndexes}):null])),[favorites,factsModule,factIndexes,favoriteNaviData,factStudent,recommendedData]);
   useEffect(() => {
     if (!favorites.length) return;
     let active = true;
@@ -4278,7 +4306,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, favorites = [], onToggleF
             </div>
             <div className="favorite-print-items" style={favoriteView.items}>{group.items.map(item=>{
               const itemNaviCuts = favoriteNaviCutRows(favoriteNaviData,resolvedUniversity,resolvedRegion,item.department||"",item.admissionType||"").slice(0,3);
-              return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-kind" style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}{item.department&&<span className="favorite-print-item-navi-cuts" style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "NAVI 공개컷 연결 없음"}</small>}</span>}</span><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span></div>;
+              return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><Star size={13} fill="#ffd84d" color="#b58a00"/><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-kind" style={favoriteView.kindBadge}>{item.favoriteKind==="개별사례"?"개별":favoriteCategory(item)}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}{item.department&&<span className="favorite-print-item-navi-cuts" style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "NAVI 공개컷 연결 없음"}</small>}</span>}</span><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span><CounselingAdmissionFacts facts={favoriteFacts.get(item.id)} student={factStudent} status={factsStatus} minimumStatus={favoriteNaviStatus} recommendationStatus={recommendationStatus} onRetry={()=>setFavoriteRetry(value=>value+1)}/></div>;
             })}</div>
           </article>
         })}</div>}
@@ -4294,6 +4322,7 @@ export function StudentConsultationView({
   sid,
   gdb,
   studentInfo,
+  selectedStudent,
   favorites = [],
   onToggleFavorite,
   onOpenAdmission,
@@ -4387,7 +4416,7 @@ export function StudentConsultationView({
       <div className="kd-consult-linkhub-stats" style={consultationView.linkHubStats}><span><small>관심 항목</small><b>{favorites.length}개</b></span><span><small>지원 구성</small><b>{supportPlanCount == null ? "확인 필요" : `${supportPlanCount}/6`}</b></span><span><small>상담 기록</small><b>{notes.length}건</b></span></div>
       <div style={consultationView.linkHubActions}>{onOpenAdmission&&<button type="button" onClick={()=>onOpenAdmission("")} style={consultationView.linkHubButton}><GraduationCap size={13}/>대학 탐색</button>}{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi("","")} style={consultationView.linkHubButton}><BookOpen size={13}/>NAVI 분석</button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan} count={supportPlanCount}/>}{onOpenCases&&<button type="button" onClick={()=>onOpenCases("","","")} style={consultationView.linkHubButton}><BarChart3 size={13}/>광덕고 사례</button>}</div>
     </div>
-    <div className="counseling-print-favorites"><StudentFavoritesView sid={sid} gdb={gdb} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
+    <div className="counseling-print-favorites"><StudentFavoritesView sid={sid} gdb={gdb} selectedStudent={selectedStudent} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
     <div className="counseling-print-notes" style={consultationView.card}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={()=>setPrintOptionsOpen(true)} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="상담 기록과 관심 대학·학과의 포함 여부를 선택해 인쇄합니다."><Printer size={13}/>인쇄·PDF</button></div>
       {canEdit && <div className="no-print" style={consultationView.editor}>
@@ -6448,6 +6477,7 @@ const MemoStudentConsultationView = React.memo(StudentConsultationView, (prev, n
   && prev.gdb === next.gdb
   && prev.studentInfo === next.studentInfo
   && prev.favorites === next.favorites
+  && prev.selectedStudent === next.selectedStudent
   && prev.persistGrades === next.persistGrades
   && prev.canEdit === next.canEdit
   && prev.authorName === next.authorName

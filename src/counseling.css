@@ -1,4 +1,16 @@
 /* Patch93: consultation shares the support-plan card hierarchy. */
+.kd-counsel-facts{flex:1 0 100%;width:100%;min-width:0;padding-top:12px;margin-top:8px;border-top:1px solid #d6e1ec;font-size:13px;color:#294968}
+.kd-counsel-facts h4{margin:0 0 4px;font-size:14px;font-weight:800}
+.kd-counsel-facts>small{display:block;margin-bottom:8px;color:#617287;font-size:11px}
+.kd-counsel-minimum{margin:8px 0;border:1px solid #d6e1ec;border-radius:9px;padding:9px}
+.kd-counsel-minimum>summary{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px;cursor:pointer;list-style:none;font-size:12px}
+.kd-counsel-minimum>summary:after{content:'펼치기';color:#617287;font-size:11px}
+.kd-counsel-minimum[open]>summary:after{content:'접기'}
+.kd-counsel-facts .kd-decision-primary{grid-template-columns:minmax(0,1fr);margin-top:8px}
+.kd-counsel-facts .kd-course-details{margin-top:10px;padding:10px}
+.kd-counsel-facts .kd-course-details summary{flex-wrap:wrap;gap:6px;font-size:13px}
+.kd-counsel-facts .kd-decision-rule{white-space:normal;overflow:visible}
+.kd-counsel-facts .kd-course-details p,.kd-counsel-facts .kd-course-details small{line-height:1.5;overflow-wrap:anywhere}
 .kd-consultation-ui .kd-consult-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 16px;border:1px solid #ccd8e3;border-radius:14px;background:#fff}
 .kd-consultation-ui .kd-consult-toolbar>div:first-child{flex:1 1 240px}
 .kd-consultation-ui .kd-consult-toolbar h3{margin:0;font-size:18px;font-weight:800;color:#23374b}
@@ -42,6 +54,12 @@
 @media(max-width:680px){.kd-consultation-ui .favorite-print-grid,.kd-consultation-ui.is-card-focus .favorite-print-grid{grid-template-columns:minmax(0,1fr)!important}.kd-consultation-ui .kd-consult-action{flex:1 1 140px;min-height:44px}.kd-consultation-ui .favorite-print-card{padding:12px!important}}
 /* Dedicated print iframe: continuous notes, one intact university card per page. */
 @media print{
+ .counseling-print-root-clone .kd-counsel-facts{font-size:8.5pt!important;display:block!important}
+ .counseling-print-root-clone .kd-counsel-minimum{break-inside:avoid!important;display:block!important}
+ .counseling-print-root-clone .kd-counsel-minimum>summary:after,.counseling-print-root-clone .kd-course-details>summary:after{display:none!important}
+ .counseling-print-root-clone .kd-course-chips span{font-size:8pt!important}
+ .counseling-print-root-clone .favorite-print-item:has(.kd-counsel-facts){break-inside:auto!important}
+ .counseling-print-root-clone .kd-course-details{break-inside:auto!important}
  body.print-counseling-history{margin:0!important}
  body.print-counseling-history>.counseling-print-root-clone{display:block!important}
  .counseling-print-root-clone .counseling-print-notes{display:block!important;margin:4mm 0!important}
@@ -52,6 +70,8 @@
  .counseling-print-root-clone .counseling-print-attachment-label{display:block!important;font-size:8pt!important;overflow-wrap:anywhere!important;margin-top:2mm}
  .counseling-print-root-clone .counseling-print-favorites{break-before:page}
  .counseling-print-root-clone.is-favorites-only .counseling-print-favorites{break-before:auto}
+ .counseling-print-root-clone.is-favorites-only .counseling-print-student-banner{display:none!important}
+ .counseling-print-root-clone .favorite-print-section>.section-heading{display:none!important}
  .counseling-print-root-clone .favorite-print-section,.counseling-print-root-clone .favorite-print-grid{display:block!important;border:0!important;padding:0!important}
  .counseling-print-root-clone .favorite-print-card{display:block!important;break-before:page!important;margin:0!important;break-inside:avoid!important}
  .counseling-print-root-clone .favorite-print-card:first-child{break-before:auto!important}

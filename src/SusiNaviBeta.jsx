@@ -945,7 +945,7 @@ export async function parseRecommendedSubjectsWorkbook(file, onProgress = () => 
     records: merged,
   };
 }
-async function loadRecommendedSubjectData(force = false) {
+export async function loadRecommendedSubjectData(force = false) {
   if (!force && recommendedSubjectCache) return recommendedSubjectCache;
   if (!force && recommendedSubjectCachePromise) return recommendedSubjectCachePromise;
   recommendedSubjectCachePromise = readStorage(RECOMMENDED_SUBJECT_STORAGE_KEY, null, { throwOnError: true }).then(value => {
@@ -1387,7 +1387,7 @@ export function estimateRecommendationForUnit(indexes, university, region = "", 
     estimatedFrom: consensus.universities.slice(0, 3),
   };
 }
-function recommendationProgress(recommendation, studentSubjects = []) {
+export function recommendationProgress(recommendation, studentSubjects = []) {
   if (!recommendation) return null;
   const normalizedStudentSubjects = uniqueStudentSubjects(studentSubjects);
   const core = uniqueCourseNames(recommendation.core?.length ? recommendation.core : recommendation.required || []);
@@ -1458,6 +1458,37 @@ export function supportOptionsForFavorite(data, favorite = {}) {
   if (!entry) return [];
   const row=entry.row;
   return [["교과",7],["종합",8]].flatMap(([admissionType,index])=>(row[index]||[]).filter(value=>value?.[0]).map(value=>({university:row[3],region:row[1],department:row[5],field:row[6],admissionType,track:value[0],source:"즐겨찾기 전형 선택"})));
+}
+
+// Shared counseling lookup: index once for all favorites, reuse NAVI's exact rules.
+export function buildCounselingFactIndex(data, recommendedData) {
+  return { workspace:buildEnrichedWorkspaceIndex(coalesceNaviRecords(data?.records || []).map(row=>({row}))), recommendations:buildRecommendationEstimateIndexes(recommendedData) };
+}
+export function counselingFactsForFavorite({favorite,data={},student={},recommendedData,indexes}) {
+  if(!favorite.department || /^(전체|대학 전체)$/.test(favorite.department))return {needsDepartment:true,minimums:[],progress:null};
+  const entry=indexedEnrichedWorkspaceEntry(indexes.workspace,favorite);
+  const target={...favorite,field:favorite.field || entry?.row?.[6] || ''};
+  const recommendation=recommendationForUnit(recommendedData,target.university,target.region,target.department,indexes.recommendations,target.field)
+    || estimateRecommendationForUnit(indexes.recommendations,target.university,target.region,target.department,target.field);
+  const category=comparisonType(favorite.admissionType || '');
+  const type=['교과','종합','논술','실기'].includes(category)?category:'';
+  const rawType=String(favorite.admissionType || '');
+  const specificTrack=favorite.track || favorite.detailType || ((favorite.favoriteKind==='전형'||favorite.source==='admission'||/^(?:학생부)?(?:교과|종합)\s*\(.+\)$/.test(rawType))&&!/^(?:학생부)?(?:교과|종합)$/.test(rawType)?minimumTrackKey(rawType):'');
+  let candidates=entry ? [['교과',7],['종합',8]].flatMap(([admissionType,i])=>(entry.row[i]||[]).map(item=>({admissionType,track:item[0]}))) : [];
+  candidates.push(...catalogRowsForTarget(student.minimumCatalogRows||[],target,student.admissionYear,universityIdentityKey).map(row=>({admissionType:row.admissionType,track:row.track})));
+  candidates.push(...(student.minimumRows||[]).filter(row=>universityIdentityKey(row.university,row.region)===universityIdentityKey(target.university,target.region)&&minimumScopeRank(row.department,target.department,target.field)>=0).map(row=>({admissionType:comparisonType(row.admissionType||row.track),track:row.track})));
+  candidates.push(...(data.minimums||[]).filter(row=>universityIdentityKey(row[1],row[0])===universityIdentityKey(target.university,target.region)&&minimumScopeRank(row[5],target.department,target.field)>=0).map(row=>({admissionType:comparisonType(row[2]),track:row[3]})));
+  if(specificTrack){
+    const matches=candidates.filter(row=>minimumTrackKey(row.track)===minimumTrackKey(specificTrack));
+    candidates=matches.length?matches:[{admissionType:type,track:specificTrack}];
+  }
+  const seen=new Set();
+  const minimums=candidates.filter(row=>{
+    const key=`${comparisonType(row.admissionType)}|${minimumTrackKey(row.track)}`;
+    if(!row.track || (type&&comparisonType(row.admissionType)!==type) || seen.has(key))return false;
+    seen.add(key);return true;
+  }).map(row=>({...row,evaluation:resolveMinimumLink({target:{...target,...row},data,student,identity:universityIdentityKey,evaluateMinimum:r=>evaluateNaviMinimumSafe(r,student),ambiguousType:true}).evaluation}));
+  return {minimums,progress:recommendationProgress(recommendation,student.subjects||[])};
 }
 
 function supportPlanItemKey(item = {}) {
@@ -3639,7 +3670,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch93</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch94</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 

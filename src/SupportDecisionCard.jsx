@@ -30,7 +30,7 @@ export function RecommendedCourseDetails({progress, status='ready', printMode=fa
 //   "N합M"(예: 2합5) + 도달/미도달 배지로 한눈에 보이게 합니다.
 // - "조건 확인 필요" 상태는 원문 조각을 그대로 노출하지 않고, 왜 확인이 필요한지 이유 한 줄만
 //   기본으로 보여줍니다. 반영 영역·비고처럼 실제 내용이 있을 때만 "자세히"를 둡니다.
-function MinimumFacts({ minimum, ev, student, printMode=false }) {
+export function MinimumFacts({ minimum, ev, student, printMode=false }) {
   const hasEvidence = !!ev && minimum.status !== 'unlinked';
   const isManual = minimum.status === 'manual';
   const needsScore = minimum.status === 'unavailable';
