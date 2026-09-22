@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -391,6 +391,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const [studentEditor, setStudentEditor] = useState(null);
   const [activeView, setActiveView] = useState("combined");
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
   const [classFilter, setClassFilter] = useState(homeroomClass ? String(homeroomClass) : "all");
   const [gradeFilter, setGradeFilter] = useState("all");
   const [minimumFilter, setMinimumFilter] = useState("all");
@@ -403,6 +404,18 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const [dataClassFilter, setDataClassFilter] = useState("all");
   const writtenInputRef = useRef(null);
   const performanceInputRef = useRef(null);
+  const workspaceStorageSnapshotRef = useRef(null);
+  workspaceStorageSnapshotRef.current = { storageKey, selectedLocalId, localWorkspaces };
+
+  useEffect(() => {
+    const flush = () => {
+      const snapshot = workspaceStorageSnapshotRef.current;
+      if (!snapshot) return;
+      try { localStorage.setItem(snapshot.storageKey, JSON.stringify({ activeId: snapshot.selectedLocalId, workspaces: snapshot.localWorkspaces })); } catch { /* browser storage unavailable */ }
+    };
+    window.addEventListener("beforeunload", flush);
+    return () => { window.removeEventListener("beforeunload", flush); flush(); };
+  }, []);
 
   const assignedSubjects = useMemo(() => teacherSubjectAssignments(teacher), [teacher]);
   const editableSubjectNames = useMemo(() => Array.from(new Set(assignedSubjects.map(item => text(item.subject)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [assignedSubjects]);
@@ -423,7 +436,12 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const selectedShared = sharedWorkspaces.find(item => item.id === selectedSharedId) || null;
 
   useEffect(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify({ activeId: selectedLocalId, workspaces: localWorkspaces })); } catch { /* browser storage unavailable */ }
+    // 점수 입력 중 큰 작업공간을 매 키 입력마다 직렬화하면 메인 스레드가 멈춥니다.
+    // 짧게 모아서 저장하되, 입력을 멈추면 동일한 형식으로 그대로 보존합니다.
+    const timer = window.setTimeout(() => {
+      try { localStorage.setItem(storageKey, JSON.stringify({ activeId: selectedLocalId, workspaces: localWorkspaces })); } catch { /* browser storage unavailable */ }
+    }, 320);
+    return () => window.clearTimeout(timer);
   }, [storageKey, selectedLocalId, localWorkspaces]);
 
   useEffect(() => {
@@ -1116,18 +1134,18 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const filteredRows = useMemo(() => activeRows.filter(row => {
     if (classFilter !== "all" && String(row.classNumber) !== classFilter) return false;
     if (activeView === "minimum" ? (minimumFilter !== "all" && row.minimumStatus !== minimumFilter) : (gradeFilter !== "all" && String(row.grade || "") !== gradeFilter)) return false;
-    const query = normalizeToken(search);
+    const query = normalizeToken(deferredSearch);
     if (!query) return true;
     return [row.sid, row.name, row.neisId].some(value => normalizeToken(value).includes(query));
-  }), [activeRows, activeView, classFilter, gradeFilter, minimumFilter, search]);
-  const eligibleActiveRows = activeRows.filter(row => !row.excluded);
-  const completeActiveRows = eligibleActiveRows.filter(row => activeView === "combined" ? row.complete : activeView === "minimum" ? true : Number.isFinite(row.score));
+  }), [activeRows, activeView, classFilter, gradeFilter, minimumFilter, deferredSearch]);
+  const eligibleActiveRows = useMemo(() => activeRows.filter(row => !row.excluded), [activeRows]);
+  const completeActiveRows = useMemo(() => eligibleActiveRows.filter(row => activeView === "combined" ? row.complete : activeView === "minimum" ? true : Number.isFinite(row.score)), [eligibleActiveRows, activeView]);
   const classes = useMemo(() => Array.from(new Set(activeRows.map(row => row.classNumber).filter(Boolean))).sort((a, b) => a - b), [activeRows]);
-  const activeStats = activeView === "combined"
+  const activeStats = useMemo(() => activeView === "combined"
     ? assessmentStats(completeActiveRows.map(row => row.convertedScore))
     : activeView === "minimum"
       ? assessmentStats(completeActiveRows.map(row => row.needed).filter(Number.isFinite))
-      : assessmentStats(completeActiveRows.map(row => row.score));
+      : assessmentStats(completeActiveRows.map(row => row.score)), [activeView, completeActiveRows]);
 
   const gradeDistribution = useMemo(() => {
     const maxGrade = Number(settings.gradeSystem);
@@ -1802,4 +1820,3 @@ const ui = {
   dangerOutlineButton:{display:"inline-flex",alignItems:"center",gap:6,border:"1px solid #dfb9b1",borderRadius:10,padding:"8px 10px",color:"#9d463b",background:"#fff8f6",fontFamily:FONT_STACK,fontSize:10.5,fontWeight:900,cursor:"pointer"},
   emptyLine: { color: "#8b98a8", fontSize: 11.5, padding: "16px 2px", lineHeight:1.5 },
 };
-

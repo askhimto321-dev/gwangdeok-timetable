@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Upload, FileSpreadsheet, Loader2, Save, Trash2, Search, GraduationCap, Database, AlertTriangle, CheckCircle2, Filter, RotateCcw, ChevronUp, ChevronDown, ArrowLeft, ChevronRight, Star, ExternalLink, Printer } from "lucide-react";
 import { computeAllGroupAverages, computeMockExamSums, grade5to9, parseAdmissionCaseRows, summarizeAdmissionCases } from "./gradeEngine.js";
 import { conversionDetails, loadSusiNaviBetaData } from "./SusiNaviBeta.jsx";
@@ -1360,6 +1360,7 @@ function gradeScopeLabel(minGrade,maxGrade){
 }
 function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorite,onOpenSusiNavi,onAddSupportPlan,onOpenSupportPlan,focusUniversity="",focusDepartment="",focusAdmissionType="",onClearLinkedFocus,globalMinGrade="",globalMaxGrade=""}){
   const[query,setQuery]=useState("");
+  const deferredQuery=useDeferredValue(query);
   const[range,setRange]=useState(null);
   const[sortOrder,setSortOrder]=useState("default");
   const[printOrientation,setPrintOrientation]=useState("a4-portrait");
@@ -1382,10 +1383,10 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
   },[rows,comparisonRows,focusUniversity,focusDepartment,effectiveFocusAdmissionType]);
   const filtered=useMemo(()=>focusResolution.rows.filter(row=>{
     // 연결 조회에서는 대학·학과·전형 범위를 먼저 안전하게 확정한 뒤 일반 검색을 중복 적용하지 않습니다.
-    if(!linkedQuery&&!textMatch(row,query))return false;
+    if(!linkedQuery&&!textMatch(row,deferredQuery))return false;
     if(range!=null){if(profile?.converted==null)return false;const grade=row.overallGrade;if(grade==null||Math.abs(grade-profile.converted)>range)return false}
     return true;
-  }),[focusResolution,query,range,profile?.converted,linkedQuery]);
+  }),[focusResolution,deferredQuery,range,profile?.converted,linkedQuery]);
   const sorted=useMemo(()=>{
     if(sortOrder==="default")return filtered;
     const direction=sortOrder==="overallAsc"?1:-1;
@@ -1482,10 +1483,11 @@ export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedS
   },[caseConversionMethod]);
   const profile=useMemo(()=>studentProfile(sid,roster,gdb,currentGrade,caseConversionMethod,caseConversionGroup,caseBetaData),[sid,roster,gdb,currentGrade,caseConversionMethod,caseConversionGroup,caseBetaData]);
   const[filters,setFilters]=useState(emptyCaseFilters);
-  const filtered=useMemo(()=>applyFilters(cases,filters,profile),[cases,filters,profile?.converted]);
+  const deferredFilters=useDeferredValue(filters);
+  const filtered=useMemo(()=>applyFilters(cases,deferredFilters,profile),[cases,deferredFilters,profile?.converted]);
   // 학생 성적 기준 대학 카드는 각 사례 행이 아니라 화면에 표시되는 대학 합격자 전교과 50%컷으로 지원구간을 판정합니다.
   // 학생 탭에서는 지원구간만 제외한 원자료로 대학별 컷을 만든 뒤 카드 단위로 다시 필터링합니다.
-  const studentFiltered=useMemo(()=>applyFilters(cases,{...filters,bands:[]},profile),[cases,filters,profile?.converted]);
+  const studentFiltered=useMemo(()=>applyFilters(cases,{...deferredFilters,bands:[]},profile),[cases,deferredFilters,profile?.converted]);
   const caseHistorySessionRef=useRef(`kd-admission-cases-${Date.now()}-${Math.random().toString(36).slice(2,8)}`);
   const currentView=useRef({tab:"student",studentUniversity:"",universitySelection:"",searchFocus:{university:"",department:"",admissionType:""},filters:emptyCaseFilters()});
   const viewSnapshot=()=>({tab,studentUniversity,universitySelection,searchFocus,filters});

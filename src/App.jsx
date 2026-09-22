@@ -1,11 +1,22 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
-import GradesSection, { loadGradesDB, AdminGradesUpload, AdminStudentAccounts } from "./Grades.jsx";
-import TeacherGradeAnalyzer from "./TeacherGradeAnalyzer.jsx";
-import MinimumAchievement from "./MinimumAchievement.jsx";
-import GradeDepartmentTools from "./GradeDepartmentTools.jsx";
-import { SusiNaviBetaAdmin } from "./SusiNaviBeta.jsx";
+
+// 큰 분석 화면은 실제로 열 때 내려받습니다. 로그인 화면에서 NAVI·대입결과·성적분석
+// 전체 코드를 한꺼번에 파싱하던 비용을 없애고, 같은 모듈 요청은 하나의 Promise로 공유합니다.
+let gradesModulePromise;
+let gradesDataPromise;
+let susiNaviModulePromise;
+const loadGradesModule = () => gradesModulePromise || (gradesModulePromise = import("./Grades.jsx"));
+const loadGradesData = () => gradesDataPromise || (gradesDataPromise = loadGradesModule().then(module => module.loadGradesDB()).catch(error => { gradesDataPromise = null; throw error; }));
+const loadSusiNaviModule = () => susiNaviModulePromise || (susiNaviModulePromise = import("./SusiNaviBeta.jsx"));
+const GradesSection = lazy(() => loadGradesModule().then(module => ({ default: module.default })));
+const AdminGradesUpload = lazy(() => loadGradesModule().then(module => ({ default: module.AdminGradesUpload })));
+const AdminStudentAccounts = lazy(() => loadGradesModule().then(module => ({ default: module.AdminStudentAccounts })));
+const TeacherGradeAnalyzer = lazy(() => import("./TeacherGradeAnalyzer.jsx"));
+const MinimumAchievement = lazy(() => import("./MinimumAchievement.jsx"));
+const GradeDepartmentTools = lazy(() => import("./GradeDepartmentTools.jsx"));
+const SusiNaviBetaAdmin = lazy(() => loadSusiNaviModule().then(module => ({ default: module.SusiNaviBetaAdmin })));
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
 
@@ -964,6 +975,10 @@ function QuickLinksDock() {
 }
 
 
+function DeferredPanel({ children, label = "화면을 불러오는 중입니다." }) {
+  return <Suspense fallback={<div style={styles.deferredPanel}><Loader2 className="spin" size={19} /><span>{label}</span></div>}>{children}</Suspense>;
+}
+
 /* ============================================================ */
 export default function App() {
   const [section, setSection] = useState(null); // null = not chosen yet | "grades" | "timetable"
@@ -1052,7 +1067,6 @@ export default function App() {
         readStorage("kd_grade_department_data", {}),
       ]);
       setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData });
-      loadGradesDB().then(setGdb);
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
       setAccounts(normalizedAccounts);
@@ -1104,6 +1118,18 @@ export default function App() {
       }
     })();
   }, []);
+
+  // 성적 DB도 인증 전에는 읽지 않습니다. 시간표나 로그인만 필요한 첫 화면의 네트워크·파싱
+  // 경합을 줄이고, 로그인 직후 필요한 순간에 한 번만 불러옵니다.
+  useEffect(() => {
+    const authenticated = Boolean(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor || classAuthed || loggedInStudent);
+    if (loading || !authenticated || gdb) return undefined;
+    let active = true;
+    loadGradesData()
+      .then(value => { if (active) setGdb(value); })
+      .catch(() => { /* 화면의 로딩 상태를 유지하고 다음 인증 변화 때 재시도합니다. */ });
+    return () => { active = false; };
+  }, [loading, loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor, classAuthed, loggedInStudent, gdb]);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -1618,7 +1644,7 @@ export default function App() {
         onCloseTab={closeStudentWorkspaceTab}
       />}
       {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <div style={{ display: activeSection === "grades" ? "block" : "none" }}>
-        <GradesSection
+        <DeferredPanel label="성적·진학 화면을 불러오는 중입니다."><GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
           roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
           gdb={gdb} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
@@ -1629,7 +1655,7 @@ export default function App() {
           requestedStudentView={studentWorkspaceView}
           onWorkspaceViewChange={syncStudentWorkspaceView}
           persistGrades={persistGrades}
-        />
+        /></DeferredPanel>
       </div>}
       {activeSection === "admin" ? (
         <AdminConsole
@@ -1652,17 +1678,17 @@ export default function App() {
         />
       ) : activeSection === "minimumAchievement" ? (
         <div style={styles.body}>
-          <MinimumAchievement
+          <DeferredPanel label="최소성취수준 화면을 불러오는 중입니다."><MinimumAchievement
             db={db} persist={persist} showToast={showToast} grade={grade} roster={roster} allRosters={db.roster}
             actor={loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin}
             accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : (loggedInTeacher && normalizedTeacherRole(loggedInTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
             homeroomClass={loggedInTeacher?.homeroomClass || ""}
             setGrade={setGrade}
             allowedGrades={(loggedInAdmin || loggedInDepartment || loggedInMonitor) ? GRADES : [teacherRoleGrade(loggedInTeacher || {})]}
-          />
+          /></DeferredPanel>
         </div>
       ) : activeSection === "grades" ? (
-        staffWorkspaceEnabled ? null : <GradesSection
+        staffWorkspaceEnabled ? null : <DeferredPanel label="성적·진학 화면을 불러오는 중입니다."><GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
           roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
           gdb={gdb} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
@@ -1672,7 +1698,7 @@ export default function App() {
           onSelectedStudentQueryChange={undefined}
           requestedStudentView={studentWorkspaceView}
           persistGrades={persistGrades}
-        />
+        /></DeferredPanel>
       ) : (loggedInStudent && !loggedInAdmin && !loggedInTeacher && !loggedInDepartment && !loggedInMonitor && !classAuthed) ? (
         <div style={styles.body}>
           <h1 style={styles.h1}>{loggedInStudent.name} 학생 시간표</h1>
@@ -2130,6 +2156,12 @@ function TeacherZoneWorkspace({
       return ["grades", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : "grades";
     } catch { return "grades"; }
   });
+  const [visitedWorkspaceModes, setVisitedWorkspaceModes] = useState(() => [workspaceMode]);
+  const [lastDepartmentToolView, setLastDepartmentToolView] = useState(() => ["contacts", "records", "gradeData"].includes(workspaceMode) ? workspaceMode : "contacts");
+  useEffect(() => {
+    setVisitedWorkspaceModes(current => current.includes(workspaceMode) ? current : [...current, workspaceMode]);
+    if (["contacts", "records", "gradeData"].includes(workspaceMode)) setLastDepartmentToolView(workspaceMode);
+  }, [workspaceMode]);
   useEffect(() => {
     if ((!canUseNotice && workspaceMode === "notice") || (!canUseGradeDepartmentTools && ["contacts", "records", "gradeData"].includes(workspaceMode))) setWorkspaceMode("grades");
   }, [canUseNotice, canUseGradeDepartmentTools, workspaceMode]);
@@ -2163,15 +2195,15 @@ function TeacherZoneWorkspace({
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
-    <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
-      <TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
+    {visitedWorkspaceModes.includes("grades") && <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
+      <DeferredPanel label="성적 산출 도구를 불러오는 중입니다."><TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={activeAccessRole}
         homeroomClass={activeTeacher?.homeroomClass || ""}
-        canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (activeTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(activeTeacher))))} />
-    </div>
-    {canUseNotice && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
-    {canUseGradeDepartmentTools && <div style={{ display: ["contacts", "records", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records", "gradeData"].includes(workspaceMode))}>
-      <GradeDepartmentTools view={workspaceMode} db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} />
+        canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (activeTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(activeTeacher))))} /></DeferredPanel>
+    </div>}
+    {canUseNotice && visitedWorkspaceModes.includes("notice") && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
+    {canUseGradeDepartmentTools && visitedWorkspaceModes.some(mode => ["contacts", "records", "gradeData"].includes(mode)) && <div style={{ display: ["contacts", "records", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records", "gradeData"].includes(workspaceMode))}>
+      <DeferredPanel label="학년부 도구를 불러오는 중입니다."><GradeDepartmentTools view={lastDepartmentToolView} db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} /></DeferredPanel>
     </div>}
   </div>;
 }
@@ -4088,13 +4120,13 @@ function AdminConsole(props) {
       </div>
       {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
       {sub === "grades" && (
-        props.gdb ? <AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} roster={props.roster} currentGrade={props.grade} />
+        props.gdb ? <DeferredPanel label="성적 데이터 관리 화면을 불러오는 중입니다."><AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} roster={props.roster} currentGrade={props.grade} /></DeferredPanel>
           : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>
       )}
       {sub === "accounts" && <AdminAccountConsole {...props} />}
       {sub === "staffNotices" && <AdminStaffNoticePanel accounts={props.accounts} notices={props.db.staffNotices || []} persist={props.persist} showToast={props.showToast} />}
       {sub === "siteAnnouncements" && <AdminSiteAnnouncementPanel announcements={props.db.siteAnnouncements || []} persist={props.persist} showToast={props.showToast} />}
-      {sub === "susiNaviBeta" && <SusiNaviBetaAdmin showToast={props.showToast} />}
+      {sub === "susiNaviBeta" && <DeferredPanel label="수시NAVI 관리 화면을 불러오는 중입니다."><SusiNaviBetaAdmin showToast={props.showToast} /></DeferredPanel>}
       {sub === "feedback" && <FeedbackAdminPanel feedback={props.db.feedback || []} persist={props.persist} showToast={props.showToast} />}
     </div>
   );
@@ -4111,7 +4143,7 @@ function AdminAccountConsole(props) {
       </div>
       {sub === "staff" && <AdminAccounts {...props} />}
       {sub === "students" && (
-        <AdminStudentAccounts
+        <DeferredPanel label="학생 계정 화면을 불러오는 중입니다."><AdminStudentAccounts
           accounts={props.accounts}
           persistAccounts={props.persistAccounts}
           showToast={props.showToast}
@@ -4119,7 +4151,7 @@ function AdminAccountConsole(props) {
           db={props.db}
           persist={props.persist}
           scopeKey={props.scopeKey}
-        />
+        /></DeferredPanel>
       )}
       {sub === "templates" && <AdminTemplateDownloads showToast={props.showToast} />}
     </div>
@@ -5554,6 +5586,7 @@ const styles = {
   subjectRosterTable: { width:"100%", borderCollapse:"collapse", background:"#fff", fontSize:13 },
 
   app: { minHeight: "100vh", background: COLORS.paper, color: COLORS.ink, fontFamily: "'KDRound','Pretendard','Apple SD Gothic Neo',sans-serif" },
+  deferredPanel: { minHeight: 180, display: "flex", alignItems: "center", justifyContent: "center", gap: 9, padding: 24, color: "#6f7784", fontSize: 12.5, fontWeight: 800 },
   loadingScreen: { minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 },
   loadingText: { fontSize: 13.5, color: "#8a8578" },
   loginBox: { textAlign: "center", padding: "36px 20px", background: "#fff", border: `1px solid ${COLORS.line}`, borderRadius: 12, maxWidth: 320, margin: "20px auto", display: "flex", flexDirection: "column", alignItems: "center" },

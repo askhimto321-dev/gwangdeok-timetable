@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -1686,9 +1686,11 @@ export default function SusiNaviBetaView({
     ? restoredViewState.supportFilters.filter(label => SUPPORT_META[label])
     : (restoredViewState?.supportFilter && restoredViewState.supportFilter !== "전체" && SUPPORT_META[restoredViewState.supportFilter] ? [restoredViewState.supportFilter] : []);
   const [grade5, setGrade5] = useState("1.80");
+  const deferredGrade5 = useDeferredValue(grade5);
   const [conversionMethod, setConversionMethod] = useState(restoredViewState?.conversionMethod === "statistical" ? "statistical" : conversionPreference.method);
   const [conversionGroup, setConversionGroup] = useState(CONVERSION_GROUPS.includes(restoredViewState?.conversionGroup) ? restoredViewState.conversionGroup : conversionPreference.group);
   const [query, setQuery] = useState(restoredViewState?.query || "");
+  const deferredQuery = useDeferredValue(query);
   const [regionFilters, setRegionFilters] = useState(() => Array.isArray(restoredViewState?.regionFilters)
     ? restoredViewState.regionFilters.filter(Boolean)
     : (restoredViewState?.region && restoredViewState.region !== "전체" ? [restoredViewState.region] : []));
@@ -1714,12 +1716,13 @@ export default function SusiNaviBetaView({
   // 3순위(모평 선택·시뮬레이션): 최저 판정에 사용할 모의고사 회차를 학생이 직접 고를 수 있게 합니다.
   // null이면 최신 회차를 그대로 씁니다.
   const [selectedMockKey, setSelectedMockKey] = useState(null);
+  const [viewPending, startViewTransition] = useTransition();
   const naviHistorySessionRef = useRef(`kd-susi-navi-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const naviHistoryDepthRef = useRef(0);
 
   const navigateViewTab = (nextTab, { replace = false } = {}) => {
     if (!["search", "results", "connection", "workspace"].includes(nextTab)) return;
-    setViewTab(nextTab);
+    startViewTransition(() => setViewTab(nextTab));
     if (typeof window === "undefined") return;
     const session = naviHistorySessionRef.current;
     const currentDepth = window.history.state?.kdSusiNaviSession === session
@@ -1876,7 +1879,7 @@ export default function SusiNaviBetaView({
   }, [cutoffBasis]);
 
   useEffect(() => {
-    writeNaviViewState(selectedStudent?.sid, {
+    const state = {
       version: 64,
       viewTab,
       query,
@@ -1897,14 +1900,17 @@ export default function SusiNaviBetaView({
       externalFocusKey: focusUniversity ? `${universityBaseKey(focusUniversity)}|${compactText(focusDepartment)}` : "",
       page,
       savedAt: Date.now(),
-    });
+    };
+    // 검색 입력마다 sessionStorage 직렬화를 같은 프레임에서 실행하지 않습니다.
+    const timer = window.setTimeout(() => writeNaviViewState(selectedStudent?.sid, state), 240);
+    return () => window.clearTimeout(timer);
   }, [
     selectedStudent?.sid, viewTab, query, regionFilters, fieldFilters, admissionFilters, minimumFilters,
     supportFilters, resultSort, cutoffBasis, conversionMethod, conversionGroup, connectionMode,
     connectionRange, connectionUniversity, favoriteOnly, connectionFocus, focusUniversity, focusDepartment, page,
   ]);
 
-  const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, grade5), [data, conversionMethod, conversionGroup, grade5]);
+  const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, deferredGrade5), [data, conversionMethod, conversionGroup, deferredGrade5]);
   const studentSubjects = useMemo(() => uniqueStudentSubjects(selectedStudent?.subjects || []), [selectedStudent?.subjects]);
   // 3순위(모평 선택·시뮬레이션): 선택한 회차가 있으면 그 회차 성적으로, 없으면 기존처럼 최신 회차로
   // 최저를 판정합니다. sid·내신·minimumRows 등 다른 필드는 그대로 두고 모의고사 관련 필드만 바꿔치기하므로,
@@ -2030,7 +2036,7 @@ export default function SusiNaviBetaView({
       visibleRow[7] = teaching;
       visibleRow[8] = holistic;
       visibleRow[9] = regular;
-      if (!queryMatchesRow(visibleRow, query)) return [];
+      if (!queryMatchesRow(visibleRow, deferredQuery)) return [];
       return [{ ...entry, row: visibleRow }];
     });
     const cutForRow = (entry, basis) => {
@@ -2051,12 +2057,19 @@ export default function SusiNaviBetaView({
     if (resultSort === "supportUp") sorted.sort((a, b) => supportRank(a) - supportRank(b) || cutForRow(a, cutoffBasis) - cutForRow(b, cutoffBasis));
     if (resultSort === "supportDown") sorted.sort((a, b) => supportRank(b) - supportRank(a) || cutForRow(a, cutoffBasis) - cutForRow(b, cutoffBasis));
     return sorted;
-  }, [enriched, connectionFocus, connectionFocusDepartmentMatched, query, regionFilters, fieldFilters, admissionFilters, minimumFilters, supportFilters, cutoffBasis, favoriteOnly, favorites, conversion?.value, resultSort]);
+  }, [enriched, connectionFocus, connectionFocusDepartmentMatched, deferredQuery, regionFilters, fieldFilters, admissionFilters, minimumFilters, supportFilters, cutoffBasis, favoriteOnly, favorites, conversion?.value, resultSort]);
 
-  const connectionEntries = useMemo(
-    () => supportConnectionEntries(enriched, cutoffBasis, conversionGroup),
-    [enriched, cutoffBasis, conversionGroup],
-  );
+  const connectionEntryCacheRef = useRef({ source: null, cutoffBasis: "", conversionGroup: "", entries: [] });
+  const connectionEntries = useMemo(() => {
+    const cached = connectionEntryCacheRef.current;
+    if (cached.source === enriched && cached.cutoffBasis === cutoffBasis && cached.conversionGroup === conversionGroup) return cached.entries;
+    // 지원 연결용 후보 전개는 대학 상세·검색 화면에서는 쓰이지 않습니다. 해당 탭을 처음
+    // 열 때만 계산하고 이후에는 입력 자료가 바뀔 때까지 재사용합니다.
+    if (viewTab !== "connection") return [];
+    const entries = supportConnectionEntries(enriched, cutoffBasis, conversionGroup);
+    connectionEntryCacheRef.current = { source: enriched, cutoffBasis, conversionGroup, entries };
+    return entries;
+  }, [viewTab, enriched, cutoffBasis, conversionGroup]);
   const connectionUniversities = useMemo(
     () => unique(connectionEntries.map(entry => entry.university)).sort((a, b) => a.localeCompare(b, "ko")),
     [connectionEntries],
@@ -2071,12 +2084,13 @@ export default function SusiNaviBetaView({
       || universityBaseKey(name) === universityBaseKey(connectionFocus.university)) || "";
   }, [detailUniversities, connectionFocus?.university]);
   useEffect(() => {
+    if (viewTab !== "connection") return;
     if (!connectionUniversity) return;
     const matched = connectionUniversities.find(name => universityIdentityKey(name) === universityIdentityKey(connectionUniversity)
       || universityBaseKey(name) === universityBaseKey(connectionUniversity));
     if (!matched) setConnectionUniversity("");
     else if (matched !== connectionUniversity) setConnectionUniversity(matched);
-  }, [connectionUniversities, connectionUniversity]);
+  }, [viewTab, connectionUniversities, connectionUniversity]);
   const connectionResults = useMemo(() => (
     connectionMode === "university"
       ? linkedUniversityResults(connectionEntries, connectionUniversity, connectionRange)
@@ -2109,7 +2123,7 @@ export default function SusiNaviBetaView({
     return { stored: item, entry: entry || null };
   }), [compareTray, enriched]);
 
-  useEffect(() => { setPage(1); }, [connectionFocus, query, regionFilters, fieldFilters, admissionFilters, minimumFilters, supportFilters, cutoffBasis, favoriteOnly, resultSort]);
+  useEffect(() => { setPage(1); }, [connectionFocus, deferredQuery, regionFilters, fieldFilters, admissionFilters, minimumFilters, supportFilters, cutoffBasis, favoriteOnly, resultSort]);
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const visible = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const changePage = nextPage => setPage(Math.min(pageCount, Math.max(1, Number(nextPage) || 1)));
@@ -2134,9 +2148,13 @@ export default function SusiNaviBetaView({
     });
     return { ...entry, minimumHistories, minimumImprovements };
   }), [visible, effectiveStudent, selectedStudent?.availableMockExams]);
+  const visibleResultRows = useMemo(() => visibleWithSimulation.map(entry => ({
+    ...entry,
+    schoolTrend: schoolCaseTrend(caseRows, entry.row[3], entry.row[1], entry.row[5]),
+  })), [visibleWithSimulation, caseRows]);
   const activeFilterLabels = [
     connectionFocus?.university ? `${connectionFocus.source || "연결"}: ${connectionFocus.university}${connectionFocus.department ? ` · ${connectionFocus.department}${connectionFocusDepartmentMatched ? "" : " (학과명 불일치 → 대학 전체)"}` : ""}` : "",
-    query ? `검색: ${query}` : "",
+    deferredQuery ? `검색: ${deferredQuery}` : "",
     regionFilters.length ? `지역: ${regionFilters.join(" · ")}` : "",
     fieldFilters.length ? `계열: ${fieldFilters.join(" · ")}` : "",
     admissionFilters.length ? `전형: ${admissionFilters.join(" · ")}` : "",
@@ -2155,7 +2173,7 @@ export default function SusiNaviBetaView({
   if (loading) return <div style={ui.loading}><Loader2 className="spin" size={22} /> 수시NAVI Beta 자료를 불러오는 중입니다.</div>;
 
   return (
-    <section style={ui.root}>
+    <section style={ui.root} aria-busy={viewPending}>
       <style>{betaCss}</style>
       {/* 2번 요청: 왼쪽 소개 글이 자기 내용만큼만 폭을 차지하고 늘어나지 않아서, space-between이
           가운데에 큰 빈 공간을 만들고 있었습니다. 왼쪽 블록에 flex:1을 줘서 남는 폭을 항상 채우게
@@ -2432,7 +2450,7 @@ export default function SusiNaviBetaView({
           </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
-            {visibleWithSimulation.length ? visibleWithSimulation.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress }, index) => <ResultCard
+            {visibleResultRows.length ? visibleResultRows.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress, schoolTrend }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
               row={row}
               minimums={minimums}
@@ -2447,7 +2465,7 @@ export default function SusiNaviBetaView({
               recommendation={recommendation}
               recommendationProgress={recommendationProgress}
               studentSubjects={studentSubjects}
-              schoolTrend={schoolCaseTrend(caseRows, row[3], row[1], row[5])}
+              schoolTrend={schoolTrend}
               conversionGroup={conversionGroup}
               convertedGrade={conversion?.value}
               cutoffBasis={cutoffBasis}
@@ -2581,6 +2599,7 @@ function SupportConnectionExplorer({
   const [resultPage, setResultPage] = useState(1);
   const [selectedKey, setSelectedKey] = useState("");
   const [candidateQuery, setCandidateQuery] = useState("");
+  const deferredCandidateQuery = useDeferredValue(candidateQuery);
   const [connectionBandFilters, setConnectionBandFilters] = useState([]);
 
   const rawBandCounts = useMemo(() => rawResults.reduce((acc, item) => {
@@ -2593,10 +2612,17 @@ function SupportConnectionExplorer({
     return rawResults.filter(item => connectionBandFilters.includes(supportBand(convertedGrade, item.referenceCut)?.label));
   }, [rawResults, connectionBandFilters, gradeReady, convertedGrade]);
   const total = allResults.length;
-  const exact = allResults.filter(item => Math.abs(Number(item.difference ?? item.linkDifference ?? 99)) < .005).length;
-  const distinctCuts = new Set(allResults.map(item => Number(item.referenceCut).toFixed(2))).size;
-  const filteredOfficial = allResults.filter(item => item.officialCut != null).length;
-  const filteredIntegrated = total - filteredOfficial;
+  const connectionStats = useMemo(() => {
+    let exact = 0, filteredOfficial = 0;
+    const cuts = new Set();
+    allResults.forEach(item => {
+      if (Math.abs(Number(item.difference ?? item.linkDifference ?? 99)) < .005) exact += 1;
+      if (item.officialCut != null) filteredOfficial += 1;
+      cuts.add(Number(item.referenceCut).toFixed(2));
+    });
+    return { exact, distinctCuts: cuts.size, filteredOfficial, filteredIntegrated: allResults.length - filteredOfficial };
+  }, [allResults]);
+  const { exact, distinctCuts, filteredOfficial, filteredIntegrated } = connectionStats;
 
   useEffect(() => {
     setResultPage(1);
@@ -2607,17 +2633,21 @@ function SupportConnectionExplorer({
   useEffect(() => { if (!gradeReady && connectionBandFilters.length) setConnectionBandFilters([]); }, [gradeReady, connectionBandFilters.length]);
 
   const searchedResults = useMemo(() => {
-    const needle = compactText(candidateQuery);
+    const needle = compactText(deferredCandidateQuery);
     if (!needle) return allResults;
     return allResults.filter(item => compactText(`${item.university} ${item.department} ${item.originalDepartment || ""} ${item.field} ${item.track} ${item.admissionType}`).includes(needle));
-  }, [allResults, candidateQuery]);
+  }, [allResults, deferredCandidateQuery]);
   const resultPageCount = Math.max(1, Math.ceil(searchedResults.length / CONNECTION_PAGE_SIZE));
-  const compactResults = representativeConnectionResults(searchedResults, CONNECTION_PAGE_SIZE, mode);
+  const compactResults = useMemo(() => representativeConnectionResults(searchedResults, CONNECTION_PAGE_SIZE, mode), [searchedResults, mode]);
   const summaryBandCounts = useMemo(() => compactResults.reduce((acc, item) => { const label = connectionSupportBand(item); acc[label] = (acc[label] || 0) + 1; return acc; }, {}), [compactResults]);
-  const results = displayMode === "all"
+  const results = useMemo(() => displayMode === "all"
     ? searchedResults.slice((resultPage - 1) * CONNECTION_PAGE_SIZE, resultPage * CONNECTION_PAGE_SIZE)
-    : compactResults;
-  const selectedItem = searchedResults.find(item => item.key === selectedKey) || allResults.find(item => item.key === selectedKey) || null;
+    : compactResults, [displayMode, searchedResults, resultPage, compactResults]);
+  const renderedResults = useMemo(() => results.map(item => ({
+    item,
+    trend: schoolCaseTrend(caseRows, item.university, item.region, item.integratedScope ? "" : (item.originalDepartment || item.department), item.admissionType),
+  })), [results, caseRows]);
+  const selectedItem = useMemo(() => searchedResults.find(item => item.key === selectedKey) || allResults.find(item => item.key === selectedKey) || null, [searchedResults, allResults, selectedKey]);
   const setMode = next => {
     setDisplayMode(next);
     setResultPage(1);
@@ -2687,12 +2717,11 @@ function SupportConnectionExplorer({
       <label style={ui.connectionCandidateSearch}><Search size={17}/><input value={candidateQuery} onChange={event => { setCandidateQuery(event.target.value); setResultPage(1); }} placeholder="전체 후보 안에서 대학명·학과·전형 검색" />{candidateQuery && <button type="button" onClick={() => { setCandidateQuery(""); setResultPage(1); }} aria-label="후보 검색어 지우기"><X size={14}/></button>}<strong>{searchedResults.length.toLocaleString()}건</strong></label>
     </>}
 
-    {!results.length ? <div style={ui.connectionEmpty}>{mode === "grade" && !gradeReady ? "5등급 내신을 입력하거나 학생을 선택하면 성적대 연결 결과가 표시됩니다." : mode === "university" && !university ? "위의 ‘특정 대학과 비슷한 대학 찾기’를 선택한 뒤 기준 대학을 골라주세요." : connectionBandFilters.length ? "선택한 지원구간에 해당하는 후보가 없습니다. 우측 상단 지원구간 필터를 조정해보세요." : candidateQuery ? "검색어에 맞는 후보가 없습니다. 대학명이나 학과명을 줄여서 검색해보세요." : "선택한 범위에 연결되는 후보가 없습니다. 범위를 넓히거나 비교 기준을 바꿔주세요."}</div> : <div style={ui.connectionGrid}>{results.map(item => {
+    {!results.length ? <div style={ui.connectionEmpty}>{mode === "grade" && !gradeReady ? "5등급 내신을 입력하거나 학생을 선택하면 성적대 연결 결과가 표시됩니다." : mode === "university" && !university ? "위의 ‘특정 대학과 비슷한 대학 찾기’를 선택한 뒤 기준 대학을 골라주세요." : connectionBandFilters.length ? "선택한 지원구간에 해당하는 후보가 없습니다. 우측 상단 지원구간 필터를 조정해보세요." : candidateQuery ? "검색어에 맞는 후보가 없습니다. 대학명이나 학과명을 줄여서 검색해보세요." : "선택한 범위에 연결되는 후보가 없습니다. 범위를 넓히거나 비교 기준을 바꿔주세요."}</div> : <div style={ui.connectionGrid}>{renderedResults.map(({ item, trend }) => {
       const difference = Math.abs(Number(mode === "grade" ? item.difference : item.linkDifference));
       const support = mode === "grade" ? supportBand(convertedGrade, item.referenceCut) : null;
       const favoriteItem = connectionFavoriteItem(item);
       const favorite = favorites.some(value => favoriteMatchesConnection(value, item));
-      const trend = schoolCaseTrend(caseRows, item.university, item.region, item.integratedScope ? "" : (item.originalDepartment || item.department), item.admissionType);
       const selected = selectedKey === item.key;
       return <article key={`${mode}-${item.key}`} onClick={() => setSelectedKey(item.key)} style={{ ...ui.connectionCard, ...(selected ? ui.connectionCardSelected : {}) }}>
         <div style={ui.connectionCardHead}>
@@ -3053,7 +3082,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch77</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch78</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
