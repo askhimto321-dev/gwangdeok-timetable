@@ -421,7 +421,11 @@ function compactUnit(value) {
   return compactText(normalizeText(value)
     .replace(/[（]/g, "(").replace(/[）]/g, ")")
     .replace(/\([^)]*\)/g, " ")
-    .replace(/학부|학과|전공|계열|모집단위|전공자율선택제|자율전공/g, " "));
+    // 학과/학부의 '학'까지 지우면 화학과→화, 컴퓨터공학과→컴퓨터공이 되어
+    // 화학전공·컴퓨터공학전공과 서로 다른 키가 됩니다. 끝 접미사만 정규화합니다.
+    .replace(/학(?:과|부)$/g, "학")
+    .replace(/전공$/g, "")
+    .replace(/계열|모집단위|전공자율선택제|자율전공/g, " "));
 }
 function unitTokens(value) {
   return unique(normalizeText(value)
@@ -811,7 +815,7 @@ export function recommendationForUnit(recommendationData, university, region = "
     || records.filter(item => universityIdentityKey(item.university, item.region || "") === universityKey);
   if (!sameUniversity.length) return null;
   const exactDepartment = department
-    ? sameUniversity.filter(item => item.department && compactText(item.department) === compactText(department))
+    ? sameUniversity.filter(item => item.department && recommendationDepartmentKey(item.department) === recommendationDepartmentKey(department))
     : [];
   const similarDepartment = !exactDepartment.length && department
     ? sameUniversity.filter(item => item.department && unitSimilar(item.department, department))
@@ -821,7 +825,7 @@ export function recommendationForUnit(recommendationData, university, region = "
   const sameFamily = !exactDepartment.length && !similarDepartment.length && !commonDepartment.length && targetFamily.key
     ? sameUniversity.filter(item => item.department && recommendationDepartmentFamily(item.department, item.field).key === targetFamily.key)
     : [];
-  const familyDepartmentCount = new Set(sameFamily.map(item => compactText(item.department))).size;
+  const familyDepartmentCount = new Set(sameFamily.map(item => recommendationDepartmentKey(item.department))).size;
   const unambiguousFamily = familyDepartmentCount === 1 ? sameFamily : [];
   const connectedSource = exactDepartment.length
     ? exactDepartment
@@ -848,26 +852,43 @@ export function recommendationForUnit(recommendationData, university, region = "
     source: recommendationData?.source || null,
   };
 }
+const RECOMMENDATION_DEPARTMENT_FAMILIES = [
+  ["computing", "컴퓨터·소프트웨어·AI", /컴퓨터|컴퓨팅|소프트웨어|전산|인공지능|데이터사이언|데이터과학|빅데이터|정보보호|사이버보안|클라우드|게임공|ict|it융합|ai학|ai소프트웨어|ai컴퓨터|ai데이터|첨단컴퓨팅/],
+  ["electrical", "전기·전자·반도체·통신", /전기|전자|반도체|디스플레이|정보통신|통신공|제어계측|제어공|로봇|임베디드|iot/],
+  ["mechanical", "기계·모빌리티·항공", /기계|자동차|모빌리티|항공우주|항공공|항공기계|항공운항|조선|해양공학|메카트로닉스|철도.*공|냉동공조/],
+  ["chemical", "화학·신소재·에너지", /화공|화학.*공|신소재|재료|에너지|고분자|나노|배터리|이차전지|자원공|원자력/],
+  ["industrial", "산업·시스템공학", /산업.*공|시스템경영|경영공학|기술경영|품질경영|스마트팩토리/],
+  ["architecture", "건축·도시·토목·환경공학", /건축|도시|토목|환경공|사회기반|건설|교통공|스마트시티|조경|안전공|방재공/],
+  ["agriculture", "농생명·식품·산림", /농업|농학|농생명|원예|산림|식품|축산|동물자원|수산|해양생명/],
+  ["bio", "생명·바이오·의공학", /생명|바이오|의생명|생물|유전|미생물|의공|의료공|바이오메디컬/],
+  ["medical", "의·치·한·약·수의학", /의예|의학|치의|한의|약학|수의/],
+  ["nursing", "간호", /간호/],
+  ["health", "보건·재활", /물리치료|작업치료|방사선|임상병리|보건|응급구조|치위생|안경광학|재활|언어치료|의료경영/],
+  ["math", "수학·통계", /수학|통계|금융수학|경제수학|응용수리/],
+  ["physics", "물리·천문", /물리학|응용물리|전자물리|나노물리|물리교육|천문|우주과학/],
+  ["chemistry", "화학", /화학과|응용화학|화학전공|화학부|화학교육|정밀화학/],
+  ["earth", "지구·환경과학", /지구과학|지질|대기|해양학|환경과학|지구환경|기상/],
+  ["engineering", "공학 일반", /공학|공과대|융합공|스마트.*공/],
+  ["economics", "경제·금융·통상", /경제|금융|국제통상|무역경제/],
+  ["business", "경영·회계·물류", /경영|회계|세무|무역|유통|물류|보험|부동산/],
+  ["law_public", "법·행정·정치", /법학|행정|정치외교|경찰|소방행정|군사|국방/],
+  ["social", "사회·복지·심리", /사회복지|사회학|심리|상담|아동|청소년|가족|노인|문화인류/],
+  ["media", "미디어·언론·콘텐츠", /미디어|언론|신문방송|광고홍보|콘텐츠|커뮤니케이션/],
+  ["humanities", "언어·문학·역사·철학", /국어국문|영어영문|외국어|문예창작|국어교육|영어교육|사학|역사|철학|종교|문헌정보|고고|언어학/],
+  ["tourism", "관광·호텔·항공서비스", /관광|호텔|외식|항공서비스/],
+  ["education", "교육·교직", /교육|교직|초등|유아교육|특수교육/],
+  ["design", "디자인·미술·패션", /디자인|미술|조형|패션/],
+  ["sports", "체육·스포츠", /체육|스포츠|레저|태권도/],
+  ["arts", "음악·공연·예술", /음악|무용|연극|영화|공연|예술/],
+];
+
+export function recommendationDepartmentKey(department = "") {
+  return compactUnit(department);
+}
+
 export function recommendationDepartmentFamily(department = "", field = "") {
   const key = compactText(department);
-  const families = [
-    ["computing", "컴퓨터·소프트웨어", /컴퓨터|소프트웨어|인공지능|데이터사이언|데이터과학|정보보호|사이버보안|ict|ai학|첨단컴퓨팅/],
-    ["electrical", "전기·전자·반도체", /전기|전자|반도체|디스플레이|제어계측|로봇/],
-    ["mechanical", "기계·모빌리티", /기계|자동차|모빌리티|항공우주|조선|해양공학/],
-    ["chemical", "화학·신소재·에너지", /화공|화학.*공|신소재|재료공|에너지공|고분자|나노/],
-    ["bio", "생명·바이오", /생명|바이오|의생명|생물|유전|식품공/],
-    ["architecture", "건축·도시·토목", /건축|도시|토목|환경공|사회기반|건설/],
-    ["math", "수학·통계", /수학|통계|금융수학|응용수리/],
-    ["physics", "물리·천문", /물리|천문|우주과학/],
-    ["chemistry", "화학", /화학과|응용화학|화학전공/],
-    ["industrial", "산업·시스템공학", /산업공|시스템경영|경영공학|기술경영/],
-    ["engineering", "공학 일반", /공학|공학부|공과대|융합공|스마트.*공/],
-    ["nursing", "간호", /간호/],
-    ["medical", "의약학", /의예|의학|치의|한의|약학|수의/],
-    ["business", "경영·경제", /경영|경제|회계|세무|무역|금융/],
-    ["education", "교육", /교육과|교직|초등교육|유아교육/],
-  ];
-  const matched = families.find(([, , pattern]) => pattern.test(key));
+  const matched = RECOMMENDATION_DEPARTMENT_FAMILIES.find(([, , pattern]) => pattern.test(key));
   if (matched) return { key: matched[0], label: matched[1] };
   const normalizedField = compactText(field);
   return { key: "", label: normalizedField || "동일 계열" };
@@ -941,7 +962,7 @@ export function buildRecommendationEstimateIndexes(recommendationData) {
       if (!byUniversity.has(universityKey)) byUniversity.set(universityKey, []);
       byUniversity.get(universityKey).push(item);
     }
-    const deptKey = compactText(item.department);
+    const deptKey = recommendationDepartmentKey(item.department);
     if (deptKey) {
       if (!byDepartment.has(deptKey)) byDepartment.set(deptKey, []);
       byDepartment.get(deptKey).push(item);
@@ -962,7 +983,7 @@ export function buildRecommendationEstimateIndexes(recommendationData) {
 export function estimateRecommendationForUnit(indexes, university, region = "", department = "", field = "") {
   if (!indexes || (!indexes.byDepartment.size && !indexes.byFamily.size && !indexes.byField.size)) return null;
   const targetKey = universityIdentityKey(university, region);
-  const deptKey = compactText(department);
+  const deptKey = recommendationDepartmentKey(department);
   const fieldKey = compactText(field);
   const family = recommendationDepartmentFamily(department, field);
   const candidates = [
@@ -1850,7 +1871,11 @@ export default function SusiNaviBetaView({
       setDataLoadError(error?.message || "수시 NAVI 기본 자료를 불러오지 못했습니다.");
       setLoading(false);
     });
-    const handleRecommendedUpdate = event => setRecommendedData(event?.detail || null);
+    const handleRecommendedUpdate = event => {
+      const value = event?.detail || null;
+      setRecommendedData(value);
+      setRecommendedStatus(value ? "ready" : "empty");
+    };
     if (typeof window !== "undefined") window.addEventListener("kd-recommended-subjects-updated", handleRecommendedUpdate);
     return () => {
       active = false;
@@ -2208,11 +2233,12 @@ export default function SusiNaviBetaView({
       minimumStatus: minimumEvaluation.status,
       recommendation: entry?.recommendation,
       recommendationProgress: recommendationProgress(entry?.recommendation, studentSubjects),
+      recommendationStatus: recommendedStatus,
       naviCaseCount: evidence?.naviCount ?? null,
       comparisonEvidence: evidence,
       schoolTrend: evidence?.school || schoolCaseTrend(caseRows, item.university, item.region, item.department, item.track || item.admissionType, true),
     };
-  }), [supportPlan, enriched, cutoffBasis, conversion?.value, conversionGroup, caseRows, data, effectiveStudent, studentSubjects]);
+  }), [supportPlan, enriched, cutoffBasis, conversion?.value, conversionGroup, caseRows, data, effectiveStudent, studentSubjects, recommendedStatus]);
   const resolvedCompareTray = useMemo(() => compareTray.map(item => {
     const entry = findEnrichedWorkspaceEntry(enriched, item);
     return { stored: item, entry: entry || null };
@@ -2554,6 +2580,7 @@ export default function SusiNaviBetaView({
               schedules={schedules}
               caseStats={caseStats}
               recommendation={recommendation}
+              recommendationStatus={recommendedStatus}
               recommendationProgress={recommendationProgress}
               studentSubjects={studentSubjects}
               schoolTrend={schoolTrend}
@@ -2898,7 +2925,7 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
   </div>;
 }
 
-function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
+function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationStatus = "ready", recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
   const [open, setOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("all");
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
@@ -2950,7 +2977,7 @@ function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories =
           <span style={ui.identitySourceNote}>경기도교육청 제공 2027 모집단위와<br/>대학 공개 2026 입시결과를 연결한 정보입니다.</span>
           {unit2026 && unit2026 !== unit2027 ? <div style={ui.previousUnit}><span>2026 모집단위</span><b>{unit2026}</b><span>2027 모집단위 <strong>{unit2027}</strong>(으)로 연결됩니다.</span></div> : <div style={ui.sameUnitNote}>2026·2027 모집단위명이 동일합니다.</div>}
           <div style={ui.detailTabGuide}><b>정보 항목</b><span>교과·종합·정시·수능최저 중 필요한 항목만 선택해 넓게 볼 수 있습니다.</span></div>
-          <RecommendedSubjectPanel recommendation={recommendation} progress={recommendationProgressData} studentSubjects={studentSubjects} />
+          <RecommendedSubjectPanel recommendation={recommendation} status={recommendationStatus} progress={recommendationProgressData} studentSubjects={studentSubjects} />
           <RelatedInfo courseRules={courseRules} changes2028={changes2028} schedules={schedules} />
         </div>
         <div style={ui.resultDetailArea}>
@@ -3059,8 +3086,11 @@ function CaseDistribution({ cuts, cutoffBasis = "70" }) {
 }
 
 
-export function RecommendedSubjectPanel({ recommendation, progress, studentSubjects = [] }) {
-  if (!recommendation) return <div style={ui.recommendEmpty}><span>2028 권장과목</span><b>이 모집단위에 연결된 공식 자료 없음</b><small>다른 학과의 과목을 임의로 합쳐 보여주지 않습니다. 관리자가 어디가 공식 XLSX를 반영했는지와 대학 입학처 공지를 함께 확인해주세요.</small></div>;
+export function RecommendedSubjectPanel({ recommendation, status = "ready", progress, studentSubjects = [] }) {
+  if (!recommendation && ["idle", "loading"].includes(status)) return <div role="status" aria-live="polite" style={ui.recommendEmpty}><span>2028 권장과목</span><b><Loader2 className="spin" size={14}/> 권장과목 자료 연결 중</b><small>대학별 공식 자료와 여러 대학 공통 권장과목을 확인하고 있습니다.</small></div>;
+  if (!recommendation && status === "error") return <div role="status" style={ui.recommendEmpty}><span>2028 권장과목</span><b>권장과목 자료 연결 실패</b><small>화면 위의 ‘권장과목 다시 연결’을 눌러주세요. 연결 전에는 자료 없음으로 판정하지 않습니다.</small></div>;
+  if (!recommendation && status === "empty") return <div style={ui.recommendEmpty}><span>2028 권장과목</span><b>학교 공용 권장과목 자료 미등록</b><small>관리자가 어디가 공식 XLSX를 반영하면 대학 발표 자료와 여러 대학 공통 과목을 연결합니다.</small></div>;
+  if (!recommendation) return <div style={ui.recommendEmpty}><span>2028 권장과목</span><b>이 모집단위에 연결된 공식 자료 없음</b><small>충분한 대학 표본의 공통 권장과목도 확인되지 않았습니다. 다른 학과 자료를 임의로 합치지 않으며, 대학 입학처 공지를 함께 확인해주세요.</small></div>;
   const reflected = recommendation.reflected || [];
   const core = recommendation.core?.length ? recommendation.core : recommendation.required || [];
   const recommended = recommendation.recommended || [];
@@ -3183,7 +3213,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch83</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch84</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
