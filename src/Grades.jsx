@@ -4,7 +4,7 @@ import { readStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmi
 import SupportPlanButton, { useSupportPlanCount } from "./SupportPlanButton.jsx";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import { AdmissionCaseAnalytics, AdmissionCaseAdmin } from "./AdmissionCases.jsx";
-import SusiNaviBetaView, { conversionDetails, loadSusiNaviBetaData, addSusiSupportPlanExternal } from "./SusiNaviBeta.jsx";
+import { conversionDetails, loadSusiNaviBetaData } from "./susiNaviData.js";
 import MinimumCatalogAdmin from './MinimumCatalogAdmin.jsx';
 import minimumCatalogSeed from './minimumCatalogSeed.json';
 import { normalizeMinimumCatalog } from './minimumCatalog.js';
@@ -54,6 +54,7 @@ const COMBINATION_META = {
 
 const REPORT_BETA_GROUPS = ["전교과", "국수영사과", "국수영과", "국수영사"];
 const EMPTY_FAVORITES = Object.freeze([]);
+const SusiNaviBetaView = React.lazy(() => import("./SusiNaviBeta.jsx"));
 
 function statisticalGradeValue(betaData, grade5, group) {
   return conversionDetails(betaData, "statistical", group, grade5)?.value ?? null;
@@ -537,6 +538,7 @@ export default function GradesSection({
   onSelectedStudentQueryChange,
   requestedStudentView,
   onWorkspaceViewChange,
+  enrolledSubjectsByStudent = {},
   persistGrades,
 }) {
   const [tab, setTab] = useState(loggedInStudent ? "grades" : "lookup");
@@ -587,6 +589,22 @@ export default function GradesSection({
       if (!grades) return null;
       return { key, label: mockCalendarLabel(key, entryYear), grades, sums: computeMockExamSums(grades) };
     }).filter(Boolean);
+    const gradedSubjects = subjectLists.flatMap((list, semesterIndex) => (list || []).map(subject => ({
+      subject: subject?.subject || "",
+      category: categoryMeta(subject?.category, subject?.subject).key,
+      subjectType: inferSubjectType(subject?.subject, subject?.subjectType),
+      semesterKey: SEMESTER_KEYS[semesterIndex] || subject?.semesterKey || "",
+      source: "grades",
+      enrollmentStatus: "completed",
+    }))).filter(item => item.subject);
+    const timetableSubjects = (enrolledSubjectsByStudent?.[sid] || []).map(subject => ({
+      ...subject,
+      subject: subject?.subject || "",
+      category: categoryMeta(subject?.category, subject?.subject).key,
+      subjectType: inferSubjectType(subject?.subject, subject?.subjectType),
+      source: "timetable",
+      enrollmentStatus: "enrolled",
+    })).filter(item => item.subject);
     return {
       sid,
       name: studentInfo?.name || latest?.name || metaRecord?.name || "",
@@ -602,19 +620,14 @@ export default function GradesSection({
       admissionYear: Number(entryYear) + 3,
       minimumRows: admissionItemsForGrade(gdb.admissionRows || [], gradeForEntryYear(gdb.cohortSettings, entryYear)),
       minimumCatalogRows: normalizeMinimumCatalog(gdb.minimumCatalog?.rows || minimumCatalogSeed),
-      subjects: subjectLists.flatMap((list, semesterIndex) => (list || []).map(subject => ({
-        subject: subject?.subject || "",
-        category: categoryMeta(subject?.category, subject?.subject).key,
-        subjectType: inferSubjectType(subject?.subject, subject?.subjectType),
-        semesterKey: SEMESTER_KEYS[semesterIndex] || subject?.semesterKey || "",
-      }))).filter(item => item.subject),
+      subjects: [...gradedSubjects, ...timetableSubjects],
       latestMockKey,
       latestMockGrades,
       latestMockSums,
       latestMockLabel: latestMockKey ? mockCalendarLabel(latestMockKey, entryYear) : "",
       availableMockExams,
     };
-  }, [activeStudentSid, gdb, roster]);
+  }, [activeStudentSid, gdb, roster, enrolledSubjectsByStudent]);
   const toggleFavorite = useCallback(async (targetSid, item) => {
     if (!targetSid || !persistGrades || !item?.university) return false;
     const source = item.source || "admission";
@@ -700,6 +713,7 @@ export default function GradesSection({
   const addCaseToSupportPlan = async item => {
     const sid = String(activeStudentSid || "").trim();
     if (!sid) { showToast?.("수시 지원 구성에 담을 학생을 먼저 선택해주세요.", "error"); return false; }
+    const { addSusiSupportPlanExternal } = await import("./SusiNaviBeta.jsx");
     const result = await addSusiSupportPlanExternal(sid, { ...item, source: item?.source || "광덕고 별도 사례" });
     if (!result?.ok) { showToast?.(result?.error || "수시 지원 구성 저장에 실패했습니다.", "error"); return false; }
     showToast?.(result?.duplicate ? "이미 수시 지원 구성에 들어 있는 전형입니다." : "수시 지원 구성에 추가했습니다.", result?.duplicate ? "info" : "success");
@@ -859,7 +873,7 @@ export default function GradesSection({
           <MemoAdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} onOpenSusiNavi={(name,department)=>openSusiNaviUniversity(name,false,department)} onAddSupportPlan={addCaseToSupportPlan} onOpenSupportPlan={()=>openSusiNaviWorkspace(false)} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} />
         </div>}
         {(loggedInStudent || loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && keepTabMounted("susiNaviBeta") && <div style={{ display: tab === "susiNaviBeta" ? "block" : "none" }}>
-          <MemoSusiNaviBetaView
+          <React.Suspense fallback={<div style={{ padding: 36, textAlign: "center" }}><Loader2 className="spin" size={20} /> 수시 NAVI를 불러오는 중입니다.</div>}><MemoSusiNaviBetaView
             key={activeStudentSid || "staff"}
             isAdmin={!!loggedInAdmin}
             selectedStudent={susiNaviStudent}
@@ -871,7 +885,7 @@ export default function GradesSection({
             focusUniversity={linkedUniversity}
             focusDepartment={linkedDepartment}
             caseRows={gdb?.admissionCases || []}
-          />
+          /></React.Suspense>
         </div>}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />

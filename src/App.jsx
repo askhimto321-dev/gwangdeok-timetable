@@ -43,6 +43,42 @@ const STUDENT_WORKSPACE_GROUPS = [
 ];
 const STUDENT_WORKSPACE_VIEW_KEYS = STUDENT_WORKSPACE_VIEWS.map(([key]) => key);
 
+export function safeRestoredWorkspaceView(savedView, savedSection = "") {
+  if (!["grades", "timetable"].includes(savedView)) return savedSection === "timetable" ? "timetable" : "grades";
+  return savedView;
+}
+
+export function collectEnrolledSubjectsByStudent(allEnrollments = {}) {
+  const result = {};
+  const seenByStudent = new Map();
+  Object.entries(allEnrollments || {}).forEach(([scopeKey, scopeEnrollments]) => {
+    const scopeMatch = String(scopeKey).match(/^([1-3])-(?:sem)?([12])$/i);
+    const defaultSemesterKey = scopeMatch ? `${scopeMatch[1]}-${scopeMatch[2]}` : "";
+    Object.entries(scopeEnrollments || {}).forEach(([sid, courses]) => {
+      if (!result[sid]) result[sid] = [];
+      if (!seenByStudent.has(sid)) seenByStudent.set(sid, new Set());
+      const seen = seenByStudent.get(sid);
+      (courses || []).forEach(course => {
+        const subject = String(course?.subject || "").normalize("NFKC").trim();
+        if (!subject) return;
+        const semesterKey = String(course?.semesterKey || defaultSemesterKey || "");
+        const key = `${subject.replace(/\s+/g, "").toLowerCase()}|${semesterKey}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        result[sid].push({
+          subject,
+          semesterKey,
+          source: "timetable",
+          enrollmentStatus: "enrolled",
+          group: course?.group || "",
+          hostClass: course?.hostClass || "",
+        });
+      });
+    });
+  });
+  return result;
+}
+
 const TEACHER_ROLE_LABELS = { homeroom: "학급담임", gradeHead: "학년부장", other: "그외" };
 function normalizeGradeAccessList(value) {
   const values = Array.isArray(value) ? value : (value ? [value] : []);
@@ -1109,7 +1145,12 @@ export default function App() {
             if (GRADES.includes(selectedGrade) && !DISABLED_GRADES.includes(selectedGrade)) setGrade(selectedGrade);
           }
           if (saved.section) setSection(saved.section);
-          if (STUDENT_WORKSPACE_VIEW_KEYS.includes(saved.studentWorkspaceView)) setStudentWorkspaceView(saved.studentWorkspaceView);
+          if (STUDENT_WORKSPACE_VIEW_KEYS.includes(saved.studentWorkspaceView)) {
+            // NAVI·대학 탐색·대입 결과는 데이터량이 큰 작업 화면입니다. 마지막 작업을 탭으로는
+            // 남겨두되 새 접속/새로고침 때 자동으로 다시 열지 않아 첫 진입 로딩을 막습니다.
+            const safeRestoredView = safeRestoredWorkspaceView(saved.studentWorkspaceView, saved.section);
+            setStudentWorkspaceView(safeRestoredView);
+          }
           if (Array.isArray(saved.studentWorkspaceTabs)) {
             const restoredTabs = Array.from(new Set(saved.studentWorkspaceTabs.filter(view => STUDENT_WORKSPACE_VIEW_KEYS.includes(view))));
             if (restoredTabs.length) setStudentWorkspaceTabs(restoredTabs);
@@ -1326,6 +1367,7 @@ export default function App() {
   const abbrevMap = abbrevMaps[grade] || {};
   const announcements = db.announcements[scopeKey] || {};
   const materials = db.materials[scopeKey] || {};
+  const enrolledSubjectsByStudent = useMemo(() => collectEnrolledSubjectsByStudent(db.enrollments || {}), [db.enrollments]);
 
   const teacherGradeAccessList = useMemo(() => teacherGradeAccess(loggedInTeacher), [loggedInTeacher]);
   const teacherTimetableAccessList = useMemo(() => teacherTimetableAccess(loggedInTeacher), [loggedInTeacher]);
@@ -1375,9 +1417,9 @@ export default function App() {
       saveSession({ selectedStudentSid: null, selectedStudentQuery: "" });
       return;
     }
-    // 부분 입력은 화면 상태만 갱신하고 localStorage 저장·전체 roster 재탐색은 하지 않습니다.
-    // 검색창이 빠르게 입력되도록 정확한 학번 선택 시점에만 세션을 저장합니다.
-    if (selectedStudentSid && exactSid !== selectedStudentSid) setSelectedStudentSid(null);
+    // 부분 입력 중에는 기존 학생 화면을 유지합니다. 예전에는 백스페이스 한 번에도 학생 선택을
+    // 해제해 열어둔 NAVI·대입결과 탭이 동시에 재계산되며 오류와 입력 지연이 발생했습니다.
+    // 정확한 학번을 선택하거나 지우기 버튼으로 비웠을 때만 선택 상태를 바꿉니다.
   }, [allStudentSidSet, selectedStudentSid]);
 
   useEffect(() => {
@@ -1654,6 +1696,7 @@ export default function App() {
           onSelectedStudentQueryChange={updateSelectedStudentQuery}
           requestedStudentView={studentWorkspaceView}
           onWorkspaceViewChange={syncStudentWorkspaceView}
+          enrolledSubjectsByStudent={enrolledSubjectsByStudent}
           persistGrades={persistGrades}
         /></DeferredPanel>
       </div>}
@@ -1697,6 +1740,7 @@ export default function App() {
           selectedStudentQuery={undefined}
           onSelectedStudentQueryChange={undefined}
           requestedStudentView={studentWorkspaceView}
+          enrolledSubjectsByStudent={enrolledSubjectsByStudent}
           persistGrades={persistGrades}
         /></DeferredPanel>
       ) : (loggedInStudent && !loggedInAdmin && !loggedInTeacher && !loggedInDepartment && !loggedInMonitor && !classAuthed) ? (
@@ -2102,7 +2146,7 @@ function StaffStudentWorkspaceBar({
       <div className="kd-workspace-top-row" style={styles.workspaceBarTopRow}>
         <div style={styles.workspaceSearchWrap}>
           <Search size={16} color="#788397" />
-          <input value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => { const next = event.target.value; setDraftQuery(next); if (selectedSid && next.trim() !== String(selectedSid)) onSelect?.(null); }} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
+          <input value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => setDraftQuery(event.target.value)} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
           {draftQuery && <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
           {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(String(student.sid)); setQueryEditing(false); onSelect(student.sid); }} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
         </div>
