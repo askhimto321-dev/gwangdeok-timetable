@@ -30,7 +30,7 @@ import {catalogRowsForTarget,resolveCatalogMinimum,minimumTrackKey} from './mini
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
 import { evaluateNaviMinimumSafe, minimumDisplay, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
-import { conversionDetails, loadSusiNaviBetaData, updateSusiNaviBetaCache } from "./susiNaviData.js";
+import { conversionDetails, loadSusiNaviBetaData, loadSusiNaviBetaDataReliable, updateSusiNaviBetaCache } from "./susiNaviData.js";
 
 export { conversionDetails, loadSusiNaviBetaData } from "./susiNaviData.js";
 
@@ -771,10 +771,13 @@ export async function parseRecommendedSubjectsWorkbook(file, onProgress = () => 
 async function loadRecommendedSubjectData(force = false) {
   if (!force && recommendedSubjectCache) return recommendedSubjectCache;
   if (!force && recommendedSubjectCachePromise) return recommendedSubjectCachePromise;
-  recommendedSubjectCachePromise = readStorage(RECOMMENDED_SUBJECT_STORAGE_KEY, null).then(value => {
+  recommendedSubjectCachePromise = readStorage(RECOMMENDED_SUBJECT_STORAGE_KEY, null, { throwOnError: true }).then(value => {
     recommendedSubjectCache = value && [1, 2].includes(Number(value.schemaVersion)) ? value : null;
     recommendedSubjectCachePromise = null;
     return recommendedSubjectCache;
+  }).catch(error => {
+    recommendedSubjectCachePromise = null;
+    throw error;
   });
   return recommendedSubjectCachePromise;
 }
@@ -789,9 +792,11 @@ function updateRecommendedSubjectCache(value) {
     }
   }
 }
-export function recommendationForUnit(recommendationData, university, region = "", department = "") {
+export function recommendationForUnit(recommendationData, university, region = "", department = "", indexes = null) {
   const records = recommendationData?.records || [];
-  const sameUniversity = records.filter(item => universityIdentityKey(item.university, item.region || "") === universityIdentityKey(university, region));
+  const universityKey = universityIdentityKey(university, region);
+  const sameUniversity = indexes?.byUniversity?.get(universityKey)
+    || records.filter(item => universityIdentityKey(item.university, item.region || "") === universityKey);
   if (!sameUniversity.length) return null;
   const exactDepartment = department
     ? sameUniversity.filter(item => item.department && compactText(item.department) === compactText(department))
@@ -881,10 +886,16 @@ export function recommendationConsensus(pool = [], targetUniversityKey = "", { r
 // (recommendedData가 바뀔 때만 다시 계산), 각 모집단위에서는 그 Map에서 바로 꺼내 쓰게 바꿨습니다.
 export function buildRecommendationEstimateIndexes(recommendationData) {
   const records = recommendationData?.records || [];
+  const byUniversity = new Map();
   const byDepartment = new Map();
   const byFamily = new Map();
   const byField = new Map();
   records.forEach(item => {
+    const universityKey = universityIdentityKey(item.university, item.region || "");
+    if (universityKey) {
+      if (!byUniversity.has(universityKey)) byUniversity.set(universityKey, []);
+      byUniversity.get(universityKey).push(item);
+    }
     const deptKey = compactText(item.department);
     if (deptKey) {
       if (!byDepartment.has(deptKey)) byDepartment.set(deptKey, []);
@@ -901,7 +912,7 @@ export function buildRecommendationEstimateIndexes(recommendationData) {
       byField.get(fieldKey).push(item);
     }
   });
-  return { byDepartment, byFamily, byField, source: recommendationData?.source || null };
+  return { byUniversity, byDepartment, byFamily, byField, source: recommendationData?.source || null };
 }
 export function estimateRecommendationForUnit(indexes, university, region = "", department = "", field = "") {
   if (!indexes || (!indexes.byDepartment.size && !indexes.byFamily.size && !indexes.byField.size)) return null;
@@ -1141,7 +1152,6 @@ function findStoredMinimumForUnit(student, { university, region, department, fie
   const trackKey = trackIdentity(track);
   const candidates = rows.filter(value => {
     if (!sameUniversityCampus(value.university, value.region, university, region)) return false;
-    if (value.admissionYear && student?.admissionYear && Number(value.admissionYear) !== Number(student.admissionYear)) return false;
     const type = comparisonType(value.admissionType || value.track);
     if (["교과", "종합"].includes(type) && admissionType && type !== comparisonType(admissionType)) return false;
     if (trackKey && value.track && trackIdentity(value.track) !== trackKey) return false;
@@ -1489,8 +1499,8 @@ export function SusiNaviBetaAdmin({ showToast }) {
   const recommendedInputRef = useRef(null);
 
   useEffect(() => {
-    loadBetaData().then(setSchoolData);
-    loadRecommendedSubjectData().then(setRecommendedData);
+    loadBetaData().then(setSchoolData).catch(() => setSchoolData(null));
+    loadRecommendedSubjectData().then(setRecommendedData).catch(() => setRecommendedData(null));
   }, []);
 
   const parseFile = async () => {
@@ -1670,7 +1680,11 @@ export default function SusiNaviBetaView({
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [dataLoadError, setDataLoadError] = useState("");
+  const [dataReload, setDataReload] = useState(0);
   const [recommendedData, setRecommendedData] = useState(null);
+  const [recommendedStatus, setRecommendedStatus] = useState("idle");
+  const [recommendedReload, setRecommendedReload] = useState(0);
   const [supportPlan, setSupportPlan] = useState([]);
   const [compareTray, setCompareTray] = useState([]);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
@@ -1777,10 +1791,15 @@ export default function SusiNaviBetaView({
 
   useEffect(() => {
     let active = true;
-    Promise.all([loadBetaData(), loadRecommendedSubjectData()]).then(([value, recommendations]) => {
+    setLoading(true);
+    setDataLoadError("");
+    loadSusiNaviBetaDataReliable(dataReload > 0, 2).then(value => {
       if (!active) return;
       setData(value);
-      setRecommendedData(recommendations);
+      setLoading(false);
+    }).catch(error => {
+      if (!active) return;
+      setDataLoadError(error?.message || "수시 NAVI 기본 자료를 불러오지 못했습니다.");
       setLoading(false);
     });
     const handleRecommendedUpdate = event => setRecommendedData(event?.detail || null);
@@ -1789,7 +1808,34 @@ export default function SusiNaviBetaView({
       active = false;
       if (typeof window !== "undefined") window.removeEventListener("kd-recommended-subjects-updated", handleRecommendedUpdate);
     };
-  }, []);
+  }, [dataReload]);
+
+  // 대학·전형 기본 자료를 먼저 표시하고, 큰 권장과목 자료는 브라우저가 한가할 때 별도로 읽습니다.
+  // 두 분할 문서를 동시에 요청해 학교 네트워크에서 시간 초과가 나던 경로를 차단합니다.
+  useEffect(() => {
+    if (loading || dataLoadError || recommendedData) return undefined;
+    let active = true;
+    let timer = null;
+    let idleId = null;
+    const load = () => {
+      if (!active) return;
+      setRecommendedStatus("loading");
+      loadRecommendedSubjectData(recommendedReload > 0).then(value => {
+        if (!active) return;
+        startViewTransition(() => setRecommendedData(value));
+        setRecommendedStatus(value ? "ready" : "empty");
+      }).catch(() => {
+        if (active) setRecommendedStatus("error");
+      });
+    };
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) idleId = window.requestIdleCallback(load, { timeout: 1200 });
+    else timer = setTimeout(load, 250);
+    return () => {
+      active = false;
+      if (idleId != null && typeof window !== "undefined" && "cancelIdleCallback" in window) window.cancelIdleCallback(idleId);
+      if (timer != null) clearTimeout(timer);
+    };
+  }, [loading, dataLoadError, recommendedData, recommendedReload]);
 
   useEffect(() => {
     setSupportPlan([]); setCompareTray([]); setWorkspaceLoading(true);
@@ -1798,6 +1844,7 @@ export default function SusiNaviBetaView({
   useEffect(() => {
     let active = true, request = 0;
     const sid = String(selectedStudent?.sid || "").trim();
+    if (loading) return () => { active = false; };
     setWorkspaceMessage(""); setWorkspaceLoadError("");
     const reload = async () => {
       const token = ++request;
@@ -1815,7 +1862,7 @@ export default function SusiNaviBetaView({
     if (sid) reload(); else { setSupportPlan([]); setCompareTray([]); setWorkspaceLoading(false); }
     const unsubscribe = sid ? subscribeSupportPlanChanges(sid, reload) : () => {};
     return () => { active = false; unsubscribe(); };
-  }, [selectedStudent?.sid, workspaceReload]);
+  }, [selectedStudent?.sid, workspaceReload, loading]);
 
   useEffect(() => {
     if (workspaceRequest?.id && String(workspaceRequest.sid) === String(selectedStudent?.sid)) navigateViewTab("workspace");
@@ -1963,7 +2010,7 @@ export default function SusiNaviBetaView({
     const minimums = indexedUniversityRows(minimumIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5]));
     // Supply rows even when NAVI has no minimum entry. Keep original NAVI data intact.
     for(const value of catalogRows){
-      if(minimums.some(item=>item[2]===value.admissionType&&minimumTrackKey(item[3])===minimumTrackKey(value.track)))continue;
+      if(minimums.some(item=>(item.catalogRule?.admissionYear||2027)===value.admissionYear&&item[2]===value.admissionType&&minimumTrackKey(item[3])===minimumTrackKey(value.track)))continue;
       const synthetic=['',value.campus?`${value.university}(${value.campus})`:value.university,value.admissionType,value.track,'',row[5],value.subjects,value.count,value.ruleText,null,value.note,`${value.source} ${value.page}쪽`];
       synthetic.catalogRule=value;minimums.push(synthetic);
     }
@@ -1972,12 +2019,12 @@ export default function SusiNaviBetaView({
     const schedules = indexedUniversityRows(scheduleIndex, row[3], row[1]).filter(item => !item[5] || matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 5);
     const caseStats = indexedUniversityRows(caseStatIndex, row[3], row[1]);
     const unit = { university: row[3], region: row[1], department: row[5], field: row[6] };
-    const minimumEvaluations = minimums.map(item => evaluateNaviMinimum(item, effectiveStudent, { ...unit, admissionType: item[2], track: item[3] }));
+    const minimumEvaluations = minimums.map(item => evaluateNaviMinimumSafe(item, effectiveStudent));
     // 성능 개선: 회차별 이력(minimumHistories)·등급개선 시뮬레이션(minimumImprovements)은 계산 비용이
     // 커서(회차 수·과목 수만큼 반복 재판정), 전체 모집단위(수천 건)가 아니라 실제로 화면에 보이는
     // 12건(visible)에 대해서만 아래에서 따로 계산합니다. 예전에는 여기서 전체에 대해 계산해
     // 검색/필터를 바꿀 때마다 불필요하게 느려졌습니다.
-    const recommendation = recommendationForUnit(recommendedData, row[3], row[1], row[5])
+    const recommendation = recommendationForUnit(recommendedData, row[3], row[1], row[5], recommendationEstimateIndexes)
       || estimateRecommendationForUnit(recommendationEstimateIndexes, row[3], row[1], row[5], row[6]);
     return {
       row,
@@ -2132,20 +2179,13 @@ export default function SusiNaviBetaView({
   // 계산합니다(전체 결과에 대해 계산하면 검색·필터를 바꿀 때마다 수천 건을 다시 계산해 느려집니다).
   const visibleWithSimulation = useMemo(() => visible.map(entry => {
     const { row, minimums, minimumEvaluations } = entry;
-    const unit = { university: row[3], region: row[1], department: row[5], field: row[6] };
     const minimumHistories = minimums.map(item => {
       if (!(selectedStudent?.availableMockExams?.length > 1)) return null;
-      const catalog=resolveCatalogMinimum({target:{...unit,admissionType:item[2],track:item[3]},student:effectiveStudent,identity:universityIdentityKey});
-      if(catalog&&catalog.evaluation.status!=='unlinked')return catalog.minimum&&['satisfied','unsatisfied','unavailable','no-minimum'].includes(catalog.evaluation.status)?minimumHistorySummary(catalog.minimum,effectiveStudent,selectedStudent.availableMockExams):null;
-      const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
-      return minimumHistorySummary(stored || item, effectiveStudent, selectedStudent.availableMockExams);
+      return minimumHistorySummary(item, effectiveStudent, selectedStudent.availableMockExams);
     });
     const minimumImprovements = minimums.map((item, idx) => {
       if (minimumEvaluations[idx]?.status !== "unsatisfied") return null;
-      const catalog=resolveCatalogMinimum({target:{...unit,admissionType:item[2],track:item[3]},student:effectiveStudent,identity:universityIdentityKey});
-      if(catalog&&catalog.evaluation.status!=='unlinked')return catalog.minimum?minimumImprovementAdvice(catalog.minimum,effectiveStudent):null;
-      const stored = findStoredMinimumForUnit(effectiveStudent, { ...unit, admissionType: item[2], track: item[3] });
-      return minimumImprovementAdvice(stored || item, effectiveStudent);
+      return minimumImprovementAdvice(item, effectiveStudent);
     });
     return { ...entry, minimumHistories, minimumImprovements };
   }), [visible, effectiveStudent, selectedStudent?.availableMockExams]);
@@ -2171,7 +2211,8 @@ export default function SusiNaviBetaView({
   }, [admissionFilters, conversion?.value, supportFilters.length]);
 
 
-  if (loading) return <div style={ui.loading}><Loader2 className="spin" size={22} /> 수시NAVI Beta 자료를 불러오는 중입니다.</div>;
+  if (loading) return <div style={ui.loading}><Loader2 className="spin" size={22} /> 수시NAVI 기본 자료를 불러오는 중입니다.</div>;
+  if (dataLoadError) return <div style={{...ui.loading,flexDirection:"column",textAlign:"center"}}><AlertTriangle size={24} color="#a94b42"/><b>수시 NAVI 자료 연결이 지연되고 있습니다.</b><small>{dataLoadError}</small><button type="button" style={ui.retryButton} onClick={()=>setDataReload(value=>value+1)}>다시 불러오기</button></div>;
 
   return (
     <section style={ui.root} aria-busy={viewPending}>
@@ -2184,6 +2225,8 @@ export default function SusiNaviBetaView({
         <div className="kd-support-plan-entry-actions" style={ui.heroActions}><SupportPlanButton onClick={() => navigateViewTab("workspace")} count={workspaceLoadError ? null : supportPlan.length}/>{data && <div style={ui.heroStats}><b>{data.stats?.universities?.toLocaleString()}개 대학</b><span>{data.stats?.records?.toLocaleString()}개 모집단위</span><small>자료 기준 {data.source?.sourceDate || "확인 필요"}</small></div>}</div>
       </div>
       <div className="susi-beta-beta-notice" style={ui.betaNotice}><AlertTriangle size={15} /><div><b>시험 운영 기능입니다.</b><span>2027 모집단위와 2026 입시결과를 연결한 참고자료입니다.<br/>2024–2026 광덕고 대입 결과 탭과는 별도의 데이터베이스이며, 광덕고 사례에는 영향을 주지 않습니다.</span>{data && !data.caseStats?.length && <strong>NAVI 통합 사례 분포·2028 변화 자료를 사용하려면 관리자에서 최신 원본 파일을 다시 분석·반영해주세요.</strong>}</div></div>
+      {recommendedStatus === "loading" && <div style={ui.optionalLoadNotice}><Loader2 className="spin" size={13}/>대학별 권장과목은 백그라운드에서 추가 연결 중입니다. 대학 검색과 최저 판정은 바로 사용할 수 있습니다.</div>}
+      {recommendedStatus === "error" && <div style={{...ui.optionalLoadNotice,...ui.optionalLoadError}}><AlertTriangle size={13}/>권장과목 추가자료만 불러오지 못했습니다. 다른 NAVI 기능은 정상적으로 사용할 수 있습니다.<button type="button" onClick={()=>setRecommendedReload(value=>value+1)}>권장과목 다시 연결</button></div>}
 
       {!data && viewTab !== "workspace" ? <><SupportPlanButton onClick={() => navigateViewTab("workspace")} count={supportPlan.length}/><EmptyData isAdmin={isAdmin} /></> : <>
         <div className="susi-beta-view-toolbar" style={ui.viewToolbar}>
@@ -3091,7 +3134,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch79</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch80</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
@@ -3199,7 +3242,7 @@ function MinimumGroup({ rows = [], evaluations = [], histories = [], improvement
     // 확인이 필요한지 이유를 보여줍니다.
     const isManual = evaluation?.status === "manual";
     return <div key={`${row[3]}-${index}`} style={{ ...ui.minimumItem, ...(evaluation?.status === "unsatisfied" ? ui.minimumItemDanger : {}) }}>
-      <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{evaluation?.year || '연도 확인'} · {row[2] || "수시"}</span></div>
+      <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span>{evaluation?.year || '연도 확인'} · {row[2] || "수시"}{evaluation?.yearMismatch ? " · 연도 다름/참고판정" : ""}</span></div>
       <div style={ui.minimumCriteriaRow}>{isManual ? <small style={ui.minimumNote}>{evaluation.reason}</small> : <strong style={ui.minimumCriteria}>{evaluation?.ruleText || row[8] || "기준 원문 확인"}</strong>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
       {evaluation?.source&&<small style={ui.minimumEvaluationNote}>{evaluation.source}</small>}
       {!isManual && <small style={ui.minimumNote}>{[(evaluation?.subjectsText || row[6]) && `반영영역 ${evaluation?.subjectsText || row[6]}`, (evaluation?.note ?? row[10]) || ''].filter(Boolean).join(" · ")}</small>}
@@ -3215,6 +3258,9 @@ function MinimumGroup({ rows = [], evaluations = [], histories = [], improvement
 const ui = {
   root: { display: "grid", gap: 15, fontFamily: "KDRound,Pretendard, 'Noto Sans KR', system-ui, sans-serif", color: "#222a3a", fontSize: 14, lineHeight: 1.55 },
   loading: { minHeight: 320, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#647086", fontWeight: 750 },
+  retryButton: { minHeight: 36, padding: "0 14px", border: "1px solid #c7d3e3", borderRadius: 9, background: "#fff", color: "#35557f", fontWeight: 850, cursor: "pointer" },
+  optionalLoadNotice: { display: "flex", alignItems: "center", gap: 7, padding: "8px 11px", border: "1px solid #d7e2ef", borderRadius: 10, background: "#f5f9fd", color: "#58708f", fontSize: 11.5, fontWeight: 750 },
+  optionalLoadError: { borderColor: "#ebcfbf", background: "#fff8f2", color: "#8a5134" },
   // 배너·인쇄 버튼처럼 클릭을 유도하거나 브랜드를 나타내는 요소는 "수시 지원 구성" 탭의
   // 강조색(#9a3412, --kd-brand)과 같은 계열로 통일했습니다(예전엔 배너는 보라, 인쇄 버튼은
   // 남색으로 서로 달랐습니다). NAVI 대학찾기 화면의 보라/파랑 배지·활성탭 색은 그 화면 안에서

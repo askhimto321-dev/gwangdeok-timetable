@@ -47,7 +47,7 @@ export function conversionDetails(data, method, group, grade5) {
 export async function loadSusiNaviBetaData(force = false) {
   if (!force && betaCache) return betaCache;
   if (!force && betaCachePromise) return betaCachePromise;
-  betaCachePromise = readStorage(STORAGE_KEY, null).then(value => {
+  betaCachePromise = readStorage(STORAGE_KEY, null, { throwOnError: true }).then(value => {
     betaCache = value?.schemaVersion === SCHEMA_VERSION ? value : null;
     betaCachePromise = null;
     return betaCache;
@@ -56,6 +56,19 @@ export async function loadSusiNaviBetaData(force = false) {
     throw error;
   });
   return betaCachePromise;
+}
+
+export async function loadSusiNaviBetaDataReliable(force = false, attempts = 2) {
+  let lastError = null;
+  for (let attempt = 0; attempt < Math.max(1, attempts); attempt += 1) {
+    try {
+      return await loadSusiNaviBetaData(force || attempt > 0);
+    } catch (error) {
+      lastError = error;
+      if (attempt + 1 < attempts) await new Promise(resolve => setTimeout(resolve, 450 * (attempt + 1)));
+    }
+  }
+  throw lastError || new Error("수시 NAVI 자료를 불러오지 못했습니다.");
 }
 
 export function updateSusiNaviBetaCache(value) {

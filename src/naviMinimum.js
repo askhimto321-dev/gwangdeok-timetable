@@ -11,9 +11,8 @@ export function evaluateNaviMinimumSafe(row, student) {
   if (row.schema===MINIMUM_SCHEMA) return evaluateCatalogMinimum(row,student);
   if (!Array.isArray(row)) return evaluateStoredMinimum(row, student);
   const rule=compact(row[8]), area=compact(row[6]), notes=[row[10],row[11]].filter(x=>!empty(x)).join(' · ');
-  const base={ruleText:String(row[8] || ''),subjectsText:String(row[6] || ''),note:notes,year:2027};
+  const base={ruleText:String(row[8] || ''),subjectsText:String(row[6] || ''),note:notes,year:2027,yearMismatch:Boolean(student?.admissionYear&&Number(student.admissionYear)!==2027)};
   const result=(status,reason,extra={})=>({...base,status,reason,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,...extra});
-  if(student?.admissionYear && Number(student.admissionYear)!==2027) return result('manual',`학생 지원연도 ${student.admissionYear}와 NAVI 최저 2027이 다릅니다. 해당 연도 대학 지원 진단 자료를 연결해야 합니다.`);
   if (/^(없음|미적용|해당없음|수능최저(?:학력기준)?(?:없음|미적용))$/.test(rule)) {
     return notes ? result('manual','미적용 표기와 별도 비고가 함께 있어 원문 확인이 필요합니다.') : result('no-minimum','자료에 수능최저 미적용이 명시되어 있습니다.');
   }
@@ -25,8 +24,18 @@ export function evaluateNaviMinimumSafe(row, student) {
   else if (/^[1-9]\d?$/.test(rule) && /^[1-4]$/.test(compact(row[7]))) {count=Number(row[7]);threshold=Number(rule);}
   else return result('manual','영역별·필수 포함·복수 조건 등은 현재 자동 판정 범위 밖입니다.');
   if(!empty(row[7]) && Number(row[7])!==count) return result('manual','반영 영역 수와 원문 조건이 일치하지 않습니다.');
-  // Do not reinterpret 2027 elective inquiry as 2028 integrated social/science.
-  if (/탐|사|과/.test(area)) return result('manual','탐구 과목 수·평균·절사와 시험 체계 확인이 필요합니다. 통합사회·통합과학으로 임의 대체하지 않습니다.',{count,threshold});
+  // 학년도가 달라도 화면에서 참고 판정해 달라는 운영 기준에 따라, 2027의 탐구 표기는
+  // 현재 입력된 통합사회·통합과학 중 유리한 한 영역으로 대응합니다. 자료연도는 결과에 남겨
+  // 실제 지원 시 해당 연도 모집요강과 구분할 수 있게 합니다.
+  if (/탐|사|과/.test(area)) {
+    const groups=parseAdmissionSubjectGroups(area);
+    if(!groups.length||count>groups.length)return result('manual','반영 영역 또는 탐구 선택 구조를 해석하지 못했습니다.',{count,threshold});
+    const grades=student?.latestMockGrades||{};
+    const candidates=groups.map(group=>group.subjects.map(name=>({name,grade:validGrade(grades[name])})).filter(item=>item.grade!=null&&Number.isInteger(item.grade)).sort((a,b)=>a.grade-b.grade)[0]).filter(Boolean).sort((a,b)=>a.grade-b.grade);
+    if(candidates.length<count)return result('unavailable','모평 성적 미입력/확인 필요: 반영 영역 성적을 확인하세요.',{count,threshold});
+    const selected=candidates.slice(0,count),studentSum=selected.reduce((sum,item)=>sum+item.grade,0);
+    return result(studentSum<=threshold?'satisfied':'unsatisfied',`${selected.map(item=>`${item.name} ${item.grade}`).join(' + ')} = ${studentSum} / 기준 ${threshold} 이내 · 2027 탐구 표기를 현재 통합사회·통합과학 성적으로 참고 판정`,{count,threshold,studentSum,selectedSubjects:selected,yearMapped:true});
+  }
   const normalized=area.replace(/국어/g,'국').replace(/수학/g,'수').replace(/영어/g,'영').replace(/[,·ㆍ/＋+]/g,'');
   if(!/^[국수영]+$/.test(normalized)) return result('manual','반영 영역 또는 필수 포함 조건을 정확히 해석하지 못했습니다.',{count,threshold});
   const names=[...new Set([...normalized])].map(x=>({국:'국어',수:'수학',영:'영어'})[x]);
@@ -45,9 +54,9 @@ export function evaluateNaviMinimumSafe(row, student) {
 export function evaluateStoredMinimum(row, student) {
   if (row.schema===MINIMUM_SCHEMA) return evaluateCatalogMinimum(row,student);
   const year=Number(row.admissionYear) || null;
-  const base={year,ruleText:String(row.requiredSum ?? ''),subjectsText:String(row.requiredSubjects || ''),note:String(row.note || ''),source:'기존 대학 지원 진단 · 학년별 최저 자료'};
+  const base={year,ruleText:String(row.requiredSum ?? ''),subjectsText:String(row.requiredSubjects || ''),note:String(row.note || ''),source:'기존 대학 지원 진단 · 학년별 최저 자료',yearMismatch:Boolean(year&&student?.admissionYear&&year!==Number(student.admissionYear))};
   const result=(status,reason,extra={})=>({...base,status,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,reason,...extra});
-  if(!year || !student?.admissionYear || year!==Number(student.admissionYear))return result('manual','최저 자료와 학생 지원연도가 일치하는지 확인이 필요합니다.');
+  if(!year)return result('manual','최저 자료의 기준 학년도를 확인할 수 없습니다.');
   const rule=compact(row.requiredSum), area=compact(row.requiredSubjects);
   if(!empty(row.note))return result('manual','비고의 별도 조건을 확인하세요. 조건을 생략해 충족으로 판정하지 않습니다.');
   if(/^(없음|미적용|해당없음|수능최저(?:학력기준)?(?:없음|미적용))$/.test(rule))return result('no-minimum','자료에 수능최저 미적용이 명시되어 있습니다.');
@@ -57,7 +66,6 @@ export function evaluateStoredMinimum(row, student) {
   const threshold=Number(sum?.[2] || each?.[2] || (/^[1-9]\d?$/.test(rule)?rule:NaN));
   if(!Number.isInteger(count) || count<1 || count>4 || !Number.isFinite(threshold) || (!empty(row.requiredSubjectCount) && Number(row.requiredSubjectCount)!==count))return result('manual','반영 영역 수와 최저 조건 원문을 확인하세요.');
   if(threshold<(each?1:count) || threshold>(each?9:9*count))return result('manual','최저 기준의 등급 범위를 확인하세요.');
-  if(year<2028 && /탐|사|과/.test(area))return result('manual','선택 탐구의 과목 수·평균 등 별도 계산이 필요합니다. 통합사회·통합과학으로 대체하지 않습니다.');
   const residue=area.replace(/통합사회|통합과학|한국사|국어|수학|영어|사회|과학|탐구|[국수영사과한탐(),·ㆍ/＋+]/g,'');
   if(residue || !area || (area.match(/\(/g)||[]).length!==(area.match(/\)/g)||[]).length)return result('manual','필수 포함·평균·복수 조건 등 반영 영역 원문을 확인하세요.');
   const groups=parseAdmissionSubjectGroups(area);

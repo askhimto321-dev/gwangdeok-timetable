@@ -148,8 +148,8 @@ const gradeNames={국:'국어',수:'수학',영:'영어',사:'통합사회',과:
 const gradeValue=x=>x!==''&&x!=null&&Number.isInteger(Number(x))&&Number(x)>=1&&Number(x)<=9?Number(x):null;
 export function evaluateCatalogMinimum(row,student) {
  const base={year:row.admissionYear,ruleText:row.ruleText,subjectsText:row.subjects,source:`${row.source} · ${row.page}쪽`,note:row.note,ruleId:row.id};
- const result=(status,reason,extra={})=>({...base,status,reason,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,...extra});
- if(Number(student?.admissionYear)!==row.admissionYear)return result('manual','학생 지원연도와 최저자료 연도가 다릅니다.');
+ const yearMismatch=Number(student?.admissionYear)&&Number(student.admissionYear)!==Number(row.admissionYear);
+ const result=(status,reason,extra={})=>({...base,status,reason:yearMismatch?`${reason} · 학생 지원연도 ${student.admissionYear}, 자료 ${row.admissionYear} 기준`:reason,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,yearMismatch,...extra});
  const errors=validateMinimumRow(row);
  if(row.reviewStatus!=='계산가능'||errors.length)return result('manual',row.reviewReason||errors.join(' · ')||'원문 조건 검토가 필요합니다.');
  if(row.ruleType==='없음')return result('no-minimum','해당 적용 범위에 수능최저 미적용이 명시되어 있습니다.');
@@ -198,19 +198,26 @@ function universityMatch(row,target,identity) {
 }
 const signature=r=>JSON.stringify([r.ruleType,r.subjects,r.count,r.threshold,r.mandatory,r.englishMax,r.historyMax,r.inquiryMode,r.rounding,r.englishConversion]);
 export function catalogRowsForTarget(rows,target,year,identity) {
- return universityRows(rows,target.university).filter(r=>r.reviewStatus!=='사용안함'&&r.admissionYear===Number(year)&&r.season===(target.season||'수시')&&universityMatch(r,target,identity)&&scopeRank(r,target)>=0);
+ const current=Number(year)||0;
+ return universityRows(rows,target.university)
+  .filter(r=>r.reviewStatus!=='사용안함'&&r.season===(target.season||'수시')&&universityMatch(r,target,identity)&&scopeRank(r,target)>=0)
+  .sort((a,b)=>Number(b.admissionYear===current)-Number(a.admissionYear===current)||Number(b.admissionYear)-Number(a.admissionYear));
 }
 export function resolveCatalogMinimum({target,student,identity}) {
  const all=universityRows(student?.minimumCatalogRows||[],target.university).filter(r=>r.reviewStatus!=='사용안함');
  if(!all.length)return null;
  const sameBase=all.filter(r=>baseUniversity(r.university)===baseUniversity(target.university));
- const year=sameBase.filter(r=>r.admissionYear===Number(student?.admissionYear)&&r.season===(target.season||'수시'));
+ const seasonRows=sameBase.filter(r=>r.season===(target.season||'수시'));
+ const exactYear=seasonRows.filter(r=>r.admissionYear===Number(student?.admissionYear));
+ const availableYears=[...new Set(seasonRows.map(r=>Number(r.admissionYear)).filter(Boolean))].sort((a,b)=>Math.abs(a-Number(student?.admissionYear||a))-Math.abs(b-Number(student?.admissionYear||b))||b-a);
+ const selectedYear=exactYear.length?Number(student?.admissionYear):(availableYears[0]||null);
+ const year=seasonRows.filter(r=>Number(r.admissionYear)===selectedYear);
  const university=year.filter(r=>universityMatch(r,target,identity));
  const track=university.filter(r=>r.admissionType===target.admissionType&&[r.track,...list(r.trackAliases)].some(t=>minimumTrackKey(t)===minimumTrackKey(target.track)));
  const scoped=track.map(r=>({r,rank:scopeRank(r,target)})).filter(x=>x.rank>=0);
  if(!scoped.length) {
   if(!sameBase.length)return null;
-  return {minimum:null,evaluation:{status:'unlinked',year:Number(student?.admissionYear)||null,linkCode:!year.length?'year':!university.length?'campus':!track.length?'track':'scope',reason:!year.length?'해당 학년도·모집시기의 연동 자료 없음':!university.length?'대학은 있으나 캠퍼스 연결 확인 필요':!track.length?'전형명·전형유형 연결 확인 필요':'모집단위·계열·제외범위 연결 확인 필요'}};
+  return {minimum:null,evaluation:{status:'unlinked',year:selectedYear||Number(student?.admissionYear)||null,linkCode:!year.length?'year':!university.length?'campus':!track.length?'track':'scope',reason:!year.length?'연결 가능한 학년도의 최저 자료 없음':!university.length?'대학은 있으나 캠퍼스 연결 확인 필요':!track.length?'전형명·전형유형 연결 확인 필요':'모집단위·계열·제외범위 연결 확인 필요'}};
  }
  const max=Math.max(...scoped.map(x=>x.rank)), rows=scoped.filter(x=>x.rank===max).map(x=>x.r);
  // An unresolved source for the same track/scope must not be hidden by a ready duplicate.

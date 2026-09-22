@@ -60,7 +60,11 @@ export function resolveMinimumLink({target, data = {}, student, identity, evalua
     && (['교과','종합','논술','실기'].includes(comparisonType(x.type)) ? comparisonType(x.type) === comparisonType(target.admissionType) : !ambiguousType));
   const byScope = byTrack.filter(x => minimumScopeRank(x.department, target.department, target.field) >= 0);
   const current = byScope.filter(x => x.stored && (!x.year || x.year === Number(student?.admissionYear)));
-  const pool = current.length ? current : byScope.filter(x => !x.stored);
+  const yearPool = current.length ? current : byScope;
+  const availableYears = [...new Set(yearPool.map(x => Number(x.year)).filter(Boolean))]
+    .sort((a,b)=>Math.abs(a-Number(student?.admissionYear||a))-Math.abs(b-Number(student?.admissionYear||b))||b-a);
+  const preferredYear = current.length ? Number(student?.admissionYear) : availableYears[0];
+  const pool = preferredYear ? yearPool.filter(x => !x.year || Number(x.year)===preferredYear) : yearPool;
   const rank = x => minimumScopeRank(x.department, target.department, target.field);
   const best = Math.max(-1, ...pool.map(rank));
   const matches = pool.filter(x => rank(x) === best);
@@ -73,7 +77,7 @@ export function resolveMinimumLink({target, data = {}, student, identity, evalua
     : !byCampus.length ? ['campus','대학·캠퍼스 불일치 · 대학명과 지역 표기를 확인하세요.']
     : !byTrack.length ? ['track',`전형 불일치 · ${target.admissionType || ''} ${target.track || ''}의 전형명·유형을 확인하세요.`]
     : !byScope.length ? ['scope',`모집단위 미연결 · ${target.department}의 적용 범위·제외 조건을 확인하세요.`]
-    : ['year',`연도 불일치 · 학생 ${student?.admissionYear || '미확인'} / 자료 ${[...new Set(byScope.map(x => x.year || '미확인'))].join('·')}`];
+    : ['year',`판정 가능한 최저 규칙 없음 · 학생 ${student?.admissionYear || '미확인'} / 자료 ${[...new Set(byScope.map(x => x.year || '미확인'))].join('·')}`];
   return {minimum:null, evaluation:{status:'unlinked', linkCode, reason, year:null, source:'최저 자료 연결 점검'}};
 }
 export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [], convertedGrade, cutoffBasis = '70', conversionGroup = '전교과', identity, evaluateMinimum, minimumContext }) {

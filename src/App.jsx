@@ -9,7 +9,8 @@ let gradesDataPromise;
 let susiNaviModulePromise;
 const loadGradesModule = () => gradesModulePromise || (gradesModulePromise = import("./Grades.jsx"));
 const loadGradesData = () => gradesDataPromise || (gradesDataPromise = loadGradesModule().then(module => module.loadGradesDB()).catch(error => { gradesDataPromise = null; throw error; }));
-const loadSusiNaviModule = () => susiNaviModulePromise || (susiNaviModulePromise = import("./SusiNaviBeta.jsx"));
+const loadSusiNaviModule = () => susiNaviModulePromise || (susiNaviModulePromise = import("./SusiNaviBeta.jsx").catch(error => { susiNaviModulePromise = null; throw error; }));
+const preloadSusiNaviSafely = () => { loadSusiNaviModule().catch(() => {}); };
 const GradesSection = lazy(() => loadGradesModule().then(module => ({ default: module.default })));
 const AdminGradesUpload = lazy(() => loadGradesModule().then(module => ({ default: module.AdminGradesUpload })));
 const AdminStudentAccounts = lazy(() => loadGradesModule().then(module => ({ default: module.AdminStudentAccounts })));
@@ -2158,7 +2159,8 @@ function StaffStudentWorkspaceBar({
               <div style={styles.workspaceOpenerGrid}>{group.views.map(key => {
                 const label = labelFor(key);
                 const counselView = group.label === "진학 상담";
-                return <button key={key} type="button" onClick={() => onViewChange(key)} style={{ ...styles.workspaceOpenerBtn, ...(counselView ? styles.workspaceOpenerBtnCounsel : {}), ...(openTabs.includes(key) ? (counselView ? styles.workspaceOpenerBtnCounselOpened : styles.workspaceOpenerBtnOpened) : {}) }}><span>{openTabs.includes(key) ? "✓" : "+"}</span>{label}</button>;
+                const preload = key === "susiNaviBeta" ? preloadSusiNaviSafely : undefined;
+                return <button key={key} type="button" onMouseEnter={preload} onFocus={preload} onClick={() => onViewChange(key)} style={{ ...styles.workspaceOpenerBtn, ...(counselView ? styles.workspaceOpenerBtnCounsel : {}), ...(openTabs.includes(key) ? (counselView ? styles.workspaceOpenerBtnCounselOpened : styles.workspaceOpenerBtnOpened) : {}) }}><span>{openTabs.includes(key) ? "✓" : "+"}</span>{label}</button>;
               })}</div>
             </div>)}
           </div>
@@ -2169,7 +2171,7 @@ function StaffStudentWorkspaceBar({
         <span style={styles.workspaceTabStripLabel}>작업 탭</span>
         <div style={styles.workspaceViewTabs}>
           {openTabs.map(view => <div key={view} style={{ ...styles.workspaceTabShell, ...(activeView === view ? styles.workspaceTabShellActive : {}) }}>
-            <button type="button" onClick={() => onViewChange(view)} style={{ ...styles.workspaceViewBtn, ...(activeView === view ? styles.workspaceViewBtnActive : {}) }}>{labelFor(view)}</button>
+            <button type="button" onMouseEnter={view === "susiNaviBeta" ? preloadSusiNaviSafely : undefined} onFocus={view === "susiNaviBeta" ? preloadSusiNaviSafely : undefined} onClick={() => onViewChange(view)} style={{ ...styles.workspaceViewBtn, ...(activeView === view ? styles.workspaceViewBtnActive : {}) }}>{labelFor(view)}</button>
             {openTabs.length > 1 && <button type="button" aria-label={`${labelFor(view)} 탭 닫기`} title="탭 닫기" onClick={() => onCloseTab?.(view)} style={styles.workspaceTabClose}><X size={12}/></button>}
           </div>)}
         </div>
