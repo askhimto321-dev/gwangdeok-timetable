@@ -1,6 +1,7 @@
 import React from 'react';
 import { validGrade, supportBandClassName, trackChipClassName, trackAccentKey } from './admissionMetrics.js';
 import { minimumDisplay, studentMockChips, shortSubjectName } from './naviMinimum.js';
+import { recommendedCourseDisplayName } from './recommendationPresentation.js';
 import './supportDecision.css';
 
 const fmt=value=>validGrade(value)==null?'—':Number(value).toFixed(2);
@@ -13,10 +14,12 @@ export function RecommendedCourseDetails({progress, status='ready', printMode=fa
   const unregistered=!progress?.total && status==='empty';
   const statusLabel=loading?'자료 연결 중':loadFailed?'자료 연결 실패':unregistered?'공용 자료 미등록':!progress?.total?'권장과목 자료 없음':!progress?.studentCourseCount?'학생 과목자료 없음':`${progress.matched}/${progress.total}과목`;
   // 3번 요청: 인쇄본에는 클릭할 수 없으니 <details>를 항상 펼친 채로 찍습니다.
-  return <details className="kd-course-details" open={printMode || undefined}><summary><span>{progress?.estimated ? '권장과목 이수 확인 (추정)' : '핵심·권장과목 이수 확인'}</span><strong>{statusLabel}</strong></summary>
-    {/* 5번 요청: 이 대학 공식 자료가 아니라 다른 대학 자료로 만든 추정치일 때는 맨 위에 항상 밝힙니다. */}
-    {progress?.estimated && <p><small>{progress.estimatedFrom?.length ? progress.estimatedFrom.join(', ') : '같은 학과·계열의 다른 대학'} 등 {progress.referenceCount || progress.estimatedFrom?.length || ''}개 대학 자료 중 최소 {progress.consensusThreshold || 2}개 대학·25% 이상 반복된 과목입니다. 이 대학이 직접 발표한 자료가 아닙니다.</small></p>}
-    {progress?.total ? <>{groups.map(([label,courses])=><React.Fragment key={label}><p><b>{label} {courses.filter(course=>matchedKeys.has(course)).length}/{courses.length}</b></p><div className="kd-course-chips">{courses.map(course=><span key={course} className={matchedKeys.has(course)?'is-matched':''}>{matchedKeys.has(course)?'✓':'○'} {progress.commonCourses?.includes(course)?'★ ':''}{course}</span>)}</div></React.Fragment>)}{!matched.length && <small>{progress.studentCourseCount ? '현재 저장된 성적·시간표에서 일치 과목이 없습니다.' : '학생 성적·시간표 과목자료가 연결되지 않았습니다.'}</small>}{!missing.length && <small>표시된 모든 과목의 이수·수강이 확인되었습니다.</small>}{progress?.estimated && !!progress.commonCourses?.length && <small>★ 표시는 표본 대학의 과반이 공통으로 제시한 과목입니다.</small>}<small>2028 권장과목 자료와 저장된 성적·시간표 과목명을 대조합니다. ‘미이수’는 현재 저장 자료 기준이며, 누락 가능성이 있으면 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</small></> : loading ? <p>대학별 권장과목 자료를 연결하고 있습니다. 연결이 끝난 뒤 이수 여부를 표시합니다.</p> : loadFailed ? <p>권장과목 자료 연결에 실패했습니다. NAVI 화면에서 다시 연결해주세요.</p> : unregistered ? <p>학교 공용 권장과목 자료가 아직 등록되지 않았습니다.</p> : <p>해당 대학·모집단위에 연결된 권장과목 자료가 없거나 과목 목록이 비어 있습니다.</p>}
+  const universityFieldEstimate=progress?.estimateKind==='university-field';
+  return <details className="kd-course-details" open={printMode || undefined}><summary><span>{universityFieldEstimate?'핵심·권장과목 이수 확인 (동일 대학 계열 참고)':progress?.estimated ? '권장과목 이수 확인 (추정)' : '핵심·권장과목 이수 확인'}</span><strong>{statusLabel}</strong></summary>
+    {/* 동일 대학·동일 계열의 공식 행으로 보완한 경우와 타 대학 통계 추정을 분명히 나눕니다. */}
+    {universityFieldEstimate ? <p><small>해당 학과의 직접 발표 행은 없지만, 이 대학이 발표한 ‘{progress.officialFieldLabel || '동일 계열'}’ {progress.referenceCount || 0}개 모집단위에서 과반 반복된 과목입니다. 해당 학과의 필수 기준으로 단정하지 않습니다.</small></p>
+      : progress?.estimated && <p><small>{progress.estimatedFrom?.length ? progress.estimatedFrom.join(', ') : '같은 학과·계열의 다른 대학'} 등 {progress.referenceCount || progress.estimatedFrom?.length || ''}개 대학 자료 중 최소 {progress.consensusThreshold || 2}개 대학·25% 이상 반복된 과목입니다. 이 대학이 직접 발표한 자료가 아닙니다.</small></p>}
+    {progress?.total ? <>{groups.map(([label,courses])=><React.Fragment key={label}><p><b>{label} {courses.filter(course=>matchedKeys.has(course)).length}/{courses.length}</b></p><div className="kd-course-chips">{courses.map(course=><span key={course} className={matchedKeys.has(course)?'is-matched':''}>{matchedKeys.has(course)?'✓':'○'} {progress.commonCourses?.includes(course)?'★ ':''}{recommendedCourseDisplayName(course)}</span>)}</div></React.Fragment>)}{!matched.length && <small>{progress.studentCourseCount ? '현재 저장된 성적·시간표에서 일치 과목이 없습니다.' : '학생 성적·시간표 과목자료가 연결되지 않았습니다.'}</small>}{!missing.length && <small>표시된 모든 과목의 이수·수강이 확인되었습니다.</small>}{progress?.estimated && !!progress.commonCourses?.length && <small>★ 표시는 {universityFieldEstimate ? '같은 대학·계열 모집단위' : '표본 대학'}의 과반이 공통으로 제시한 과목입니다.</small>}<small>2028 권장과목 자료와 저장된 성적·시간표 과목명을 대조합니다. ‘미이수’는 현재 저장 자료 기준이며, 누락 가능성이 있으면 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</small></> : loading ? <p>대학별 권장과목 자료를 연결하고 있습니다. 연결이 끝난 뒤 이수 여부를 표시합니다.</p> : loadFailed ? <p>권장과목 자료 연결에 실패했습니다. NAVI 화면에서 다시 연결해주세요.</p> : unregistered ? <p>학교 공용 권장과목 자료가 아직 등록되지 않았습니다.</p> : <p>해당 대학·모집단위에 연결된 권장과목 자료가 없거나 과목 목록이 비어 있습니다.</p>}
   </details>;
 }
 
@@ -36,12 +39,12 @@ function MinimumFacts({ minimum, ev, student, printMode=false }) {
   return <>
     <strong className="kd-decision-verdict">{minimum.label}</strong>
     {decided ? <>
-      <div className="kd-mock-chips">{(ev.selectedSubjects || []).map(x => <span key={x.name} className="kd-mock-chip">{shortSubjectName(x.name)} {x.grade}</span>)}</div>
-      <div className="kd-decision-band-row">
-        <span className="kd-mock-chip">{ev.ruleType === 'each' ? `각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.studentSum}`}</span>
-        <span className={`kd-status-pill is-${minimum.status}`}>{minimum.status === 'satisfied' ? '도달' : '미도달'}</span>
+      <div className="kd-minimum-grade-block"><small>반영 과목 등급</small><div className="kd-mock-chips">{(ev.selectedSubjects || []).map(x => <span key={x.name} className="kd-mock-chip">{shortSubjectName(x.name)} <b>{x.grade}</b></span>)}</div></div>
+      <div className="kd-minimum-rule-grid">
+        <div className="kd-minimum-fact is-result"><small>학생 판정값</small><b>{ev.ruleType === 'each' ? '과목별 판정' : `${ev.count}합 ${ev.studentSum}`}</b></div>
+        <div className="kd-minimum-fact is-target"><small>대학 기준</small><b>{ev.ruleType === 'each' ? `각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.threshold} 이내`}</b></div>
       </div>
-      {ev.ruleType !== 'each' && <small className="kd-decision-reason">기준 {ev.threshold}등급 이내</small>}
+      <span className={`kd-status-pill kd-minimum-status is-${minimum.status}`}>{minimum.status === 'satisfied' ? '기준 도달' : '기준 미도달'}</span>
     </> : hasEvidence && !isManual ? <>
       <p className="kd-decision-rule">{ev.ruleText || '연결 조건 없음'}</p>
     </> : hasEvidence && isManual ? <small className="kd-decision-reason">{minimum.reason}</small>

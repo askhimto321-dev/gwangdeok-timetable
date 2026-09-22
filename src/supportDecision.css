@@ -106,3 +106,19 @@
 .kd-decision-minimum .kd-mock-chips-label{flex-basis:100%;font-size:12px;font-weight:400}
 .kd-decision-minimum .kd-mock-chip{font-size:13px;font-weight:500;padding:3px 7px;font-variant-numeric:tabular-nums}
 .kd-decision-minimum .kd-decision-min-detail summary{font-weight:500}
+/* Patch88: 학생의 과목별 등급, 실제 N합, 대학 기준을 서로 다른 정보 블록으로 분리합니다.
+   같은 줄에 칩으로 섞지 않아 '3합12'가 기준인지 학생 결과인지 헷갈리지 않습니다. */
+.kd-minimum-grade-block{margin-top:7px;padding:7px 8px;border:1px solid #d9e2eb;border-radius:8px;background:#fff8}
+.kd-minimum-grade-block>small{display:block;margin:0 0 3px;font-size:10.5px;font-weight:700;color:#66798c}
+.kd-minimum-grade-block .kd-mock-chips{margin:0;gap:4px}
+.kd-minimum-grade-block .kd-mock-chip{background:#fff;border-color:#cedae6;color:#3b5065}
+.kd-minimum-grade-block .kd-mock-chip b{font-size:14px;font-weight:800;color:#203e5c}
+.kd-minimum-rule-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:7px}
+.kd-minimum-fact{min-width:0;padding:6px 7px;border:1px solid;border-radius:8px;background:#fff}
+.kd-minimum-fact small{display:block;margin:0;font-size:10.5px;font-weight:700;line-height:1.3}
+.kd-minimum-fact b{display:block;margin-top:2px;font-size:14px;font-weight:850;line-height:1.25;white-space:nowrap;font-variant-numeric:tabular-nums}
+.kd-minimum-fact.is-result{border-color:#b9d2ee;background:#eaf3fd;color:#244f7d}
+.kd-minimum-fact.is-result small{color:#54779a}
+.kd-minimum-fact.is-target{border-color:#dfc994;background:#fff8e8;color:#76500f}
+.kd-minimum-fact.is-target small{color:#876b36}
+.kd-minimum-status{margin-top:7px;font-size:11.5px;font-weight:800}

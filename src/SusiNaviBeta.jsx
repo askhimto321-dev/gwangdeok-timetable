@@ -31,6 +31,7 @@ import SupportDecisionCard from "./SupportDecisionCard.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
 import { evaluateNaviMinimumSafe, minimumDisplay, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
 import { conversionDetails, loadSusiNaviBetaData, loadSusiNaviBetaDataReliable, updateSusiNaviBetaCache } from "./susiNaviData.js";
+import { recommendedCourseDisplayName } from "./recommendationPresentation.js";
 
 export { conversionDetails, loadSusiNaviBetaData } from "./susiNaviData.js";
 
@@ -968,7 +969,7 @@ function updateRecommendedSubjectCache(value) {
     }
   }
 }
-export function recommendationForUnit(recommendationData, university, region = "", department = "", indexes = null) {
+export function recommendationForUnit(recommendationData, university, region = "", department = "", indexes = null, targetField = "") {
   const records = recommendationData?.records || [];
   const universityKey = universityIdentityKey(university, region);
   const sameUniversity = indexes?.byUniversity?.get(universityKey)
@@ -985,7 +986,10 @@ export function recommendationForUnit(recommendationData, university, region = "
         // '화학과'와 '화학공학과'처럼 글자는 겹치지만 학과군이 다른 모집단위를
         // 같은 대학 공식자료로 오연결하지 않습니다.
         const itemFamily = recommendationDepartmentFamily(item.department, item.field);
-        return !targetFamily.key || itemFamily.key === targetFamily.key;
+        // 목표 학과 자체의 학과군을 확정하지 못했을 때는 단어 일부가 겹친다는 이유만으로
+        // 임의의 공식 학과 한 곳을 직접 연결하지 않습니다. 아래의 동일 대학·공식 계열
+        // 과반 규칙으로 넘기는 편이 근거와 표시 모두 더 정확합니다.
+        return !!targetFamily.key && itemFamily.key === targetFamily.key;
       })
       : [];
     const commonDepartment = sourceRows.filter(item => !item.department || ["전체","전모집단위","공통","대학전체","전학과"].includes(compactText(item.department)));
@@ -1014,6 +1018,43 @@ export function recommendationForUnit(recommendationData, university, region = "
       && !isGenericRecommendationRecord(item));
     const campuses = new Set(baseExact.map(item => universityIdentityKey(item.university, item.region || "")));
     if (baseExact.length && campuses.size === 1) selected = ["대학 동일 모집단위 공식자료 기준", baseExact];
+  }
+  // 주거환경학과처럼 XLSX에 학과 행은 없지만, 해당 대학이 공식 분류한 계열 행들이
+  // 충분히 있는 경우가 있습니다. 이때 다른 대학 자료로 바로 넘어가지 않고 같은 대학의
+  // 공식 계열에서 '과반 반복'된 과목만 보완 정보로 연결합니다. 한 행의 특이 과목이나
+  // 서로 다른 공학/자연 계열을 단순 합집합으로 섞지는 않습니다.
+  if (!selected) {
+    const fieldHint = recommendationOfficialFieldHint(department, targetField);
+    const fieldRows = fieldHint
+      ? sameUniversity.filter(item => compactText(item.field).includes(compactText(fieldHint.token)) && !isGenericRecommendationRecord(item))
+      : [];
+    const consensus = recommendationDepartmentConsensus(fieldRows, { ratio: .5, minDepartments: 3, minMentions: 2 });
+    if (consensus) {
+      return {
+        university,
+        department,
+        matchedDepartment: "",
+        scope: `해당 대학 ${fieldHint.label} 계열 공식자료 공통 기준`,
+        reflected: [],
+        core: consensus.coreCourses,
+        recommended: consensus.recommendedCourses,
+        noteRecommended: [],
+        commonCourses: consensus.commonCourses,
+        referenceCount: consensus.departmentCount,
+        consensusThreshold: consensus.threshold,
+        strongConsensusThreshold: consensus.strongThreshold,
+        consensusRatio: consensus.ratio,
+        mentionCounts: consensus.mentionCounts,
+        coreMentionCounts: consensus.coreMentionCounts,
+        recommendedMentionCounts: consensus.recommendedMentionCounts,
+        notes: [],
+        source: recommendationData?.source || null,
+        estimated: true,
+        estimateKind: "university-field",
+        officialFieldLabel: fieldHint.label,
+        estimatedFrom: consensus.departments.slice(0, 4),
+      };
+    }
   }
   const connectedSource = selected?.[1] || [];
   // 특정 모집단위 연결에 실패했다고 다른 학과 권장과목을 합쳐 보여주지 않습니다.
@@ -1100,6 +1141,16 @@ export function recommendationDepartmentFamily(department = "", field = "") {
   return { key: "", label: normalizedField || "동일 계열" };
 }
 
+export function recommendationOfficialFieldHint(department = "", field = "") {
+  const text = compactText(`${department} ${field}`);
+  // 현재는 공식 XLSX의 대분류가 명확하고 학과 의미가 안정적인 생활과학 계열만
+  // 보수적으로 보완합니다. '인문/자연' 같은 NAVI 대계열만으로는 연결하지 않습니다.
+  if (/주거환경|주거학|생활과학|의류|의상|소비자|아동가족/.test(text)) {
+    return { token: "생활과학", label: "생활과학" };
+  }
+  return null;
+}
+
 function recommendationCoursePriority(courseKey = "") {
   if (/^미적분/.test(courseKey)) return 0;
   if (courseKey === "기하") return 1;
@@ -1180,6 +1231,71 @@ export function recommendationConsensus(pool = [], targetUniversityKey = "", { r
     coreMentionCounts: Object.fromEntries(Array.from(coreCounts.entries()).map(([courseKey, count]) => [courseNames.get(courseKey), count])),
     recommendedMentionCounts: Object.fromEntries(Array.from(recommendedCounts.entries()).map(([courseKey, count]) => [courseNames.get(courseKey), count])),
     universities: Array.from(universityNames.values()),
+  };
+}
+
+export function recommendationDepartmentConsensus(pool = [], { ratio = .5, minDepartments = 3, minMentions = 2, maxCourses = Infinity } = {}) {
+  const departmentCourses = new Map();
+  const departmentCourseRoles = new Map();
+  const courseNames = new Map();
+  const departmentNames = new Map();
+  const broadExcluded = new Set(["국어", "수학", "영어", "사회", "과학", "제2외국어", "한문"].map(courseMatchKey));
+  pool.forEach(item => {
+    const departmentKey = recommendationIdentityKey(item);
+    if (!departmentKey || isGenericRecommendationRecord(item)) return;
+    const coreCourses = specificRecommendationCourses(item.core || item.required || [])
+      .filter(course => !broadExcluded.has(courseMatchKey(course)));
+    const recommendedCourses = specificRecommendationCourses([item.reflected || [], item.recommended || [], item.noteRecommended || []])
+      .filter(course => !broadExcluded.has(courseMatchKey(course)));
+    const courses = uniqueCourseNames([coreCourses, recommendedCourses]);
+    if (!courses.length) return;
+    if (!departmentCourses.has(departmentKey)) departmentCourses.set(departmentKey, new Set());
+    if (!departmentCourseRoles.has(departmentKey)) departmentCourseRoles.set(departmentKey, new Map());
+    departmentNames.set(departmentKey, item.department || item.field || "모집단위");
+    const roles = departmentCourseRoles.get(departmentKey);
+    coreCourses.forEach(course => roles.set(courseMatchKey(course), "core"));
+    recommendedCourses.forEach(course => {
+      const key = courseMatchKey(course);
+      if (!roles.has(key)) roles.set(key, "recommended");
+    });
+    courses.forEach(course => {
+      const key = courseMatchKey(course);
+      if (!key) return;
+      departmentCourses.get(departmentKey).add(key);
+      if (!courseNames.has(key)) courseNames.set(key, course);
+    });
+  });
+  const departmentCount = departmentCourses.size;
+  if (departmentCount < minDepartments) return null;
+  const counts = new Map();
+  departmentCourses.forEach(courses => courses.forEach(key => counts.set(key, (counts.get(key) || 0) + 1)));
+  const coreCounts = new Map();
+  const recommendedCounts = new Map();
+  departmentCourseRoles.forEach(roles => roles.forEach((role, key) => {
+    const target = role === "core" ? coreCounts : recommendedCounts;
+    target.set(key, (target.get(key) || 0) + 1);
+  }));
+  const threshold = Math.max(minMentions, Math.ceil(departmentCount * ratio));
+  const strongThreshold = threshold;
+  const courses = Array.from(counts.entries())
+    .filter(([, count]) => count >= threshold)
+    .sort((a, b) => b[1] - a[1] || recommendationCoursePriority(a[0]) - recommendationCoursePriority(b[0]) || String(courseNames.get(a[0])).localeCompare(String(courseNames.get(b[0])), "ko"))
+    .slice(0, Number.isFinite(maxCourses) ? maxCourses : undefined)
+    .map(([key]) => courseNames.get(key));
+  if (!courses.length) return null;
+  return {
+    courses,
+    departmentCount,
+    threshold,
+    strongThreshold,
+    ratio,
+    coreCourses: courses.filter(course => (coreCounts.get(courseMatchKey(course)) || 0) >= (recommendedCounts.get(courseMatchKey(course)) || 0)),
+    recommendedCourses: courses.filter(course => (coreCounts.get(courseMatchKey(course)) || 0) < (recommendedCounts.get(courseMatchKey(course)) || 0)),
+    commonCourses: [...courses],
+    mentionCounts: Object.fromEntries(courses.map(course => [course, counts.get(courseMatchKey(course)) || 0])),
+    coreMentionCounts: Object.fromEntries(courses.map(course => [course, coreCounts.get(courseMatchKey(course)) || 0])),
+    recommendedMentionCounts: Object.fromEntries(courses.map(course => [course, recommendedCounts.get(courseMatchKey(course)) || 0])),
+    departments: Array.from(departmentNames.values()),
   };
 }
 
@@ -1279,7 +1395,10 @@ function recommendationProgress(recommendation, studentSubjects = []) {
   const noteRecommended = uniqueCourseNames(recommendation.noteRecommended || []).filter(course => !recommendedKeys.has(courseMatchKey(course)));
   const occupied = new Set([...recommendedKeys, ...noteRecommended.map(courseMatchKey)]);
   const reflected = uniqueCourseNames(recommendation.reflected || []).filter(course => !occupied.has(courseMatchKey(course)));
-  const courseGroups = recommendation.estimated
+  const universityFieldEstimate = recommendation.estimateKind === "university-field";
+  const courseGroups = universityFieldEstimate
+    ? [["동일 대학·계열 공통 핵심과목", core], ["동일 대학·계열 공통 권장과목", recommended]]
+    : recommendation.estimated
     ? [["여러 대학 공통 핵심과목", core], ["여러 대학 공통 권장과목", recommended]]
     : [["핵심과목", core], ["권장과목", recommended], ["비고란 이수 권장", noteRecommended], ["반영과목", reflected]];
   const targets = uniqueCourseNames(courseGroups.flatMap(([, courses]) => courses));
@@ -1293,6 +1412,8 @@ function recommendationProgress(recommendation, studentSubjects = []) {
     courseGroups: courseGroups.filter(([, courses]) => courses.length),
     ratio: targets.length ? matched.length / targets.length : null,
     estimated: !!recommendation.estimated,
+    estimateKind: recommendation.estimateKind || "",
+    officialFieldLabel: recommendation.officialFieldLabel || "",
     estimatedFrom: recommendation.estimatedFrom || [],
     commonCourses: recommendation.commonCourses || [],
     referenceCount: recommendation.referenceCount || 0,
@@ -2362,7 +2483,7 @@ export default function SusiNaviBetaView({
   // 성능 개선(렉): recommendedData가 바뀔 때만 한 번 학과명·계열별 Map을 만들어 두고,
   // 아래 enriched에서는 모집단위마다 이 Map에서 바로 찾아 씁니다(전체 자료를 매번 훑지 않음).
   const recommendationEstimateIndexes = useMemo(() => buildRecommendationEstimateIndexes(recommendedData), [recommendedData]);
-  const recommendationForRow = useCallback(row => recommendationForUnit(recommendedData, row?.[3], row?.[1], row?.[5], recommendationEstimateIndexes)
+  const recommendationForRow = useCallback(row => recommendationForUnit(recommendedData, row?.[3], row?.[1], row?.[5], recommendationEstimateIndexes, row?.[6])
     || estimateRecommendationForUnit(recommendationEstimateIndexes, row?.[3], row?.[1], row?.[5], row?.[6]), [recommendedData, recommendationEstimateIndexes]);
 
   const enriched = useMemo(() => canonicalRecords.map(row => {
@@ -3391,7 +3512,10 @@ export function RecommendedSubjectPanel({ recommendation, status = "ready", prog
   const noteRecommended = uniqueCourseNames(recommendation.noteRecommended || []).filter(course => !recommendedKeys.has(courseMatchKey(course)));
   const occupied = new Set([...recommendedKeys, ...noteRecommended.map(courseMatchKey)]);
   const reflected = uniqueCourseNames(recommendation.reflected || []).filter(course => !occupied.has(courseMatchKey(course)));
-  const groups = (recommendation.estimated
+  const universityFieldEstimate = recommendation.estimateKind === 'university-field';
+  const groups = (universityFieldEstimate
+    ? [['동일 대학·계열 공통 핵심과목', core], ['동일 대학·계열 공통 권장과목', recommended]]
+    : recommendation.estimated
     ? [['여러 대학 공통 핵심과목', core], ['여러 대학 공통 권장과목', recommended]]
     : [['핵심과목', core], ['권장과목', recommended], ['비고란 이수 권장', noteRecommended], ['반영과목', reflected]])
     .filter(([, courses]) => courses.length);
@@ -3406,7 +3530,6 @@ export function RecommendedSubjectPanel({ recommendation, status = "ready", prog
     const matched = Boolean(evidence);
     const timetableOnly = evidence?.source === 'timetable';
     const evidenceSubject = normalizeText(evidence?.subject);
-    const broadMatch = matched && evidenceSubject && courseMatchKey(evidenceSubject) !== courseMatchKey(course);
     const common = isCommon(course);
     const evidenceLabel = timetableOnly
       ? `${evidence?.semesterKey || '현재'} 시간표·선택과목 명단에서 ${evidenceSubject || course} 수강 중으로 확인`
@@ -3414,14 +3537,15 @@ export function RecommendedSubjectPanel({ recommendation, status = "ready", prog
         ? `저장된 학생 성적 과목 ${evidenceSubject || course}에서 확인`
         : "성적·시간표·선택과목 명단에서 확인되지 않음";
     const evidenceCount = recommendation.mentionCounts?.[course] || 0;
-    return <span key={`${tone}-${course}`} title={`${evidenceLabel}${recommendation.estimated ? ` · 표본 ${recommendation.referenceCount || 0}개 대학 중 ${evidenceCount}개 대학 제시` : ""}`} style={{ ...ui.recommendCourseChip, ...(timetableOnly ? ui.recommendCourseEnrolled : matched ? ui.recommendCourseMatched : ui.recommendCourseMissing) }}><b>{timetableOnly ? "◇" : matched ? "✓" : "○"}</b>{common ? "★ " : ""}{course}{recommendation.estimated && evidenceCount ? <small>{evidenceCount}/{recommendation.referenceCount}</small> : null}{broadMatch ? ` (${evidenceSubject})` : ""}</span>;
+    const evidenceScope = universityFieldEstimate ? '모집단위' : '대학';
+    return <span key={`${tone}-${course}`} title={`${evidenceLabel}${recommendation.estimated ? ` · 표본 ${recommendation.referenceCount || 0}개 ${evidenceScope} 중 ${evidenceCount}개 ${evidenceScope} 제시` : ""}`} style={{ ...ui.recommendCourseChip, ...(timetableOnly ? ui.recommendCourseEnrolled : matched ? ui.recommendCourseMatched : ui.recommendCourseMissing) }}><b>{timetableOnly ? "◇" : matched ? "✓" : "○"}</b>{common ? "★ " : ""}{recommendedCourseDisplayName(course)}{recommendation.estimated && evidenceCount ? <small>{evidenceCount}/{recommendation.referenceCount}</small> : null}</span>;
   };
   return <div className="susi-beta-recommend-panel" style={ui.recommendPanel}>
     <div className="kd-recommend-heading">
-      <strong>{recommendation.estimated ? '여러 대학 반복 이수과목' : '핵심·권장과목'}</strong>
+      <strong>{universityFieldEstimate ? '해당 대학 동일 계열 공통과목' : recommendation.estimated ? '여러 대학 반복 이수과목' : '핵심·권장과목'}</strong>
       {allCourses.length > 0 && <span className="kd-recommend-count">이수·수강 확인 <b>{confirmed}/{allCourses.length}</b>{enrolledOnly > 0 && <em> · 수강 중 {enrolledOnly}</em>}</span>}
     </div>
-    <small className={`kd-recommend-source${recommendation.estimated ? ' is-estimated' : ''}`}>{recommendation.estimated ? `해당 대학 공식 과목자료 없음 · ${recommendation.referenceCount || 0}개 대학 중 ${recommendation.consensusThreshold || 0}개 이상 반복` : '2028 해당 대학 발표 자료'}</small>
+    <small className={`kd-recommend-source${recommendation.estimated ? ' is-estimated' : ''}`}>{universityFieldEstimate ? `해당 학과 직접 자료 없음 · ${recommendation.officialFieldLabel || '동일 계열'} ${recommendation.referenceCount || 0}개 모집단위 중 ${recommendation.consensusThreshold || 0}개 이상 반복` : recommendation.estimated ? `해당 대학 공식 과목자료 없음 · ${recommendation.referenceCount || 0}개 대학 중 ${recommendation.consensusThreshold || 0}개 이상 반복` : '2028 해당 대학 발표 자료'}</small>
     {groups.map(([label, courses]) => <div key={label} style={ui.recommendCourseGroup}>
       <strong>{label} <small>{courses.length}개</small></strong>
       <div className="kd-recommend-courses">{courses.map(course => renderCourse(course, label))}</div>
@@ -3429,10 +3553,11 @@ export function RecommendedSubjectPanel({ recommendation, status = "ready", prog
     <small className="kd-recommend-legend">✓ 이수 완료 · ◇ 시간표상 수강 중 · ○ 미이수</small>
     <details className="kd-recommend-more"><summary>판정 기준·출처</summary>
       <p>{recommendation.scope}{recommendation.matchedDepartment ? ` · ${recommendation.matchedDepartment}` : ''}</p>
-      {recommendation.estimated && <p>{recommendation.estimatedFrom?.join(', ') || '동일 학과군의 다른 대학'} 등을 포함한 {recommendation.referenceCount || 0}개 대학을 비교했습니다. 최소 {recommendation.consensusThreshold || 0}개 대학(표본의 25% 이상)이 반복 제시한 과목을 표시하고, {recommendation.strongConsensusThreshold || 0}개 대학(50% 이상)이 제시한 강한 공통과목은 ★로 표시합니다. 한 대학만 제시한 특이 과목은 제외하며 해당 대학의 공식 기준은 아닙니다.</p>}
+      {universityFieldEstimate ? <p>{recommendation.estimatedFrom?.join(', ') || '같은 대학의 동일 계열 모집단위'} 등 이 대학이 발표한 {recommendation.referenceCount || 0}개 ‘{recommendation.officialFieldLabel || '동일 계열'}’ 모집단위를 비교했습니다. 그중 과반인 {recommendation.consensusThreshold || 0}개 이상에서 반복된 과목만 표시합니다. 같은 대학의 공식 계열 자료를 활용한 참고값이지만, 해당 학과가 직접 발표한 필수 기준은 아닙니다.</p>
+        : recommendation.estimated && <p>{recommendation.estimatedFrom?.join(', ') || '동일 학과군의 다른 대학'} 등을 포함한 {recommendation.referenceCount || 0}개 대학을 비교했습니다. 최소 {recommendation.consensusThreshold || 0}개 대학(표본의 25% 이상)이 반복 제시한 과목을 표시하고, {recommendation.strongConsensusThreshold || 0}개 대학(50% 이상)이 제시한 강한 공통과목은 ★로 표시합니다. 한 대학만 제시한 특이 과목은 제외하며 해당 대학의 공식 기준은 아닙니다.</p>}
       {!!recommendation.notes?.length && <div style={ui.recommendNotes}><strong>대학 안내</strong>{recommendation.notes.map((note, index) => <span key={`${note}-${index}`}>{note}</span>)}</div>}
       <p>시간표상 수강 중은 성적이 아직 없는 과목을 포함합니다. 미이수는 현재 저장된 성적·시간표 기준이며, 자료 누락 가능성이 있으면 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</p>
-      {!recommendation.estimated && <a href={recommendation.source?.url || OFFICIAL_RECOMMENDED_SOURCE_URL} target="_blank" rel="noreferrer">어디가 공식 자료 ↗</a>}
+      {(!recommendation.estimated || universityFieldEstimate) && <a href={recommendation.source?.url || OFFICIAL_RECOMMENDED_SOURCE_URL} target="_blank" rel="noreferrer">어디가 공식 자료 ↗</a>}
     </details>
   </div>;
 }
@@ -3512,7 +3637,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch87</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch88</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 

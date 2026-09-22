@@ -49,9 +49,22 @@ export function safeRestoredWorkspaceView(savedView, savedSection = "") {
   return savedView;
 }
 
-export function collectEnrolledSubjectsByStudent(allEnrollments = {}) {
+export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevMaps = {}) {
   const result = {};
   const seenByStudent = new Map();
+  const normalizedAbbrevMaps = new Map();
+  const abbreviationMapForGrade = grade => {
+    const key = String(grade || "");
+    if (normalizedAbbrevMaps.has(key)) return normalizedAbbrevMaps.get(key);
+    const index = new Map();
+    Object.entries(allAbbrevMaps?.[key] || {}).forEach(([abbrev, fullName]) => {
+      const abbrevKey = normalizeSubjectMatch(abbrev);
+      const subject = String(fullName || "").normalize("NFKC").trim();
+      if (abbrevKey && subject) index.set(abbrevKey, subject);
+    });
+    normalizedAbbrevMaps.set(key, index);
+    return index;
+  };
   Object.entries(allEnrollments || {}).forEach(([scopeKey, scopeEnrollments]) => {
     const scopeMatch = String(scopeKey).normalize("NFKC").trim().match(/^([1-3])\s*(?:학년)?\s*[-_ ]*\s*(?:sem)?\s*([12])\s*(?:학기)?$/i);
     const defaultSemesterKey = scopeMatch ? `${scopeMatch[1]}-${scopeMatch[2]}` : "";
@@ -64,14 +77,20 @@ export function collectEnrolledSubjectsByStudent(allEnrollments = {}) {
       if (!seenByStudent.has(sid)) seenByStudent.set(sid, new Set());
       const seen = seenByStudent.get(sid);
       (Array.isArray(courses) ? courses : []).forEach(course => {
-        const subject = String(typeof course === "string" ? course : (course?.subject || course?.subjectName || course?.name || "")).normalize("NFKC").trim();
-        if (!subject) return;
+        const sourceSubject = String(typeof course === "string" ? course : (course?.subject || course?.subjectName || course?.name || "")).normalize("NFKC").trim();
+        if (!sourceSubject) return;
+        const grade = scopeMatch?.[1] || (/^[1-3]/.test(sid) ? sid.charAt(0) : "");
+        // 이동수업 명단·시간표에는 '미적'처럼 약어만 저장되는 경우가 있습니다.
+        // 관리자 > 약어 매핑의 해당 학년 정식 과목명으로 먼저 확장해야 NAVI의
+        // 미적분I/미적분II/기하 이수 판정과 정확히 대조할 수 있습니다.
+        const subject = abbreviationMapForGrade(grade).get(normalizeSubjectMatch(sourceSubject)) || sourceSubject;
         const semesterKey = String(course?.semesterKey || defaultSemesterKey || "");
-        const key = `${subject.replace(/\s+/g, "").toLowerCase()}|${semesterKey}`;
+        const key = `${normalizeSubjectMatch(subject)}|${semesterKey}`;
         if (seen.has(key)) return;
         seen.add(key);
         result[sid].push({
           subject,
+          sourceSubject: subject !== sourceSubject ? sourceSubject : "",
           semesterKey,
           source: "timetable",
           enrollmentStatus: "enrolled",
@@ -1372,7 +1391,10 @@ export default function App() {
   const abbrevMap = abbrevMaps[grade] || {};
   const announcements = db.announcements[scopeKey] || {};
   const materials = db.materials[scopeKey] || {};
-  const enrolledSubjectsByStudent = useMemo(() => collectEnrolledSubjectsByStudent(db.enrollments || {}), [db.enrollments]);
+  const enrolledSubjectsByStudent = useMemo(
+    () => collectEnrolledSubjectsByStudent(db.enrollments || {}, abbrevMaps),
+    [db.enrollments, abbrevMaps],
+  );
 
   const teacherGradeAccessList = useMemo(() => teacherGradeAccess(loggedInTeacher), [loggedInTeacher]);
   const teacherTimetableAccessList = useMemo(() => teacherTimetableAccess(loggedInTeacher), [loggedInTeacher]);
