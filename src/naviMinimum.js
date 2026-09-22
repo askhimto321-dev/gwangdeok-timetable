@@ -22,7 +22,7 @@ export function evaluateNaviMinimumSafe(row, student) {
   // 비고가 존재한다는 이유만으로 단순 합 기준을 막지 않고, 실제 등급·필수·대체
   // 조건을 바꾸는 문장만 원문 확인 대상으로 남깁니다.
   const noteChangesMinimum=/(?:누적|%|환산|대체|경우|또는|⇨)|(?:국어|수학|영어|한국사|탐구|사탐|과탐|통합사회|통합과학)[^.\n]{0,30}(?:필수|포함|평균|절사|올림|반올림|[1-9]\s*등급)/.test(notes);
-  if (noteChangesMinimum || !empty(row[9])) return result('manual','비고·평균등급 등 추가 조건이 있어 원문 대조가 필요합니다.');
+  if (noteChangesMinimum) return result('manual','비고의 추가 조건이 있어 원문 대조가 필요합니다.');
   let count, threshold;
   // 원자료에는 같은 뜻이 `2합7`, `2개합7등급`, `2개 영역 합 7`처럼
   // 섞여 있습니다. bare `개`도 정상 문법으로 받아들입니다.
@@ -31,6 +31,11 @@ export function evaluateNaviMinimumSafe(row, student) {
   else if (/^[1-9]\d?$/.test(rule) && /^[1-4]$/.test(compact(row[7]))) {count=Number(row[7]);threshold=Number(rule);}
   else return result('manual','영역별·필수 포함·복수 조건 등은 현재 자동 판정 범위 밖입니다.');
   if(!empty(row[7]) && Number(row[7])!==count) return result('manual','반영 영역 수와 원문 조건이 일치하지 않습니다.');
+  // NAVI 원본의 평균등급 열(row[9])은 대개 `2합 7 → 3.5`처럼 합 기준을
+  // 반영 수로 나눈 파생값입니다. 별도 조건이 아니므로 일치하면 판정을 막지 않습니다.
+  // 실제 합 기준과 다른 숫자가 들어온 경우에만 원문 확인 대상으로 남깁니다.
+  const sourceAverage=empty(row[9])?null:Number(row[9]);
+  if(sourceAverage!=null&&(!Number.isFinite(sourceAverage)||Math.abs(sourceAverage-threshold/count)>0.001))return result('manual','최저 합과 원자료 평균등급 값이 일치하지 않습니다.',{count,threshold});
   // 학년도가 달라도 화면에서 참고 판정해 달라는 운영 기준에 따라, 2027의 탐구 표기는
   // 현재 입력된 통합사회·통합과학 중 유리한 한 영역으로 대응합니다. 자료연도는 결과에 남겨
   // 실제 지원 시 해당 연도 모집요강과 구분할 수 있게 합니다.
@@ -41,7 +46,7 @@ export function evaluateNaviMinimumSafe(row, student) {
     const candidates=groups.map(group=>group.subjects.map(name=>({name,grade:validGrade(grades[name])})).filter(item=>item.grade!=null&&Number.isInteger(item.grade)).sort((a,b)=>a.grade-b.grade)[0]).filter(Boolean).sort((a,b)=>a.grade-b.grade);
     if(candidates.length<count)return result('unavailable','모평 성적 미입력/확인 필요: 반영 영역 성적을 확인하세요.',{count,threshold});
     const selected=candidates.slice(0,count),studentSum=selected.reduce((sum,item)=>sum+item.grade,0);
-    return result(studentSum<=threshold?'satisfied':'unsatisfied',`${selected.map(item=>`${item.name} ${item.grade}`).join(' + ')} = ${studentSum} / 기준 ${threshold} 이내 · 2027 탐구 표기를 현재 통합사회·통합과학 성적으로 참고 판정`,{count,threshold,studentSum,selectedSubjects:selected,yearMapped:true});
+    return result(studentSum<=threshold?'satisfied':'unsatisfied',`${selected.map(item=>`${item.name} ${item.grade}`).join(' + ')} = ${studentSum} / 기준 ${threshold} 이내 · 2027 탐구 표기를 현재 통합사회·통합과학 성적으로 참고 판정`,{count,threshold,studentSum,selectedSubjects:selected,ruleType:'sum',yearMapped:true});
   }
   const normalized=area.replace(/국어/g,'국').replace(/수학/g,'수').replace(/영어/g,'영').replace(/[,·ㆍ/＋+]/g,'');
   if(!/^[국수영]+$/.test(normalized)) return result('manual','반영 영역 또는 필수 포함 조건을 정확히 해석하지 못했습니다.',{count,threshold});
@@ -53,7 +58,7 @@ export function evaluateNaviMinimumSafe(row, student) {
   if(missing.length) return result('unavailable',`모평 성적 미입력/확인 필요: ${missing.map(x=>x.name).join('·')}`,{count,threshold});
   const selected=values.sort((a,b)=>a.grade-b.grade).slice(0,count);
   const studentSum=selected.reduce((sum,x)=>sum+x.grade,0);
-  return result(studentSum<=threshold?'satisfied':'unsatisfied',`${selected.map(x=>`${x.name} ${x.grade}`).join(' + ')} = ${studentSum} / 기준 ${threshold} 이내`,{count,threshold,studentSum,selectedSubjects:selected});
+  return result(studentSum<=threshold?'satisfied':'unsatisfied',`${selected.map(x=>`${x.name} ${x.grade}`).join(' + ')} = ${studentSum} / 기준 ${threshold} 이내`,{count,threshold,studentSum,selectedSubjects:selected,ruleType:'sum'});
 }
 
 // Reuse the existing diagnosis engine, with explicit grammar/year/input guards.

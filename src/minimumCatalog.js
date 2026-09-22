@@ -12,7 +12,10 @@ export const MINIMUM_COLUMNS = {
 export const compactMinimum = x => String(x ?? '').normalize('NFKC').replace(/\s/g,'');
 const list = x => String(x || '').split('|').map(x=>x.trim()).filter(Boolean);
 export const minimumTrackKey = x => compactMinimum(x).replace(/^(?:학생부)?(?:교과|종합)\((.*)\)$/,'$1').replace(/^(?:학생부)?(?:교과|종합)[·:：]/,'');
-const baseUniversity = x => compactMinimum(x).replace(/\([^)]*\)/g,'').replace(/여자대학교/g,'여대').replace(/대학교/g,'대').replace(/교육대/g,'교대');
+const baseUniversity = x => {
+ const name=compactMinimum(x).replace(/\([^)]*\)/g,'').replace(/여자대학교/g,'여대').replace(/대학교/g,'대').replace(/교육대/g,'교대');
+ return ({서울과기대:'서울과학기술대',한국외국어대:'한국외대',서울여자대:'서울여대',성신여자대:'성신여대',덕성여자대:'덕성여대',숙명여자대:'숙명여대'})[name]||name;
+};
 const catalogIndexes=new WeakMap();
 function universityRows(rows,name) {
  if(!Array.isArray(rows))return [];

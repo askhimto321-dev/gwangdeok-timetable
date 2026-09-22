@@ -9,6 +9,7 @@ import {
   ChevronUp,
   Database,
   FileSpreadsheet,
+  LayoutGrid,
   Loader2,
   RefreshCw,
   Search,
@@ -373,6 +374,7 @@ function universityBaseKey(value) {
     한양대학교: "한양대", 한양: "한양대",
     덕성여자대: "덕성여대", 성신여자대: "성신여대",
     서울여자대: "서울여대", 숙명여자대: "숙명여대",
+    서울과기대: "서울과학기술대", 한국외국어대: "한국외대",
   };
   text = aliases[text] || text;
   return compactText(text);
@@ -2515,7 +2517,7 @@ export default function SusiNaviBetaView({
       schedules,
       caseStats,
     };
-  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.admissionYear]);
+  }), [canonicalRecords, minimumIndex, courseRuleIndex, changeIndex, scheduleIndex, caseStatIndex, effectiveStudent?.sid, effectiveStudent?.latestMockKey, effectiveStudent?.latestMockGrades, effectiveStudent?.latestMockSums, effectiveStudent?.minimumRows, effectiveStudent?.minimumCatalogRows, effectiveStudent?.admissionYear]);
 
   const connectionFocusDepartmentMatched = useMemo(() => {
     if (!connectionFocus?.university || !connectionFocus?.department) return false;
@@ -3637,7 +3639,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch91</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch92</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
@@ -3654,7 +3656,7 @@ function SupportDecisionWorkspace({
 
     <section className="kd-plan-section" ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:12}}>
       <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
-      <div className="kd-plan-tools"><button type="button" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={workspaceBusy || workspaceLoading || Boolean(workspaceLoadError) || !selectedStudent?.sid || !printItems.filter(Boolean).length}/><small>{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
+      <div className="kd-plan-tools is-primary"><button type="button" className="kd-plan-action is-focus" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}><LayoutGrid size={15}/>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={workspaceBusy || workspaceLoading || Boolean(workspaceLoadError) || !selectedStudent?.sid || !printItems.filter(Boolean).length}/><small className="kd-plan-student-context">{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
       {/* 15번 요청: 카드 전체를 인쇄할지 상담 중인 일부 전형만 인쇄할지 선택합니다. */}
       {planItems.length > 0 && <div className="kd-plan-tools" style={{ flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 11.5, color: "#6b7688", fontWeight: 700 }}>인쇄 대상</span>
@@ -3670,7 +3672,7 @@ function SupportDecisionWorkspace({
           })}
         </div>}
       </div>}
-      <div className="kd-plan-tools"><button type="button" disabled={!planItems.length || workspaceBusy || workspaceLoading || Boolean(workspaceLoadError)} onClick={()=>triggerSectionPrint('kd-print-target-plan')}>요약표 인쇄·PDF</button></div>
+      <div className="kd-plan-tools is-summary"><button type="button" className="kd-plan-action is-summary-print" disabled={!planItems.length || workspaceBusy || workspaceLoading || Boolean(workspaceLoadError)} onClick={()=>triggerSectionPrint('kd-print-target-plan')}><Printer size={14}/>간단 요약표 인쇄</button></div>
       <PrintPlanSheet items={slots} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent}/>
       {/* 1번 요청: 긴 문장 하나를 그대로 넣으면 좁은 칸에서 단어 중간이 아니라 " · " 뒤에서
           꺾여 마지막 항목만 혼자 남는 문제가 있었습니다. 항목마다 색이 있는 배지로 나누면

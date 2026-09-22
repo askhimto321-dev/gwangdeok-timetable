@@ -67,8 +67,17 @@
    작업 화면과 항상 동일해서, 모아보기를 켜도 카드가 찌그러지거나 글자가 뒤죽박죽되지 않습니다.
    3열은 카드가 좁아질 걱정이 없는 아주 넓은 화면(1500px 이상)에서만 자동으로 적용됩니다. */
 .kd-plan-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
-.kd-plan-tools button{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:6px 10px;border:1px solid var(--kd-brand-border);border-radius:7px;background:#fff;color:var(--kd-brand);font:700 12px/1.4 KDRound,system-ui,sans-serif;cursor:pointer;white-space:nowrap}
-.kd-plan-tools button[aria-pressed="true"]{background:var(--kd-brand);color:#fff;border-color:var(--kd-brand)}
+.kd-plan-tools.is-primary{padding:10px 11px;border:1px solid #d8e2ec;border-radius:12px;background:linear-gradient(135deg,#f8fbff,#fffaf6);box-shadow:0 4px 14px rgba(38,56,78,.05)}
+.kd-plan-tools button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:7px 11px;border:1px solid var(--kd-brand-border);border-radius:9px;background:#fff;color:var(--kd-brand);font:800 12px/1.4 KDRound,system-ui,sans-serif;cursor:pointer;white-space:nowrap;transition:transform .15s ease,box-shadow .15s ease,background .15s ease}
+.kd-plan-tools button:hover:not(:disabled){transform:translateY(-1px)}
+.kd-plan-tools .kd-plan-action.is-focus{border-color:#b9cfe4;background:#eef5fc;color:#285980;box-shadow:0 3px 9px rgba(45,91,130,.08)}
+.kd-plan-tools .kd-plan-action.is-focus[aria-pressed="true"]{background:#315f86;color:#fff;border-color:#315f86;box-shadow:0 5px 12px rgba(49,95,134,.2)}
+.kd-plan-tools .kd-plan-action.is-print{min-height:38px;padding-inline:14px;border-color:#9a3412;background:linear-gradient(135deg,#a83b16,#8d2d0f);color:#fff;box-shadow:0 5px 13px rgba(142,46,16,.2)}
+.kd-plan-tools .kd-plan-action.is-print:hover:not(:disabled){background:linear-gradient(135deg,#8f2f10,#72220c);box-shadow:0 7px 16px rgba(113,35,12,.24)}
+.kd-plan-tools.is-summary{margin-top:-1px}.kd-plan-tools .kd-plan-action.is-summary-print{min-height:32px;padding:5px 9px;border-style:dashed;background:#fff;color:#596b7d;font-size:11.5px;box-shadow:none}
+.kd-plan-tools .kd-plan-action svg{flex:0 0 auto}
+.kd-plan-student-context{margin-left:auto;padding-left:10px;border-left:1px solid #dce4ec;color:#526278!important}
+.kd-plan-print-message{flex-basis:100%;padding:6px 8px;border-radius:7px;background:#f6f8fb;color:#526278!important}
 .kd-plan-tools button:disabled{opacity:.5;cursor:not-allowed}
 .kd-plan-tools small{font-size:12px;color:#526278;word-break:keep-all}
 .susi-beta-workspace.is-plan-focused>:not(.kd-plan-section){display:none!important}
@@ -80,7 +89,7 @@
 .admission-row-actions button:not(.kd-support-plan-button),.admission-case-row-tools .admission-mini-link,.admission-link-button.is-navi{color:var(--kd-ink-soft)!important;background:var(--kd-surface-soft)!important;border-color:var(--kd-line)!important;font-weight:800!important}
 .admission-row-actions button.kd-support-plan-button.kd-support-plan-button,.admission-case-row-tools button.kd-support-plan-button.kd-support-plan-button{color:var(--kd-brand)!important;background:var(--kd-brand-soft)!important;border-color:var(--kd-brand-border)!important;font-size:12px;font-weight:800}
 .admission-row-actions button.kd-support-plan-button:hover:not(:disabled),.admission-case-row-tools button.kd-support-plan-button:hover:not(:disabled){color:#fff!important;background:var(--kd-brand)!important}
-@media(max-width:620px){.kd-plan-tools button{min-height:40px}}
+@media(max-width:620px){.kd-plan-tools button{min-height:42px}.kd-plan-tools.is-primary{align-items:stretch}.kd-plan-tools.is-primary>.kd-plan-action{flex:1 1 145px}.kd-plan-student-context{flex-basis:100%;margin-left:0;padding:7px 0 0;border-left:0;border-top:1px solid #dce4ec}}
 
 /* Patch71: readable text in narrow course and CSAT panels. */
 .susi-beta-recommend-panel,.kd-decision-minimum,.kd-comparison-table .kd-mock-chips{font-family:Pretendard,'Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;font-style:normal;font-weight:400;line-height:1.55}
