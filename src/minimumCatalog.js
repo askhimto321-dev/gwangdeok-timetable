@@ -12,6 +12,10 @@ export const MINIMUM_COLUMNS = {
 export const compactMinimum = x => String(x ?? '').normalize('NFKC').replace(/\s/g,'');
 const list = x => String(x || '').split('|').map(x=>x.trim()).filter(Boolean);
 export const minimumTrackKey = x => compactMinimum(x).replace(/^(?:학생부)?(?:교과|종합)\((.*)\)$/,'$1').replace(/^(?:학생부)?(?:교과|종합)[·:：]/,'');
+export const catalogTrackKey = (university,track) => {
+ const key=minimumTrackKey(track).replace(/전형$/,'');
+ return /고려/.test(university)&&key==='학교장추천'?'학교추천':key;
+};
 const baseUniversity = x => {
  const name=compactMinimum(x).replace(/\([^)]*\)/g,'').replace(/여자대학교/g,'여대').replace(/대학교/g,'대').replace(/교육대/g,'교대');
  return ({서울과기대:'서울과학기술대',한국외국어대:'한국외대',서울여자대:'서울여대',성신여자대:'성신여대',덕성여자대:'덕성여대',숙명여자대:'숙명여대'})[name]||name;
@@ -160,6 +164,14 @@ export function mergeMinimumCatalog(current, incoming) {
 const gradeNames={국:'국어',수:'수학',영:'영어',사:'통합사회',과:'통합과학',한:'한국사'};
 const gradeValue=x=>x!==''&&x!=null&&Number.isInteger(Number(x))&&Number(x)>=1&&Number(x)<=9?Number(x):null;
 export function evaluateCatalogMinimum(row,student) {
+ // Older uploads may have stored "각 4등급" with a default count of one.
+ // Correct only when the complete original sentence explicitly determines it.
+ if(row.reviewStatus==='계산가능'&&/(?:각각|각|모두)\s*[1-9]/.test(row.ruleText||'')){
+  const parsed=parseExplicitMinimum(row.ruleText,row.note,Number(row.admissionYear)===2027?2028:row.admissionYear);
+  if(parsed?.ruleType==='각'&&(row.ruleType!=='각'||row.count!==parsed.count||row.threshold!==parsed.threshold)){
+   return {...evaluateCatalogMinimum({...row,...parsed},student),correctedEachRule:true};
+  }
+ }
  const historyInSum=list(row.subjects).some(group=>group.split('/').includes('한'));
  const base={year:row.admissionYear,ruleText:row.ruleText,subjectsText:row.subjects,source:`${row.source} · ${row.page}쪽`,note:row.note,ruleId:row.id,
   historyInSum,historyMax:row.historyMax,historyGrade:gradeValue(student?.latestMockGrades?.한국사)};
@@ -252,18 +264,26 @@ export function catalogRowsForTarget(rows,target,year,identity) {
   .sort((a,b)=>Number(b.admissionYear===current)-Number(a.admissionYear===current)||Number(b.admissionYear)-Number(a.admissionYear)||campusRank(b,target,identity)-campusRank(a,target,identity));
 }
 export function resolveCatalogMinimum({target,student,identity}) {
+ const trackKey=value=>catalogTrackKey(target.university,value);
+ const genericTrack=/^(?:학생부)?(?:교과|종합)$/.test(compactMinimum(target.track));
  const all=universityRows(student?.minimumCatalogRows||[],target.university).filter(r=>r.reviewStatus!=='사용안함');
  if(!all.length)return null;
  const sameBase=all.filter(r=>baseUniversity(r.university)===baseUniversity(target.university));
  const seasonRows=sameBase.filter(r=>r.season===(target.season||'수시'));
- const exactYear=seasonRows.filter(r=>r.admissionYear===Number(student?.admissionYear));
- const availableYears=[...new Set(seasonRows.map(r=>Number(r.admissionYear)).filter(Boolean))].sort((a,b)=>Math.abs(a-Number(student?.admissionYear||a))-Math.abs(b-Number(student?.admissionYear||b))||b-a);
+ // Choose a year after checking the requested campus/track/scope. An unrelated
+ // 2028 track must not hide a matching 2027 reference for the requested track.
+ const applicable=seasonRows.filter(r=>campusRank(r,target,identity)>=0&&r.admissionType===target.admissionType&&scopeRank(r,target)>=0&&(genericTrack||[r.track,...list(r.trackAliases)].some(t=>trackKey(t)===trackKey(target.track))||/원문미기재|미확정/.test(compactMinimum(r.track))));
+ const yearCandidates=applicable.length?applicable:seasonRows;
+ const exactYear=yearCandidates.filter(r=>r.admissionYear===Number(student?.admissionYear));
+ const availableYears=[...new Set(yearCandidates.map(r=>Number(r.admissionYear)).filter(Boolean))].sort((a,b)=>Math.abs(a-Number(student?.admissionYear||a))-Math.abs(b-Number(student?.admissionYear||b))||b-a);
  const selectedYear=exactYear.length?Number(student?.admissionYear):(availableYears[0]||null);
  const year=seasonRows.filter(r=>Number(r.admissionYear)===selectedYear);
  const campusCandidates=year.map(r=>({r,rank:campusRank(r,target,identity)})).filter(x=>x.rank>=0);
  const campusBest=Math.max(-1,...campusCandidates.map(x=>x.rank));
  const university=campusCandidates.filter(x=>x.rank===campusBest).map(x=>x.r);
- const exactTrack=university.filter(r=>r.admissionType===target.admissionType&&[r.track,...list(r.trackAliases)].some(t=>minimumTrackKey(t)===minimumTrackKey(target.track)));
+ const typed=university.filter(r=>r.admissionType===target.admissionType&&scopeRank(r,target)>=0);
+ const uniqueGeneric=genericTrack&&new Set(typed.map(r=>trackKey(r.track))).size===1;
+ const exactTrack=university.filter(r=>r.admissionType===target.admissionType&&(uniqueGeneric||[r.track,...list(r.trackAliases)].some(t=>trackKey(t)===trackKey(target.track))));
  // 2027 요약표는 일부 대학의 세부 전형명을 생략했습니다. 같은 전형유형 안에서 목표
  // 모집단위에 해당하는 행이 하나로 결정될 때만 '원문 미기재' 행을 참고 연결합니다.
  const unnamedTrack=university.filter(r=>r.admissionType===target.admissionType&&/원문미기재|미확정/.test(compactMinimum(r.track)));

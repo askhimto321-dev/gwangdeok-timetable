@@ -11,6 +11,7 @@ import FavoritePlanPicker from "./FavoritePlanPicker.jsx";
 import counselingCss from './counseling.css?raw';
 import supportDecisionCss from './supportDecision.css?raw';
 import CounselingAdmissionFacts from './CounselingAdmissionFacts.jsx';
+import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
 import { LayoutGrid } from 'lucide-react';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
@@ -2530,7 +2531,7 @@ function admissionSubjectGroupLabel(group) {
 }
 
 function admissionSubjectRuleText(value) {
-  return parseAdmissionSubjectGroups(value)
+  return parseAdmissionSubjectGroups(String(value||'').replace(/\|/g,',').replace(/사\s*\/\s*과/g,'(사,과)'))
     .map(admissionSubjectGroupLabel)
     .filter(Boolean)
     .join(" · ");
@@ -2665,7 +2666,7 @@ function admissionMinimumText(result) {
 
 function admissionStudentResultText(result) {
   if (result?.ruleType === "each") {
-    const grades = Array.isArray(result.studentGrades) ? result.studentGrades : [];
+    const grades = Array.isArray(result.studentGrades) ? result.studentGrades : (result.selectedSubjects||[]).map(item=>`${item.name} ${item.grade}`);
     return grades.length ? grades.join(" · ") : "";
   }
   return result?.studentSum == null ? "" : `${result.count}합 ${result.studentSum}`;
@@ -2775,7 +2776,7 @@ function admissionDocumentType(docItem) {
   return docItem?.documentType === "reflection" ? "reflection" : "guide";
 }
 
-function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], onToggleFavorite, onOpenCases, focusUniversity = "", onBackToConsultation, onClearFocus }) {
+export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], onToggleFavorite, onOpenCases, focusUniversity = "", onBackToConsultation, onClearFocus }) {
   const { semesterData, mockData, admissionRows = [], admissionDocs = [], studentAccounts, cohortSettings } = gdb;
   const legacySemesterRecords = SEMESTER_KEYS.map(key => semesterData[key]?.students?.[sid] || null);
   const legacyLatestSemesterRecord = legacySemesterRecords.slice().reverse().find(Boolean) || null;
@@ -2832,15 +2833,18 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
   // (기존에는 evaluateAdmissionRequirement를 직접 호출해 지원연도 확인·비고 확인 등
   //  evaluateStoredMinimum의 안전장치 없이 판정될 수 있었습니다.)
   const minimumStudent = useMemo(
-    () => ({ admissionYear: admissionYearForGrade(inferredGrade), latestMockGrades }),
-    [inferredGrade, latestMockGrades],
+    () => ({ admissionYear: admissionYearForGrade(inferredGrade), latestMockGrades, minimumCatalogRows:normalizeMinimumCatalog(gdb.minimumCatalog?.rows||minimumCatalogSeed) }),
+    [inferredGrade, latestMockGrades, gdb.minimumCatalog],
   );
   const evaluatedRows = useMemo(() => scopedAdmissionRows.map((row, index) => {
-    const evaluation = evaluateStoredMinimum(row, minimumStudent);
+    const fields=admissionFieldTags(row).filter(x=>['인문','자연','예체능'].includes(x));
+    const linked=resolveAdmissionMinimum({...row,field:fields.length===1?fields[0]:row.field},minimumStudent);
+    const evaluation = linked.evaluation;
+    const minimumSource=linked.minimum||row;
     // 4번 요청: 미충족 전형에 한해 "어느 과목을 몇 등급 올리면 충족되는지" 미리 계산합니다.
-    const improvementAdvice = evaluation.status === "unsatisfied" ? minimumImprovementAdvice(row, minimumStudent) : null;
+    const improvementAdvice = evaluation.status === "unsatisfied" ? minimumImprovementAdvice(minimumSource, minimumStudent) : null;
     // 3번 요청: 여러 회차를 응시한 경우 "최근 N회 중 M회 충족"을 함께 보여줍니다.
-    const historySummary = availableMockExams.length > 1 ? minimumHistorySummary(row, minimumStudent, availableMockExams) : null;
+    const historySummary = availableMockExams.length > 1 ? minimumHistorySummary(minimumSource, minimumStudent, availableMockExams) : null;
     // 7번 요청: 내신컷 위치는 이 화면에 없지만(사례 탭에서 다룸), 최저충족과는 별도로
     // "지원자격"(비고의 제한 표현 유무)을 세 번째 판정으로 분리해서 보여줍니다.
     const eligibility = admissionEligibilityInfo(row.note);
@@ -2896,7 +2900,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
         if (!["all", "none"].includes(requirementFilter) && Number(row.evaluation.count) !== Number(requirementFilter)) return false;
         if (statusFilter === "satisfied") return row.evaluation.status === "satisfied" || row.evaluation.status === "no-minimum";
         if (statusFilter === "unsatisfied") return row.evaluation.status === "unsatisfied";
-        if (statusFilter === "review") return ["manual", "unavailable"].includes(row.evaluation.status);
+        if (statusFilter === "review") return ["manual", "unavailable", "unlinked"].includes(row.evaluation.status);
       }
       return true;
     });
@@ -2920,7 +2924,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
   const statusCounts = useMemo(() => ({
     satisfied: evaluatedRows.filter(row => ["satisfied", "no-minimum"].includes(row.evaluation.status)).length,
     unsatisfied: evaluatedRows.filter(row => row.evaluation.status === "unsatisfied").length,
-    review: evaluatedRows.filter(row => ["manual", "unavailable"].includes(row.evaluation.status)).length,
+    review: evaluatedRows.filter(row => ["manual", "unavailable", "unlinked"].includes(row.evaluation.status)).length,
   }), [evaluatedRows]);
 
   const requirementCounts = useMemo(() => ({
@@ -3221,7 +3225,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                   const statusMeta = admissionStatusMeta(result.status);
                   const reflection = admissionReflectionText(row);
                   const specialNote = admissionSpecialNote(row, reflection);
-                  const subjectRuleText = admissionSubjectRuleText(row.requiredSubjects);
+                  const subjectRuleText = admissionSubjectRuleText(result.subjectsText || row.requiredSubjects);
                   const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
                   const caseLink = caseLinkForRow(row);
                   return (
@@ -3238,7 +3242,7 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                       <td style={{ ...admissionTable.td, ...admissionTable.subjectCell }}>
                         {result.status === "no-minimum" || !subjectRuleText
                           ? <span style={admissionTable.empty}>-</span>
-                          : <AdmissionSubjectRule value={row.requiredSubjects} />}
+                          : <AdmissionSubjectRule value={result.subjectsText || row.requiredSubjects} />}
                       </td>
                       <td style={admissionTable.td}>
                         {result.status === "no-minimum" ? (
@@ -3256,6 +3260,9 @@ function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites = [], on
                       </td>
                       <td style={{ ...admissionTable.td, ...admissionTable.statusCell }}>
                         <span style={{ ...admissionStatus.base, ...statusMeta.style }}>{statusMeta.label}</span>
+                        {result.year && <small style={{display:'block',fontWeight:800,color:'#315f91',marginTop:4}}>{result.year}학년도{result.yearMismatch?' 참고 기준':' 기준'}</small>}
+                        {result.ruleText && <details style={{marginTop:4,textAlign:'left',fontSize:10}}><summary>판정 기준·근거</summary><div style={{overflowWrap:'anywhere',lineHeight:1.6}}>{result.ruleText}<br/>{result.reason}{result.source&&<><br/>{result.source}</>}</div></details>}
+                        {['manual','unlinked'].includes(result.status) && <small style={{display:'block',marginTop:4,color:'#8c581f'}}>{result.reason}</small>}
                         {row.historySummary && row.historySummary.decidedCount > 0 && (
                           <small style={{ display: "block", marginTop: 3, color: "#6b7688", fontSize: 9.6 }}>최근 {row.historySummary.decidedCount}회 중 {row.historySummary.satisfiedCount}회 충족</small>
                         )}
@@ -3373,6 +3380,7 @@ function admissionStatusMeta(status) {
     unsatisfied: { label: "미충족", style: admissionStatus.danger },
     "no-minimum": { label: "최저 없음", style: admissionStatus.noMinimum },
     manual: { label: "조건 확인", style: admissionStatus.warning },
+    unlinked: { label: "최저 자료 미연결", style: admissionStatus.warning },
     unavailable: { label: "성적 미입력", style: admissionStatus.neutral },
   };
   return map[status] || { label: "판정 불가", style: admissionStatus.neutral };

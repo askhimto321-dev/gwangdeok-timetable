@@ -31,6 +31,7 @@ import {catalogRowsForTarget,resolveCatalogMinimum,minimumTrackKey} from './mini
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
 import { evaluateNaviMinimumSafe, minimumDisplay, minimumYearLabel, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
+import { UNIVERSITY_CAMPUS_ALIASES, canonicalCampus, universityBaseKey, universityCampus, universityIdentityKey } from './universityIdentity.js';
 import { conversionDetails, loadSusiNaviBetaData, loadSusiNaviBetaDataReliable, updateSusiNaviBetaCache } from "./susiNaviData.js";
 import { recommendedCourseDisplayName } from "./recommendationPresentation.js";
 
@@ -318,28 +319,6 @@ function hasRegular(info) {
 function unique(values) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko"));
 }
-const UNIVERSITY_CAMPUS_ALIASES = {
-  가천대: { 경기: "글로벌", 성남: "글로벌", 인천: "메디컬", 글로벌: "글로벌", 메디컬: "메디컬" },
-  한양대: { 서울: "서울", 경기: "ERICA", 안산: "ERICA", ERICA: "ERICA" },
-  경희대: { 서울: "서울", 경기: "국제", 용인: "국제", 수원: "국제", 국제: "국제" },
-  단국대: { 경기: "죽전", 용인: "죽전", 죽전: "죽전", 충남: "천안", 천안: "천안" },
-  경기대: { 서울: "서울", 경기: "수원", 수원: "수원" },
-  명지대: { 서울: "서울", 경기: "용인", 용인: "용인" },
-  고려대: { 서울: "서울", 세종: "세종" },
-  건국대: { 서울: "서울", 충북: "글로컬", 충주: "글로컬", 글로컬: "글로컬" },
-  중앙대: { 서울: "서울", 경기: "다빈치", 안성: "다빈치", 다빈치: "다빈치" },
-  홍익대: { 서울: "서울", 세종: "세종" },
-  상명대: { 서울: "서울", 충남: "천안", 천안: "천안" },
-  한국외대: { 서울: "서울", 경기: "글로벌", 용인: "글로벌", 글로벌: "글로벌" },
-  동국대: { 서울: "서울", 경북: "WISE", 경주: "WISE", WISE: "WISE", 와이즈: "WISE" },
-};
-function canonicalCampus(base, campus) {
-  const raw = normalizeText(campus);
-  if (!raw) return "";
-  const map = UNIVERSITY_CAMPUS_ALIASES[base] || {};
-  if (/^(?:WISE|와이즈|경주)$/i.test(raw)) return "WISE";
-  return map[raw] || map[raw.toUpperCase()] || (raw.toUpperCase() === "ERICA" ? "ERICA" : raw);
-}
 function readConversionPreference() {
   if (typeof window === "undefined") return { method: "legacy", group: "전교과" };
   try {
@@ -358,51 +337,6 @@ function readCutoffPreference() {
   return value === "50" ? "50" : "70";
 }
 
-function universityBaseKey(value) {
-  let text = normalizeText(value)
-    .replace(/[（]/g, "(").replace(/[）]/g, ")")
-    // 대학 식별용 기본키에서는 괄호·슬래시 뒤의 캠퍼스/지역 표기를 모두 제외합니다.
-    .replace(/\([^)]*\)/g, "")
-    .replace(/\s*[\/|]\s*(?:서울|ERICA|에리카|WISE|와이즈|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인|경주)(?:캠퍼스)?\s*$/gi, "")
-    .replace(/(?:서울|ERICA|에리카|WISE|와이즈|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인|경주)\s*(?:캠퍼스|캠)/gi, "")
-    .replace(/\s+(?:서울|ERICA|에리카|WISE|와이즈|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인|경주)\s*$/gi, "")
-    .replace(/국립/g, "")
-    .replace(/여자대학교/g, "여대")
-    .replace(/대학교/g, "대")
-    .replace(/교육대/g, "교대");
-  const aliases = {
-    한양대학교: "한양대", 한양: "한양대",
-    덕성여자대: "덕성여대", 성신여자대: "성신여대",
-    서울여자대: "서울여대", 숙명여자대: "숙명여대",
-    서울과기대: "서울과학기술대", 한국외국어대: "한국외대",
-  };
-  text = aliases[text] || text;
-  return compactText(text);
-}
-function universityCampus(value, region = "") {
-  const text = normalizeText(value).replace(/[（]/g, "(").replace(/[）]/g, ")");
-  const base = universityBaseKey(text);
-  let explicit = "";
-  if (/ERICA|에리카/i.test(text)) explicit = "ERICA";
-  if (!explicit) {
-    explicit = ["WISE", "와이즈", "메디컬", "글로벌", "글로컬", "국제", "서울", "세종", "수원", "죽전", "천안", "안양", "성남", "인천", "안산", "안성", "미래", "다빈치", "송도", "용인", "경주"]
-      .find(campus => new RegExp(`(?:\\(|\\s|\\/|^)${campus}(?:캠퍼스)?(?:\\)|\\s|\\/|$)`, "i").test(text)) || "";
-  }
-  if (/\bWISE\b|와이즈/i.test(text)) explicit = "WISE";
-  if (explicit) return canonicalCampus(base, explicit);
-  const regionText = normalizeText(region);
-  const regionMap = UNIVERSITY_CAMPUS_ALIASES[base] || null;
-  if (regionMap) {
-    const mapped = regionMap[regionText] || regionMap[regionText.toUpperCase()];
-    if (mapped) return mapped;
-  }
-  // 일반 대학은 지역명을 캠퍼스 식별자로 사용하지 않습니다.
-  // 같은 캠퍼스가 '전남/광주'처럼 서로 다른 지역 문자열로 저장돼 중복 카드가 생기는 것을 막습니다.
-  return "단일";
-}
-function universityIdentityKey(value, region = "") {
-  return `${universityBaseKey(value)}|${universityCampus(value, region)}`;
-}
 function sameUniversityCampus(left, leftRegion = "", right, rightRegion = "") {
   const leftBase = universityBaseKey(left);
   const rightBase = universityBaseKey(right);
@@ -2522,12 +2456,21 @@ export default function SusiNaviBetaView({
   const enriched = useMemo(() => canonicalRecords.map(row => {
     const target={university:row[3],region:row[1],department:row[5],field:row[6]};
     const catalogRows=catalogRowsForTarget(effectiveStudent?.minimumCatalogRows||[],target,effectiveStudent?.admissionYear,universityIdentityKey);
-    const minimums = indexedUniversityRows(minimumIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5]));
+    const minimums = indexedUniversityRows(minimumIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5])).map(item=>{
+      const linked=resolveMinimumLink({target:{...target,admissionType:item[2],track:item[3]},student:effectiveStudent,data:{minimums:[item]},identity:universityIdentityKey,evaluateMinimum:r=>evaluateNaviMinimumSafe(r,effectiveStudent)});
+      if(!linked.minimum?.schema)return item;
+      const value=linked.minimum;
+      const updated=[...item];
+      updated[6]=value.subjects;updated[7]=value.count;updated[8]=value.ruleText;updated[9]=null;updated[10]=value.note;
+      updated.catalogRule=value;
+      updated.catalogTarget={...target,admissionType:item[2],track:item[3]};
+      return updated;
+    });
     // Supply rows even when NAVI has no minimum entry. Keep original NAVI data intact.
     for(const value of catalogRows){
       if(minimums.some(item=>(item.catalogRule?.admissionYear||2027)===value.admissionYear&&item[2]===value.admissionType&&minimumTrackKey(item[3])===minimumTrackKey(value.track)))continue;
       const synthetic=['',value.campus?`${value.university}(${value.campus})`:value.university,value.admissionType,value.track,'',row[5],value.subjects,value.count,value.ruleText,null,value.note,`${value.source} ${value.page}쪽`];
-      synthetic.catalogRule=value;minimums.push(synthetic);
+      synthetic.catalogRule=value;synthetic.catalogTarget={...target,admissionType:value.admissionType,track:value.track};minimums.push(synthetic);
     }
     const courseRules = indexedUniversityRows(courseRuleIndex, row[3], row[1]).filter(item => matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 4);
     const changes2028 = indexedUniversityRows(changeIndex, row[3], row[1]).filter(item => !item[6] || /O|변경|신설/.test(item[6])).slice(0, 5);
@@ -3670,7 +3613,7 @@ function SupportDecisionWorkspace({
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
-      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch94</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
+      <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch95</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 

@@ -28,6 +28,8 @@ function normalizeUniversity(row,reasons) {
 function normalizeScope(row,reasons) {
  if(!reasons.includes(SCOPE_REVIEW))return reasons;
  let scope=compact(row.department)
+  .replace(/자율\/자유전공학부/g,'자율전공학부,자유전공학부')
+  .replace(/(학과|학부|전공|계열|대학)(?:모집단위|수능최저)$/,'$1')
   .replace(/한의예(?:과)?\(인문[·/]자연\)/g,'한의예과')
   .replace(/^통합\((.+)\)$/,'$1')
   .replace(/체능/g,'예체능');
@@ -75,7 +77,7 @@ export function normalizeMinimumSubjects(value, year) {
 }
 export function parseExplicitMinimum(condition, note, year) {
  const fields={ruleType:'',subjects:'',count:null,threshold:null,mandatory:'',englishMax:null,historyMax:null,inquiryMode:'해당없음',rounding:'없음',englishConversion:'없음'};
- let text=compact(condition), extra=compact(note);
+ let text=compact(condition).replace(/(영역|과목)([1-5])개/g,'$2개$1'), extra=compact(note);
  if(Number(year)===2027){
   // A history ceiling in the note is independent of the selected grade sum.
   const historyCaps=[...`${text} ${extra}`.matchAll(/한국사\s*([1-9])(?!\d|[~～·-])(?:등급)?(?:이내|이하)?/g)].map(m=>Number(m[1]));
@@ -147,7 +149,13 @@ export function parseExplicitMinimum(condition, note, year) {
  const pool='([국수영사과한탐/]+(?:,[국수영사과한탐/]+)+)';
  let m=text.match(new RegExp('^'+pool+'(?:중)?(?:상위)?([1-5])개?(?:영역|과목)?(?:등급)?(?:합|합계)([1-9][0-9]?)(?:등급)?(?:이내|이하)?$'));
  let type='합';
- if(!m){m=text.match(new RegExp('^'+pool+'(?:중)?([1-5])개?(?:영역|과목)?(?:각|각각)([1-9])등급(?:이내|이하)?$'));type='각';}
+ if(!m){m=text.match(new RegExp('^'+pool+'(?:중)?([1-5])개?(?:영역|과목)?(?:각각|각|모두)([1-9])(?:등급)?(?:이내|이하)?$'));type='각';}
+ if(!m){
+  // Named areas followed by "each" mean every listed area, never best one.
+  // "중" without a selection count remains ambiguous and is not guessed.
+  const all=text.match(new RegExp('^'+pool+'(?:각각|각|모두)([1-9])(?:등급)?(?:이내|이하)?$'));
+  if(all){m=[all[0],all[1],String(all[1].split(',').length),all[2]];type='각';}
+ }
  if(!m){m=text.match(new RegExp('^'+pool+'(?:중)?(1)개(?:영역|과목)(?:이상)?([1-9])등급(?:이내|이하)?$'));type='각';}
  if(!m){
   const reverse=text.match(new RegExp('^'+pool+'(?:[1-5]개영역)?중([1-9])등급([1-5])개(?:이상)?$'));

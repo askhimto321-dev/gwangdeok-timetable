@@ -1,5 +1,6 @@
 import { validGrade } from './admissionMetrics.js';
-import {evaluateCatalogMinimum,MINIMUM_SCHEMA} from './minimumCatalog.js';
+import {evaluateCatalogMinimum,resolveCatalogMinimum,MINIMUM_SCHEMA} from './minimumCatalog.js';
+import {universityIdentityKey} from './universityIdentity.js';
 import {parseExplicitMinimum} from './minimumMapping.js';
 import {parseAdmissionSubjectGroups} from './gradeEngine.js';
 const compact = value => String(value ?? '').normalize('NFKC').replace(/\s+/g, '').trim();
@@ -8,6 +9,10 @@ const empty = value => !compact(value) || compact(value) === '-';
 // Auto-evaluate only an explicitly understood rule. Complex requirements stay manual.
 export function evaluateNaviMinimumSafe(row, student) {
   if (!row) return { status:'unlinked', reason:'일치하는 최저 자료가 없습니다.' };
+  if(row.catalogTarget){
+    const linked=resolveCatalogMinimum({target:row.catalogTarget,student,identity:universityIdentityKey});
+    if(linked&&linked.evaluation.status!=='unlinked')return linked.evaluation;
+  }
   if (row.catalogRule) return evaluateCatalogMinimum(row.catalogRule,student);
   if (row.schema===MINIMUM_SCHEMA) return evaluateCatalogMinimum(row,student);
   if (!Array.isArray(row)) return evaluateStoredMinimum(row, student);
@@ -18,6 +23,14 @@ export function evaluateNaviMinimumSafe(row, student) {
     return notes ? result('manual','미적용 표기와 별도 비고가 함께 있어 원문 확인이 필요합니다.') : result('no-minimum','자료에 수능최저 미적용이 명시되어 있습니다.');
   }
   if (!rule) return result('manual','최저 조건 원문이 비어 있습니다.');
+  // Use the same structured grammar for legacy NAVI cells and stored tables.
+  // Retain the original column-consistency checks before accepting its result.
+  const shared=evaluateStoredMinimum({admissionYear:2027,university:row[1],track:row[3],requiredSubjects:row[6],requiredSubjectCount:row[7],requiredSum:row[8],note:notes},student);
+  if(!['manual','unlinked'].includes(shared.status)){
+    if(!empty(row[7])&&Number(row[7])!==shared.count)return result('manual','반영 영역 수와 원문 조건이 일치하지 않습니다.');
+    if(!empty(row[9])&&shared.ruleType==='sum'&&(!Number.isFinite(Number(row[9]))||Math.abs(Number(row[9])-shared.threshold/shared.count)>0.001))return result('manual','최저 합과 원자료 평균등급 값이 일치하지 않습니다.');
+    return {...shared,...base,reason:shared.reason,yearMapped:Boolean(shared.referenceMapped||/탐|사|과/.test(area))};
+  }
   // 구형 2027 표에는 판정식과 무관한 안내가 비고에 함께 저장되기도 합니다.
   // 비고가 존재한다는 이유만으로 단순 합 기준을 막지 않고, 실제 등급·필수·대체
   // 조건을 바꾸는 문장만 원문 확인 대상으로 남깁니다.
@@ -72,7 +85,8 @@ export function evaluateStoredMinimum(row, student) {
   const rule=compact(row.requiredSum);
   if(/^(없음|미적용|해당없음|수능최저(?:학력기준)?(?:없음|미적용))$/.test(rule))return result('no-minimum','자료에 수능최저 미적용이 명시되어 있습니다.');
   const sumRule=rule.match(/^([1-5])(?:개(?:영역|과목)?)?(?:등급)?합(?:계)?([1-9]\d?)(?:등급)?(?:이내|이하)?$/);
-  const eachRule=rule.match(/^(?:([1-5])개(?:영역|과목)?)?(?:각각|각|모두)([1-9])등급(?:이내|이하)?$/);
+  const eachRule=rule.match(/^(?:([1-5])개(?:영역|과목)?)?(?:각각|각|모두)([1-9])(?:등급)?(?:이내|이하)?$/);
+  if(eachRule?.[1]&&!empty(row.requiredSubjectCount)&&Number(eachRule[1])!==Number(row.requiredSubjectCount))return result('manual','각 등급 원문의 반영수와 반영수 셀이 다릅니다. 원문의 과목 수를 확인하세요.');
   const declaredCount=Number(sumRule?.[1]||eachRule?.[1]||row.requiredSubjectCount);
   const declaredThreshold=Number(sumRule?.[2]||eachRule?.[2]||(/^[1-9]\d?$/.test(rule)?rule:NaN));
   let inferredSubjectPool=false;
@@ -91,18 +105,19 @@ export function evaluateStoredMinimum(row, student) {
   // 기존 학년별 최저 표도 구조화 파서로 먼저 승격합니다. 비고가 있다는 이유만으로 모든
   // 행을 수동 확인으로 돌리던 동작을 없애고, 영어·한국사 상한/필수영역/탐구 처리처럼
   // 해석 가능한 조건은 대학별 최저 카탈로그와 같은 엔진으로 계산합니다.
-  const explicitRule=Number.isInteger(declaredCount)&&Number.isFinite(declaredThreshold)
+  const explicitRule=Number.isInteger(declaredCount)&&declaredCount>0&&Number.isFinite(declaredThreshold)
     ? `${declaredCount}${eachRule?'개영역각':'합'}${declaredThreshold}${eachRule?'등급':' '}`
     : String(row.requiredSum||'');
-  const explicit=parseExplicitMinimum(`${normalizedArea} 중 ${explicitRule}`,row.note,year);
+  const fullRule=eachRule&&(!Number.isInteger(declaredCount)||declaredCount<1)?`${normalizedArea} ${explicitRule}`:`${normalizedArea} 중 ${explicitRule}`;
+  const explicit=parseExplicitMinimum(fullRule,row.note,year===2027?2028:year);
   if(explicit){
     const evaluated=evaluateCatalogMinimum({
       schema:MINIMUM_SCHEMA,id:`LEGACY-${year}-${compact(row.university)}-${compact(row.track)}`,sourceId:'기존-학년별-최저',admissionYear:year,season:'수시',
       university:row.university||'연결 대학',campus:row.region||'',admissionType:row.admissionType||'',track:row.track||'연결 전형',trackAliases:'',
       scopeType:'전체',department:'전체',excluded:'',reviewStatus:'계산가능',reviewReason:'',ruleText:`${normalizedArea} 중 ${String(row.requiredSum||'')}`,
-      note:String(row.note||''),source:'기존 대학 지원 진단 · 학년별 최저 자료',page:'-',...explicit,
+      note:String(row.note||''),source:'기존 대학 지원 진단 · 학년별 최저 자료',page:'-',...explicit,referenceMapped:year===2027||explicit.referenceMapped,
     },student);
-    return {...evaluated,ruleText:`${normalizedArea} 중 ${declaredCount}${eachRule?'개 영역 각':'합'} ${declaredThreshold}${eachRule?'등급 이내':' 이내'}`,subjectsText:normalizedArea,inferredSubjectPool,
+    return {...evaluated,ruleText:`${normalizedArea} 중 ${explicit.count}${explicit.ruleType==='각'?'개 영역 각':'합'} ${explicit.threshold}${explicit.ruleType==='각'?'등급 이내':' 이내'}`,subjectsText:normalizedArea,inferredSubjectPool,
       reason:inferredSubjectPool?`${evaluated.reason} · 반영영역 미기재로 ${year>=2028?'국·수·영·사·과':'국·수·영·탐구'} 공통영역 참고 판정`:evaluated.reason};
   }
   const noteText=String(row.note||'');
