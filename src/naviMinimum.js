@@ -108,16 +108,17 @@ export function evaluateStoredMinimum(row, student) {
   const explicitRule=Number.isInteger(declaredCount)&&declaredCount>0&&Number.isFinite(declaredThreshold)
     ? `${declaredCount}${eachRule?'개영역각':'합'}${declaredThreshold}${eachRule?'등급':' '}`
     : String(row.requiredSum||'');
-  const fullRule=eachRule&&(!Number.isInteger(declaredCount)||declaredCount<1)?`${normalizedArea} ${explicitRule}`:`${normalizedArea} 중 ${explicitRule}`;
+  const containsPool=/^(?:국어|국|수학|수|영어|영|통합사회|통사|사|통합과학|통과|과)[,·ㆍ\s/]/.test(String(row.requiredSum||'').trim());
+  const fullRule=containsPool?String(row.requiredSum):eachRule&&(!Number.isInteger(declaredCount)||declaredCount<1)?`${normalizedArea} ${explicitRule}`:`${normalizedArea} 중 ${explicitRule}`;
   const explicit=parseExplicitMinimum(fullRule,row.note,year===2027?2028:year);
   if(explicit){
     const evaluated=evaluateCatalogMinimum({
       schema:MINIMUM_SCHEMA,id:`LEGACY-${year}-${compact(row.university)}-${compact(row.track)}`,sourceId:'기존-학년별-최저',admissionYear:year,season:'수시',
       university:row.university||'연결 대학',campus:row.region||'',admissionType:row.admissionType||'',track:row.track||'연결 전형',trackAliases:'',
-      scopeType:'전체',department:'전체',excluded:'',reviewStatus:'계산가능',reviewReason:'',ruleText:`${normalizedArea} 중 ${String(row.requiredSum||'')}`,
+      scopeType:'전체',department:'전체',excluded:'',reviewStatus:'계산가능',reviewReason:'',ruleText:fullRule,
       note:String(row.note||''),source:'기존 대학 지원 진단 · 학년별 최저 자료',page:'-',...explicit,referenceMapped:year===2027||explicit.referenceMapped,
     },student);
-    return {...evaluated,ruleText:`${normalizedArea} 중 ${explicit.count}${explicit.ruleType==='각'?'개 영역 각':'합'} ${explicit.threshold}${explicit.ruleType==='각'?'등급 이내':' 이내'}`,subjectsText:normalizedArea,inferredSubjectPool,
+    return {...evaluated,ruleText:containsPool?String(row.requiredSum):`${normalizedArea} 중 ${explicit.count}${explicit.ruleType==='각'?'개 영역 각':'합'} ${explicit.threshold}${explicit.ruleType==='각'?'등급 이내':' 이내'}`,subjectsText:explicit.subjects,inferredSubjectPool,
       reason:inferredSubjectPool?`${evaluated.reason} · 반영영역 미기재로 ${year>=2028?'국·수·영·사·과':'국·수·영·탐구'} 공통영역 참고 판정`:evaluated.reason};
   }
   const noteText=String(row.note||'');
@@ -195,6 +196,7 @@ export function minimumDisplay(evaluation, status) {
 }
 
 export function minimumYearLabel(evaluation, student) {
+  if(evaluation?.status==='unlinked')return '자료 미연결 · 연도 미확정';
   const year=Number(evaluation?.year);
   if(!year)return '기준연도 확인';
   const studentYear=Number(student?.admissionYear);

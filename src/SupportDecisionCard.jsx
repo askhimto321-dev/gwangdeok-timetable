@@ -39,18 +39,19 @@ export function MinimumFacts({ minimum, ev, student, printMode=false }) {
   const hasDetail = !isManual || ev?.subjectsText || ev?.note || ev?.reason || ev?.source;
   return <>
     <strong className="kd-decision-verdict">{minimum.label}</strong>
+    {['manual','unlinked'].includes(minimum.status) && <small className="kd-decision-reason">{minimum.reason}</small>}
     {ev?.historyInSum && <span className="kd-history-policy">한국사 합산 허용 · 해당 전형 기준</span>}
     {ev?.historyMax != null && <span className="kd-history-policy">한국사 별도 {ev.historyMax}등급 이내 · 학생 {ev.historyGrade ?? '미입력'}{ev.historyInSum ? '' : ' · 합산 제외'}</span>}
     {decided ? <>
       <div className="kd-minimum-grade-block"><small>반영 과목 등급</small><div className="kd-mock-chips">{(ev.selectedSubjects || []).map(x => <span key={x.name} className="kd-mock-chip">{shortSubjectName(x.name)} <b>{x.grade}</b></span>)}</div></div>
       <div className="kd-minimum-rule-grid">
         <div className="kd-minimum-fact is-result"><small>학생 판정값</small><b>{ev.ruleType === 'each' ? '과목별 판정' : `${ev.count}합 ${ev.studentSum}`}</b></div>
-        <div className="kd-minimum-fact is-target"><small>대학 기준</small><b>{ev.ruleType === 'each' ? `각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.threshold} 이내`}</b></div>
+        <div className="kd-minimum-fact is-target"><small>대학 기준</small><b>{ev.ruleType === 'each' ? `${ev.count}개 각각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.threshold} 이내`}</b></div>
       </div>
       <span className={`kd-status-pill kd-minimum-status is-${minimum.status}`}>{minimum.status === 'satisfied' ? '기준 도달' : '기준 미도달'}</span>
     </> : hasEvidence && needsScore ? <>
       {chips && <div className="kd-minimum-grade-block"><small>입력된 학생 모평 등급</small><div className="kd-mock-chips">{chips.map(([label, value]) => <span key={label} className="kd-mock-chip">{label} <b>{value}</b></span>)}</div></div>}
-      {ev?.count && ev?.threshold != null && <div className="kd-minimum-rule-grid is-single"><div className="kd-minimum-fact is-target"><small>대학 기준</small><b>{ev.ruleType === 'each' ? `각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.threshold} 이내`}</b></div></div>}
+      {ev?.count && ev?.threshold != null && <div className="kd-minimum-rule-grid is-single"><div className="kd-minimum-fact is-target"><small>대학 기준</small><b>{ev.ruleType === 'each' ? `${ev.count}개 각각 ${ev.threshold}등급 이내` : `${ev.count}합 ${ev.threshold} 이내`}</b></div></div>}
       <p className="kd-decision-rule">{ev.ruleText || '연결 조건 없음'}</p>
     </> : hasEvidence && !isManual ? <>
       <p className="kd-decision-rule">{ev.ruleText || '연결 조건 없음'}</p>

@@ -1,4 +1,5 @@
 import {repairMinimumRow,parseExplicitMinimum} from './minimumMapping.js';
+import {correctMinimumSource} from './minimumSourceCorrections.js';
 // Patch77: relationship-aware scope mapping and mandatory alternative groups.
 export const MINIMUM_SCHEMA = 'KD_MINIMUM_V1';
 export const MINIMUM_COLUMNS = {
@@ -117,7 +118,7 @@ function relationshipMapped(rows) {
 function scopeUnitsForLink(value){return compactMinimum(value).split(/[,/|]/).filter(Boolean).map(unitKey);}
 export function normalizeMinimumCatalog(rows=[]) {
  if(normalizedCatalogs.has(rows))return normalizedCatalogs.get(rows);
- const repaired=rows.map(original=>repairMinimumRow(original));
+ const repaired=rows.map(original=>repairMinimumRow(correctMinimumSource(original)));
  const linked=relationshipMapped(repaired);
  const normalized=linked.map((mapped,i)=>{
   // Do not promote a parsed row unless the complete contract validates.
@@ -279,8 +280,7 @@ export function resolveCatalogMinimum({target,student,identity}) {
  const selectedYear=exactYear.length?Number(student?.admissionYear):(availableYears[0]||null);
  const year=seasonRows.filter(r=>Number(r.admissionYear)===selectedYear);
  const campusCandidates=year.map(r=>({r,rank:campusRank(r,target,identity)})).filter(x=>x.rank>=0);
- const campusBest=Math.max(-1,...campusCandidates.map(x=>x.rank));
- const university=campusCandidates.filter(x=>x.rank===campusBest).map(x=>x.r);
+ const university=campusCandidates.map(x=>x.r);
  const typed=university.filter(r=>r.admissionType===target.admissionType&&scopeRank(r,target)>=0);
  const uniqueGeneric=genericTrack&&new Set(typed.map(r=>trackKey(r.track))).size===1;
  const exactTrack=university.filter(r=>r.admissionType===target.admissionType&&(uniqueGeneric||[r.track,...list(r.trackAliases)].some(t=>trackKey(t)===trackKey(target.track))));
@@ -288,10 +288,12 @@ export function resolveCatalogMinimum({target,student,identity}) {
  // 모집단위에 해당하는 행이 하나로 결정될 때만 '원문 미기재' 행을 참고 연결합니다.
  const unnamedTrack=university.filter(r=>r.admissionType===target.admissionType&&/원문미기재|미확정/.test(compactMinimum(r.track)));
  const track=exactTrack.length?exactTrack:unnamedTrack;
- const scoped=track.map(r=>({r,rank:scopeRank(r,target)})).filter(x=>x.rank>=0);
+ const scopeCandidates=track.map(r=>({r,rank:scopeRank(r,target)})).filter(x=>x.rank>=0);
+ const campusBest=Math.max(-1,...scopeCandidates.map(x=>campusRank(x.r,target,identity)));
+ const scoped=scopeCandidates.filter(x=>campusRank(x.r,target,identity)===campusBest);
  if(!scoped.length) {
   if(!sameBase.length)return null;
-  return {minimum:null,evaluation:{status:'unlinked',year:selectedYear||Number(student?.admissionYear)||null,linkCode:!year.length?'year':!campusCandidates.length?'campus':!track.length?'track':'scope',reason:!year.length?'연결 가능한 학년도의 최저 자료 없음':!campusCandidates.length?'대학은 있으나 캠퍼스 연결 확인 필요':!track.length?'전형명·전형유형 연결 확인 필요':'모집단위·계열·제외범위 연결 확인 필요'}};
+  return {minimum:null,evaluation:{status:'unlinked',year:null,candidateYears:availableYears,linkCode:!year.length?'year':!campusCandidates.length?'campus':!track.length?'track':'scope',reason:!year.length?'연결 가능한 학년도의 최저 자료 없음':!campusCandidates.length?'대학은 있으나 캠퍼스 연결 확인 필요':!track.length?'전형명·전형유형 연결 확인 필요':'모집단위·계열·제외범위 연결 확인 필요'}};
  }
  const max=Math.max(...scoped.map(x=>x.rank)), rows=scoped.filter(x=>x.rank===max).map(x=>evaluable2027Reference(x.r,target.track));
  // An unresolved source for the same track/scope must not be hidden by a ready duplicate.
