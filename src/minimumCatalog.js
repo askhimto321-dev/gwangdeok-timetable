@@ -282,6 +282,13 @@ function campusRank(row,target,identity) {
  return compactMinimum(row.campus)?-1:1;
 }
 const signature=r=>JSON.stringify([r.ruleType,r.subjects,r.count,r.threshold,r.mandatory,r.englishMax,r.historyMax,r.inquiryMode,r.rounding,r.englishConversion]);
+function possibleScope(row,target) {
+ if(scopeRank(row,target)>=0)return true;
+ if(row.scopeType!=='미확정')return false;
+ const values=compactMinimum(row.department).split(/[,|/]/).filter(Boolean);
+ const unit=unitKey(target.department),field=compactMinimum(target.field).replace(/계열$/,'');
+ return values.some(value=>unitKey(value)===unit||value.replace(/계열$/,'')===field||/전모집단위|일반학과/.test(value));
+}
 function evaluable2027Reference(row,targetTrack='') {
  if(Number(row.admissionYear)!==2027||!row.referenceMapped||row.reviewStatus!=='검토필요')return row;
  const reasons=String(row.reviewReason||'').split(' · ').filter(Boolean);
@@ -307,7 +314,8 @@ export function resolveCatalogMinimum({target,student,identity}) {
  const applicable=seasonRows.filter(r=>campusRank(r,target,identity)>=0&&r.admissionType===target.admissionType&&scopeRank(r,target)>=0&&(
   genericTrack||[r.track,...list(r.trackAliases)].some(t=>trackKey(t)===trackKey(target.track))||/원문미기재|미확정/.test(compactMinimum(r.track))));
  const yearCandidates=applicable.length?applicable:seasonRows;
- const preferred2028=applicable.some(r=>Number(r.admissionYear)===2028);
+ const type2028=seasonRows.some(r=>Number(r.admissionYear)===2028&&campusRank(r,target,identity)>=0&&r.admissionType===target.admissionType&&possibleScope(r,target));
+ const preferred2028=applicable.some(r=>Number(r.admissionYear)===2028)||type2028;
  const exactYear=yearCandidates.filter(r=>r.admissionYear===Number(student?.admissionYear));
  const availableYears=[...new Set(yearCandidates.map(r=>Number(r.admissionYear)).filter(Boolean))].sort((a,b)=>Math.abs(a-Number(student?.admissionYear||a))-Math.abs(b-Number(student?.admissionYear||b))||b-a);
  const selectedYear=preferred2028?2028:exactYear.length?Number(student?.admissionYear):(availableYears[0]||null);
@@ -325,6 +333,34 @@ export function resolveCatalogMinimum({target,student,identity}) {
  const campusBest=Math.max(-1,...scopeCandidates.map(x=>campusRank(x.r,target,identity)));
  const scoped=scopeCandidates.filter(x=>campusRank(x.r,target,identity)===campusBest);
  if(!scoped.length) {
+  // A historical NAVI track may have been renamed. Use the admission type as
+  // a reference only when every potentially applicable current-year track
+  // agrees. An unresolved scope or differing rule must remain a choice.
+  const grouped=university.filter(r=>r.admissionType===target.admissionType&&possibleScope(r,target));
+  const groupedCampus=Math.max(-1,...grouped.map(r=>campusRank(r,target,identity)));
+  const candidates=grouped.filter(r=>campusRank(r,target,identity)===groupedCampus);
+  if(candidates.length){
+   // Pick the narrowest applicable row within EACH track. Do not let a
+   // specific row in one track hide a broader, different rule in another.
+   const perTrack=new Map();
+   for(const row of candidates){
+    const group=trackKey(row.track),rank=scopeRank(row,target);
+    const prior=perTrack.get(group);
+    if(!prior||rank>prior.rank)perTrack.set(group,{rank,rows:[row]});
+    else if(rank===prior.rank)prior.rows.push(row);
+   }
+   const relevant=[...perTrack.values()].flatMap(group=>group.rows);
+   const options=[...new Set(relevant.map(r=>`${r.track}: ${r.ruleText||'조건 확인 필요'}`))];
+   const sameRule=relevant.every(r=>r.reviewStatus==='계산가능'&&scopeRank(r,target)>=0)&&new Set(relevant.map(signature)).size===1;
+   if(sameRule){
+    const chosen=relevant[0];
+    const evaluation=evaluateCatalogMinimum(chosen,student);
+    return {minimum:chosen,evaluation:{...evaluation,typeGrouped:true,admissionType:target.admissionType,
+     reason:`${evaluation.reason} · ${selectedYear}학년도 ${target.admissionType} 전형 공통 기준 참고 (${[...new Set(relevant.map(r=>r.track))].join('·')})`}};
+   }
+   return {minimum:null,evaluation:{status:'manual',year:selectedYear,linkCode:'track-choice',
+    ruleText:options.join(' / '),reason:`${selectedYear}학년도 ${target.admissionType} 전형별 최저가 달라 전형을 선택해야 합니다. ${options.join(' / ')}`}};
+  }
   if(!sameBase.length)return null;
   return {minimum:null,evaluation:{status:'unlinked',year:null,candidateYears:availableYears,linkCode:!year.length?'year':!campusCandidates.length?'campus':!track.length?'track':'scope',reason:!year.length?'연결 가능한 학년도의 최저 자료 없음':!campusCandidates.length?'대학은 있으나 캠퍼스 연결 확인 필요':!track.length?'전형명·전형유형 연결 확인 필요':'모집단위·계열·제외범위 연결 확인 필요'}};
  }

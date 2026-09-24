@@ -39,6 +39,7 @@ export function MinimumFacts({ minimum, ev, student, printMode=false }) {
   const hasDetail = !isManual || ev?.subjectsText || ev?.note || ev?.reason || ev?.source;
   return <>
     <strong className="kd-decision-verdict">{minimum.label}</strong>
+    {ev?.typeGrouped && <small className="kd-decision-reason">{ev.year}학년도 {ev.admissionType || '같은 유형'} 전형의 공통 기준 참고</small>}
     {['manual','unlinked','not-listed','source-pending'].includes(minimum.status) && <small className="kd-decision-reason">{minimum.reason}</small>}
     {ev?.historyInSum && <span className="kd-history-policy">한국사 합산 허용 · 해당 전형 기준</span>}
     {ev?.historyMax != null && <span className="kd-history-policy">한국사 별도 {ev.historyMax}등급 이내 · 학생 {ev.historyGrade ?? '미입력'}{ev.historyInSum ? '' : ' · 합산 제외'}</span>}
