@@ -31,7 +31,7 @@ export function RecommendedCourseDetails({progress, status='ready', printMode=fa
 // - "조건 확인 필요" 상태는 원문 조각을 그대로 노출하지 않고, 왜 확인이 필요한지 이유 한 줄만
 //   기본으로 보여줍니다. 반영 영역·비고처럼 실제 내용이 있을 때만 "자세히"를 둡니다.
 export function MinimumFacts({ minimum, ev, student, printMode=false }) {
-  const hasEvidence = !!ev && minimum.status !== 'unlinked';
+  const hasEvidence = !!ev && !['unlinked','not-listed','source-pending'].includes(minimum.status);
   const isManual = minimum.status === 'manual';
   const needsScore = minimum.status === 'unavailable';
   const decided = hasEvidence && ev.studentSum != null && (minimum.status === 'satisfied' || minimum.status === 'unsatisfied');
@@ -39,7 +39,7 @@ export function MinimumFacts({ minimum, ev, student, printMode=false }) {
   const hasDetail = !isManual || ev?.subjectsText || ev?.note || ev?.reason || ev?.source;
   return <>
     <strong className="kd-decision-verdict">{minimum.label}</strong>
-    {['manual','unlinked'].includes(minimum.status) && <small className="kd-decision-reason">{minimum.reason}</small>}
+    {['manual','unlinked','not-listed','source-pending'].includes(minimum.status) && <small className="kd-decision-reason">{minimum.reason}</small>}
     {ev?.historyInSum && <span className="kd-history-policy">한국사 합산 허용 · 해당 전형 기준</span>}
     {ev?.historyMax != null && <span className="kd-history-policy">한국사 별도 {ev.historyMax}등급 이내 · 학생 {ev.historyGrade ?? '미입력'}{ev.historyInSum ? '' : ' · 합산 제외'}</span>}
     {decided ? <>

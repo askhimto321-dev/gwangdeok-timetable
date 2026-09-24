@@ -48,6 +48,24 @@ export function minimumScopeRank(source, department, field) {
 }
 // Match minimum requirements independently of NAVI cutoff availability.
 export function resolveMinimumLink({target, data = {}, student, identity, evaluateMinimum, ambiguousType = false}) {
+  // NAVI cutoff tracks describe 2026 results. Match only the 2026 minimum
+  // rows and the 2026 unit; identical names in later years are not evidence.
+  if(Number(target?.trackYear) === COMPARISON_YEARS.result) {
+    const source=(data.historicalMinimums2026||[]).filter(row=>Number(row?.[12])===2026);
+    const campus=identity(target.university,target.region);
+    const candidates=source.filter(row=>identity(row[1],row[0])===campus
+      && comparisonType(row[2])===comparisonType(target.admissionType)
+      && comparisonTrackKey(row[3])===comparisonTrackKey(target.track))
+      .map(row=>({row,rank:minimumScopeRank(row[5],target.historicalDepartment||target.department,target.field)}))
+      .filter(item=>item.rank>=0);
+    const best=Math.max(-1,...candidates.map(item=>item.rank));
+    const matches=candidates.filter(item=>item.rank===best);
+    if(matches.length===1)return {minimum:matches[0].row,evaluation:evaluateMinimum(matches[0].row)};
+    if(matches.length>1)return {minimum:null,evaluation:{status:'manual',year:2026,reason:'2026 전형의 최저 원문이 같은 범위에 복수로 있습니다.'}};
+    const loaded=source.length>0||data.historicalMinimumsLoaded===true;
+    return {minimum:null,evaluation:{status:loaded?'not-listed':'source-pending',year:2026,
+      reason:loaded?'NAVI 2026 수능최저 시트에 이 전형의 행이 없습니다. 최저 없음 여부는 모집요강을 확인하세요.':'저장된 NAVI 자료에 2026 최저가 없습니다. 원본을 다시 분석·저장하세요.'}};
+  }
   const catalog = resolveCatalogMinimum({target,student,identity});
   if (catalog && catalog.evaluation.status!=='unlinked') return catalog;
   const normalize = value => Array.isArray(value)
@@ -98,7 +116,7 @@ export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [
       const sameTrack = value => Boolean(comparisonTrackKey(track)) && comparisonTrackKey(value) === comparisonTrackKey(track);
       const sameType = value => comparisonType(value) === admissionType;
       const rules = (data.courseRules || []).filter(value => sameCampus(value[1], value[0]) && sameType(value[2]) && sameTrack(value[3]) && comparisonUnitMatches(value[5], department));
-      const {minimum, evaluation:minimumEvaluation} = resolveMinimumLink({target:{university,region,department,field:row[6],admissionType,track},data,student:minimumContext,identity,evaluateMinimum,ambiguousType:tracks.filter(x=>sameTrack(x.item[0])).length>1});
+      const {minimum, evaluation:minimumEvaluation} = resolveMinimumLink({target:{university,region,department,field:row[6],historicalDepartment:row[4],trackYear:2026,admissionType,track},data,student:minimumContext,identity,evaluateMinimum,ambiguousType:tracks.filter(x=>sameTrack(x.item[0])).length>1});
       const minimumStatus = minimumEvaluation.status;
       const stats = (data.caseStats || []).filter(value => sameCampus(value[5] || value[1], value[0]) && sameType(value[2]) && sameTrack(value[6] || value[3]) && key(value[4]) === key(row[6]) && key(row[6]));
       const groupIndex = { 전교과: 8, 국수영사과: 9, 국수영사: 10, 국수영과: 11 }[conversionGroup] ?? 8;
@@ -113,7 +131,7 @@ export function buildComparisonRows({ compareItems = [], data = {}, caseRows = [
         : { status: 'unavailable', label: '학교 자료 미연결 · 원문에서 직접 확인' };
       result.push({
         id: JSON.stringify([university, region, department, id]), stored, university, region, department, previousDepartment: row[4], admissionType, track,
-        planItem: { university, region, department, field: row[6], admissionType, track, source: 'NAVI 전형 비교' },
+        planItem: { university, region, department, field: row[6], admissionType, track, trackYear:2026, source: 'NAVI 전형 비교' },
         cut50, cut70, support: supportBandValue(convertedGrade, cutoffBasis === '50' ? cut50 : cut70), eligibility,
         course: rules.length === 1 ? [rules[0][6], rules[0][7], rules[0][8], rules[0][17]].map(text).filter(Boolean).join(' · ') || '반영 내용 미제공' : rules.length ? '복수 조건 연결 · 원문 확인' : '교과 반영 자료 미연결',
         minimumStatus, minimumEvaluation, minimumText: minimum ? text(Array.isArray(minimum)?minimum[8]:(minimum.ruleText || minimum.requiredSum)) || '조건 원문 미제공' : minimumEvaluation.ruleText || minimumEvaluation.reason,

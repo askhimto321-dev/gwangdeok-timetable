@@ -17,7 +17,8 @@ export function evaluateNaviMinimumSafe(row, student) {
   if (row.schema===MINIMUM_SCHEMA) return evaluateCatalogMinimum(row,student);
   if (!Array.isArray(row)) return evaluateStoredMinimum(row, student);
   const rule=compact(row[8]), area=compact(row[6]), notes=[row[10],row[11]].filter(x=>!empty(x)).join(' · ');
-  const base={ruleText:String(row[8] || ''),subjectsText:String(row[6] || ''),note:notes,year:2027,yearMismatch:Boolean(student?.admissionYear&&Number(student.admissionYear)!==2027)};
+  const sourceYear=Number(row[12]) || 2027;
+  const base={ruleText:String(row[8] || ''),subjectsText:String(row[6] || ''),note:notes,year:sourceYear,yearMismatch:Boolean(student?.admissionYear&&Number(student.admissionYear)!==sourceYear)};
   const result=(status,reason,extra={})=>({...base,status,reason,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,...extra});
   if (/^(없음|미적용|해당없음|수능최저(?:학력기준)?(?:없음|미적용))$/.test(rule)) {
     return notes ? result('manual','미적용 표기와 별도 비고가 함께 있어 원문 확인이 필요합니다.') : result('no-minimum','자료에 수능최저 미적용이 명시되어 있습니다.');
@@ -25,7 +26,7 @@ export function evaluateNaviMinimumSafe(row, student) {
   if (!rule) return result('manual','최저 조건 원문이 비어 있습니다.');
   // Use the same structured grammar for legacy NAVI cells and stored tables.
   // Retain the original column-consistency checks before accepting its result.
-  const shared=evaluateStoredMinimum({admissionYear:2027,university:row[1],track:row[3],requiredSubjects:row[6],requiredSubjectCount:row[7],requiredSum:row[8],note:notes},student);
+  const shared=evaluateStoredMinimum({admissionYear:sourceYear,university:row[1],track:row[3],requiredSubjects:row[6],requiredSubjectCount:row[7],requiredSum:row[8],note:notes},student);
   if(!['manual','unlinked'].includes(shared.status)){
     if(!empty(row[7])&&Number(row[7])!==shared.count)return result('manual','반영 영역 수와 원문 조건이 일치하지 않습니다.');
     if(!empty(row[9])&&shared.ruleType==='sum'&&(!Number.isFinite(Number(row[9]))||Math.abs(Number(row[9])-shared.threshold/shared.count)>0.001))return result('manual','최저 합과 원자료 평균등급 값이 일치하지 않습니다.');
@@ -191,12 +192,12 @@ export function improvementAdviceText(advice) {
 
 export function minimumDisplay(evaluation, status) {
   const state=evaluation?.status || status || 'unlinked';
-  const labels={satisfied:'모평 기준 충족',unsatisfied:'모평 기준 미충족','no-minimum':'수능최저 없음',manual:'원문 조건',unavailable:'모평 성적 필요',unlinked:'최저 자료 미연결'};
+  const labels={satisfied:'모평 기준 충족',unsatisfied:'모평 기준 미충족','no-minimum':'수능최저 없음',manual:'원문 조건',unavailable:'모평 성적 필요',unlinked:'최저 자료 미연결','not-listed':'2026 원본 미기재','source-pending':'2026 자료 재분석 필요'};
   return {status:state,label:labels[state] || '원문 조건',reason:evaluation?.reason || '연도·캠퍼스·모집단위·전형이 일치하는 원자료를 확인하세요.'};
 }
 
 export function minimumYearLabel(evaluation, student) {
-  if(evaluation?.status==='unlinked')return '자료 미연결 · 연도 미확정';
+  if(['unlinked','not-listed','source-pending'].includes(evaluation?.status))return evaluation?.year ? `${evaluation.year}학년도 원문` : '자료 미연결 · 연도 미확정';
   const year=Number(evaluation?.year);
   if(!year)return '기준연도 확인';
   const studentYear=Number(student?.admissionYear);

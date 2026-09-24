@@ -15,7 +15,7 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
   const saved = new Set(planItems.map(row => planKey(row.stored)));
   return <section className="kd-track-comparison" aria-labelledby="kd-comparison-title" aria-busy={loading || busy || undefined}>
     <header className="kd-comparison-heading"><div><h3 id="kd-comparison-title">전형별 비교</h3><p>최대 5개 모집단위를 담고, 각 전형의 컷·반영 교과·최저를 한 행에서 비교하세요.</p></div><strong>{loading ? '조회 중' : `${compareItems.length}/5 모집단위`}</strong></header>
-    <div className="kd-comparison-note">입시결과 {COMPARISON_YEARS.result} · 모집단위/교과 반영 {COMPARISON_YEARS.recruitment}. 최저는 학생 지원연도의 기존 대학 지원 진단 자료를 우선 연결하며, 없으면 NAVI 2027 참고자료를 표시합니다. 최종 지원 조건은 해당 연도 모집요강을 확인하세요.<br/>위 &apos;학생&apos; 내신은 모든 대학에 동일하게 적용하는 공통 참고 환산값입니다. 대학별 실제 반영교과·학년별 비율·진로선택 처리 방식은 이 값과 다를 수 있습니다.</div>
+    <div className="kd-comparison-note">입시결과와 전형명은 {COMPARISON_YEARS.result}학년도입니다. 이 표의 최저는 같은 {COMPARISON_YEARS.result}학년도 원문과만 연결합니다. {COMPARISON_YEARS.minimum}·2028 최저는 별도 전형 자료이며 실제 지원 조건은 해당 연도 모집요강을 확인하세요.<br/>위 &apos;학생&apos; 내신은 모든 대학에 동일하게 적용하는 공통 참고 환산값입니다. 대학별 실제 반영교과·학년별 비율·진로선택 처리 방식은 이 값과 다를 수 있습니다.</div>
     <details className="kd-comparison-source"><summary>출처와 집계 범위 확인</summary><p>출처: 경기도교육청 NAVI 업로드 자료. 현재 파서(schema v1)는 2026 입시결과와 2027 전형 정보를 연결합니다.</p><p>원본 파일: {source?.fileName || source?.name || '파일명 미제공'}<br/>파일 기준일: {source?.sourceDate || '미제공'} · 저장일: {source?.savedAt?.slice(0,10) || '미제공'}</p><p>공개 컷의 표본 수와 NAVI 통합 사례의 연도는 현재 저장 자료에 없습니다. NAVI 건수는 대학·전형·계열 단위로, 해당 학과의 합격자 수가 아닙니다. 광덕고 사례와 합산하지 않습니다.</p></details>
     {!studentSid && <p className="kd-comparison-note">학생을 선택하면 비교 목록과 지원 구성을 저장할 수 있습니다.</p>}
     {loading && <p role="status">저장된 목록을 확인하고 있습니다. 조회 완료 전에는 목록을 수정할 수 없습니다.</p>}
@@ -30,7 +30,7 @@ export default function AdmissionComparison({ rows = [], compareItems = [], plan
       {visible.length ? <div className="kd-comparison-scroll" tabIndex={0} role="region" aria-label="전형별 비교표. 좁은 화면에서는 가로로 스크롤하세요."><table className="kd-comparison-table"><caption>전형별 비교 — 대학 공개 컷은 9등급 기준, 서로 다른 대학의 산출 방식은 다를 수 있습니다.</caption><thead><tr>{['대학·모집단위 / 전형','내신 컷 비교','수능최저','상세 · 지원 구성'].map(title => <th key={title} scope="col">{title}</th>)}</tr></thead><tbody>{visible.map(row => {
         if (row.missing) return <tr key={row.id}><th scope="row">{row.stored.university}<small>{row.stored.department}</small></th><td colSpan={3}>{row.reason}</td></tr>;
         const minimum = minimumDisplay(row.minimumEvaluation, row.minimumStatus);
-        const hasEvidence = !!row.minimumEvaluation && minimum.status !== 'unlinked';
+        const hasEvidence = !!row.minimumEvaluation && !['unlinked','not-listed','source-pending'].includes(minimum.status);
         const chips = !hasEvidence ? studentMockChips(student) : null;
         const disabled = busy || !studentSid || !row.track || saved.has(planKey(row.planItem)) || planItems.length >= 6;
         return <tr key={row.id}>

@@ -80,7 +80,7 @@
 .kd-status-pill.is-satisfied{color:var(--kd-status-ok-text);background:var(--kd-status-ok-bg);border-color:var(--kd-status-ok-border)}
 .kd-status-pill.is-unsatisfied{color:var(--kd-status-bad-text);background:var(--kd-status-bad-bg);border-color:var(--kd-status-bad-border)}
 .kd-status-pill.is-manual,.kd-status-pill.is-unavailable{color:var(--kd-status-caution-text);background:var(--kd-status-caution-bg);border-color:var(--kd-status-caution-border)}
-.kd-status-pill.is-unlinked,.kd-status-pill.is-no-minimum{color:var(--kd-status-neutral-text);background:var(--kd-status-neutral-bg);border-color:var(--kd-status-neutral-border)}
+.kd-status-pill.is-unlinked,.kd-status-pill.is-no-minimum,.kd-status-pill.is-not-listed,.kd-status-pill.is-source-pending{color:var(--kd-status-neutral-text);background:var(--kd-status-neutral-bg);border-color:var(--kd-status-neutral-border)}
 
 /* 대학별 최저 자료가 안 붙어 있어도(=최저 자료 미연결) 학생 본인의 최근 모의고사 등급은
    저장돼 있으니 칩으로 보여줍니다. 문장이 아니라 태그 형태라 다른 회색 문장들 사이에서도

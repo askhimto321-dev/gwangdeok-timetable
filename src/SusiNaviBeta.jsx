@@ -118,6 +118,7 @@ export async function addSusiSupportPlanExternal(studentSid = "", item = {}) {
     field: normalizeText(item?.field),
     admissionType,
     track: track || admissionType || "전형 미지정",
+    trackYear: Number(item?.trackYear) || (/NAVI/.test(String(item?.source || '')) ? 2026 : null),
     source: normalizeText(item?.source) || "외부 상담 화면",
     sourceCaseId: normalizeText(item?.sourceCaseId),
   };
@@ -540,17 +541,17 @@ function parseConversionRows(rows) {
   return result.sort((a, b) => a[0] - b[0]);
 }
 
-function parseMinimumRows(rows) {
+function parseMinimumRows(rows, year = 2027) {
   const result = [];
   for (let index = 15; index < rows.length; index += 1) {
     const row = rows[index] || [];
-    if (Number(row[1]) !== 2027) continue;
+    if (Number(row[1]) !== year) continue;
     const university = cleanCell(row[3]);
     if (!university) continue;
     result.push([
       cleanCell(row[2]), university, cleanCell(row[5]), cleanCell(row[6]),
       cleanCell(row[9]), cleanCell(row[10]), cleanCell(row[13]), numberOrNull(row[16]),
-      cleanCell(row[17]), numberOrNull(row[19]), cleanCell(row[20]), cleanCell(row[23]),
+      cleanCell(row[17]), numberOrNull(row[19]), cleanCell(row[20]), cleanCell(row[23]), year,
     ]);
   }
   return result;
@@ -1469,7 +1470,8 @@ export async function parseSusiNaviWorkbook(file, onProgress = () => {}) {
   const minimumRows = minimumSheet
     ? XLSX.utils.sheet_to_json(minimumSheet, { header: 1, defval: "", raw: true, blankrows: false })
     : [];
-  const minimums = parseMinimumRows(minimumRows);
+  const minimums = parseMinimumRows(minimumRows, 2027);
+  const historicalMinimums2026 = parseMinimumRows(minimumRows, 2026);
 
   onProgress("합격사례 분포와 추가 전형자료를 정리하는 중입니다.");
   const sheetRows = sheet => sheet ? XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "", raw: true, blankrows: false }) : [];
@@ -1495,6 +1497,7 @@ export async function parseSusiNaviWorkbook(file, onProgress = () => {}) {
       regions: unique(records.map(row => row[1])).length,
       conversions: conversions.length,
       minimums: minimums.length,
+      historicalMinimums2026: historicalMinimums2026.length,
       caseStats: caseStats.length,
       changes2028: changes2028.length,
       courseRules: courseRules.length,
@@ -1503,6 +1506,7 @@ export async function parseSusiNaviWorkbook(file, onProgress = () => {}) {
     records,
     conversions,
     minimums,
+    historicalMinimums2026,
     caseStats,
     changes2028,
     courseRules,
@@ -2610,7 +2614,9 @@ export default function SusiNaviBetaView({
     const admissionItem = matchingItems.length === 1 ? matchingItems[0] : null;
     const cut = admissionItem ? cutoffValue(admissionItem, cutoffBasis) : null;
     const evidence = admissionItem ? evidenceRows.find(value => universityIdentityKey(value.university, value.region || "") === universityIdentityKey(item.university, item.region || "") && compactText(value.department) === compactText(item.department) && value.admissionType === item.admissionType && trackIdentity(value.track) === trackIdentity(item.track)) : null;
-    const minimumEvaluation = evidence?.minimumEvaluation || resolveMinimumLink({target:item,data:data || {},student:effectiveStudent,identity:universityIdentityKey,evaluateMinimum:row=>evaluateNaviMinimum(row,effectiveStudent),ambiguousType:true}).evaluation;
+    const historicalTrack = Number(item.trackYear) === 2026 || /NAVI (?:통합 기준|전형 비교)/.test(String(item.source || ''));
+    const minimumTarget = historicalTrack ? {...item,trackYear:2026,historicalDepartment:entry?.row?.[4] || item.department} : item;
+    const minimumEvaluation = evidence?.minimumEvaluation || resolveMinimumLink({target:minimumTarget,data:data || {},student:effectiveStudent,identity:universityIdentityKey,evaluateMinimum:row=>evaluateNaviMinimum(row,effectiveStudent),ambiguousType:true}).evaluation;
     const recommendation = entry?.row ? recommendationForRow(entry.row) : null;
     return {
       stored: item, entry, admissionItem,
@@ -3438,10 +3444,10 @@ function AdmissionGroup({ title, year, admissionType, items = [], convertedGrade
     const support = supportBand(convertedGrade, selectedCutoff);
     const stat = bestCaseStat(caseStats, university, region, item[0], admissionType, conversionGroup);
     const cuts = caseCutForGroup(stat, conversionGroup);
-    const planItem = { university, region, department, field, admissionType, track: item[0] || admissionType, source: "NAVI 통합 기준" };
+    const planItem = { university, region, department, field, admissionType, track: item[0] || admissionType, trackYear:2026, source: "NAVI 통합 기준" };
     const inPlan = supportPlan.some(value => supportPlanItemKey(value) === supportPlanItemKey(planItem));
-    const minimumStatus = matchingMinimumStatus(minimums, minimumEvaluations, admissionType, item[0]);
-    const minimumMeta = naviMinimumStatusMeta(minimumStatus);
+    // A 2026 cutoff track must not carry a 2027/2028 minimum badge.
+    const minimumMeta = null;
     return <div key={`${item[0]}-${index}`} style={{ ...ui.admissionItem, ...(tone === "teaching" ? ui.teachingItem : ui.holisticItem) }}>
       <div style={ui.admissionItemHead}><b style={ui.admissionName}>{item[0]}</b><span style={ui.admissionHeadBadges}>{support && <span style={{ ...ui.supportBadge, color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span>}{minimumMeta && <span style={{ ...ui.minimumStatusBadge, ...minimumMeta.style }}>{minimumMeta.label}</span>}</span></div>
       <small style={ui.officialCutLabel}><span>대학 공개 2026 입시결과</span><b style={ui.officialCutBasisTag}>{cutoffBasis}%컷 기준 판정</b></small>
@@ -3546,6 +3552,8 @@ function minimumWorkspaceMeta(status) {
   if (status === "manual") return { label: "최저 조건 확인", style: ui.workspaceMinimumWarning };
   if (status === "unavailable") return { label: "모평 미입력", style: ui.workspaceMinimumNeutral };
   if (status === "no-minimum") return { label: "최저 없음", style: ui.workspaceMinimumNeutral };
+  if (status === "not-listed") return { label: "2026 원본 미기재", style: ui.workspaceMinimumNeutral };
+  if (status === "source-pending") return { label: "2026 자료 재분석 필요", style: ui.workspaceMinimumNeutral };
   // "자료가 아직 연결되지 않음"은 경고가 아니라 중립 상태이므로, 진짜 확인이 필요한
   // manual과는 다른 회색 배지로 표시합니다(주의색 남용 방지).
   return { label: "최저 자료 미연결", style: ui.workspaceMinimumNeutral };

@@ -1,5 +1,5 @@
 import {repairMinimumRow,parseExplicitMinimum} from './minimumMapping.js';
-import {correctMinimumSource,correct2027Conditions} from './minimumSourceCorrections.js';
+import {correctMinimumSource,correct2027Conditions,expandMinimumSourceRows} from './minimumSourceCorrections.js';
 // Patch77: relationship-aware scope mapping and mandatory alternative groups.
 export const MINIMUM_SCHEMA = 'KD_MINIMUM_V1';
 export const MINIMUM_COLUMNS = {
@@ -118,7 +118,8 @@ function relationshipMapped(rows) {
 function scopeUnitsForLink(value){return compactMinimum(value).split(/[,/|]/).filter(Boolean).map(unitKey);}
 export function normalizeMinimumCatalog(rows=[]) {
  if(normalizedCatalogs.has(rows))return normalizedCatalogs.get(rows);
- const repaired=rows.map(original=>{
+ const activeRows=expandMinimumSourceRows(rows.filter(original=>original.season==='수시'));
+ const repaired=activeRows.map(original=>{
   // University/campus normalization may expose an exact source correction
   // (e.g. 단국대(죽전/천안) -> 단국대·죽전). Resolve both before validation.
   let first=repairMinimumRow(correctMinimumSource(original));
@@ -134,7 +135,7 @@ export function normalizeMinimumCatalog(rows=[]) {
  const linked=relationshipMapped(repaired);
  const normalized=linked.map((mapped,i)=>{
   // Do not promote a parsed row unless the complete contract validates.
-  return mapped.reviewStatus==='계산가능'&&validateMinimumRow(mapped).length?rows[i]:mapped;
+  return mapped.reviewStatus==='계산가능'&&validateMinimumRow(mapped).length?activeRows[i]:mapped;
  });
  normalizedCatalogs.set(rows,normalized);normalizedCatalogs.set(normalized,normalized);
  return normalized;
@@ -158,6 +159,11 @@ export function parseMinimumWorkbook(workbook, XLSX) {
   // reference conversion to the current 통합사회·통합과학 input, not a literal 2028 rule.
   const referenceColumn=header.indexOf('2027 참고환산');
   if(referenceColumn>=0)row.referenceMapped=/^(?:1|true|y|예|적용)$/i.test(String(values[referenceColumn]??'').trim());
+  else if(row.admissionYear===2027&&row.reviewStatus==='계산가능'&&/[사과탐]/.test(row.subjects)){
+   // Older compatible exports did not carry this optional column. A row that
+   // was already marked calculable used the documented 2027 reference mapping.
+   row.referenceMapped=true;
+  }
   rawRows.push({...row,__line:hi+i+2});
  });
  const normalized=normalizeMinimumCatalog(rawRows);
@@ -174,7 +180,7 @@ export function parseMinimumWorkbook(workbook, XLSX) {
 }
 export function minimumCatalogStats(rows=[]) {return {total:rows.length,ready:rows.filter(r=>r.reviewStatus==='계산가능').length,review:rows.filter(r=>r.reviewStatus==='검토필요').length,disabled:rows.filter(r=>r.reviewStatus==='사용안함').length};}
 export function mergeMinimumCatalog(current, incoming) {
- const map=new Map(current.map(r=>[r.id,r]));let added=0,changed=0,unchanged=0;
+ const map=new Map(current.filter(r=>r.season==='수시').map(r=>[r.id,r]));let added=0,changed=0,unchanged=0;
  for(const row of incoming){const before=map.get(row.id);if(!before)added++;else if(JSON.stringify(before)===JSON.stringify(row))unchanged++;else changed++;map.set(row.id,row);}
  return {rows:[...map.values()],added,changed,unchanged};
 }
@@ -194,6 +200,13 @@ export function evaluateCatalogMinimum(row,student) {
   historyInSum,historyMax:row.historyMax,historyGrade:gradeValue(student?.latestMockGrades?.한국사)};
  const yearMismatch=Number(student?.admissionYear)&&Number(student.admissionYear)!==Number(row.admissionYear);
  const result=(status,reason,extra={})=>({...base,status,reason:yearMismatch?`${reason} · 학생 지원연도 ${student.admissionYear}, 자료 ${row.admissionYear} 기준`:reason,satisfied:status==='satisfied'?true:status==='unsatisfied'?false:null,yearMismatch,...extra});
+ if(row.alternativeRules?.length){
+  const options=row.alternativeRules.map(option=>({label:option.label,evaluation:evaluateCatalogMinimum({...row,...option,alternativeRules:null},student)}));
+  const winner=options.find(x=>x.evaluation.status==='satisfied')||options.find(x=>x.evaluation.status==='unavailable')||options.find(x=>x.evaluation.status==='manual')||options[0];
+  return {...winner.evaluation,ruleText:row.ruleText,note:row.note,
+   reason:`${winner.label} 기준: ${winner.evaluation.reason} · ${options.map(x=>`${x.label} ${x.evaluation.status==='satisfied'?'충족':x.evaluation.status==='unsatisfied'?'미충족':'판정보류'}`).join(' / ')}`,
+   alternatives:options.map(x=>({label:x.label,status:x.evaluation.status}))};
+ }
  const errors=validateMinimumRow(row);
  if(row.reviewStatus!=='계산가능'||errors.length)return result('manual',row.reviewReason||errors.join(' · ')||'원문 조건 검토가 필요합니다.');
  if(row.ruleType==='없음')return result('no-minimum','해당 적용 범위에 수능최저 미적용이 명시되어 있습니다.');
@@ -210,6 +223,7 @@ export function evaluateCatalogMinimum(row,student) {
  const get=(s,fill)=>{
   if(s==='탐') {let v=(get('사',fill)+get('과',fill))/2;return row.rounding==='절사'?Math.floor(v):row.rounding==='올림'?Math.ceil(v):row.rounding==='반올림'?Math.round(v):v;}
   let v=gradeValue(grades[gradeNames[s]])??fill;
+  if(row.subjectBoosts?.[s])v=Math.max(1,v-row.subjectBoosts[s]);
   return s==='영'&&row.englishConversion==='2등급까지1'&&v<=2?1:v;
  };
  const requiredNames=[...new Set([...groups.flat().flatMap(s=>s==='탐'?['사','과']:[s]),...(row.englishMax?['영']:[]),...(row.historyMax?['한']:[])])];
@@ -221,6 +235,7 @@ export function evaluateCatalogMinimum(row,student) {
    if(i>=groups.length)return;walk(i+1,chosen);for(const s of groups[i])walk(i+1,[...chosen,{code:s,name:gradeNames[s]||'사·과 평균',grade:get(s,fill)}]);
   };walk(0,[]);
   const passes=c=>(row.ruleType==='각'?c.every(x=>x.grade<=row.threshold):c.reduce((n,x)=>n+x.grade,0)<=row.threshold)
+    &&(!row.englishIfSelectedMax||!c.some(x=>x.code==='영')||c.find(x=>x.code==='영').grade<=row.englishIfSelectedMax)
     &&(!row.englishMax||(gradeValue(grades.영어)??fill)<=row.englishMax)&&(!row.historyMax||(gradeValue(grades.한국사)??fill)<=row.historyMax);
   candidates.sort((a,b)=>Number(passes(b))-Number(passes(a))||a.reduce((s,x)=>s+x.grade,0)-b.reduce((s,x)=>s+x.grade,0));
   return {selected:candidates[0],pass:candidates[0]?passes(candidates[0]):false};
@@ -236,16 +251,16 @@ export function evaluateCatalogMinimum(row,student) {
  const missingSeparateCap=(row.englishMax&&missingCodes.has('영'))||(row.historyMax&&missingCodes.has('한'));
  if(missing.length&&(selectedUsesMissing||missingSeparateCap))return result(pass?'satisfied':'unsatisfied',pass?'입력된 성적과 조건으로 충족이 확정됩니다. 미입력 성적을 유리하게 가정하지 않았습니다.':'미입력 영역을 1등급으로 가정해도 충족하지 못합니다.',{missingSubjects:missing.map(s=>gradeNames[s]),count:row.count,threshold:row.threshold,ruleType:row.ruleType==='합'?'sum':'each'});
  const sum=selected.reduce((n,x)=>n+x.grade,0);
- const extra=[row.mandatory?`필수 ${row.mandatory}`:'',row.englishMax?`영어 ${grades.영어} / ${row.englishMax} 이내`:'',row.historyMax?`한국사 ${grades.한국사} / ${row.historyMax} 이내`:'',row.englishConversion!=='없음'?'영어 2등급까지 1등급 환산':'',row.referenceMapped?'2027 선택탐구를 현재 통합사회·통합과학으로 참고 환산':''].filter(Boolean).join(' · ');
+ const extra=[row.mandatory?`필수 ${row.mandatory}`:'',row.englishMax?`영어 ${grades.영어} / ${row.englishMax} 이내`:'',row.englishIfSelectedMax&&selected.some(x=>x.code==='영')?`영어 선택 시 ${row.englishIfSelectedMax}등급 이내`:'',row.historyMax?`한국사 ${grades.한국사} / ${row.historyMax} 이내`:'',row.englishConversion!=='없음'?'영어 2등급까지 1등급 환산':'',row.referenceMapped?'2027 선택탐구를 현재 통합사회·통합과학으로 참고 환산':''].filter(Boolean).join(' · ');
  return result(pass?'satisfied':'unsatisfied',`${selected.map(x=>`${x.name} ${x.grade}`).join(' + ')}${row.ruleType==='합'?` = ${sum} / 합 ${row.threshold} 이내`:` / 각각 ${row.threshold} 이내`}${extra?' · '+extra:''}`,{studentSum:sum,selectedSubjects:selected,count:row.count,threshold:row.threshold,ruleType:row.ruleType==='합'?'sum':'each',referenceMapped:Boolean(row.referenceMapped),missingIgnored:missing.filter(code=>!selected.some(item=>item.code===code)).map(code=>gradeNames[code])});
 }
 const unitKey=x=>compactMinimum(x).replace(/^의(?:과대학|학과)$/,'의예과').replace(/^치의학과$/,'치의예과').replace(/^한의학과$/,'한의예과').replace(/^수의학과$/,'수의예과').replace(/^약학(?:부|대학|전공)?$/,'약학과').replace(/^간호(?:대학|학부)?$/,'간호학과');
 function scopeRank(row,target) {
  const unit=unitKey(target.department),field=compactMinimum(target.field).replace(/계열$/,'');
  if(!unit)return -1;
- if(list(row.excluded).some(x=>unitKey(x)===unit||compactMinimum(x).replace(/계열$/,'')===field))return -1;
+ if(list(row.excluded).some(x=>unitKey(x)===unit||compactMinimum(x).replace(/계열$/,'')===field||(x==='디자인'&&/디자인/.test(unit))))return -1;
  if(row.scopeType==='학과')return list(row.department).some(x=>unitKey(x)===unit)?3:-1;
- if(row.scopeType==='계열')return field&&list(row.department).some(x=>compactMinimum(x).replace(/계열$/,'')===field)?1:-1;
+ if(row.scopeType==='계열')return (field&&list(row.department).some(x=>compactMinimum(x).replace(/계열$/,'')===field))||(row.department==='디자인'&&/디자인/.test(unit))?1:-1;
  if(row.scopeType==='혼합'){
   const units=list(row.department);
   // 혼합 행 안의 정확한 모집단위명은 계열명보다 우선합니다. 그렇지 않으면
@@ -289,7 +304,8 @@ export function resolveCatalogMinimum({target,student,identity}) {
  const seasonRows=sameBase.filter(r=>r.season===(target.season||'수시'));
  // Choose a year after checking the requested campus/track/scope. An unrelated
  // 2028 track must not hide a matching 2027 reference for the requested track.
- const applicable=seasonRows.filter(r=>campusRank(r,target,identity)>=0&&r.admissionType===target.admissionType&&scopeRank(r,target)>=0&&(genericTrack||[r.track,...list(r.trackAliases)].some(t=>trackKey(t)===trackKey(target.track))||/원문미기재|미확정/.test(compactMinimum(r.track))));
+ const applicable=seasonRows.filter(r=>campusRank(r,target,identity)>=0&&r.admissionType===target.admissionType&&scopeRank(r,target)>=0&&(
+  genericTrack||[r.track,...list(r.trackAliases)].some(t=>trackKey(t)===trackKey(target.track))||/원문미기재|미확정/.test(compactMinimum(r.track))));
  const yearCandidates=applicable.length?applicable:seasonRows;
  const preferred2028=applicable.some(r=>Number(r.admissionYear)===2028);
  const exactYear=yearCandidates.filter(r=>r.admissionYear===Number(student?.admissionYear));

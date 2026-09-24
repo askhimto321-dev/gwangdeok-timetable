@@ -1,15 +1,19 @@
 import React,{useMemo,useRef,useState} from 'react';
 import {parseMinimumWorkbook,minimumCatalogStats,mergeMinimumCatalog,normalizeMinimumCatalog} from './minimumCatalog.js';
 import {minimumReviewIssues,minimumReviewDisposition,minimumMappingPlan,minimumRulePattern} from './minimumMapping.js';
+import {homepageMinimumCoverage} from './minimumCatalogCoverage.js';
 import seed from './minimumCatalogSeed.json';
 import './minimumCatalog.css';
 
 export default function MinimumCatalogAdmin({gdb,persistGrades,showToast}) {
- const current=normalizeMinimumCatalog(gdb.minimumCatalog?.rows||seed);
+ const current=useMemo(()=>normalizeMinimumCatalog(gdb.minimumCatalog?.rows||seed),[gdb.minimumCatalog?.rows]);
  const [preview,setPreview]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[query,setQuery]=useState(''),[filter,setFilter]=useState('전체');
  const [issueFilter,setIssueFilter]=useState('전체'),[dispositionFilter,setDispositionFilter]=useState('전체'),[workTypeFilter,setWorkTypeFilter]=useState('전체');
+ const [showCoverage,setShowCoverage]=useState(false),[coverageFilter,setCoverageFilter]=useState('미연결'),[coveragePage,setCoveragePage]=useState(0);
  const fileRef=useRef(null);
  const displayed=preview?.rows||current,stats=minimumCatalogStats(displayed);
+ const coverage=useMemo(()=>showCoverage?homepageMinimumCoverage(gdb.admissionRows||[],displayed):null,[showCoverage,gdb.admissionRows,displayed]);
+ const coverageRows=useMemo(()=>coverage?.targets.filter(x=>coverageFilter==='전체'||x.status===coverageFilter)||[],[coverage,coverageFilter]);
  const issueCounts=useMemo(()=>{const counts=new Map();for(const r of displayed)for(const issue of minimumReviewIssues(r))counts.set(issue.code,{...issue,count:(counts.get(issue.code)?.count||0)+1});return [...counts.values()];},[displayed]);
 
  const diff=useMemo(()=>preview?mergeMinimumCatalog(current,preview.rows):null,[current,preview]);
@@ -29,7 +33,7 @@ export default function MinimumCatalogAdmin({gdb,persistGrades,showToast}) {
  async function save() {
   if(!preview||preview.errors.length||busy)return;setBusy(true);setError('');
   try {
-   const catalog={schema:1,rows:diff.rows,previousRows:current,updatedAt:new Date().toISOString(),fileName:preview.fileName};
+   const catalog={schema:1,rows:diff.rows,previousRows:current.filter(r=>r.season==='수시'),updatedAt:new Date().toISOString(),fileName:preview.fileName};
    const ok=await persistGrades({minimumCatalog:catalog});
    if(ok){setPreview(null);showToast?.(`최저자료 ${diff.added}건 추가 · ${diff.changed}건 수정`,'success');}
    else setError('저장되지 않았습니다. 미리보기를 유지했습니다. 다시 시도하세요.');
@@ -40,12 +44,14 @@ export default function MinimumCatalogAdmin({gdb,persistGrades,showToast}) {
   try {const ok=await persistGrades({minimumCatalog:{...gdb.minimumCatalog,rows:gdb.minimumCatalog.previousRows,previousRows:current,updatedAt:new Date().toISOString(),fileName:'직전 자료 복구'}});if(ok)showToast?.('직전 최저자료로 복구했습니다.','success');else setError('복구 저장 실패');}catch(e){setError(e.message);}finally{setBusy(false);}
  }
  return <section className="kd-minimum-admin">
-  <header><div><h3>수능최저 자료 연결</h3><p>학년도·캠퍼스·전형·모집단위 연결과 판정식을 분리해 관리합니다. 통사·통과는 2028 자료에서 사·과로 자동 보정합니다.</p></div><span>{gdb.minimumCatalog?.updatedAt?`최근 반영 ${new Date(gdb.minimumCatalog.updatedAt).toLocaleDateString('ko-KR')}`:'Patch95 기본 자료 적용 중'}</span></header>
+  <header><div><h3>수능최저 자료 연결</h3><p>학년도·캠퍼스·전형·모집단위 연결과 판정식을 분리해 관리합니다. 통사·통과는 2028 자료에서 사·과로 자동 보정합니다.</p></div><span>{gdb.minimumCatalog?.updatedAt?`최근 반영 ${new Date(gdb.minimumCatalog.updatedAt).toLocaleDateString('ko-KR')}`:'Patch100 기본 자료 적용 중'}</span></header>
   <div className="kd-minimum-stats"><b>전체 {stats.total}</b><b>계산 가능 {stats.ready}</b><b>검토 필요 {stats.review}</b><span>사용 안 함 {stats.disabled}</span></div>
   <p>‘계산 가능’은 계산 규칙이 준비된 상태입니다. 학생 성적이나 홈페이지 전형명이 부족하면 판정을 보류합니다. 원문 상충·전형명 누락은 검토 필요로 유지합니다.</p>
   <div className="kd-minimum-actions"><label className="kd-minimum-button">{busy?'처리 중…':'호환 엑셀 선택'}<input ref={fileRef} type="file" accept=".xlsx" disabled={busy} onChange={e=>readFile(e.target.files?.[0])}/></label>{!preview&&gdb.minimumCatalog?.previousRows&&<button disabled={busy} onClick={restore}>직전 자료로 복구</button>}</div>
   {error&&<p role="alert" className="kd-minimum-error">{error}</p>}
-  {preview&&<div className="kd-minimum-preview"><b>{preview.fileName}</b><p>신규 {diff.added} · 변경 {diff.changed} · 동일 {diff.unchanged} · 형식 오류 {preview.errors.length}</p><p>규칙ID가 같은 행만 갱신합니다. 파일에서 빠진 기존 행은 유지되며, 제외하려면 검토상태를 ‘사용안함’으로 변경하세요.</p>{preview.errors.length>0&&<ul>{preview.errors.slice(0,20).map((e,i)=><li key={i}>{e.line}행 {e.id}: {e.reason}</li>)}</ul>}<button className="kd-minimum-primary" disabled={busy||preview.errors.length>0||(!diff.added&&!diff.changed)} onClick={save}>검사 결과 반영</button><button disabled={busy} onClick={()=>setPreview(null)}>취소</button></div>}
+  {preview&&<div className="kd-minimum-preview"><b>{preview.fileName}</b><p>신규 {diff.added} · 변경 {diff.changed} · 동일 {diff.unchanged} · 형식 오류 {preview.errors.length}</p><p>규칙ID가 같은 수시 행을 갱신합니다. 수시 대상이 아닌 행은 연동 자료에서 제외합니다. 파일에서 빠진 다른 수시 행은 유지됩니다.</p>{preview.errors.length>0&&<ul>{preview.errors.slice(0,20).map((e,i)=><li key={i}>{e.line}행 {e.id}: {e.reason}</li>)}</ul>}<button className="kd-minimum-primary" disabled={busy||preview.errors.length>0||(!diff.added&&!diff.changed)} onClick={save}>{busy?'저장 중…':'검사 결과 반영 · 저장'}</button><button disabled={busy} onClick={()=>setPreview(null)}>취소</button></div>}
+  <div className="kd-minimum-actions"><button type="button" onClick={()=>setShowCoverage(value=>!value)}>{showCoverage?'홈페이지 연동 점검 닫기':'홈페이지 연동 대학·전형 점검'}</button><small>현재 저장된 대입 전형표의 학년도·캠퍼스·전형·학과를 최저 규칙과 대조합니다.</small></div>
+  {coverage&&<div className="kd-minimum-preview"><b>홈페이지 등록 전형 {coverage.stats.total}건</b><p>카탈로그 연결 {coverage.stats.linked} · 홈페이지 자체 기준 {coverage.stats.stored} · 규칙 검토 {coverage.stats.review} · 미연결 {coverage.stats.unlinked}</p><label>상태 <select value={coverageFilter} onChange={e=>{setCoverageFilter(e.target.value);setCoveragePage(0);}}>{['미연결','검토필요','홈페이지 기준','연결됨','전체'].map(s=><option key={s}>{s}</option>)}</select></label><div className="kd-minimum-table"><table><thead><tr><th>연도·대학</th><th>홈페이지 전형·학과</th><th>연결 결과</th></tr></thead><tbody>{coverageRows.slice(coveragePage*200,(coveragePage+1)*200).map((x,i)=><tr key={`${x.year}-${x.university}-${x.track}-${x.department}-${coveragePage*200+i}`}><td>{x.year} {x.university}{x.region&&` · ${x.region}`}</td><td>{x.admissionType&&`${x.admissionType} · `}{x.track||'전형명 미등록'}<br/>{x.department||'학과 미등록'}</td><td>{x.status}{x.reason&&<small>{x.reason}</small>}{x.ruleId&&<small>{x.ruleId}</small>}</td></tr>)}</tbody></table></div><small>선택 상태 {coverageRows.length}건 · {Math.min(coverageRows.length,coveragePage*200+1)}–{Math.min(coverageRows.length,(coveragePage+1)*200)}건 표시</small> {coveragePage>0&&<button type="button" onClick={()=>setCoveragePage(p=>p-1)}>이전</button>} {(coveragePage+1)*200<coverageRows.length&&<button type="button" onClick={()=>setCoveragePage(p=>p+1)}>다음</button>}</div>}
   <div className="kd-minimum-actions"><label>해결 유형 <select aria-label="최저자료 해결유형" value={dispositionFilter} onChange={e=>setDispositionFilter(e.target.value)}><option value="전체">전체 유형</option>{dispositions.map(i=><option key={i.code} value={i.code}>{i.label} ({i.count})</option>)}</select></label><label>검토 사유 <select aria-label="최저자료 검토사유" value={issueFilter} onChange={e=>setIssueFilter(e.target.value)}><option value="전체">전체 사유</option>{issueCounts.map(i=><option key={i.code} value={i.code}>{i.label} ({i.count})</option>)}</select></label><small>해결 유형은 우선 조치 기준이며, 검토 사유는 중복될 수 있습니다.</small></div>
   <div className="kd-minimum-actions"><label>세부 작업 <select aria-label="최저자료 세부작업" value={workTypeFilter} onChange={e=>setWorkTypeFilter(e.target.value)}><option value="전체">전체 작업</option>{workTypes.map(i=><option key={i.code} value={i.code}>{i.label} ({i.count})</option>)}</select></label><small>현재 표시 자료의 매핑·규칙 작업을 유형별로 분류합니다.</small></div>
   <div className="kd-minimum-actions"><input aria-label="최저자료 검색" placeholder="대학·전형·모집단위·검토사유 검색" value={query} onChange={e=>setQuery(e.target.value)}/><select aria-label="최저자료 검토상태" value={filter} onChange={e=>setFilter(e.target.value)}>{['전체','계산가능','검토필요','사용안함'].map(s=><option key={s}>{s}</option>)}</select><span>{filtered.length}건 · 최대 100건 표시</span></div>
