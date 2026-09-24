@@ -48,23 +48,14 @@ export function minimumScopeRank(source, department, field) {
 }
 // Match minimum requirements independently of NAVI cutoff availability.
 export function resolveMinimumLink({target, data = {}, student, identity, evaluateMinimum, ambiguousType = false}) {
-  // NAVI cutoff tracks describe 2026 results. Match only the 2026 minimum
-  // rows and the 2026 unit; identical names in later years are not evidence.
+  // NAVI cutoffs describe 2026 results, but the minimum card uses the uploaded
+  // 2028 criteria first, then 2027 criteria. Keep the source year in the
+  // evaluation so these later criteria are visibly marked as references.
   if(Number(target?.trackYear) === COMPARISON_YEARS.result) {
-    const source=(data.historicalMinimums2026||[]).filter(row=>Number(row?.[12])===2026);
-    const campus=identity(target.university,target.region);
-    const candidates=source.filter(row=>identity(row[1],row[0])===campus
-      && comparisonType(row[2])===comparisonType(target.admissionType)
-      && comparisonTrackKey(row[3])===comparisonTrackKey(target.track))
-      .map(row=>({row,rank:minimumScopeRank(row[5],target.historicalDepartment||target.department,target.field)}))
-      .filter(item=>item.rank>=0);
-    const best=Math.max(-1,...candidates.map(item=>item.rank));
-    const matches=candidates.filter(item=>item.rank===best);
-    if(matches.length===1)return {minimum:matches[0].row,evaluation:evaluateMinimum(matches[0].row)};
-    if(matches.length>1)return {minimum:null,evaluation:{status:'manual',year:2026,reason:'2026 전형의 최저 원문이 같은 범위에 복수로 있습니다.'}};
-    const loaded=source.length>0||data.historicalMinimumsLoaded===true;
-    return {minimum:null,evaluation:{status:loaded?'not-listed':'source-pending',year:2026,
-      reason:loaded?'NAVI 2026 수능최저 시트에 이 전형의 행이 없습니다. 최저 없음 여부는 모집요강을 확인하세요.':'저장된 NAVI 자료에 2026 최저가 없습니다. 원본을 다시 분석·저장하세요.'}};
+    const referenceTarget={...target,trackYear:undefined};
+    const reference=resolveMinimumLink({target:referenceTarget,data,student,identity,evaluateMinimum,ambiguousType});
+    return {...reference,evaluation:{...reference.evaluation,
+      yearMismatch:Boolean(reference.evaluation.year&&Number(reference.evaluation.year)!==COMPARISON_YEARS.result)}};
   }
   const catalog = resolveCatalogMinimum({target,student,identity});
   if (catalog && catalog.evaluation.status!=='unlinked') return catalog;
