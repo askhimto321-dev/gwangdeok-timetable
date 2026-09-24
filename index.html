@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>광덕고 이동수업 시간표 조회하기</title>
+    <!-- UI patch: every component already sets font-family: Pretendard, ... but the font was
+         never actually loaded anywhere, so it silently fell back to the OS default font.
+         This link makes the Pretendard styling actually take effect, and now acts as the
+         safety-net fallback behind the rounder 'KDRound' face declared in src/theme.css. -->
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="stylesheet" as="style" crossorigin
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
