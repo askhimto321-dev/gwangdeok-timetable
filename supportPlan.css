@@ -1,0 +1,29 @@
+/* Patch67: one high-contrast action throughout consultation, NAVI and school cases. */
+button.kd-support-plan-button.kd-support-plan-button {
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  min-height:44px;max-width:100%;padding:10px 16px;box-sizing:border-box;
+  border:1px solid #9a3412;border-radius:10px;background:#9a3412;color:#fff;
+  font-family:inherit;font-size:14px;font-weight:800;line-height:1.4;
+  text-decoration:none;text-align:center;cursor:pointer;
+  box-shadow:0 3px 8px rgba(154,52,18,.18);white-space:normal;word-break:keep-all;
+}
+button.kd-support-plan-button>svg{flex-shrink:0}
+button.kd-support-plan-button>span{color:inherit;font:inherit;min-width:0}
+button.kd-support-plan-button.is-compact{min-height:38px;padding:8px 10px;font-size:12px;gap:6px}
+button.kd-support-plan-button.is-saved{background:#fff7ed;color:#8a2e0e;border-color:#c66e3e;box-shadow:none}
+button.kd-support-plan-button:hover:not(:disabled){background:#7c2d12;color:#fff;border-color:#7c2d12}
+button.kd-support-plan-button:focus-visible{outline:3px solid #ea9b62;outline-offset:3px}
+button.kd-support-plan-button:disabled{opacity:.6;cursor:wait;box-shadow:none}
+button.kd-support-plan-button .kd-support-plan-count{color:inherit;background:rgba(255,255,255,.16);padding:3px 8px;border-radius:6px;font-size:13px;white-space:nowrap}
+.kd-support-plan-entry{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:14px 16px;margin-bottom:14px;border:1px solid #edc4a6;border-left:5px solid #9a3412;border-radius:12px;background:#fff8f2}
+.kd-support-plan-entry>div{display:grid;gap:4px;min-width:0}
+.kd-support-plan-entry>div>b{font-size:16px;color:#713018}
+.kd-support-plan-entry>div>span{font-size:13px;color:#68584e;line-height:1.5}
+.kd-support-plan-entry-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.susi-beta-view-tabs button.kd-support-plan-tab{border-color:#d08a5f;background:#fff4e9;color:#8a2e0e}
+.susi-beta-view-tabs button.kd-support-plan-tab[aria-selected="true"]{background:#9a3412;color:#fff;border-color:#9a3412}
+.susi-beta-view-tabs button.kd-support-plan-tab[aria-selected="true"] small{color:#ffe6d5}
+.kd-plan-error{padding:12px;border:1px solid #e6aaaa;border-radius:9px;background:#fff2f2;color:#8c3030;font-size:13px;line-height:1.5}
+.kd-plan-error button{margin-left:8px;text-decoration:underline;font:inherit;border:0;background:transparent;color:inherit;cursor:pointer}
+@media(max-width:620px){.kd-support-plan-entry{align-items:stretch}.kd-support-plan-entry>.kd-support-plan-button{width:100%}.kd-support-plan-entry-actions{width:100%}.kd-support-plan-entry-actions>.kd-support-plan-button{flex:1}}
+@media print{.kd-support-plan-entry,.kd-support-plan-button{display:none!important}}

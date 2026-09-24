@@ -1,0 +1,101 @@
+/* Shared design tokens + "key fact" components for the admission/상담 screens.
+   Loaded once globally (see main.jsx) so every screen that shows 전형/등급컷/
+   현재내신등급/최저충족여부 uses the same colors instead of each file inventing its own. */
+
+/* "이름을 포함해 조금 더 둥글둥글한 폰트로" 요청에 따라 추가한 서체입니다.
+   Gmarket이 무료로 배포하는 Gmarket Sans(둥근 산세리프)를 'KDRound'라는 이름으로 등록하고,
+   모든 font-family 선언 맨 앞에 "KDRound,Pretendard,..." 형태로 세워두었습니다
+   (Pretendard 등 기존 폰트는 그대로 다음 순서에 남아 있어, 혹시 이 CDN이 응답하지
+   않아도 화면이 깨지지 않고 이전 폰트로 자연스럽게 대체됩니다).
+   Gmarket Sans는 Light(300)/Medium(500)/Bold(700) 3단계만 있어서, 그보다 굵은 값
+   (850, 900, 950 등 — 숫자·라벨 강조에 쓰는 값들)을 요청해도 브라우저가 가장 가까운
+   Bold로 자동 매칭합니다. */
+@font-face{font-family:'KDRound';font-weight:300;font-style:normal;font-display:swap;
+  src:url('https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSansLight.woff2') format('woff2');}
+@font-face{font-family:'KDRound';font-weight:500;font-style:normal;font-display:swap;
+  src:url('https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSansMedium.woff2') format('woff2');}
+@font-face{font-family:'KDRound';font-weight:700;font-style:normal;font-display:swap;
+  src:url('https://cdn.jsdelivr.net/gh/fonts-archive/GmarketSans/GmarketSansBold.woff2') format('woff2');}
+
+:root{
+  --kd-ink:#1f2f42;
+  --kd-ink-soft:#45586d;
+  --kd-ink-muted:#6b7c90;
+  --kd-line:#d7e1ea;
+  --kd-surface:#ffffff;
+  --kd-surface-soft:#f6f9fc;
+  --kd-primary:#2d5c8c;
+  --kd-primary-dark:#1c3f63;
+
+  /* 앱 전체의 '강조 액션' 색(브랜드 색). 원래 "수시 지원 구성" 탭 활성 색(#9a3412, 진한 테라코타)이
+     이미 이 앱의 고유 강조색이었는데, 인쇄 버튼은 남색, NAVI 링크는 보라, 상단 배너는 다른 보라
+     계열 그라데이션 등 화면마다 서로 다른 색을 강조색으로 쓰고 있었습니다. "강조색을 버튼처럼
+     통일해달라"는 요청에 따라, 버튼·배너처럼 클릭을 유도하거나 브랜드를 나타내는 요소는 모두
+     이 한 가지 색 계열로 맞췄습니다. 전형(교과/종합/논술/실기) 구분색과 충족/미충족 같은 상태색은
+     각자 다른 의미를 담고 있어 그대로 유지합니다. */
+  --kd-brand:#9a3412;
+  --kd-brand-dark:#7a290d;
+  --kd-brand-soft:#fff4e9;
+  --kd-brand-border:#c36e3e;
+
+  /* 수능최저/지원 요건 상태 — "자료 없음"과 "진짜 확인이 필요한 상태"를 다른 색으로 구분합니다. */
+  --kd-status-ok-text:#1f6b3f;      --kd-status-ok-bg:#e9f8ee;   --kd-status-ok-border:#a9d9bb;
+  --kd-status-bad-text:#a3271f;     --kd-status-bad-bg:#fdeceb;  --kd-status-bad-border:#f0bcb7;
+  --kd-status-caution-text:#8a5a12; --kd-status-caution-bg:#fff3d9; --kd-status-caution-border:#eecd8a;
+  --kd-status-neutral-text:#5a6b7d; --kd-status-neutral-bg:#eef1f5; --kd-status-neutral-border:#d7dee6;
+}
+
+/* 강조 수치 하나(전형/등급컷/현재내신등급 등)를 라벨+큰 숫자 형태로 보여줄 때 공용으로 사용합니다. */
+.kd-key-fact{display:flex;flex-direction:column;gap:2px;min-width:0}
+.kd-key-fact>small{font-size:12.5px;font-weight:700;color:var(--kd-ink-muted)}
+.kd-key-fact>b{font-size:20px;font-weight:850;color:var(--kd-ink);line-height:1.2;letter-spacing:-.01em}
+.kd-key-fact.is-student>b{color:var(--kd-primary-dark)}
+
+/* 전형(교과/종합 · 전형명) 배지 — 표/카드에서 가장 먼저 눈에 들어와야 하는 분류 정보입니다.
+   전형 유형마다 다른 색을 써서(교과=청록, 종합=보라, 논술=갈색, 실기=로즈) 화면 전체가
+   파란색 한 가지로만 보이지 않도록 했습니다. admissionMetrics.js의 trackChipClassName과 짝입니다. */
+.kd-track-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;margin-top:8px;
+  border-radius:999px;background:var(--kd-primary);color:#fff;font-size:12.5px;font-weight:800;
+  letter-spacing:-.01em;white-space:normal;word-break:keep-all;line-height:1.4}
+.kd-track-chip.is-other{background:var(--kd-primary)}
+.kd-track-chip.is-academic{background:#0f7a72}
+.kd-track-chip.is-general{background:#6d4aa8}
+.kd-track-chip.is-essay{background:#a3651f}
+.kd-track-chip.is-talent{background:#b23a63}
+
+/* 지원 구간(상향/소신/적정/안정/하향) 배지. 색상표는 admissionMetrics.js의 SUPPORT_BAND_META와 1:1로 맞춥니다. */
+.kd-band-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+  font-size:13px;font-weight:850;border:1px solid transparent;letter-spacing:-.01em;white-space:nowrap}
+.kd-band-pill em{font-style:normal;opacity:.8;font-weight:800}
+.kd-band-pill.is-up{color:#b3413a;background:#fdeceb;border-color:#eeb9b3}
+.kd-band-pill.is-reach{color:#9c5a1d;background:#fff1de;border-color:#eecb96}
+.kd-band-pill.is-fit{color:#7a6412;background:#fdf3bd;border-color:#e3cd63}
+.kd-band-pill.is-safe{color:#236b45;background:#e7f7ee;border-color:#aedcc0}
+.kd-band-pill.is-down{color:#2b5588;background:#e7f0fb;border-color:#b7cfe9}
+.kd-band-pill.is-none,.kd-band-pill.is-unlinked{color:var(--kd-status-neutral-text);background:var(--kd-status-neutral-bg);border-color:var(--kd-status-neutral-border)}
+
+/* 최저충족여부 등 상태 배지. '자료 미연결'은 경고가 아니라 중립으로 표시해 실제 경고(주의/미충족)와 구분합니다. */
+.kd-status-pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;
+  font-size:13px;font-weight:850;border:1px solid transparent;letter-spacing:-.01em}
+.kd-status-pill.is-satisfied{color:var(--kd-status-ok-text);background:var(--kd-status-ok-bg);border-color:var(--kd-status-ok-border)}
+.kd-status-pill.is-unsatisfied{color:var(--kd-status-bad-text);background:var(--kd-status-bad-bg);border-color:var(--kd-status-bad-border)}
+.kd-status-pill.is-manual,.kd-status-pill.is-unavailable{color:var(--kd-status-caution-text);background:var(--kd-status-caution-bg);border-color:var(--kd-status-caution-border)}
+.kd-status-pill.is-unlinked,.kd-status-pill.is-no-minimum,.kd-status-pill.is-not-listed,.kd-status-pill.is-source-pending{color:var(--kd-status-neutral-text);background:var(--kd-status-neutral-bg);border-color:var(--kd-status-neutral-border)}
+
+/* 대학별 최저 자료가 안 붙어 있어도(=최저 자료 미연결) 학생 본인의 최근 모의고사 등급은
+   저장돼 있으니 칩으로 보여줍니다. 문장이 아니라 태그 형태라 다른 회색 문장들 사이에서도
+   눈에 잘 띄고, 정보량도 한 줄로 압축됩니다. admissionMetrics.js/naviMinimum.js의
+   studentMockChips()와 짝입니다. */
+.kd-mock-chips{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px}
+.kd-mock-chips-label{font-size:11.5px;font-weight:750;color:var(--kd-ink-muted);margin-right:1px}
+.kd-mock-chip{padding:3px 9px;border-radius:6px;background:var(--kd-surface-soft);border:1px solid var(--kd-line);
+  font-size:12.5px;font-weight:800;color:var(--kd-ink-soft);white-space:nowrap}
+
+/* 출처·근거처럼 "이름표 + 값"으로 된 정보를 표/카드 어디서나 같은 모양으로 보여주는 공용 한 줄 규칙입니다.
+   전에는 컴포넌트마다 <p>문장 나열이라 서체·색이 제각각이었습니다(AdmissionComparison.jsx,
+   SupportDecisionCard.jsx가 함께 씁니다). */
+.kd-evidence-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:3px 0;
+  border-bottom:1px dashed var(--kd-line)}
+.kd-evidence-row:last-of-type{border-bottom:0}
+.kd-evidence-row b{font-size:12px;font-weight:750;color:var(--kd-ink-muted);font-family:inherit}
+.kd-evidence-row span{font-size:13px;font-weight:800;color:var(--kd-ink);text-align:right}
