@@ -28,6 +28,7 @@ import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
 import { buildComparisonRows, minimumScopeRank, comparisonType, resolveMinimumLink } from "./admissionComparison.js";
 import {catalogRowsForTarget,resolveCatalogMinimum,minimumTrackKey} from './minimumCatalog.js';
+import {favoriteAdmissionSelection,favoriteTrackKey} from './favoriteAdmission.js';
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
 import { evaluateNaviMinimumSafe, minimumDisplay, minimumYearLabel, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
@@ -1404,21 +1405,19 @@ export function counselingFactsForFavorite({favorite,data={},student={},recommen
   const target={...favorite,field:favorite.field || entry?.row?.[6] || ''};
   const recommendation=recommendationForUnit(recommendedData,target.university,target.region,target.department,indexes.recommendations,target.field)
     || estimateRecommendationForUnit(indexes.recommendations,target.university,target.region,target.department,target.field);
-  const category=comparisonType(favorite.admissionType || '');
-  const type=['교과','종합','논술','실기'].includes(category)?category:'';
-  const rawType=String(favorite.admissionType || '');
-  const specificTrack=favorite.track || favorite.detailType || ((favorite.favoriteKind==='전형'||favorite.source==='admission'||/^(?:학생부)?(?:교과|종합)\s*\(.+\)$/.test(rawType))&&!/^(?:학생부)?(?:교과|종합)$/.test(rawType)?minimumTrackKey(rawType):'');
-  let candidates=entry ? [['교과',7],['종합',8]].flatMap(([admissionType,i])=>(entry.row[i]||[]).map(item=>({admissionType,track:item[0]}))) : [];
-  candidates.push(...catalogRowsForTarget(student.minimumCatalogRows||[],target,student.admissionYear,universityIdentityKey).map(row=>({admissionType:row.admissionType,track:row.track})));
+  const {type,track:specificTrack}=favoriteAdmissionSelection(favorite);
+  let candidates=catalogRowsForTarget(student.minimumCatalogRows||[],target,student.admissionYear,universityIdentityKey).map(row=>({admissionType:row.admissionType,track:row.track,trackAliases:row.trackAliases}));
+  if(entry)candidates.push(...[['교과',7],['종합',8]].flatMap(([admissionType,i])=>(entry.row[i]||[]).map(item=>({admissionType,track:item[0]}))));
   candidates.push(...(student.minimumRows||[]).filter(row=>universityIdentityKey(row.university,row.region)===universityIdentityKey(target.university,target.region)&&minimumScopeRank(row.department,target.department,target.field)>=0).map(row=>({admissionType:comparisonType(row.admissionType||row.track),track:row.track})));
   candidates.push(...(data.minimums||[]).filter(row=>universityIdentityKey(row[1],row[0])===universityIdentityKey(target.university,target.region)&&minimumScopeRank(row[5],target.department,target.field)>=0).map(row=>({admissionType:comparisonType(row[2]),track:row[3]})));
   if(specificTrack){
-    const matches=candidates.filter(row=>minimumTrackKey(row.track)===minimumTrackKey(specificTrack));
-    candidates=matches.length?matches:[{admissionType:type,track:specificTrack}];
+    const matches=candidates.filter(row=>(!type||comparisonType(row.admissionType)===type)&&[row.track,...String(row.trackAliases||'').split('|')].some(name=>favoriteTrackKey(name)===favoriteTrackKey(specificTrack)));
+    const renamed=matches.filter(row=>favoriteTrackKey(row.track)!==favoriteTrackKey(specificTrack));
+    candidates=renamed.length?renamed:matches.length?matches:[{admissionType:type,track:specificTrack}];
   }
   const seen=new Set();
   const minimums=candidates.filter(row=>{
-    const key=`${comparisonType(row.admissionType)}|${minimumTrackKey(row.track)}`;
+    const key=`${comparisonType(row.admissionType)}|${favoriteTrackKey(row.track)}`;
     if(!row.track || (type&&comparisonType(row.admissionType)!==type) || seen.has(key))return false;
     seen.add(key);return true;
   }).map(row=>({...row,evaluation:resolveMinimumLink({target:{...target,...row},data,student,identity:universityIdentityKey,evaluateMinimum:r=>evaluateNaviMinimumSafe(r,student),ambiguousType:true}).evaluation}));

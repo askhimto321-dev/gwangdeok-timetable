@@ -2,7 +2,7 @@
 const compact = x => String(x ?? '').normalize('NFKC').replace(/\s/g, '');
 export const PARSE_REVIEW = '복합 문장·추가조건 또는 생략된 반영영역을 원문과 대조해야 함';
 const SCOPE_REVIEW = '모집단위·계열 적용범위 확정 필요';
-const unitAlias = s => ({의예:'의예과',의과대학:'의예과',의학과:'의예과',치의예:'치의예과',한의예:'한의예과',수의예:'수의예과',약학:'약학과',약학대학:'약학과',약학부:'약학과',약학전공:'약학과',간호:'간호학과',간호대학:'간호학과',간호학부:'간호학과',물리치료:'물리치료학과'}[s]||s);
+const unitAlias = s => ({의예:'의예과',의대:'의예과',의과대학:'의예과',의학과:'의예과',치의예:'치의예과',한의예:'한의예과',수의예:'수의예과',약학:'약학과',약학대학:'약학과',약학부:'약학과',약학전공:'약학과',간호:'간호학과',간호학:'간호학과',간호대학:'간호학과',간호학부:'간호학과',물리치료:'물리치료학과',클라우드공학:'클라우드공학과',바이오로직스:'바이오로직스학과',항공시스템공학:'항공시스템공학과',경찰행정:'경찰행정학과'}[s]||s);
 const scopeUnits = s => compact(s).split(/[,/|]/).filter(Boolean).map(unitAlias);
 const removeReason=(reasons,test)=>reasons.filter(r=>!test(r));
 function normalizeUniversity(row,reasons) {
@@ -69,11 +69,11 @@ function scopedNote(row) {
 }
 export function normalizeMinimumSubjects(value, year) {
  return String(value ?? '').replace(/한국사/g,'한').replace(/국어/g,'국').replace(/수학/g,'수').replace(/영어/g,'영')
-  .replace(Number(year)>=2028?/통합사회|통사|사회탐구|사탐/g:/$^/g,'사')
-  .replace(Number(year)>=2028?/통합과학|통과|과학탐구|과탐/g:/$^/g,'과')
+  .replace(Number(year)>=2028?/통합사회|통사|사회탐구|사탐/g:/(?!)/g,'사')
+  .replace(Number(year)>=2028?/통합과학|통과|과학탐구|과탐/g:/(?!)/g,'과')
   // 기존 학교 자료는 2028 체계에서도 넓은 영역을 단순히 '탐구'라고 적은 경우가 많습니다.
   // 이 표기는 통합사회·통합과학 가운데 한 영역을 고르는 뜻으로 구조화합니다.
-  .replace(Number(year)>=2028?/탐구/g:/$^/g,'사/과');
+  .replace(Number(year)>=2028?/탐구/g:/(?!)/g,'사/과');
 }
 export function parseExplicitMinimum(condition, note, year) {
  const fields={ruleType:'',subjects:'',count:null,threshold:null,mandatory:'',englishMax:null,historyMax:null,inquiryMode:'해당없음',rounding:'없음',englishConversion:'없음'};
@@ -89,9 +89,10 @@ export function parseExplicitMinimum(condition, note, year) {
   if(!sum&&!each)return null;
   const count=Number((sum||each)[1]),threshold=Number((sum||each)[2]);
   const detail=compact(condition);
-  const scienceOnly=/과\(?2\)?|과탐/.test(detail)&&!/탐\(?[12]\)?/.test(detail.replace(/과탐/g,''));
-  const oneInquiry=/탐\(?1\)?|과1/.test(detail);
-  return {...fields,ruleType:sum?'합':'각',subjects:scienceOnly?'국|수|영|과':oneInquiry?'국|수|영|사/과':'국|수|영|사|과',count,threshold,mandatory:/미\/?기/.test(detail)?'수':'',inquiryMode:'통합개별',referenceMapped:true};
+  const scienceOnly=/과\(?[12]\)?|과탐/.test(detail)&&!/탐\(?[12]\)?/.test(detail.replace(/과탐/g,''));
+  // 구형 탐구 한 영역을 사·과 두 영역으로 펼치면 2합/3합을 잘못 충족한다.
+  // 통합사회·통합과학 중 한 영역만 참고 환산하고, 미/기는 수학 필수 지정이 아니다.
+  return {...fields,ruleType:sum?'합':'각',subjects:scienceOnly?'국|수|영|과':'국|수|영|사/과',count,threshold,mandatory:'',inquiryMode:'통합개별',referenceMapped:true};
  }
  if(Number(year)!==2028)return null;
  // A repeated verbatim condition adds no new restriction. Never discard scoped notes.

@@ -1,5 +1,5 @@
 import {repairMinimumRow,parseExplicitMinimum} from './minimumMapping.js';
-import {correctMinimumSource} from './minimumSourceCorrections.js';
+import {correctMinimumSource,correct2027Conditions} from './minimumSourceCorrections.js';
 // Patch77: relationship-aware scope mapping and mandatory alternative groups.
 export const MINIMUM_SCHEMA = 'KD_MINIMUM_V1';
 export const MINIMUM_COLUMNS = {
@@ -118,7 +118,19 @@ function relationshipMapped(rows) {
 function scopeUnitsForLink(value){return compactMinimum(value).split(/[,/|]/).filter(Boolean).map(unitKey);}
 export function normalizeMinimumCatalog(rows=[]) {
  if(normalizedCatalogs.has(rows))return normalizedCatalogs.get(rows);
- const repaired=rows.map(original=>repairMinimumRow(correctMinimumSource(original)));
+ const repaired=rows.map(original=>{
+  // University/campus normalization may expose an exact source correction
+  // (e.g. 단국대(죽전/천안) -> 단국대·죽전). Resolve both before validation.
+  let first=repairMinimumRow(correctMinimumSource(original));
+  if(original.admissionYear===2027&&original.reviewStatus==='검토필요'&&first.reviewStatus==='계산가능'&&first.ruleType!=='없음'){
+   // Source-name repair can clear the last review reason before the old
+   // selection-subject fields are recalculated. Never inherit those defaults.
+   const parsed=parseExplicitMinimum(first.ruleText,first.note,2027);
+   if(parsed)first={...first,...parsed};
+   else first={...first,reviewStatus:'검토필요',reviewReason:'2027 선택과목·별도조건 원문 확인 필요'};
+  }
+  return correct2027Conditions(repairMinimumRow(correctMinimumSource(first)));
+ });
  const linked=relationshipMapped(repaired);
  const normalized=linked.map((mapped,i)=>{
   // Do not promote a parsed row unless the complete contract validates.
@@ -142,6 +154,10 @@ export function parseMinimumWorkbook(workbook, XLSX) {
   if(!values.some(x=>String(x).trim()))return;
   let row=Object.fromEntries(Object.entries(MINIMUM_COLUMNS).map(([k,h])=>[k,String(values[header.indexOf(h)]??'').trim()]));
   for(const k of ['admissionYear','count','threshold','englishMax','historyMax'])row[k]=numberOrNull(row[k]);
+  // Optional extension: the source's 2027 선택탐구 grade uses a documented
+  // reference conversion to the current 통합사회·통합과학 input, not a literal 2028 rule.
+  const referenceColumn=header.indexOf('2027 참고환산');
+  if(referenceColumn>=0)row.referenceMapped=/^(?:1|true|y|예|적용)$/i.test(String(values[referenceColumn]??'').trim());
   rawRows.push({...row,__line:hi+i+2});
  });
  const normalized=normalizeMinimumCatalog(rawRows);
@@ -262,7 +278,7 @@ export function catalogRowsForTarget(rows,target,year,identity) {
  return universityRows(rows,target.university)
   .filter(r=>r.reviewStatus!=='사용안함'&&r.season===(target.season||'수시')&&universityMatch(r,target,identity)&&scopeRank(r,target)>=0)
   .map(row=>evaluable2027Reference(row))
-  .sort((a,b)=>Number(b.admissionYear===current)-Number(a.admissionYear===current)||Number(b.admissionYear)-Number(a.admissionYear)||campusRank(b,target,identity)-campusRank(a,target,identity));
+  .sort((a,b)=>Number(b.admissionYear===2028)-Number(a.admissionYear===2028)||Number(b.admissionYear===current)-Number(a.admissionYear===current)||Number(b.admissionYear)-Number(a.admissionYear)||campusRank(b,target,identity)-campusRank(a,target,identity));
 }
 export function resolveCatalogMinimum({target,student,identity}) {
  const trackKey=value=>catalogTrackKey(target.university,value);
@@ -275,9 +291,10 @@ export function resolveCatalogMinimum({target,student,identity}) {
  // 2028 track must not hide a matching 2027 reference for the requested track.
  const applicable=seasonRows.filter(r=>campusRank(r,target,identity)>=0&&r.admissionType===target.admissionType&&scopeRank(r,target)>=0&&(genericTrack||[r.track,...list(r.trackAliases)].some(t=>trackKey(t)===trackKey(target.track))||/원문미기재|미확정/.test(compactMinimum(r.track))));
  const yearCandidates=applicable.length?applicable:seasonRows;
+ const preferred2028=applicable.some(r=>Number(r.admissionYear)===2028);
  const exactYear=yearCandidates.filter(r=>r.admissionYear===Number(student?.admissionYear));
  const availableYears=[...new Set(yearCandidates.map(r=>Number(r.admissionYear)).filter(Boolean))].sort((a,b)=>Math.abs(a-Number(student?.admissionYear||a))-Math.abs(b-Number(student?.admissionYear||b))||b-a);
- const selectedYear=exactYear.length?Number(student?.admissionYear):(availableYears[0]||null);
+ const selectedYear=preferred2028?2028:exactYear.length?Number(student?.admissionYear):(availableYears[0]||null);
  const year=seasonRows.filter(r=>Number(r.admissionYear)===selectedYear);
  const campusCandidates=year.map(r=>({r,rank:campusRank(r,target,identity)})).filter(x=>x.rank>=0);
  const university=campusCandidates.map(x=>x.r);

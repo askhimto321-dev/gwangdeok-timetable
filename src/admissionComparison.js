@@ -60,10 +60,11 @@ export function resolveMinimumLink({target, data = {}, student, identity, evalua
     && (['교과','종합','논술','실기'].includes(comparisonType(x.type)) ? comparisonType(x.type) === comparisonType(target.admissionType) : !ambiguousType));
   const byScope = byTrack.filter(x => minimumScopeRank(x.department, target.department, target.field) >= 0);
   const current = byScope.filter(x => x.stored && (!x.year || x.year === Number(student?.admissionYear)));
-  const yearPool = current.length ? current : byScope;
+  const newest = byScope.filter(x => Number(x.year) === 2028);
+  const yearPool = newest.length ? newest : current.length ? current : byScope;
   const availableYears = [...new Set(yearPool.map(x => Number(x.year)).filter(Boolean))]
     .sort((a,b)=>Math.abs(a-Number(student?.admissionYear||a))-Math.abs(b-Number(student?.admissionYear||b))||b-a);
-  const preferredYear = current.length ? Number(student?.admissionYear) : availableYears[0];
+  const preferredYear = newest.length ? 2028 : current.length ? Number(student?.admissionYear) : availableYears[0];
   const pool = preferredYear ? yearPool.filter(x => !x.year || Number(x.year)===preferredYear) : yearPool;
   const rank = x => minimumScopeRank(x.department, target.department, target.field);
   const best = Math.max(-1, ...pool.map(rank));

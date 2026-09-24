@@ -21,7 +21,9 @@ export default function MinimumCatalogAdmin({gdb,persistGrades,showToast}) {
   try {
    if(file.size>20*1024*1024)throw new Error('20MB 이하의 최저자료 엑셀을 선택하세요.');
    const XLSX=await import('xlsx');const book=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:false});
-   const parsed=parseMinimumWorkbook(book,XLSX);setPreview({...parsed,fileName:file.name});
+   const parsed=parseMinimumWorkbook(book,XLSX);
+   const rows=normalizeMinimumCatalog(parsed.rows);
+   setPreview({...parsed,rows,stats:minimumCatalogStats(rows),fileName:file.name});
   }catch(e){setError(e.message||'엑셀을 읽지 못했습니다.');}finally{setBusy(false);if(fileRef.current)fileRef.current.value='';}
  }
  async function save() {
