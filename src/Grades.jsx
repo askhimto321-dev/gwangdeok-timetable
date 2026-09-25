@@ -3984,7 +3984,10 @@ export function printCounselingHistory(options = {}) {
   const clone = source.cloneNode(true);
   clone.classList.add("counseling-print-root-clone");
   clone.querySelectorAll(".no-print,button").forEach(node => node.remove());
-  clone.querySelectorAll('details').forEach(node => { node.open = true; });
+  // Print compact track/status/year summaries instead of all expanded cards.
+  clone.querySelectorAll('.kd-counsel-type').forEach(node => { node.open = true; });
+  clone.querySelectorAll('.kd-counsel-minimum').forEach(node => { node.open = true; });
+  clone.querySelectorAll('.kd-course-details').forEach(node => { node.open = true; });
   clone.querySelectorAll('.counseling-print-note').forEach(node => {
     if ((node.textContent || '').length > 1800) node.classList.add('is-long-note');
   });
@@ -4031,8 +4034,10 @@ export function printCounselingHistory(options = {}) {
     if (cleaned) return;
     try {
       // Oversized university groups may continue onto another page; never clip their items.
+      const pageHeightMm = paper === 'B4' ? 341 : 278;
+      const maxHeight = pageHeightMm * 96 / 25.4;
       printDocument.querySelectorAll('.favorite-print-card').forEach(node => {
-        if (node.getBoundingClientRect().height > (paper === 'B4' ? 1120 : 890)) node.classList.add('is-long-card');
+        if (node.getBoundingClientRect().height > maxHeight) node.classList.add('is-long-card');
       });
       printDocument.querySelectorAll('.counseling-print-note').forEach(node => {
         if (node.getBoundingClientRect().height > (paper === 'B4' ? 1120 : 890)) node.classList.add('is-long-note');

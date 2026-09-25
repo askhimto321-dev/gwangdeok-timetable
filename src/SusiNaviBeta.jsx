@@ -1417,10 +1417,14 @@ export function counselingFactsForFavorite({favorite,data={},student={},recommen
     const renamed=matches.filter(row=>favoriteTrackKey(row.track)!==favoriteTrackKey(specificTrack));
     candidates=renamed.length?renamed:matches.length?matches:[{admissionType:type,track:specificTrack}];
   }
+  // Old stored minimum rows can put a track name in the admission-type column.
+  // The catalog/NAVI candidate already carries its actual type.
+  const knownTypes=new Set(['교과','종합','논술','실기']);
   const seen=new Set();
   const minimums=candidates.filter(row=>{
-    const key=`${comparisonType(row.admissionType)}|${favoriteTrackKey(row.track)}`;
-    if(!row.track || (type&&comparisonType(row.admissionType)!==type) || seen.has(key))return false;
+    const admissionType=comparisonType(row.admissionType);
+    const key=`${admissionType}|${favoriteTrackKey(row.track)}`;
+    if(!row.track || !knownTypes.has(admissionType) || (type&&admissionType!==type) || seen.has(key))return false;
     seen.add(key);return true;
   }).map(row=>({...row,evaluation:resolveMinimumLink({target:{...target,...row},data,student,identity:universityIdentityKey,evaluateMinimum:r=>evaluateNaviMinimumSafe(r,student),ambiguousType:true}).evaluation}));
   return {minimums,progress:recommendationProgress(recommendation,student.subjects||[])};

@@ -47,8 +47,31 @@ const named2027Essays={
 };
 export function correctMinimumSource(input) {
  const row={...input};
- if(row.admissionYear===2028&&row.university==='중앙대'&&['MIN-7ea70e55264efc90','MIN-6c400c539d4dff82'].includes(row.id)){
-  row.reviewStatus='검토필요';row.reviewReason='동일 전형 전체 범위에 적용과 미적용 원문 상충';
+ if(row.admissionYear===2028&&row.university==='중앙대'&&row.admissionType==='논술'&&row.track==='모두의 논술'){
+  const official='https://admission.cau.ac.kr/detail.do?board_seq=3310&categoryid=65&menuurl=n5%2FP1yX8Zyh%2Fvtvla1KeyA%3D%3D&pageNo=1';
+  if(row.id==='MIN-7ea70e55264efc90'&&/서울전모집단위/.test(row.department)){
+   Object.assign(row,{...branchDefaults,campus:'서울',scopeType:'전체',department:'전체',count:3,threshold:6,historyMax:4,englishMax:null,
+    resolutionSource:official,resolutionNote:'공식 2028 전형계획: 모두의 논술 서울 최저 적용. 기존 원문 3합6·한국사 4를 서울로 한정; 영어 누적비율은 비고에 유지'});
+  }
+  if(row.id==='MIN-6c400c539d4dff82'&&/다빈치캠/.test(row.department)){
+   Object.assign(row,{reviewStatus:'계산가능',reviewReason:'',campus:'다빈치',scopeType:'전체',department:'전체',ruleType:'없음',subjects:'',count:null,threshold:null,englishMax:null,historyMax:null,inquiryMode:'해당없음',
+    resolutionSource:official,resolutionNote:'공식 2028 전형계획: 모두의 논술 다빈치캠퍼스 수능최저 미적용'});
+  }
+ }
+ if(row.admissionYear===2028&&row.university==='중앙대'&&row.admissionType==='종합'&&row.track==='최저있는학종(Up)'){
+  const official='https://admission.cau.ac.kr/detail.do?board_seq=3310&categoryid=65&menuurl=n5%2FP1yX8Zyh%2Fvtvla1KeyA%3D%3D&pageNo=1';
+  if(row.id==='MIN-ca1a877f5dc85ead'&&row.ruleText==='미적용'){
+   row.reviewStatus='사용안함';row.reviewReason='';
+   row.resolutionSource=official;row.resolutionNote='공식 2028 전형계획은 Up 전형의 최저 적용을 명시. 같은 원문의 미적용 중복 행 제외';
+  }
+  if(row.id==='MIN-6d2e516ff48c035b'&&/3개\s*영역\s*등급\s*합\s*6/.test(row.ruleText)){
+   Object.assign(row,{...branchDefaults,scopeType:'전체',department:'전체',excluded:'약학부|약학과|의학부|의예과',count:3,threshold:6,historyMax:4,
+    resolutionSource:official,resolutionNote:'공식 2028 전형계획 Up 최저 적용 및 2028 전형별 표 일반 3합6·한국사4 확인; 영어 누적비율은 비고에 유지'});
+  }
+  if(row.id==='MIN-4ca3465fdfceffdc'&&/4개\s*영역\s*등급\s*합\s*5/.test(row.ruleText)){
+   Object.assign(row,{...branchDefaults,scopeType:'학과',department:'약학부|약학과',count:4,threshold:5,historyMax:4,
+    resolutionSource:official,resolutionNote:'공식 2028 전형계획 Up 최저 적용 및 2028 전형별 표 약학부 4합5·한국사4 확인; 영어 누적비율은 비고에 유지'});
+  }
  }
  if(row.admissionYear===2028&&row.season==='수시'){
   const simple=fields=>Object.assign(row,{...branchDefaults,...fields});

@@ -21,6 +21,7 @@ export default function CounselingAdmissionFacts({facts,student,status='loading'
       const display=minimumDisplay(evaluation);
       return <details className="kd-counsel-minimum" key={`${admissionType}-${track}`}>
         <summary><b>{track}</b><span className={`kd-status-pill is-${display.status}`}>{display.label}</span></summary>
+        <div className="kd-counsel-print-rule">{minimumYearLabel(evaluation,student)} · {evaluation?.ruleText || evaluation?.reason || display.label}</div>
         <div className="kd-decision-primary"><section className={`kd-decision-minimum is-${display.status}`}>
           <h5>수능최저 <span className={`kd-minimum-year ${evaluation?.yearMismatch?'is-reference':'is-current'}`}>{minimumYearLabel(evaluation,student)}</span></h5>
           <MinimumFacts minimum={display} ev={evaluation} student={student}/>
