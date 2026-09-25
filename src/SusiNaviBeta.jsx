@@ -1021,7 +1021,8 @@ const RECOMMENDATION_DEPARTMENT_FAMILIES = [
   ["mechanical", "기계·모빌리티·항공", /기계|자동차|미래차|모빌리티|항공우주|항공공|항공기계|항공운항|조선|해양공학|메카트로닉스|철도.*공|냉동공조/],
   ["chemical", "화학·신소재·에너지", /화공|화학.*공|신소재|재료|첨단소재|소재부품|에너지.*공|미래에너지|에너지융합|에너지시스템|에너지소재|에너지자원|고분자|나노.*공|나노소재|나노재료|배터리|이차전지|자원공|원자력|세라믹|금속.*재료|섬유.*공/],
   ["industrial", "산업·시스템공학", /산업.*공|시스템경영|경영공학|기술경영|품질경영|스마트팩토리/],
-  ["architecture", "건축·도시·토목·환경공학", /건축|도시|토목|환경공|사회기반|건설|교통공|스마트시티|조경|안전공|소방안전|소방방재|재난관리|방재공/],
+  ["architecture", "건축·도시", /건축|도시|스마트시티|조경/],
+  ["civil_environment", "토목·환경·안전공학", /토목|환경공|사회기반|건설|교통공|안전공|소방안전|소방방재|재난관리|방재공/],
   ["agriculture", "농생명·식품·산림", /농업|농학|농생명|원예|산림|식품|축산|동물자원|동물산업|동물응용|반려동물|식물자원|식물생산|응용식물|생물자원|생명자원|스마트그린자원|스마트팜|수산|해양생명/],
   ["bio", "생명·바이오·의공학", /생명|바이오|의생명|생물|유전|미생물|생화학|분자의약|약과학|의공|의료공|바이오메디컬|제약.*공/],
   ["medical", "의·치·한·약·수의학", /의예|의학|치의|한의|약학|수의/],
@@ -1284,8 +1285,8 @@ export function estimateRecommendationForUnit(indexes, university, region = "", 
   const fieldKey = compactText(field);
   const family = recommendationDepartmentFamily(department, field);
   const candidates = [
-    { pool: Array.from(new Set(deptKeys.flatMap(deptKey => indexes.byDepartment.get(deptKey) || []))), matchedBy: "department", ratio: .25, minUniversities: 4, minMentions: 2, maxCourses: Infinity },
-    { pool: family.key ? (indexes.byFamily.get(family.key) || []) : [], matchedBy: "family", ratio: .25, minUniversities: 4, minMentions: 2, maxCourses: Infinity },
+    { pool: Array.from(new Set(deptKeys.flatMap(deptKey => indexes.byDepartment.get(deptKey) || []))), matchedBy: "department", ratio: family.key === "architecture" ? .5 : .25, minUniversities: 4, minMentions: 2, maxCourses: Infinity },
+    { pool: family.key ? (indexes.byFamily.get(family.key) || []) : [], matchedBy: "family", ratio: family.key === "architecture" ? .5 : .25, minUniversities: 4, minMentions: 2, maxCourses: Infinity },
     { pool: fieldKey ? (indexes.byField.get(fieldKey) || []) : [], matchedBy: "field", ratio: .35, minUniversities: 12, minMentions: 5, maxCourses: Infinity },
   ];
   let selected = null;
