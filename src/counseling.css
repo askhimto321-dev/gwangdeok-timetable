@@ -61,6 +61,9 @@
 .kd-consultation-ui .favorite-print-item-detail>summary>svg{flex:0 0 auto}
 .kd-consultation-ui .favorite-print-item-text{display:flex!important;align-items:center;gap:7px!important;flex-wrap:wrap;font-size:13px!important;min-width:0!important;overflow-wrap:anywhere}
 .kd-consultation-ui .favorite-print-item-navi-cuts{display:inline-flex!important;margin:0!important}
+.kd-consultation-ui .favorite-print-course-preview{display:flex;flex-basis:100%;align-items:center;gap:4px;flex-wrap:wrap;margin:4px 0 0 20px;min-width:0}
+.kd-consultation-ui .favorite-print-course-preview em{font-style:normal;color:#315f86;font-size:11px;font-weight:900}
+.kd-consultation-ui .favorite-print-course-preview small{padding:2px 6px;border:1px solid #cfe1d5;border-radius:6px;background:#f2faf4;color:#235d3b;font-size:10px;font-weight:750}
 .kd-consultation-ui .favorite-print-item-body{padding:0 14px 14px;border-top:1px solid #e7edf4}
 .kd-consultation-ui .favorite-print-item-body>.no-print{padding-top:10px;justify-content:flex-start!important}
 .kd-consultation-ui .favorite-print-item-body .kd-counsel-facts{margin-top:10px}
@@ -85,7 +88,8 @@
  .counseling-print-root-clone .kd-counsel-minimum>summary b{font-size:8pt!important}
  .counseling-print-root-clone .kd-counsel-minimum>summary .kd-status-pill{font-size:7pt!important;margin-left:auto!important}
  .counseling-print-root-clone .kd-counsel-print-rule{display:block!important;padding:0 1.5mm 1mm!important;font-size:7pt!important;line-height:1.3!important;color:#53677d!important;overflow-wrap:anywhere!important}
- .counseling-print-root-clone .kd-counsel-minimum .kd-decision-primary{display:none!important}
+ .counseling-print-root-clone .kd-counsel-minimum .kd-decision-primary{display:grid!important;grid-template-columns:minmax(0,1fr)!important;margin:1.5mm 0!important}
+ .counseling-print-root-clone .kd-counsel-print-rule{display:none!important}
  .counseling-print-root-clone .kd-counsel-facts{font-size:8.5pt!important;display:block!important}
  .counseling-print-root-clone .kd-counsel-minimum{break-inside:avoid!important;display:block!important}
  .counseling-print-root-clone .kd-counsel-minimum>summary:after,.counseling-print-root-clone .kd-course-details>summary:after{display:none!important}
@@ -119,5 +123,11 @@
  .counseling-print-root-clone .favorite-print-navi-cut-list{grid-template-columns:repeat(2,minmax(0,1fr))!important}
  .counseling-print-root-clone .favorite-print-navi-cut-pill>b{font-size:8pt!important}
  .counseling-print-root-clone .favorite-print-item-navi-cuts small{font-size:7pt!important}
+ .counseling-print-root-clone .favorite-print-course-preview{display:flex!important;margin:1mm 0 0!important;gap:1mm!important;flex-wrap:wrap!important}
+ .counseling-print-root-clone .favorite-print-course-preview em,.counseling-print-root-clone .favorite-print-course-preview small{font-size:7pt!important}
  .counseling-print-root-clone .favorite-print-source-label{font-size:9pt!important;font-weight:800!important}
+ .counseling-print-root-clone .favorite-print-source-grid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:2mm!important}
+ .counseling-print-root-clone .favorite-print-source-navi{grid-column:auto!important}
+ .counseling-print-root-clone .favorite-print-card{background:#fff!important;border-color:#ccd8e3!important;border-radius:3mm!important}
+ .counseling-print-root-clone .kd-counsel-minimum{border-radius:2mm!important;background:#fff!important}
 }

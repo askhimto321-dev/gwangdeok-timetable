@@ -48,14 +48,29 @@ const CONVERSION_GROUPS = ["전교과", "국수영사과", "국수영과", "국�
 // body에 표시용 클래스를 붙였다가 인쇄가 끝나면(afterprint) 지워서, 누른 버튼에 맞는 표 하나만 보이게 합니다.
 function triggerSectionPrint(targetClass) {
   if (typeof document === "undefined") return;
-  document.body.classList.remove("kd-print-target-result", "kd-print-target-plan");
-  document.body.classList.add(targetClass);
-  const cleanup = () => {
-    document.body.classList.remove("kd-print-target-result", "kd-print-target-plan");
-    window.removeEventListener("afterprint", cleanup);
+  const selector=targetClass==='kd-print-target-plan'?'.susi-beta-plan-print-sheet':'.susi-beta-print-sheet';
+  const sheet=document.querySelector(selector);
+  if(!sheet)return;
+  const frame=document.createElement('iframe');
+  frame.title='수시NAVI 인쇄 문서';
+  frame.style.cssText='position:fixed;left:-10000px;top:0;width:1100px;height:760px;border:0';
+  const css=`@page{size:A4 landscape;margin:8mm}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#23374b;font:9pt/1.35 Pretendard,"Malgun Gothic",sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    section{display:block;width:100%}header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;padding:0 0 8px;border-bottom:2px solid #315f86}header h1{margin:0;font-size:16pt}header p{margin:3px 0 0;color:#64748b;font-size:8pt}header>div:last-child{display:grid;text-align:right;gap:2px}
+    .print-criteria{display:flex;gap:5px;flex-wrap:wrap;padding:9px 0}.print-criteria span{border:1px solid #cfdce9;background:#f5f9fd;border-radius:6px;padding:4px 6px;font-size:7.5pt}
+    table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:7.3pt}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}th,td{border:1px solid #c9d5e2;padding:5px;vertical-align:top;overflow-wrap:anywhere;word-break:keep-all}th{background:#eaf2fa;color:#234b70;text-align:left}
+    .susi-beta-print-sheet th:nth-child(1){width:10%}.susi-beta-print-sheet th:nth-child(2){width:14%}.susi-beta-print-sheet th:nth-child(3){width:10%}.susi-beta-print-sheet th:nth-child(4),.susi-beta-print-sheet th:nth-child(5){width:16%}.susi-beta-print-sheet th:nth-child(6){width:12%}.susi-beta-print-sheet th:nth-child(7){width:22%}
+    footer{margin-top:8px;color:#64748b;font-size:7pt}button{display:none!important}`;
+  frame.onload=async()=>{
+    try{
+      await frame.contentDocument?.fonts?.ready;
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+    }catch{frame.remove();}
   };
-  window.addEventListener("afterprint", cleanup);
-  window.print();
+  frame.srcdoc=`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>수시NAVI 인쇄</title><style>${css}</style></head><body>${sheet.outerHTML}</body></html>`;
+  document.body.appendChild(frame);
+  frame.contentWindow?.addEventListener('afterprint',()=>frame.remove(),{once:true});
+  window.setTimeout(()=>frame.remove(),300000);
 }
 const CONVERSION_PREF_KEY = "kd_susi_navi_conversion_pref_v1";
 const CUTOFF_PREF_KEY = "kd_susi_navi_cutoff_pref_v1";
@@ -2521,10 +2536,13 @@ export default function SusiNaviBetaView({
       }
       if (regionFilters.length && !regionFilters.includes(row[1])) return [];
       if (fieldFilters.length && !fieldFilters.some(field => fieldValuesOf(row).includes(field))) return [];
-      if (minimumFilters.length === 1) {
+      if (minimumFilters.length) {
         const states=(entry.minimumEvaluations||[]).filter((_,i)=>!admissionFilters.length||admissionFilters.some(type=>minimumAppliesToAdmission(minimums[i],type))).map(x=>x?.status);
-        if (minimumFilters[0] === "있음" && !states.some(s=>['satisfied','unsatisfied','unavailable'].includes(s))) return [];
-        if (minimumFilters[0] === "없음" && !states.includes('no-minimum')) return [];
+        const matches=minimumFilters.some(value=>value==='있음'?states.some(s=>['satisfied','unsatisfied','unavailable'].includes(s))
+          :value==='없음'?states.includes('no-minimum')
+          :value==='충족'?states.includes('satisfied')
+          :value==='미충족'?states.includes('unsatisfied'):false);
+        if(!matches)return [];
       }
       if (favoriteOnly && !favorites.some(item => favoriteMatches(item, row))) return [];
 
@@ -2780,7 +2798,7 @@ export default function SusiNaviBetaView({
               <MultiFilterSelect label="지역" values={regionFilters} onChange={setRegionFilters} options={regions} />
               <MultiFilterSelect label="계열" values={fieldFilters} onChange={setFieldFilters} options={fields} />
               <MultiFilterSelect label="전형" values={admissionFilters} onChange={setAdmissionFilters} options={["교과", "종합", "정시"]} />
-              <MultiFilterSelect label="수능최저" values={minimumFilters} onChange={setMinimumFilters} options={["있음", "없음"]} />
+              <MultiFilterSelect label="수능최저" values={minimumFilters} onChange={setMinimumFilters} options={["있음", "없음", "충족", "미충족"]} />
             </div>
             <div style={ui.searchSummaryRow}>
               <div style={ui.resultCount}><b>{filtered.length.toLocaleString()}건</b><span>현재 조건에 해당하는 모집단위</span></div>
@@ -3642,7 +3660,7 @@ function SupportDecisionWorkspace({
 
     <section className="kd-plan-section" ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:12}}>
       <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
-      <div className="kd-plan-tools is-primary"><button type="button" className="kd-plan-action is-focus" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}><LayoutGrid size={15}/>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={workspaceBusy || workspaceLoading || Boolean(workspaceLoadError) || !selectedStudent?.sid || !printItems.filter(Boolean).length}/><small className="kd-plan-student-context">{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
+      <div className="kd-plan-tools is-primary"><button type="button" className="kd-plan-action is-focus" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}><LayoutGrid size={15}/>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={!printItems.some(Boolean)}/><small className="kd-plan-student-context">{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
       {/* 15번 요청: 카드 전체를 인쇄할지 상담 중인 일부 전형만 인쇄할지 선택합니다. */}
       {planItems.length > 0 && <div className="kd-plan-tools" style={{ flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 11.5, color: "#6b7688", fontWeight: 700 }}>인쇄 대상</span>
@@ -3658,7 +3676,7 @@ function SupportDecisionWorkspace({
           })}
         </div>}
       </div>}
-      <div className="kd-plan-tools is-summary"><button type="button" className="kd-plan-action is-summary-print" disabled={!planItems.length || workspaceBusy || workspaceLoading || Boolean(workspaceLoadError)} onClick={()=>triggerSectionPrint('kd-print-target-plan')}><Printer size={14}/>간단 요약표 인쇄</button></div>
+      <div className="kd-plan-tools is-summary"><button type="button" className="kd-plan-action is-summary-print" disabled={!planItems.length} onClick={()=>triggerSectionPrint('kd-print-target-plan')}><Printer size={14}/>간단 요약표 인쇄</button></div>
       <PrintPlanSheet items={slots} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent}/>
       {/* 1번 요청: 긴 문장 하나를 그대로 넣으면 좁은 칸에서 단어 중간이 아니라 " · " 뒤에서
           꺾여 마지막 항목만 혼자 남는 문제가 있었습니다. 항목마다 색이 있는 배지로 나누면

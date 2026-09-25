@@ -11,7 +11,10 @@ import {favoriteAdmissionSelection,favoriteTrackKey} from './favoriteAdmission.j
 import FavoritePlanPicker from "./FavoritePlanPicker.jsx";
 import counselingCss from './counseling.css?raw';
 import supportDecisionCss from './supportDecision.css?raw';
+import themeCss from './theme.css?raw';
 import CounselingAdmissionFacts from './CounselingAdmissionFacts.jsx';
+import {buildCounselingFactIndex,counselingFactsForFavorite,loadRecommendedSubjectData} from './SusiNaviBeta.jsx';
+import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
 import { LayoutGrid } from 'lucide-react';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
@@ -4025,7 +4028,7 @@ export function printCounselingHistory(options = {}) {
 
   try {
     printDocument.open();
-    const counselingPrintCss = (supportDecisionCss + COUNSELING_PRINT_CSS + counselingCss).replace(/@media print/g, '@media all').replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
+    const counselingPrintCss = (themeCss + supportDecisionCss + COUNSELING_PRINT_CSS + counselingCss).replace(/@media print/g, '@media all').replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
     printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${counselingPrintCss}</style></head><body class="print-counseling-history ${paper === "B4" ? "counseling-paper-b4" : ""}">${clone.outerHTML}</body></html>`);
     printDocument.close();
   } catch { cleanup(); return; }
@@ -4198,8 +4201,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
   const [favoriteNaviData, setFavoriteNaviData] = useState(null);
   const [favoriteNaviStatus, setFavoriteNaviStatus] = useState('loading');
   const [favoriteRetry, setFavoriteRetry] = useState(0);
-  const [factsModule,setFactsModule]=useState(null);
-  const [factsStatus,setFactsStatus]=useState('loading');
+  const factsStatus='ready';
   const [recommendedData,setRecommendedData]=useState(null);
   const [recommendationStatus,setRecommendationStatus]=useState('loading');
   useEffect(()=>{
@@ -4210,19 +4212,15 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
   useEffect(()=>{
     if(!favorites.length)return;
     let active=true;
-    setFactsStatus('loading');setRecommendationStatus('loading');
-    loadSusiNaviView().then(module=>{
-      if(!active)return;
-      setFactsModule(module);setFactsStatus('ready');
-      return module.loadRecommendedSubjectData(favoriteRetry>0).then(value=>{
+    setRecommendationStatus('loading');
+    loadRecommendedSubjectData(favoriteRetry>0).then(value=>{
         if(active){setRecommendedData(value);setRecommendationStatus(value?'ready':'empty');}
       }).catch(()=>{if(active){setRecommendedData(null);setRecommendationStatus('error');}});
-    }).catch(()=>{if(active)setFactsStatus('error');});
     return()=>{active=false;};
   },[Boolean(favorites.length),favoriteRetry]);
-  const factIndexes=useMemo(()=>factsModule?.buildCounselingFactIndex(favoriteNaviData,recommendedData),[factsModule,favoriteNaviData,recommendedData]);
+  const factIndexes=useMemo(()=>buildCounselingFactIndex(favoriteNaviData,recommendedData),[favoriteNaviData,recommendedData]);
   const factStudent=useMemo(()=>selectedStudent?.sid===String(sid)?selectedStudent:{sid:String(sid),admissionYear:Number(identity.entryYear)+3,subjects:[],minimumCatalogRows:normalizeMinimumCatalog(gdb.minimumCatalog?.rows||minimumCatalogSeed),minimumRows:[]},[selectedStudent,sid,identity.entryYear,gdb.minimumCatalog]);
-  const favoriteFacts=useMemo(()=>new Map(favorites.map(item=>[item.id,factsModule&&factIndexes?factsModule.counselingFactsForFavorite({favorite:item,data:favoriteNaviData||{},student:factStudent,recommendedData,indexes:factIndexes}):null])),[favorites,factsModule,factIndexes,favoriteNaviData,factStudent,recommendedData]);
+  const favoriteFacts=useMemo(()=>new Map(favorites.map(item=>[item.id,counselingFactsForFavorite({favorite:item,data:favoriteNaviData||{},student:factStudent,recommendedData,indexes:factIndexes})])),[favorites,factIndexes,favoriteNaviData,factStudent,recommendedData]);
   useEffect(() => {
     if (!favorites.length) return;
     let active = true;
@@ -4327,7 +4325,8 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
               const types=[...new Set((facts?.minimums||[]).map(value=>value.admissionType).filter(value=>["교과","종합","논술","실기"].includes(value)))];
               const kind=item.favoriteKind==="개별사례"?"개별":favoriteCategory(item);
               const schoolOnly=!item.department || /^(전체|대학 전체)$/.test(item.department);
-              return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><details className="favorite-print-item-detail" open={itemIndex===0 || undefined}><summary><Star size={13} fill="#ffd84d" color="#b58a00"/><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-kind" style={favoriteView.kindBadge}>{kind}{kind==="전형"&&types.length===1?` · ${types[0]}`:""}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}{item.department&&<span className="favorite-print-item-navi-cuts" style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "해당 전형 공개컷 연결 없음"}</small>}</span>}</span></summary><div className="favorite-print-item-body"><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span>{schoolOnly?<p className="favorite-school-hint">학과를 추가하면 해당 모집단위의 전형별 수능최저와 권장과목을 연결합니다. 위 대학 공통 자료와 사례는 지금 확인할 수 있습니다.</p>:<CounselingAdmissionFacts facts={facts} student={factStudent} status={factsStatus} minimumStatus={favoriteNaviStatus} recommendationStatus={recommendationStatus} onRetry={()=>setFavoriteRetry(value=>value+1)}/>}</div></details></div>;
+              const coursePreview=(facts?.progress?.courseGroups||[]).filter(([label])=>/핵심|권장/.test(label)).flatMap(([label,courses])=>courses.map(course=>({label,course}))).slice(0,6);
+              return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><details className="favorite-print-item-detail" open={itemIndex===0 || undefined}><summary><Star size={13} fill="#ffd84d" color="#b58a00"/><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-kind" style={favoriteView.kindBadge}>{kind}{kind==="전형"&&types.length===1?` · ${types[0]}`:""}</span><b>{item.department||"대학 전체"}</b>{item.admissionType&&<small>{item.admissionType}</small>}{item.department&&<span className="favorite-print-item-navi-cuts" style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "해당 전형 공개컷 연결 없음"}</small>}</span>}</span>{coursePreview.length>0&&<span className="favorite-print-course-preview"><em>핵심·권장과목</em>{coursePreview.map(({label,course})=><small title={label} key={`${label}-${course}`}>{recommendedCourseDisplayName(course)}</small>)}</span>}</summary><div className="favorite-print-item-body"><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span>{schoolOnly?<p className="favorite-school-hint">학과를 추가하면 해당 모집단위의 전형별 수능최저와 권장과목을 연결합니다. 위 대학 공통 자료와 사례는 지금 확인할 수 있습니다.</p>:<CounselingAdmissionFacts facts={facts} student={factStudent} status={factsStatus} minimumStatus={favoriteNaviStatus} recommendationStatus={recommendationStatus} onRetry={()=>setFavoriteRetry(value=>value+1)}/>}</div></details></div>;
             })}</div>
           </article>
         })}</div>}
