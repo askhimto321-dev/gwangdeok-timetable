@@ -14,6 +14,8 @@ export function expandMinimumSourceRows(rows) {
   if(row.id==='MIN-66eeb27f037d542f'&&/평택캠퍼스는.*미적용/.test(row.note))add(row,'MIN-66eeb27f037d542f-pyeongtaek',{campus:'평택',scopeType:'전체',department:'전체',ruleType:'없음',subjects:'',count:null,threshold:null,inquiryMode:'해당없음',ruleText:'평택캠퍼스 수능최저 미적용',note:''});
   if(row.id==='MIN-d87864e7f93fbf1e'&&/디자인계열.*미적용/.test(row.note))add(row,'MIN-d87864e7f93fbf1e-design',{scopeType:'계열',department:'디자인',ruleType:'없음',subjects:'',count:null,threshold:null,inquiryMode:'해당없음',ruleText:'디자인계열 수능최저 미적용',note:''});
   if(row.id==='MIN-080e2a6e732fd203'&&/세종캠퍼스.*미적용/.test(row.note))add(row,'MIN-080e2a6e732fd203-sejong',{campus:'세종',scopeType:'전체',department:'전체',ruleType:'없음',subjects:'',count:null,threshold:null,inquiryMode:'해당없음',ruleText:'세종캠퍼스 수능최저 미적용',note:''});
+  if(row.id==='MIN-abaa759dc3829187'&&row.university==='덕성여대')add(row,'MIN-abaa759dc3829187-global',{scopeType:'학과',department:'글로벌융합대학',subjects:'국|수|영/외|사/과',count:2,threshold:7,
+   ruleText:'국, 수, 영(제2외국어/한문 대체 가능), 사/과(1) 중 2개 영역 등급 합 7 이내',note:'제2외국어/한문 성적이 없고 다른 영역으로 충족할 수 없으면 판정 보류'});
  }
  return derived.length?[...rows,...derived]:rows;
 }
@@ -44,9 +46,60 @@ const named2027Essays={
  '숙명여대':'논술우수자',
  '이화여대':'논술','인하대':'논술우수자','아주대':'논술우수자',
  '한국외대':'논술','한양대':'논술','홍익대':'논술',
+ '국민대':'논술','숭실대':'논술우수자',
+};
+const official2027EssaySources={
+ '국민대':'https://admission.kookmin.ac.kr/nonschedule/faq.php?page=2',
+ '숭실대':'https://iphak.ssu.ac.kr/upload/2027_plan4.pdf',
 };
 export function correctMinimumSource(input) {
  const row={...input};
+ if(row.admissionYear===2028&&row.university==='상지대'&&['MIN-493fcd33df792d78','MIN-bea66e0a2367618e'].includes(row.id))Object.assign(row,{...branchDefaults,scopeType:'학과',department:'한의예과',subjects:'국|수|영',count:3,threshold:5,
+  ruleText:'국어·수학·영어 3개 영역 등급 합 5 이내',note:'요약 원문의 탐구 평균 주석은 반영영역에 탐구가 없는 이 행의 합산에 적용하지 않음',resolutionNote:'원문에 열거된 세 영역만 합산; 탐구 평균 주석을 합산 영역으로 오인하지 않음'});
+ if(row.admissionYear===2028&&row.university==='서울대'){
+  if(['MIN-1187a9ffdaf4504e','MIN-fe1eb58a26531eac'].includes(row.id))Object.assign(row,{reviewStatus:'사용안함',reviewReason:'',resolutionNote:'별도 수능최저 등급 규칙이 아닌 제2외국어/한문 응시 안내를 같은 전형의 최저 미적용 행에 병합'});
+  if(['MIN-e907c7749427ab39','MIN-e7eac8b43b1a3fbf'].includes(row.id))row.note=[row.note,'인문대학·사회과학대학·경영대학·농경제사회학부·사범대학 인문사회/체육계열·소비자아동학부: 제2외국어/한문 응시 필수. 응시 여부는 별도 확인'].filter(Boolean).join(' · ');
+ }
+ if(row.admissionYear===2028&&row.university==='한성대'&&['MIN-ab00ab6107f1f029','MIN-12c6833cf1a965c6'].includes(row.id)){
+  const night=row.id==='MIN-12c6833cf1a965c6';Object.assign(row,{...branchDefaults,scopeType:'전체',department:'전체',nightOnly:night,dayOnly:!night,subjects:'국|수|영|사/과/외',count:2,threshold:night?8:7,
+   ruleText:`국·수·영·사/과(1, 제2외국어/한문 대체 가능) 중 2개 영역 등급 합 ${night?8:7} 이내`,
+   note:'제2외국어/한문 성적을 입력하지 않았을 때 대체로 결과가 달라질 수 있으면 판정 보류',
+   resolutionSource:'https://use.go.kr/component/file/ND_fileDownload.do?q_fileId=a0b5f551-1a75-474b-8a95-ec8bf0da87b4&q_fileSn=876420',resolutionNote:'2028 한성대 시행계획의 주간·야간 2합7/2합8과 제2외국어/한문 탐구 대체 조건'});
+ }
+ if(row.admissionYear===2028&&row.university==='성균관대'&&row.admissionType==='논술'){
+  if(row.id==='MIN-032d76c62980aa95')Object.assign(row,{reviewStatus:'계산가능',reviewReason:'',scopeType:'학과',
+   department:'자유전공계열|글로벌리더학부|글로벌경제학과|글로벌경영학과|전자전기정보공학부|반도체시스템공학과|컴퓨터공학과|글로벌바이오메디컬공학과|지능형소프트웨어학과|약학과|반도체융합공학과|에너지학과',
+   conditionalMandatory:'언어형:전자전기정보공학부|컴퓨터공학과',resolutionSource:'https://admission.skku.edu/',resolutionNote:'2028 논술 3합5 모집단위를 공식 전형계획의 개별 학과로 분리'});
+  if(row.id==='MIN-18f9cd3ff0739978')row.conditionalMandatory='언어형:자연과학|공학|건설환경공학부|글로벌AI융합학부';
+  if(row.id==='MIN-82d869fc7e5c2dc8')Object.assign(row,{reviewStatus:'사용안함',reviewReason:'',resolutionNote:'언어형 자연·공학 모집단위의 수학 필수 조건을 3합5/3합6 본 규칙의 조건부 필수영역으로 병합'});
+ }
+ // The university's 2028 plan explicitly applies a minimum to every 논술 unit.
+ // The preview also contains the previous no-minimum entry and two pharmacy
+ // descriptions; retain one scoped rule per actual admission branch.
+ if(row.admissionYear===2028&&row.university==='연세대'&&row.admissionType==='논술'&&row.track==='논술'){
+  const official='https://www2.yonsei.ac.kr/entrance/plan/2028_plan.pdf';
+  const common={...branchDefaults,subjects:'국|수|사/과',mandatory:'국|수',count:3,englishMax:3,historyMax:4,scopeType:'전체',department:'전체',excluded:'약학과',
+   source:'연세대학교 2028학년도 입학전형 시행계획',page:'2, 16',resolutionSource:official,
+   note:'영어 3등급·한국사 4등급 이내. 국어·수학 모두 포함',resolutionNote:'공식 시행계획: 논술 전 모집단위 최저 적용, 국어·수학 필수'};
+  if(row.id==='MIN-f9c884bbdb1a80e1')Object.assign(row,common,{threshold:6,ruleText:'국어·수학을 모두 포함한 국·수·사/과 중 3개 과목 등급 합 6 이내'});
+  if(row.id==='MIN-d175e2d250015750')Object.assign(row,common,{scopeType:'학과',department:'약학과',excluded:'',threshold:5,
+   ruleText:'약학과: 국어·수학을 모두 포함한 3개 과목 등급 합 5 이내'});
+  if(['MIN-10035f91054872de','MIN-aa3446ab6d8c6d90'].includes(row.id))Object.assign(row,{reviewStatus:'사용안함',reviewReason:'',resolutionSource:official,
+   resolutionNote:'공식 2028 논술 최저 적용표와 중복 또는 상충하는 요약 행. 정확한 범위의 단일 규칙에 통합'});
+ }
+ if(row.admissionYear===2028&&row.id==='MIN-adf213fcb109114a'&&row.university==='연세대'&&row.admissionType==='논술')Object.assign(row,{reviewStatus:'사용안함',reviewReason:'',
+  resolutionSource:'https://www2.yonsei.ac.kr/entrance/plan/2028_plan.pdf',resolutionNote:'공식 전형명은 논술전형이고 전 모집단위에 최저를 적용함. 구 전형명 미적용 요약행 제외'});
+ if(row.admissionYear===2028&&row.university==='인하대'&&row.admissionType==='종합'&&['MIN-34d1678e32344234','MIN-efc3efaff9631439','MIN-149bfcfcee5e4f42'].includes(row.id)){
+  const official='https://use.go.kr/component/file/ND_fileDownload.do?q_fileId=5b884140-e638-4389-bb96-f6aa543c8171&q_fileSn=876433';
+  if(row.id==='MIN-34d1678e32344234')Object.assign(row,{reviewStatus:'계산가능',reviewReason:'',ruleType:'없음',subjects:'',count:null,threshold:null,
+   scopeType:'전체',department:'전체',excluded:'의예과',inquiryMode:'해당없음',resolutionSource:official,
+   resolutionNote:'2028 시행계획 면접형 일반 모집단위는 최저 미적용, 의예과는 별도 3합4'});
+  if(row.id==='MIN-efc3efaff9631439')Object.assign(row,{reviewStatus:'사용안함',reviewReason:'',resolutionSource:official,
+   resolutionNote:'요약표 의예과 3합6은 동일 전형의 2028 의예과 3합4 공식 조건과 상충하므로 제외'});
+  if(row.id==='MIN-149bfcfcee5e4f42')Object.assign(row,{...branchDefaults,track:'인하미래인재(면접형)',scopeType:'학과',department:'의예과',subjects:'국|수|영|탐',count:3,threshold:4,
+   inquiryMode:'통합평균',rounding:'절사',ruleText:'국, 수, 영, 통합사회·통합과학 평균(소수점 첫째자리 절사) 중 3개 영역 등급 합 4 이내',
+   resolutionSource:official,resolutionNote:'2028 시행계획 면접형 의예과 3합4 및 탐구 2과목 평균 절사 기준'});
+ }
  if(row.admissionYear===2028&&row.university==='중앙대'&&row.admissionType==='논술'&&row.track==='모두의 논술'){
   const official='https://admission.cau.ac.kr/detail.do?board_seq=3310&categoryid=65&menuurl=n5%2FP1yX8Zyh%2Fvtvla1KeyA%3D%3D&pageNo=1';
   if(row.id==='MIN-7ea70e55264efc90'&&/서울전모집단위/.test(row.department)){
@@ -75,6 +128,14 @@ export function correctMinimumSource(input) {
  }
  if(row.admissionYear===2028&&row.season==='수시'){
   const simple=fields=>Object.assign(row,{...branchDefaults,...fields});
+  if(row.id==='MIN-c118b86e28db77c0'&&row.university==='덕성여대')simple({scopeType:'학과',department:'글로벌융합대학',subjects:'국|수|영/외|사/과',count:2,threshold:7,
+   ruleText:'국, 수, 영(제2외국어/한문 대체 가능), 사/과(1) 중 2개 영역 등급 합 7 이내',note:'제2외국어/한문 성적이 없고 다른 영역으로 충족할 수 없으면 판정 보류',resolutionNote:'원문 고교추천 글로벌융합대학 2합7에 영어 대체영역을 결합'});
+  if(row.id==='MIN-abaa759dc3829187'&&row.university==='덕성여대')simple({scopeType:'학과',department:'과학기술대학',count:2,threshold:7,
+   ruleText:'국, 수, 영, 사/과(1) 중 2개 영역 등급 합 7 이내',resolutionNote:'과학기술대학 일반 2합7. 글로벌융합대학의 영어 대체 허용은 별도 행'});
+  if(row.id==='MIN-1ba89fe59e2a9e10'&&row.university==='덕성여대')Object.assign(row,{reviewStatus:'사용안함',reviewReason:'',resolutionNote:'동일 논술 약학과 3합5·수학 필수 조건은 MIN-bb46864714f7ddab에서 계산'});
+  if(['MIN-927fdbe46187eec7','MIN-81da2d9ebd896f29','MIN-6164d61aa17b009c','MIN-ce560bbd111980ce','MIN-d612b647efde6126'].includes(row.id)&&/사\/과\/직\(1\)/.test(row.ruleText))simple({subjects:'국|수|영|사/과/직',count:2,threshold:/합\s*7/.test(row.ruleText)?7:6,
+   note:[row.note,'직업탐구를 선택한 경우 해당 성적도 입력해야 완전한 판정이 가능합니다.'].filter(Boolean).join(' · '),
+   resolutionNote:'원문 직업탐구 선택을 탐구 후보 한 영역으로 반영. 성적이 없으면 충족 확정 또는 판정 보류'});
   if(row.id==='MIN-20cc73377f0096c0'&&/서울.*합\s*5.*글로벌.*합\s*6/.test(row.ruleText))simple({campus:'서울',scopeType:'전체',department:'전체',count:2,threshold:5,ruleText:'국, 수, 영, 사/과(1) 중 2개 영역 등급 합 5',note:'글로벌캠퍼스 2합6은 별도 행',resolutionNote:'서울 2합5·글로벌 2합6 원문 분리'});
   if(row.id==='MIN-1bf9381478b1ebd9'&&/간호학과는\s*2개\s*영역\s*합\s*6/.test(row.ruleText))simple({scopeType:'전체',department:'전체',excluded:[row.excluded,'간호학과'].filter(Boolean).join('|'),count:2,threshold:7,ruleText:'국, 수, 영, 사/과(1) 중 2개 영역 합 7',note:'간호학과 2합6은 별도 행'});
   if(row.id==='MIN-66eeb27f037d542f'&&/평택캠퍼스는.*미적용/.test(row.note))simple({campus:'안성',scopeType:'전체',department:'전체',count:2,threshold:8,ruleText:'국, 수, 영, 사/과(1) 중 2개 영역 등급 합 8',note:'평택캠퍼스 수능최저 미적용은 별도 행'});
@@ -184,8 +245,8 @@ export function correctMinimumSource(input) {
   row.track=named2027Essays[row.university];
   row.reviewReason=String(row.reviewReason||'').split(' · ').filter(reason=>reason!=='세부전형명 원문 미기재').join(' · ');
   if(!row.reviewReason)row.reviewStatus='계산가능';
-  row.resolutionSource=admissions119;
-  row.resolutionNote='대입정보포털 2027 대입정보 119 논술전형 pp.392, 423, 428의 전형명 대조';
+  row.resolutionSource=official2027EssaySources[row.university]||admissions119;
+  row.resolutionNote=official2027EssaySources[row.university]?'대학 입학처 2027학년도 논술전형 안내의 전형명 대조':'대입정보포털 2027 대입정보 119 논술전형 pp.392, 423, 428의 전형명 대조';
  }
  // 대학어디가 2027 전형명 변경표: 2026 미래역량우수자는 2027 미래창의인재.
  // 2028 원문 행의 판정조건은 그대로 두고 저장된 옛 전형명만 조회 별칭으로 연결한다.
@@ -231,6 +292,52 @@ export function correctMinimumSource(input) {
 export function correct2027Conditions(input) {
  if(input.admissionYear!==2027||!String(input.source).includes('경기도교육청')||input.reviewStatus==='사용안함')return input;
  const row={...input}, uni=row.university.replace(/\([^)]*\)/g,''), type=row.admissionType;
+ if(uni==='성균관대'&&['MIN-d8ccd9deec29f6ac','MIN-f5df0ae9390435ff','MIN-fc53c2d47ad3ae2e','MIN-5d52fc4a8d0b9a76','MIN-2dbb6308367454e9'].includes(row.id)){
+  const official='https://admission.skku.edu/upload/guide/20260813104526BBPE44.pdf';
+  const scopes={
+   'MIN-d8ccd9deec29f6ac':['자유전공계열|글로벌리더학부|글로벌경제학과|글로벌경영학과|글로벌바이오메디컬공학과|소프트웨어학과|반도체융합공학과|에너지학과',6],
+   'MIN-f5df0ae9390435ff':['인문과학계열|사회과학계열|경영학과|사범대학|영상학과|의상학과|자연과학계열|공학계열|건설환경공학부|건축학과',7],
+   'MIN-fc53c2d47ad3ae2e':['의예과',5],
+   'MIN-5d52fc4a8d0b9a76':['자유전공계열|글로벌리더학부|글로벌경제학과|글로벌경영학과|글로벌바이오메디컬공학과|전자전기공학부|반도체시스템공학과|반도체융합공학과|소프트웨어학과|지능형소프트웨어학과|에너지학과|약학과',5],
+   'MIN-2dbb6308367454e9':['글로벌융합학부|인문과학계열|사회과학계열|경영학과|자연과학계열|공학계열|건설환경공학부',6]
+  };const [department,threshold]=scopes[row.id],essay=type==='논술',medicine=/의예/.test(department);
+  Object.assign(row,{scopeType:'학과',department,track:essay?'논술':'추천인재',reviewStatus:'계산가능',reviewReason:'',subjects:medicine?'국|수|영|탐':'국|수|영|사/과/외',count:medicine?4:3,threshold,
+   ruleType:'합',inquiryMode:medicine?'통합평균':'통합개별',referenceMapped:true,conditionalMandatory:essay&&!medicine?'언어형:자연과학계열|공학계열|건설환경공학부|전자전기공학부|소프트웨어학과':'',
+   note:medicine?'탐구 두 과목 평균. 2027 선택과목 점수는 통합 모평으로 참고 환산':'탐구 2과목 평균·제2외국어/한문 대체 허용·과학탐구 우수 1과목 가능. 선택탐구 상세 성적이 없으면 미충족 확정을 보류',
+   source:'성균관대학교 2027학년도 수시모집요강',page:essay?'12':'9',resolutionSource:official,
+   resolutionNote:'공식 수시모집요강의 전형명·모집단위·3합/4합 범위 확인; 선택탐구 대체는 현재 성적으로 참고 판정'});
+  // The medicine row specifies a two-subject inquiry average; other rows
+  // allow a higher individual science result that cannot be reconstructed.
+  if(!medicine)row.optionalInquiryAlternative=true;
+ }
+ if(uni==='중앙대'&&row.id==='MIN-4197063d61f52278')Object.assign(row,{track:'일반형',scopeType:'학과',department:'약학부',reviewStatus:'계산가능',reviewReason:'',subjects:'국|수|영|사/과',count:4,threshold:5,ruleType:'합',historyMax:4,englishConversion:'2등급까지1',inquiryMode:'통합개별',referenceMapped:true,
+  ruleText:'국어·수학·영어·탐구(1) 4개 영역 등급 합 5 이내, 한국사 4등급 이내',note:'영어 1·2등급은 1등급으로 환산. 2027 탐구는 통합 모평 참고 환산',source:'중앙대학교 2027학년도 수시모집요강',resolutionSource:'https://admission.cau.ac.kr/file/pdfDown.pdf?ofn=2027%ED%95%99%EB%85%84%EB%8F%84+%EC%A4%91%EC%95%99%EB%8C%80%ED%95%99%EA%B5%90+%EC%88%98%EC%8B%9C%EB%AA%A8%EC%A7%91%EC%9A%94%EA%B0%95_20260529_VF.pdf&sfn=20260529040050578_55c4ff8925324156a16c17aaab30fe7e.pdf',resolutionNote:'공식 논술 일반형 약학부 4합5; 요약표의 3합5를 교정'});
+ if(uni==='한국항공대'&&row.id==='MIN-5e235b2e1ba410b3')Object.assign(row,{track:'논술우수자',reviewStatus:'계산가능',reviewReason:'',subjects:'국|수|영|사/과/직',referenceMapped:true,
+  ruleText:'국·수·영·사/과/직업탐구(1) 중 2개 영역 등급 합 6 이내',resolutionSource:'https://cdn013.negagea.net/dgsmidc/omr/seoul/web/univ_info2025/%ED%95%9C%EA%B5%AD%ED%95%AD%EA%B3%B5%EB%8C%80%ED%95%99%EA%B5%90/%ED%95%9C%EA%B5%AD%ED%95%AD%EA%B3%B5%EB%8C%80%ED%95%99%EA%B5%90_2027%ED%95%99%EB%85%84%EB%8F%84_%EB%8C%80%ED%95%99%EC%9E%85%ED%95%99%EC%A0%84%ED%98%95%EA%B3%84%ED%9A%8D.pdf',resolutionNote:'공식 2027 시행계획 p.9 논술우수자 전 모집단위 2합6·직업탐구 선택 가능'});
+ if(uni==='홍익대'&&row.id==='MIN-3979d8d386097d39')Object.assign(row,{scopeType:'전체',department:'전체',campus:'서울',reviewStatus:'계산가능',reviewReason:'',historyMax:4,referenceMapped:true,
+  ruleText:'서울캠퍼스 학교생활우수자: 국·수·영·탐구 중 2개 영역 등급 합 5 이내, 한국사 4등급 이내',resolutionSource:'https://www.hongik.ac.kr/kr/admission/recruitment.do?articleNo=152315&mode=view',resolutionNote:'2027 수시모집요강 서울캠퍼스 학교생활우수자 적용범위'});
+ if(uni==='연세대'&&['추천형','활동우수형','국제형(국내고)'].includes(row.track)){
+  const official='https://www2.yonsei.ac.kr/entrance/plan/2027_plan.pdf';
+  const history={englishMax:3,historyMax:4};
+  const scopes={
+   'MIN-765405a122ed617f':{scopeType:'학과',department:'의예과|치의예과|약학과',ruleType:'각',subjects:'국|수|과',count:2,threshold:1,mandatory:'국/수',...history},
+   'MIN-9df741004f7bb566':{scopeType:'계열',department:'인문',ruleType:'합',subjects:'국|수|사/과',count:2,threshold:4,mandatory:'국/수',...history},
+   'MIN-d582e564b3d8959c':{scopeType:'계열',department:'자연',excluded:'의예과|치의예과|약학과',ruleType:'합',subjects:'국|수|과',count:2,threshold:5,mandatory:'수',...history},
+   'MIN-31b85ed99ae0e7be':{scopeType:'전체',department:'전체',ruleType:'합',subjects:'국|수|사/과',count:2,threshold:5,mandatory:'국/수',englishMax:2,historyMax:4},
+   'MIN-e9d1f52a91a9afeb':{scopeType:'학과',department:'의예과|치의예과|약학과',ruleType:'각',subjects:'국|수|과',count:2,threshold:1,mandatory:'국/수',...history},
+   'MIN-bc7e0dd09542897b':{scopeType:'계열',department:'인문',ruleType:'합',subjects:'국|수|사/과',count:2,threshold:4,mandatory:'국/수',...history},
+   'MIN-7f77ddd4ae6f7fb9':{scopeType:'계열',department:'자연',excluded:'의예과|치의예과|약학과',ruleType:'합',subjects:'국|수|과',count:2,threshold:5,mandatory:'수',...history},
+  };
+  if(row.id==='MIN-62ee43a37b9bc7f2')return {...row,reviewStatus:'사용안함',reviewReason:'',resolutionSource:official,resolutionNote:'공식 2027 추천형 자연 일반 2합5와 중복된 불완전한 요약 행'};
+  if(scopes[row.id]){
+   const rule=scopes[row.id],isEach=rule.ruleType==='각';
+   Object.assign(row,{...rule,reviewStatus:'계산가능',reviewReason:'',inquiryMode:'통합개별',rounding:'없음',englishConversion:'없음',referenceMapped:true,
+    ruleText:`국어·수학·${rule.subjects.includes('사/과')?'탐구':'과학탐구'} 중 ${rule.mandatory==='수'?'수학': '국어·수학 중 한 과목'} 포함 ${isEach?'2개 과목 각 1등급':`2개 과목 등급 합 ${rule.threshold}`} 이내`,
+    note:`영어 ${rule.englishMax}등급·한국사 4등급 이내. 2027 선택탐구·수학 선택과목 조건은 실제 원서접수 시 확인`,
+    source:'연세대학교 2027학년도 입학전형 시행계획',page:row.track==='추천형'?'11':row.track==='활동우수형'?'12':'13',resolutionSource:official,
+    resolutionNote:'공식 2027 시행계획의 전형별 범위·등급·영어·한국사 조건으로 요약표의 상충 항목 교정. 통합 모평 성적은 참고 환산'});
+  }
+ }
  const course=type==='교과', essay=type==='논술';
  const historyCourse={가톨릭대:4,경기대:6,경희대:5,고려대:4,서강대:4,서울교대:4,서울시립대:4,중앙대:4,홍익대:4};
  const historyEssay={가톨릭대:4,건국대:5,경희대:5,고려대:4,동국대:4,서강대:4,홍익대:4};
@@ -287,9 +394,20 @@ export function correct2027Conditions(input) {
   if(!row.reviewReason)row.reviewStatus='계산가능';
  }
  if(row.reviewStatus==='계산가능'){
-  row.resolutionSource=admissions119;
+  row.resolutionSource=row.resolutionSource||admissions119;
   const note='2027 대입정보 119 교과 pp.93–99/논술 pp.195–196, 2027 한국사·필수영역 대조';
   if(!String(row.resolutionNote||'').includes(note))row.resolutionNote=[row.resolutionNote,note].filter(Boolean).join(' · ');
+ }
+ if(uni==='한국공학대'&&course&&row.track==='교과우수자'){
+  const official='https://iphak.tukorea.ac.kr/guide/notice.htm?bbsid=notice&bltn_seq=12585&mode=view';
+  if(row.id==='MIN-7b7dd8b2d3ef5d7d')return {...row,reviewStatus:'사용안함',reviewReason:'',resolutionSource:official,
+   resolutionNote:'공식 2027 시행계획: 공학계열은 2합7. 요약표 2합6 행 제외'};
+  if(['MIN-54352cf32d48c2ab','MIN-61ff84e885ae6129'].includes(row.id))Object.assign(row,{reviewStatus:'계산가능',reviewReason:'',
+   scopeType:row.id==='MIN-61ff84e885ae6129'?'학과':'계열',department:row.id==='MIN-61ff84e885ae6129'?'경영학부':'공학|자연',
+   subjects:'국|수|영|사/과',ruleType:'합',count:2,threshold:row.id==='MIN-61ff84e885ae6129'?8:7,mandatory:'',inquiryMode:'통합개별',referenceMapped:true,
+   ruleText:`국, 수, 영, 탐구(사/과 1과목) 중 2개 영역 등급 합 ${row.id==='MIN-61ff84e885ae6129'?8:7} 이내`,
+   note:'한국사 응시 필수. 2027 수학 미적분/기하 선택 시 수학 반영등급 1등급 상향(선택과목 미입력 상태에서는 가산 계산하지 않음)',
+   resolutionSource:official,resolutionNote:'한국공학대학교 공식 2027 시행계획: 공학 2합7, 경영학부 2합8로 적용범위 교정'});
  }
  return row;
 }

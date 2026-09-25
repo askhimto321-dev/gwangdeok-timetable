@@ -28,7 +28,7 @@ function universityRows(rows,name) {
  if(!index){index=new Map();for(const r of rows){const k=baseUniversity(r.university);if(!index.has(k))index.set(k,[]);index.get(k).push(r);}catalogIndexes.set(rows,index);}
  return index.get(baseUniversity(name))||[];
 }
-const subjects = ['국','수','영','사','과','한','탐'];
+const subjects = ['국','수','영','사','과','한','탐','직','외'];
 const numberOrNull = x => x === '' || x == null ? null : Number(x);
 export function validateMinimumRow(row) {
  const errors=[];
@@ -184,9 +184,24 @@ export function mergeMinimumCatalog(current, incoming) {
  for(const row of incoming){const before=map.get(row.id);if(!before)added++;else if(JSON.stringify(before)===JSON.stringify(row))unchanged++;else changed++;map.set(row.id,row);}
  return {rows:[...map.values()],added,changed,unchanged};
 }
-const gradeNames={국:'국어',수:'수학',영:'영어',사:'통합사회',과:'통합과학',한:'한국사'};
+const gradeNames={국:'국어',수:'수학',영:'영어',사:'통합사회',과:'통합과학',한:'한국사',직:'직업탐구',외:'제2외국어/한문'};
 const gradeValue=x=>x!==''&&x!=null&&Number.isInteger(Number(x))&&Number(x)>=1&&Number(x)<=9?Number(x):null;
 export function evaluateCatalogMinimum(row,student) {
+ if(row.conditionalMandatory){
+  const [,scope='']=String(row.conditionalMandatory).split(':');
+  const target=student?.minimumTarget||{};
+  const unit=unitKey(target.department),field=compactMinimum(target.field).replace(/계열$/,'');
+  const applies=!unit||scope.split('|').some(x=>unitKey(x)===unit||compactMinimum(x).replace(/계열$/,'')===field);
+  const base={...row,conditionalMandatory:null};
+  if(applies){
+   if(/언어형/.test(target.track||'')&&!/수리형/.test(target.track||''))return evaluateCatalogMinimum({...base,mandatory:'수'},student);
+   if(!/수리형/.test(target.track||'')||/언어형/.test(target.track||'')){
+    const general=evaluateCatalogMinimum(base,student),language=evaluateCatalogMinimum({...base,mandatory:'수'},student);
+    return general.status===language.status?{...general,reason:`${general.reason} · 언어형 수학 필수 조건도 같은 판정`}:{...general,status:'unavailable',satisfied:null,reason:'언어형은 수학 필수입니다. 논술 유형을 선택하면 판정을 확정할 수 있습니다.'};
+   }
+  }
+  return evaluateCatalogMinimum(base,student);
+ }
  // Older uploads may have stored "각 4등급" with a default count of one.
  // Correct only when the complete original sentence explicitly determines it.
  if(row.reviewStatus==='계산가능'&&/(?:각각|각|모두)\s*[1-9]/.test(row.ruleText||'')){
@@ -244,6 +259,7 @@ export function evaluateCatalogMinimum(row,student) {
  if(!worst.selected)return result('manual','필수영역을 만족하는 반영 조합이 없습니다.');
  if(missing.length&&!worst.pass&&best.pass)return result('unavailable',`추가 성적 필요: ${missing.map(s=>gradeNames[s]).join('·')}`,{missingSubjects:missing.map(s=>gradeNames[s]),count:row.count,threshold:row.threshold,ruleType:row.ruleType==='합'?'sum':'each'});
  const pass=worst.pass,selected=pass?worst.selected:best.selected;
+ if(row.optionalInquiryAlternative&&(!pass||selected.some(item=>['사','과','외'].includes(item.code))))return result('unavailable','2027 탐구 2과목 평균·과탐 우수 1과목·제2외국어 대체 성적을 확인해야 확정할 수 있습니다.',{count:row.count,threshold:row.threshold});
  // 후보 영역 하나(예: 한국사)가 비어 있어도 실제 최적 조합이 이미 입력된 다른 영역만으로
  // 확정되면 그 조합과 학생 합을 숨기지 않습니다. 반대로 선택 조합/별도상한에 미입력 영역이
  // 들어갈 때에는 가상 1·9등급을 학생의 실제 점수처럼 표시하지 않습니다.
@@ -257,6 +273,8 @@ export function evaluateCatalogMinimum(row,student) {
 const unitKey=x=>compactMinimum(x).replace(/^의(?:과대학|학과)$/,'의예과').replace(/^치의학과$/,'치의예과').replace(/^한의학과$/,'한의예과').replace(/^수의학과$/,'수의예과').replace(/^약학(?:부|대학|전공)?$/,'약학과').replace(/^간호(?:대학|학부)?$/,'간호학과');
 function scopeRank(row,target) {
  const unit=unitKey(target.department),field=compactMinimum(target.field).replace(/계열$/,'');
+ if(row.nightOnly&&!/야간|\(야\)|夜/.test(String(target.department||'')))return -1;
+ if(row.dayOnly&&/야간|\(야\)|夜/.test(String(target.department||'')))return -1;
  if(!unit)return -1;
  if(list(row.excluded).some(x=>unitKey(x)===unit||compactMinimum(x).replace(/계열$/,'')===field||(x==='디자인'&&/디자인/.test(unit))))return -1;
  if(row.scopeType==='학과')return list(row.department).some(x=>unitKey(x)===unit)?3:-1;
@@ -281,7 +299,7 @@ function campusRank(row,target,identity) {
  // 명시된 행이 있으면 아래 resolve 단계에서 명시 행(2점)을 이 공통 행(1점)보다 우선합니다.
  return compactMinimum(row.campus)?-1:1;
 }
-const signature=r=>JSON.stringify([r.ruleType,r.subjects,r.count,r.threshold,r.mandatory,r.englishMax,r.historyMax,r.inquiryMode,r.rounding,r.englishConversion]);
+const signature=r=>JSON.stringify([r.ruleType,r.subjects,r.count,r.threshold,r.mandatory,r.englishMax,r.historyMax,r.inquiryMode,r.rounding,r.englishConversion,r.conditionalMandatory,r.nightOnly,r.dayOnly]);
 function possibleScope(row,target) {
  if(scopeRank(row,target)>=0)return true;
  if(row.scopeType!=='미확정')return false;
@@ -354,7 +372,7 @@ export function resolveCatalogMinimum({target,student,identity}) {
    const sameRule=relevant.every(r=>r.reviewStatus==='계산가능'&&scopeRank(r,target)>=0)&&new Set(relevant.map(signature)).size===1;
    if(sameRule){
     const chosen=relevant[0];
-    const evaluation=evaluateCatalogMinimum(chosen,student);
+    const evaluation=evaluateCatalogMinimum(chosen,{...student,minimumTarget:target});
     return {minimum:chosen,evaluation:{...evaluation,typeGrouped:true,admissionType:target.admissionType,
      reason:`${evaluation.reason} · ${selectedYear}학년도 ${target.admissionType} 전형 공통 기준 참고 (${[...new Set(relevant.map(r=>r.track))].join('·')})`}};
    }
@@ -367,5 +385,5 @@ export function resolveCatalogMinimum({target,student,identity}) {
  const max=Math.max(...scoped.map(x=>x.rank)), rows=scoped.filter(x=>x.rank===max).map(x=>evaluable2027Reference(x.r,target.track));
  // An unresolved source for the same track/scope must not be hidden by a ready duplicate.
  if(rows.some(r=>r.reviewStatus!=='계산가능')||new Set(rows.map(signature)).size>1)return {minimum:rows[0],evaluation:{status:'manual',year:rows[0].admissionYear,ruleText:rows.map(r=>r.ruleText).join(' / '),source:rows.map(r=>`${r.source} ${r.page}쪽`).join(' / '),reason:rows.find(r=>r.reviewReason)?.reviewReason||'같은 범위의 조건이 상충하거나 검토가 필요합니다.'}};
- return {minimum:rows[0],evaluation:evaluateCatalogMinimum(rows[0],student)};
+ return {minimum:rows[0],evaluation:evaluateCatalogMinimum(rows[0],{...student,minimumTarget:target})};
 }
