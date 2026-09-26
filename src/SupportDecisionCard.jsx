@@ -5,7 +5,7 @@ import { recommendedCourseDisplayName } from './recommendationPresentation.js';
 import './supportDecision.css';
 
 const fmt=value=>validGrade(value)==null?'—':Number(value).toFixed(2);
-export function RecommendedCourseDetails({progress, status='ready', printMode=false}) {
+export function RecommendedCourseDetails({progress, status='ready', printMode=false, compactPrint=false}) {
   const matched=progress?.matchedCourses || [], missing=progress?.missingCourses || [];
   const matchedKeys=new Set(matched);
   const groups=progress?.courseGroups || [];
@@ -19,7 +19,7 @@ export function RecommendedCourseDetails({progress, status='ready', printMode=fa
     {/* 동일 대학·동일 계열의 공식 행으로 보완한 경우와 타 대학 통계 추정을 분명히 나눕니다. */}
     {universityFieldEstimate ? <p className="kd-course-source-note"><small>해당 학과의 직접 발표 행은 없지만, 이 대학이 발표한 ‘{progress.officialFieldLabel || '동일 계열'}’ {progress.referenceCount || 0}개 모집단위에서 과반 반복된 과목입니다. 해당 학과의 필수 기준으로 단정하지 않습니다.</small></p>
       : progress?.estimated && <p className="kd-course-source-note"><small>{progress.estimatedFrom?.length ? progress.estimatedFrom.join(', ') : '같은 학과·계열의 다른 대학'} 등 {progress.referenceCount || progress.estimatedFrom?.length || ''}개 대학 자료 중 최소 {progress.consensusThreshold || 2}개 대학·25% 이상 반복된 과목입니다. 이 대학이 직접 발표한 자료가 아닙니다.</small></p>}
-    {progress?.total ? <>{groups.map(([label,courses])=><React.Fragment key={label}><p className="kd-course-group-title"><b>{label} {courses.filter(course=>matchedKeys.has(course)).length}/{courses.length}</b></p><div className="kd-course-chips">{courses.map(course=><span key={course} className={matchedKeys.has(course)?'is-matched':''}>{matchedKeys.has(course)?'✓':'○'} {progress.commonCourses?.includes(course)?'★ ':''}{recommendedCourseDisplayName(course)}</span>)}</div></React.Fragment>)}{!matched.length && <small>{progress.studentCourseCount ? '현재 저장된 성적·시간표에서 일치 과목이 없습니다.' : '학생 성적·시간표 과목자료가 연결되지 않았습니다.'}</small>}{!missing.length && <small>표시된 모든 과목의 이수·수강이 확인되었습니다.</small>}{progress?.estimated && !!progress.commonCourses?.length && <small>★ 표시는 {universityFieldEstimate ? '같은 대학·계열 모집단위' : '표본 대학'}의 과반이 공통으로 제시한 과목입니다.</small>}<small>2028 권장과목 자료와 저장된 성적·시간표 과목명을 대조합니다. ‘미이수’는 현재 저장 자료 기준이며, 누락 가능성이 있으면 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</small></> : loading ? <p>대학별 권장과목 자료를 연결하고 있습니다. 연결이 끝난 뒤 이수 여부를 표시합니다.</p> : loadFailed ? <p>권장과목 자료 연결에 실패했습니다. NAVI 화면에서 다시 연결해주세요.</p> : unregistered ? <p>학교 공용 권장과목 자료가 아직 등록되지 않았습니다.</p> : <p>해당 대학·모집단위에 연결된 권장과목 자료가 없거나 과목 목록이 비어 있습니다.</p>}
+    {progress?.total ? <>{groups.map(([label,courses])=><React.Fragment key={label}><p className="kd-course-group-title"><b>{label} {courses.filter(course=>matchedKeys.has(course)).length}/{courses.length}</b></p><div className="kd-course-chips">{(compactPrint?courses.slice(0,6):courses).map(course=><span key={course} className={matchedKeys.has(course)?'is-matched':''}>{matchedKeys.has(course)?'✓':'○'} {progress.commonCourses?.includes(course)?'★ ':''}{recommendedCourseDisplayName(course)}</span>)}{compactPrint&&courses.length>6&&<span className="kd-course-overflow">외 {courses.length-6}과목</span>}</div></React.Fragment>)}{!matched.length && <small>{progress.studentCourseCount ? '현재 저장된 성적·시간표에서 일치 과목이 없습니다.' : '학생 성적·시간표 과목자료가 연결되지 않았습니다.'}</small>}{!missing.length && <small>표시된 모든 과목의 이수·수강이 확인되었습니다.</small>}{progress?.estimated && !!progress.commonCourses?.length && <small>★ 표시는 {universityFieldEstimate ? '같은 대학·계열 모집단위' : '표본 대학'}의 과반이 공통으로 제시한 과목입니다.</small>}<small>2028 권장과목 자료와 저장된 성적·시간표 과목명을 대조합니다. ‘미이수’는 현재 저장 자료 기준이며, 누락 가능성이 있으면 학교생활기록부와 함께 확인하세요. 권장과목은 필수 지원자격과 다릅니다.</small></> : loading ? <p>대학별 권장과목 자료를 연결하고 있습니다. 연결이 끝난 뒤 이수 여부를 표시합니다.</p> : loadFailed ? <p>권장과목 자료 연결에 실패했습니다. NAVI 화면에서 다시 연결해주세요.</p> : unregistered ? <p>학교 공용 권장과목 자료가 아직 등록되지 않았습니다.</p> : <p>해당 대학·모집단위에 연결된 권장과목 자료가 없거나 과목 목록이 비어 있습니다.</p>}
   </details>;
 }
 
@@ -75,7 +75,7 @@ export function MinimumFacts({ minimum, ev, student, printMode=false }) {
 // 3번 요청: 인쇄 카드가 화면의 SupportDecisionCard와 동일한 UI로 보이게, 이 컴포넌트를
 // 그대로 재사용합니다. printMode=true면 (1) 접힌 <details>를 전부 펼쳐서 종이에서도 안 눌러도
 // 다 보이게 하고, (2) 삭제/사례보기처럼 화면에서만 의미 있는 버튼은 찍지 않습니다.
-export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis,student,busy,onRemove,onOpenCases,printMode=false}) {
+export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis,student,busy,onRemove,onOpenCases,printMode=false,compactPrint=false}) {
   const cutIndex=cutoffBasis==='50'?1:2, altIndex=cutoffBasis==='50'?2:1;
   const cut=item.admissionItem?.[cutIndex];
   const altCut=item.admissionItem?.[altIndex];
@@ -92,7 +92,7 @@ export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis
       <section className={`kd-decision-minimum is-${minimum.status}`}><h5>수능최저 <span className={`kd-minimum-year ${ev?.yearMismatch||(student?.admissionYear&&ev?.year&&Number(student.admissionYear)!==Number(ev.year))?'is-reference':'is-current'}`}>{minimumYearLabel(ev,student)}</span></h5><MinimumFacts minimum={minimum} ev={ev} student={student} printMode={printMode}/></section>
     </div>
     {item.trackMissing && <p className="kd-decision-warning">NAVI 전형 미연결 · 다른 전형의 컷을 대신 사용하지 않습니다.</p>}
-    <RecommendedCourseDetails progress={item.recommendationProgress} status={item.recommendationStatus} printMode={printMode}/>
+    <RecommendedCourseDetails progress={item.recommendationProgress} status={item.recommendationStatus} printMode={printMode} compactPrint={compactPrint}/>
     <details className="kd-decision-evidence" open={printMode || undefined}><summary>출처·사례 근거</summary>
       <div className="kd-evidence-row"><b>담은 경로</b><span>{item.stored.source || '미제공'}</span></div>
       <div className="kd-evidence-row"><b>NAVI 통합 사례</b><span>{item.naviCaseCount!=null?`${item.naviCaseCount}건`:'미연결/미제공'}</span></div>

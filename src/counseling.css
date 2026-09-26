@@ -59,7 +59,17 @@
 .kd-consultation-ui .favorite-print-item-detail>summary:after{content:'펼치기';margin-left:auto;color:#54708a;font-size:11px;white-space:nowrap}
 .kd-consultation-ui .favorite-print-item-detail[open]>summary:after{content:'접기'}
 .kd-consultation-ui .favorite-print-item-detail>summary>svg{flex:0 0 auto}
+.kd-consultation-ui .favorite-print-department-number{display:grid;place-items:center;flex:0 0 29px;width:29px;height:29px;border-radius:8px;background:#e6f0fa;color:#285b86;font-size:13px;font-weight:900}
 .kd-consultation-ui .favorite-print-item-text{display:flex!important;align-items:center;gap:7px!important;flex-wrap:wrap;font-size:13px!important;min-width:0!important;overflow-wrap:anywhere}
+.kd-consultation-ui .favorite-print-item-text{flex:1!important;display:grid!important;gap:6px!important}
+.kd-consultation-ui .favorite-print-department-line,.kd-consultation-ui .favorite-print-track-line{display:flex;align-items:center;gap:7px;min-width:0;flex-wrap:wrap}
+.kd-consultation-ui .favorite-print-department-line>b{font-size:16px;color:#1c3651;line-height:1.3}
+.kd-consultation-ui .favorite-print-department-label,.kd-consultation-ui .favorite-print-track-label{display:inline-flex;align-items:center;justify-content:center;min-width:31px;color:#527392;font-size:11px;font-weight:900}
+.kd-consultation-ui .favorite-print-track-line{padding-left:0;color:#506781;font-size:12px}
+.kd-consultation-ui .favorite-print-track-line>b{font-weight:800;color:#315f86}
+.kd-consultation-ui .favorite-print-items{counter-reset:departments;gap:9px!important}
+.kd-consultation-ui .favorite-print-item{border:1px solid #d6e2ee!important;border-left:4px solid #5b91c0!important;border-radius:10px!important;background:#fff!important}
+.kd-consultation-ui .favorite-print-item-detail[open]>summary{background:#f4f8fd}
 .kd-consultation-ui .favorite-print-item-navi-cuts{display:inline-flex!important;margin:0!important}
 .kd-consultation-ui .favorite-print-course-preview{display:flex;flex-basis:100%;align-items:center;gap:4px;flex-wrap:wrap;margin:4px 0 0 20px;min-width:0}
 .kd-consultation-ui .favorite-print-course-preview em{font-style:normal;color:#315f86;font-size:11px;font-weight:900}
@@ -130,4 +140,32 @@
  .counseling-print-root-clone .favorite-print-source-navi{grid-column:auto!important}
  .counseling-print-root-clone .favorite-print-card{background:#fff!important;border-color:#ccd8e3!important;border-radius:3mm!important}
  .counseling-print-root-clone .kd-counsel-minimum{border-radius:2mm!important;background:#fff!important}
+}
+/* The iframe uses these only during print. University groups may span pages;
+   each department heading stays with its first content row. */
+@media print{
+ body.print-counseling-history>.counseling-print-root-clone{display:block!important}
+ .counseling-print-root-clone .favorite-print-card,
+ .counseling-print-root-clone article{break-inside:auto!important;page-break-inside:auto!important}
+ .counseling-print-root-clone .favorite-print-card{break-before:auto!important;margin-bottom:5mm!important}
+ .counseling-print-root-clone .favorite-print-card+.favorite-print-card{break-before:page!important}
+ .counseling-print-root-clone .favorite-print-item{break-inside:auto!important;page-break-inside:auto!important;border-left:2pt solid #5b91c0!important}
+ .counseling-print-root-clone .favorite-print-item-detail>summary{break-after:avoid!important;page-break-after:avoid!important;background:#f2f6fb!important;padding:2mm!important}
+ .counseling-print-root-clone .favorite-print-department-number{display:grid!important;place-items:center!important;flex:0 0 6mm!important;width:6mm!important;height:6mm!important;border-radius:1mm!important;background:#e0ebf7!important;color:#24557f!important;font-size:8pt!important;font-weight:900!important}
+ .counseling-print-root-clone .favorite-print-department-line,.counseling-print-root-clone .favorite-print-track-line{display:flex!important;align-items:center!important;gap:1.5mm!important;flex-wrap:wrap!important}
+ .counseling-print-root-clone .favorite-print-item-text{display:grid!important;gap:1mm!important;flex:1!important}
+ .counseling-print-root-clone .favorite-print-department-label,.counseling-print-root-clone .favorite-print-track-label{font-size:7.5pt!important;font-weight:900!important;color:#54718c!important;min-width:8mm!important}
+ .counseling-print-root-clone .favorite-print-department-line>b{font-size:10pt!important;line-height:1.2!important;color:#183a5b!important}
+ .counseling-print-root-clone .favorite-print-track-line>b{font-size:8pt!important;color:#315f86!important}
+ .counseling-print-root-clone .favorite-print-kind{font-size:7pt!important}
+ .counseling-print-root-clone .favorite-print-item-navi-cuts{font-size:7pt!important}
+ .counseling-print-root-clone .favorite-print-course-preview{display:none!important}
+ .counseling-print-root-clone .kd-counsel-type{border-color:#bfcfe0!important}
+ .counseling-print-root-clone .kd-counsel-type>summary{background:#eaf2fa!important}
+ .counseling-print-root-clone .kd-counsel-type>summary>b{font-size:9pt!important}
+ .counseling-print-root-clone .kd-counsel-minimum{break-inside:avoid!important;page-break-inside:avoid!important}
+ .counseling-print-root-clone .kd-counsel-print-rule{display:block!important;font-size:7.5pt!important;line-height:1.4!important}
+ .counseling-print-root-clone .kd-counsel-minimum .kd-decision-primary{display:none!important}
+ .counseling-print-root-clone .kd-course-details{break-inside:avoid!important;page-break-inside:avoid!important}
+ .counseling-print-root-clone .kd-course-chips span{font-size:7.5pt!important}
 }

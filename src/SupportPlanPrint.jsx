@@ -26,7 +26,7 @@ export function SupportPlanReport({items,student,studentGrade,cutoffBasis,layout
     {/* 실제 "수시 지원 구성" 화면과 같은 .susi-beta-workspace > .susi-beta-plan-grid 구조로 감싸서,
         supportDecision.css의 화면 전용(.susi-beta-workspace 안에서만 적용되는) 규칙이 인쇄 문서에도 그대로 먹습니다. */}
     <div className="susi-beta-workspace">
-      <div className="susi-beta-plan-grid">{page.map(({item,index})=><SupportDecisionCard key={index} item={item} index={index} studentGrade={studentGrade} cutoffBasis={cutoffBasis} student={student} printMode/>)}</div>
+      <div className="susi-beta-plan-grid">{page.map(({item,index})=><SupportDecisionCard key={index} item={item} index={index} studentGrade={studentGrade} cutoffBasis={cutoffBasis} student={student} printMode compactPrint={layout==='six'}/>)}</div>
     </div>
     <footer className="kd-print-foot">상담 참고용 · 공개 컷 2026 / 권장과목 2028 / 최저 연도는 각 카드 표시. NAVI 사례는 대학·전형·계열 기준이며 연도 미제공. 미확인은 미이수 확정이 아닙니다. 모평 충족은 실제 수능 충족이나 합격을 보장하지 않습니다. 최종 모집요강 확인이 필요합니다.</footer>
   </main>)}</>;
@@ -101,19 +101,25 @@ html,body{height:auto!important;overflow:visible!important}
 .kd-print-doc .kd-decision-card{height:100%!important;align-self:stretch!important}
 .kd-print-doc.is-mode-two .kd-decision-card{font-size:8.2pt!important;padding:3mm!important}
 .kd-print-doc.is-mode-two .kd-decision-card h4{font-size:12pt!important}
-.kd-print-doc.is-mode-two .kd-course-chips span{font-size:7pt!important}`;
+.kd-print-doc.is-mode-two .kd-course-chips span{font-size:8pt!important}
+/* A consistent type scale keeps the same Hangul font and avoids tiny labels. */
+.kd-print-doc .kd-decision-card{font-family:"Malgun Gothic","Apple SD Gothic Neo","Noto Sans KR",sans-serif!important;font-size:8pt!important;line-height:1.32!important;letter-spacing:0!important}
+.kd-print-doc .kd-decision-card *{font-family:inherit!important;letter-spacing:inherit!important}
+.kd-print-doc .kd-decision-card h4{font-size:11pt!important;line-height:1.24!important}
+.kd-print-doc .kd-decision-card header p,.kd-print-doc .kd-decision-card header [class*="kd-track-chip"]{font-size:8pt!important;line-height:1.3!important}
+.kd-print-doc .kd-decision-primary h5,.kd-print-doc .kd-course-details summary{font-size:8.3pt!important;line-height:1.3!important}
+.kd-print-doc .kd-decision-primary h5>span,.kd-print-doc .kd-course-details summary strong{font-size:7.5pt!important}
+.kd-print-doc .kd-decision-card .kd-decision-num-box small,.kd-print-doc .kd-minimum-fact small,.kd-print-doc .kd-minimum-grade-block>small{font-size:7pt!important}
+.kd-print-doc .kd-decision-card .kd-decision-num-box b{font-size:12pt!important}
+.kd-print-doc .kd-decision-band-row span,.kd-print-doc .kd-decision-diff,.kd-print-doc .kd-decision-subref,.kd-print-doc .kd-decision-verdict,.kd-print-doc .kd-minimum-fact b,.kd-print-doc .kd-course-group-title,.kd-print-doc .kd-decision-warning,.kd-print-doc .kd-mock-chip,.kd-print-doc .kd-mock-chip b,.kd-print-doc .kd-minimum-status{font-size:7.5pt!important;line-height:1.3!important}
+.kd-print-doc .kd-course-chips span{font-size:7.3pt!important;line-height:1.25!important}
+.kd-print-doc .kd-decision-card{overflow:visible!important}
+.kd-print-doc.is-mode-two .kd-decision-card{font-size:9pt!important}
+.kd-print-doc.is-mode-two .kd-decision-card h4{font-size:12pt!important}
+.kd-print-doc.is-mode-two .kd-course-chips span{font-size:8pt!important}`;
 
 export function fitPrintCards(doc) {
- for(const card of doc.querySelectorAll('.kd-decision-card')){
-  const available=card.clientHeight-18;
-  if(card.scrollHeight>card.clientHeight){
-   const content=doc.createElement('div');
-   content.style.cssText='display:flex;flex-direction:column;gap:1.5mm;width:100%;flex-shrink:0';
-   while(card.firstChild)content.appendChild(card.firstChild);
-   card.appendChild(content);
-   for(let scale=1;content.getBoundingClientRect().height>available&&scale>.2;){scale-=.025;content.style.zoom=String(scale);}
-  }
- }
+ return [...doc.querySelectorAll('.kd-decision-card')].some(card=>card.scrollHeight>card.clientHeight+3);
 }
 
 export default function SupportPlanPrint(props) {
@@ -126,18 +132,24 @@ export default function SupportPlanPrint(props) {
     const el=document.createElement('iframe');frame.current=el;
     el.title='수시지원 카드 인쇄 문서';el.setAttribute('aria-hidden','true');
     el.style.cssText='position:fixed;left:-10000px;top:0;width:1077px;height:748px;border:0';
+    let effectiveLayout=layout;
+    const printHtml=mode=>'<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>수시지원 상담 카드</title><style>'+supportPlanPrintCss+'</style></head><body>'+renderToStaticMarkup(<SupportPlanReport {...props} layout={mode}/>)+'</body></html>';
     el.onload=async()=>{
       try{
         await el.contentDocument?.fonts?.ready;
         if(frame.current!==el)return;
-        // Long department/course names must shrink to fit, never be silently clipped.
-        fitPrintCards(el.contentDocument);
+        // Keep a readable font. If a six-card grid overflows, use the two-card layout.
+        if(effectiveLayout==='six' && fitPrintCards(el.contentDocument)){
+          effectiveLayout='two';
+          el.srcdoc=printHtml('two');
+          return;
+        }
         el.contentWindow.focus();el.contentWindow.print();
-        setMessage(`인쇄 창에서 ‘PDF로 저장’을 선택하세요. A4 가로 · ${layout==='six'?'한 쪽에 최대 6장':'한 쪽에 최대 2장'}입니다.`);
-      }catch{setMessage('인쇄 창을 열지 못했습니다. 브라우저의 인쇄 허용 설정을 확인한 뒤 다시 시도하세요.');}
-      finally{if(frame.current===el)setBusy(false);}
+        setMessage(`인쇄 창에서 ‘PDF로 저장’을 선택하세요. A4 가로 · ${effectiveLayout==='six'?'한 쪽에 최대 6장':'한 쪽에 최대 2장'}입니다.${effectiveLayout!==layout?' 긴 카드가 있어 글자 크기를 유지하도록 2장씩 배치했습니다.':''}`);
+        if(frame.current===el)setBusy(false);
+      }catch{setMessage('인쇄 창을 열지 못했습니다. 브라우저의 인쇄 허용 설정을 확인한 뒤 다시 시도하세요.');if(frame.current===el)setBusy(false);}
     };
-    el.srcdoc='<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>수시지원 상담 카드</title><style>'+supportPlanPrintCss+'</style></head><body>'+renderToStaticMarkup(<SupportPlanReport {...props} layout={layout}/>)+'</body></html>';
+    el.srcdoc=printHtml(layout);
     document.body.appendChild(el);
   };
   return <><div className="kd-plan-print-choice" role="group" aria-label="한 페이지에 인쇄할 카드 수"><button type="button" className="kd-plan-print-option" aria-pressed={layout==='six'} onClick={()=>setLayout('six')}>6장 / 1쪽</button><button type="button" className="kd-plan-print-option" aria-pressed={layout==='two'} onClick={()=>setLayout('two')}>2장 / 1쪽</button></div><button type="button" className="kd-plan-action is-print" disabled={props.disabled || busy || !props.items.filter(Boolean).length} onClick={print}><Printer size={15}/>{busy?'인쇄 준비 중…':'카드 인쇄·PDF 저장'}</button>{message && <small className="kd-plan-print-message" role="status">{message}</small>}</>;
