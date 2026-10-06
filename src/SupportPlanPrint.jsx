@@ -88,7 +88,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;color:var(--kd-ink);fo
 .kd-print-foot{margin:0;padding-top:1.4mm;border-top:1px solid #dce3ea;color:#536170;font-size:5.9pt;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Leave tolerance for the browser's mm-to-pixel rounding and printer margins. */
 html,body{height:auto!important;overflow:visible!important}
-.kd-print-doc{height:188mm!important;max-height:188mm!important;margin:0!important;grid-template-rows:auto minmax(0,1fr) auto!important;break-after:page;page-break-after:always;break-inside:avoid-page;page-break-inside:avoid;overflow:hidden!important}
+.kd-print-doc{height:192mm!important;max-height:192mm!important;margin:0!important;grid-template-rows:auto minmax(0,1fr) auto!important;break-after:page;page-break-after:always;break-inside:avoid-page;page-break-inside:avoid;overflow:hidden!important}
 .kd-print-doc:last-child{break-after:auto;page-break-after:auto}
 .kd-print-doc .susi-beta-workspace{min-height:0!important;overflow:hidden!important}
 .kd-print-doc .susi-beta-plan-grid{height:100%!important;min-height:0!important;align-content:stretch!important}
@@ -118,10 +118,6 @@ html,body{height:auto!important;overflow:visible!important}
 .kd-print-doc.is-mode-two .kd-decision-card h4{font-size:12pt!important}
 .kd-print-doc.is-mode-two .kd-course-chips span{font-size:8pt!important}`;
 
-export function fitPrintCards(doc) {
- return [...doc.querySelectorAll('.kd-decision-card')].some(card=>card.scrollHeight>card.clientHeight+3);
-}
-
 export default function SupportPlanPrint(props) {
   const frame=useRef(null), [busy,setBusy]=useState(false), [message,setMessage]=useState('');
   useEffect(()=>{setBusy(false);setMessage('');return ()=>{frame.current?.remove();frame.current=null;};},[props.student?.sid]);
@@ -132,20 +128,13 @@ export default function SupportPlanPrint(props) {
     const el=document.createElement('iframe');frame.current=el;
     el.title='수시지원 카드 인쇄 문서';el.setAttribute('aria-hidden','true');
     el.style.cssText='position:fixed;left:-10000px;top:0;width:1077px;height:748px;border:0';
-    let effectiveLayout=layout;
     const printHtml=mode=>'<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>수시지원 상담 카드</title><style>'+supportPlanPrintCss+'</style></head><body>'+renderToStaticMarkup(<SupportPlanReport {...props} layout={mode}/>)+'</body></html>';
     el.onload=async()=>{
       try{
         await el.contentDocument?.fonts?.ready;
         if(frame.current!==el)return;
-        // Keep a readable font. If a six-card grid overflows, use the two-card layout.
-        if(effectiveLayout==='six' && fitPrintCards(el.contentDocument)){
-          effectiveLayout='two';
-          el.srcdoc=printHtml('two');
-          return;
-        }
         el.contentWindow.focus();el.contentWindow.print();
-        setMessage(`인쇄 창에서 ‘PDF로 저장’을 선택하세요. A4 가로 · ${effectiveLayout==='six'?'한 쪽에 최대 6장':'한 쪽에 최대 2장'}입니다.${effectiveLayout!==layout?' 긴 카드가 있어 글자 크기를 유지하도록 2장씩 배치했습니다.':''}`);
+        setMessage(`인쇄 창에서 ‘PDF로 저장’을 선택하세요. A4 가로 · 한 쪽에 최대 ${layout==='six'?6:2}장입니다.`);
         if(frame.current===el)setBusy(false);
       }catch{setMessage('인쇄 창을 열지 못했습니다. 브라우저의 인쇄 허용 설정을 확인한 뒤 다시 시도하세요.');if(frame.current===el)setBusy(false);}
     };
