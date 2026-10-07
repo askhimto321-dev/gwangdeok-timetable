@@ -326,6 +326,7 @@ const BASE_CSS = {
 // 다크 · 라이트 공통: 새 상단 메뉴의 모바일 배치, 겹치는 옛 머리 줄 숨김, 떠 있는 버튼 색 정리.
 const SHARED_NEW_CSS = `
   .kdn-mode-short{display:none}
+  @media screen{.kdn-print-only{display:none!important}}
   .kd-legacy-section-header{display:none!important}
   .kd-quick-links-trigger{background:var(--kdn-surface-2)!important;color:var(--kdn-ink)!important;border-color:var(--kdn-line)!important}
   .kd-history-edge{background:var(--kdn-surface)!important;color:var(--kdn-ink-soft)!important;border-color:var(--kdn-line)!important}
