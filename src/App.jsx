@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
+import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
 
 // 큰 분석 화면은 실제로 열 때 내려받습니다. 로그인 화면에서 NAVI·대입결과·성적분석
 // 전체 코드를 한꺼번에 파싱하던 비용을 없애고, 같은 모듈 요청은 하나의 Promise로 공유합니다.
@@ -1712,9 +1713,11 @@ export default function App() {
 
   if (!anyLoggedIn) {
     return (
+      isNewUi() ? <NewUiLanding attemptLogin={attemptLogin} showToast={showToast} /> :
       <div style={styles.app}>
         <style>{globalCss}</style>
-        <div style={{ padding: "40px 20px" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 20px 0" }}><UiModeSwitch compact /></div>
+        <div style={{ padding: "26px 20px 40px" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <div style={{ fontWeight: 900, fontSize: 24, letterSpacing: "-.035em" }}>{SITE_TITLE}</div>
             <div style={{ fontSize: 13, color: "#8a8578", marginTop: 6 }}>먼저 로그인해주세요. (학생 / 선생님 / 관리자 계정 모두 아래에서 로그인합니다)</div>
@@ -2323,7 +2326,115 @@ const teacherZoneWorkspaceStyles = {
   gradeButtonActive: { color: "#315d90", background: "#e9f2fc", borderColor: "#b8cde5" },
 };
 
-function MegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
+function MegaNav(props) {
+  return isNewUi() ? <NewUiMegaNav {...props} /> : <ClassicMegaNav {...props} />;
+}
+
+// 화면 모드 선택(기존 UI / 새 UI 다크 / 새 UI 라이트). 고르면 저장 후 새로고침해 화면 전체에 적용합니다.
+function UiModeSwitch({ compact = false }) {
+  const current = getUiMode();
+  const newUi = isNewUi(current);
+  // 기존 UI에서는 상단 메뉴 배치가 예전과 같도록 작은 선택 상자로만 보여줍니다.
+  if (!newUi) return (
+    <label className="no-print" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 900, color: "#52627a" }}>
+      화면
+      <select value={current} onChange={event => setUiMode(event.target.value)} aria-label="화면 모드" style={{ border: "1px solid #d6deea", background: "#fff", color: "#52627a", borderRadius: 8, padding: "6px 6px", fontSize: 11.5, fontWeight: 900, fontFamily: "inherit", cursor: "pointer" }}>
+        {UI_MODES.map(mode => <option key={mode.key} value={mode.key}>{mode.label}</option>)}
+      </select>
+    </label>
+  );
+  const wrap = { display: "inline-flex", padding: 3, borderRadius: 12, background: "var(--kdn-surface-2)", border: "1px solid var(--kdn-line)", gap: 2 };
+  const button = active => ({ minHeight: compact ? 32 : 36, padding: compact ? "0 9px" : "0 12px", borderRadius: 9, border: 0, cursor: "pointer", fontSize: compact ? 12 : 13, fontWeight: 800, whiteSpace: "nowrap", background: active ? "var(--kdn-accent)" : "transparent", color: active ? "var(--kdn-accent-ink)" : "var(--kdn-ink-soft)" });
+  return (
+    <div role="radiogroup" aria-label="화면 모드" className="no-print" style={wrap}>
+      {UI_MODES.map(mode => (
+        <button key={mode.key} type="button" role="radio" aria-checked={current === mode.key} onClick={() => setUiMode(mode.key)} style={button(current === mode.key)}>{mode.label}</button>
+      ))}
+    </div>
+  );
+}
+
+const newUiNavStyles = {
+  wrap: { position: "sticky", top: 0, zIndex: 40, background: "var(--kdn-bg)", borderBottom: "1px solid var(--kdn-line)" },
+  inner: { maxWidth: 1280, margin: "0 auto", padding: "0 24px", minHeight: 68, display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap" },
+  brand: { display: "flex", alignItems: "center", gap: 11, color: "var(--kdn-ink)", background: "none", border: 0, padding: 0, cursor: "default" },
+  logo: { width: 38, height: 38, borderRadius: 13, background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 16 },
+  tabs: { display: "flex", gap: 2, flex: 1, flexWrap: "wrap", alignItems: "stretch" },
+  // borderBottom 축약형과 borderBottomColor를 섞으면 탭 전환 때 React가 색만 지워 흰 밑줄이 남으므로 각각 지정합니다.
+  tab: { background: "none", border: 0, borderBottomWidth: 3, borderBottomStyle: "solid", borderBottomColor: "transparent", padding: "22px 12px 19px", fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink-soft)", cursor: "pointer" },
+  tabActive: { color: "var(--kdn-accent)", borderBottomColor: "var(--kdn-accent)" },
+  actions: { display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" },
+  ghost: { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 38, padding: "0 13px", borderRadius: 12, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13, fontWeight: 800, cursor: "pointer" },
+};
+
+function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
+  const items = [
+    { key: "grades", label: "성적 · 진학" },
+    { key: "timetable", label: "시간표" },
+    ...(showTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE" }] : []),
+    ...(showMinimumAchievement ? [{ key: "minimumAchievement", label: "최소성취수준" }] : []),
+    ...(showAdmin ? [{ key: "admin", label: "관리자" }] : []),
+  ];
+  return (
+    <nav className="no-print" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
+      <div style={newUiNavStyles.inner}>
+        <div style={newUiNavStyles.brand}>
+          <span style={newUiNavStyles.logo}>KD</span>
+          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
+            <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
+            <span style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
+          </span>
+        </div>
+        <div style={newUiNavStyles.tabs}>
+          {items.map(it => (
+            <button key={it.key} type="button" aria-current={active === it.key ? "page" : undefined} onClick={() => onSwitch(it.key)} style={{ ...newUiNavStyles.tab, ...(active === it.key ? newUiNavStyles.tabActive : {}) }}>{it.label}</button>
+          ))}
+        </div>
+        <div style={newUiNavStyles.actions}>
+          <UiModeSwitch compact />
+          {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile}><Settings size={14}/>내 정보</button>}
+          <button type="button" style={newUiNavStyles.ghost} onClick={onLogout}>로그아웃</button>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function NewUiLanding({ attemptLogin, showToast }) {
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--kdn-bg)", color: "var(--kdn-ink)", fontFamily: "'NanumSquareRound','KDRound','Pretendard','Apple SD Gothic Neo',sans-serif" }}>
+      <style>{globalCss}</style>
+      <header style={{ borderBottom: "1px solid var(--kdn-line)" }}>
+        <div style={{ ...newUiNavStyles.inner, gap: 16 }}>
+          <div style={newUiNavStyles.brand}>
+            <span style={newUiNavStyles.logo}>KD</span>
+            <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
+              <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
+              <span style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
+            </span>
+          </div>
+          <div style={{ marginLeft: "auto" }}><UiModeSwitch /></div>
+        </div>
+      </header>
+      <main style={{ maxWidth: 1180, margin: "0 auto", padding: "56px 24px 64px", display: "flex", flexWrap: "wrap", gap: 40, alignItems: "center" }}>
+        <section style={{ flex: "1 1 440px", minWidth: 0, display: "flex", flexDirection: "column", gap: 22 }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(38px, 6vw, 62px)", lineHeight: 1.2, fontWeight: 900, letterSpacing: "-.02em" }}>
+            <span style={{ display: "block" }}>오늘은 몇 교시,</span>
+            <span style={{ display: "block", color: "var(--kdn-accent)" }}>어느 교실로</span>
+            <span style={{ display: "block", color: "var(--kdn-accent)" }}>가야 할까?</span>
+          </h1>
+          <p style={{ margin: 0, fontSize: 18, lineHeight: 1.7, color: "var(--kdn-ink-soft)" }}>이동수업 시간표와 학급 공지, 성적·진학 상담 자료를<br/>한 계정으로 모아 봅니다.</p>
+          <p style={{ margin: 0, fontSize: 14, color: "var(--kdn-muted)", fontWeight: 700 }}>학생 · 선생님 · 관리자 계정 모두 오른쪽에서 로그인합니다.</p>
+        </section>
+        <section aria-label="로그인" style={{ flex: "1 1 340px", maxWidth: 420, minWidth: 0 }}>
+          <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+        </section>
+      </main>
+    </div>
+  );
+}
+
+function ClassicMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
   const items = [
     { key: "grades", label: "성적", icon: "📊", activeBg:"linear-gradient(135deg,#e9f3ff,#eef4ff)", activeColor:"#2d5f96" },
     { key: "timetable", label: "시간표", icon: "🗓️", activeBg:"linear-gradient(135deg,#eef8f4,#e7f5ee)", activeColor:"#34705a" },
@@ -2349,7 +2460,7 @@ function MegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTea
             </button>
           ))}
         </div>
-        <div style={megaNavStyles.accountActions}>{onEditProfile && <button style={megaNavStyles.profileButton} onClick={onEditProfile}><Settings size={13}/>내 정보 수정</button>}<button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button></div>
+        <div style={megaNavStyles.accountActions}><UiModeSwitch compact />{onEditProfile && <button style={megaNavStyles.profileButton} onClick={onEditProfile}><Settings size={13}/>내 정보 수정</button>}<button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button></div>
       </div>
     </div>
   );
