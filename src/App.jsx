@@ -2348,7 +2348,7 @@ function UiModeSwitch({ compact = false }) {
   return (
     <div role="radiogroup" aria-label="화면 모드" className="no-print" style={wrap}>
       {UI_MODES.map(mode => (
-        <button key={mode.key} type="button" role="radio" aria-checked={current === mode.key} onClick={() => setUiMode(mode.key)} style={button(current === mode.key)}>{mode.label}</button>
+        <button key={mode.key} type="button" role="radio" aria-checked={current === mode.key} onClick={() => setUiMode(mode.key)} style={button(current === mode.key)}><span className="kdn-mode-long">{mode.label}</span><span className="kdn-mode-short">{mode.short}</span></button>
       ))}
     </div>
   );
@@ -2377,20 +2377,20 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
   ];
   return (
     <nav className="no-print" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
-      <div style={newUiNavStyles.inner}>
+      <div className="kdn-nav-inner" style={newUiNavStyles.inner}>
         <div style={newUiNavStyles.brand}>
           <span style={newUiNavStyles.logo}>KD</span>
           <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
             <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
-            <span style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
+            <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
           </span>
         </div>
-        <div style={newUiNavStyles.tabs}>
+        <div className="kdn-nav-tabs" style={newUiNavStyles.tabs}>
           {items.map(it => (
             <button key={it.key} type="button" aria-current={active === it.key ? "page" : undefined} onClick={() => onSwitch(it.key)} style={{ ...newUiNavStyles.tab, ...(active === it.key ? newUiNavStyles.tabActive : {}) }}>{it.label}</button>
           ))}
         </div>
-        <div style={newUiNavStyles.actions}>
+        <div className="kdn-nav-actions" style={newUiNavStyles.actions}>
           <UiModeSwitch compact />
           {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile}><Settings size={14}/>내 정보</button>}
           <button type="button" style={newUiNavStyles.ghost} onClick={onLogout}>로그아웃</button>
@@ -2405,12 +2405,12 @@ function NewUiLanding({ attemptLogin, showToast }) {
     <div style={{ minHeight: "100vh", background: "var(--kdn-bg)", color: "var(--kdn-ink)", fontFamily: "'NanumSquareRound','KDRound','Pretendard','Apple SD Gothic Neo',sans-serif" }}>
       <style>{globalCss}</style>
       <header style={{ borderBottom: "1px solid var(--kdn-line)" }}>
-        <div style={{ ...newUiNavStyles.inner, gap: 16 }}>
+        <div className="kdn-nav-inner" style={{ ...newUiNavStyles.inner, gap: 16 }}>
           <div style={newUiNavStyles.brand}>
             <span style={newUiNavStyles.logo}>KD</span>
             <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
               <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
-              <span style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
+              <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
             </span>
           </div>
           <div style={{ marginLeft: "auto" }}><UiModeSwitch /></div>
@@ -5826,11 +5826,12 @@ const styles = {
   betaBadge: { fontSize: 9.5, background: "#eef0ec", color: "#6b6754", padding: "1px 6px", borderRadius: 5, marginLeft: 5, fontWeight: 700 },
   brandSub: { fontSize: 11, color: "#8f8a7d", marginTop: 2 },
   nav: { display: "flex", gap: 4 },
-  navBtn: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", padding: "8px 12px", borderRadius: 7, fontSize: 13, cursor: "pointer", color: "#8a8578", fontWeight: 700 },
+  navBtn: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", padding: "8px 12px", borderRadius: 7, fontSize: 13, cursor: "pointer", color: "#8a8578", fontWeight: 700, whiteSpace: "nowrap", flex: "none" },
   navBtnActive: { background: COLORS.accentSoft, color: COLORS.accent },
-  compactToolbarSingle: { maxWidth: 1040, margin: "0 auto", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0", flexWrap: "nowrap" },
-  compactMenuGroup: { display: "flex", alignItems: "center", minWidth: 0, flex: "1 1 auto", padding: 4, border: "1px solid #e1e5ea", borderRadius: 11, background: "#f7f9fb" },
-  compactScopeGroup: { display: "flex", alignItems: "center", gap: 14, flex: "0 0 auto", whiteSpace: "nowrap", padding: "6px 10px", border: "1px solid #e2ded3", borderRadius: 11, background: "#fffdf9" },
+  // 좁은 화면(휴대폰)에서는 메뉴와 학년·학기 선택이 두 줄로 나뉘고, 메뉴는 가로로 밀어 볼 수 있습니다.
+  compactToolbarSingle: { maxWidth: 1040, margin: "0 auto", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0", flexWrap: "wrap" },
+  compactMenuGroup: { display: "flex", alignItems: "center", minWidth: 0, flex: "1 1 320px", overflowX: "auto", padding: 4, border: "1px solid #e1e5ea", borderRadius: 11, background: "#f7f9fb" },
+  compactScopeGroup: { display: "flex", alignItems: "center", gap: 14, flex: "0 1 auto", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", padding: "6px 10px", border: "1px solid #e2ded3", borderRadius: 11, background: "#fffdf9" },
   compactToolbarDivider: { width: 1, alignSelf: "stretch", minHeight: 38, background: "#d8dde4", flex: "0 0 1px" },
   body: { maxWidth: 1040, margin: "0 auto", padding: "28px 20px 60px" },
   h1: { fontSize: 18, fontWeight: 700, margin: "0 0 4px" },

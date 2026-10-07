@@ -8,9 +8,9 @@
    '기존 UI'(classic)를 고르면 아무것도 바꾸지 않으므로 이전 화면과 완전히 같습니다. */
 
 export const UI_MODES = [
-  { key: "classic", label: "기존 UI" },
-  { key: "dark", label: "새 UI · 다크" },
-  { key: "light", label: "새 UI · 라이트" },
+  { key: "classic", label: "기존 UI", short: "기존" },
+  { key: "dark", label: "새 UI · 다크", short: "다크" },
+  { key: "light", label: "새 UI · 라이트", short: "라이트" },
 ];
 const STORAGE_KEY = "kd_ui_mode";
 // 처음 방문한 사람에게 보여줄 모드. "다크모드를 기본값으로" 요청에 따라 dark입니다.
@@ -192,11 +192,55 @@ function mapFontFamily(value, mode) {
   return `${ROUND_FONT},${value}`;
 }
 
+/* 강조 요소 통일: 새 UI에서는 '흰 글자 + 진한 채움' 요소(주요 버튼 · 선택된 탭 · 활성 칩)를
+   화면마다 제각각이던 파랑 · 초록 · 갈색 · 보라 대신 하나의 강조색(주황)으로 맞춥니다.
+   빨강(경고)과 초록(충족)처럼 의미가 있는 상태색은 그대로 둡니다.
+   그라데이션 배너(섹션 머리)는 강조색 대신 차분한 단색 패널로 바꿉니다. */
+const isWhiteish = value => {
+  const c = typeof value === "string" ? parseColor(value.trim()) : null;
+  return !!c && c[3] > 0.9 && rgbToOklch(c).at(0) > 0.92;
+};
+function emphasisKind(token) {
+  const c = parseColor(token);
+  if (!c || c[3] < 0.9) return null;
+  const [L, C, H] = rgbToOklch(c);
+  if (L < 0.18 || L > 0.66) return null;
+  const hue = ((H * 180) / Math.PI + 360) % 360;
+  const semanticRed = C >= 0.1 && (hue < 45 || hue > 345);
+  const semanticGreen = C >= 0.08 && hue >= 120 && hue <= 185;
+  if (semanticRed || semanticGreen) return null;
+  return (hue >= 200 && hue <= 330) || C < 0.08 ? "accent" : null;
+}
+function emphasisFill(style) {
+  if (!isWhiteish(style.color)) return null;
+  const bg = style.background ?? style.backgroundColor ?? style.backgroundImage;
+  if (typeof bg !== "string" || bg.includes("var(") || bg.includes("url(")) return null;
+  const tokens = bg.match(COLOR_TOKEN) || [];
+  if (!tokens.length || !tokens.every(token => emphasisKind(token))) return null;
+  return /gradient/.test(bg) ? "panel" : "accent";
+}
+
 const styleCache = new WeakMap();
 export function mapStyleObject(style, mode = ACTIVE_MODE) {
   if (mode === "classic" || !style || typeof style !== "object") return style;
   const cached = styleCache.get(style);
   if (cached) return cached;
+  const fill = emphasisFill(style);
+  if (fill) {
+    const out = { ...style };
+    for (const key of ["background", "backgroundColor", "backgroundImage"]) if (key in out) out[key] = undefined;
+    out.background = fill === "accent" ? "var(--kdn-accent)" : "var(--kdn-panel)";
+    out.color = fill === "accent" ? "var(--kdn-accent-ink)" : "#ffffff";
+    for (const key of Object.keys(out)) {
+      if (typeof out[key] !== "string") continue;
+      if (/^(border|outline)/.test(key) && roleForProperty(key)) {
+        out[key] = out[key].replace(COLOR_TOKEN, token => emphasisKind(token) ? (fill === "accent" ? "var(--kdn-accent)" : "var(--kdn-panel)") : mapColor(token, "border", mode));
+      } else if (key === "fontFamily") out[key] = mapFontFamily(out[key], mode);
+      else if (key !== "background" && key !== "color" && roleForProperty(key)) out[key] = mapColorsInValue(out[key], roleForProperty(key), mode);
+    }
+    styleCache.set(style, out);
+    return out;
+  }
   let out = null;
   for (const key of Object.keys(style)) {
     const value = style[key];
@@ -271,13 +315,30 @@ function mapSheet(sheet, mode) {
 
 const BASE_CSS = {
   dark: `
-    :root{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e0dcd4;--kdn-muted:#c8c4bc;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#191a2c}
+    :root{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e0dcd4;--kdn-muted:#c8c4bc;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#191a2c;--kdn-panel:#2e3040}
     html,body{background:#1d1e24;color:#f4f1ea}
     ::selection{background:#ff7a3d55}`,
   light: `
-    :root{color-scheme:light;--kdn-bg:#f4f5f8;--kdn-surface:#ffffff;--kdn-surface-2:#f0f1f5;--kdn-line:#dfe2e8;--kdn-ink:#1f2430;--kdn-ink-soft:#3a4150;--kdn-muted:#5d6574;--kdn-accent:#cf4a12;--kdn-accent-ink:#ffffff;--kdn-accent-soft:#fff0e6;--kdn-accent-text:#b23e0c;--kdn-hero-art:#e9ebf3}
+    :root{color-scheme:light;--kdn-bg:#f4f5f8;--kdn-surface:#ffffff;--kdn-surface-2:#f0f1f5;--kdn-line:#dfe2e8;--kdn-ink:#1f2430;--kdn-ink-soft:#3a4150;--kdn-muted:#5d6574;--kdn-accent:#cf4a12;--kdn-accent-ink:#ffffff;--kdn-accent-soft:#fff0e6;--kdn-accent-text:#b23e0c;--kdn-hero-art:#e9ebf3;--kdn-panel:#2a3040}
     html,body{background:#f4f5f8;color:#1f2430}`,
 };
+
+// 다크 · 라이트 공통: 새 상단 메뉴의 모바일 배치, 겹치는 옛 머리 줄 숨김, 떠 있는 버튼 색 정리.
+const SHARED_NEW_CSS = `
+  .kdn-mode-short{display:none}
+  .kd-legacy-section-header{display:none!important}
+  .kd-quick-links-trigger{background:var(--kdn-surface-2)!important;color:var(--kdn-ink)!important;border-color:var(--kdn-line)!important}
+  .kd-history-edge{background:var(--kdn-surface)!important;color:var(--kdn-ink-soft)!important;border-color:var(--kdn-line)!important}
+  .kd-history-edge:hover:not(:disabled){background:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important;border-color:var(--kdn-accent)!important}
+  @media (max-width: 760px){
+    .kdn-nav-inner{gap:10px!important;padding:10px 14px 0!important}
+    .kdn-nav-tabs{order:3;flex:1 1 100%!important;flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;margin:0 -14px;padding:0 6px}
+    .kdn-nav-tabs::-webkit-scrollbar{display:none}
+    .kdn-nav-tabs>button{white-space:nowrap;padding:12px 10px 10px!important;flex:none}
+    .kdn-nav-actions{gap:6px!important}
+    .kdn-brand-sub{display:none}
+    .kdn-mode-long{display:none}.kdn-mode-short{display:inline}
+  }`;
 
 export function applyUiModeToDocument(mode = ACTIVE_MODE) {
   if (typeof document === "undefined") return;
@@ -293,7 +354,7 @@ export function applyUiModeToDocument(mode = ACTIVE_MODE) {
   if (!document.getElementById("kd-ui-mode-base")) {
     const base = document.createElement("style");
     base.id = "kd-ui-mode-base";
-    base.textContent = BASE_CSS[mode] || "";
+    base.textContent = (BASE_CSS[mode] || "") + SHARED_NEW_CSS;
     document.head.appendChild(base);
   }
   const sweep = () => { for (const sheet of Array.from(document.styleSheets)) mapSheet(sheet, mode); };

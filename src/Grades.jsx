@@ -794,7 +794,7 @@ export default function GradesSection({
   return (
     <div>
       <style>{GRADES_UI_CSS}</style>
-      <div style={{ padding: "16px 20px", borderBottom: "1px solid #e6e1d3", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+      <div className="kd-legacy-section-header" style={{ padding: "16px 20px", borderBottom: "1px solid #e6e1d3", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 16 }}>성적</div>
           <div style={{ fontSize: 11.5, color: "#8a8578" }}>

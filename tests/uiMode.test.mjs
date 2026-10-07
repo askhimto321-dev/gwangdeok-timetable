@@ -50,3 +50,23 @@ test("JSX props: style · SVG fill · 아이콘 color를 변환한다", () => {
   const same = { style: { color: "#2b2620" } };
   assert.equal(mapElementProps("div", same, "classic"), same);
 });
+
+test("새 UI: 흰 글자 + 진한 파랑·갈색 채움(선택된 버튼)은 강조색으로 통일", () => {
+  const blue = mapStyleObject({ background: "#3568a3", color: "#fff", border: "1px solid #3568a3" }, "dark");
+  assert.equal(blue.background, "var(--kdn-accent)");
+  assert.equal(blue.color, "var(--kdn-accent-ink)");
+  assert.equal(blue.border, "1px solid var(--kdn-accent)");
+  const brown = mapStyleObject({ background: "#8a5c4b", color: "#ffffff" }, "light");
+  assert.equal(brown.background, "var(--kdn-accent)");
+});
+
+test("새 UI: 빨강(경고) · 초록(충족) 상태색은 강조색으로 바꾸지 않는다", () => {
+  assert.notEqual(mapStyleObject({ background: "#b3413a", color: "#fff" }, "dark").background, "var(--kdn-accent)");
+  assert.notEqual(mapStyleObject({ background: "#1f8a4c", color: "#fff" }, "dark").background, "var(--kdn-accent)");
+});
+
+test("새 UI: 진한 그라데이션 배너는 단색 패널로, 기존 UI는 그대로", () => {
+  const banner = { background: "linear-gradient(135deg,#66558e,#7d6195)", color: "#fff" };
+  assert.equal(mapStyleObject(banner, "dark").background, "var(--kdn-panel)");
+  assert.equal(mapStyleObject(banner, "classic"), banner);
+});
