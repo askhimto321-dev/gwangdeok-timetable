@@ -353,6 +353,27 @@ const SHARED_NEW_CSS = `
   .kdn-openers button{min-height:40px!important;font-size:13.5px!important;border-radius:11px!important}
   .kdn-openers .kd-workspace-opener-row>span{font-size:13px!important;min-height:40px;display:inline-flex!important;align-items:center;justify-content:center}
   .kdn-search-wrap input{min-height:48px!important;font-size:16px!important}
+  @media (max-width:760px){.kdn-work-bar{position:static!important}}
+  /* 시간표: 넓은 화면에서는 표 옆에 공지(학급·수업 공지)를 나란히 */
+  @media screen and (min-width:1100px){
+    .kdn-tt-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}
+    .kdn-tt-layout>.kdn-tt-side{position:sticky;top:150px;max-height:calc(100vh - 170px);overflow:auto}
+    .kdn-tt-layout>.kdn-tt-side>*{margin-top:0!important}
+  }
+  /* 선생님 ZONE 공지: 대상 선택·단계는 왼쪽 고정 패널, 작성 화면은 오른쪽 */
+  @media screen and (min-width:1000px){
+    .kdn-notice-layout{display:grid;grid-template-columns:300px minmax(0,1fr);column-gap:20px;align-items:start}
+    .kdn-notice-layout>*{grid-column:2;min-width:0}
+    .kdn-notice-layout>.kdn-notice-hero{grid-column:1/-1}
+    .kdn-notice-layout>.kdn-notice-side{grid-column:1;grid-row:2/span 40;position:sticky;top:90px}
+    .kdn-notice-side .teacher-workflow-steps{display:grid!important;grid-template-columns:1fr!important;gap:6px!important}
+    .kdn-notice-side .teacher-workflow-steps+div{margin-top:12px}
+    .kdn-notice-side button{width:100%;justify-content:flex-start}
+    .kdn-notice-side .teacher-zone-target-row,.kdn-notice-side .teacher-zone-target-row>div{display:grid!important;grid-template-columns:1fr!important;gap:6px!important}
+  }
+  /* 성적·진학: 교사용 분석 도구는 눈에 덜 띄는 보조 도구 줄로 */
+  .kdn-staff-tools{background:transparent!important;border:0!important;box-shadow:none!important;padding:4px 0!important}
+  .kdn-staff-tools-head span{display:none!important}
   /* 관리자: 상단 탭 줄을 왼쪽 메뉴로 */
   .kdn-admin-layout{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
   .kdn-admin-layout>.kdn-admin-nav{flex:1 1 210px;max-width:260px;flex-direction:column!important;flex-wrap:nowrap!important;gap:4px!important;padding:10px;border-radius:20px;background:var(--kdn-surface);border:1px solid var(--kdn-line);position:sticky;top:84px}
