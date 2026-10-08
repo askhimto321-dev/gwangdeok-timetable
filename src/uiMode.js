@@ -626,6 +626,31 @@ const SHARED_NEW_CSS = `
   .kdn-hero-clock-chips em:first-child{background:#ff7a3d;color:#1b1006}
   .kdn-hero-clock-chips em.is-dday{background:#ffffff;color:#1b1006}
   @media (prefers-reduced-motion:reduce){.kdn-nav-clock-time i,.kdn-hero-clock-time i{animation:none}}
+  /* 현재 학생 · 상담 요약 이름 칸: KDTIME 머리 줄과 같은 진한 그라데이션 패널 */
+  .kdn-current-student,.kdn-summary-identity{background:linear-gradient(135deg,#1c1d24 0%,#2b2621 100%)!important;border:1px solid #3a2d24!important;box-shadow:0 10px 26px rgba(20,12,6,.22)!important}
+  .kdn-current-student b,.kdn-summary-identity b{color:#ffffff!important}
+  .kdn-current-student>span:nth-child(2) small:first-child{color:#ffb089!important}
+  .kdn-current-student>span:nth-child(2) small,.kdn-current-student b span{color:#cfccc5!important}
+  .kdn-current-student>button{background:rgba(255,255,255,.12)!important;color:#ffffff!important}
+  .kdn-current-student>span:first-child,.kdn-summary-identity>span:first-child{box-shadow:0 0 0 3px rgba(255,122,61,.35)}
+  .kdn-summary-identity{padding:14px 20px 14px 14px;border-radius:18px;align-self:stretch}
+  .kdn-summary-identity>span:first-child{background:linear-gradient(135deg,#ff9a5c,#e2531a)!important;color:#ffffff!important}
+  .kdn-summary-identity span span:first-child{background:rgba(255,122,61,.2)!important;color:#ffb089!important}
+  .kdn-summary-identity span span:nth-child(2){border-color:rgba(255,255,255,.25)!important;color:#e8e5df!important}
+  .kdn-summary-identity>div>span:last-child{color:#cfccc5!important}
+  .kdn-summary-card{padding:12px 16px 12px 12px!important;align-items:stretch!important}
+  /* NAVI: 선택된 큰 탭은 주황 그라데이션, 기준 설정 안 작은 단계는 얇은 진행 줄, 패널 위쪽 강조선 */
+  :root .susi-beta-view-tabs button[role="tab"][aria-selected="true"]{background:linear-gradient(135deg,#ff8a4c,#d9480f)!important;border-color:transparent!important;box-shadow:0 8px 20px rgba(217,72,15,.28)!important;color:#ffffff!important}
+  :root .susi-beta-view-tabs button[role="tab"][aria-selected="true"] b,:root .susi-beta-view-tabs button[role="tab"][aria-selected="true"] small{color:#ffffff!important;opacity:.95}
+  :root .susi-beta-view-toolbar [role="tab"][aria-selected="true"]>span{background:#ffffff!important;color:#d9480f!important}
+  .kdn-substeps{display:flex!important;gap:4px!important;padding:5px!important;border-radius:14px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line)}
+  .kdn-substeps button{flex:1;border:0!important;background:transparent!important;box-shadow:none!important;padding:8px 14px!important;border-radius:10px!important}
+  .kdn-substeps button.is-active{background:var(--kdn-surface)!important;box-shadow:0 1px 3px rgba(20,24,33,.16),inset 0 -3px 0 var(--kdn-accent)!important}
+  .kdn-substeps button+button{position:relative}
+  .kdn-substeps button+button::before{content:"›";position:absolute;left:-8px;top:50%;transform:translateY(-50%);color:var(--kdn-muted);font-size:18px}
+  .kdn-accent-panel{position:relative;overflow:hidden}
+  .kdn-accent-panel::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#ff8a4c,#d9480f 60%,transparent)}
+  .kdn-step-badge{background:linear-gradient(135deg,#ff8a4c,#d9480f)!important;color:#ffffff!important;border-radius:999px!important;box-shadow:0 3px 8px rgba(217,72,15,.3)}
   /* 관리자 시간표 데이터: 4단계 + 보조 보기 탭, 업로드 안의 파일 선택 → 미리보기 → 반영 표시 */
   .kdn-admin-steps{grid-template-columns:repeat(4,minmax(0,1fr));margin:6px 0 14px}
   .kdn-admin-aux-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 10px}

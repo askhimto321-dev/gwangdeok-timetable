@@ -1,6 +1,7 @@
 // 새 UI 상담 화면 상단: 학생 요약 카드와 수시 지원 구성 6칸 패널.
 // 값은 Grades.jsx가 이미 계산한 상담용 학생 정보(susiNaviStudent)와 지원 구성 저장소를 그대로 씁니다.
 import React from "react";
+import { BookOpen, Gauge, BarChart3, Heart, ClipboardList } from "lucide-react";
 import { loadSupportPlan, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 
 const PLAN_LIMIT = 6;
@@ -41,12 +42,12 @@ export function useSupportPlanItems(sid) {
   return items;
 }
 
-function Stat({ label, value, unit, tone = "blue", onClick, title, progress }) {
+function Stat({ label, value, unit, tone = "blue", onClick, title, progress, icon: Icon }) {
   const Tag = onClick ? "button" : "div";
   const toneStyle = toneTileStyle(tone);
   return (
     <Tag type={onClick ? "button" : undefined} onClick={onClick} title={title} style={{ ...s.stat, ...toneStyle.tile, ...(onClick ? s.statButton : {}) }}>
-      <span style={{ ...s.statLabel, ...toneStyle.label }}>{label}</span>
+      <span style={{ ...s.statLabel, ...toneStyle.label }}>{label}{Icon && <Icon size={17} aria-hidden="true" style={{ ...s.statIcon, ...toneStyle.label }} />}</span>
       <b style={{ ...s.statValue, ...(tone === "accent" ? s.statValueAccent : {}) }}>{value}{unit && <small style={s.statUnit}> {unit}</small>}</b>
       {progress != null && <span style={s.progressTrack} aria-hidden="true"><span style={{ ...s.progressFill, width: `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%` }} /></span>}
     </Tag>
@@ -63,8 +64,8 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
   const isFiveScale = student.gradeSystem !== 9;
   const methodLabel = naviGrade?.method === "statistical" ? "통계" : "기존";
   return (
-    <section aria-label="학생 요약" style={s.card}>
-      <div style={s.identity}>
+    <section className="kdn-summary-card" aria-label="학생 요약" style={s.card}>
+      <div className="kdn-summary-identity" style={s.identity}>
         <span style={s.avatar} aria-hidden="true">{initial}</span>
         <div style={s.identityText}>
           <b style={s.name}>{student.name || "이름 미등록"}</b>
@@ -76,11 +77,11 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
         </div>
       </div>
       <div style={{ ...s.stats, gridTemplateColumns: `repeat(${isFiveScale ? 5 : 4}, minmax(108px, 1fr))` }}>
-        <Stat label="전교과 내신" value={fmt(groups.전교과 ?? student.grade5)} unit={student.gradeSystem === 5 ? "5등급" : ""} tone="blue" />
-        {isFiveScale && <Stat label="9등급 환산" value={fmt(naviGrade?.value)} unit={naviGrade?.value != null ? methodLabel : ""} tone="sky" title={naviGrade?.method === "statistical" ? `통계 기반 Beta · ${naviGrade.group || "전교과"} (NAVI와 같은 방식)` : "기존 환산 2×내신−1 (NAVI와 같은 방식)"} />}
-        <Stat label="최근 모의고사 3합" value={mock?.sum3 ?? "-"} tone="purple" />
-        <Stat label="관심 대학" value={favoriteCount} unit="개" tone="amber" />
-        <Stat label="지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} progress={planCount == null ? null : planCount / PLAN_LIMIT} />
+        <Stat icon={BookOpen} label="전교과 내신" value={fmt(groups.전교과 ?? student.grade5)} unit={student.gradeSystem === 5 ? "5등급" : ""} tone="blue" />
+        {isFiveScale && <Stat icon={Gauge} label="9등급 환산" value={fmt(naviGrade?.value)} unit={naviGrade?.value != null ? methodLabel : ""} tone="sky" title={naviGrade?.method === "statistical" ? `통계 기반 Beta · ${naviGrade.group || "전교과"} (NAVI와 같은 방식)` : "기존 환산 2×내신−1 (NAVI와 같은 방식)"} />}
+        <Stat icon={BarChart3} label="최근 모의고사 3합" value={mock?.sum3 ?? "-"} tone="purple" />
+        <Stat icon={Heart} label="관심 대학" value={favoriteCount} unit="개" tone="amber" />
+        <Stat icon={ClipboardList} label="지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} progress={planCount == null ? null : planCount / PLAN_LIMIT} />
       </div>
     </section>
   );
@@ -133,7 +134,8 @@ const s = {
   progressTrack: { display: "block", height: 4, borderRadius: 999, background: "rgba(173,59,10,.16)", overflow: "hidden" },
   progressFill: { display: "block", height: "100%", borderRadius: 999, background: "var(--kdn-accent, #cf4a12)" },
   statAccent: { background: "var(--kdn-accent-soft, #fff0e6)" },
-  statLabel: { fontSize: 13.5, fontWeight: 650, lineHeight: 1.3, whiteSpace: "nowrap" },
+  statIcon: { marginLeft: "auto", opacity: 0.55, flex: "none" },
+  statLabel: { display: "flex", alignItems: "center", gap: 6, fontSize: 13.5, fontWeight: 650, lineHeight: 1.3, whiteSpace: "nowrap" },
   statLabelAccent: { color: "var(--kdn-accent-text, #b23e0c)" },
   statValue: { fontSize: 27, fontWeight: 750, letterSpacing: "-.01em", lineHeight: 1.05, color: "#141821", whiteSpace: "nowrap" },
   statValueAccent: { color: "var(--kdn-accent-text, #b23e0c)" },
