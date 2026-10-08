@@ -606,6 +606,26 @@ const SHARED_NEW_CSS = `
   .kdn-notice-compose-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:12px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font-size:14px;color:var(--kdn-ink-soft)}
   .kdn-notice-compose-bar b{color:var(--kdn-ink)}
   .kdn-notice-compose-bar button{min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);font-weight:600;cursor:pointer}
+  /* KDTIME 이름 아래 날짜·시간 줄(머리 줄 디자인에 맞춘 작은 줄) */
+  .kdn-nav-clock{display:inline-flex;align-items:center;gap:6px;margin-top:3px;font-size:12px;color:var(--kdn-muted);white-space:nowrap;line-height:1}
+  .kdn-nav-clock-sem{display:inline-flex;align-items:center;height:17px;padding:0 6px;border-radius:5px;background:var(--kdn-accent);color:var(--kdn-accent-ink);font-size:11px;font-weight:800}
+  .kdn-nav-clock-date{font-weight:600;color:var(--kdn-ink-soft);font-variant-numeric:tabular-nums}
+  .kdn-nav-clock-date small{font-weight:500;color:var(--kdn-muted);font-size:11px}
+  .kdn-nav-clock-time{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-weight:700;font-size:12.5px;color:var(--kdn-ink);font-variant-numeric:tabular-nums}
+  .kdn-nav-clock-time i{font-style:normal;color:var(--kdn-accent);animation:kdn-blink 1s steps(1) infinite}
+  .kdn-nav-clock-period{font-size:11px;font-weight:800;color:var(--kdn-accent-text)}
+  @keyframes kdn-blink{50%{opacity:.25}}
+  /* 대시보드 그림 위 시계 배지 */
+  .kdn-hero-clock{position:absolute;left:22px;top:20px;display:grid;gap:4px;padding:12px 16px 12px;border-radius:18px;background:rgba(12,13,18,.42);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:#fff;border:1px solid rgba(255,255,255,.18)}
+  .kdn-hero-clock-date{font-size:12.5px;font-weight:600;opacity:.9;letter-spacing:.02em}
+  .kdn-hero-clock-time{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:40px;line-height:1;font-weight:700;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .kdn-hero-clock-time i{font-style:normal;color:#ffb089;animation:kdn-blink 1s steps(1) infinite}
+  .kdn-hero-clock-time small{font-size:16px;margin-left:6px;opacity:.75}
+  .kdn-hero-clock-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+  .kdn-hero-clock-chips em{font-style:normal;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.18)}
+  .kdn-hero-clock-chips em:first-child{background:#ff7a3d;color:#1b1006}
+  .kdn-hero-clock-chips em.is-dday{background:#ffffff;color:#1b1006}
+  @media (prefers-reduced-motion:reduce){.kdn-nav-clock-time i,.kdn-hero-clock-time i{animation:none}}
   /* 관리자 시간표 데이터: 4단계 + 보조 보기 탭, 업로드 안의 파일 선택 → 미리보기 → 반영 표시 */
   .kdn-admin-steps{grid-template-columns:repeat(4,minmax(0,1fr));margin:6px 0 14px}
   .kdn-admin-aux-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 10px}
@@ -676,6 +696,7 @@ const SHARED_NEW_CSS = `
     .kdn-nav-tabs>button{white-space:nowrap;padding:12px 10px 10px!important;flex:none}
     .kdn-nav-actions{gap:6px!important}
     .kdn-brand-sub{display:none}
+    .kdn-nav-clock-date,.kdn-nav-clock-period{display:none}
     .kdn-mode-long{display:none}.kdn-mode-short{display:inline}
   }`;
 

@@ -1081,7 +1081,7 @@ export default function App() {
   const [tab, setTab] = useState("student");
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
-  const [semester, setSemester] = useState("sem1");
+  const [semester, setSemester] = useState(() => semesterForDate());
   const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], siteAnnouncements: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {}, gradeDepartmentData: {} });
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
@@ -1142,7 +1142,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -1161,8 +1161,9 @@ export default function App() {
         readStorage("kd_minimum_achievement_settings", {}),
         readStorage("kd_minimum_achievement_attendance", {}),
         readStorage("kd_grade_department_data", {}),
+        readStorage("kd_academic_calendar", {}),
       ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData });
+      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar: academicCalendar || {} });
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
       setAccounts(normalizedAccounts);
@@ -1370,6 +1371,7 @@ export default function App() {
     if (patch.feedback) jobs.push(writeStorage("kd_feedback", patch.feedback));
     if (patch.staffNotices) jobs.push(writeStorage("kd_staff_notices", patch.staffNotices));
     if (patch.siteAnnouncements) jobs.push(writeStorage("kd_site_announcements", patch.siteAnnouncements));
+    if (patch.academicCalendar) jobs.push(writeStorage("kd_academic_calendar", patch.academicCalendar));
     if (patch.teacherGradeWorkspaces) jobs.push(writeStorage("kd_teacher_grade_workspaces", patch.teacherGradeWorkspaces));
     if (patch.minimumAchievementSettings) jobs.push(writeStorage("kd_minimum_achievement_settings", patch.minimumAchievementSettings));
     if (patch.minimumAchievementAttendance) jobs.push(writeStorage("kd_minimum_achievement_attendance", patch.minimumAchievementAttendance));
@@ -1644,6 +1646,16 @@ export default function App() {
   }, [dashboardActive, selectedStudentSid, db.roster]);
 
   const [teacherZoneRequest, setTeacherZoneRequest] = useState(null);
+  // 날짜로 고른 학기에 아직 시간표가 없고 다른 학기에는 있으면(예: 2학기 시간표 업로드 전) 처음 한 번만 자료가 있는 학기로 맞춥니다.
+  const semesterAutoCheckedRef = useRef(false);
+  useEffect(() => {
+    if (loading || semesterAutoCheckedRef.current) return;
+    semesterAutoCheckedRef.current = true;
+    const hasData = sem => Object.keys((db.timetables || {})[`${grade}-${sem}`] || {}).length > 0;
+    const byCalendar = semesterForDate(new Date(), db.academicCalendar);
+    const other = byCalendar === "sem1" ? "sem2" : "sem1";
+    setSemester(!hasData(byCalendar) && hasData(other) ? other : byCalendar);
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   const globalLogout = () => {
@@ -1750,6 +1762,8 @@ export default function App() {
     }
   };
   const dashboardProps = {
+    semester,
+    academicCalendar: db.academicCalendar,
     kind: loggedInStudent && !staffWorkspaceEnabled && !loggedInMonitor ? "student" : "staff",
     name: loggedInStudent?.name || "",
     roleLabel: loggedInAdmin ? "관리자 계정으로 접속 중"
@@ -1793,7 +1807,7 @@ export default function App() {
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
       {!loggedInStudent && <QuickLinksDock />}
-      <MegaNav primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
+      <MegaNav semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
       {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
       <SiteAnnouncementModal announcements={db.siteAnnouncements || []} viewer={loggedInAdmin?{...loggedInAdmin,role:"admin"}:loggedInTeacher?{...loggedInTeacher,role:"teacher"}:loggedInDepartment?{...loggedInDepartment,role:"department"}:loggedInMonitor?{...loggedInMonitor,role:"monitor"}:loggedInStudent?{...loggedInStudent,role:"student"}:null} />
       {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
@@ -2626,7 +2640,7 @@ const newUiNavStyles = {
   ghost: { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 38, padding: "0 13px", borderRadius: 12, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13, fontWeight: 800, cursor: "pointer" },
 };
 
-function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, primaryAction }) {
+function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, primaryAction, semester }) {
   const items = [
     { key: "home", label: "대시보드" },
     { key: "grades", label: "성적 · 진학" },
@@ -2638,11 +2652,11 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
   return (
     <nav className="no-print kdn-top-nav" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
       <div className="kdn-nav-inner" style={newUiNavStyles.inner}>
-        <div style={newUiNavStyles.brand}>
+        <div style={newUiNavStyles.brand} title={SITE_TITLE}>
           <span style={newUiNavStyles.logo}>KD</span>
           <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
             <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
-            <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
+            {semester ? <NavClock semester={semester} /> : <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>}
           </span>
         </div>
         <div className="kdn-nav-tabs" style={newUiNavStyles.tabs}>
@@ -2695,7 +2709,8 @@ function UiModeMenu() {
 
 // 새 UI 로그인 후 첫 화면(대시보드). 참고 사이트 구성: 큰 3줄 제목 + 버튼 2개 + 안내 한 줄,
 // 오른쪽 그림 위에 떠 있는 핵심 카드 1장, 아래 큰 바로가기 카드 줄.
-function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [] }) {
+function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], semester, academicCalendar }) {
+  const now = useNow(1000);
   const student = kind === "student";
   const headline = student
     ? [`${name || ""} 학생,`, "오늘 수업과 공지를", "한 번에 확인해요."]
@@ -2723,7 +2738,10 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
           <p style={dash.note}><Users size={16} /> {roleLabel}</p>
         </div>
         <div style={dash.heroSide}>
-          <div aria-hidden="true" style={dash.art} dangerouslySetInnerHTML={{ __html: LANDING_HERO_SVG }} />
+          <div style={{ position: "relative" }}>
+            <div aria-hidden="true" style={dash.art} dangerouslySetInnerHTML={{ __html: heroSvgForHour(now.getHours()) }} />
+            <HeroClockBadge now={now} semester={semester} calendar={academicCalendar} />
+          </div>
           <div style={dash.floatCard}>
             {student ? <DashboardLessonCard lesson={lesson} onOpen={() => onNavigate("timetable")} />
               : <DashboardStudentCard student={openStudent} onSearch={() => onNavigate("grades", { focusSearch: true })} onOpenStudentView={onOpenStudentView} />}
@@ -2904,6 +2922,79 @@ const LANDING_FEATURES = [
 ];
 
 // 고정 색 그림이라 화면 모드 색 변환을 거치지 않도록 문자열로 넣습니다(밤하늘 + 학교 건물).
+/* 날짜·시간: 학기 자동 판단, 1초/30초 시계, 시간대별 대시보드 그림 */
+// 학기 기준: 3월 1일 ~ 8월 15일 = 1학기, 8월 16일 ~ 다음 해 2월 = 2학기(여름방학까지는 1학기 시간표 유지).
+function semesterForDate(date = new Date(), calendar = null) {
+  // 관리자 > 학사일정에 개학일이 있으면 그 날짜(월·일)를 기준으로, 없으면 기본 규칙으로 판단합니다.
+  const md = value => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "")); return m ? Number(m[2]) * 100 + Number(m[3]) : null; };
+  const s1 = md(calendar?.sem1Start), s2 = md(calendar?.sem2Start);
+  if (s1 && s2) {
+    const today = (date.getMonth() + 1) * 100 + date.getDate();
+    return today >= s1 && today < s2 ? "sem1" : "sem2";
+  }
+  const month = date.getMonth() + 1, day = date.getDate();
+  if (month >= 3 && month <= 7) return "sem1";
+  if (month === 8) return day <= 15 ? "sem1" : "sem2";
+  return "sem2";
+}
+function useNow(intervalMs = 1000) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), intervalMs); return () => window.clearInterval(timer); }, [intervalMs]);
+  return now;
+}
+const WEEKDAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
+const twoDigits = value => String(value).padStart(2, "0");
+// 시간대별 장면: 낮(7~16시) 파란 하늘과 해, 저녁(17~18시) 노을, 밤(19~6시) 달과 별.
+function heroSceneFor(hour) {
+  if (hour >= 7 && hour < 17) return { sky: "#7fb2e5", sky2: "#bcd8f2", ground: "#5f7fa8", building: "#e9eef6", tower: "#f6f8fb", window: "#b8c7da", lit: "#ff9a5c", body: '<circle cx="384" cy="54" r="24" fill="#ffd36b"/><circle cx="384" cy="54" r="36" fill="#ffd36b" opacity=".22"/>', stars: "", clockFace: "#7fb2e5", clockHand: "#ffffff", door: "#5f7fa8" };
+  if (hour >= 17 && hour < 19) return { sky: "#f0915f", sky2: "#f6c58f", ground: "#5b3c4e", building: "#7a4d5c", tower: "#8b5866", window: "#a36c74", lit: "#ffd36b", body: '<circle cx="384" cy="118" r="26" fill="#ffd36b" opacity=".95"/>', stars: "", clockFace: "#5b3c4e", clockHand: "#ffd36b", door: "#5b3c4e" };
+  return null;
+}
+function heroSvgForHour(hour) {
+  const scene = heroSceneFor(hour);
+  if (!scene) return LANDING_HERO_SVG;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 460 230" preserveAspectRatio="xMidYMax slice">
+<defs><linearGradient id="kdsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${scene.sky}"/><stop offset="1" stop-color="${scene.sky2}"/></linearGradient></defs>
+<rect width="460" height="230" fill="url(#kdsky)"/>${scene.body}
+<g fill="#ffffff" opacity=".7"><ellipse cx="90" cy="54" rx="34" ry="10"/><ellipse cx="118" cy="46" rx="22" ry="9"/><ellipse cx="270" cy="38" rx="26" ry="8"/></g>
+<rect x="0" y="196" width="460" height="34" fill="${scene.ground}"/><rect x="100" y="112" width="260" height="86" rx="6" fill="${scene.building}"/><rect x="200" y="82" width="60" height="116" rx="6" fill="${scene.tower}"/>
+<circle cx="230" cy="106" r="12" fill="${scene.clockFace}"/><path d="M230 99v7l4 3" stroke="${scene.clockHand}" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+<rect x="120" y="128" width="22" height="18" rx="4" fill="${scene.lit}"/><rect x="152" y="128" width="22" height="18" rx="4" fill="${scene.window}"/><rect x="120" y="158" width="22" height="18" rx="4" fill="${scene.window}"/><rect x="152" y="158" width="22" height="18" rx="4" fill="${scene.lit}"/>
+<rect x="286" y="128" width="22" height="18" rx="4" fill="${scene.window}"/><rect x="318" y="128" width="22" height="18" rx="4" fill="${scene.lit}"/><rect x="286" y="158" width="22" height="18" rx="4" fill="${scene.lit}"/><rect x="318" y="158" width="22" height="18" rx="4" fill="${scene.window}"/>
+<rect x="218" y="166" width="24" height="32" rx="10" fill="${scene.door}"/></svg>`;
+}
+// 상단 메뉴의 날짜·시간 알약: 학기 · 월.일(요일) · 시:분 (+ 수업 중이면 교시)
+function NavClock({ semester }) {
+  const now = useNow(1000);
+  const slot = lessonSlotAt(now);
+  return <div className="kdn-nav-clock" aria-label={`${now.getMonth() + 1}월 ${now.getDate()}일 ${WEEKDAY_KO[now.getDay()]}요일 ${now.getHours()}시 ${now.getMinutes()}분`}>
+    {semester && <span className="kdn-nav-clock-sem">{semester === "sem2" ? "2학기" : "1학기"}</span>}
+    <span className="kdn-nav-clock-date">{twoDigits(now.getMonth() + 1)}.{twoDigits(now.getDate())} <small>{WEEKDAY_KO[now.getDay()]}</small></span>
+    <span className="kdn-nav-clock-time">{twoDigits(now.getHours())}<i>:</i>{twoDigits(now.getMinutes())}</span>
+    {slot?.state === "now" && <span className="kdn-nav-clock-period">{slot.period}교시</span>}
+  </div>;
+}
+// 대시보드 그림 위 시계 배지
+// 학사일정에서 오늘 이후 가장 가까운 일정(60일 이내)
+function nextAcademicEvent(calendar, now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return (calendar?.events || [])
+    .map(event => ({ ...event, time: new Date(`${event.date}T00:00:00`).getTime() }))
+    .filter(event => event.label && Number.isFinite(event.time) && event.time >= today && event.time - today <= 60 * 86400000)
+    .sort((a, b) => a.time - b.time)
+    .map(event => ({ ...event, days: Math.round((event.time - today) / 86400000) }))[0] || null;
+}
+function HeroClockBadge({ now, semester, calendar }) {
+  const slot = lessonSlotAt(now);
+  const upcoming = nextAcademicEvent(calendar, now);
+  const status = slot ? (slot.state === "now" ? `${slot.period}교시 수업 중` : `다음 ${slot.period}교시 ${clockText(slot.start)}`) : (now.getDay() === 0 || now.getDay() === 6 ? "주말" : "오늘 수업 끝");
+  return <div className="kdn-hero-clock" aria-hidden="true">
+    <span className="kdn-hero-clock-date">{now.getFullYear()}. {now.getMonth() + 1}. {now.getDate()}. {WEEKDAY_KO[now.getDay()]}요일</span>
+    <b className="kdn-hero-clock-time">{twoDigits(now.getHours())}<i>:</i>{twoDigits(now.getMinutes())}<small>{twoDigits(now.getSeconds())}</small></b>
+    <span className="kdn-hero-clock-chips"><em>{semester === "sem2" ? "2학기" : "1학기"}</em><em>{status}</em>{upcoming && <em className="is-dday">{upcoming.label} {upcoming.days === 0 ? "D-DAY" : `D-${upcoming.days}`}</em>}</span>
+  </div>;
+}
+
 const LANDING_HERO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 460 230" preserveAspectRatio="xMidYMax slice">
 <rect width="460" height="230" fill="#1f2238"/><circle cx="380" cy="56" r="24" fill="#f7d9a8"/><circle cx="390" cy="49" r="22" fill="#1f2238"/>
 <g fill="#e9e3d6" opacity=".85"><circle cx="60" cy="40" r="1.8"/><circle cx="140" cy="76" r="1.4"/><circle cx="236" cy="32" r="1.8"/><circle cx="300" cy="96" r="1.4"/><circle cx="440" cy="120" r="1.4"/><circle cx="30" cy="120" r="1.4"/></g>
@@ -4906,6 +4997,7 @@ function AdminConsole(props) {
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
         <button onClick={() => setSub("accounts")} style={{ ...styles.adminTabBtn, ...(sub === "accounts" ? styles.adminTabBtnActive : {}) }}><Lock size={14} /> 계정 관리</button>
         <button onClick={() => setSub("staffNotices")} style={{ ...styles.adminTabBtn, ...(sub === "staffNotices" ? styles.adminTabBtnActive : {}) }}><Megaphone size={14} /> 교직원 공지</button>
+        <button onClick={() => setSub("academicCalendar")} style={{ ...styles.adminTabBtn, ...(sub === "academicCalendar" ? styles.adminTabBtnActive : {}) }}><Calendar size={14} /> 학사일정</button>
         <button onClick={() => setSub("siteAnnouncements")} style={{ ...styles.adminTabBtn, ...(sub === "siteAnnouncements" ? styles.adminTabBtnActive : {}) }}><BellRing size={14} /> 전체 공지 팝업</button>
         <button onClick={() => setSub("susiNaviBeta")} style={{ ...styles.adminTabBtn, ...(sub === "susiNaviBeta" ? styles.adminTabBtnActive : {}) }}><BookOpen size={14} /> 수시NAVI Beta</button>
         <button onClick={() => setSub("feedback")} style={{ ...styles.adminTabBtn, ...(sub === "feedback" ? styles.adminTabBtnActive : {}) }}><Bug size={14} /> 건의·버그</button>
@@ -4918,6 +5010,7 @@ function AdminConsole(props) {
       )}
       {sub === "accounts" && <AdminAccountConsole {...props} />}
       {sub === "staffNotices" && <AdminStaffNoticePanel accounts={props.accounts} notices={props.db.staffNotices || []} persist={props.persist} showToast={props.showToast} />}
+      {sub === "academicCalendar" && <AdminAcademicCalendar calendar={props.db.academicCalendar || {}} persist={props.persist} showToast={props.showToast} />}
       {sub === "siteAnnouncements" && <AdminSiteAnnouncementPanel announcements={props.db.siteAnnouncements || []} persist={props.persist} showToast={props.showToast} />}
       {sub === "susiNaviBeta" && <DeferredPanel label="수시NAVI 관리 화면을 불러오는 중입니다."><SusiNaviBetaAdmin showToast={props.showToast} /></DeferredPanel>}
       {sub === "feedback" && <FeedbackAdminPanel feedback={props.db.feedback || []} persist={props.persist} showToast={props.showToast} />}
@@ -4925,6 +5018,51 @@ function AdminConsole(props) {
       </div>
     </div>
   );
+}
+
+// 관리자 > 학사일정: 1·2학기 개학일(시간표 학기 자동 선택 기준)과 주요 일정(대시보드 D-day)을 관리합니다.
+function AdminAcademicCalendar({ calendar, persist, showToast }) {
+  const [sem1Start, setSem1Start] = useState(calendar.sem1Start || "");
+  const [sem2Start, setSem2Start] = useState(calendar.sem2Start || "");
+  const [events, setEvents] = useState(() => (calendar.events || []).map((event, index) => ({ id: event.id || `ev-${index}`, ...event })));
+  const [saving, setSaving] = useState(false);
+  const autoNow = semesterForDate(new Date(), sem1Start && sem2Start ? { sem1Start, sem2Start } : null);
+  const invalid = sem1Start && sem2Start && sem1Start.slice(5) >= sem2Start.slice(5);
+  const save = async () => {
+    if (invalid) { showToast("2학기 개학일은 1학기 개학일보다 뒤여야 합니다.", "error"); return; }
+    setSaving(true);
+    const clean = events.filter(event => event.date && String(event.label || "").trim()).map(event => ({ id: event.id, date: event.date, label: String(event.label).trim().slice(0, 20) })).sort((a, b) => a.date.localeCompare(b.date));
+    const ok = await persist({ academicCalendar: { sem1Start, sem2Start, events: clean, updatedAt: new Date().toISOString() } });
+    setSaving(false);
+    if (ok) { setEvents(clean); showToast("학사일정을 저장했습니다. 다음에 접속할 때부터 학기가 이 기준으로 자동 선택됩니다.", "success"); }
+  };
+  const field = { display: "grid", gap: 6, fontSize: 13, fontWeight: 700, color: "#3a4150" };
+  const input = { ...styles.cellInput, width: "auto", textAlign: "left", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 14 };
+  return <div style={{ display: "grid", gap: 16 }}>
+    <div style={styles.card}>
+      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>학기 기준일</div>
+      <p style={{ ...styles.pMuted, marginTop: 0 }}>개학일을 넣으면 시간표·선생님 ZONE 등이 오늘 날짜에 맞는 학기로 자동으로 열립니다. 월·일만 비교하므로 해마다 날짜가 바뀌면 다시 저장해 주세요.</p>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "end" }}>
+        <label style={field}>1학기 개학일<input type="date" value={sem1Start} onChange={event => setSem1Start(event.target.value)} style={input} /></label>
+        <label style={field}>2학기 개학일<input type="date" value={sem2Start} onChange={event => setSem2Start(event.target.value)} style={input} /></label>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: invalid ? "#b42318" : "#3a4150", paddingBottom: 9 }}>{invalid ? "2학기 개학일이 1학기보다 빨라요." : `오늘 기준: ${autoNow === "sem2" ? "2학기" : "1학기"}${sem1Start && sem2Start ? "" : " (기본 규칙: 3/1~8/15 = 1학기)"}`}</span>
+      </div>
+    </div>
+    <div style={styles.card}>
+      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>주요 일정</div>
+      <p style={{ ...styles.pMuted, marginTop: 0 }}>중간·기말고사, 수능, 방학식 등을 넣으면 대시보드 시계에 가장 가까운 일정이 D-day로 표시됩니다(60일 이내).</p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {events.map(event => <div key={event.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="date" value={event.date || ""} onChange={e => setEvents(list => list.map(item => item.id === event.id ? { ...item, date: e.target.value } : item))} style={{ ...input, flex: "0 0 170px", width: 170 }} aria-label="일정 날짜" />
+          <input value={event.label || ""} maxLength={20} placeholder="예: 2학기 기말고사" onChange={e => setEvents(list => list.map(item => item.id === event.id ? { ...item, label: e.target.value } : item))} style={{ ...input, flex: "1 1 220px", minWidth: 0 }} aria-label="일정 이름" />
+          <button type="button" style={styles.iconBtn} onClick={() => setEvents(list => list.filter(item => item.id !== event.id))} aria-label="일정 삭제"><X size={14} /></button>
+        </div>)}
+        {!events.length && <div style={{ fontSize: 13.5, color: "#5d6574" }}>아직 등록된 일정이 없습니다.</div>}
+      </div>
+      <button type="button" style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={() => setEvents(list => [...list, { id: `ev-${Date.now()}`, date: "", label: "" }])}>+ 일정 추가</button>
+    </div>
+    <div><button type="button" style={styles.primaryBtn} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 학사일정 저장</button></div>
+  </div>;
 }
 
 function AdminAccountConsole(props) {
