@@ -624,6 +624,7 @@ const SHARED_NEW_CSS = `
   .kdn-hero-clock-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
   .kdn-hero-clock-chips em{font-style:normal;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.18)}
   .kdn-hero-clock-chips em:first-child{background:#ff7a3d;color:#1b1006}
+  .kdn-hero-clock-chips em.is-dday{background:#ffffff;color:#1b1006}
   @media (prefers-reduced-motion:reduce){.kdn-nav-clock-time i,.kdn-hero-clock-time i{animation:none}}
   /* 관리자 시간표 데이터: 4단계 + 보조 보기 탭, 업로드 안의 파일 선택 → 미리보기 → 반영 표시 */
   .kdn-admin-steps{grid-template-columns:repeat(4,minmax(0,1fr));margin:6px 0 14px}

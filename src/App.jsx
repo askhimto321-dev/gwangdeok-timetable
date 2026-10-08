@@ -1142,7 +1142,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -1161,8 +1161,9 @@ export default function App() {
         readStorage("kd_minimum_achievement_settings", {}),
         readStorage("kd_minimum_achievement_attendance", {}),
         readStorage("kd_grade_department_data", {}),
+        readStorage("kd_academic_calendar", {}),
       ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData });
+      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar: academicCalendar || {} });
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
       setAccounts(normalizedAccounts);
@@ -1370,6 +1371,7 @@ export default function App() {
     if (patch.feedback) jobs.push(writeStorage("kd_feedback", patch.feedback));
     if (patch.staffNotices) jobs.push(writeStorage("kd_staff_notices", patch.staffNotices));
     if (patch.siteAnnouncements) jobs.push(writeStorage("kd_site_announcements", patch.siteAnnouncements));
+    if (patch.academicCalendar) jobs.push(writeStorage("kd_academic_calendar", patch.academicCalendar));
     if (patch.teacherGradeWorkspaces) jobs.push(writeStorage("kd_teacher_grade_workspaces", patch.teacherGradeWorkspaces));
     if (patch.minimumAchievementSettings) jobs.push(writeStorage("kd_minimum_achievement_settings", patch.minimumAchievementSettings));
     if (patch.minimumAchievementAttendance) jobs.push(writeStorage("kd_minimum_achievement_attendance", patch.minimumAchievementAttendance));
@@ -1650,8 +1652,9 @@ export default function App() {
     if (loading || semesterAutoCheckedRef.current) return;
     semesterAutoCheckedRef.current = true;
     const hasData = sem => Object.keys((db.timetables || {})[`${grade}-${sem}`] || {}).length > 0;
-    const other = semester === "sem1" ? "sem2" : "sem1";
-    if (!hasData(semester) && hasData(other)) setSemester(other);
+    const byCalendar = semesterForDate(new Date(), db.academicCalendar);
+    const other = byCalendar === "sem1" ? "sem2" : "sem1";
+    setSemester(!hasData(byCalendar) && hasData(other) ? other : byCalendar);
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
@@ -1760,6 +1763,7 @@ export default function App() {
   };
   const dashboardProps = {
     semester,
+    academicCalendar: db.academicCalendar,
     kind: loggedInStudent && !staffWorkspaceEnabled && !loggedInMonitor ? "student" : "staff",
     name: loggedInStudent?.name || "",
     roleLabel: loggedInAdmin ? "관리자 계정으로 접속 중"
@@ -2705,7 +2709,7 @@ function UiModeMenu() {
 
 // 새 UI 로그인 후 첫 화면(대시보드). 참고 사이트 구성: 큰 3줄 제목 + 버튼 2개 + 안내 한 줄,
 // 오른쪽 그림 위에 떠 있는 핵심 카드 1장, 아래 큰 바로가기 카드 줄.
-function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], semester }) {
+function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], semester, academicCalendar }) {
   const now = useNow(1000);
   const student = kind === "student";
   const headline = student
@@ -2736,7 +2740,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
         <div style={dash.heroSide}>
           <div style={{ position: "relative" }}>
             <div aria-hidden="true" style={dash.art} dangerouslySetInnerHTML={{ __html: heroSvgForHour(now.getHours()) }} />
-            <HeroClockBadge now={now} semester={semester} />
+            <HeroClockBadge now={now} semester={semester} calendar={academicCalendar} />
           </div>
           <div style={dash.floatCard}>
             {student ? <DashboardLessonCard lesson={lesson} onOpen={() => onNavigate("timetable")} />
@@ -2920,7 +2924,14 @@ const LANDING_FEATURES = [
 // 고정 색 그림이라 화면 모드 색 변환을 거치지 않도록 문자열로 넣습니다(밤하늘 + 학교 건물).
 /* 날짜·시간: 학기 자동 판단, 1초/30초 시계, 시간대별 대시보드 그림 */
 // 학기 기준: 3월 1일 ~ 8월 15일 = 1학기, 8월 16일 ~ 다음 해 2월 = 2학기(여름방학까지는 1학기 시간표 유지).
-function semesterForDate(date = new Date()) {
+function semesterForDate(date = new Date(), calendar = null) {
+  // 관리자 > 학사일정에 개학일이 있으면 그 날짜(월·일)를 기준으로, 없으면 기본 규칙으로 판단합니다.
+  const md = value => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "")); return m ? Number(m[2]) * 100 + Number(m[3]) : null; };
+  const s1 = md(calendar?.sem1Start), s2 = md(calendar?.sem2Start);
+  if (s1 && s2) {
+    const today = (date.getMonth() + 1) * 100 + date.getDate();
+    return today >= s1 && today < s2 ? "sem1" : "sem2";
+  }
   const month = date.getMonth() + 1, day = date.getDate();
   if (month >= 3 && month <= 7) return "sem1";
   if (month === 8) return day <= 15 ? "sem1" : "sem2";
@@ -2964,13 +2975,23 @@ function NavClock({ semester }) {
   </div>;
 }
 // 대시보드 그림 위 시계 배지
-function HeroClockBadge({ now, semester }) {
+// 학사일정에서 오늘 이후 가장 가까운 일정(60일 이내)
+function nextAcademicEvent(calendar, now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return (calendar?.events || [])
+    .map(event => ({ ...event, time: new Date(`${event.date}T00:00:00`).getTime() }))
+    .filter(event => event.label && Number.isFinite(event.time) && event.time >= today && event.time - today <= 60 * 86400000)
+    .sort((a, b) => a.time - b.time)
+    .map(event => ({ ...event, days: Math.round((event.time - today) / 86400000) }))[0] || null;
+}
+function HeroClockBadge({ now, semester, calendar }) {
   const slot = lessonSlotAt(now);
+  const upcoming = nextAcademicEvent(calendar, now);
   const status = slot ? (slot.state === "now" ? `${slot.period}교시 수업 중` : `다음 ${slot.period}교시 ${clockText(slot.start)}`) : (now.getDay() === 0 || now.getDay() === 6 ? "주말" : "오늘 수업 끝");
   return <div className="kdn-hero-clock" aria-hidden="true">
     <span className="kdn-hero-clock-date">{now.getFullYear()}. {now.getMonth() + 1}. {now.getDate()}. {WEEKDAY_KO[now.getDay()]}요일</span>
     <b className="kdn-hero-clock-time">{twoDigits(now.getHours())}<i>:</i>{twoDigits(now.getMinutes())}<small>{twoDigits(now.getSeconds())}</small></b>
-    <span className="kdn-hero-clock-chips"><em>{semester === "sem2" ? "2학기" : "1학기"}</em><em>{status}</em></span>
+    <span className="kdn-hero-clock-chips"><em>{semester === "sem2" ? "2학기" : "1학기"}</em><em>{status}</em>{upcoming && <em className="is-dday">{upcoming.label} {upcoming.days === 0 ? "D-DAY" : `D-${upcoming.days}`}</em>}</span>
   </div>;
 }
 
@@ -4976,6 +4997,7 @@ function AdminConsole(props) {
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
         <button onClick={() => setSub("accounts")} style={{ ...styles.adminTabBtn, ...(sub === "accounts" ? styles.adminTabBtnActive : {}) }}><Lock size={14} /> 계정 관리</button>
         <button onClick={() => setSub("staffNotices")} style={{ ...styles.adminTabBtn, ...(sub === "staffNotices" ? styles.adminTabBtnActive : {}) }}><Megaphone size={14} /> 교직원 공지</button>
+        <button onClick={() => setSub("academicCalendar")} style={{ ...styles.adminTabBtn, ...(sub === "academicCalendar" ? styles.adminTabBtnActive : {}) }}><Calendar size={14} /> 학사일정</button>
         <button onClick={() => setSub("siteAnnouncements")} style={{ ...styles.adminTabBtn, ...(sub === "siteAnnouncements" ? styles.adminTabBtnActive : {}) }}><BellRing size={14} /> 전체 공지 팝업</button>
         <button onClick={() => setSub("susiNaviBeta")} style={{ ...styles.adminTabBtn, ...(sub === "susiNaviBeta" ? styles.adminTabBtnActive : {}) }}><BookOpen size={14} /> 수시NAVI Beta</button>
         <button onClick={() => setSub("feedback")} style={{ ...styles.adminTabBtn, ...(sub === "feedback" ? styles.adminTabBtnActive : {}) }}><Bug size={14} /> 건의·버그</button>
@@ -4988,6 +5010,7 @@ function AdminConsole(props) {
       )}
       {sub === "accounts" && <AdminAccountConsole {...props} />}
       {sub === "staffNotices" && <AdminStaffNoticePanel accounts={props.accounts} notices={props.db.staffNotices || []} persist={props.persist} showToast={props.showToast} />}
+      {sub === "academicCalendar" && <AdminAcademicCalendar calendar={props.db.academicCalendar || {}} persist={props.persist} showToast={props.showToast} />}
       {sub === "siteAnnouncements" && <AdminSiteAnnouncementPanel announcements={props.db.siteAnnouncements || []} persist={props.persist} showToast={props.showToast} />}
       {sub === "susiNaviBeta" && <DeferredPanel label="수시NAVI 관리 화면을 불러오는 중입니다."><SusiNaviBetaAdmin showToast={props.showToast} /></DeferredPanel>}
       {sub === "feedback" && <FeedbackAdminPanel feedback={props.db.feedback || []} persist={props.persist} showToast={props.showToast} />}
@@ -4995,6 +5018,51 @@ function AdminConsole(props) {
       </div>
     </div>
   );
+}
+
+// 관리자 > 학사일정: 1·2학기 개학일(시간표 학기 자동 선택 기준)과 주요 일정(대시보드 D-day)을 관리합니다.
+function AdminAcademicCalendar({ calendar, persist, showToast }) {
+  const [sem1Start, setSem1Start] = useState(calendar.sem1Start || "");
+  const [sem2Start, setSem2Start] = useState(calendar.sem2Start || "");
+  const [events, setEvents] = useState(() => (calendar.events || []).map((event, index) => ({ id: event.id || `ev-${index}`, ...event })));
+  const [saving, setSaving] = useState(false);
+  const autoNow = semesterForDate(new Date(), sem1Start && sem2Start ? { sem1Start, sem2Start } : null);
+  const invalid = sem1Start && sem2Start && sem1Start.slice(5) >= sem2Start.slice(5);
+  const save = async () => {
+    if (invalid) { showToast("2학기 개학일은 1학기 개학일보다 뒤여야 합니다.", "error"); return; }
+    setSaving(true);
+    const clean = events.filter(event => event.date && String(event.label || "").trim()).map(event => ({ id: event.id, date: event.date, label: String(event.label).trim().slice(0, 20) })).sort((a, b) => a.date.localeCompare(b.date));
+    const ok = await persist({ academicCalendar: { sem1Start, sem2Start, events: clean, updatedAt: new Date().toISOString() } });
+    setSaving(false);
+    if (ok) { setEvents(clean); showToast("학사일정을 저장했습니다. 다음에 접속할 때부터 학기가 이 기준으로 자동 선택됩니다.", "success"); }
+  };
+  const field = { display: "grid", gap: 6, fontSize: 13, fontWeight: 700, color: "#3a4150" };
+  const input = { ...styles.cellInput, width: "auto", textAlign: "left", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 14 };
+  return <div style={{ display: "grid", gap: 16 }}>
+    <div style={styles.card}>
+      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>학기 기준일</div>
+      <p style={{ ...styles.pMuted, marginTop: 0 }}>개학일을 넣으면 시간표·선생님 ZONE 등이 오늘 날짜에 맞는 학기로 자동으로 열립니다. 월·일만 비교하므로 해마다 날짜가 바뀌면 다시 저장해 주세요.</p>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "end" }}>
+        <label style={field}>1학기 개학일<input type="date" value={sem1Start} onChange={event => setSem1Start(event.target.value)} style={input} /></label>
+        <label style={field}>2학기 개학일<input type="date" value={sem2Start} onChange={event => setSem2Start(event.target.value)} style={input} /></label>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: invalid ? "#b42318" : "#3a4150", paddingBottom: 9 }}>{invalid ? "2학기 개학일이 1학기보다 빨라요." : `오늘 기준: ${autoNow === "sem2" ? "2학기" : "1학기"}${sem1Start && sem2Start ? "" : " (기본 규칙: 3/1~8/15 = 1학기)"}`}</span>
+      </div>
+    </div>
+    <div style={styles.card}>
+      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>주요 일정</div>
+      <p style={{ ...styles.pMuted, marginTop: 0 }}>중간·기말고사, 수능, 방학식 등을 넣으면 대시보드 시계에 가장 가까운 일정이 D-day로 표시됩니다(60일 이내).</p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {events.map(event => <div key={event.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="date" value={event.date || ""} onChange={e => setEvents(list => list.map(item => item.id === event.id ? { ...item, date: e.target.value } : item))} style={{ ...input, flex: "0 0 170px", width: 170 }} aria-label="일정 날짜" />
+          <input value={event.label || ""} maxLength={20} placeholder="예: 2학기 기말고사" onChange={e => setEvents(list => list.map(item => item.id === event.id ? { ...item, label: e.target.value } : item))} style={{ ...input, flex: "1 1 220px", minWidth: 0 }} aria-label="일정 이름" />
+          <button type="button" style={styles.iconBtn} onClick={() => setEvents(list => list.filter(item => item.id !== event.id))} aria-label="일정 삭제"><X size={14} /></button>
+        </div>)}
+        {!events.length && <div style={{ fontSize: 13.5, color: "#5d6574" }}>아직 등록된 일정이 없습니다.</div>}
+      </div>
+      <button type="button" style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={() => setEvents(list => [...list, { id: `ev-${Date.now()}`, date: "", label: "" }])}>+ 일정 추가</button>
+    </div>
+    <div><button type="button" style={styles.primaryBtn} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 학사일정 저장</button></div>
+  </div>;
 }
 
 function AdminAccountConsole(props) {
