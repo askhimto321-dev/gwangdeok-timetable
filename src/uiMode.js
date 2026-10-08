@@ -242,11 +242,20 @@ export function wideMaxWidth(value) {
 }
 
 const styleCache = new WeakMap();
+/* 라이트 모드 깊이감: 흰 바탕 + 테두리 + 둥근 모서리(14px 이상)인 '카드'에 아주 옅은 그림자를 더해
+   바탕과 카드가 평평하게 붙어 보이지 않게 합니다(이미 그림자가 있으면 그대로). */
+const LIGHT_CARD_SHADOW = "0 1px 2px rgba(20,24,33,.04), 0 6px 20px rgba(20,24,33,.05)";
+function lightCardShadow(style) {
+  if (style.boxShadow || (pxOf(style.borderRadius) ?? 0) < 14) return style;
+  const bg = style.background ?? style.backgroundColor;
+  if (typeof bg !== "string" || !isWhiteish(bg) || !hasVisibleBorder(style)) return style;
+  return { ...style, boxShadow: LIGHT_CARD_SHADOW };
+}
 export function mapStyleObject(style, mode = ACTIVE_MODE) {
   if (mode === "classic" || !style || typeof style !== "object") return style;
   const cached = styleCache.get(style);
   if (cached) return cached;
-  const result = mapStyleColors(style, mode);
+  const result = mapStyleColors(mode === "light" ? lightCardShadow(style) : style, mode);
   const size = readableFontSize(result.fontSize);
   const width = wideMaxWidth(result.maxWidth);
   const finalStyle = size !== result.fontSize || width !== result.maxWidth ? { ...result, fontSize: size, maxWidth: width } : result;
@@ -401,13 +410,21 @@ const BASE_CSS = {
     ::selection{background:#ff7a3d55}`,
   light: `
     :root{color-scheme:light;--kdn-bg:#f4f5f8;--kdn-surface:#ffffff;--kdn-surface-2:#f0f1f5;--kdn-line:#dfe2e8;--kdn-ink:#1f2430;--kdn-ink-soft:#3a4150;--kdn-muted:#5d6574;--kdn-accent:#cf4a12;--kdn-accent-ink:#ffffff;--kdn-accent-soft:#fff0e6;--kdn-accent-text:#b23e0c;--kdn-hero-art:#1f2238;--kdn-panel:#2a3040;--kdn-control-line:#c3c9d3}
-    html,body{background:#f4f5f8;color:#1f2430;word-break:keep-all;overflow-wrap:break-word}`,
+    html,body{background:#f4f5f8;color:#1f2430;word-break:keep-all;overflow-wrap:break-word}
+    body,.kdn-app{background:radial-gradient(1100px 520px at 6% 0,#ffe3d1 0,rgba(255,227,209,0) 72%),radial-gradient(1000px 520px at 98% 0,#dbe6ff 0,rgba(219,230,255,0) 72%),#f4f5f8!important;background-repeat:no-repeat!important}
+    /* 위쪽 메뉴·작업 줄은 반투명 + 흐림으로, 뒤의 옅은 색 번짐이 비쳐 화면이 덜 밋밋하게 */
+    .kdn-top-nav,.kdn-work-bar{background:rgba(255,255,255,.62)!important;-webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px)}`,
 };
 
 // 다크 · 라이트 공통: 새 상단 메뉴의 모바일 배치, 겹치는 옛 머리 줄 숨김, 떠 있는 버튼 색 정리.
 const SHARED_NEW_CSS = `
   :root:root{--kd-brand:#c8470f;--kd-brand-dark:#a0390b;--kd-brand-border:#e07a45}
   .kdn-mode-short{display:none}
+  /* 포커스: 마우스 클릭 뒤 남는 검은 기본 테두리 대신, 키보드로 이동할 때만 강조색 링 */
+  button:focus:not(:focus-visible),summary:focus:not(:focus-visible){outline:none}
+  button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--kdn-accent);outline-offset:2px}
+  /* 숫자는 고정폭(표·카드에서 자릿수가 흔들리지 않게) */
+  b,strong{font-variant-numeric:tabular-nums}
   @media screen{.kdn-print-only{display:none!important}}
   /* 학생 작업 줄: 안내 문구를 줄이고 버튼을 크게 */
   .kdn-hide-new{display:none!important}
@@ -461,6 +478,12 @@ const SHARED_NEW_CSS = `
   :root .susi-beta-support-filter [aria-label="지원 구간 비교 기준"] button small{color:var(--kdn-muted)!important;font-size:12px}
   :root .susi-beta-support-filter [aria-label="지원 구간 비교 기준"] button[aria-pressed="true"] small{color:var(--kdn-accent-text)!important}
   .susi-beta-view-tabs button small{font-size:12.5px}
+  /* 선택된 탭·버튼 안의 보조 글자: 예전 '진한 채움' 기준의 흰 글자 규칙이 남아 옅은 강조 바탕에서 안 보이던 문제 */
+  :root .susi-beta-view-tabs button[role="tab"] small{color:var(--kdn-muted)!important}
+  :root .susi-beta-view-tabs button[role="tab"][aria-selected="true"] small{color:var(--kdn-accent-text)!important;opacity:.9}
+  :root .susi-beta-view-toolbar [role="tab"][aria-selected="true"]>span{background:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important}
+  :root .susi-beta-view-toolbar [role="tab"]>span{background:var(--kdn-surface-2);color:var(--kdn-ink-soft)}
+  :root .susi-beta-connection-panel [role="tab"][aria-selected="true"]>span{background:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important}
   .susi-beta-tab-panel details>summary>span:first-child{font-size:13px!important;font-weight:800;color:var(--kdn-ink-soft)}
   /* 화면 정리: 학생 작업 줄(상단 탭)이 있으면 같은 이동을 하는 상담 4단계 카드와 중복 버튼은 숨깁니다. */
   body:has(.kdn-work-bar) .kd-counsel-flow{display:none!important}

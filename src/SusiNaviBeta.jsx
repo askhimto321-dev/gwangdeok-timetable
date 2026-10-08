@@ -26,6 +26,7 @@ import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAcce
 import { CutStrip, SupportBandTiles } from "./naviVisuals.jsx";
 import { isNewUi } from "./uiMode.js";
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
+import SupportPlanPresets from "./SupportPlanPresets.jsx";
 import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
 import { buildComparisonRows, minimumScopeRank, comparisonType, resolveMinimumLink } from "./admissionComparison.js";
@@ -3765,6 +3766,7 @@ function SupportDecisionWorkspace({
     <section className="kd-plan-section" ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:12}}>
       <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
       <div className="kd-plan-tools is-primary"><button type="button" className="kd-plan-action is-focus" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}><LayoutGrid size={15}/>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={!printItems.some(Boolean)}/><small className="kd-plan-student-context">{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
+      <SupportPlanPresets sid={selectedStudent?.sid} items={planItems.map(item => item.stored)} />
       {/* 15번 요청: 카드 전체를 인쇄할지 상담 중인 일부 전형만 인쇄할지 선택합니다. */}
       {planItems.length > 0 && <div className="kd-plan-tools" style={{ flexWrap: "wrap", gap: 8 }}>
         <span style={{ fontSize: 11.5, color: "#6b7688", fontWeight: 700 }}>인쇄 대상</span>
