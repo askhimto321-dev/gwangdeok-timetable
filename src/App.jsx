@@ -1081,7 +1081,7 @@ export default function App() {
   const [tab, setTab] = useState("student");
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
-  const [semester, setSemester] = useState("sem1");
+  const [semester, setSemester] = useState(() => semesterForDate());
   const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], siteAnnouncements: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {}, gradeDepartmentData: {} });
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
@@ -1644,6 +1644,15 @@ export default function App() {
   }, [dashboardActive, selectedStudentSid, db.roster]);
 
   const [teacherZoneRequest, setTeacherZoneRequest] = useState(null);
+  // 날짜로 고른 학기에 아직 시간표가 없고 다른 학기에는 있으면(예: 2학기 시간표 업로드 전) 처음 한 번만 자료가 있는 학기로 맞춥니다.
+  const semesterAutoCheckedRef = useRef(false);
+  useEffect(() => {
+    if (loading || semesterAutoCheckedRef.current) return;
+    semesterAutoCheckedRef.current = true;
+    const hasData = sem => Object.keys((db.timetables || {})[`${grade}-${sem}`] || {}).length > 0;
+    const other = semester === "sem1" ? "sem2" : "sem1";
+    if (!hasData(semester) && hasData(other)) setSemester(other);
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   const globalLogout = () => {
@@ -1750,6 +1759,7 @@ export default function App() {
     }
   };
   const dashboardProps = {
+    semester,
     kind: loggedInStudent && !staffWorkspaceEnabled && !loggedInMonitor ? "student" : "staff",
     name: loggedInStudent?.name || "",
     roleLabel: loggedInAdmin ? "관리자 계정으로 접속 중"
@@ -1793,7 +1803,7 @@ export default function App() {
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
       {!loggedInStudent && <QuickLinksDock />}
-      <MegaNav primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
+      <MegaNav semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
       {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
       <SiteAnnouncementModal announcements={db.siteAnnouncements || []} viewer={loggedInAdmin?{...loggedInAdmin,role:"admin"}:loggedInTeacher?{...loggedInTeacher,role:"teacher"}:loggedInDepartment?{...loggedInDepartment,role:"department"}:loggedInMonitor?{...loggedInMonitor,role:"monitor"}:loggedInStudent?{...loggedInStudent,role:"student"}:null} />
       {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
@@ -2626,7 +2636,7 @@ const newUiNavStyles = {
   ghost: { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 38, padding: "0 13px", borderRadius: 12, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13, fontWeight: 800, cursor: "pointer" },
 };
 
-function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, primaryAction }) {
+function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, primaryAction, semester }) {
   const items = [
     { key: "home", label: "대시보드" },
     { key: "grades", label: "성적 · 진학" },
@@ -2638,11 +2648,11 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
   return (
     <nav className="no-print kdn-top-nav" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
       <div className="kdn-nav-inner" style={newUiNavStyles.inner}>
-        <div style={newUiNavStyles.brand}>
+        <div style={newUiNavStyles.brand} title={SITE_TITLE}>
           <span style={newUiNavStyles.logo}>KD</span>
           <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
             <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
-            <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
+            {semester ? <NavClock semester={semester} /> : <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>}
           </span>
         </div>
         <div className="kdn-nav-tabs" style={newUiNavStyles.tabs}>
@@ -2695,7 +2705,8 @@ function UiModeMenu() {
 
 // 새 UI 로그인 후 첫 화면(대시보드). 참고 사이트 구성: 큰 3줄 제목 + 버튼 2개 + 안내 한 줄,
 // 오른쪽 그림 위에 떠 있는 핵심 카드 1장, 아래 큰 바로가기 카드 줄.
-function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [] }) {
+function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], semester }) {
+  const now = useNow(1000);
   const student = kind === "student";
   const headline = student
     ? [`${name || ""} 학생,`, "오늘 수업과 공지를", "한 번에 확인해요."]
@@ -2723,7 +2734,10 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
           <p style={dash.note}><Users size={16} /> {roleLabel}</p>
         </div>
         <div style={dash.heroSide}>
-          <div aria-hidden="true" style={dash.art} dangerouslySetInnerHTML={{ __html: LANDING_HERO_SVG }} />
+          <div style={{ position: "relative" }}>
+            <div aria-hidden="true" style={dash.art} dangerouslySetInnerHTML={{ __html: heroSvgForHour(now.getHours()) }} />
+            <HeroClockBadge now={now} semester={semester} />
+          </div>
           <div style={dash.floatCard}>
             {student ? <DashboardLessonCard lesson={lesson} onOpen={() => onNavigate("timetable")} />
               : <DashboardStudentCard student={openStudent} onSearch={() => onNavigate("grades", { focusSearch: true })} onOpenStudentView={onOpenStudentView} />}
@@ -2904,6 +2918,62 @@ const LANDING_FEATURES = [
 ];
 
 // 고정 색 그림이라 화면 모드 색 변환을 거치지 않도록 문자열로 넣습니다(밤하늘 + 학교 건물).
+/* 날짜·시간: 학기 자동 판단, 1초/30초 시계, 시간대별 대시보드 그림 */
+// 학기 기준: 3월 1일 ~ 8월 15일 = 1학기, 8월 16일 ~ 다음 해 2월 = 2학기(여름방학까지는 1학기 시간표 유지).
+function semesterForDate(date = new Date()) {
+  const month = date.getMonth() + 1, day = date.getDate();
+  if (month >= 3 && month <= 7) return "sem1";
+  if (month === 8) return day <= 15 ? "sem1" : "sem2";
+  return "sem2";
+}
+function useNow(intervalMs = 1000) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), intervalMs); return () => window.clearInterval(timer); }, [intervalMs]);
+  return now;
+}
+const WEEKDAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
+const twoDigits = value => String(value).padStart(2, "0");
+// 시간대별 장면: 낮(7~16시) 파란 하늘과 해, 저녁(17~18시) 노을, 밤(19~6시) 달과 별.
+function heroSceneFor(hour) {
+  if (hour >= 7 && hour < 17) return { sky: "#7fb2e5", sky2: "#bcd8f2", ground: "#5f7fa8", building: "#e9eef6", tower: "#f6f8fb", window: "#b8c7da", lit: "#ff9a5c", body: '<circle cx="384" cy="54" r="24" fill="#ffd36b"/><circle cx="384" cy="54" r="36" fill="#ffd36b" opacity=".22"/>', stars: "", clockFace: "#7fb2e5", clockHand: "#ffffff", door: "#5f7fa8" };
+  if (hour >= 17 && hour < 19) return { sky: "#f0915f", sky2: "#f6c58f", ground: "#5b3c4e", building: "#7a4d5c", tower: "#8b5866", window: "#a36c74", lit: "#ffd36b", body: '<circle cx="384" cy="118" r="26" fill="#ffd36b" opacity=".95"/>', stars: "", clockFace: "#5b3c4e", clockHand: "#ffd36b", door: "#5b3c4e" };
+  return null;
+}
+function heroSvgForHour(hour) {
+  const scene = heroSceneFor(hour);
+  if (!scene) return LANDING_HERO_SVG;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 460 230" preserveAspectRatio="xMidYMax slice">
+<defs><linearGradient id="kdsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${scene.sky}"/><stop offset="1" stop-color="${scene.sky2}"/></linearGradient></defs>
+<rect width="460" height="230" fill="url(#kdsky)"/>${scene.body}
+<g fill="#ffffff" opacity=".7"><ellipse cx="90" cy="54" rx="34" ry="10"/><ellipse cx="118" cy="46" rx="22" ry="9"/><ellipse cx="270" cy="38" rx="26" ry="8"/></g>
+<rect x="0" y="196" width="460" height="34" fill="${scene.ground}"/><rect x="100" y="112" width="260" height="86" rx="6" fill="${scene.building}"/><rect x="200" y="82" width="60" height="116" rx="6" fill="${scene.tower}"/>
+<circle cx="230" cy="106" r="12" fill="${scene.clockFace}"/><path d="M230 99v7l4 3" stroke="${scene.clockHand}" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+<rect x="120" y="128" width="22" height="18" rx="4" fill="${scene.lit}"/><rect x="152" y="128" width="22" height="18" rx="4" fill="${scene.window}"/><rect x="120" y="158" width="22" height="18" rx="4" fill="${scene.window}"/><rect x="152" y="158" width="22" height="18" rx="4" fill="${scene.lit}"/>
+<rect x="286" y="128" width="22" height="18" rx="4" fill="${scene.window}"/><rect x="318" y="128" width="22" height="18" rx="4" fill="${scene.lit}"/><rect x="286" y="158" width="22" height="18" rx="4" fill="${scene.lit}"/><rect x="318" y="158" width="22" height="18" rx="4" fill="${scene.window}"/>
+<rect x="218" y="166" width="24" height="32" rx="10" fill="${scene.door}"/></svg>`;
+}
+// 상단 메뉴의 날짜·시간 알약: 학기 · 월.일(요일) · 시:분 (+ 수업 중이면 교시)
+function NavClock({ semester }) {
+  const now = useNow(1000);
+  const slot = lessonSlotAt(now);
+  return <div className="kdn-nav-clock" aria-label={`${now.getMonth() + 1}월 ${now.getDate()}일 ${WEEKDAY_KO[now.getDay()]}요일 ${now.getHours()}시 ${now.getMinutes()}분`}>
+    {semester && <span className="kdn-nav-clock-sem">{semester === "sem2" ? "2학기" : "1학기"}</span>}
+    <span className="kdn-nav-clock-date">{twoDigits(now.getMonth() + 1)}.{twoDigits(now.getDate())} <small>{WEEKDAY_KO[now.getDay()]}</small></span>
+    <span className="kdn-nav-clock-time">{twoDigits(now.getHours())}<i>:</i>{twoDigits(now.getMinutes())}</span>
+    {slot?.state === "now" && <span className="kdn-nav-clock-period">{slot.period}교시</span>}
+  </div>;
+}
+// 대시보드 그림 위 시계 배지
+function HeroClockBadge({ now, semester }) {
+  const slot = lessonSlotAt(now);
+  const status = slot ? (slot.state === "now" ? `${slot.period}교시 수업 중` : `다음 ${slot.period}교시 ${clockText(slot.start)}`) : (now.getDay() === 0 || now.getDay() === 6 ? "주말" : "오늘 수업 끝");
+  return <div className="kdn-hero-clock" aria-hidden="true">
+    <span className="kdn-hero-clock-date">{now.getFullYear()}. {now.getMonth() + 1}. {now.getDate()}. {WEEKDAY_KO[now.getDay()]}요일</span>
+    <b className="kdn-hero-clock-time">{twoDigits(now.getHours())}<i>:</i>{twoDigits(now.getMinutes())}<small>{twoDigits(now.getSeconds())}</small></b>
+    <span className="kdn-hero-clock-chips"><em>{semester === "sem2" ? "2학기" : "1학기"}</em><em>{status}</em></span>
+  </div>;
+}
+
 const LANDING_HERO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 460 230" preserveAspectRatio="xMidYMax slice">
 <rect width="460" height="230" fill="#1f2238"/><circle cx="380" cy="56" r="24" fill="#f7d9a8"/><circle cx="390" cy="49" r="22" fill="#1f2238"/>
 <g fill="#e9e3d6" opacity=".85"><circle cx="60" cy="40" r="1.8"/><circle cx="140" cy="76" r="1.4"/><circle cx="236" cy="32" r="1.8"/><circle cx="300" cy="96" r="1.4"/><circle cx="440" cy="120" r="1.4"/><circle cx="30" cy="120" r="1.4"/></g>
