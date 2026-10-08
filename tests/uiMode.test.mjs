@@ -70,3 +70,14 @@ test("새 UI: 진한 그라데이션 배너는 단색 패널로, 기존 UI는 �
   assert.equal(mapStyleObject(banner, "dark").background, "var(--kdn-panel)");
   assert.equal(mapStyleObject(banner, "classic"), banner);
 });
+
+test("새 UI 가독성: 작은 글자만 한 단계 키운다", async () => {
+  const { readableFontSize } = await import("../src/uiMode.js");
+  assert.equal(readableFontSize(9), 11.5);
+  assert.equal(readableFontSize(11), 12);
+  assert.equal(readableFontSize(14), 14);
+  assert.equal(readableFontSize("10px"), "11.5px");
+  assert.equal(readableFontSize("1.2em"), "1.2em");
+  assert.equal(mapStyleObject({ fontSize: 10 }, "dark").fontSize, 11.5);
+  assert.equal(mapStyleObject({ fontSize: 10 }, "classic").fontSize, 10);
+});

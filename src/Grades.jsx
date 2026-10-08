@@ -15,7 +15,7 @@ import themeCss from './theme.css?raw';
 import CounselingAdmissionFacts from './CounselingAdmissionFacts.jsx';
 import {buildCounselingFactIndex,counselingFactsForFavorite,loadRecommendedSubjectData,studentNaviGrade} from './SusiNaviBeta.jsx';
 import { CutStrip } from './naviVisuals.jsx';
-import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems } from './counselVisuals.jsx';
+import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
 import { isNewUi } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
@@ -816,7 +816,7 @@ export default function GradesSection({
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
         {isNewUi() && activeStudentSid && <NewCounselHeader sid={activeStudentSid} gdb={gdb} student={susiNaviStudent} studentInfo={loggedInStudent || roster?.[activeStudentSid]} favoriteCount={activeFlowFavoriteCount} showPlan={tab === "consultation"} onOpenPlan={() => openSusiNaviWorkspace(tab === "consultation")} />}
         {activeStudentSid && <div className="kd-counsel-flow no-print" style={counselFlow.wrap}>
-          <div style={counselFlow.head}><div><b>학생 상담 흐름</b><span>{activeFlowStudentName ? `${activeFlowStudentName} 학생 · ` : ""}성적 확인부터 관심대학·NAVI 분석·상담 기록까지 같은 흐름에서 이어집니다.</span></div><div className="kd-support-plan-entry-actions"><span style={counselFlow.favoriteCount}><Star size={12} fill="currentColor"/> 관심 {activeFlowFavoriteCount}</span><SupportPlanButton onClick={() => openSusiNaviWorkspace(tab === "consultation")} count={activeSupportPlanCount}/></div></div>
+          {!isNewUi() && <div style={counselFlow.head}><div><b>학생 상담 흐름</b><span>{activeFlowStudentName ? `${activeFlowStudentName} 학생 · ` : ""}성적 확인부터 관심대학·NAVI 분석·상담 기록까지 같은 흐름에서 이어집니다.</span></div><div className="kd-support-plan-entry-actions"><span style={counselFlow.favoriteCount}><Star size={12} fill="currentColor"/> 관심 {activeFlowFavoriteCount}</span><SupportPlanButton onClick={() => openSusiNaviWorkspace(tab === "consultation")} count={activeSupportPlanCount}/></div></div>}
           <div style={counselFlow.steps}>{counselingFlowItems.map((item,index)=><button key={item.key} type="button" onClick={()=>navigateGradeTab(item.key)} style={{...counselFlow.step,...(tab===item.key?counselFlow.stepActive:{})}}><span style={{...counselFlow.stepNumber,...(tab===item.key?counselFlow.stepNumberActive:{})}}>{index+1}</span><span style={counselFlow.stepText}><b>{item.label}</b><small>{item.sub}</small></span>{index<counselingFlowItems.length-1&&<em style={counselFlow.arrow}>›</em>}</button>)}</div>
         </div>}
         {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
@@ -1636,9 +1636,10 @@ function ReportSummaryTiles({ items = [] }) {
   return <div className="no-print" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, margin: "12px 0" }}>
     {items.map(item => {
       const value = item.value == null || !Number.isFinite(Number(item.value)) ? "-" : Number(item.value).toFixed(item.digits ?? 2);
-      return <div key={item.label} style={{ display: "grid", gap: 7, padding: "16px 18px", borderRadius: 18, background: item.accent ? "var(--kdn-accent-soft)" : "#ffffff", border: "1px solid #e1e5eb" }}>
-        <span style={{ fontSize: 13.5, fontWeight: 800, color: item.accent ? "var(--kdn-accent-text)" : "#3a4150" }}>{item.label}</span>
-        <b style={{ fontSize: 30, fontWeight: 950, lineHeight: 1, color: item.accent ? "var(--kdn-accent-text)" : "#1f2430" }}>{value}{item.unit && <small style={{ fontSize: 13, fontWeight: 700, color: "#5d6574" }}> {item.unit}</small>}</b>
+      const tone = toneTileStyle(item.tone);
+      return <div key={item.label} style={{ display: "grid", gap: 8, padding: "16px 18px", borderRadius: 18, ...tone.tile }}>
+        <span style={{ fontSize: 14, fontWeight: 700, ...tone.label }}>{item.label}</span>
+        <b style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: "#141821", whiteSpace: "nowrap" }}>{value}{item.unit && <small style={{ fontSize: 13, fontWeight: 700, color: "#5d6574" }}> {item.unit}</small>}</b>
       </div>;
     })}
   </div>;
@@ -1855,10 +1856,10 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         actions={showGrades ? <button type="button" className="no-print" onClick={()=>setShowGradePrintOptions(true)} style={{display:"inline-flex",alignItems:"center",gap:6,border:"1px solid rgba(255,255,255,.5)",borderRadius:9,padding:"8px 11px",background:"rgba(255,255,255,.13)",color:"#fff",fontSize:11.5,fontWeight:900,cursor:"pointer",whiteSpace:"nowrap"}} title="학기별 내신과 모의고사 성적을 한 장으로 인쇄하거나 PDF로 저장합니다."><Printer size={14}/>성적표 인쇄·PDF</button> : null}
       />
       {isNewUi() && showGrades && <ReportSummaryTiles items={[
-        { label: "전과목 평균", value: overallAverage, unit: gradeSystem === 5 ? "5등급제" : "9등급제", accent: true },
-        { label: "국영수과 평균", value: gradeSystem === 5 ? groups["국영수과"]?.avg5 : groups["국영수과"]?.avg9 },
-        { label: activeMockKey ? `모의고사 3합 · ${mockCalendarLabel(activeMockKey, entryYear)}` : "모의고사 3합", value: sums.sum3, digits: 0 },
-        { label: "수능최저 충족 대학", value: matchedUniversities.length, unit: "곳", digits: 0 },
+        { label: "전과목 평균", value: overallAverage, unit: gradeSystem === 5 ? "5등급제" : "9등급제", tone: "blue" },
+        { label: "국영수과 평균", value: gradeSystem === 5 ? groups["국영수과"]?.avg5 : groups["국영수과"]?.avg9, tone: "teal" },
+        { label: activeMockKey ? `모의고사 3합 · ${mockCalendarLabel(activeMockKey, entryYear)}` : "모의고사 3합", value: sums.sum3, digits: 0, tone: "purple" },
+        { label: "수능최저 충족 대학", value: matchedUniversities.length, unit: "곳", digits: 0, tone: "amber" },
       ]} />}
       {showGradePrintOptions && <div className="grade-print-option-overlay no-print" onMouseDown={event=>{if(event.target===event.currentTarget)setShowGradePrintOptions(false)}}>
         <section className="grade-print-option-modal">
@@ -3902,7 +3903,7 @@ function NewCounselHeader({ sid, gdb, student, studentInfo, favoriteCount, showP
   const planItems = useSupportPlanItems(sid);
   const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
   return <div className="no-print" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
-    <div style={{ flex: "999 1 600px", minWidth: 0 }}><CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} /></div>
+    <div style={{ flex: "999 1 600px", minWidth: 0 }}><CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} onOpenPlan={onOpenPlan} /></div>
     {showPlan && <div style={{ flex: "1 1 300px", minWidth: 0 }}><SupportPlanSlots items={planItems} onOpen={onOpenPlan} /></div>}
   </div>;
 }
@@ -4221,15 +4222,15 @@ function CounselingAttachmentList({ attachments = [] }) {
 
 // 새 UI 관심대학 카드 상단: 학생 내신과 이 대학의 지원 기준·광덕고 사례를 큰 숫자 칸으로 보여줍니다.
 function FavoriteFactTiles({ studentGrade, cutoffBasis, admissions, cases, accepted, cut50 }) {
-  const tile = { display: "grid", gap: 4, padding: "11px 13px", borderRadius: 13, background: "#f3f5f8", minWidth: 0 };
-  const label = { fontSize: 12.5, fontWeight: 800, color: "#3a4150" };
-  const value = { fontSize: 22, fontWeight: 950, lineHeight: 1.1, color: "#1f2430" };
-  const unit = { fontSize: 12.5, fontWeight: 700, color: "#5d6574" };
-  return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(118px,1fr))", gap: 8 }}>
-    <div style={{ ...tile, background: "#fff0e6" }}><span style={{ ...label, color: "#a83a0c" }}>학생 내신 (9등급 환산)</span><b style={{ ...value, color: "#b23e0c" }}>{studentGrade == null ? "-" : Number(studentGrade).toFixed(2)}</b><small style={unit}>{cutoffBasis}%컷으로 구간 판정</small></div>
-    <div style={tile}><span style={label}>지원 기준</span><b style={value}>{admissions}<small style={unit}> 개 전형</small></b></div>
-    <div style={tile}><span style={label}>광덕고 사례</span><b style={value}>{cases}<small style={unit}> 건 지원 · 합격 {accepted}</small></b></div>
-    <div style={tile}><span style={label}>합격자 50%컷 (광덕고)</span><b style={value}>{cut50 == null ? "-" : Math.round(cut50 * 100) / 100}</b></div>
+  const tile = tone => ({ display: "grid", gap: 5, padding: "12px 14px", borderRadius: 13, minWidth: 0, ...toneTileStyle(tone).tile });
+  const label = tone => ({ fontSize: 13, fontWeight: 700, ...toneTileStyle(tone).label });
+  const value = { fontSize: 23, fontWeight: 800, lineHeight: 1.1, color: "#141821" };
+  const unit = { fontSize: 13, fontWeight: 600, color: "#4a5262" };
+  return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 8 }}>
+    <div style={tile("accent")}><span style={label("accent")}>학생 내신 (9등급 환산)</span><b style={value}>{studentGrade == null ? "-" : Number(studentGrade).toFixed(2)}</b><small style={unit}>{cutoffBasis}%컷으로 구간 판정</small></div>
+    <div style={tile("blue")}><span style={label("blue")}>지원 기준</span><b style={value}>{admissions}<small style={unit}> 개 전형</small></b></div>
+    <div style={tile("teal")}><span style={label("teal")}>광덕고 사례</span><b style={value}>{cases}<small style={unit}> 건 지원 · 합격 {accepted}</small></b></div>
+    <div style={tile("purple")}><span style={label("purple")}>합격자 50%컷 (광덕고)</span><b style={value}>{cut50 == null ? "-" : Math.round(cut50 * 100) / 100}</b></div>
   </div>;
 }
 
