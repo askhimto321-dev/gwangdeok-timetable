@@ -125,7 +125,9 @@ function darkMap(role, [L, C, H]) {
     return [L, C, H];
   }
   if (role === "text") {
-    if (L < 0.7) return [Math.min(0.95, 0.95 - (Math.max(L, 0.2) - 0.2) * 0.45), C > 0.04 ? Math.min(C, 0.16) : C, H];
+    // 핵심 글자(진한 잉크)는 거의 흰색으로, 보조 글자(중간 회색)도 어두운 바탕에서 또렷한 밝은 회색으로.
+    if (L < 0.45) return [C > 0.04 ? 0.86 : 0.965, C > 0.04 ? Math.min(C, 0.16) : C, H];
+    if (L < 0.7) return [0.9 - (L - 0.45) * 0.36, C > 0.04 ? Math.min(C, 0.16) : C, H];
     return [L, C, H];
   }
   if (role === "border") {
@@ -141,7 +143,8 @@ function darkMap(role, [L, C, H]) {
 
 // 라이트 모드: 따뜻한 미색 계열 바탕을 중립 회색으로만 정리합니다.
 function lightMap(role, [L, C, H]) {
-  if ((role === "bg" || role === "border") && L >= 0.88 && C < 0.03) return [L, Math.min(C, 0.004), 4.4];
+  // 미색(따뜻한 회백색)만 중립으로 바꾸고, 파랑·초록 같은 옅은 색 바탕은 그대로 둡니다.
+  if ((role === "bg" || role === "border") && L >= 0.88 && C < 0.015) return [L, Math.min(C, 0.004), 4.4];
   if (role === "text" && L < 0.5 && C < 0.03) return [L, Math.min(C, 0.012), 4.4];
   return [L, C, H];
 }
@@ -177,7 +180,9 @@ export function mapColorsInValue(value, role, mode = ACTIVE_MODE) {
 
 /* ---------- 스타일 속성 → 역할 ---------- */
 
-const ROUND_FONT = "'NanumSquareRound'";
+// 새 UI 본문 서체: 둥근 서체는 작은 글씨에서 뭉개져 보여, 획이 또렷한 Pretendard를 맨 앞에 둡니다
+// (index.html에서 이미 불러오는 서체입니다).
+const NEW_UI_FONT = "'Pretendard'";
 function roleForProperty(name) {
   const p = name.toLowerCase().replace(/-/g, "");
   if (p === "color" || p === "caretcolor" || p === "textdecorationcolor" || p === "webkittextfillcolor") return "text";
@@ -188,8 +193,8 @@ function roleForProperty(name) {
 }
 
 function mapFontFamily(value, mode) {
-  if (mode === "classic" || typeof value !== "string" || !/KDRound/.test(value) || value.includes("NanumSquareRound")) return value;
-  return `${ROUND_FONT},${value}`;
+  if (mode === "classic" || typeof value !== "string" || !/KDRound/.test(value) || /^\s*'?Pretendard/.test(value)) return value;
+  return `${NEW_UI_FONT},${value}`;
 }
 
 /* 강조 요소 통일: 새 UI에서는 '흰 글자 + 진한 채움' 요소(주요 버튼 · 선택된 탭 · 활성 칩)를
@@ -329,7 +334,7 @@ function mapSheet(sheet, mode) {
 
 const BASE_CSS = {
   dark: `
-    :root{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e0dcd4;--kdn-muted:#c8c4bc;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#1f2238;--kdn-panel:#2e3040}
+    :root{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e8e5df;--kdn-muted:#cfccc5;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#1f2238;--kdn-panel:#2e3040}
     html,body{background:#1d1e24;color:#f4f1ea;word-break:keep-all;overflow-wrap:break-word}
     ::selection{background:#ff7a3d55}`,
   light: `
@@ -379,13 +384,6 @@ export function applyUiModeToDocument(mode = ACTIVE_MODE) {
   if (typeof document === "undefined") return;
   document.documentElement.dataset.kdUi = mode;
   if (mode === "classic") return;
-  if (!document.getElementById("kd-ui-mode-font")) {
-    const font = document.createElement("link");
-    font.id = "kd-ui-mode-font";
-    font.rel = "stylesheet";
-    font.href = "https://cdn.jsdelivr.net/gh/moonspam/NanumSquareRound@1.0/nanumsquareround.min.css";
-    document.head.appendChild(font);
-  }
   if (!document.getElementById("kd-ui-mode-base")) {
     const base = document.createElement("style");
     base.id = "kd-ui-mode-base";

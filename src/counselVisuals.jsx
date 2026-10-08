@@ -4,6 +4,20 @@ import React from "react";
 import { loadSupportPlan, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 
 const PLAN_LIMIT = 6;
+
+// 숫자 칸마다 다른 색 계열(라이트 기준 값, 다크는 uiMode.js가 자동 변환). 이름표는 계열색,
+// 숫자는 가장 진한 글자색이라 다크 모드에서도 핵심 숫자가 가장 밝게 보입니다.
+export const TILE_TONES = {
+  blue: { bg: "#d6e5ff", label: "#1c4aa8", border: "#bcd2fa" },
+  teal: { bg: "#ccefe5", label: "#09645a", border: "#a9e1d2" },
+  purple: { bg: "#ebe3fb", label: "#5a32a6", border: "#d8c9f5" },
+  amber: { bg: "#ffefc9", label: "#855405", border: "#f1d99a" },
+  accent: { bg: "#ffe6d6", label: "#ad3b0a", border: "#f6cbb0" },
+};
+export function toneTileStyle(tone = "blue") {
+  const t = TILE_TONES[tone] || TILE_TONES.blue;
+  return { tile: { background: t.bg, border: `1px solid ${t.border}` }, label: { color: t.label } };
+}
 const fmt = value => (value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
 
 export function useSupportPlanItems(sid) {
@@ -26,11 +40,12 @@ export function useSupportPlanItems(sid) {
   return items;
 }
 
-function Stat({ label, value, unit, tone, onClick }) {
+function Stat({ label, value, unit, tone = "blue", onClick }) {
   const Tag = onClick ? "button" : "div";
+  const toneStyle = toneTileStyle(tone);
   return (
-    <Tag type={onClick ? "button" : undefined} onClick={onClick} style={{ ...s.stat, ...(tone === "accent" ? s.statAccent : {}), ...(onClick ? s.statButton : {}) }}>
-      <span style={{ ...s.statLabel, ...(tone === "accent" ? s.statLabelAccent : {}) }}>{label}</span>
+    <Tag type={onClick ? "button" : undefined} onClick={onClick} style={{ ...s.stat, ...toneStyle.tile, ...(onClick ? s.statButton : {}) }}>
+      <span style={{ ...s.statLabel, ...toneStyle.label }}>{label}</span>
       <b style={{ ...s.statValue, ...(tone === "accent" ? s.statValueAccent : {}) }}>{value}{unit && <small style={s.statUnit}> {unit}</small>}</b>
     </Tag>
   );
@@ -54,10 +69,10 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
         </div>
       </div>
       <div style={s.stats}>
-        <Stat label="전교과 내신" value={fmt(groups.전교과 ?? student.grade5)} unit={student.gradeSystem === 5 ? "5등급" : ""} />
-        <Stat label="국수영과" value={fmt(groups.국수영과)} />
-        <Stat label="최근 모의 3합" value={mock?.sum3 ?? "-"} />
-        <Stat label="관심 대학" value={favoriteCount} unit="개" />
+        <Stat label="전교과 내신" value={fmt(groups.전교과 ?? student.grade5)} unit={student.gradeSystem === 5 ? "5등급" : ""} tone="blue" />
+        <Stat label="국수영과" value={fmt(groups.국수영과)} tone="teal" />
+        <Stat label="최근 모의 3합" value={mock?.sum3 ?? "-"} tone="purple" />
+        <Stat label="관심 대학" value={favoriteCount} unit="개" tone="amber" />
         <Stat label="수시 지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} />
       </div>
     </section>
@@ -82,7 +97,7 @@ export function SupportPlanSlots({ items, onOpen }) {
                 <b style={s.slotTitle}>{[item.university, item.department].filter(Boolean).join(" · ") || "저장한 전형"}</b>
                 <small style={s.slotSub}>{[item.admissionType, item.track && item.track !== item.admissionType ? item.track : ""].filter(Boolean).join(" · ") || item.source || ""}</small>
               </span>
-            ) : <span style={s.slotEmptyText}>빈 자리 · 관심 대학이나 NAVI에서 담을 수 있어요</span>}
+            ) : <span style={s.slotEmptyText}>빈 자리</span>}
           </li>
         ))}
       </ol>
@@ -97,16 +112,16 @@ const s = {
   avatar: { width: 58, height: 58, borderRadius: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft, #fff0e6)", color: "var(--kdn-accent-text, #b23e0c)", fontSize: 24, fontWeight: 950, flex: "none" },
   identityText: { display: "grid", gap: 3, minWidth: 0 },
   eyebrow: { fontSize: 12.5, fontWeight: 800, color: "#5d6574" },
-  name: { fontSize: 24, fontWeight: 950, color: "#1f2430", letterSpacing: "-.02em" },
-  meta: { fontSize: 15, fontWeight: 700, color: "#3a4150", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  name: { fontSize: 26, fontWeight: 800, color: "#141821", letterSpacing: "-.02em" },
+  meta: { fontSize: 15.5, fontWeight: 600, color: "#2a3140", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   metaSub: { fontSize: 13.5, fontWeight: 700, color: "#5d6574", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  stats: { flex: "999 1 520px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 10 },
+  stats: { flex: "999 1 560px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 },
   stat: { display: "grid", gap: 6, alignContent: "start", padding: "14px 16px", borderRadius: 16, background: "#f3f5f8", textAlign: "left", font: "inherit", border: 0 },
   statButton: { cursor: "pointer" },
   statAccent: { background: "var(--kdn-accent-soft, #fff0e6)" },
-  statLabel: { fontSize: 14, fontWeight: 800, color: "#3a4150", whiteSpace: "nowrap" },
+  statLabel: { fontSize: 14, fontWeight: 700, lineHeight: 1.35 },
   statLabelAccent: { color: "var(--kdn-accent-text, #b23e0c)" },
-  statValue: { fontSize: 26, fontWeight: 950, lineHeight: 1, color: "#1f2430" },
+  statValue: { fontSize: 28, fontWeight: 800, lineHeight: 1, color: "#141821", whiteSpace: "nowrap" },
   statValueAccent: { color: "var(--kdn-accent-text, #b23e0c)" },
   statUnit: { fontSize: 13, fontWeight: 700, color: "#5d6574" },
   plan: { display: "grid", gap: 10, padding: "16px 18px", borderRadius: 20, background: "#ffffff", border: "1px solid #e1e5eb" },

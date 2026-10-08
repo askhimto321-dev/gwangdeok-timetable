@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRe
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
+import { TILE_TONES } from "./counselVisuals.jsx";
 
 // 큰 분석 화면은 실제로 열 때 내려받습니다. 로그인 화면에서 NAVI·대입결과·성적분석
 // 전체 코드를 한꺼번에 파싱하던 비용을 없애고, 같은 모듈 요청은 하나의 Promise로 공유합니다.
@@ -1202,7 +1203,11 @@ export default function App() {
             const selectedGrade = String(saved.selectedStudentSid).charAt(0);
             if (GRADES.includes(selectedGrade) && !DISABLED_GRADES.includes(selectedGrade)) setGrade(selectedGrade);
           }
-          if (saved.section) setSection(saved.section);
+          // 새 UI가 처음 열릴 때는 저장된 마지막 화면 대신 대시보드를 한 번 보여줍니다.
+          let showDashboardIntro = false;
+          try { showDashboardIntro = isNewUi() && !localStorage.getItem("kd_dashboard_intro_v1"); if (showDashboardIntro) localStorage.setItem("kd_dashboard_intro_v1", "1"); } catch { /* localStorage unavailable */ }
+          if (showDashboardIntro) setSection("home");
+          else if (saved.section) setSection(saved.section);
           if (STUDENT_WORKSPACE_VIEW_KEYS.includes(saved.studentWorkspaceView)) {
             // NAVI·대학 탐색·대입 결과는 데이터량이 큰 작업 화면입니다. 마지막 작업을 탭으로는
             // 남겨두되 새 접속/새로고침 때 자동으로 다시 열지 않아 첫 진입 로딩을 막습니다.
@@ -1745,11 +1750,11 @@ export default function App() {
     onNavigate: dashboardNavigate,
     onOpenStudentView: view => (staffWorkspaceEnabled ? changeStudentWorkspaceView(view) : switchSection(view === "timetable" ? "timetable" : "grades")),
     shortcuts: [
-      { key: "grades", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
-      { key: "timetable", title: "시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 학급 공지", icon: <Calendar size={22} />, onClick: () => switchSection("timetable") },
-      ...(canSeeTeacherZone ? [{ key: "teacherZone", title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 비상연락망, 생기부 업무", icon: <Users size={22} />, onClick: () => switchSection("teacherZone") }] : []),
-      ...(canSeeMinimum ? [{ key: "minimumAchievement", title: "최소성취수준", text: "과목·학급별 최성보 판정과 출결 확인", icon: <Check size={22} />, onClick: () => switchSection("minimumAchievement") }] : []),
-      ...(loggedInAdmin ? [{ key: "admin", title: "관리자", text: "시간표·성적 데이터, 계정·권한, 공지 관리", icon: <Settings size={22} />, onClick: () => switchSection("admin") }] : []),
+      { key: "grades", tone: "blue", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
+      { key: "timetable", tone: "teal", title: "시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 학급 공지", icon: <Calendar size={22} />, onClick: () => switchSection("timetable") },
+      ...(canSeeTeacherZone ? [{ key: "teacherZone", tone: "purple", title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 비상연락망, 생기부 업무", icon: <Users size={22} />, onClick: () => switchSection("teacherZone") }] : []),
+      ...(canSeeMinimum ? [{ key: "minimumAchievement", tone: "amber", title: "최소성취수준", text: "과목·학급별 최성보 판정과 출결 확인", icon: <Check size={22} />, onClick: () => switchSection("minimumAchievement") }] : []),
+      ...(loggedInAdmin ? [{ key: "admin", tone: "accent", title: "관리자", text: "시간표·성적 데이터, 계정·권한, 공지 관리", icon: <Settings size={22} />, onClick: () => switchSection("admin") }] : []),
     ],
   };
 
@@ -2516,7 +2521,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
         <div style={dash.grid}>
           {shortcuts.map(item => (
             <button key={item.key} type="button" onClick={item.onClick} style={dash.shortcut}>
-              <span style={dash.shortcutIcon}>{item.icon}</span>
+              <span style={{ ...dash.shortcutIcon, ...(TILE_TONES[item.tone] ? { background: TILE_TONES[item.tone].bg, color: TILE_TONES[item.tone].label } : {}) }}>{item.icon}</span>
               <b style={dash.shortcutTitle}>{item.title}</b>
               <span style={dash.shortcutText}>{item.text}</span>
               <span style={dash.shortcutGo}>열기 <ArrowRight size={15} /></span>
@@ -2597,7 +2602,7 @@ const dash = {
 
 function NewUiLanding({ attemptLogin, showToast }) {
   return (
-    <div style={{ minHeight: "100vh", background: "var(--kdn-bg)", color: "var(--kdn-ink)", fontFamily: "'NanumSquareRound','KDRound','Pretendard','Apple SD Gothic Neo',sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: "var(--kdn-bg)", color: "var(--kdn-ink)", fontFamily: "'Pretendard','KDRound','Apple SD Gothic Neo',sans-serif" }}>
       <style>{globalCss}</style>
       <header style={{ borderBottom: "1px solid var(--kdn-line)" }}>
         <div className="kdn-nav-inner" style={{ ...newUiNavStyles.inner, gap: 16 }}>
