@@ -117,6 +117,16 @@ html,body{height:auto!important;overflow:visible!important}
 .kd-print-doc.is-mode-two .kd-decision-card{font-size:9pt!important}
 .kd-print-doc.is-mode-two .kd-decision-card h4{font-size:12pt!important}
 .kd-print-doc.is-mode-two .kd-course-chips span{font-size:8pt!important}
+/* 수능최저 설명·원문 조건은 인쇄에서 줄 수를 제한합니다(전체 원문은 2장/1쪽 인쇄나 화면에서 확인). */
+.kd-print-doc .kd-decision-reason{font-size:7pt!important;line-height:1.3!important;margin-top:.5mm!important;display:-webkit-box!important;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.kd-print-doc .kd-decision-rule{font-size:7.5pt!important}
+.kd-print-doc .kd-minimum-source-rule{margin-top:1mm!important;padding:1mm 1.3mm!important;border-radius:1.5mm!important}
+.kd-print-doc .kd-minimum-source-rule small{font-size:6.6pt!important;margin-bottom:.3mm!important}
+.kd-print-doc .kd-minimum-source-rule b{font-size:7.2pt!important;line-height:1.3!important;display:-webkit-box!important;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.kd-print-doc.is-mode-two .kd-decision-reason{-webkit-line-clamp:4}
+.kd-print-doc.is-mode-two .kd-minimum-source-rule b{-webkit-line-clamp:8}
+.kd-print-doc .kd-decision-card.is-fit-1 .kd-decision-reason{-webkit-line-clamp:1}
+.kd-print-doc .kd-decision-card.is-fit-2 .kd-minimum-source-rule b{-webkit-line-clamp:3}
 /* 넘치는 카드만 단계적으로 줄이기(fitPrintCards). 1단계: 수능최저 근거를 한 줄로 */
 .kd-print-doc .kd-decision-card.is-fit-1 .kd-minimum-grade-block{display:flex!important;align-items:center;gap:1mm;margin-top:.6mm!important;padding:0!important;border:0!important;background:none!important}
 .kd-print-doc .kd-decision-card.is-fit-1 .kd-minimum-grade-block>small{display:none!important}
@@ -144,6 +154,12 @@ export function fitPrintCards(doc) {
   let remaining=0;
   doc.querySelectorAll('.kd-print-doc .kd-decision-card').forEach(card=>{
     for(const step of PRINT_FIT_STEPS){ if(!overflowing(card))break; card.classList.add(step); }
+    // 마지막 수단: 그래도 넘치면(긴 원문 조건·과목이 많은 카드, 글꼴 차이) 카드 내용 전체를 비율대로 축소합니다.
+    for(let pass=0;pass<3&&overflowing(card);pass+=1){
+      const current=Number(card.firstElementChild?.style.zoom||1);
+      const ratio=Math.max(.55,current*(card.clientHeight-2)/card.scrollHeight);
+      for(const child of card.children)child.style.zoom=String(ratio);
+    }
     if(overflowing(card))remaining+=1;
   });
   return remaining;
