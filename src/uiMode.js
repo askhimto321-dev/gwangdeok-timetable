@@ -592,8 +592,40 @@ const SHARED_NEW_CSS = `
   .kdn-calc-steps{grid-template-columns:repeat(3,minmax(0,1fr));margin:2px 0 4px}
   @media (max-width:760px){.kdn-search-steps{grid-template-columns:1fr}}
   .kdn-step-back{margin-bottom:12px;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);font-size:13.5px;font-weight:600;cursor:pointer}
+  /* 공지 작성 페이지 나누기: ① 대상 선택(전체 폭) → ② 작성(대상 선택 패널 숨김) → ③ 내 공지 관리 */
+  .kdn-notice-layout.kdn-notice-staged{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:14px}
+  .kdn-notice-staged>*{grid-column:1!important;grid-row:auto!important}
+  .kdn-notice-staged .kdn-notice-side{position:static!important;max-width:none}
+  .kdn-notice-staged .teacher-workflow-steps{display:none!important}
+  .kdn-notice-staged.is-compose .kdn-notice-side,.kdn-notice-staged.is-manage .kdn-notice-side{display:none!important}
+  .kdn-notice-staged.is-select .kdn-notice-side button{width:auto!important}
+  .kdn-notice-staged.is-select .teacher-zone-target-row>div:last-child{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))!important;gap:10px!important}
+  .kdn-notice-staged.is-select .teacher-zone-target-row>div:last-child>button{min-height:72px!important;width:100%!important;justify-content:flex-start;text-align:left;font-size:16px!important}
+  .kdn-notice-steps{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .kdn-notice-steps button:disabled{opacity:.5;cursor:not-allowed}
+  .kdn-notice-compose-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;border-radius:12px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font-size:14px;color:var(--kdn-ink-soft)}
+  .kdn-notice-compose-bar b{color:var(--kdn-ink)}
+  .kdn-notice-compose-bar button{min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);font-weight:600;cursor:pointer}
+  /* 관리자 시간표 데이터: 4단계 + 보조 보기 탭, 업로드 안의 파일 선택 → 미리보기 → 반영 표시 */
+  .kdn-admin-steps{grid-template-columns:repeat(4,minmax(0,1fr));margin:6px 0 14px}
+  .kdn-admin-aux-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 10px}
+  .kdn-admin-aux-tabs button{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 12px;border-radius:999px;border:1px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);font-size:13px;font-weight:600;cursor:pointer}
+  .kdn-admin-aux-tabs button[aria-pressed="true"]{border-color:var(--kdn-accent);background:var(--kdn-accent-soft);color:var(--kdn-accent-text);font-weight:800}
+  .kdn-upload-stages{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
+  .kdn-upload-stages span{display:inline-flex;align-items:center;gap:8px;min-height:34px;padding:0 14px 0 6px;border-radius:999px;border:1px solid var(--kdn-line);background:var(--kdn-surface);color:var(--kdn-muted);font-size:13.5px;font-weight:600}
+  .kdn-upload-stages span b{width:24px;height:24px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:var(--kdn-surface-2);color:var(--kdn-ink-soft);font-size:12.5px}
+  .kdn-upload-stages span.is-active{border-color:var(--kdn-accent);background:var(--kdn-accent-soft);color:var(--kdn-accent-text)}
+  .kdn-upload-stages span.is-active b{background:var(--kdn-accent);color:var(--kdn-accent-ink)}
+  .kdn-upload-stages span.is-done{color:var(--kdn-ink-soft)}
+  .kdn-upload-box.is-collapsed{display:none!important}
+  .kdn-upload-done{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0 0 12px;padding:12px 16px;border-radius:12px;border:1px solid #9fd6b2;background:#eaf8ef;color:#1d5c34;font-size:14px}
+  .kdn-upload-done button{min-height:40px;padding:0 16px;border-radius:10px;border:0;background:var(--kdn-accent);color:var(--kdn-accent-ink);font-weight:800;cursor:pointer}
   /* 성적 산출·최성보: 진한 배너 대신 대시보드식 페이지 머리(큰 제목 + 설명 + 오른쪽 버튼).
      주요 동작(학교 공동 저장 / 출결 확인 저장)만 강조색, 나머지는 테두리 버튼 */
+  .kdn-notice-hero{background:transparent!important;border:0!important;box-shadow:none!important;padding:6px 2px 4px!important;color:var(--kdn-ink)!important}
+  .kdn-notice-hero span{color:var(--kdn-accent-text)!important;font-size:13px!important;font-weight:600!important;opacity:1!important}
+  .kdn-notice-hero h1{color:var(--kdn-ink)!important;font-size:30px!important;font-weight:900!important;letter-spacing:-.025em!important;margin:4px 0!important}
+  .kdn-notice-hero p{color:var(--kdn-muted)!important;font-size:15px!important;font-weight:500!important;opacity:1!important;margin:0!important}
   .teacher-grade-hero,.minimum-hero{background:transparent!important;border:0!important;box-shadow:none!important;padding:6px 2px 4px!important;color:var(--kdn-ink)!important;align-items:end!important}
   .teacher-grade-hero::before,.teacher-grade-hero::after,.minimum-hero::before,.minimum-hero::after{display:none!important}
   .teacher-grade-hero-copy>div:first-child,.minimum-hero>div:first-child>span:first-child{color:var(--kdn-accent-text)!important;font-size:13px!important;font-weight:600!important;opacity:1!important;letter-spacing:.01em}
