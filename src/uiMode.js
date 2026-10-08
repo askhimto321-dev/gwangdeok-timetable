@@ -327,6 +327,11 @@ const BASE_CSS = {
 const SHARED_NEW_CSS = `
   .kdn-mode-short{display:none}
   @media screen{.kdn-print-only{display:none!important}}
+  /* 상담 기록: 날짜순 타임라인(최근 기록에 강조색 점) */
+  .kdn-note-timeline:has(>.counseling-print-note){position:relative;margin-left:6px;padding-left:22px!important;border-left:2px solid var(--kdn-line)}
+  .kdn-note-timeline>.counseling-print-note{position:relative}
+  .kdn-note-timeline>.counseling-print-note::before{content:"";position:absolute;left:-31px;top:18px;width:12px;height:12px;border-radius:50%;background:var(--kdn-line);box-shadow:0 0 0 3px var(--kdn-bg)}
+  .kdn-note-timeline>.counseling-print-note:first-child::before{background:var(--kdn-accent)}
   .kd-legacy-section-header{display:none!important}
   .kd-quick-links-trigger{background:var(--kdn-surface-2)!important;color:var(--kdn-ink)!important;border-color:var(--kdn-line)!important}
   .kd-history-edge{background:var(--kdn-surface)!important;color:var(--kdn-ink-soft)!important;border-color:var(--kdn-line)!important}

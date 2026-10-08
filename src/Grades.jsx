@@ -15,6 +15,7 @@ import themeCss from './theme.css?raw';
 import CounselingAdmissionFacts from './CounselingAdmissionFacts.jsx';
 import {buildCounselingFactIndex,counselingFactsForFavorite,loadRecommendedSubjectData,studentNaviGrade} from './SusiNaviBeta.jsx';
 import { CutStrip } from './naviVisuals.jsx';
+import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems } from './counselVisuals.jsx';
 import { isNewUi } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
@@ -813,6 +814,7 @@ export default function GradesSection({
       </div>
 
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
+        {isNewUi() && activeStudentSid && <NewCounselHeader sid={activeStudentSid} gdb={gdb} student={susiNaviStudent} studentInfo={loggedInStudent || roster?.[activeStudentSid]} favoriteCount={activeFlowFavoriteCount} showPlan={tab === "consultation"} onOpenPlan={() => openSusiNaviWorkspace(tab === "consultation")} />}
         {activeStudentSid && <div className="kd-counsel-flow no-print" style={counselFlow.wrap}>
           <div style={counselFlow.head}><div><b>학생 상담 흐름</b><span>{activeFlowStudentName ? `${activeFlowStudentName} 학생 · ` : ""}성적 확인부터 관심대학·NAVI 분석·상담 기록까지 같은 흐름에서 이어집니다.</span></div><div className="kd-support-plan-entry-actions"><span style={counselFlow.favoriteCount}><Star size={12} fill="currentColor"/> 관심 {activeFlowFavoriteCount}</span><SupportPlanButton onClick={() => openSusiNaviWorkspace(tab === "consultation")} count={activeSupportPlanCount}/></div></div>
           <div style={counselFlow.steps}>{counselingFlowItems.map((item,index)=><button key={item.key} type="button" onClick={()=>navigateGradeTab(item.key)} style={{...counselFlow.step,...(tab===item.key?counselFlow.stepActive:{})}}><span style={{...counselFlow.stepNumber,...(tab===item.key?counselFlow.stepNumberActive:{})}}>{index+1}</span><span style={counselFlow.stepText}><b>{item.label}</b><small>{item.sub}</small></span>{index<counselingFlowItems.length-1&&<em style={counselFlow.arrow}>›</em>}</button>)}</div>
@@ -3876,6 +3878,16 @@ function StudentLookup({
 }
 
 
+// 새 UI 상담 화면 맨 위: 학생 요약 카드(+ 관심대학·상담 단계에서는 수시 지원 구성 6칸을 옆에).
+function NewCounselHeader({ sid, gdb, student, studentInfo, favoriteCount, showPlan, onOpenPlan }) {
+  const planItems = useSupportPlanItems(sid);
+  const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
+  return <div className="no-print" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
+    <div style={{ flex: "999 1 600px", minWidth: 0 }}><CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} /></div>
+    {showPlan && <div style={{ flex: "1 1 300px", minWidth: 0 }}><SupportPlanSlots items={planItems} onOpen={onOpenPlan} /></div>}
+  </div>;
+}
+
 function studentViewIdentityMeta({ sid, gdb, studentInfo }) {
   const semesterCandidates = SEMESTER_KEYS.map(key => gdb.semesterData?.[key]?.students?.[sid] || null).filter(Boolean);
   const latestSemesterRecord = semesterCandidates.slice().reverse()[0] || null;
@@ -4467,7 +4479,7 @@ export function StudentConsultationView({
         <button type="button" onClick={saveNote} disabled={saving || (!noteText.trim() && !noteFiles.length)} style={consultationView.saveButton}>{saving?<Loader2 size={14} className="spin"/>:<Save size={14}/>}상담 기록 저장</button>
       </div>}
       {!canEdit && <div className="no-print" style={consultationView.readOnlyNotice}>상담 기록은 담임 선생님 또는 관리자가 작성합니다.</div>}
-      <div style={consultationView.notes}>
+      <div className="kdn-note-timeline" style={consultationView.notes}>
         {notes.length ? notes.map(note=><article className="counseling-print-note" key={note.id} style={consultationView.note}>
           <div style={consultationView.noteHeader}><div style={consultationView.noteMeta}><b>{note.date || "날짜 미입력"}</b><span>{note.author || "작성자 미입력"}</span></div>{canEdit&&<button type="button" className="no-print" onClick={()=>removeNote(note.id)} style={consultationView.deleteButton}>삭제</button>}</div>
           {note.text && <p className="counseling-print-note-text" style={consultationView.noteText}>{note.text}</p>}
