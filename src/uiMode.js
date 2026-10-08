@@ -469,7 +469,16 @@ const SHARED_NEW_CSS = `
   .kdn-openers button{min-height:40px!important;font-size:13.5px!important;border-radius:11px!important}
   .kdn-openers .kd-workspace-opener-row>span{font-size:13px!important;min-height:40px;display:inline-flex!important;align-items:center;justify-content:center}
   .kdn-search-wrap input{min-height:48px!important;font-size:16px!important}
-  @media (max-width:760px){.kdn-work-bar{position:static!important}}
+  @media (max-width:760px){
+    .kdn-work-bar{position:static!important}
+    .kdn-current-student{flex:1 1 100%}
+    .kdn-current-student>span:nth-child(2){flex:1}
+    .kdn-recent-students>span{white-space:nowrap}
+    .kdn-current-student{min-width:0;box-sizing:border-box}
+    .kdn-recent-students{flex:1 1 100%;min-width:0;max-width:100%;flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;border-left:0!important;padding-left:0!important}
+    .kdn-recent-students::-webkit-scrollbar{display:none}
+    .kdn-recent-students>button{flex:none}
+  }
   /* 시간표: 넓은 화면에서는 표 옆에 공지(학급·수업 공지)를 나란히 */
   @media screen and (min-width:1100px){
     .kdn-tt-layout{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px;align-items:start}

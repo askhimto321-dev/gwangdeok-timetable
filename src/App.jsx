@@ -1956,43 +1956,80 @@ function ClassMultiSelect({ value, onChange, classOptions, light, suffix = "반"
   );
 }
 
+// 담당 과목 편집: 1학기·2학기 과목 목록을 골라 볼 수 있습니다. 담당 과목은 과목명으로만 연결되므로
+// 2학기 과목도 그대로 공지·성적 산출 대상에 쓰입니다. 2학기 시간표가 아직 없으면 과목명을 직접 입력합니다.
+const SEMESTER_OPTIONS = [["sem1", "1학기"], ["sem2", "2학기"]];
 function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semesterLabel }) {
-  const electiveSubjects = useMemo(() => extractElectiveSubjects(db, scopeKey), [db, scopeKey]);
-  const commonSubjects = useMemo(() => extractCommonSubjects(db, scopeKey), [db, scopeKey]);
-  const classOptions = useMemo(() => extractClasses(db, scopeKey), [db, scopeKey]);
+  const [scopeGrade, scopeSemester = "sem1"] = String(scopeKey || "").split("-");
+  const [semesterView, setSemesterView] = useState(scopeSemester === "sem2" ? "sem2" : "sem1");
+  const scopeFor = sem => `${scopeGrade}-${sem}`;
+  const listsFor = useMemo(() => {
+    const cache = {};
+    return sem => {
+      if (!cache[sem]) {
+        const scope = scopeFor(sem);
+        cache[sem] = { elective: extractElectiveSubjects(db, scope), common: extractCommonSubjects(db, scope), classes: extractClasses(db, scope) };
+      }
+      return cache[sem];
+    };
+  }, [db, scopeGrade]);
 
-  const addBlock = () => setAssignments([...assignments, { kind: "elective", subject: "", targets: "" }]);
+  const addBlock = () => setAssignments([...assignments, { kind: "elective", subject: "", targets: "", semester: semesterView }]);
   const updateBlock = (i, patch) => setAssignments(assignments.map((a, j) => j === i ? { ...a, ...patch } : a));
   const removeBlock = (i) => setAssignments(assignments.filter((_, j) => j !== i));
+  const semesterName = sem => sem === "sem2" ? "2학기" : "1학기";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-      {semesterLabel && <div style={{ fontSize: 11, color: "#a39d8c" }}>{semesterLabel} 기준 과목 목록입니다.</div>}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 12, color: "#6f6a5e", fontWeight: 600 }}>새 과목 목록</span>
+        {SEMESTER_OPTIONS.map(([value, label]) => (
+          <button key={value} type="button" aria-pressed={semesterView === value} onClick={() => setSemesterView(value)}
+            style={{ ...styles.classChip, padding: "5px 12px", fontSize: 12.5, ...(semesterView === value ? styles.classChipActive : {}) }}>{label}</button>
+        ))}
+        {semesterLabel && <span style={{ fontSize: 11.5, color: "#a39d8c" }}>현재 화면: {semesterLabel}</span>}
+      </div>
       {assignments.map((a, i) => {
-        const groupOptions = a.kind === "elective" && a.subject ? extractElectiveGroups(db, scopeKey, a.subject) : [];
+        const sem = a.semester === "sem2" ? "sem2" : a.semester === "sem1" ? "sem1" : semesterView;
+        const lists = listsFor(sem);
+        const hasLists = lists.elective.length > 0 || lists.common.length > 0;
+        const known = (a.kind === "common" ? lists.common : lists.elective).includes(a.subject);
+        const groupOptions = a.kind === "elective" && a.subject ? extractElectiveGroups(db, scopeFor(sem), a.subject) : [];
         return (
           <div key={i} style={{ border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 10, background: "#fff" }}>
             <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
-              <select
-                value={a.subject ? `${a.kind}::${a.subject}` : ""}
-                onChange={e => { const [kind, subject] = e.target.value.split("::"); updateBlock(i, { kind, subject: subject || "", targets: "" }); }}
-                style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1, padding: "7px 8px" }}
-              >
-                <option value="">과목 선택</option>
-                {electiveSubjects.length > 0 && <optgroup label="이동수업 과목">{electiveSubjects.map(s => <option key={"e" + s} value={`elective::${s}`}>{s}</option>)}</optgroup>}
-                {commonSubjects.length > 0 && <optgroup label="공통과목">{commonSubjects.map(s => <option key={"c" + s} value={`common::${s}`}>{s}</option>)}</optgroup>}
+              <select aria-label="학기" value={sem} onChange={e => updateBlock(i, { semester: e.target.value, subject: "", targets: "" })}
+                style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "0 0 auto", width: 84, padding: "7px 6px" }}>
+                {SEMESTER_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
+              {hasLists ? (
+                <select
+                  value={a.subject ? `${a.kind}::${a.subject}` : ""}
+                  onChange={e => { const [kind, subject] = e.target.value.split("::"); updateBlock(i, { kind, subject: subject || "", targets: "", semester: sem }); }}
+                  style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1, padding: "7px 8px" }}
+                >
+                  <option value="">{semesterName(sem)} 과목 선택</option>
+                  {a.subject && !known && <option value={`${a.kind}::${a.subject}`}>{a.subject} (저장된 과목)</option>}
+                  {lists.elective.length > 0 && <optgroup label="이동수업 과목">{lists.elective.map(s => <option key={"e" + s} value={`elective::${s}`}>{s}</option>)}</optgroup>}
+                  {lists.common.length > 0 && <optgroup label="공통과목">{lists.common.map(s => <option key={"c" + s} value={`common::${s}`}>{s}</option>)}</optgroup>}
+                </select>
+              ) : (
+                <input value={a.subject || ""} onChange={e => updateBlock(i, { kind: a.kind || "elective", subject: e.target.value, semester: sem })}
+                  placeholder={`${semesterName(sem)} 과목명 직접 입력`} aria-label="과목명"
+                  style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1, padding: "7px 8px" }} />
+              )}
               <button style={styles.iconBtn} onClick={() => removeBlock(i)}><X size={14} /></button>
             </div>
-            {a.subject && (
+            {!hasLists && <div style={{ fontSize: 11.5, color: "#8a6d2b", marginBottom: a.subject ? 8 : 0 }}>{scopeGrade}학년 {semesterName(sem)} 시간표가 아직 등록되지 않아 과목명을 직접 입력합니다. 대상은 '전체'로 저장됩니다.</div>}
+            {a.subject && hasLists && (
               a.kind === "common"
-                ? <ClassMultiSelect value={a.targets} onChange={v => updateBlock(i, { targets: v })} classOptions={classOptions} suffix="반" />
+                ? <ClassMultiSelect value={a.targets} onChange={v => updateBlock(i, { targets: v })} classOptions={lists.classes} suffix="반" />
                 : <ClassMultiSelect value={a.targets} onChange={v => updateBlock(i, { targets: v })} classOptions={groupOptions} suffix="그룹" />
             )}
           </div>
         );
       })}
-      <button style={styles.secondaryBtn} onClick={addBlock}>+ 과목 추가</button>
+      <button style={styles.secondaryBtn} onClick={addBlock}>+ {semesterName(semesterView)} 과목 추가</button>
     </div>
   );
 }
@@ -2304,7 +2341,7 @@ function StaffStudentWorkspaceBar({
             </button>)}</div>}
           </div>
           {/* 현재 학생: 대시보드 카드처럼 아바타 + 이름(굵게) + 학년·반·번호(보통 굵기) 두 줄. 오른쪽 ✕로 선택 해제 */}
-          {selected ? <div style={newBar.selected}>
+          {selected ? <div className="kdn-current-student" style={newBar.selected}>
             <span style={newBar.selectedAvatar} aria-hidden="true">{String(selected.name || "?").charAt(0)}</span>
             <span style={newBar.selectedText}>
               <small style={newBar.selectedEyebrow}>현재 학생</small>
@@ -2313,7 +2350,7 @@ function StaffStudentWorkspaceBar({
             </span>
             <button type="button" data-kdn-bare aria-label="학생 선택 해제" title="학생 선택 해제" onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={newBar.selectedClear}><X size={15} /></button>
           </div> : null}
-          {recent.length > 0 && <div style={newBar.recent}>
+          {recent.length > 0 && <div className="kdn-recent-students" style={newBar.recent}>
             <span style={newBar.recentLabel}>최근 본 학생</span>
             {recent.map((student, index) => {
               const tone = RECENT_TONES[index % RECENT_TONES.length];
@@ -2421,7 +2458,7 @@ const RECENT_TONES = [
 ];
 const newBar = {
   wrap: { position: "sticky", top: 68, zIndex: 35, background: "var(--kdn-bg)", borderBottom: "1px solid var(--kdn-line)" },
-  inner: { maxWidth: 1240, margin: "0 auto", padding: "14px 24px 0", display: "grid", gap: 10 },
+  inner: { maxWidth: 1240, margin: "0 auto", padding: "14px 24px 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 10 },
   topRow: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" },
   search: { position: "relative", flex: "1 1 340px", maxWidth: 480, display: "flex", alignItems: "center", gap: 10, minHeight: 48, padding: "0 12px 0 16px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", color: "var(--kdn-muted)" },
   input: { flex: 1, minWidth: 0, border: 0, outline: "none", background: "transparent", color: "var(--kdn-ink)", fontSize: 16, fontWeight: 600 },
