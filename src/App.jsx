@@ -3109,7 +3109,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
           <p style={styles.noticeHeroText}>{teacher.name} 선생님{teacher.homeroomClass ? ` · ${teacher.homeroomClass}반 담임` : ""}{viewingAsAdmin ? " · 관리자 열람" : ""}</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap:"wrap" }}>
-          <button style={styles.noticeHeroButton} onClick={onLogout}>{viewingAsAdmin ? "돌아가기" : "로그아웃"}</button>
+          {(viewingAsAdmin || !isNewUi()) && <button style={styles.noticeHeroButton} onClick={onLogout}>{viewingAsAdmin ? "돌아가기" : "로그아웃"}</button>}
         </div>
       </div>
 
@@ -4429,7 +4429,8 @@ function AdminConsole(props) {
         <ScopeGroup label="학기"><ScopeBtn active={props.semester === "sem1"} onClick={() => props.setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={props.semester === "sem2"} onClick={() => props.setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>
         <div style={styles.adminScopeCaption}><span>현재</span><strong>{props.grade}학년 · {props.semester === "sem1" ? "1학기" : "2학기"}</strong></div>
       </div>
-      <div style={styles.adminTabs}>
+      <div className="kdn-admin-layout">
+      <div className="kdn-admin-nav" style={styles.adminTabs}>
         <button onClick={() => setSub("timetable")} style={{ ...styles.adminTabBtn, ...(sub === "timetable" ? styles.adminTabBtnActive : {}) }}><ClipboardList size={14} /> 시간표 관리</button>
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
         <button onClick={() => setSub("accounts")} style={{ ...styles.adminTabBtn, ...(sub === "accounts" ? styles.adminTabBtnActive : {}) }}><Lock size={14} /> 계정 관리</button>
@@ -4438,6 +4439,7 @@ function AdminConsole(props) {
         <button onClick={() => setSub("susiNaviBeta")} style={{ ...styles.adminTabBtn, ...(sub === "susiNaviBeta" ? styles.adminTabBtnActive : {}) }}><BookOpen size={14} /> 수시NAVI Beta</button>
         <button onClick={() => setSub("feedback")} style={{ ...styles.adminTabBtn, ...(sub === "feedback" ? styles.adminTabBtnActive : {}) }}><Bug size={14} /> 건의·버그</button>
       </div>
+      <div className="kdn-admin-main">
       {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
       {sub === "grades" && (
         props.gdb ? <DeferredPanel label="성적 데이터 관리 화면을 불러오는 중입니다."><AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} roster={props.roster} currentGrade={props.grade} /></DeferredPanel>
@@ -4448,6 +4450,8 @@ function AdminConsole(props) {
       {sub === "siteAnnouncements" && <AdminSiteAnnouncementPanel announcements={props.db.siteAnnouncements || []} persist={props.persist} showToast={props.showToast} />}
       {sub === "susiNaviBeta" && <DeferredPanel label="수시NAVI 관리 화면을 불러오는 중입니다."><SusiNaviBetaAdmin showToast={props.showToast} /></DeferredPanel>}
       {sub === "feedback" && <FeedbackAdminPanel feedback={props.db.feedback || []} persist={props.persist} showToast={props.showToast} />}
+      </div>
+      </div>
     </div>
   );
 }

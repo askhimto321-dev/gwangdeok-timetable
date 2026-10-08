@@ -327,6 +327,12 @@ const BASE_CSS = {
 const SHARED_NEW_CSS = `
   .kdn-mode-short{display:none}
   @media screen{.kdn-print-only{display:none!important}}
+  /* 관리자: 상단 탭 줄을 왼쪽 메뉴로 */
+  .kdn-admin-layout{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
+  .kdn-admin-layout>.kdn-admin-nav{flex:1 1 210px;max-width:260px;flex-direction:column!important;flex-wrap:nowrap!important;gap:4px!important;padding:10px;border-radius:20px;background:var(--kdn-surface);border:1px solid var(--kdn-line);position:sticky;top:84px}
+  .kdn-admin-layout>.kdn-admin-nav>button{width:100%;justify-content:flex-start;min-height:44px;padding:0 14px!important;font-size:14px!important;border-radius:12px!important;border-color:transparent!important}
+  .kdn-admin-layout>.kdn-admin-main{flex:999 1 640px;min-width:0}
+  @media (max-width:760px){.kdn-admin-layout>.kdn-admin-nav{max-width:none;flex-direction:row!important;overflow-x:auto;position:static}.kdn-admin-layout>.kdn-admin-nav>button{width:auto;flex:none;white-space:nowrap}}
   /* 시간표: 지금 교시 칸 강조(화면에서만) */
   @media screen{.kdn-now-cell{box-shadow:inset 0 0 0 3px var(--kdn-accent)!important;position:relative}}
   /* 상담 기록: 날짜순 타임라인(최근 기록에 강조색 점) */
