@@ -13,7 +13,7 @@ test("기존 UI는 색을 전혀 바꾸지 않는다", () => {
 test("다크: 밝은 배경은 어둡게, 어두운 글자는 밝게", () => {
   assert.ok(lightness(mapColor("#ffffff", "bg", "dark")) < 70);
   assert.ok(lightness(mapColor("#2b2620", "text", "dark")) > 200);
-  assert.equal(mapColor("#faf8f3", "bg", "dark"), "#1d1e24");
+  assert.equal(mapColor("#faf8f3", "bg", "dark"), "#111215");
   // 흰 글자(진한 버튼 위)는 그대로 둔다
   assert.equal(mapColor("#fff", "text", "dark"), "#ffffff");
 });
