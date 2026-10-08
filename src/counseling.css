@@ -169,3 +169,28 @@
  .counseling-print-root-clone .kd-course-details{break-inside:avoid!important;page-break-inside:avoid!important}
  .counseling-print-root-clone .kd-course-chips span{font-size:7.5pt!important}
 }
+/* 상담 인쇄 압축(화면 디자인과 같은 정보, A4 한 장에 더 많이): 전형 상자를 두 칸으로 나란히,
+   간격·여백을 줄이고 상단 요약 3칸은 한 줄로 유지합니다. */
+@media print{
+ .counseling-print-root-clone{font-size:8.5pt!important}
+ .counseling-print-root-clone .favorite-print-card{padding:3mm 3.5mm!important}
+ .counseling-print-root-clone .favorite-print-header h3,.counseling-print-root-clone .favorite-print-header h2{font-size:13pt!important;margin:0!important}
+ .counseling-print-root-clone .favorite-print-source-grid{gap:1.5mm!important;margin-bottom:2mm!important}
+ .counseling-print-root-clone .favorite-print-source-grid>*{padding:1.6mm 2mm!important;border-radius:1.5mm!important}
+ .counseling-print-root-clone .favorite-print-item-detail>summary{padding:1.4mm 2mm!important}
+ .counseling-print-root-clone .favorite-print-item-body{padding:1mm 1.5mm 1.5mm!important}
+ .counseling-print-root-clone .kd-counsel-facts{padding-top:1.5mm!important;margin-top:1mm!important}
+ .counseling-print-root-clone .kd-counsel-facts h4{font-size:9.5pt!important;margin:0 0 .5mm!important}
+ .counseling-print-root-clone .kd-counsel-facts>small{font-size:7pt!important;margin-bottom:1mm!important}
+ .counseling-print-root-clone .kd-counsel-type{margin:1.2mm 0!important;border-radius:1.8mm!important}
+ .counseling-print-root-clone .kd-counsel-type>summary{padding:1mm 2mm!important;font-size:8pt!important}
+ .counseling-print-root-clone .kd-counsel-type-items{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:1.2mm!important;padding:1.2mm!important}
+ .counseling-print-root-clone .kd-counsel-minimum{margin:0!important;padding:0!important;border-radius:1.5mm!important}
+ .counseling-print-root-clone .kd-counsel-minimum>summary{padding:1mm 1.6mm!important;min-height:0!important}
+ .counseling-print-root-clone .kd-counsel-minimum>summary b{font-size:8pt!important}
+ .counseling-print-root-clone .kd-counsel-minimum .kd-status-pill{font-size:6.8pt!important;padding:.3mm 1.4mm!important}
+ .counseling-print-root-clone .kd-counsel-print-rule{font-size:7pt!important;line-height:1.3!important;padding:0 1.6mm 1mm!important}
+ .counseling-print-root-clone .kd-course-details{margin-top:1.5mm!important;padding:1.5mm 2mm!important}
+ .counseling-print-root-clone .kd-course-chips{gap:.8mm!important}
+ .counseling-print-root-clone .kd-course-chips span{font-size:7pt!important;padding:.4mm 1.2mm!important}
+}

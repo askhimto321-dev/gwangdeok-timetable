@@ -16,7 +16,7 @@ import CounselingAdmissionFacts from './CounselingAdmissionFacts.jsx';
 import {buildCounselingFactIndex,counselingFactsForFavorite,loadRecommendedSubjectData,studentNaviGrade} from './SusiNaviBeta.jsx';
 import { CutStrip } from './naviVisuals.jsx';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
-import { isNewUi } from './uiMode.js';
+import { isNewUi, getUiMode } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
 import { LayoutGrid } from 'lucide-react';
@@ -4026,6 +4026,9 @@ export function printCounselingHistory(options = {}) {
   const clone = source.cloneNode(true);
   clone.classList.add("counseling-print-root-clone");
   clone.querySelectorAll(".no-print,button").forEach(node => node.remove());
+  // 다크 모드 화면의 어두운 배경·밝은 글자색(인라인)이 인쇄물에 그대로 찍히지 않도록, 인쇄 복제본에서는 색 지정을 지우고
+  // 인쇄용 CSS(밝은 종이 기준)만 쓰게 합니다.
+  if (getUiMode() === "dark") clone.querySelectorAll("[style]").forEach(node => ["background", "background-color", "background-image", "color", "border-color", "box-shadow"].forEach(prop => node.style.removeProperty(prop)));
   // Print compact track/status/year summaries instead of all expanded cards.
   clone.querySelectorAll('.kd-counsel-type').forEach(node => { node.open = true; });
   clone.querySelectorAll('.kd-counsel-minimum').forEach(node => { node.open = true; });
