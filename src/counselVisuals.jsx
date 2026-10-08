@@ -112,7 +112,7 @@ const s = {
   avatar: { width: 52, height: 52, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #ffd9c2, #ffeadd)", color: "#ad3b0a", fontSize: 22, fontWeight: 800, flex: "none" },
   identityText: { display: "grid", gap: 5, minWidth: 0, lineHeight: 1.35 },
   eyebrow: { fontSize: 12.5, fontWeight: 800, color: "#5d6574" },
-  name: { fontSize: 23, fontWeight: 700, color: "#141821", letterSpacing: "-.01em", lineHeight: 1.2 },
+  name: { fontSize: 26, fontWeight: 800, color: "#141821", letterSpacing: "-.025em", lineHeight: 1.15 },
   meta: { fontSize: 14.5, fontWeight: 500, color: "#3a4150", letterSpacing: ".01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   metaSub: { fontSize: 13, fontWeight: 500, color: "#5d6574", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   stats: { flex: "1 1 560px", minWidth: 0, display: "grid", gridTemplateColumns: "repeat(5, minmax(108px, 1fr))", gap: 12, overflowX: "auto" },

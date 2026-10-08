@@ -2303,11 +2303,26 @@ function StaffStudentWorkspaceBar({
               <b style={newBar.matchName}>{student.name || "이름 없음"}</b><span style={newBar.matchMeta}>{student.sid} · {student.class}반 {student.number}번</span>{index === 0 && <small style={newBar.matchHint}>Enter</small>}
             </button>)}</div>}
           </div>
+          {/* 현재 학생: 대시보드 카드처럼 아바타 + 이름(굵게) + 학년·반·번호(보통 굵기) 두 줄. 오른쪽 ✕로 선택 해제 */}
           {selected ? <div style={newBar.selected}>
-            <span style={newBar.selectedAvatar}>{String(selected.name || "?").charAt(0)}</span>
-            <span style={{ display: "grid", lineHeight: 1.2 }}><b style={newBar.selectedName}>{selected.name}</b><small style={newBar.selectedMeta}>{selected.sid} · {selected.class}반 {selected.number}번</small></span>
+            <span style={newBar.selectedAvatar} aria-hidden="true">{String(selected.name || "?").charAt(0)}</span>
+            <span style={newBar.selectedText}>
+              <small style={newBar.selectedEyebrow}>현재 학생</small>
+              <b style={newBar.selectedName}>{selected.name}<span style={newBar.selectedSid}>{selected.sid}</span></b>
+              <small style={newBar.selectedMeta}>{selected.grade || String(selected.sid || "").charAt(0)}학년 {selected.class}반 {selected.number}번</small>
+            </span>
+            <button type="button" data-kdn-bare aria-label="학생 선택 해제" title="학생 선택 해제" onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={newBar.selectedClear}><X size={15} /></button>
           </div> : null}
-          {recent.length > 0 && <div style={newBar.recent}><span style={newBar.recentLabel}>최근</span>{recent.map(student => <button key={student.sid} type="button" onClick={() => pickStudent(student.sid)} style={newBar.recentChip}>{student.name}<small style={newBar.recentSid}>{student.sid}</small></button>)}</div>}
+          {recent.length > 0 && <div style={newBar.recent}>
+            <span style={newBar.recentLabel}>최근 본 학생</span>
+            {recent.map((student, index) => {
+              const tone = RECENT_TONES[index % RECENT_TONES.length];
+              return <button key={student.sid} type="button" data-kdn-bare onClick={() => pickStudent(student.sid)} title={`${student.name} · ${student.sid}`} style={newBar.recentChip}>
+                <span aria-hidden="true" style={{ ...newBar.recentAvatar, background: tone.bg, color: tone.ink }}>{String(student.name || "?").charAt(0)}</span>
+                <span style={newBar.recentName}>{student.name}</span><small style={newBar.recentSid}>{student.sid}</small>
+              </button>;
+            })}
+          </div>}
         </div>
         <div role="tablist" aria-label="학생 화면" style={newBar.tabs}>
           {/* 학생 조회 / 진학 상담을 색이 다른 묶음(알약 모양 그룹)으로 나눠, 어떤 탭이 어느 일에 속하는지 한눈에 보이게 합니다. */}
@@ -2401,6 +2416,9 @@ function rememberRecentStudent(sid) {
   return next;
 }
 
+const RECENT_TONES = [
+  { bg: "#d6e5ff", ink: "#1c4aa8" }, { bg: "#ccefe5", ink: "#09645a" }, { bg: "#ebe3fb", ink: "#5a32a6" }, { bg: "#ffefc9", ink: "#855405" }, { bg: "#ffe6d6", ink: "#ad3b0a" },
+];
 const newBar = {
   wrap: { position: "sticky", top: 68, zIndex: 35, background: "var(--kdn-bg)", borderBottom: "1px solid var(--kdn-line)" },
   inner: { maxWidth: 1240, margin: "0 auto", padding: "14px 24px 0", display: "grid", gap: 10 },
@@ -2415,14 +2433,20 @@ const newBar = {
   matchName: { fontSize: 15, fontWeight: 800 },
   matchMeta: { fontSize: 13.5, fontWeight: 600, color: "var(--kdn-muted)" },
   matchHint: { marginLeft: "auto", fontSize: 12, fontWeight: 800, color: "var(--kdn-muted)" },
-  selected: { display: "flex", alignItems: "center", gap: 10, padding: "6px 14px 6px 6px", borderRadius: 999, background: "var(--kdn-accent-soft)" },
-  selectedAvatar: { width: 34, height: 34, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", fontSize: 15, fontWeight: 900 },
-  selectedName: { fontSize: 15.5, fontWeight: 700, color: "var(--kdn-ink)" },
-  selectedMeta: { fontSize: 12.5, fontWeight: 600, color: "var(--kdn-ink-soft)" },
-  recent: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  recentLabel: { fontSize: 13, fontWeight: 700, color: "var(--kdn-muted)", marginRight: 2 },
-  recentChip: { display: "inline-flex", alignItems: "baseline", gap: 6, minHeight: 34, padding: "0 12px", borderRadius: 999, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 14, fontWeight: 700, cursor: "pointer" },
-  recentSid: { fontSize: 12, fontWeight: 600, color: "var(--kdn-muted)" },
+  selected: { display: "flex", alignItems: "center", gap: 12, minHeight: 52, padding: "6px 8px 6px 6px", borderRadius: 16, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 1px 2px rgba(20,24,33,.05), 0 6px 18px rgba(20,24,33,.06)" },
+  selectedAvatar: { width: 40, height: 40, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #ff9a5c, #e2531a)", color: "#ffffff", fontSize: 17, fontWeight: 800, flex: "none" },
+  selectedText: { display: "grid", lineHeight: 1.25, gap: 1, minWidth: 0 },
+  selectedEyebrow: { fontSize: 11.5, fontWeight: 600, color: "var(--kdn-accent-text)", letterSpacing: ".02em" },
+  selectedName: { display: "flex", alignItems: "baseline", gap: 8, fontSize: 17, fontWeight: 800, color: "var(--kdn-ink)", letterSpacing: "-.01em" },
+  selectedSid: { fontSize: 13, fontWeight: 500, color: "var(--kdn-muted)", fontVariantNumeric: "tabular-nums" },
+  selectedMeta: { fontSize: 12.5, fontWeight: 500, color: "var(--kdn-muted)" },
+  selectedClear: { width: 30, height: 30, marginLeft: 4, border: 0, borderRadius: 999, background: "var(--kdn-surface-2)", color: "var(--kdn-ink-soft)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flex: "none" },
+  recent: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingLeft: 14, borderLeft: "1px solid var(--kdn-line)" },
+  recentLabel: { fontSize: 12.5, fontWeight: 500, color: "var(--kdn-muted)", marginRight: 4 },
+  recentChip: { display: "inline-flex", alignItems: "center", gap: 7, minHeight: 36, padding: "0 12px 0 4px", borderRadius: 999, border: "1px solid var(--kdn-line)", background: "var(--kdn-surface)", color: "var(--kdn-ink)", cursor: "pointer" },
+  recentAvatar: { width: 28, height: 28, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, flex: "none" },
+  recentName: { fontSize: 14, fontWeight: 650 },
+  recentSid: { fontSize: 12, fontWeight: 500, color: "var(--kdn-muted)", fontVariantNumeric: "tabular-nums" },
   tabs: { display: "flex", alignItems: "center", gap: 10, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 12 },
   group: { flex: "none", display: "flex", alignItems: "center", gap: 2, padding: 4, borderRadius: 14, borderWidth: 1, borderStyle: "solid" },
   groupLookup: { bg: "#edf2fb", border: "#d3def0", label: "#1c4aa8" },

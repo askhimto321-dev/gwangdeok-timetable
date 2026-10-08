@@ -251,11 +251,27 @@ function lightCardShadow(style) {
   if (typeof bg !== "string" || !isWhiteish(bg) || !hasVisibleBorder(style)) return style;
   return { ...style, boxShadow: LIGHT_CARD_SHADOW };
 }
+/* 글자 위계(대시보드와 같은 규칙): 제목·큰 숫자(18px 이상)는 굵게 두고, 작은 이름표의 지나친 굵기(850~950)는
+   한 단계 낮추며, 회색 보조 글자는 보통 굵기(500)로. 화면 전체가 '전부 굵은 글씨'로 딱딱해 보이던 문제를 줄입니다. */
+export function softenType(style) {
+  const weight = Number(style.fontWeight);
+  if (!weight || weight < 650) return style;
+  const size = pxOf(style.fontSize);
+  if (size != null && size >= 18) return style;
+  let next = weight >= 850 ? 750 : weight;
+  const color = typeof style.color === "string" ? parseColor(style.color.trim()) : null;
+  if (color && color[3] > 0.5) {
+    const [L, C] = rgbToOklch(color);
+    if (L >= 0.42 && L <= 0.78 && C < 0.06) next = 500;
+  }
+  return next === weight ? style : { ...style, fontWeight: next };
+}
 export function mapStyleObject(style, mode = ACTIVE_MODE) {
   if (mode === "classic" || !style || typeof style !== "object") return style;
   const cached = styleCache.get(style);
   if (cached) return cached;
-  const result = mapStyleColors(mode === "light" ? lightCardShadow(style) : style, mode);
+  const shaped = softenType(mode === "light" ? lightCardShadow(style) : style);
+  const result = mapStyleColors(shaped, mode);
   const size = readableFontSize(result.fontSize);
   const width = wideMaxWidth(result.maxWidth);
   const finalStyle = size !== result.fontSize || width !== result.maxWidth ? { ...result, fontSize: size, maxWidth: width } : result;
@@ -511,15 +527,25 @@ const SHARED_NEW_CSS = `
   .kdn-staff-tools{display:flex!important;justify-content:flex-end!important;align-items:center!important;gap:10px!important}
   .kdn-staff-tools-head{opacity:.85}
   /* NAVI 머리: 한 줄 제목 + 자료 수치. 설명 문장·지원 구성 버튼(요약 카드·4번 탭과 중복)은 숨김 */
-  .susi-beta-hero{padding:14px 20px!important}
+  /* NAVI 머리: 대시보드 섹션 제목처럼 상자 없이 큰 제목 + 오른쪽 자료 수치 알약 */
   .susi-beta-hero p,.susi-beta-hero .kd-support-plan-button{display:none!important}
-  .susi-beta-hero h2{margin:2px 0 0!important;font-size:22px!important}
-  .susi-beta-hero>div:last-child>div{display:flex!important;gap:14px;align-items:baseline;min-width:0!important}
+  .susi-beta-hero h2{margin:4px 0 0!important;font-size:28px!important;font-weight:900!important;letter-spacing:-.025em!important}
+  .susi-beta-hero h2 span{font-size:14px;font-weight:700;vertical-align:middle;padding:3px 9px;border-radius:999px;background:var(--kdn-accent-soft);color:var(--kdn-accent-text)}
+  .susi-beta-hero>div:first-child>div:first-child{font-size:13px!important;font-weight:500!important;color:var(--kdn-accent-text)!important}
+  .susi-beta-hero>div:last-child>div{display:flex!important;gap:8px;align-items:center;min-width:0!important}
+  .susi-beta-hero>div:last-child>div>*{display:inline-flex;align-items:center;min-height:32px;padding:0 12px;border-radius:999px;background:var(--kdn-surface);border:1px solid var(--kdn-line);font-size:13px!important;font-weight:600!important;color:var(--kdn-ink-soft)!important;white-space:nowrap}
+  .susi-beta-hero>div:last-child>div>b{color:var(--kdn-ink)!important;font-weight:800!important}
+  /* 상담 작업 바로가기(1~4)와 성적 기준 안내: 알약 버튼 + 상자 없는 보조 문장 */
+  .kd-workspace-jumps{display:flex!important;flex-wrap:wrap;gap:8px!important;border:0!important;background:none!important;padding:0!important}
+  .kd-workspace-jumps button{min-height:38px!important;padding:0 16px!important;border-radius:999px!important;border:1px solid var(--kdn-line)!important;background:var(--kdn-surface)!important;color:var(--kdn-ink-soft)!important;font-size:14px!important;font-weight:600!important;box-shadow:none!important}
+  .kd-workspace-jumps button:hover{border-color:var(--kdn-accent)!important;color:var(--kdn-accent-text)!important}
+  .kd-comparison-note{border:0!important;background:none!important;padding:0 4px!important;margin:0!important;font-size:13px!important;font-weight:500!important;color:var(--kdn-muted)!important}
   .susi-beta-beta-notice{border:0!important;background:transparent!important;padding:0 4px!important;font-size:12.5px!important;color:var(--kdn-muted)!important}
   .susi-beta-beta-notice svg{color:#c08a1e}
   /* 수시 지원 구성: 섹션 제목과 설명을 두 줄로, 빈 자리는 번호만 작게(같은 안내 문장 6번 반복 금지) */
   .kd-plan-section>div:first-child>div:first-child{display:grid!important;gap:4px}
-  .kd-plan-section>div:first-child>div:first-child>b{font-size:17px}
+  .kd-plan-section>div:first-child>div:first-child>b{font-size:20px;font-weight:850!important;letter-spacing:-.02em;color:var(--kdn-ink)}
+  .kd-plan-section>div:first-child>div:first-child>span{font-size:14px;font-weight:500;color:var(--kdn-muted)}
   .susi-beta-plan-empty{min-height:0!important;padding:14px!important;display:flex!important;align-items:center;justify-content:center;gap:8px!important}
   .susi-beta-plan-empty small{display:none}
   .susi-beta-plan-empty:first-of-type small{display:block;flex-basis:100%;text-align:center}
