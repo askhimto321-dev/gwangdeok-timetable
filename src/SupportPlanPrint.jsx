@@ -116,7 +116,38 @@ html,body{height:auto!important;overflow:visible!important}
 .kd-print-doc .kd-decision-card{overflow:visible!important}
 .kd-print-doc.is-mode-two .kd-decision-card{font-size:9pt!important}
 .kd-print-doc.is-mode-two .kd-decision-card h4{font-size:12pt!important}
-.kd-print-doc.is-mode-two .kd-course-chips span{font-size:8pt!important}`;
+.kd-print-doc.is-mode-two .kd-course-chips span{font-size:8pt!important}
+/* 넘치는 카드만 단계적으로 줄이기(fitPrintCards). 1단계: 수능최저 근거를 한 줄로 */
+.kd-print-doc .kd-decision-card.is-fit-1 .kd-minimum-grade-block{display:flex!important;align-items:center;gap:1mm;margin-top:.6mm!important;padding:0!important;border:0!important;background:none!important}
+.kd-print-doc .kd-decision-card.is-fit-1 .kd-minimum-grade-block>small{display:none!important}
+.kd-print-doc .kd-decision-card.is-fit-1 .kd-decision-subref,.kd-print-doc .kd-decision-card.is-fit-1 .kd-history-policy{display:none!important}
+.kd-print-doc .kd-decision-card.is-fit-1 .kd-minimum-rule-grid{display:flex!important;flex-wrap:wrap;gap:.6mm 2mm!important;margin-top:.6mm!important}
+.kd-print-doc .kd-decision-card.is-fit-1 .kd-minimum-fact{display:flex!important;gap:1mm;align-items:baseline;padding:0!important;border:0!important;background:none!important}
+.kd-print-doc .kd-decision-card.is-fit-1 .kd-minimum-fact b{margin:0!important}
+.kd-print-doc .kd-decision-card.is-fit-1 .kd-minimum-status{margin-top:.6mm!important}
+/* 2단계: 간격·글자 한 단계 작게 */
+.kd-print-doc .kd-decision-card.is-fit-2{gap:1mm!important;padding:1.8mm!important}
+.kd-print-doc .kd-decision-card.is-fit-2 .kd-decision-primary section{padding:1.2mm!important}
+.kd-print-doc .kd-decision-card.is-fit-2 .kd-decision-num-box b{font-size:10.5pt!important}
+.kd-print-doc .kd-decision-card.is-fit-2 .kd-course-details{padding:1mm 1.4mm!important}
+.kd-print-doc .kd-decision-card.is-fit-2 .kd-course-group-title{margin:.6mm 0 .4mm!important}
+/* 3단계: 권장과목 칩 촘촘하게 */
+.kd-print-doc .kd-decision-card.is-fit-3 .kd-course-chips span{font-size:6.6pt!important;padding:.3mm .8mm!important}
+.kd-print-doc .kd-decision-card.is-fit-3 .kd-decision-band-row{margin:.5mm 0 0!important}`;
+
+// 1번 요청: 수능최저 상자가 길어지는 대학(반영 과목·판정값·기준까지 표시)은 카드 아래 권장과목이 칸 밖으로 밀려
+// 다음 카드와 겹치거나 잘렸습니다. 인쇄 직전에 카드마다 실제 높이를 재서, 넘치는 카드만 단계적으로
+// (1) 수능최저 상자를 한 줄 요약으로 접고 (2) 글자·간격을 줄이고 (3) 권장과목 칩을 더 촘촘하게 만듭니다.
+export const PRINT_FIT_STEPS=['is-fit-1','is-fit-2','is-fit-3'];
+export function fitPrintCards(doc) {
+  const overflowing=card=>card.scrollHeight>card.clientHeight+1;
+  let remaining=0;
+  doc.querySelectorAll('.kd-print-doc .kd-decision-card').forEach(card=>{
+    for(const step of PRINT_FIT_STEPS){ if(!overflowing(card))break; card.classList.add(step); }
+    if(overflowing(card))remaining+=1;
+  });
+  return remaining;
+}
 
 export default function SupportPlanPrint(props) {
   const frame=useRef(null), [busy,setBusy]=useState(false), [message,setMessage]=useState('');
@@ -133,6 +164,7 @@ export default function SupportPlanPrint(props) {
       try{
         await el.contentDocument?.fonts?.ready;
         if(frame.current!==el)return;
+        fitPrintCards(el.contentDocument);
         el.contentWindow.focus();el.contentWindow.print();
         setMessage(`인쇄 창에서 ‘PDF로 저장’을 선택하세요. A4 가로 · 한 쪽에 최대 ${layout==='six'?6:2}장입니다.`);
         if(frame.current===el)setBusy(false);
