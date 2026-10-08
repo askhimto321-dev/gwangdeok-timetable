@@ -1631,6 +1631,19 @@ function StudentGradePrintSheet({
   </section>;
 }
 
+// 새 UI 성적 리포트 상단 요약 숫자 칸(화면 전용).
+function ReportSummaryTiles({ items = [] }) {
+  return <div className="no-print" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, margin: "12px 0" }}>
+    {items.map(item => {
+      const value = item.value == null || !Number.isFinite(Number(item.value)) ? "-" : Number(item.value).toFixed(item.digits ?? 2);
+      return <div key={item.label} style={{ display: "grid", gap: 7, padding: "16px 18px", borderRadius: 18, background: item.accent ? "var(--kdn-accent-soft)" : "#ffffff", border: "1px solid #e1e5eb" }}>
+        <span style={{ fontSize: 13.5, fontWeight: 800, color: item.accent ? "var(--kdn-accent-text)" : "#3a4150" }}>{item.label}</span>
+        <b style={{ fontSize: 30, fontWeight: 950, lineHeight: 1, color: item.accent ? "var(--kdn-accent-text)" : "#1f2430" }}>{value}{item.unit && <small style={{ fontSize: 13, fontWeight: 700, color: "#5d6574" }}> {item.unit}</small>}</b>
+      </div>;
+    })}
+  </div>;
+}
+
 function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const { semesterData, mockData, admissionRows, studentAccounts, cohortSettings } = gdb;
 
@@ -1841,6 +1854,12 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         gradeSystem={gradeSystem}
         actions={showGrades ? <button type="button" className="no-print" onClick={()=>setShowGradePrintOptions(true)} style={{display:"inline-flex",alignItems:"center",gap:6,border:"1px solid rgba(255,255,255,.5)",borderRadius:9,padding:"8px 11px",background:"rgba(255,255,255,.13)",color:"#fff",fontSize:11.5,fontWeight:900,cursor:"pointer",whiteSpace:"nowrap"}} title="학기별 내신과 모의고사 성적을 한 장으로 인쇄하거나 PDF로 저장합니다."><Printer size={14}/>성적표 인쇄·PDF</button> : null}
       />
+      {isNewUi() && showGrades && <ReportSummaryTiles items={[
+        { label: "전과목 평균", value: overallAverage, unit: gradeSystem === 5 ? "5등급제" : "9등급제", accent: true },
+        { label: "국영수과 평균", value: gradeSystem === 5 ? groups["국영수과"]?.avg5 : groups["국영수과"]?.avg9 },
+        { label: activeMockKey ? `모의고사 3합 · ${mockCalendarLabel(activeMockKey, entryYear)}` : "모의고사 3합", value: sums.sum3, digits: 0 },
+        { label: "수능최저 충족 대학", value: matchedUniversities.length, unit: "곳", digits: 0 },
+      ]} />}
       {showGradePrintOptions && <div className="grade-print-option-overlay no-print" onMouseDown={event=>{if(event.target===event.currentTarget)setShowGradePrintOptions(false)}}>
         <section className="grade-print-option-modal">
           <div className="grade-print-option-head"><div><b>성적표 인쇄 설정</b><span>9등급 환산 방식과 인쇄 항목을 선택하면 A4 한 페이지에 맞춰 자동 배치합니다.</span></div><button type="button" onClick={()=>setShowGradePrintOptions(false)}><X size={16}/></button></div>
