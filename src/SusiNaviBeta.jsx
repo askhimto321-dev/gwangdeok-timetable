@@ -2765,14 +2765,14 @@ export default function SusiNaviBetaView({
 
         {workspaceLoadError && <div className="kd-plan-error" role="alert">{workspaceLoadError}<button type="button" onClick={() => setWorkspaceReload(value => value + 1)}>다시 불러오기</button></div>}
         {workspaceMessage && viewTab !== "workspace" && <div role="status" style={ui.workspaceMessage}>{workspaceMessage}</div>}
-        <div className="susi-beta-consult-linkbar" style={ui.consultLinkBar}>
+        <div className="susi-beta-consult-linkbar kdn-hide-new" style={ui.consultLinkBar}>
           <div style={ui.consultLinkCopy}><span style={ui.consultLinkEyebrow}>상담 연계</span><b>관심 대학 → NAVI 분석 → 지원 구성 → 상담 기록</b><small>저장한 관심 대학과 NAVI 분석 결과를 같은 학생 상담 흐름에서 이어서 확인합니다.</small></div>
           <div style={ui.consultLinkStats}><span><small>관심 대학</small><b>{favorites.length}</b></span><span><small>지원 구성</small><b>{supportPlan.length}/6</b></span><span><small>대학 비교</small><b>{compareTray.length}/5</b></span></div>
           <div style={ui.consultLinkActions}>{onOpenConsultation && <button type="button" style={ui.consultReturnButton} onClick={onOpenConsultation}>관심대학·상담으로</button>}</div>
         </div>
 
         {viewTab === "search" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
-          <div className="susi-beta-criteria-guide" style={ui.tabGuide}><b>1단계 · 기준 설정</b><span><strong>학생의 5등급 내신을 9등급 기준으로 환산</strong>하고, 대학·지역·계열·전형 조건을 설정합니다.<br/><em>다음 단계에서 대학 상세 결과를 먼저 확인한 뒤 지원 연결 탐색으로 이어집니다.</em></span></div>
+          <div className="susi-beta-criteria-guide kdn-hide-new" style={ui.tabGuide}><b>1단계 · 기준 설정</b><span><strong>학생의 5등급 내신을 9등급 기준으로 환산</strong>하고, 대학·지역·계열·전형 조건을 설정합니다.<br/><em>다음 단계에서 대학 상세 결과를 먼저 확인한 뒤 지원 연결 탐색으로 이어집니다.</em></span></div>
           <div style={ui.converterPanel}>
             <div style={ui.sectionHeading}><div style={ui.step}>1</div><div><b style={ui.sectionTitle}>5·9등급 환산 기준</b><span style={ui.sectionSub}>현재 방식과 통계 기반 방식을 비교해서 사용할 수 있습니다.</span></div></div>
             {selectedStudent?.sid && <div className="susi-beta-student-auto" style={ui.studentAutoBar}>
@@ -2885,7 +2885,7 @@ export default function SusiNaviBetaView({
                 </div>
               </div>
             </div>
-            <div style={ui.searchWorkflowFooter}>
+            <div className="kdn-hide-new" style={ui.searchWorkflowFooter}>
               <span style={ui.workflowCopy}><b>다음 단계</b><em>먼저 대학별 모집단위와 전형 정보를 확인한 뒤, 필요한 대학을 기준으로 유사 지원군을 탐색할 수 있습니다.</em></span>
               <button type="button" style={ui.workflowNextButton} onClick={() => { setConnectionFocus(null); setPage(1); navigateViewTab("results"); }}>대학 상세 결과 보기 ›</button>
             </div>
@@ -2893,7 +2893,7 @@ export default function SusiNaviBetaView({
         </div>}
 
         {viewTab === "connection" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
-          <div style={ui.tabGuide}><b>대학 상세 다음 단계</b><span>대학 상세에서 확인한 모집단위를 바탕으로 <strong>내 성적대 전체 후보</strong> 또는 <strong>선택 대학과 비슷한 대학</strong>을 찾습니다. 실제 동일 학생의 복수지원 기록이 아니라 대학 공개 컷과 NAVI 통합 사례 통계를 연결한 탐색 결과입니다.</span></div>
+          <div className="kdn-hide-new" style={ui.tabGuide}><b>대학 상세 다음 단계</b><span>대학 상세에서 확인한 모집단위를 바탕으로 <strong>내 성적대 전체 후보</strong> 또는 <strong>선택 대학과 비슷한 대학</strong>을 찾습니다. 실제 동일 학생의 복수지원 기록이 아니라 대학 공개 컷과 NAVI 통합 사례 통계를 연결한 탐색 결과입니다.</span></div>
           {data?.caseStats?.length > 0 && <div style={ui.caseStatsGuide}><AlertTriangle size={14}/><span><b>‘NAVI 통합 지원사례 244건’은 해당 학과의 합격자 244명이 아닙니다.</b> 경기도교육청 원본은 여러 학교의 사례를 <strong>대학·전형·계열 단위</strong>로 통합하며, 일부 통계는 학과를 별도로 구분하지 않습니다. 대학 공개 모집단위 컷이 없는 경우에는 화면에 ‘계열 통합’으로 구분해 표시합니다.</span></div>}
           <SupportConnectionExplorer
             mode={connectionMode}
