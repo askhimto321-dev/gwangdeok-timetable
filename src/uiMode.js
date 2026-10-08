@@ -220,11 +220,27 @@ function emphasisFill(style) {
   return /gradient/.test(bg) ? "panel" : "accent";
 }
 
+// 가독성: 새 UI에서는 9~11px처럼 너무 작은 글자를 한 단계 키웁니다(12.5px 이상은 그대로).
+export function readableFontSize(value) {
+  const px = typeof value === "number" ? value : (typeof value === "string" && /^\d+(\.\d+)?px$/.test(value.trim()) ? parseFloat(value) : null);
+  if (px == null || px >= 12.5 || px <= 0) return value;
+  const next = Math.max(11.5, Math.round((px + 1) * 2) / 2);
+  return typeof value === "number" ? next : `${next}px`;
+}
+
 const styleCache = new WeakMap();
 export function mapStyleObject(style, mode = ACTIVE_MODE) {
   if (mode === "classic" || !style || typeof style !== "object") return style;
   const cached = styleCache.get(style);
   if (cached) return cached;
+  const result = mapStyleColors(style, mode);
+  const size = readableFontSize(result.fontSize);
+  const finalStyle = size !== result.fontSize ? { ...result, fontSize: size } : result;
+  styleCache.set(style, finalStyle);
+  return finalStyle;
+}
+
+function mapStyleColors(style, mode) {
   const fill = emphasisFill(style);
   if (fill) {
     const out = { ...style };
@@ -238,7 +254,6 @@ export function mapStyleObject(style, mode = ACTIVE_MODE) {
       } else if (key === "fontFamily") out[key] = mapFontFamily(out[key], mode);
       else if (key !== "background" && key !== "color" && roleForProperty(key)) out[key] = mapColorsInValue(out[key], roleForProperty(key), mode);
     }
-    styleCache.set(style, out);
     return out;
   }
   let out = null;
@@ -253,9 +268,7 @@ export function mapStyleObject(style, mode = ACTIVE_MODE) {
     }
     if (next !== value) { out ??= { ...style }; out[key] = next; }
   }
-  const result = out || style;
-  styleCache.set(style, result);
-  return result;
+  return out || style;
 }
 
 const cssTextCache = new Map();
@@ -265,6 +278,7 @@ export function mapCssText(css, mode = ACTIVE_MODE) {
   if (cssTextCache.has(cacheKey)) return cssTextCache.get(cacheKey);
   const result = css.replace(/([a-zA-Z-]+)(\s*:\s*)([^;{}]+)/g, (whole, prop, sep, value) => {
     if (prop.toLowerCase() === "font-family") return prop + sep + mapFontFamily(value, mode);
+    if (prop.toLowerCase() === "font-size") return prop + sep + readableFontSize(value.trim());
     const role = roleForProperty(prop);
     return role ? prop + sep + mapColorsInValue(value, role, mode) : whole;
   });
@@ -302,7 +316,7 @@ function mapRules(rules, mode) {
     for (let i = 0; i < style.length; i++) {
       const name = style[i];
       const value = style.getPropertyValue(name);
-      const next = name === "font-family" ? mapFontFamily(value, mode) : (roleForProperty(name) ? mapColorsInValue(value, roleForProperty(name), mode) : value);
+      const next = name === "font-family" ? mapFontFamily(value, mode) : name === "font-size" ? readableFontSize(value) : (roleForProperty(name) ? mapColorsInValue(value, roleForProperty(name), mode) : value);
       if (next !== value) style.setProperty(name, next, style.getPropertyPriority(name));
     }
   }
@@ -316,17 +330,24 @@ function mapSheet(sheet, mode) {
 const BASE_CSS = {
   dark: `
     :root{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e0dcd4;--kdn-muted:#c8c4bc;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#1f2238;--kdn-panel:#2e3040}
-    html,body{background:#1d1e24;color:#f4f1ea}
+    html,body{background:#1d1e24;color:#f4f1ea;word-break:keep-all;overflow-wrap:break-word}
     ::selection{background:#ff7a3d55}`,
   light: `
     :root{color-scheme:light;--kdn-bg:#f4f5f8;--kdn-surface:#ffffff;--kdn-surface-2:#f0f1f5;--kdn-line:#dfe2e8;--kdn-ink:#1f2430;--kdn-ink-soft:#3a4150;--kdn-muted:#5d6574;--kdn-accent:#cf4a12;--kdn-accent-ink:#ffffff;--kdn-accent-soft:#fff0e6;--kdn-accent-text:#b23e0c;--kdn-hero-art:#1f2238;--kdn-panel:#2a3040}
-    html,body{background:#f4f5f8;color:#1f2430}`,
+    html,body{background:#f4f5f8;color:#1f2430;word-break:keep-all;overflow-wrap:break-word}`,
 };
 
 // 다크 · 라이트 공통: 새 상단 메뉴의 모바일 배치, 겹치는 옛 머리 줄 숨김, 떠 있는 버튼 색 정리.
 const SHARED_NEW_CSS = `
   .kdn-mode-short{display:none}
   @media screen{.kdn-print-only{display:none!important}}
+  /* 학생 작업 줄: 안내 문구를 줄이고 버튼을 크게 */
+  .kdn-hide-new{display:none!important}
+  .kd-workspace-top-row{grid-template-columns:minmax(260px,.8fr) minmax(0,1.6fr)!important;align-items:center!important}
+  .kdn-openers{border:0!important;background:transparent!important;padding:0!important}
+  .kdn-openers button{min-height:40px!important;font-size:13.5px!important;border-radius:11px!important}
+  .kdn-openers .kd-workspace-opener-row>span{font-size:13px!important;min-height:40px;display:inline-flex!important;align-items:center;justify-content:center}
+  .kdn-search-wrap input{min-height:48px!important;font-size:16px!important}
   /* 관리자: 상단 탭 줄을 왼쪽 메뉴로 */
   .kdn-admin-layout{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
   .kdn-admin-layout>.kdn-admin-nav{flex:1 1 210px;max-width:260px;flex-direction:column!important;flex-wrap:nowrap!important;gap:4px!important;padding:10px;border-radius:20px;background:var(--kdn-surface);border:1px solid var(--kdn-line);position:sticky;top:84px}

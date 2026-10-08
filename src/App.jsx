@@ -1514,7 +1514,7 @@ export default function App() {
   }, [loggedInDepartment, departmentGradeAccessList, departmentTimetableAccessList, grade]);
 
   useEffect(() => {
-    if (loggedInTeacher && !teacherCanViewTimetable && section !== "teacherZone") setSection("teacherZone");
+    if (loggedInTeacher && !teacherCanViewTimetable && section !== "teacherZone" && section !== "home" && !(isNewUi() && section == null)) setSection("teacherZone");
   }, [loggedInTeacher, teacherCanViewTimetable, section]);
 
   useEffect(() => {
@@ -1624,6 +1624,19 @@ export default function App() {
             ? { role: "학생", id: loggedInStudent.id, name: loggedInStudent.name }
             : { role: classAuthed ? "공용 조회" : "이용자", id: "", name: "" };
 
+  // 새 UI 대시보드용 값(훅이라 아래 loading 조기 반환보다 먼저 호출합니다).
+  const dashboardActive = isNewUi() && (section || "home") === "home";
+  const dashboardLessonSlot = useLessonSlot(dashboardActive && !!loggedInStudent);
+  const dashboardStudentTimetable = useMemo(
+    () => (dashboardActive && loggedInStudent ? buildPersonalTimetable(loggedInStudent.id) : null),
+    [dashboardActive, loggedInStudent, buildPersonalTimetable],
+  );
+  const dashboardOpenStudent = useMemo(() => {
+    if (!dashboardActive || !selectedStudentSid) return null;
+    const info = Object.values(db.roster || {}).map(scopeRoster => scopeRoster?.[selectedStudentSid]).find(Boolean) || {};
+    return { sid: selectedStudentSid, name: info.name || "", classLabel: info.class ? `${info.class}반 ${info.number || ""}${info.number ? "번" : ""}`.trim() : "" };
+  }, [dashboardActive, selectedStudentSid, db.roster]);
+
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   const globalLogout = () => {
@@ -1635,7 +1648,7 @@ export default function App() {
     setSection(null);
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
-  const activeSection = section || "grades";
+  const activeSection = section || (isNewUi() ? "home" : "grades");
   const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
   const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
   const changeStudentWorkspaceView = (view) => {
@@ -1711,6 +1724,35 @@ export default function App() {
     });
   };
 
+  // 새 UI 대시보드(로그인 후 첫 화면)에 넘길 값. 훅은 로그인 여부와 관계없이 항상 같은 순서로 호출합니다.
+  const canSeeMinimum = !!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))));
+  const canSeeTeacherZone = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor);
+  const dashboardNavigate = (target, options = {}) => {
+    switchSection(target);
+    if (options.focusSearch) window.setTimeout(() => document.querySelector('input[placeholder*="통합 검색"]')?.focus(), 350);
+  };
+  const dashboardProps = {
+    kind: loggedInStudent && !staffWorkspaceEnabled && !loggedInMonitor ? "student" : "staff",
+    name: loggedInStudent?.name || "",
+    roleLabel: loggedInAdmin ? "관리자 계정으로 접속 중"
+      : loggedInTeacher ? `${loggedInTeacher.name || loggedInTeacher.id} 선생님${loggedInTeacher.homeroomClass ? ` · ${loggedInTeacher.homeroomClass}반 담임` : ""}`
+      : loggedInDepartment ? `${loggedInDepartment.name || loggedInDepartment.id} 부서 계정`
+      : loggedInMonitor ? "모니터 계정"
+      : loggedInStudent ? `${loggedInStudent.class ? `${loggedInStudent.class}반 ${loggedInStudent.number || ""}번 · ` : ""}학번 ${loggedInStudent.id}`
+      : "",
+    lesson: dashboardStudentTimetable ? { grid: dashboardStudentTimetable.grid, hasTimetable: dashboardStudentTimetable.hasTimetable, slot: dashboardLessonSlot } : null,
+    openStudent: dashboardOpenStudent,
+    onNavigate: dashboardNavigate,
+    onOpenStudentView: view => (staffWorkspaceEnabled ? changeStudentWorkspaceView(view) : switchSection(view === "timetable" ? "timetable" : "grades")),
+    shortcuts: [
+      { key: "grades", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
+      { key: "timetable", title: "시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 학급 공지", icon: <Calendar size={22} />, onClick: () => switchSection("timetable") },
+      ...(canSeeTeacherZone ? [{ key: "teacherZone", title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 비상연락망, 생기부 업무", icon: <Users size={22} />, onClick: () => switchSection("teacherZone") }] : []),
+      ...(canSeeMinimum ? [{ key: "minimumAchievement", title: "최소성취수준", text: "과목·학급별 최성보 판정과 출결 확인", icon: <Check size={22} />, onClick: () => switchSection("minimumAchievement") }] : []),
+      ...(loggedInAdmin ? [{ key: "admin", title: "관리자", text: "시간표·성적 데이터, 계정·권한, 공지 관리", icon: <Settings size={22} />, onClick: () => switchSection("admin") }] : []),
+    ],
+  };
+
   if (!anyLoggedIn) {
     return (
       isNewUi() ? <NewUiLanding attemptLogin={attemptLogin} showToast={showToast} /> :
@@ -1733,10 +1775,10 @@ export default function App() {
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
       {!loggedInStudent && <QuickLinksDock />}
-      <MegaNav active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
+      <MegaNav primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
       {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
       <SiteAnnouncementModal announcements={db.siteAnnouncements || []} viewer={loggedInAdmin?{...loggedInAdmin,role:"admin"}:loggedInTeacher?{...loggedInTeacher,role:"teacher"}:loggedInDepartment?{...loggedInDepartment,role:"department"}:loggedInMonitor?{...loggedInMonitor,role:"monitor"}:loggedInStudent?{...loggedInStudent,role:"student"}:null} />
-      {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
+      {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
         allowedGrades={workspaceAllowedGrades}
         selectedSid={selectedStudentSid}
@@ -1748,7 +1790,7 @@ export default function App() {
         openTabs={studentWorkspaceTabs}
         onCloseTab={closeStudentWorkspaceTab}
       />}
-      {staffWorkspaceEnabled && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <div style={{ display: activeSection === "grades" ? "block" : "none" }}>
+      {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <div style={{ display: activeSection === "grades" ? "block" : "none" }}>
         <DeferredPanel label="성적·진학 화면을 불러오는 중입니다."><GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
           roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
@@ -1763,7 +1805,9 @@ export default function App() {
           persistGrades={persistGrades}
         /></DeferredPanel>
       </div>}
-      {activeSection === "admin" ? (
+      {activeSection === "home" ? (
+        <NewUiDashboard {...dashboardProps} />
+      ) : activeSection === "admin" ? (
         <AdminConsole
           db={db} persist={persist} showToast={showToast} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester}
           scopeKey={scopeKey} roster={roster} enrollments={enrollments} timetables={timetables} abbrevMap={abbrevMap} persistAbbrev={persistAbbrev}
@@ -2207,14 +2251,14 @@ function StaffStudentWorkspaceBar({
   return <div className="no-print" style={styles.workspaceBarWrap}>
     <div style={styles.workspaceBarInner}>
       <div className="kd-workspace-top-row" style={styles.workspaceBarTopRow}>
-        <div style={styles.workspaceSearchWrap}>
+        <div className="kdn-search-wrap" style={styles.workspaceSearchWrap}>
           <Search size={16} color="#788397" />
           <input value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => setDraftQuery(event.target.value)} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }} placeholder="학생 학번·이름 통합 검색" style={styles.workspaceSearchInput} />
           {draftQuery && <button type="button" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={styles.workspaceClearBtn}><X size={14} /></button>}
           {matches.length > 0 && <div style={styles.workspaceMatches}>{matches.map(student => <button key={student.sid} type="button" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(String(student.sid)); setQueryEditing(false); onSelect(student.sid); }} style={styles.workspaceMatchItem}><b>{student.name}</b><span>{student.grade}학년 {student.class}반 {student.number}번 · {student.sid}</span></button>)}</div>}
         </div>
-        <div className="kd-workspace-openers" style={styles.workspaceOpeners}>
-          <div style={styles.workspaceOpenersHeader}><span style={styles.workspaceOpenersLabel}>새 작업 열기</span><small>화면을 열어두고 빠르게 전환</small></div>
+        <div className="kd-workspace-openers kdn-openers" style={styles.workspaceOpeners}>
+          <div className="kdn-hide-new" style={styles.workspaceOpenersHeader}><span style={styles.workspaceOpenersLabel}>새 작업 열기</span><small>화면을 열어두고 빠르게 전환</small></div>
           <div style={styles.workspaceOpenerRows}>
             {STUDENT_WORKSPACE_GROUPS.map(group => <div key={group.label} className="kd-workspace-opener-row" style={styles.workspaceOpenerRow}>
               <span style={{...styles.workspaceOpenerGroupLabel,...(group.label === "진학 상담" ? styles.workspaceOpenerGroupLabelCounsel : {})}}>{group.label}</span>
@@ -2227,7 +2271,7 @@ function StaffStudentWorkspaceBar({
             </div>)}
           </div>
         </div>
-        <div style={styles.workspaceStudentState}>{selectedSid ? <><span>선택 학생</span><strong>{selectedSid}</strong></> : <span>학생을 검색한 뒤 필요한 화면을 탭으로 열어두세요.</span>}</div>
+        <div className="kdn-hide-new" style={styles.workspaceStudentState}>{selectedSid ? <><span>선택 학생</span><strong>{selectedSid}</strong></> : <span>학생을 검색한 뒤 필요한 화면을 탭으로 열어두세요.</span>}</div>
       </div>
       <div className="kd-workspace-tab-strip" style={styles.workspaceTabStrip}>
         <span style={styles.workspaceTabStripLabel}>작업 탭</span>
@@ -2237,7 +2281,7 @@ function StaffStudentWorkspaceBar({
             {openTabs.length > 1 && <button type="button" aria-label={`${labelFor(view)} 탭 닫기`} title="탭 닫기" onClick={() => onCloseTab?.(view)} style={styles.workspaceTabClose}><X size={12}/></button>}
           </div>)}
         </div>
-        <span className="kd-workspace-tab-hint" style={styles.workspaceTabHint}>열어둔 화면은 학생을 바꾸기 전까지 상태를 유지합니다.</span>
+        <span className="kd-workspace-tab-hint kdn-hide-new" style={styles.workspaceTabHint}>열어둔 화면은 학생을 바꾸기 전까지 상태를 유지합니다.</span>
       </div>
     </div>
   </div>;
@@ -2367,8 +2411,9 @@ const newUiNavStyles = {
   ghost: { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 38, padding: "0 13px", borderRadius: 12, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13, fontWeight: 800, cursor: "pointer" },
 };
 
-function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
+function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, primaryAction }) {
   const items = [
+    { key: "home", label: "대시보드" },
     { key: "grades", label: "성적 · 진학" },
     { key: "timetable", label: "시간표" },
     ...(showTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE" }] : []),
@@ -2391,14 +2436,164 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
           ))}
         </div>
         <div className="kdn-nav-actions" style={newUiNavStyles.actions}>
-          <UiModeSwitch compact />
-          {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile}><Settings size={14}/>내 정보</button>}
+          <UiModeMenu />
+          {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile}>내 정보</button>}
           <button type="button" style={newUiNavStyles.ghost} onClick={onLogout}>로그아웃</button>
+          {primaryAction && <button type="button" onClick={primaryAction.onClick} style={{ ...newUiNavStyles.ghost, border: 0, background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", padding: "0 18px", fontSize: 14 }}><Search size={15} />{primaryAction.label}</button>}
         </div>
       </div>
     </nav>
   );
 }
+
+// 새 UI 상단 오른쪽 톱니바퀴: 화면 모드(기존 / 다크 / 라이트)를 고르는 작은 메뉴.
+function UiModeMenu() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const current = getUiMode();
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = event => { if (ref.current && !ref.current.contains(event.target)) setOpen(false); };
+    const escape = event => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", escape);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", escape); };
+  }, [open]);
+  return (
+    <div ref={ref} className="no-print" style={{ position: "relative" }}>
+      <button type="button" aria-label="화면 설정" aria-haspopup="menu" aria-expanded={open} title="화면 설정" onClick={() => setOpen(value => !value)} style={{ ...newUiNavStyles.ghost, width: 42, padding: 0, justifyContent: "center" }}><Settings size={18} /></button>
+      {open && <div role="menu" aria-label="화면 모드" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 60, width: 220, padding: 8, borderRadius: 16, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 18px 40px rgba(0,0,0,.35)" }}>
+        <div style={{ padding: "6px 10px 8px", fontSize: 13, fontWeight: 800, color: "var(--kdn-muted)" }}>화면 모드</div>
+        {UI_MODES.map(mode => (
+          <button key={mode.key} type="button" role="menuitemradio" aria-checked={current === mode.key} onClick={() => setUiMode(mode.key)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", minHeight: 42, padding: "0 12px", border: 0, borderRadius: 11, cursor: "pointer", fontSize: 14.5, fontWeight: 800, background: current === mode.key ? "var(--kdn-accent-soft)" : "transparent", color: current === mode.key ? "var(--kdn-accent-text)" : "var(--kdn-ink)" }}>
+            {mode.label}{current === mode.key && <Check size={16} />}
+          </button>
+        ))}
+      </div>}
+    </div>
+  );
+}
+
+// 새 UI 로그인 후 첫 화면(대시보드). 참고 사이트 구성: 큰 3줄 제목 + 버튼 2개 + 안내 한 줄,
+// 오른쪽 그림 위에 떠 있는 핵심 카드 1장, 아래 큰 바로가기 카드 줄.
+function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [] }) {
+  const student = kind === "student";
+  const headline = student
+    ? [`${name || ""} 학생,`, "오늘 수업과 공지를", "한 번에 확인해요."]
+    : ["성적 확인부터", "지원 전략까지,", "한 흐름으로."];
+  const sub = student
+    ? "내 시간표, 이동수업 교실, 학급 공지와 성적 리포트를 이곳에서 바로 열 수 있어요."
+    : "학생을 검색하면 성적 리포트 · 대학 탐색 · 관심대학·상담 · NAVI 분석이 같은 작업 탭으로 이어집니다.";
+  return (
+    <main style={dash.page}>
+      <section style={dash.hero}>
+        <div style={dash.heroText}>
+          <h1 style={dash.h1}>
+            <span style={{ display: "block" }}>{headline[0]}</span>
+            <span style={{ display: "block", color: "var(--kdn-accent)" }}>{headline[1]}</span>
+            <span style={{ display: "block", color: "var(--kdn-accent)" }}>{headline[2]}</span>
+          </h1>
+          <p style={dash.sub}>{sub}</p>
+          <div style={dash.ctaRow}>
+            {student
+              ? <><button type="button" style={dash.cta} onClick={() => onNavigate("timetable")}>내 시간표 보기 <ArrowRight size={18} /></button>
+                  <button type="button" style={dash.ctaGhost} onClick={() => onNavigate("grades")}><BookOpen size={18} /> 성적 리포트</button></>
+              : <><button type="button" style={dash.cta} onClick={() => onNavigate("grades", { focusSearch: true })}>학생 찾아 상담 시작 <ArrowRight size={18} /></button>
+                  <button type="button" style={dash.ctaGhost} onClick={() => onOpenStudentView("susiNaviBeta")}><BookOpen size={18} /> 2027 수시 NAVI</button></>}
+          </div>
+          <p style={dash.note}><Users size={16} /> {roleLabel}</p>
+        </div>
+        <div style={dash.heroSide}>
+          <div aria-hidden="true" style={dash.art} dangerouslySetInnerHTML={{ __html: LANDING_HERO_SVG }} />
+          <div style={dash.floatCard}>
+            {student ? <DashboardLessonCard lesson={lesson} onOpen={() => onNavigate("timetable")} />
+              : <DashboardStudentCard student={openStudent} onSearch={() => onNavigate("grades", { focusSearch: true })} onOpenStudentView={onOpenStudentView} />}
+          </div>
+        </div>
+      </section>
+      {shortcuts.length > 0 && <section aria-labelledby="kdn-dash-shortcuts" style={dash.shortcuts}>
+        <h2 id="kdn-dash-shortcuts" style={dash.h2}>바로가기</h2>
+        <div style={dash.grid}>
+          {shortcuts.map(item => (
+            <button key={item.key} type="button" onClick={item.onClick} style={dash.shortcut}>
+              <span style={dash.shortcutIcon}>{item.icon}</span>
+              <b style={dash.shortcutTitle}>{item.title}</b>
+              <span style={dash.shortcutText}>{item.text}</span>
+              <span style={dash.shortcutGo}>열기 <ArrowRight size={15} /></span>
+            </button>
+          ))}
+        </div>
+      </section>}
+    </main>
+  );
+}
+
+function DashboardLessonCard({ lesson, onOpen }) {
+  const slot = lesson?.slot;
+  const cell = slot ? lesson.grid?.[slot.day]?.[slot.pi] : null;
+  const place = !cell ? "" : cell.type === "move" ? [cell.group && `이동수업 ${cell.group}`, cell.roomLabel && (cell.moved ? `${cell.roomLabel}로 이동` : cell.roomLabel)].filter(Boolean).join(" · ") : (cell.location || "우리 반 교실");
+  return <>
+    <span style={dash.cardKicker}>{!slot ? "오늘 수업" : slot.state === "now" ? "지금 수업" : "다음 수업"}</span>
+    {slot ? <>
+      <b style={dash.cardBig}>{slot.period}교시</b>
+      <span style={dash.cardTime}>{slot.day}요일 · {clockText(slot.start)}–{clockText(slot.start + LESSON_MINUTES)}</span>
+      <div style={dash.cardRow}><span style={dash.cardLabel}>과목</span><b style={dash.cardValue}>{cell ? cell.subject : "수업 없음"}</b></div>
+      {place && <div style={dash.cardRow}><span style={dash.cardLabel}>교실</span><b style={dash.cardValue}>{place}</b></div>}
+    </> : <b style={dash.cardValue}>{lesson?.hasTimetable === false ? "등록된 시간표가 없어요." : "오늘 남은 수업이 없어요."}</b>}
+    <button type="button" onClick={onOpen} style={dash.cardButton}>시간표 전체 보기 <ArrowRight size={15} /></button>
+  </>;
+}
+
+function DashboardStudentCard({ student, onSearch, onOpenStudentView }) {
+  if (!student) return <>
+    <span style={dash.cardKicker}>학생 바로 찾기</span>
+    <b style={dash.cardValue}>아직 연 학생이 없어요.</b>
+    <span style={dash.cardTime}>학번이나 이름으로 검색하면 성적부터 NAVI까지 한 번에 열립니다.</span>
+    <button type="button" onClick={onSearch} style={dash.cardButtonAccent}><Search size={16} /> 학생 검색하기</button>
+  </>;
+  const views = [["grades", "성적 리포트"], ["consultation", "관심대학 · 상담"], ["susiNaviBeta", "NAVI 분석"], ["timetable", "개인 시간표"]];
+  return <>
+    <span style={dash.cardKicker}>최근 연 학생</span>
+    <b style={dash.cardBig}>{student.name || "이름 미등록"}</b>
+    <span style={dash.cardTime}>{[student.sid, student.classLabel].filter(Boolean).join(" · ")}</span>
+    <div style={dash.cardLinks}>
+      {views.map(([view, label]) => <button key={view} type="button" onClick={() => onOpenStudentView(view)} style={dash.cardLink}>{label}<ArrowRight size={14} /></button>)}
+    </div>
+  </>;
+}
+
+const dash = {
+  page: { maxWidth: 1240, margin: "0 auto", padding: "56px 24px 72px", color: "var(--kdn-ink)" },
+  hero: { display: "flex", flexWrap: "wrap", gap: 48, alignItems: "center" },
+  heroText: { flex: "1 1 460px", minWidth: 0, display: "flex", flexDirection: "column", gap: 24 },
+  h1: { margin: 0, fontSize: "clamp(38px, 5.6vw, 64px)", lineHeight: 1.18, fontWeight: 900, letterSpacing: "-.025em" },
+  sub: { margin: 0, maxWidth: 520, fontSize: 18.5, lineHeight: 1.7, color: "var(--kdn-ink-soft)" },
+  ctaRow: { display: "flex", gap: 12, flexWrap: "wrap" },
+  cta: { display: "inline-flex", alignItems: "center", gap: 10, minHeight: 54, padding: "0 26px", borderRadius: 14, border: 0, background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", fontSize: 17, fontWeight: 900, cursor: "pointer" },
+  ctaGhost: { display: "inline-flex", alignItems: "center", gap: 10, minHeight: 54, padding: "0 24px", borderRadius: 14, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 17, fontWeight: 900, cursor: "pointer" },
+  note: { margin: 0, display: "flex", alignItems: "center", gap: 8, fontSize: 14.5, fontWeight: 700, color: "var(--kdn-muted)" },
+  heroSide: { flex: "1 1 460px", minWidth: 0, position: "relative", paddingBottom: 8 },
+  art: { height: 300, borderRadius: 26, overflow: "hidden" },
+  floatCard: { position: "relative", margin: "-150px 0 0 28px", width: "min(400px, calc(100% - 28px))", display: "grid", gap: 10, padding: "24px 24px 20px", borderRadius: 24, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 24px 60px rgba(0,0,0,.35)" },
+  cardKicker: { fontSize: 14, fontWeight: 800, color: "var(--kdn-muted)" },
+  cardBig: { fontSize: 40, fontWeight: 950, lineHeight: 1.05, letterSpacing: "-.02em" },
+  cardTime: { fontSize: 15, fontWeight: 700, color: "var(--kdn-ink-soft)", lineHeight: 1.5 },
+  cardRow: { display: "grid", gap: 3, paddingTop: 12, borderTop: "1px solid var(--kdn-line)" },
+  cardLabel: { fontSize: 13.5, fontWeight: 800, color: "var(--kdn-muted)" },
+  cardValue: { fontSize: 20, fontWeight: 900, lineHeight: 1.35 },
+  cardButton: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, minHeight: 44, marginTop: 6, borderRadius: 12, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 14.5, fontWeight: 900, cursor: "pointer" },
+  cardButtonAccent: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 48, marginTop: 6, borderRadius: 12, border: 0, background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", fontSize: 15.5, fontWeight: 900, cursor: "pointer" },
+  cardLinks: { display: "grid", gap: 6, paddingTop: 12, borderTop: "1px solid var(--kdn-line)" },
+  cardLink: { display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 42, padding: "0 12px", borderRadius: 11, border: 0, background: "var(--kdn-surface-2)", color: "var(--kdn-ink)", fontSize: 15, fontWeight: 800, cursor: "pointer" },
+  shortcuts: { marginTop: 64, display: "grid", gap: 18 },
+  h2: { margin: 0, fontSize: 24, fontWeight: 900 },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 },
+  shortcut: { display: "grid", gap: 10, alignContent: "start", textAlign: "left", padding: 22, borderRadius: 22, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", color: "var(--kdn-ink)", cursor: "pointer", font: "inherit" },
+  shortcutIcon: { width: 46, height: 46, borderRadius: 15, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft)", color: "var(--kdn-accent-text)" },
+  shortcutTitle: { fontSize: 18.5, fontWeight: 900 },
+  shortcutText: { fontSize: 15, lineHeight: 1.6, color: "var(--kdn-ink-soft)" },
+  shortcutGo: { display: "inline-flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 14, fontWeight: 900, color: "var(--kdn-accent-text)" },
+};
 
 function NewUiLanding({ attemptLogin, showToast }) {
   return (
@@ -2413,7 +2608,7 @@ function NewUiLanding({ attemptLogin, showToast }) {
               <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
             </span>
           </div>
-          <div style={{ marginLeft: "auto" }}><UiModeSwitch /></div>
+          <div style={{ marginLeft: "auto" }}><UiModeMenu /></div>
         </div>
       </header>
       <main style={{ maxWidth: 1180, margin: "0 auto", padding: "56px 24px 64px", display: "flex", flexWrap: "wrap", gap: 40, alignItems: "center" }}>

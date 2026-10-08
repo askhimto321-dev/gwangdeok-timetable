@@ -816,7 +816,7 @@ export default function GradesSection({
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
         {isNewUi() && activeStudentSid && <NewCounselHeader sid={activeStudentSid} gdb={gdb} student={susiNaviStudent} studentInfo={loggedInStudent || roster?.[activeStudentSid]} favoriteCount={activeFlowFavoriteCount} showPlan={tab === "consultation"} onOpenPlan={() => openSusiNaviWorkspace(tab === "consultation")} />}
         {activeStudentSid && <div className="kd-counsel-flow no-print" style={counselFlow.wrap}>
-          <div style={counselFlow.head}><div><b>학생 상담 흐름</b><span>{activeFlowStudentName ? `${activeFlowStudentName} 학생 · ` : ""}성적 확인부터 관심대학·NAVI 분석·상담 기록까지 같은 흐름에서 이어집니다.</span></div><div className="kd-support-plan-entry-actions"><span style={counselFlow.favoriteCount}><Star size={12} fill="currentColor"/> 관심 {activeFlowFavoriteCount}</span><SupportPlanButton onClick={() => openSusiNaviWorkspace(tab === "consultation")} count={activeSupportPlanCount}/></div></div>
+          {!isNewUi() && <div style={counselFlow.head}><div><b>학생 상담 흐름</b><span>{activeFlowStudentName ? `${activeFlowStudentName} 학생 · ` : ""}성적 확인부터 관심대학·NAVI 분석·상담 기록까지 같은 흐름에서 이어집니다.</span></div><div className="kd-support-plan-entry-actions"><span style={counselFlow.favoriteCount}><Star size={12} fill="currentColor"/> 관심 {activeFlowFavoriteCount}</span><SupportPlanButton onClick={() => openSusiNaviWorkspace(tab === "consultation")} count={activeSupportPlanCount}/></div></div>}
           <div style={counselFlow.steps}>{counselingFlowItems.map((item,index)=><button key={item.key} type="button" onClick={()=>navigateGradeTab(item.key)} style={{...counselFlow.step,...(tab===item.key?counselFlow.stepActive:{})}}><span style={{...counselFlow.stepNumber,...(tab===item.key?counselFlow.stepNumberActive:{})}}>{index+1}</span><span style={counselFlow.stepText}><b>{item.label}</b><small>{item.sub}</small></span>{index<counselingFlowItems.length-1&&<em style={counselFlow.arrow}>›</em>}</button>)}</div>
         </div>}
         {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
@@ -3902,7 +3902,7 @@ function NewCounselHeader({ sid, gdb, student, studentInfo, favoriteCount, showP
   const planItems = useSupportPlanItems(sid);
   const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
   return <div className="no-print" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
-    <div style={{ flex: "999 1 600px", minWidth: 0 }}><CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} /></div>
+    <div style={{ flex: "999 1 600px", minWidth: 0 }}><CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} onOpenPlan={onOpenPlan} /></div>
     {showPlan && <div style={{ flex: "1 1 300px", minWidth: 0 }}><SupportPlanSlots items={planItems} onOpen={onOpenPlan} /></div>}
   </div>;
 }

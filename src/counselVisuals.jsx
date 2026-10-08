@@ -26,16 +26,17 @@ export function useSupportPlanItems(sid) {
   return items;
 }
 
-function Stat({ label, value, unit, tone }) {
+function Stat({ label, value, unit, tone, onClick }) {
+  const Tag = onClick ? "button" : "div";
   return (
-    <div style={{ ...s.stat, ...(tone === "accent" ? s.statAccent : {}) }}>
+    <Tag type={onClick ? "button" : undefined} onClick={onClick} style={{ ...s.stat, ...(tone === "accent" ? s.statAccent : {}), ...(onClick ? s.statButton : {}) }}>
       <span style={{ ...s.statLabel, ...(tone === "accent" ? s.statLabelAccent : {}) }}>{label}</span>
       <b style={{ ...s.statValue, ...(tone === "accent" ? s.statValueAccent : {}) }}>{value}{unit && <small style={s.statUnit}> {unit}</small>}</b>
-    </div>
+    </Tag>
   );
 }
 
-export function CounselStudentSummary({ student, identity, favoriteCount = 0, planCount }) {
+export function CounselStudentSummary({ student, identity, favoriteCount = 0, planCount, onOpenPlan }) {
   if (!student) return null;
   const groups = student.grade5ByGroup || {};
   const mock = student.latestMockSums;
@@ -57,7 +58,7 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
         <Stat label="국수영과" value={fmt(groups.국수영과)} />
         <Stat label="최근 모의 3합" value={mock?.sum3 ?? "-"} />
         <Stat label="관심 대학" value={favoriteCount} unit="개" />
-        <Stat label="수시 지원 구성" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" />
+        <Stat label="수시 지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} />
       </div>
     </section>
   );
@@ -92,17 +93,18 @@ export function SupportPlanSlots({ items, onOpen }) {
 
 const s = {
   card: { display: "flex", flexWrap: "wrap", gap: 20, alignItems: "center", padding: "20px 22px", borderRadius: 22, background: "#ffffff", border: "1px solid #e1e5eb", height: "100%", boxSizing: "border-box" },
-  identity: { display: "flex", alignItems: "center", gap: 14, flex: "1 1 260px", minWidth: 0 },
+  identity: { display: "flex", alignItems: "center", gap: 14, flex: "1 1 320px", minWidth: 0 },
   avatar: { width: 58, height: 58, borderRadius: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft, #fff0e6)", color: "var(--kdn-accent-text, #b23e0c)", fontSize: 24, fontWeight: 950, flex: "none" },
   identityText: { display: "grid", gap: 3, minWidth: 0 },
   eyebrow: { fontSize: 12.5, fontWeight: 800, color: "#5d6574" },
   name: { fontSize: 24, fontWeight: 950, color: "#1f2430", letterSpacing: "-.02em" },
-  meta: { fontSize: 14, fontWeight: 700, color: "#3a4150" },
-  metaSub: { fontSize: 12.5, fontWeight: 700, color: "#5d6574" },
+  meta: { fontSize: 15, fontWeight: 700, color: "#3a4150", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  metaSub: { fontSize: 13.5, fontWeight: 700, color: "#5d6574", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   stats: { flex: "999 1 520px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(118px, 1fr))", gap: 10 },
-  stat: { display: "grid", gap: 6, padding: "13px 15px", borderRadius: 16, background: "#f3f5f8" },
+  stat: { display: "grid", gap: 6, alignContent: "start", padding: "14px 16px", borderRadius: 16, background: "#f3f5f8", textAlign: "left", font: "inherit", border: 0 },
+  statButton: { cursor: "pointer" },
   statAccent: { background: "var(--kdn-accent-soft, #fff0e6)" },
-  statLabel: { fontSize: 13, fontWeight: 800, color: "#3a4150" },
+  statLabel: { fontSize: 14, fontWeight: 800, color: "#3a4150", whiteSpace: "nowrap" },
   statLabelAccent: { color: "var(--kdn-accent-text, #b23e0c)" },
   statValue: { fontSize: 26, fontWeight: 950, lineHeight: 1, color: "#1f2430" },
   statValueAccent: { color: "var(--kdn-accent-text, #b23e0c)" },
