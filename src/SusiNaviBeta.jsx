@@ -2741,7 +2741,7 @@ export default function SusiNaviBetaView({
       {/* 2번 요청: 왼쪽 소개 글이 자기 내용만큼만 폭을 차지하고 늘어나지 않아서, space-between이
           가운데에 큰 빈 공간을 만들고 있었습니다. 왼쪽 블록에 flex:1을 줘서 남는 폭을 항상 채우게
           하고, 오른쪽 버튼·통계 묶음은 줄바꿈 없이 한 덩어리로 붙어 다니게 고정합니다. */}
-      <div style={ui.hero}>
+      <div className="susi-beta-hero" style={ui.hero}>
         <div style={ui.heroIntro}><div style={ui.heroEyebrow}><Sparkles size={14} /> 경기도교육청 교사용 자료 기반 · 독립 시험 운영</div><h2 style={ui.heroTitle}>2027 수시NAVI <span>Beta</span></h2><p style={ui.heroText}>경기도교육청 통합 자료를 기반으로 대학·모집단위, 전년도 입시결과와 NAVI 통합 사례를 조회합니다.</p></div>
         <div className="kd-support-plan-entry-actions" style={ui.heroActions}><SupportPlanButton onClick={() => navigateViewTab("workspace")} count={workspaceLoadError ? null : supportPlan.length}/>{data && <div style={ui.heroStats}><b>{data.stats?.universities?.toLocaleString()}개 대학</b><span>{data.stats?.records?.toLocaleString()}개 모집단위</span><small>자료 기준 {data.source?.sourceDate || "확인 필요"}</small></div>}</div>
       </div>
@@ -2755,11 +2755,11 @@ export default function SusiNaviBetaView({
             <button type="button" role="tab" aria-selected={viewTab === "search"} onClick={() => navigateViewTab("search")} style={{ ...ui.viewTab, ...(viewTab === "search" ? ui.viewTabActive : {}) }}><span>1</span><b>기준 설정</b><small>환산·검색 조건</small></button>
             <button type="button" role="tab" aria-selected={viewTab === "results"} onClick={() => navigateViewTab("results")} style={{ ...ui.viewTab, ...(viewTab === "results" ? ui.viewTabActive : {}) }}><span>2</span><b>대학 상세</b><small>{filtered.length.toLocaleString()}개 모집단위</small></button>
             <button type="button" role="tab" aria-selected={viewTab === "connection"} onClick={() => navigateViewTab("connection")} style={{ ...ui.viewTab, ...(viewTab === "connection" ? ui.viewTabActive : {}) }}><span>3</span><b>지원 연결</b><small>유사 대학 탐색</small></button>
-            <button type="button" className="kd-support-plan-tab" role="tab" aria-selected={viewTab === "workspace"} onClick={() => navigateViewTab("workspace")} style={{ ...ui.viewTab, background: viewTab === "workspace" ? "#9a3412" : "#fff4e9", color: viewTab === "workspace" ? "#fff" : "#8a2e0e", borderColor: "#c36e3e" }}><span>4</span><b>수시 지원 구성</b><small>지원 {supportPlan.length}/6 · 비교 {compareTray.length}/5</small></button>
+            <button type="button" className="kd-support-plan-tab" role="tab" aria-selected={viewTab === "workspace"} onClick={() => navigateViewTab("workspace")} style={isNewUi() ? { ...ui.viewTab, ...(viewTab === "workspace" ? ui.viewTabActive : {}) } : { ...ui.viewTab, background: viewTab === "workspace" ? "#9a3412" : "#fff4e9", color: viewTab === "workspace" ? "#fff" : "#8a2e0e", borderColor: "#c36e3e" }}><span>4</span><b>수시 지원 구성</b><small>지원 {supportPlan.length}/6 · 비교 {compareTray.length}/5</small></button>
           </div>
           <div className="susi-beta-view-actions" style={ui.viewToolbarActions}>
-            <span style={ui.cutoffStatusChip}><small>현재 지원 판정 기준</small><b>{cutoffBasis}%컷</b></span>
-            <button type="button" style={ui.printButton} onClick={() => { navigateViewTab("results", { replace: true }); window.setTimeout(() => triggerSectionPrint("kd-print-target-result"), 90); }}><Printer size={16}/>대학 상세 인쇄·PDF</button>
+            <span className="kdn-hide-new" style={ui.cutoffStatusChip}><small>현재 지원 판정 기준</small><b>{cutoffBasis}%컷</b></span>
+            <button type="button" className={viewTab === "results" ? "" : "kdn-hide-new"} style={ui.printButton} onClick={() => { navigateViewTab("results", { replace: true }); window.setTimeout(() => triggerSectionPrint("kd-print-target-result"), 90); }}><Printer size={16}/>대학 상세 인쇄·PDF</button>
           </div>
         </div>
 
@@ -3746,12 +3746,12 @@ function SupportDecisionWorkspace({
   });
 
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
-    <div className="susi-beta-workspace-hero" style={ui.workspaceHero}>
+    <div className="susi-beta-workspace-hero kdn-hide-new" style={ui.workspaceHero}>
       <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch95</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
       <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
-    <div className="susi-beta-counsel-flow" style={ui.workspaceFlow}>
+    <div className="susi-beta-counsel-flow kdn-hide-new" style={ui.workspaceFlow}>
       <div style={ui.workspaceFlowCopy}><b>상담 흐름</b><span>관심 대학 저장 → NAVI 기준 확인 → 지원 구성/비교 → 상담 기록으로 이어집니다.</span></div>
       <div style={ui.workspaceFlowStats}><span><small>관심 대학</small><b>{favoriteCount}개</b></span><span><small>지원 구성</small><b>{planItems.length}/6</b></span><span><small>대학 비교</small><b>{compareItems.length}/5</b></span></div>
       {onOpenConsultation && <button type="button" style={ui.workspaceConsultButton} onClick={onOpenConsultation}><Star size={14}/>관심대학·상담으로</button>}

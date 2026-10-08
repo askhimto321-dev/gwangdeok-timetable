@@ -462,6 +462,25 @@ const SHARED_NEW_CSS = `
   :root .susi-beta-support-filter [aria-label="지원 구간 비교 기준"] button[aria-pressed="true"] small{color:var(--kdn-accent-text)!important}
   .susi-beta-view-tabs button small{font-size:12.5px}
   .susi-beta-tab-panel details>summary>span:first-child{font-size:13px!important;font-weight:800;color:var(--kdn-ink-soft)}
+  /* 화면 정리: 학생 작업 줄(상단 탭)이 있으면 같은 이동을 하는 상담 4단계 카드와 중복 버튼은 숨깁니다. */
+  body:has(.kdn-work-bar) .kd-counsel-flow{display:none!important}
+  body:has(.kdn-work-bar) .kdn-staff-tools .kdn-dup-nav{display:none!important}
+  .kdn-staff-tools{display:flex!important;justify-content:flex-end!important;align-items:center!important;gap:10px!important}
+  .kdn-staff-tools-head{opacity:.85}
+  /* NAVI 머리: 한 줄 제목 + 자료 수치. 설명 문장·지원 구성 버튼(요약 카드·4번 탭과 중복)은 숨김 */
+  .susi-beta-hero{padding:14px 20px!important}
+  .susi-beta-hero p,.susi-beta-hero .kd-support-plan-button{display:none!important}
+  .susi-beta-hero h2{margin:2px 0 0!important;font-size:22px!important}
+  .susi-beta-hero>div:last-child>div{display:flex!important;gap:14px;align-items:baseline;min-width:0!important}
+  .susi-beta-beta-notice{border:0!important;background:transparent!important;padding:0 4px!important;font-size:12.5px!important;color:var(--kdn-muted)!important}
+  .susi-beta-beta-notice svg{color:#c08a1e}
+  /* 수시 지원 구성: 섹션 제목과 설명을 두 줄로, 빈 자리는 번호만 작게(같은 안내 문장 6번 반복 금지) */
+  .kd-plan-section>div:first-child>div:first-child{display:grid!important;gap:4px}
+  .kd-plan-section>div:first-child>div:first-child>b{font-size:17px}
+  .susi-beta-plan-empty{min-height:0!important;padding:14px!important;display:flex!important;align-items:center;justify-content:center;gap:8px!important}
+  .susi-beta-plan-empty small{display:none}
+  .susi-beta-plan-empty:first-of-type small{display:block;flex-basis:100%;text-align:center}
+  .susi-beta-plan-empty:first-of-type{flex-wrap:wrap}
   /* NAVI 대학 상세: 검색·필터·적용 조건을 한 상자(툴바)로. 검색 줄이 맨 위 */
   .kdn-navi-toolbar{display:flex;flex-direction:column;gap:14px;padding:16px 18px;border:1px solid var(--kdn-line);border-radius:16px;background:var(--kdn-surface)}
   .kdn-navi-toolbar>*{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}

@@ -825,8 +825,8 @@ export default function GradesSection({
             <div style={staffToolNav.buttons}>
               <button type="button" onClick={() => navigateGradeTab("gradeCompare")} style={{ ...staffToolNav.button, ...(tab === "gradeCompare" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 학생 성적 비교</button>
               <button type="button" onClick={() => navigateGradeTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
-              <button type="button" onClick={() => navigateGradeTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
-              <button type="button" onMouseEnter={preloadSusiNaviView} onFocus={preloadSusiNaviView} onClick={() => navigateGradeTab("susiNaviBeta")} style={{ ...staffToolNav.button, ...(tab === "susiNaviBeta" ? staffToolNav.active : {}) }}><BookOpen size={13} /> 2027 수시NAVI <span style={{ fontSize: 9, opacity: .78 }}>Beta</span></button>
+              <button type="button" className="kdn-dup-nav" onClick={() => navigateGradeTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
+              <button type="button" className="kdn-dup-nav" onMouseEnter={preloadSusiNaviView} onFocus={preloadSusiNaviView} onClick={() => navigateGradeTab("susiNaviBeta")} style={{ ...staffToolNav.button, ...(tab === "susiNaviBeta" ? staffToolNav.active : {}) }}><BookOpen size={13} /> 2027 수시NAVI <span style={{ fontSize: 9, opacity: .78 }}>Beta</span></button>
               {loggedInTeacher && loggedInTeacher.homeroomClass && <button type="button" onClick={() => navigateGradeTab("class")} style={{ ...staffToolNav.button, ...(tab === "class" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 담임반 학생 계정</button>}
             </div>
           </div>
