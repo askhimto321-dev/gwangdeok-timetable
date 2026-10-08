@@ -144,6 +144,8 @@ function darkMap(role, [L, C, H]) {
 // 라이트 모드: 따뜻한 미색 계열 바탕을 중립 회색으로만 정리합니다.
 function lightMap(role, [L, C, H]) {
   // 미색(따뜻한 회백색)만 중립으로 바꾸고, 파랑·초록 같은 옅은 색 바탕은 그대로 둡니다.
+  // 라이트 모드의 아주 옅은 테두리(흰 바탕 위에서 거의 안 보이는 선)는 한 단계 진하게 해서 상자 경계를 드러냅니다.
+  if (role === "border" && L >= 0.86 && L <= 0.975 && C < 0.05) return [0.86 + (L - 0.86) * 0.45, C < 0.015 ? Math.min(C, 0.006) : C, C < 0.015 ? 4.4 : H];
   if ((role === "bg" || role === "border") && L >= 0.88 && C < 0.015) return [L, Math.min(C, 0.004), 4.4];
   if (role === "text" && L < 0.5 && C < 0.03) return [L, Math.min(C, 0.012), 4.4];
   return [L, C, H];
@@ -302,11 +304,64 @@ export function mapCssText(css, mode = ACTIVE_MODE) {
 /* ---------- JSX props 변환 (src/kdjsx 런타임이 호출) ---------- */
 
 const GRAPHIC_ATTRS = ["fill", "stroke", "stopColor", "floodColor"];
+/* 버튼 경계: 새 UI에서 테두리도 채움도 없는(또는 흰색·옅은 회색 채움) 버튼은 바탕과 구분되지 않아
+   눌러지는 요소인지 알기 어렵습니다. 크기(높이·좌우 여백)로 보아 '버튼 모양'인 것에만 1px 테두리를
+   붙입니다. 글자 링크처럼 여백이 없는 버튼과 data-kdn-bare 표시가 있는 버튼은 그대로 둡니다. */
+const pxOf = value => (typeof value === "number" ? value : typeof value === "string" && /^-?\d+(\.\d+)?px$/.test(value.trim()) ? parseFloat(value) : null);
+function looksLikeControl(style) {
+  if ((pxOf(style.minHeight) ?? 0) >= 26 || (pxOf(style.height) ?? 0) >= 26) return true;
+  const pad = style.padding;
+  if (typeof pad === "number") return pad >= 8;
+  if (typeof pad === "string") { const parts = pad.trim().split(/\s+/); return (pxOf(parts[1] ?? parts[0]) ?? 0) >= 8; }
+  return (pxOf(style.paddingLeft) ?? pxOf(style.paddingInline) ?? 0) >= 8;
+}
+function hasVisibleBorder(style) {
+  for (const key of Object.keys(style)) {
+    if (!/^border/.test(key) || /Radius$/.test(key) || key === "borderCollapse" || key === "borderSpacing") continue;
+    const value = style[key];
+    if (key === "border" && (value === 0 || /^(0(px)?|none)$/.test(String(value).trim()) || /transparent/.test(String(value)))) continue;
+    if (style.borderColor === "transparent" && (key === "borderColor" || key === "borderWidth" || key === "borderStyle")) continue;
+    if (value == null || value === "") continue;
+    return true;
+  }
+  return false;
+}
+function plainBackground(style) {
+  const bg = style.background ?? style.backgroundColor;
+  if (bg == null || bg === "") return true;
+  if (typeof bg !== "string") return false;
+  const v = bg.trim();
+  if (/^(transparent|none|inherit)$/.test(v) || /^var\(--kdn-(surface|surface-2|bg)/.test(v)) return true;
+  if (/gradient|url\(/.test(v)) return false;
+  const c = parseColor(v);
+  if (!c) return false;
+  if (c[3] < 0.1) return true;
+  const [L, C] = rgbToOklch(c);
+  return L >= 0.9 && C < 0.03;
+}
+const controlCache = new WeakMap();
+export function withControlBorder(style) {
+  if (!style || typeof style !== "object") return style;
+  const cached = controlCache.get(style);
+  if (cached) return cached;
+  let out = style;
+  if (!hasVisibleBorder(style) && plainBackground(style) && looksLikeControl(style)) {
+    out = { ...style };
+    if (out.borderColor === "transparent") out.borderColor = "var(--kdn-control-line)";
+    else if (typeof out.border === "string" && /transparent/.test(out.border)) out.border = out.border.replace("transparent", "var(--kdn-control-line)");
+    else out.border = "1px solid var(--kdn-control-line)";
+  }
+  controlCache.set(style, out);
+  return out;
+}
 export function mapElementProps(type, props, mode = ACTIVE_MODE) {
   if (mode === "classic" || !props) return props;
   let out = null;
   const set = (key, value) => { if (value !== props[key]) { out ??= { ...props }; out[key] = value; } };
-  if (props.style && typeof props.style === "object") set("style", mapStyleObject(props.style, mode));
+  if (props.style && typeof props.style === "object") {
+    const base = type === "button" && !props["data-kdn-bare"] && !/^(menuitem|option)/.test(props.role || "") ? withControlBorder(props.style) : props.style;
+    set("style", base === props.style ? mapStyleObject(props.style, mode) : mapStyleObject(base, mode));
+  }
   if (typeof type === "string") {
     if (type === "style" && typeof props.children === "string") set("children", mapCssText(props.children, mode));
     for (const attr of GRAPHIC_ATTRS) if (typeof props[attr] === "string") set(attr, mapColorsInValue(props[attr], "graphic", mode));
@@ -341,11 +396,11 @@ function mapSheet(sheet, mode) {
 
 const BASE_CSS = {
   dark: `
-    :root{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e8e5df;--kdn-muted:#cfccc5;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#1f2238;--kdn-panel:#2e3040}
+    :root{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e8e5df;--kdn-muted:#cfccc5;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#1f2238;--kdn-panel:#2e3040;--kdn-control-line:#50525f}
     html,body{background:#1d1e24;color:#f4f1ea;word-break:keep-all;overflow-wrap:break-word}
     ::selection{background:#ff7a3d55}`,
   light: `
-    :root{color-scheme:light;--kdn-bg:#f4f5f8;--kdn-surface:#ffffff;--kdn-surface-2:#f0f1f5;--kdn-line:#dfe2e8;--kdn-ink:#1f2430;--kdn-ink-soft:#3a4150;--kdn-muted:#5d6574;--kdn-accent:#cf4a12;--kdn-accent-ink:#ffffff;--kdn-accent-soft:#fff0e6;--kdn-accent-text:#b23e0c;--kdn-hero-art:#1f2238;--kdn-panel:#2a3040}
+    :root{color-scheme:light;--kdn-bg:#f4f5f8;--kdn-surface:#ffffff;--kdn-surface-2:#f0f1f5;--kdn-line:#dfe2e8;--kdn-ink:#1f2430;--kdn-ink-soft:#3a4150;--kdn-muted:#5d6574;--kdn-accent:#cf4a12;--kdn-accent-ink:#ffffff;--kdn-accent-soft:#fff0e6;--kdn-accent-text:#b23e0c;--kdn-hero-art:#1f2238;--kdn-panel:#2a3040;--kdn-control-line:#c3c9d3}
     html,body{background:#f4f5f8;color:#1f2430;word-break:keep-all;overflow-wrap:break-word}`,
 };
 
@@ -396,6 +451,23 @@ const SHARED_NEW_CSS = `
   .susi-beta-student-auto p{display:none!important}
   .susi-beta-filter-grid label,.susi-beta-filter-grid button{font-size:14px!important}
   .susi-beta-query input{font-size:16px!important}
+  /* NAVI 기준 설정: 작은 이름표 글자를 읽을 수 있는 크기로, 회차 버튼 상자는 바탕 없이 */
+  .susi-beta-student-auto span,.susi-beta-student-auto small{font-size:13px!important;font-weight:750;color:var(--kdn-muted)}
+  .susi-beta-student-auto b{font-size:16px!important}
+  .kdn-mock-rounds{background:transparent!important;border-color:var(--kdn-line)!important}
+  .kdn-mock-rounds span{font-size:13px!important}
+  .kdn-mock-rounds b{font-size:15px!important}
+  .kdn-mock-rounds p{font-size:12.5px!important;color:var(--kdn-muted)!important}
+  :root .susi-beta-support-filter [aria-label="지원 구간 비교 기준"] button small{color:var(--kdn-muted)!important;font-size:12px}
+  :root .susi-beta-support-filter [aria-label="지원 구간 비교 기준"] button[aria-pressed="true"] small{color:var(--kdn-accent-text)!important}
+  .susi-beta-view-tabs button small{font-size:12.5px}
+  .susi-beta-tab-panel details>summary>span:first-child{font-size:13px!important;font-weight:800;color:var(--kdn-ink-soft)}
+  /* NAVI 대학 상세: 검색·필터·적용 조건을 한 상자(툴바)로. 검색 줄이 맨 위 */
+  .kdn-navi-toolbar{display:flex;flex-direction:column;gap:14px;padding:16px 18px;border:1px solid var(--kdn-line);border-radius:16px;background:var(--kdn-surface)}
+  .kdn-navi-toolbar>*{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}
+  .kdn-navi-toolbar>.susi-beta-detail-search{order:-1}
+  .kdn-navi-toolbar>.susi-beta-result-controls+div{padding-top:12px!important;border-top:1px solid var(--kdn-line)!important}
+  .kdn-navi-toolbar label>span{font-size:13px!important}
   /* NAVI 결과 카드: 전형별 '수시지원 추가'는 테두리 버튼으로(강조 버튼이 너무 많지 않게), 펼친 상세는 전형 카드를 넓게 */
   .susi-beta-result-card button.kd-support-plan-button.kd-support-plan-button.is-compact:not(.is-saved){background:transparent;color:var(--kdn-accent-text);border-color:var(--kdn-accent);box-shadow:none;min-height:38px}
   .susi-beta-result-card button.kd-support-plan-button.kd-support-plan-button.is-compact:not(.is-saved):hover{background:var(--kdn-accent);color:var(--kdn-accent-ink)}

@@ -89,3 +89,20 @@ test("새 UI 해상도: 화면 너비 컨테이너만 넓히고 기존 UI는 그
   assert.equal(mapStyleObject({ maxWidth: 1040 }, "dark").maxWidth, "min(1440px, calc(100vw - 48px))");
   assert.equal(mapStyleObject({ maxWidth: 1040 }, "classic").maxWidth, 1040);
 });
+
+test("buttons without a visible edge get a control border in the new UI", async () => {
+  const { mapElementProps, withControlBorder } = await import("../src/uiMode.js");
+  const seg = withControlBorder({ minHeight: 34, border: 0, background: "transparent" });
+  assert.equal(seg.border, "1px solid var(--kdn-control-line)");
+  assert.equal(withControlBorder({ minHeight: 40, border: "1px solid transparent" }).border, "1px solid var(--kdn-control-line)");
+  assert.equal(withControlBorder({ minHeight: 40, borderWidth: 1, borderStyle: "solid", borderColor: "transparent" }).borderColor, "var(--kdn-control-line)");
+  const link = { border: 0, background: "none", padding: "2px 0" };
+  assert.equal(withControlBorder(link), link);
+  const filled = { minHeight: 40, border: 0, background: "#cf4a12", color: "#fff" };
+  assert.equal(withControlBorder(filled), filled);
+  const bordered = { minHeight: 40, border: "1px solid #ccc" };
+  assert.equal(withControlBorder(bordered), bordered);
+  assert.equal(mapElementProps("button", { style: { minHeight: 34, border: 0 } }, "classic").style.border, 0);
+  assert.equal(mapElementProps("div", { style: { minHeight: 34, border: 0 } }, "light").style.border, 0);
+  assert.equal(mapElementProps("button", { "data-kdn-bare": true, style: { minHeight: 34, border: 0 } }, "light").style.border, 0);
+});
