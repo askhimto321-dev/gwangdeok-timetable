@@ -3342,6 +3342,11 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   }, [zoneMode, flatTargets, selectedTargetToken]); // eslint-disable-line
 
   const sel = activeTargets.find(target => targetTokenFor(target) === selectedTargetToken) || null;
+  // 새 UI: 공지 작성을 페이지로 나눕니다(① 대상 선택 → ② 공지 작성 → ③ 등록 확인).
+  const [noticeStage, setNoticeStage] = useState("auto");
+  const stagedNotice = isNewUi();
+  const publishMode = homeroomTargets.length ? "homeroom" : subjectTargets.length ? "subject" : "personal";
+  const onSelectPage = stagedNotice && (zoneMode === "homeroom" || zoneMode === "subject") && (noticeStage === "select" || !sel);
   const categories = sel?.categories || NOTICE_CATEGORIES;
   const targetKey = sel ? (sel.kind === "homeroom" ? homeroomKeyFor(sel.target) : subjectKeyFor(sel.subject)) : null;
   const currentNotices = targetKey ? asNoticeArray((db.announcements[scopeKey] || {})[targetKey]) : [];
@@ -3528,6 +3533,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
       onClick={() => {
         if (mode !== zoneMode && (mode === "homeroom" || mode === "subject")) setSelectedTargetToken("");
         setZoneMode(mode);
+        setNoticeStage(mode === "homeroom" || mode === "subject" ? "select" : "auto");
       }}
       style={{ ...styles.teacherZoneModeBtn, ...(zoneMode === mode ? styles.teacherZoneModeBtnActive : {}) }}
     >
@@ -3543,7 +3549,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   ];
 
   return (
-    <div className={isNewUi() ? "kdn-notice-layout" : undefined}>
+    <div className={stagedNotice ? `kdn-notice-layout kdn-notice-staged ${zoneMode === "manage" ? "is-manage" : onSelectPage ? "is-select" : "is-compose"}` : undefined}>
       <div className="kdn-notice-hero" style={styles.noticeHero}>
         <div style={{minWidth:0}}>
           <span style={styles.noticeHeroEyebrow}>공지·수업자료</span>
@@ -3555,6 +3561,23 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
         </div>
       </div>
 
+      {stagedNotice && <div className="kdn-search-steps kdn-notice-steps" role="tablist" aria-label="공지 작성 단계">
+        {[[1, "대상 선택", sel && zoneMode !== "personal" ? sel.label : zoneMode === "personal" ? "학생 개별" : "학급·과목·학생"], [2, "공지 작성", "내용·기한·첨부"], [3, "등록 확인", `내 공지 ${authoredNotices.length}건`]].map(([step, label, note]) => {
+          const current = zoneMode === "manage" ? 3 : onSelectPage ? 1 : 2;
+          const go = () => {
+            if (step === 3) { setZoneMode("manage"); return; }
+            if (zoneMode === "manage") setZoneMode(publishMode);
+            if (step === 1) setNoticeStage("select");
+            if (step === 2) setNoticeStage("compose");
+          };
+          const disabled = step === 2 && zoneMode !== "personal" && !sel && zoneMode !== "manage";
+          return <button key={step} type="button" role="tab" aria-selected={current === step} disabled={disabled} className={current === step ? "is-active" : ""} onClick={go}><span>{current > step ? "✓" : step}</span><b>{label}</b><small>{note}</small></button>;
+        })}
+      </div>}
+      {stagedNotice && !onSelectPage && zoneMode !== "manage" && <div className="kdn-notice-compose-bar">
+        <span>{zoneMode === "personal" ? "학생 개별 공지" : sel ? <>대상 <b>{sel.label}</b> · {sel.kind === "subject" ? "전체 수강생" : "학급 전체"}</> : "대상을 선택해주세요"}</span>
+        <button type="button" onClick={() => setNoticeStage("select")}>‹ 대상 변경</button>
+      </div>}
       <div className="kdn-notice-side" style={styles.teacherWorkflow}>
         <div className="teacher-workflow-steps" style={styles.teacherWorkflowSteps}>
           {workflowSteps.map(([step, label, caption]) => (
@@ -3580,26 +3603,27 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
               <div style={styles.classChips}>
                 {activeTargets.map(target => {
                   const token = targetTokenFor(target);
-                  return <button key={token} type="button" onClick={() => setSelectedTargetToken(token)} style={{ ...styles.teacherTargetChoice, ...(token === selectedTargetToken ? styles.teacherTargetChoiceActive : {}) }}><span>{target.label}</span><small>{target.kind === "subject" ? "전체 수강생" : "학급 전체"}</small></button>;
+                  return <button key={token} type="button" onClick={() => { setSelectedTargetToken(token); setNoticeStage("compose"); }} style={{ ...styles.teacherTargetChoice, ...(token === selectedTargetToken ? styles.teacherTargetChoiceActive : {}) }}><span>{target.label}</span><small>{target.kind === "subject" ? "전체 수강생" : "학급 전체"}</small></button>;
                 })}
               </div>
             </div>
           )}
         </div>
+        {onSelectPage && <div className="kdn-step-next"><span>{sel ? `${sel.label}을(를) 선택했습니다.` : "공지할 대상을 선택하세요."}</span><button type="button" disabled={!sel} onClick={() => setNoticeStage("compose")} style={!sel ? { opacity: .45, cursor: "not-allowed" } : undefined}>다음: 공지 작성 ›</button></div>}
       </div>
 
       {!flatTargets.length && zoneMode !== "personal" && zoneMode !== "manage" && (
         <div style={styles.warnBanner}><AlertTriangle size={14} /> 담당 학급/과목이 등록되어 있지 않습니다. "내 정보 수정"에서 직접 설정해주세요.</div>
       )}
 
-      {(zoneMode === "homeroom" || zoneMode === "subject") && activeTargets.length > 1 && !sel && (
+      {!stagedNotice && (zoneMode === "homeroom" || zoneMode === "subject") && activeTargets.length > 1 && !sel && (
         <div style={styles.teacherTargetEmpty}>
           <BookOpen size={22} />
           <div><b>먼저 공지 대상을 선택해주세요.</b><span>대상을 선택하면 공지 작성 화면이 열립니다.</span></div>
         </div>
       )}
 
-      {(zoneMode === "homeroom" || zoneMode === "subject") && sel && (
+      {(zoneMode === "homeroom" || zoneMode === "subject") && sel && !onSelectPage && (
         <>
           <div style={{ ...styles.card, padding: 0, overflow: "hidden" }}>
             <div style={styles.teacherComposerHeader}>
@@ -4855,6 +4879,7 @@ function StudentPersonalAlertDock({ sid, result, offsetTop = 88 }) {
 }
 
 /* ============ ADMIN ============ */
+const FLOW_NOTES = { roster: "출석부 엑셀 업로드", timetable: "PDF·한글·엑셀 업로드", abbrev: "약어 → 과목 연결", verify: "누락·충돌 확인" };
 const ADMIN_TABS = [
   ["overview", <Database size={14} />, "현황"],
   ["roster", <FileSpreadsheet size={14} />, "이동수업 명단"],
@@ -4933,6 +4958,10 @@ function AdminView(props) {
   const visibleTabs = ADMIN_TABS.filter(([k]) => !perms || perms.includes(k));
   const [sub, setSub] = useState(visibleTabs[0] ? visibleTabs[0][0] : "overview");
   useEffect(() => { if (!visibleTabs.find(([k]) => k === sub) && visibleTabs.length) setSub(visibleTabs[0][0]); }, [visibleTabs]); // eslint-disable-line
+  const flowSteps = ["roster", "timetable", "abbrev", "verify"];
+  const flowTabs = flowSteps.map(key => visibleTabs.find(([k]) => k === key)).filter(Boolean);
+  const flowIndex = flowTabs.findIndex(([k]) => k === sub);
+  const nextFlowStep = () => { if (flowIndex >= 0 && flowIndex < flowTabs.length - 1) setSub(flowTabs[flowIndex + 1][0]); };
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -4942,18 +4971,29 @@ function AdminView(props) {
         </div>
         {props.onLogout && <button style={styles.secondaryBtn} onClick={props.onLogout}>로그아웃</button>}
       </div>
-      <div style={styles.adminTabs}>
+      {isNewUi() ? <>
+        {/* 새 UI: 데이터 반영 순서(명단 → 시간표 → 약어 → 검증)를 단계로, 현황·공지 현황은 별도 보기 탭으로 */}
+        <div className="kdn-admin-aux-tabs">{visibleTabs.filter(([k]) => !flowSteps.includes(k)).map(([k, ic, lb]) => <button key={k} type="button" aria-pressed={sub === k} onClick={() => setSub(k)}>{ic}{lb}</button>)}</div>
+        {flowTabs.length > 0 && <div className="kdn-search-steps kdn-admin-steps" role="tablist" aria-label="시간표 데이터 반영 단계">
+          {flowTabs.map(([k, , lb], index) => <button key={k} type="button" role="tab" aria-selected={sub === k} className={sub === k ? "is-active" : ""} onClick={() => setSub(k)}><span>{index + 1}</span><b>{lb}</b><small>{FLOW_NOTES[k]}</small></button>)}
+        </div>}
+      </> : <div style={styles.adminTabs}>
         {visibleTabs.map(([k, ic, lb]) => (
           <button key={k} onClick={() => setSub(k)} style={{ ...styles.adminTabBtn, ...(sub === k ? styles.adminTabBtnActive : {}) }}>{ic}{lb}</button>
         ))}
-      </div>
+      </div>}
       {visibleTabs.length === 0 && <div style={styles.warnBanner}><AlertTriangle size={14} /> 접근 가능한 메뉴가 없습니다. 관리자에게 문의해주세요.</div>}
       {sub === "overview" && <AdminOverview {...props} />}
-      {sub === "roster" && <AdminRoster {...props} />}
-      {sub === "timetable" && <AdminTimetable {...props} />}
+      {sub === "roster" && <AdminRoster {...props} onNextStep={nextFlowStep} />}
+      {sub === "timetable" && <AdminTimetable {...props} onNextStep={nextFlowStep} />}
       {sub === "abbrev" && <AdminAbbrev {...props} />}
       {sub === "notices" && <AdminNoticesViewer {...props} />}
       {sub === "verify" && <AdminVerify {...props} />}
+      {isNewUi() && flowIndex >= 0 && <div className="kdn-step-next">
+        {flowIndex > 0 && <button type="button" className="kdn-step-prev" onClick={() => setSub(flowTabs[flowIndex - 1][0])}>‹ 이전: {flowTabs[flowIndex - 1][2]}</button>}
+        <span style={{ flex: 1 }} />
+        {flowIndex < flowTabs.length - 1 && <button type="button" onClick={nextFlowStep}>다음: {flowTabs[flowIndex + 1][2]} ›</button>}
+      </div>}
     </div>
   );
 }
@@ -5004,11 +5044,23 @@ function AdminOverview({ roster, enrollments, timetables, scopeKey, db, persist,
   );
 }
 
-function AdminRoster({ scopeKey, db, persist, showToast, roster, enrollments, semester }) {
+// 업로드 화면 안의 단계 표시(새 UI): 파일 선택 → 미리보기 확인 → 반영 완료
+function UploadStageBar({ stage, labels = ["파일 선택", "미리보기 확인", "반영 완료"] }) {
+  if (!isNewUi()) return null;
+  return <div className="kdn-upload-stages" aria-label="업로드 단계">
+    {labels.map((label, index) => {
+      const step = index + 1;
+      return <span key={label} className={stage === step ? "is-active" : stage > step ? "is-done" : ""}><b>{stage > step ? "✓" : step}</b>{label}</span>;
+    })}
+  </div>;
+}
+
+function AdminRoster({ scopeKey, db, persist, showToast, roster, enrollments, semester, onNextStep }) {
   const fileRef = useRef(null);
   const [parsed, setParsed] = useState(null); // { sheets: [...], letters: [{letter, count}] }
   const [selectedLetters, setSelectedLetters] = useState(new Set());
   const [busy, setBusy] = useState(false);
+  const [applied, setApplied] = useState(false);
   const handleFile = async (file) => {
     setBusy(true);
     try {
@@ -5065,11 +5117,13 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster, enrollments, se
 
   const apply = async () => {
     const ok = await persist({ roster: { ...db.roster, [scopeKey]: filteredStats.nr }, enrollments: { ...db.enrollments, [scopeKey]: filteredStats.ne }, meta: { ...db.meta, [scopeKey]: { updatedAt: new Date().toISOString() } } });
-    if (ok) { showToast("저장했습니다.", "success"); setParsed(null); }
+    if (ok) { showToast("저장했습니다.", "success"); setParsed(null); setApplied(true); }
   };
   return (
     <div>
-      <div style={styles.uploadBox}>
+      <UploadStageBar stage={parsed ? 2 : applied ? 3 : 1} />
+      {applied && !parsed && isNewUi() && <div className="kdn-upload-done"><span><b>이동수업 명단을 반영했습니다.</b> 다음으로 학급 시간표를 올려 주세요.</span>{onNextStep && <button type="button" onClick={onNextStep}>다음: 학급 시간표 ›</button>}</div>}
+      <div className={parsed && isNewUi() ? "kdn-upload-box is-collapsed" : "kdn-upload-box"} style={styles.uploadBox}>
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>이동수업 명단(출석부) 엑셀 업로드</div>
         <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center" }}>시트 이름 = "과목명_N반_그룹" (예: 사회와 문화_5반_A)<br />N반 = 그 수업이 열리는 개설반<br />업로드 후 아래에서 어떤 그룹(학기)을 포함할지 직접 선택할 수 있습니다.</div>
@@ -5312,9 +5366,10 @@ function EditableTimetableGrid({ grid, setGrid }) {
   );
 }
 
-function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, enrollments, abbrevMap, persistAbbrev }) {
+function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, enrollments, abbrevMap, persistAbbrev, onNextStep }) {
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
+  const [applied, setApplied] = useState(false);
   const [pasteClass, setPasteClass] = useState("");
   const [pasteGrid, setPasteGrid] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
@@ -5367,14 +5422,16 @@ function AdminTimetable({ scopeKey, db, persist, showToast, timetables, grade, e
     return true;
   };
 
-  const applyFilePreview = async () => { if (await commitAny(filePreview)) setFilePreview(null); };
-  const applyPasteGrid = async () => { if (await commitAny({ [pasteClass.trim()]: pasteGrid })) { setPasteGrid(null); setPasteClass(""); } };
+  const applyFilePreview = async () => { if (await commitAny(filePreview)) { setFilePreview(null); setApplied(true); } };
+  const applyPasteGrid = async () => { if (await commitAny({ [pasteClass.trim()]: pasteGrid })) { setPasteGrid(null); setPasteClass(""); setApplied(true); } };
 
   const updFilePreviewCell = (cls, day, pi, v) => setFilePreview(p => { const c = { ...p }; c[cls] = { ...c[cls], [day]: [...c[cls][day]] }; c[cls][day][pi] = v || null; return c; });
 
   return (
     <div>
-      <div style={styles.uploadBox}>
+      <UploadStageBar stage={filePreview || pasteGrid ? 2 : applied ? 3 : 1} />
+      {applied && !filePreview && !pasteGrid && isNewUi() && <div className="kdn-upload-done"><span><b>학급 시간표를 반영했습니다.</b> 약어 매핑을 확인한 뒤 검증하세요.</span>{onNextStep && <button type="button" onClick={onNextStep}>다음: 약어 매핑 ›</button>}</div>}
+      <div className={filePreview && isNewUi() ? "kdn-upload-box is-collapsed" : "kdn-upload-box"} style={styles.uploadBox}>
         <FileText size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>학급 시간표 업로드 (PDF .pdf / 한글 .hwp / 엑셀 .xlsx)</div>
         <div style={{ fontSize: 12.5, color: "#8a8578", margin: "4px 0 12px", textAlign: "center", lineHeight: 1.65 }}>
