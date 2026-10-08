@@ -106,3 +106,13 @@ test("buttons without a visible edge get a control border in the new UI", async 
   assert.equal(mapElementProps("div", { style: { minHeight: 34, border: 0 } }, "light").style.border, 0);
   assert.equal(mapElementProps("button", { "data-kdn-bare": true, style: { minHeight: 34, border: 0 } }, "light").style.border, 0);
 });
+
+test("type hierarchy: headings stay heavy, small labels lighter, gray secondary text regular", async () => {
+  const { softenType } = await import("../src/uiMode.js");
+  assert.equal(softenType({ fontSize: 26, fontWeight: 900 }).fontWeight, 900);
+  assert.equal(softenType({ fontSize: 12, fontWeight: 950, color: "#1f2430" }).fontWeight, 750);
+  assert.equal(softenType({ fontSize: 13, fontWeight: 800, color: "#657085" }).fontWeight, 500);
+  assert.equal(softenType({ fontSize: 13, fontWeight: 800, color: "#1c4aa8" }).fontWeight, 800);
+  const plain = { fontSize: 13, fontWeight: 400 };
+  assert.equal(softenType(plain), plain);
+});

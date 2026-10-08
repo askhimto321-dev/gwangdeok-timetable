@@ -4333,7 +4333,7 @@ const ui = {
 const CONTROL = { border: "1px solid #c3c9d3", background: "#ffffff", color: "#2a3140" };
 const CONTROL_ON = { border: "1px solid var(--kdn-accent)", background: "var(--kdn-accent-soft)", color: "var(--kdn-accent-text)", boxShadow: "inset 0 0 0 1px var(--kdn-accent)", transform: "none" };
 if (isNewUi()) Object.assign(ui, {
-  hero: { padding: "18px 22px", borderRadius: 18, display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#1f2430", background: "#ffffff", border: "1px solid #dfe2e8" },
+  hero: { padding: "6px 2px 2px", display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-end", gap: 18, color: "#1f2430", background: "transparent", border: 0 },
   heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: "#5d6574" },
   heroTitle: { margin: "4px 0 4px", fontSize: 26, lineHeight: 1.2, letterSpacing: "-.03em", wordBreak: "keep-all", color: "#141821" },
   heroText: { margin: 0, fontSize: 14.5, lineHeight: 1.55, color: "#3a4150", wordBreak: "keep-all" },
