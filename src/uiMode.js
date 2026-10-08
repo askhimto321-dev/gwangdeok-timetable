@@ -570,6 +570,36 @@ const SHARED_NEW_CSS = `
   table:not(.student-timetable-table) thead th{color:var(--kdn-ink)!important;font-weight:800}
   table:not(.student-timetable-table) tbody tr:hover>td{box-shadow:inset 0 0 0 999px rgba(207,74,18,.045)}
   table:not(.student-timetable-table) td{color:var(--kdn-ink)}
+  /* NAVI 기준 설정 2단계: 위쪽 단계 표시 + 단계별 다음/이전 버튼 */
+  .kdn-search-steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .kdn-search-steps button{display:grid;grid-template-columns:32px minmax(0,1fr);grid-template-rows:auto auto;column-gap:10px;align-items:center;text-align:left;padding:12px 16px;border-radius:14px;border:1px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);cursor:pointer;font:inherit}
+  .kdn-search-steps button>span{grid-row:1/3;width:32px;height:32px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:var(--kdn-surface-2);font-weight:800;font-size:15px}
+  .kdn-search-steps button>b{font-size:16px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-search-steps button>small{font-size:13px;font-weight:500;color:var(--kdn-muted)}
+  .kdn-search-steps button.is-active{border-color:var(--kdn-accent);background:var(--kdn-accent-soft);box-shadow:inset 0 0 0 1px var(--kdn-accent)}
+  .kdn-search-steps button.is-active>span{background:var(--kdn-accent);color:var(--kdn-accent-ink)}
+  .kdn-search-steps button.is-active>b{color:var(--kdn-accent-text)}
+  .kdn-step-next{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--kdn-line)}
+  .kdn-step-next span{font-size:14px;color:var(--kdn-muted)}
+  .kdn-step-next button{min-height:46px;padding:0 20px;border-radius:12px;border:0;background:var(--kdn-accent);color:var(--kdn-accent-ink);font-size:15px;font-weight:800;cursor:pointer}
+  .kdn-step-back{margin-bottom:12px;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);font-size:13.5px;font-weight:600;cursor:pointer}
+  /* 성적 산출·최성보: 진한 배너 대신 대시보드식 페이지 머리(큰 제목 + 설명 + 오른쪽 버튼).
+     주요 동작(학교 공동 저장 / 출결 확인 저장)만 강조색, 나머지는 테두리 버튼 */
+  .teacher-grade-hero,.minimum-hero{background:transparent!important;border:0!important;box-shadow:none!important;padding:6px 2px 4px!important;color:var(--kdn-ink)!important;align-items:end!important}
+  .teacher-grade-hero::before,.teacher-grade-hero::after,.minimum-hero::before,.minimum-hero::after{display:none!important}
+  .teacher-grade-hero-copy>div:first-child,.minimum-hero>div:first-child>span:first-child{color:var(--kdn-accent-text)!important;font-size:13px!important;font-weight:600!important;opacity:1!important;letter-spacing:.01em}
+  .teacher-grade-hero h2,.minimum-hero h2{color:var(--kdn-ink)!important;font-size:30px!important;font-weight:900!important;letter-spacing:-.025em!important;margin:4px 0 4px!important;line-height:1.2!important}
+  .teacher-grade-hero p,.minimum-hero p{color:var(--kdn-muted)!important;font-size:15px!important;font-weight:500!important;opacity:1!important;margin:0!important}
+  .teacher-grade-hero-actions button,.minimum-hero-actions button{min-height:42px!important;padding:0 16px!important;border-radius:12px!important;border:1px solid var(--kdn-control-line)!important;background:var(--kdn-surface)!important;color:var(--kdn-ink)!important;font-size:14px!important;font-weight:700!important;box-shadow:none!important;opacity:1}
+  .teacher-grade-hero-actions button:nth-child(2),.minimum-hero-actions button:nth-child(2){background:var(--kdn-accent)!important;border-color:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important}
+  .teacher-grade-hero-actions button:disabled,.minimum-hero-actions button:disabled{opacity:.45!important;cursor:not-allowed}
+  .teacher-grade-hero-actions,.minimum-hero-actions{display:flex!important;flex-wrap:wrap;gap:8px!important;justify-content:flex-end}
+  /* 화면 안 보조 탭(성적 산출/데이터 관리, 현황 확인/데이터 관리): 알약 묶음 */
+  .teacher-grade-module-tabs{justify-self:start;align-self:start}
+  .teacher-grade-module-tabs,.minimum-module-toolbar>div:first-child{display:inline-flex!important;gap:2px!important;padding:4px!important;border-radius:14px!important;background:var(--kdn-surface-2)!important;border:1px solid var(--kdn-line)!important;box-shadow:none!important;width:auto!important}
+  .teacher-grade-module-tabs button,.minimum-module-toolbar>div:first-child button{min-height:38px!important;padding:0 14px!important;border-radius:10px!important;border:0!important;background:transparent!important;color:var(--kdn-ink-soft)!important;font-size:14px!important;font-weight:600!important;box-shadow:none!important}
+  .teacher-grade-module-tabs button[style*="kdn-accent"],.minimum-module-toolbar>div:first-child button[style*="kdn-accent"]{background:var(--kdn-surface)!important;color:var(--kdn-accent-text)!important;font-weight:800!important;box-shadow:0 1px 3px rgba(20,24,33,.14)!important}
+  .minimum-open-gradecalc{color:var(--kdn-ink-soft)!important}
   /* NAVI 대학 상세: 검색·필터·적용 조건을 한 상자(툴바)로. 검색 줄이 맨 위 */
   .kdn-navi-toolbar{display:flex;flex-direction:column;gap:14px;padding:16px 18px;border:1px solid var(--kdn-line);border-radius:16px;background:var(--kdn-surface)}
   .kdn-navi-toolbar>*{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}

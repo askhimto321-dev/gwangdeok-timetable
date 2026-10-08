@@ -2195,6 +2195,7 @@ export default function SusiNaviBetaView({
   const [connectionRange, setConnectionRange] = useState(restoredViewState?.connectionRange || "0.30");
   const [connectionUniversity, setConnectionUniversity] = useState(restoredViewState?.connectionUniversity || "");
   const [favoriteOnly, setFavoriteOnly] = useState(Boolean(restoredViewState?.favoriteOnly));
+  const [searchStep, setSearchStep] = useState(1);
   const [viewTab, setViewTab] = useState(["search", "results", "connection", "workspace"].includes(restoredViewState?.viewTab) ? restoredViewState.viewTab : "search");
   const [connectionFocus, setConnectionFocus] = useState(restoredViewState?.connectionFocus || null);
   const [page, setPage] = useState(Math.max(1, Number(restoredViewState?.page || 1)));
@@ -2774,7 +2775,14 @@ export default function SusiNaviBetaView({
 
         {viewTab === "search" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
           <div className="susi-beta-criteria-guide kdn-hide-new" style={ui.tabGuide}><b>1단계 · 기준 설정</b><span><strong>학생의 5등급 내신을 9등급 기준으로 환산</strong>하고, 대학·지역·계열·전형 조건을 설정합니다.<br/><em>다음 단계에서 대학 상세 결과를 먼저 확인한 뒤 지원 연결 탐색으로 이어집니다.</em></span></div>
-          <div style={ui.converterPanel}>
+          {isNewUi() && <div className="kdn-search-steps" role="tablist" aria-label="기준 설정 단계">
+            {[[1, "환산 기준", `${conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"} · ${conversionMethod === "statistical" ? "통계 Beta" : "기존 환산"}`], [2, "대학·모집단위 검색", `${filtered.length.toLocaleString()}건`]].map(([step, label, note]) => (
+              <button key={step} type="button" role="tab" aria-selected={searchStep === step} onClick={() => setSearchStep(step)} className={searchStep === step ? "is-active" : ""}>
+                <span>{step}</span><b>{label}</b><small>{note}</small>
+              </button>
+            ))}
+          </div>}
+          {(!isNewUi() || searchStep === 1) && <div style={ui.converterPanel}>
             <div style={ui.sectionHeading}><div style={ui.step}>1</div><div><b style={ui.sectionTitle}>5·9등급 환산 기준</b><span style={ui.sectionSub}>현재 방식과 통계 기반 방식을 비교해서 사용할 수 있습니다.</span></div></div>
             {selectedStudent?.sid && <div className="susi-beta-student-auto" style={ui.studentAutoBar}>
               <div style={ui.studentAutoIdentity}><span>선택 학생 자동 반영</span><b>{selectedStudent.sid} {selectedStudent.name || "학생"}</b></div>
@@ -2820,9 +2828,11 @@ export default function SusiNaviBetaView({
                 아직 없습니다. "기존 환산"도 모든 대학에 똑같이 적용하는 공통 참고값이라는 점을
                 통계 기반 방식과 똑같이 분명히 밝혀, 대학별 공식 값으로 오인하지 않게 합니다. */}
             {conversionMethod === "legacy" && <div style={ui.statDisclaimer}>모든 대학에 동일하게 적용하는 공통 참고 환산값입니다. 대학마다 실제 반영교과·학년별 비율·진로선택 처리 방식이 달라 이 값과 다를 수 있으니, 최종 지원 전 대학별 모집요강을 확인하세요.</div>}
-          </div>
+            {isNewUi() && <div className="kdn-step-next"><span>환산값을 확인했다면 대학·모집단위 검색 조건을 설정하세요.</span><button type="button" onClick={() => setSearchStep(2)}>다음: 대학·모집단위 검색 ›</button></div>}
+          </div>}
 
-          <div style={ui.searchPanel}>
+          {(!isNewUi() || searchStep === 2) && <div style={ui.searchPanel}>
+            {isNewUi() && <button type="button" className="kdn-step-back" onClick={() => setSearchStep(1)}>‹ 이전: 환산 기준 ({conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"})</button>}
             <div style={ui.sectionHeading}><div style={ui.step}>2</div><div><b style={ui.sectionTitle}>대학·모집단위 검색</b><span style={ui.sectionSub}>검색 결과는 2027 모집단위와 2026 입시결과를 명확히 구분해 표시합니다.</span></div></div>
             <div className="susi-beta-filter-grid" style={ui.filterGrid}>
               <label className="susi-beta-query" style={ui.searchBox}><Search size={16} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학명·모집단위·전형명 검색" /></label>
@@ -2890,7 +2900,7 @@ export default function SusiNaviBetaView({
               <span style={ui.workflowCopy}><b>다음 단계</b><em>먼저 대학별 모집단위와 전형 정보를 확인한 뒤, 필요한 대학을 기준으로 유사 지원군을 탐색할 수 있습니다.</em></span>
               <button type="button" style={ui.workflowNextButton} onClick={() => { setConnectionFocus(null); setPage(1); navigateViewTab("results"); }}>대학 상세 결과 보기 ›</button>
             </div>
-          </div>
+          </div>}
         </div>}
 
         {viewTab === "connection" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
