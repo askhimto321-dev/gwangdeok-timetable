@@ -15,6 +15,20 @@ import {
   ShieldCheck,
   Users,
 } from "lucide-react";
+import { isNewUi } from "./uiMode.js";
+
+// 새 UI: 현재 환산 점수를 막대로, 이수 기준 40%를 흰 세로선으로 보여줍니다(화면 전용).
+// 회색 바탕은 아직 실시·입력되지 않은 평가 비율(100 - 반영된 비율)입니다.
+function AchievementBar({ value = 0, completed = 100 }) {
+  const earned = Math.max(0, Math.min(100, Number(value) || 0));
+  const done = Math.max(earned, Math.min(100, Number(completed) || 0));
+  const color = earned >= 40 ? "#2f8a55" : "#c0473d";
+  return <span className="no-print" role="img" aria-label={`현재 ${earned.toFixed(1)}% · 반영된 평가 ${done.toFixed(0)}% · 기준 40%`} style={{ position: "relative", display: "block", height: 8, marginTop: 6, borderRadius: 999, background: "#e3e6ec", minWidth: 90 }}>
+    <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${done}%`, borderRadius: 999, background: "#cdd2da" }} />
+    <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${earned}%`, borderRadius: 999, background: color }} />
+    <span style={{ position: "absolute", left: "40%", top: -4, width: 2, height: 16, borderRadius: 1, background: "#1f2430" }} />
+  </span>;
+}
 
 const FONT='"KDRound","Pretendard","SUIT","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
 const round=(value,digits=1)=>{const n=Number(value);if(!Number.isFinite(n))return null;const f=10**digits;return Math.round((n+Number.EPSILON)*f)/f};
@@ -319,7 +333,7 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
       </section>}
       <section className="minimum-final-section" style={ui.section}>
         <div style={ui.tableTitle}><div><Users size={16}/><b>학생별·과목별 최종 확인</b></div><span>{visibleRows.length}건</span></div>
-        <div style={ui.tableWrap}><table className="minimum-final-table"><thead><tr><th>반·번호</th><th>성명</th><th>과목</th><th>유형</th><th>현재 환산</th><th>학업 판정</th><th>과목 출결</th><th>최종 판정</th></tr></thead><tbody>{visibleRows.map(row=><tr key={`${row.workspaceId}-${row.sid}`} className={`row-${row.overallStatus}`}><td className="minimum-class-cell"><b>{row.classNumber}반 {row.number}번</b></td><td className="minimum-name-cell"><b>{row.name||"이름 미연결"}</b></td><td className="minimum-subject-cell"><b title={row.subject}>{row.subject}</b></td><td><CourseBadge type={row.courseType}/></td><td className="minimum-score-cell"><b>{row.earned.toFixed(2)}</b>{row.missing.length?<small className="minimum-input-warning">미입력 {row.missing.length}건</small>:<small className="minimum-input-complete"><Check size={10}/>입력 완료</small>}</td><td><StatusBadge status={row.academicStatus}>{row.academicLabel}</StatusBadge></td><td>{canEditRow(row)?<select className="minimum-attendance-select" value={attendanceDraft?.[row.workspaceId]?.[row.sid]?.status||"확인필요"} onChange={event=>updateAttendance(row,{status:event.target.value})}><option value="확인필요">확인 필요</option><option value="도달">출결 도달</option><option value="미도달">출결 미도달</option></select>:<span className={`minimum-attendance-text is-${row.attendanceStatus}`}>{row.attendanceStatus}</span>}</td><td><StatusBadge status={row.overallStatus}>{row.overall}</StatusBadge></td></tr>)}</tbody></table></div>
+        <div style={ui.tableWrap}><table className="minimum-final-table"><thead><tr><th>반·번호</th><th>성명</th><th>과목</th><th>유형</th><th>현재 환산</th><th>학업 판정</th><th>과목 출결</th><th>최종 판정</th></tr></thead><tbody>{visibleRows.map(row=><tr key={`${row.workspaceId}-${row.sid}`} className={`row-${row.overallStatus}`}><td className="minimum-class-cell"><b>{row.classNumber}반 {row.number}번</b></td><td className="minimum-name-cell"><b>{row.name||"이름 미연결"}</b></td><td className="minimum-subject-cell"><b title={row.subject}>{row.subject}</b></td><td><CourseBadge type={row.courseType}/></td><td className="minimum-score-cell"><b>{row.earned.toFixed(2)}</b>{isNewUi()&&<AchievementBar value={row.earned} completed={row.completedWeight}/>}{row.missing.length?<small className="minimum-input-warning">미입력 {row.missing.length}건</small>:<small className="minimum-input-complete"><Check size={10}/>입력 완료</small>}</td><td><StatusBadge status={row.academicStatus}>{row.academicLabel}</StatusBadge></td><td>{canEditRow(row)?<select className="minimum-attendance-select" value={attendanceDraft?.[row.workspaceId]?.[row.sid]?.status||"확인필요"} onChange={event=>updateAttendance(row,{status:event.target.value})}><option value="확인필요">확인 필요</option><option value="도달">출결 도달</option><option value="미도달">출결 미도달</option></select>:<span className={`minimum-attendance-text is-${row.attendanceStatus}`}>{row.attendanceStatus}</span>}</td><td><StatusBadge status={row.overallStatus}>{row.overall}</StatusBadge></td></tr>)}</tbody></table></div>
         {!visibleRows.length&&<div style={ui.noRows}>선택한 조건에 해당하는 학생이 없습니다.</div>}
       </section>
     </>}

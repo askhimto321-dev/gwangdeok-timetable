@@ -23,6 +23,8 @@ import {
 import { readStorage, writeStorage } from "./storage.js";
 import { evaluateAdmissionRequirement } from "./gradeEngine.js";
 import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAccentKey } from "./admissionMetrics.js";
+import { CutStrip, SupportBandTiles } from "./naviVisuals.jsx";
+import { isNewUi } from "./uiMode.js";
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 import SupportPlanButton from "./SupportPlanButton.jsx";
 import AdmissionComparison from "./AdmissionComparison.jsx";
@@ -352,6 +354,15 @@ function readCutoffPreference() {
   if (typeof window === "undefined") return "70";
   const value = window.localStorage.getItem(CUTOFF_PREF_KEY);
   return value === "50" ? "50" : "70";
+}
+
+// NAVI 화면에서 마지막으로 고른 환산 방식·컷 기준을 그대로 써서, 다른 화면(상담 관심대학 카드)도
+// NAVI와 같은 학생 환산 내신·지원 구간으로 보이게 합니다.
+export function studentNaviGrade(data, student) {
+  const { method, group } = readConversionPreference();
+  const raw = method === "statistical" ? (student?.grade5ByGroup?.[group] ?? student?.grade5) : student?.grade5;
+  const conversion = raw == null || raw === "" ? null : conversionDetails(data, method, group, raw);
+  return { value: conversion?.value ?? null, cutoffBasis: readCutoffPreference(), method, group };
 }
 
 function sameUniversityCampus(left, leftRegion = "", right, rightRegion = "") {
@@ -2526,6 +2537,8 @@ export default function SusiNaviBetaView({
   }, [enriched, connectionFocus]);
 
   const filtered = useMemo(() => {
+    const countBands = isNewUi() && conversion?.value != null;
+    const bandCounts = {};
     const matches = enriched.flatMap(entry => {
       const { row, minimums } = entry;
       if (connectionFocus?.university) {
@@ -2554,6 +2567,19 @@ export default function SusiNaviBetaView({
       const teaching = useTeaching ? (row[7] || []).filter(matchSupport) : [];
       const holistic = useHolistic ? (row[8] || []).filter(matchSupport) : [];
       const regular = useRegular ? row[9] : null;
+      if (countBands) {
+        // 지원 구간 분포 타일용: 구간 필터와 무관하게, 나머지 조건을 통과한 전형을 구간별로 셉니다.
+        const allTracks = [...(useTeaching ? row[7] || [] : []), ...(useHolistic ? row[8] || [] : [])];
+        const fullRow = [...row];
+        fullRow[7] = useTeaching ? row[7] : [];
+        fullRow[8] = useHolistic ? row[8] : [];
+        if (allTracks.length && queryMatchesRow(fullRow, deferredQuery)) {
+          allTracks.forEach(item => {
+            const label = supportBand(conversion.value, cutoffValue(item, cutoffBasis))?.label;
+            if (label) bandCounts[label] = (bandCounts[label] || 0) + 1;
+          });
+        }
+      }
 
       // 지원구간 필터가 활성화되면 카드 내부의 전형도 선택한 구간만 남깁니다.
       // 이전에는 '한 전형만 조건에 맞아도' 카드의 다른 상향/하향 전형까지 같이 보여 필터가 안 먹는 것처럼 보였습니다.
@@ -2584,6 +2610,7 @@ export default function SusiNaviBetaView({
     if (resultSort === "cut70") sorted.sort((a, b) => cutForRow(a, "70") - cutForRow(b, "70") || a.row[3].localeCompare(b.row[3], "ko"));
     if (resultSort === "supportUp") sorted.sort((a, b) => supportRank(a) - supportRank(b) || cutForRow(a, cutoffBasis) - cutForRow(b, cutoffBasis));
     if (resultSort === "supportDown") sorted.sort((a, b) => supportRank(b) - supportRank(a) || cutForRow(a, cutoffBasis) - cutForRow(b, cutoffBasis));
+    sorted.bandCounts = bandCounts;
     return sorted;
   }, [enriched, connectionFocus, connectionFocusDepartmentMatched, deferredQuery, regionFilters, fieldFilters, admissionFilters, minimumFilters, supportFilters, cutoffBasis, favoriteOnly, favorites, conversion?.value, resultSort]);
 
@@ -2942,10 +2969,10 @@ export default function SusiNaviBetaView({
               <MultiFilterSelect compact label="수능최저" values={minimumFilters} onChange={setMinimumFilters} options={["있음", "없음"]}/>
               <label className="susi-beta-sort-control" style={ui.resultSortControl}><span>정렬</span><b>{RESULT_SORT_LABELS[resultSort] || "기본 정렬"}</b><ChevronDown size={14}/><select aria-label="대학 상세 결과 정렬" value={resultSort} onChange={event => setResultSort(event.target.value)} style={ui.resultSortNative}><option value="default">기본 정렬</option><option value="cut50">50%컷 낮은순</option><option value="cut70">70%컷 낮은순</option><option value="supportUp">상향 → 하향</option><option value="supportDown">하향 → 상향</option></select></label>
             </div>
-            <div style={ui.resultSupportQuick}><span>지원 구간</span>{Object.entries(SUPPORT_META).map(([label, meta]) => {
+            {isNewUi() ? <SupportBandTiles counts={filtered.bandCounts} active={supportFilters} disabled={supportFilterDisabled} onToggle={label => setSupportFilters(current => current.includes(label) ? current.filter(value => value !== label) : [...current, label])} onReset={() => setSupportFilters([])} /> : <div style={ui.resultSupportQuick}><span>지원 구간</span>{Object.entries(SUPPORT_META).map(([label, meta]) => {
               const active = supportFilters.includes(label);
               return <button type="button" key={label} disabled={supportFilterDisabled} onClick={() => setSupportFilters(current => current.includes(label) ? current.filter(value => value !== label) : [...current, label])} style={{ ...ui.resultSupportQuickBtn, color: active ? "#fff" : meta.color, background: active ? meta.color : meta.background, borderColor: active ? meta.color : meta.border, opacity: supportFilterDisabled ? .42 : 1 }}>{label}</button>;
-            })}<button type="button" onClick={() => setSupportFilters([])} style={ui.resultSupportReset}>전체</button></div>
+            })}<button type="button" onClick={() => setSupportFilters([])} style={ui.resultSupportReset}>전체</button></div>}
           </div>
           <div style={ui.resultFilterBar}>
             <div style={ui.activeFilterWrap}>
@@ -3389,6 +3416,9 @@ function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories =
           <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={ui.resultToggle}>{open ? <ChevronUp size={16}/> : <ChevronDown size={16}/>} {open ? "상세 접기" : "상세 펼치기"}</button>
         </div>
       </div>
+      {isNewUi() && !open && <div style={{ padding: "0 18px 14px" }}><CutStrip
+        items={[...(teaching || []).map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...(holistic || []).map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))]}
+        studentGrade={convertedGrade} cutoffBasis={cutoffBasis} onMore={() => setOpen(true)} /></div>}
       {open && <div style={ui.resultCardBody}>
         <div className="susi-beta-result-identity" style={ui.resultIdentity}>
           <b style={ui.identityLabel}>NAVI 모집단위 연결 정보</b>

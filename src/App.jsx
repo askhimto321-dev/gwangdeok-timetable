@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
+import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
 
 // 큰 분석 화면은 실제로 열 때 내려받습니다. 로그인 화면에서 NAVI·대입결과·성적분석
 // 전체 코드를 한꺼번에 파싱하던 비용을 없애고, 같은 모듈 요청은 하나의 Promise로 공유합니다.
@@ -1712,9 +1713,11 @@ export default function App() {
 
   if (!anyLoggedIn) {
     return (
+      isNewUi() ? <NewUiLanding attemptLogin={attemptLogin} showToast={showToast} /> :
       <div style={styles.app}>
         <style>{globalCss}</style>
-        <div style={{ padding: "40px 20px" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 20px 0" }}><UiModeSwitch compact /></div>
+        <div style={{ padding: "26px 20px 40px" }}>
           <div style={{ textAlign: "center", marginBottom: 24 }}>
             <div style={{ fontWeight: 900, fontSize: 24, letterSpacing: "-.035em" }}>{SITE_TITLE}</div>
             <div style={{ fontSize: 13, color: "#8a8578", marginTop: 6 }}>먼저 로그인해주세요. (학생 / 선생님 / 관리자 계정 모두 아래에서 로그인합니다)</div>
@@ -2323,7 +2326,165 @@ const teacherZoneWorkspaceStyles = {
   gradeButtonActive: { color: "#315d90", background: "#e9f2fc", borderColor: "#b8cde5" },
 };
 
-function MegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
+function MegaNav(props) {
+  return isNewUi() ? <NewUiMegaNav {...props} /> : <ClassicMegaNav {...props} />;
+}
+
+// 화면 모드 선택(기존 UI / 새 UI 다크 / 새 UI 라이트). 고르면 저장 후 새로고침해 화면 전체에 적용합니다.
+function UiModeSwitch({ compact = false }) {
+  const current = getUiMode();
+  const newUi = isNewUi(current);
+  // 기존 UI에서는 상단 메뉴 배치가 예전과 같도록 작은 선택 상자로만 보여줍니다.
+  if (!newUi) return (
+    <label className="no-print" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 900, color: "#52627a" }}>
+      화면
+      <select value={current} onChange={event => setUiMode(event.target.value)} aria-label="화면 모드" style={{ border: "1px solid #d6deea", background: "#fff", color: "#52627a", borderRadius: 8, padding: "6px 6px", fontSize: 11.5, fontWeight: 900, fontFamily: "inherit", cursor: "pointer" }}>
+        {UI_MODES.map(mode => <option key={mode.key} value={mode.key}>{mode.label}</option>)}
+      </select>
+    </label>
+  );
+  const wrap = { display: "inline-flex", padding: 3, borderRadius: 12, background: "var(--kdn-surface-2)", border: "1px solid var(--kdn-line)", gap: 2 };
+  const button = active => ({ minHeight: compact ? 32 : 36, padding: compact ? "0 9px" : "0 12px", borderRadius: 9, border: 0, cursor: "pointer", fontSize: compact ? 12 : 13, fontWeight: 800, whiteSpace: "nowrap", background: active ? "var(--kdn-accent)" : "transparent", color: active ? "var(--kdn-accent-ink)" : "var(--kdn-ink-soft)" });
+  return (
+    <div role="radiogroup" aria-label="화면 모드" className="no-print" style={wrap}>
+      {UI_MODES.map(mode => (
+        <button key={mode.key} type="button" role="radio" aria-checked={current === mode.key} onClick={() => setUiMode(mode.key)} style={button(current === mode.key)}><span className="kdn-mode-long">{mode.label}</span><span className="kdn-mode-short">{mode.short}</span></button>
+      ))}
+    </div>
+  );
+}
+
+const newUiNavStyles = {
+  wrap: { position: "sticky", top: 0, zIndex: 40, background: "var(--kdn-bg)", borderBottom: "1px solid var(--kdn-line)" },
+  inner: { maxWidth: 1280, margin: "0 auto", padding: "0 24px", minHeight: 68, display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap" },
+  brand: { display: "flex", alignItems: "center", gap: 11, color: "var(--kdn-ink)", background: "none", border: 0, padding: 0, cursor: "default" },
+  logo: { width: 38, height: 38, borderRadius: 13, background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 16 },
+  tabs: { display: "flex", gap: 2, flex: 1, flexWrap: "wrap", alignItems: "stretch" },
+  // borderBottom 축약형과 borderBottomColor를 섞으면 탭 전환 때 React가 색만 지워 흰 밑줄이 남으므로 각각 지정합니다.
+  tab: { background: "none", border: 0, borderBottomWidth: 3, borderBottomStyle: "solid", borderBottomColor: "transparent", padding: "22px 12px 19px", fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink-soft)", cursor: "pointer" },
+  tabActive: { color: "var(--kdn-accent)", borderBottomColor: "var(--kdn-accent)" },
+  actions: { display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" },
+  ghost: { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 38, padding: "0 13px", borderRadius: 12, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13, fontWeight: 800, cursor: "pointer" },
+};
+
+function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
+  const items = [
+    { key: "grades", label: "성적 · 진학" },
+    { key: "timetable", label: "시간표" },
+    ...(showTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE" }] : []),
+    ...(showMinimumAchievement ? [{ key: "minimumAchievement", label: "최소성취수준" }] : []),
+    ...(showAdmin ? [{ key: "admin", label: "관리자" }] : []),
+  ];
+  return (
+    <nav className="no-print" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
+      <div className="kdn-nav-inner" style={newUiNavStyles.inner}>
+        <div style={newUiNavStyles.brand}>
+          <span style={newUiNavStyles.logo}>KD</span>
+          <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
+            <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
+            <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
+          </span>
+        </div>
+        <div className="kdn-nav-tabs" style={newUiNavStyles.tabs}>
+          {items.map(it => (
+            <button key={it.key} type="button" aria-current={active === it.key ? "page" : undefined} onClick={() => onSwitch(it.key)} style={{ ...newUiNavStyles.tab, ...(active === it.key ? newUiNavStyles.tabActive : {}) }}>{it.label}</button>
+          ))}
+        </div>
+        <div className="kdn-nav-actions" style={newUiNavStyles.actions}>
+          <UiModeSwitch compact />
+          {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile}><Settings size={14}/>내 정보</button>}
+          <button type="button" style={newUiNavStyles.ghost} onClick={onLogout}>로그아웃</button>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function NewUiLanding({ attemptLogin, showToast }) {
+  return (
+    <div style={{ minHeight: "100vh", background: "var(--kdn-bg)", color: "var(--kdn-ink)", fontFamily: "'NanumSquareRound','KDRound','Pretendard','Apple SD Gothic Neo',sans-serif" }}>
+      <style>{globalCss}</style>
+      <header style={{ borderBottom: "1px solid var(--kdn-line)" }}>
+        <div className="kdn-nav-inner" style={{ ...newUiNavStyles.inner, gap: 16 }}>
+          <div style={newUiNavStyles.brand}>
+            <span style={newUiNavStyles.logo}>KD</span>
+            <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
+              <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
+              <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>
+            </span>
+          </div>
+          <div style={{ marginLeft: "auto" }}><UiModeSwitch /></div>
+        </div>
+      </header>
+      <main style={{ maxWidth: 1180, margin: "0 auto", padding: "56px 24px 64px", display: "flex", flexWrap: "wrap", gap: 40, alignItems: "center" }}>
+        <section style={{ flex: "1 1 440px", minWidth: 0, display: "flex", flexDirection: "column", gap: 22 }}>
+          <h1 style={{ margin: 0, fontSize: "clamp(38px, 6vw, 62px)", lineHeight: 1.2, fontWeight: 900, letterSpacing: "-.02em" }}>
+            <span style={{ display: "block" }}>오늘은 몇 교시,</span>
+            <span style={{ display: "block", color: "var(--kdn-accent)" }}>어느 교실로</span>
+            <span style={{ display: "block", color: "var(--kdn-accent)" }}>가야 할까?</span>
+          </h1>
+          <p style={{ margin: 0, fontSize: 18, lineHeight: 1.7, color: "var(--kdn-ink-soft)" }}>이동수업 시간표와 학급 공지, 성적·진학 상담 자료를<br/>한 계정으로 모아 봅니다.</p>
+          <p style={{ margin: 0, fontSize: 14, color: "var(--kdn-muted)", fontWeight: 700 }}>학생 · 선생님 · 관리자 모두 같은 로그인 창을 씁니다.</p>
+        </section>
+        <section aria-label="로그인" style={{ flex: "1 1 360px", maxWidth: 460, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <LandingHeroArt />
+          <div style={{ marginTop: -70, position: "relative", padding: "0 14px" }}>
+            <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+          </div>
+        </section>
+        <section aria-labelledby="kdn-features" style={{ flex: "1 1 100%", display: "grid", gap: 16, marginTop: 12 }}>
+          <h2 id="kdn-features" style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>KDTIME에서 할 수 있는 일</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 14 }}>
+            {LANDING_FEATURES.map(item => (
+              <article key={item.title} style={{ display: "grid", gap: 10, padding: 20, borderRadius: 20, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)" }}>
+                <span style={{ width: 44, height: 44, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft)", color: "var(--kdn-accent-text)" }}>{item.icon}</span>
+                <b style={{ fontSize: 17, fontWeight: 900 }}>{item.title}</b>
+                <span style={{ fontSize: 14, lineHeight: 1.6, color: "var(--kdn-ink-soft)" }}>{item.text}</span>
+              </article>
+            ))}
+          </div>
+        </section>
+      </main>
+      <footer style={{ borderTop: "1px solid var(--kdn-line)" }}>
+        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "22px 24px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 13, fontWeight: 700, color: "var(--kdn-muted)" }}>
+          <span>광덕고등학교 · KDTIME {SITE_TITLE.includes("BETA") ? "[BETA]" : ""}</span>
+          <span>로그인 문제는 담임 선생님 또는 관리자에게 문의해주세요.</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+const LANDING_FEATURES = [
+  { title: "이동수업 시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 명단을 바로 조회해요.", icon: <Calendar size={22} /> },
+  { title: "성적 · 진학", text: "내신 추이, 대학 탐색, 수시 NAVI 분석과 지원 구성을 한 흐름으로 봐요.", icon: <BookOpen size={22} /> },
+  { title: "학급 공지", text: "공지사항 · 제출 · 신청 · 상담 알림과 수업자료를 한곳에서 받아요.", icon: <Bell size={22} /> },
+  { title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 최소성취수준 관리를 선생님 계정으로.", icon: <Users size={22} /> },
+];
+
+// 고정 색 그림이라 화면 모드 색 변환을 거치지 않도록 문자열로 넣습니다(밤하늘 + 학교 건물).
+const LANDING_HERO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 460 230" preserveAspectRatio="xMidYMax slice">
+<rect width="460" height="230" fill="#1f2238"/><circle cx="380" cy="56" r="24" fill="#f7d9a8"/><circle cx="390" cy="49" r="22" fill="#1f2238"/>
+<g fill="#e9e3d6" opacity=".85"><circle cx="60" cy="40" r="1.8"/><circle cx="140" cy="76" r="1.4"/><circle cx="236" cy="32" r="1.8"/><circle cx="300" cy="96" r="1.4"/><circle cx="440" cy="120" r="1.4"/><circle cx="30" cy="120" r="1.4"/></g>
+<rect x="0" y="196" width="460" height="34" fill="#181a2b"/><rect x="100" y="112" width="260" height="86" rx="6" fill="#2d3050"/><rect x="200" y="82" width="60" height="116" rx="6" fill="#383c62"/>
+<circle cx="230" cy="106" r="12" fill="#1f2238"/><path d="M230 99v7l4 3" stroke="#f7d9a8" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+<rect x="120" y="128" width="22" height="18" rx="4" fill="#ff9a5c"/><rect x="152" y="128" width="22" height="18" rx="4" fill="#4a4e78"/><rect x="120" y="158" width="22" height="18" rx="4" fill="#4a4e78"/><rect x="152" y="158" width="22" height="18" rx="4" fill="#ff9a5c"/>
+<rect x="286" y="128" width="22" height="18" rx="4" fill="#4a4e78"/><rect x="318" y="128" width="22" height="18" rx="4" fill="#ff9a5c"/><rect x="286" y="158" width="22" height="18" rx="4" fill="#ff9a5c"/><rect x="318" y="158" width="22" height="18" rx="4" fill="#4a4e78"/>
+<rect x="218" y="166" width="24" height="32" rx="10" fill="#1f2238"/></svg>`;
+
+// 로그인 화면 오른쪽 그림. public/kdtime-hero.jpg 파일을 넣으면 그 사진이 대신 보입니다(권장 1600×800).
+function LandingHeroArt() {
+  const [photoOk, setPhotoOk] = useState(true);
+  return (
+    <div aria-hidden="true" style={{ height: 230, borderRadius: 26, overflow: "hidden", background: "var(--kdn-hero-art)", position: "relative" }}>
+      {photoOk
+        ? <img src="/kdtime-hero.jpg" alt="" onError={() => setPhotoOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        : <div style={{ width: "100%", height: "100%" }} dangerouslySetInnerHTML={{ __html: LANDING_HERO_SVG }} />}
+    </div>
+  );
+}
+
+function ClassicMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
   const items = [
     { key: "grades", label: "성적", icon: "📊", activeBg:"linear-gradient(135deg,#e9f3ff,#eef4ff)", activeColor:"#2d5f96" },
     { key: "timetable", label: "시간표", icon: "🗓️", activeBg:"linear-gradient(135deg,#eef8f4,#e7f5ee)", activeColor:"#34705a" },
@@ -2349,7 +2510,7 @@ function MegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTea
             </button>
           ))}
         </div>
-        <div style={megaNavStyles.accountActions}>{onEditProfile && <button style={megaNavStyles.profileButton} onClick={onEditProfile}><Settings size={13}/>내 정보 수정</button>}<button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button></div>
+        <div style={megaNavStyles.accountActions}><UiModeSwitch compact />{onEditProfile && <button style={megaNavStyles.profileButton} onClick={onEditProfile}><Settings size={13}/>내 정보 수정</button>}<button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button></div>
       </div>
     </div>
   );
@@ -2948,7 +3109,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
           <p style={styles.noticeHeroText}>{teacher.name} 선생님{teacher.homeroomClass ? ` · ${teacher.homeroomClass}반 담임` : ""}{viewingAsAdmin ? " · 관리자 열람" : ""}</p>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap:"wrap" }}>
-          <button style={styles.noticeHeroButton} onClick={onLogout}>{viewingAsAdmin ? "돌아가기" : "로그아웃"}</button>
+          {(viewingAsAdmin || !isNewUi()) && <button style={styles.noticeHeroButton} onClick={onLogout}>{viewingAsAdmin ? "돌아가기" : "로그아웃"}</button>}
         </div>
       </div>
 
@@ -3469,10 +3630,63 @@ function printSingleTimetableCard(cardElement, paper = "A4") {
   window.setTimeout(finalCleanup, 15000);
 }
 
+// 새 UI: 지금(또는 다음) 교시를 계산합니다. 교시는 PERIOD_TIME 시작 시각부터 50분입니다.
+const LESSON_MINUTES = 50;
+function lessonSlotAt(now = new Date()) {
+  const dayIndex = now.getDay() - 1;
+  if (dayIndex < 0 || dayIndex > 4) return null;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  for (const p of PERIODS) {
+    const [h, m] = String(PERIOD_TIME[p]).split(":").map(Number);
+    const start = h * 60 + m;
+    if (minutes >= start && minutes < start + LESSON_MINUTES) return { day: DAYS[dayIndex], pi: p - 1, period: p, start, state: "now" };
+    if (minutes < start) return { day: DAYS[dayIndex], pi: p - 1, period: p, start, state: "next" };
+  }
+  return null;
+}
+function useLessonSlot(enabled) {
+  const [slot, setSlot] = useState(() => (enabled ? lessonSlotAt() : null));
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const tick = () => setSlot(lessonSlotAt());
+    tick();
+    const timer = window.setInterval(tick, 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [enabled]);
+  return slot;
+}
+const clockText = minutes => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+function NowLessonCard({ grid, slot }) {
+  if (!slot) return null;
+  const cell = grid?.[slot.day]?.[slot.pi];
+  const next = slot.state === "now" ? grid?.[slot.day]?.slice(slot.pi + 1).map((c, i) => ({ c, period: slot.period + 1 + i })).find(item => item.c) : null;
+  const place = !cell ? "" : cell.type === "move" ? [cell.group && `이동수업 ${cell.group}`, cell.roomLabel && (cell.moved ? `${cell.roomLabel}로 이동` : cell.roomLabel)].filter(Boolean).join(" · ") : (cell.location || "우리 반 교실");
+  return (
+    <section className="no-print" aria-label={slot.state === "now" ? "지금 수업" : "다음 수업"} style={nowCardStyles.wrap}>
+      <div style={nowCardStyles.main}>
+        <span style={nowCardStyles.kicker}>{slot.state === "now" ? "지금 수업" : "다음 수업"} · {slot.day}요일 {slot.period}교시 {clockText(slot.start)}–{clockText(slot.start + LESSON_MINUTES)}</span>
+        <b style={nowCardStyles.subject}>{cell ? cell.subject : "수업 없음"}</b>
+        {place && <span style={nowCardStyles.place}>{place}</span>}
+      </div>
+      {next && <div style={nowCardStyles.next}><span>다음</span><b>{next.period}교시 · {next.c.subject}</b></div>}
+    </section>
+  );
+}
+const nowCardStyles = {
+  wrap: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap", margin: "4px 0 12px", padding: "16px 18px", borderRadius: 18, background: "var(--kdn-accent-soft)", border: "1px solid var(--kdn-accent)" },
+  main: { display: "grid", gap: 4, minWidth: 0 },
+  kicker: { fontSize: 13, fontWeight: 800, color: "var(--kdn-accent-text)" },
+  subject: { fontSize: 24, fontWeight: 950, color: "var(--kdn-ink)", letterSpacing: "-.02em" },
+  place: { fontSize: 14, fontWeight: 700, color: "var(--kdn-ink-soft)" },
+  next: { display: "grid", gap: 2, fontSize: 13, fontWeight: 700, color: "var(--kdn-ink-soft)", textAlign: "right" },
+};
+
 function TimetableCard({ result, sid }) {
   const { student, grid, warnings, hasTimetable, notices, homeroomNotices, classroomCourses = [] } = result;
   const hasNotices = (notices && notices.length > 0) || (homeroomNotices && homeroomNotices.length > 0);
   const [view, setView] = useState("timetable");
+  const lessonSlot = useLessonSlot(isNewUi());
   return (
     <div style={styles.card} className="print-card student-timetable-card">
       <div style={styles.printHeader} className="print-header timetable-print-header">
@@ -3490,7 +3704,8 @@ function TimetableCard({ result, sid }) {
       {view === "timetable" ? (
         <>
           {!hasTimetable && <div style={styles.warnBanner}><AlertTriangle size={14} /> {student.class}반 시간표 데이터가 없습니다.</div>}
-          <GridTable grid={grid} />
+          {hasTimetable && <NowLessonCard grid={grid} slot={lessonSlot} />}
+          <GridTable grid={grid} nowSlot={lessonSlot?.state === "now" ? lessonSlot : null} />
           <div style={styles.legend} className="timetable-legend">
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#c7d2c4" }} /> 공통수업</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
@@ -3688,12 +3903,12 @@ function homeroomNoticeLabelFor(n) {
 }
 
 
-function GridTable({ grid }) {
+function GridTable({ grid, nowSlot = null }) {
   return (
     <table className="student-timetable-table" style={styles.table}>
       <colgroup><col style={{ width: "13%" }} />{DAYS.map(d => <col key={d} style={{ width: "17.4%" }} />)}</colgroup>
       <thead><tr><th style={styles.thPeriod}>교시</th>{DAYS.map(d => <th key={d} style={styles.th}>{d}</th>)}</tr></thead>
-      <tbody>{PERIODS.map((p, pi) => <tr key={p}><td style={styles.tdPeriod}><div>{p}교시</div><div style={styles.tdTime}>{PERIOD_TIME[p]}</div></td>{DAYS.map(day => { const c = grid[day][pi]; return <td key={day} style={{ ...styles.td, ...cellBg(c) }}>{renderCell(c)}</td>; })}</tr>)}</tbody>
+      <tbody>{PERIODS.map((p, pi) => <tr key={p}><td style={styles.tdPeriod}><div>{p}교시</div><div style={styles.tdTime}>{PERIOD_TIME[p]}</div></td>{DAYS.map(day => { const c = grid[day][pi]; return <td key={day} className={nowSlot && nowSlot.day === day && nowSlot.pi === pi ? "kdn-now-cell" : undefined} style={{ ...styles.td, ...cellBg(c) }}>{renderCell(c)}</td>; })}</tr>)}</tbody>
     </table>
   );
 }
@@ -4214,7 +4429,8 @@ function AdminConsole(props) {
         <ScopeGroup label="학기"><ScopeBtn active={props.semester === "sem1"} onClick={() => props.setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={props.semester === "sem2"} onClick={() => props.setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>
         <div style={styles.adminScopeCaption}><span>현재</span><strong>{props.grade}학년 · {props.semester === "sem1" ? "1학기" : "2학기"}</strong></div>
       </div>
-      <div style={styles.adminTabs}>
+      <div className="kdn-admin-layout">
+      <div className="kdn-admin-nav" style={styles.adminTabs}>
         <button onClick={() => setSub("timetable")} style={{ ...styles.adminTabBtn, ...(sub === "timetable" ? styles.adminTabBtnActive : {}) }}><ClipboardList size={14} /> 시간표 관리</button>
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
         <button onClick={() => setSub("accounts")} style={{ ...styles.adminTabBtn, ...(sub === "accounts" ? styles.adminTabBtnActive : {}) }}><Lock size={14} /> 계정 관리</button>
@@ -4223,6 +4439,7 @@ function AdminConsole(props) {
         <button onClick={() => setSub("susiNaviBeta")} style={{ ...styles.adminTabBtn, ...(sub === "susiNaviBeta" ? styles.adminTabBtnActive : {}) }}><BookOpen size={14} /> 수시NAVI Beta</button>
         <button onClick={() => setSub("feedback")} style={{ ...styles.adminTabBtn, ...(sub === "feedback" ? styles.adminTabBtnActive : {}) }}><Bug size={14} /> 건의·버그</button>
       </div>
+      <div className="kdn-admin-main">
       {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
       {sub === "grades" && (
         props.gdb ? <DeferredPanel label="성적 데이터 관리 화면을 불러오는 중입니다."><AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} roster={props.roster} currentGrade={props.grade} /></DeferredPanel>
@@ -4233,6 +4450,8 @@ function AdminConsole(props) {
       {sub === "siteAnnouncements" && <AdminSiteAnnouncementPanel announcements={props.db.siteAnnouncements || []} persist={props.persist} showToast={props.showToast} />}
       {sub === "susiNaviBeta" && <DeferredPanel label="수시NAVI 관리 화면을 불러오는 중입니다."><SusiNaviBetaAdmin showToast={props.showToast} /></DeferredPanel>}
       {sub === "feedback" && <FeedbackAdminPanel feedback={props.db.feedback || []} persist={props.persist} showToast={props.showToast} />}
+      </div>
+      </div>
     </div>
   );
 }
@@ -5715,11 +5934,12 @@ const styles = {
   betaBadge: { fontSize: 9.5, background: "#eef0ec", color: "#6b6754", padding: "1px 6px", borderRadius: 5, marginLeft: 5, fontWeight: 700 },
   brandSub: { fontSize: 11, color: "#8f8a7d", marginTop: 2 },
   nav: { display: "flex", gap: 4 },
-  navBtn: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", padding: "8px 12px", borderRadius: 7, fontSize: 13, cursor: "pointer", color: "#8a8578", fontWeight: 700 },
+  navBtn: { display: "flex", alignItems: "center", gap: 6, border: "none", background: "transparent", padding: "8px 12px", borderRadius: 7, fontSize: 13, cursor: "pointer", color: "#8a8578", fontWeight: 700, whiteSpace: "nowrap", flex: "none" },
   navBtnActive: { background: COLORS.accentSoft, color: COLORS.accent },
-  compactToolbarSingle: { maxWidth: 1040, margin: "0 auto", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0", flexWrap: "nowrap" },
-  compactMenuGroup: { display: "flex", alignItems: "center", minWidth: 0, flex: "1 1 auto", padding: 4, border: "1px solid #e1e5ea", borderRadius: 11, background: "#f7f9fb" },
-  compactScopeGroup: { display: "flex", alignItems: "center", gap: 14, flex: "0 0 auto", whiteSpace: "nowrap", padding: "6px 10px", border: "1px solid #e2ded3", borderRadius: 11, background: "#fffdf9" },
+  // 좁은 화면(휴대폰)에서는 메뉴와 학년·학기 선택이 두 줄로 나뉘고, 메뉴는 가로로 밀어 볼 수 있습니다.
+  compactToolbarSingle: { maxWidth: 1040, margin: "0 auto", width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "0", flexWrap: "wrap" },
+  compactMenuGroup: { display: "flex", alignItems: "center", minWidth: 0, flex: "1 1 320px", overflowX: "auto", padding: 4, border: "1px solid #e1e5ea", borderRadius: 11, background: "#f7f9fb" },
+  compactScopeGroup: { display: "flex", alignItems: "center", gap: 14, flex: "0 1 auto", maxWidth: "100%", overflowX: "auto", whiteSpace: "nowrap", padding: "6px 10px", border: "1px solid #e2ded3", borderRadius: 11, background: "#fffdf9" },
   compactToolbarDivider: { width: 1, alignSelf: "stretch", minHeight: 38, background: "#d8dde4", flex: "0 0 1px" },
   body: { maxWidth: 1040, margin: "0 auto", padding: "28px 20px 60px" },
   h1: { fontSize: 18, fontWeight: 700, margin: "0 0 4px" },
