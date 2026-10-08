@@ -20,6 +20,8 @@ import {
   Upload,
   Users,
 } from "lucide-react";
+import { isNewUi } from "./uiMode.js";
+import CriteriaPresets from "./CriteriaPresets.jsx";
 
 const FONT_STACK = '"KDRound","Pretendard", "SUIT", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
 const GRADE_CUMULATIVE = {
@@ -400,6 +402,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const [busy, setBusy] = useState(false);
   const [criteriaSaving, setCriteriaSaving] = useState(false);
   const [panelMode, setPanelMode] = useState("analysis");
+  const newUi = isNewUi();
+  const [calcStep, setCalcStep] = useState(1);
   const [dataSubjectFilter, setDataSubjectFilter] = useState("all");
   const [dataClassFilter, setDataClassFilter] = useState("all");
   const writtenInputRef = useRef(null);
@@ -761,6 +765,28 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     ...current,
     plannedPerformance: (Array.isArray(current.plannedPerformance) ? current.plannedPerformance : []).filter(area => area.id !== id).map((area, index) => ({ ...area, order: index })),
   }));
+  // 산출 기준 프리셋: 등급·성취도 설정과 지필/수행 반영비율을 이름(시험명·영역명)으로 저장합니다.
+  // 불러올 때는 이름이 같은 시험·영역에 비율을 채우고, 아직 성적 파일이 없는 항목은 '예정' 항목으로 만듭니다.
+  const captureCriteriaPreset = () => ({
+    settings: { gradeSystem: settings.gradeSystem, courseType: settings.courseType, achievementMode: settings.achievementMode, manualCuts: settings.manualCuts, tieItemCount: settings.tieItemCount },
+    written: [...sortedWritten.map(item => ({ title: text(item.title), order: writtenOrder(item), maxScore: item.maxScore, weight: asNumber(item.weight) ?? 0 })), ...plannedWritten.map(item => ({ title: text(item.title), order: Number(item.order) || 99, maxScore: item.maxScore, weight: asNumber(item.weight) ?? 0 }))],
+    areas: canonicalAreas.map(area => ({ name: text(area.name), maxScore: area.maxScore, weight: asNumber(area.weight) ?? 0 })),
+  });
+  const applyCriteriaPreset = preset => {
+    const writtenByTitle = new Map((preset.written || []).map(item => [item.title, item]));
+    const uploadedTitles = new Set(sortedWritten.map(item => text(item.title)));
+    setWritten(current => current.map(item => writtenByTitle.has(text(item.title)) ? { ...item, weight: writtenByTitle.get(text(item.title)).weight } : item));
+    const nextPlannedWritten = (preset.written || []).filter(item => !uploadedTitles.has(item.title)).map((item, index) => ({ id: `planned-${Date.now()}-${index}`, title: item.title, order: item.order, maxScore: item.maxScore ?? 100, weight: item.weight }));
+    const areaByName = new Map((preset.areas || []).map(area => [area.name, area]));
+    if (uploadedAreas.length) setPerformance(current => current.map(file => ({ ...file, areas: (file.areas || []).map(area => areaByName.has(text(area.name)) ? { ...area, weight: areaByName.get(text(area.name)).weight } : area) })));
+    setSettings(current => ({
+      ...current,
+      ...preset.settings,
+      manualCuts: { ...(current.manualCuts || {}), ...(preset.settings?.manualCuts || {}) },
+      plannedWritten: nextPlannedWritten,
+      plannedPerformance: uploadedAreas.length ? (current.plannedPerformance || []) : (preset.areas || []).map((area, index) => ({ id: `planned-area-${Date.now()}-${index}`, name: area.name, maxScore: area.maxScore ?? 20, weight: area.weight, order: index })),
+    }));
+  };
   const updateAreaWeight = (areaId, value) => {
     const next = asNumber(value) ?? 0;
     if (uploadedAreas.length) {
@@ -1335,6 +1361,12 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || (accessRole === "admin" ? "관리자" : "담당 교사")}</span>}{context && readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
       </div>
 
+      {newUi && <div className="kdn-search-steps kdn-calc-steps" role="tablist" aria-label="성적 산출 단계">
+        {[[1, "NEIS 파일 업로드", `지필 ${sortedWritten.length}개 · 수행 ${performance.length}반`], [2, "산출 기준 설정", `반영비율 ${weightTotal.total}%`], [3, "결과 확인", activeRows.length ? `${activeRows.length}명` : "학생 결과"]].map(([step, label, note]) => (
+          <button key={step} type="button" role="tab" aria-selected={calcStep === step} className={calcStep === step ? "is-active" : ""} onClick={() => setCalcStep(step)}><span>{step}</span><b>{label}</b><small>{note}</small></button>
+        ))}
+      </div>}
+      <div style={{display: !newUi || calcStep === 1 ? "contents" : "none"}}>
       <section style={ui.section}>
         <div style={ui.sectionHeader}>
           <div><span style={ui.stepBadge}>1</span><strong style={ui.sectionTitle}>NEIS 파일 업로드</strong><p style={ui.sectionHint}>아래 경로에서 내려받은 XLSX Data 파일을 그대로 올려주세요.</p></div>
@@ -1367,8 +1399,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           />
         </div>
         {!!uploadMessages.length && <div style={ui.messageList}>{uploadMessages.map((message, index) => <div key={`${message.text}-${index}`} style={{ ...ui.message, ...(message.type === "error" ? ui.messageError : message.type === "warn" ? ui.messageWarn : ui.messageOk) }}>{message.type === "ok" ? <Check size={13} /> : <AlertTriangle size={13} />}{message.text}</div>)}</div>}
+        {newUi && <div className="kdn-step-next"><span style={{flex:1}} /><button type="button" onClick={() => setCalcStep(2)}>다음: 산출 기준 설정 ›</button></div>}
       </section>
+      </div>
 
+      <div style={{display: !newUi || calcStep === 2 ? "contents" : "none"}}>
       <section style={ui.section}>
         <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>2</span><strong style={ui.sectionTitle}>산출 기준 설정</strong><p style={ui.sectionHint}>반영비율 합계가 100%가 되어야 학기말 석차·등급을 확정합니다.</p></div><div style={ui.settingsHeaderActions}><span style={{ ...ui.totalBadge, ...(Math.abs(weightTotal.total - 100) < 1e-9 ? ui.totalBadgeOk : ui.totalBadgeWarn) }}>반영비율 {weightTotal.total}%</span><button type="button" style={ui.criteriaSaveButton} onClick={saveCriteriaSettings} disabled={readOnlyWorkspace || criteriaSaving}><Save size={14}/>{criteriaSaving ? "저장 중" : "산출 기준 저장"}</button></div></div>
         <div style={ui.settingsGrid}>
@@ -1396,8 +1431,12 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         </div>
         <div style={ui.tieRuleBox}><b>동점자 처리 순서</b><span>학기말 환산점수가 같은 경우: ① 정기시험 환산 합계 → ② 수행평가 → ③ 2차 지필 → ④ 1차 지필 → ⑤ 수행평가 NEIS 영역 순 → ⑥ 2차 고배점 문항(최대 3개) → ⑦ 1차 고배점 문항(최대 3개)</span><small>수행평가 100% 과목은 수행 영역 순서까지만 적용합니다. 모든 기준이 같은 학생은 동석차로 남기며, 등급 경계 인원에 걸린 동점자는 나누지 않고 모두 다음 등급으로 처리합니다.</small></div>
         <div style={ui.roundingRuleBox}><b>소수점 처리</b><span>영역별 환산점수 합계는 소수 셋째 자리에서 반올림해 둘째 자리까지 석차 산출에 사용합니다.</span><span>공식 원점수는 학기말 환산점수를 소수 첫째 자리에서 반올림한 정수로 표시하며, 평균과 분포 비율은 소수 첫째 자리까지 표시합니다.</span></div>
+        <CriteriaPresets teacher={teacher} disabled={readOnlyWorkspace} capture={captureCriteriaPreset} apply={applyCriteriaPreset} />
+        {newUi && <div className="kdn-step-next"><button type="button" className="kdn-step-prev" onClick={() => setCalcStep(1)}>‹ 이전</button><span style={{flex:1}} /><button type="button" onClick={() => setCalcStep(3)}>다음: 결과 확인 ›</button></div>}
       </section>
+      </div>
 
+      <div style={{display: !newUi || calcStep === 3 ? "contents" : "none"}}>
       <section className={activeView === "minimum" ? "minimum-print-area" : ""} style={ui.section}>
         <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>3</span><strong style={ui.sectionTitle}>결과 확인</strong><p style={ui.sectionHint}>지필평가, 학기말 성적과 최소성취수준 예방지도를 한 화면에서 전환합니다.</p></div>{activeView === "minimum"&&<button type="button" className="no-minimum-print" style={ui.printButton} onClick={printMinimum}><Printer size={14}/> 인쇄·PDF</button>}</div>
         <div style={ui.resultTabs}>
@@ -1456,7 +1495,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             {activeView === "combined" ? <CombinedTable rows={filteredRows} written={sortedWritten} areas={canonicalAreas} onEdit={readOnlyWorkspace?null:openStudentEditor} /> : activeView === "minimum" ? <MinimumTable rows={filteredRows} settings={settings} minimumSettings={minimumSettings} onEdit={readOnlyWorkspace?null:openStudentEditor} /> : <WrittenTable rows={filteredRows} assessment={selectedWritten} onEdit={readOnlyWorkspace?null:openStudentEditor} />}
           </div>
         </>}
+        {newUi && <div className="kdn-step-next"><button type="button" className="kdn-step-prev" onClick={() => setCalcStep(2)}>‹ 이전</button><span style={{flex:1}} /></div>}
       </section>
+      </div>
       </div>
 
       {panelMode==="data" && <section className="teacher-grade-data-management" style={ui.section}>

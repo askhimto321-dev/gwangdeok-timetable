@@ -75,10 +75,9 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
           {student.latestMockLabel && <span style={s.metaSub}><span style={s.dot} aria-hidden="true" />최근 모의고사 {student.latestMockLabel}</span>}
         </div>
       </div>
-      <div style={{ ...s.stats, gridTemplateColumns: `repeat(${isFiveScale ? 6 : 5}, minmax(104px, 1fr))` }}>
+      <div style={{ ...s.stats, gridTemplateColumns: `repeat(${isFiveScale ? 5 : 4}, minmax(108px, 1fr))` }}>
         <Stat label="전교과 내신" value={fmt(groups.전교과 ?? student.grade5)} unit={student.gradeSystem === 5 ? "5등급" : ""} tone="blue" />
         {isFiveScale && <Stat label="9등급 환산" value={fmt(naviGrade?.value)} unit={naviGrade?.value != null ? methodLabel : ""} tone="sky" title={naviGrade?.method === "statistical" ? `통계 기반 Beta · ${naviGrade.group || "전교과"} (NAVI와 같은 방식)` : "기존 환산 2×내신−1 (NAVI와 같은 방식)"} />}
-        <Stat label="국수영과" value={fmt(groups.국수영과)} tone="teal" />
         <Stat label="최근 모의고사 3합" value={mock?.sum3 ?? "-"} tone="purple" />
         <Stat label="관심 대학" value={favoriteCount} unit="개" tone="amber" />
         <Stat label="지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} progress={planCount == null ? null : planCount / PLAN_LIMIT} />
