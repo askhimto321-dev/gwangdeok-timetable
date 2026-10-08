@@ -327,6 +327,8 @@ const BASE_CSS = {
 const SHARED_NEW_CSS = `
   .kdn-mode-short{display:none}
   @media screen{.kdn-print-only{display:none!important}}
+  /* 시간표: 지금 교시 칸 강조(화면에서만) */
+  @media screen{.kdn-now-cell{box-shadow:inset 0 0 0 3px var(--kdn-accent)!important;position:relative}}
   /* 상담 기록: 날짜순 타임라인(최근 기록에 강조색 점) */
   .kdn-note-timeline:has(>.counseling-print-note){position:relative;margin-left:6px;padding-left:22px!important;border-left:2px solid var(--kdn-line)}
   .kdn-note-timeline>.counseling-print-note{position:relative}

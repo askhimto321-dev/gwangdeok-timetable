@@ -3580,10 +3580,63 @@ function printSingleTimetableCard(cardElement, paper = "A4") {
   window.setTimeout(finalCleanup, 15000);
 }
 
+// 새 UI: 지금(또는 다음) 교시를 계산합니다. 교시는 PERIOD_TIME 시작 시각부터 50분입니다.
+const LESSON_MINUTES = 50;
+function lessonSlotAt(now = new Date()) {
+  const dayIndex = now.getDay() - 1;
+  if (dayIndex < 0 || dayIndex > 4) return null;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  for (const p of PERIODS) {
+    const [h, m] = String(PERIOD_TIME[p]).split(":").map(Number);
+    const start = h * 60 + m;
+    if (minutes >= start && minutes < start + LESSON_MINUTES) return { day: DAYS[dayIndex], pi: p - 1, period: p, start, state: "now" };
+    if (minutes < start) return { day: DAYS[dayIndex], pi: p - 1, period: p, start, state: "next" };
+  }
+  return null;
+}
+function useLessonSlot(enabled) {
+  const [slot, setSlot] = useState(() => (enabled ? lessonSlotAt() : null));
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const tick = () => setSlot(lessonSlotAt());
+    tick();
+    const timer = window.setInterval(tick, 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [enabled]);
+  return slot;
+}
+const clockText = minutes => `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+
+function NowLessonCard({ grid, slot }) {
+  if (!slot) return null;
+  const cell = grid?.[slot.day]?.[slot.pi];
+  const next = slot.state === "now" ? grid?.[slot.day]?.slice(slot.pi + 1).map((c, i) => ({ c, period: slot.period + 1 + i })).find(item => item.c) : null;
+  const place = !cell ? "" : cell.type === "move" ? [cell.group && `이동수업 ${cell.group}`, cell.roomLabel && (cell.moved ? `${cell.roomLabel}로 이동` : cell.roomLabel)].filter(Boolean).join(" · ") : (cell.location || "우리 반 교실");
+  return (
+    <section className="no-print" aria-label={slot.state === "now" ? "지금 수업" : "다음 수업"} style={nowCardStyles.wrap}>
+      <div style={nowCardStyles.main}>
+        <span style={nowCardStyles.kicker}>{slot.state === "now" ? "지금 수업" : "다음 수업"} · {slot.day}요일 {slot.period}교시 {clockText(slot.start)}–{clockText(slot.start + LESSON_MINUTES)}</span>
+        <b style={nowCardStyles.subject}>{cell ? cell.subject : "수업 없음"}</b>
+        {place && <span style={nowCardStyles.place}>{place}</span>}
+      </div>
+      {next && <div style={nowCardStyles.next}><span>다음</span><b>{next.period}교시 · {next.c.subject}</b></div>}
+    </section>
+  );
+}
+const nowCardStyles = {
+  wrap: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap", margin: "4px 0 12px", padding: "16px 18px", borderRadius: 18, background: "var(--kdn-accent-soft)", border: "1px solid var(--kdn-accent)" },
+  main: { display: "grid", gap: 4, minWidth: 0 },
+  kicker: { fontSize: 13, fontWeight: 800, color: "var(--kdn-accent-text)" },
+  subject: { fontSize: 24, fontWeight: 950, color: "var(--kdn-ink)", letterSpacing: "-.02em" },
+  place: { fontSize: 14, fontWeight: 700, color: "var(--kdn-ink-soft)" },
+  next: { display: "grid", gap: 2, fontSize: 13, fontWeight: 700, color: "var(--kdn-ink-soft)", textAlign: "right" },
+};
+
 function TimetableCard({ result, sid }) {
   const { student, grid, warnings, hasTimetable, notices, homeroomNotices, classroomCourses = [] } = result;
   const hasNotices = (notices && notices.length > 0) || (homeroomNotices && homeroomNotices.length > 0);
   const [view, setView] = useState("timetable");
+  const lessonSlot = useLessonSlot(isNewUi());
   return (
     <div style={styles.card} className="print-card student-timetable-card">
       <div style={styles.printHeader} className="print-header timetable-print-header">
@@ -3601,7 +3654,8 @@ function TimetableCard({ result, sid }) {
       {view === "timetable" ? (
         <>
           {!hasTimetable && <div style={styles.warnBanner}><AlertTriangle size={14} /> {student.class}반 시간표 데이터가 없습니다.</div>}
-          <GridTable grid={grid} />
+          {hasTimetable && <NowLessonCard grid={grid} slot={lessonSlot} />}
+          <GridTable grid={grid} nowSlot={lessonSlot?.state === "now" ? lessonSlot : null} />
           <div style={styles.legend} className="timetable-legend">
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#c7d2c4" }} /> 공통수업</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
@@ -3799,12 +3853,12 @@ function homeroomNoticeLabelFor(n) {
 }
 
 
-function GridTable({ grid }) {
+function GridTable({ grid, nowSlot = null }) {
   return (
     <table className="student-timetable-table" style={styles.table}>
       <colgroup><col style={{ width: "13%" }} />{DAYS.map(d => <col key={d} style={{ width: "17.4%" }} />)}</colgroup>
       <thead><tr><th style={styles.thPeriod}>교시</th>{DAYS.map(d => <th key={d} style={styles.th}>{d}</th>)}</tr></thead>
-      <tbody>{PERIODS.map((p, pi) => <tr key={p}><td style={styles.tdPeriod}><div>{p}교시</div><div style={styles.tdTime}>{PERIOD_TIME[p]}</div></td>{DAYS.map(day => { const c = grid[day][pi]; return <td key={day} style={{ ...styles.td, ...cellBg(c) }}>{renderCell(c)}</td>; })}</tr>)}</tbody>
+      <tbody>{PERIODS.map((p, pi) => <tr key={p}><td style={styles.tdPeriod}><div>{p}교시</div><div style={styles.tdTime}>{PERIOD_TIME[p]}</div></td>{DAYS.map(day => { const c = grid[day][pi]; return <td key={day} className={nowSlot && nowSlot.day === day && nowSlot.pi === pi ? "kdn-now-cell" : undefined} style={{ ...styles.td, ...cellBg(c) }}>{renderCell(c)}</td>; })}</tr>)}</tbody>
     </table>
   );
 }
