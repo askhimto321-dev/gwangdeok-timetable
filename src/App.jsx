@@ -1795,6 +1795,7 @@ export default function App() {
         openTabs={studentWorkspaceTabs}
         onCloseTab={closeStudentWorkspaceTab}
       />}
+      {isNewUi() && staffWorkspaceEnabled && !selectedStudentSid && activeSection === "grades" && <WorkspaceEmptyState allRosters={db.roster} onSelect={sid => { updateSelectedStudentQuery(String(sid)); updateSelectedStudentSid(String(sid)); }} />}
       {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <div style={{ display: activeSection === "grades" ? "block" : "none" }}>
         <DeferredPanel label="성적·진학 화면을 불러오는 중입니다."><GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
@@ -2253,6 +2254,65 @@ function StaffStudentWorkspaceBar({
     )).slice(0, 8);
   }, [mergedStudents, draftQuery, selectedSid]);
   const labelFor = view => STUDENT_WORKSPACE_VIEWS.find(([key]) => key === view)?.[1] || view;
+  const newUi = isNewUi();
+  const searchInputRef = useRef(null);
+  const [recentSids, setRecentSids] = useState(() => readRecentStudents());
+  useEffect(() => {
+    if (!newUi || !selectedSid) return;
+    setRecentSids(rememberRecentStudent(selectedSid));
+  }, [newUi, selectedSid]);
+  useEffect(() => {
+    if (!newUi) return undefined;
+    // GitHub·Notion처럼 "/" 키로 어디서든 학생 검색창으로 이동합니다(입력 중일 때는 무시).
+    const onKey = event => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const tag = String(event.target?.tagName || "").toLowerCase();
+      if (["input", "textarea", "select"].includes(tag) || event.target?.isContentEditable) return;
+      event.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [newUi]);
+  const pickStudent = sid => { setDraftQuery(String(sid)); setQueryEditing(false); onQueryChange?.(String(sid)); onSelect?.(String(sid)); };
+  if (newUi) {
+    const selected = selectedSid ? studentBySid.get(String(selectedSid)) : null;
+    const recent = recentSids.filter(sid => sid !== String(selectedSid || "")).map(sid => studentBySid.get(sid)).filter(Boolean).slice(0, 5);
+    return <div className="no-print kdn-work-bar" style={newBar.wrap}>
+      <div style={newBar.inner}>
+        <div style={newBar.topRow}>
+          <div style={newBar.search}>
+            <Search size={18} color="currentColor" />
+            <input ref={searchInputRef} value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => setDraftQuery(event.target.value)} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }}
+              onKeyDown={event => { if (event.key === "Enter" && matches[0]) { event.preventDefault(); pickStudent(matches[0].sid); } if (event.key === "Escape") event.currentTarget.blur(); }}
+              placeholder="학생 이름 · 학번 · 반번호로 검색" aria-label="학생 검색" style={newBar.input} />
+            {draftQuery ? <button type="button" aria-label="검색어 지우기" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={newBar.clear}><X size={15} /></button>
+              : <kbd style={newBar.kbd} title="어디서든 / 키를 누르면 검색창으로 이동">/</kbd>}
+            {matches.length > 0 && <div role="listbox" style={newBar.matches}>{matches.map((student, index) => <button key={student.sid} type="button" role="option" aria-selected={index === 0} onMouseDown={event => event.preventDefault()} onClick={() => pickStudent(student.sid)} style={{ ...newBar.match, ...(index === 0 ? newBar.matchFirst : {}) }}>
+              <b style={newBar.matchName}>{student.name || "이름 없음"}</b><span style={newBar.matchMeta}>{student.sid} · {student.class}반 {student.number}번</span>{index === 0 && <small style={newBar.matchHint}>Enter</small>}
+            </button>)}</div>}
+          </div>
+          {selected ? <div style={newBar.selected}>
+            <span style={newBar.selectedAvatar}>{String(selected.name || "?").charAt(0)}</span>
+            <span style={{ display: "grid", lineHeight: 1.2 }}><b style={newBar.selectedName}>{selected.name}</b><small style={newBar.selectedMeta}>{selected.sid} · {selected.class}반 {selected.number}번</small></span>
+          </div> : null}
+          {recent.length > 0 && <div style={newBar.recent}><span style={newBar.recentLabel}>최근</span>{recent.map(student => <button key={student.sid} type="button" onClick={() => pickStudent(student.sid)} style={newBar.recentChip}>{student.name}<small style={newBar.recentSid}>{student.sid}</small></button>)}</div>}
+        </div>
+        <div role="tablist" aria-label="학생 화면" style={newBar.tabs}>
+          {STUDENT_WORKSPACE_GROUPS.map((group, groupIndex) => <React.Fragment key={group.label}>
+            {groupIndex > 0 && <span aria-hidden="true" style={newBar.divider} />}
+            <span style={newBar.groupLabel}>{group.label}</span>
+            {group.views.map(key => {
+              const active = activeView === key;
+              const preload = key === "susiNaviBeta" ? preloadSusiNaviSafely : undefined;
+              return <button key={key} type="button" role="tab" aria-selected={active} onMouseEnter={preload} onFocus={preload} onClick={() => onViewChange(key)} style={{ ...newBar.tab, ...(active ? newBar.tabActive : {}) }}>{labelFor(key)}</button>;
+            })}
+          </React.Fragment>)}
+        </div>
+      </div>
+    </div>;
+  }
   return <div className="no-print" style={styles.workspaceBarWrap}>
     <div style={styles.workspaceBarInner}>
       <div className="kd-workspace-top-row" style={styles.workspaceBarTopRow}>
@@ -2291,6 +2351,71 @@ function StaffStudentWorkspaceBar({
     </div>
   </div>;
 }
+
+// 새 UI: 학생을 아직 고르지 않았을 때 빈 화면 대신 보여주는 안내 + 최근 학생 바로 열기.
+function WorkspaceEmptyState({ allRosters, onSelect }) {
+  const recent = useMemo(() => {
+    const lookup = sid => Object.values(allRosters || {}).map(scopeRoster => scopeRoster?.[sid]).find(Boolean);
+    return readRecentStudents().map(sid => ({ sid, ...(lookup(sid) || {}) })).filter(student => student.name).slice(0, 6);
+  }, [allRosters]);
+  return <section className="no-print" style={{ maxWidth: 1240, margin: "28px auto 8px", padding: "0 24px" }}>
+    <div style={{ display: "grid", gap: 16, padding: "28px 28px", borderRadius: 24, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)" }}>
+      <div style={{ display: "grid", gap: 6 }}>
+        <b style={{ fontSize: 22, fontWeight: 800, color: "var(--kdn-ink)" }}>먼저 학생을 찾아주세요</b>
+        <span style={{ fontSize: 15.5, lineHeight: 1.6, color: "var(--kdn-ink-soft)" }}>위 검색창에 이름·학번을 입력하거나 키보드 <b style={{ color: "var(--kdn-ink)" }}>/</b> 키를 누르면 바로 검색할 수 있어요. 학생을 고르면 아래 화면들이 그 학생 기준으로 열립니다.</span>
+      </div>
+      {recent.length > 0 && <div style={{ display: "grid", gap: 10 }}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--kdn-muted)" }}>최근에 연 학생</span>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+          {recent.map(student => <button key={student.sid} type="button" onClick={() => onSelect(student.sid)} style={{ display: "flex", alignItems: "center", gap: 12, minHeight: 60, padding: "0 14px", borderRadius: 16, border: "1px solid var(--kdn-line)", background: "var(--kdn-surface-2)", color: "var(--kdn-ink)", cursor: "pointer", textAlign: "left" }}>
+            <span style={{ width: 36, height: 36, borderRadius: 999, flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft)", color: "var(--kdn-accent-text)", fontWeight: 900 }}>{String(student.name).charAt(0)}</span>
+            <span style={{ display: "grid", lineHeight: 1.25 }}><b style={{ fontSize: 15.5, fontWeight: 800 }}>{student.name}</b><small style={{ fontSize: 13, fontWeight: 600, color: "var(--kdn-muted)" }}>{student.sid}{student.class ? ` · ${student.class}반 ${student.number || ""}번` : ""}</small></span>
+          </button>)}
+        </div>
+      </div>}
+    </div>
+  </section>;
+}
+
+// 새 UI 학생 작업 줄: 최근 연 학생(이 브라우저에만 저장, 최대 8명).
+const RECENT_STUDENTS_KEY = "kd_recent_students_v1";
+function readRecentStudents() {
+  try { const value = JSON.parse(localStorage.getItem(RECENT_STUDENTS_KEY) || "[]"); return Array.isArray(value) ? value.map(String).slice(0, 8) : []; } catch { return []; }
+}
+function rememberRecentStudent(sid) {
+  const next = [String(sid), ...readRecentStudents().filter(value => value !== String(sid))].slice(0, 8);
+  try { localStorage.setItem(RECENT_STUDENTS_KEY, JSON.stringify(next)); } catch { /* localStorage unavailable */ }
+  return next;
+}
+
+const newBar = {
+  wrap: { position: "sticky", top: 68, zIndex: 35, background: "var(--kdn-bg)", borderBottom: "1px solid var(--kdn-line)" },
+  inner: { maxWidth: 1240, margin: "0 auto", padding: "14px 24px 0", display: "grid", gap: 10 },
+  topRow: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" },
+  search: { position: "relative", flex: "1 1 340px", maxWidth: 480, display: "flex", alignItems: "center", gap: 10, minHeight: 48, padding: "0 12px 0 16px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", color: "var(--kdn-muted)" },
+  input: { flex: 1, minWidth: 0, border: 0, outline: "none", background: "transparent", color: "var(--kdn-ink)", fontSize: 16, fontWeight: 600 },
+  kbd: { minWidth: 24, height: 24, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 7, border: "1px solid var(--kdn-line)", fontSize: 13, fontWeight: 800, color: "var(--kdn-muted)", fontFamily: "inherit" },
+  clear: { width: 30, height: 30, border: 0, borderRadius: 9, background: "var(--kdn-surface-2)", color: "var(--kdn-ink-soft)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" },
+  matches: { position: "absolute", left: 0, right: 0, top: "calc(100% + 6px)", zIndex: 50, padding: 6, borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 18px 40px rgba(0,0,0,.3)", display: "grid", gap: 2 },
+  match: { display: "flex", alignItems: "center", gap: 10, minHeight: 44, padding: "0 12px", border: 0, borderRadius: 10, background: "transparent", color: "var(--kdn-ink)", cursor: "pointer", textAlign: "left" },
+  matchFirst: { background: "var(--kdn-surface-2)" },
+  matchName: { fontSize: 15, fontWeight: 800 },
+  matchMeta: { fontSize: 13.5, fontWeight: 600, color: "var(--kdn-muted)" },
+  matchHint: { marginLeft: "auto", fontSize: 12, fontWeight: 800, color: "var(--kdn-muted)" },
+  selected: { display: "flex", alignItems: "center", gap: 10, padding: "6px 14px 6px 6px", borderRadius: 999, background: "var(--kdn-accent-soft)" },
+  selectedAvatar: { width: 34, height: 34, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", fontSize: 15, fontWeight: 900 },
+  selectedName: { fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)" },
+  selectedMeta: { fontSize: 12.5, fontWeight: 600, color: "var(--kdn-ink-soft)" },
+  recent: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  recentLabel: { fontSize: 13, fontWeight: 700, color: "var(--kdn-muted)", marginRight: 2 },
+  recentChip: { display: "inline-flex", alignItems: "baseline", gap: 6, minHeight: 34, padding: "0 12px", borderRadius: 999, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 14, fontWeight: 700, cursor: "pointer" },
+  recentSid: { fontSize: 12, fontWeight: 600, color: "var(--kdn-muted)" },
+  tabs: { display: "flex", alignItems: "stretch", gap: 2, overflowX: "auto", scrollbarWidth: "none" },
+  groupLabel: { display: "inline-flex", alignItems: "center", padding: "0 6px 0 2px", fontSize: 12.5, fontWeight: 800, color: "var(--kdn-muted)", whiteSpace: "nowrap" },
+  divider: { width: 1, margin: "10px 10px", background: "var(--kdn-line)", flex: "none" },
+  tab: { flex: "none", minHeight: 46, padding: "0 14px", border: 0, borderBottomWidth: 3, borderBottomStyle: "solid", borderBottomColor: "transparent", background: "transparent", color: "var(--kdn-ink-soft)", fontSize: 15, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" },
+  tabActive: { color: "var(--kdn-ink)", borderBottomColor: "var(--kdn-accent)" },
+};
 
 function TeacherZoneWorkspace({
   loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor,
@@ -2720,7 +2845,8 @@ const megaNavStyles = {
   inner: { maxWidth: 1160, margin: "0 auto", padding: "13px 20px", display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" },
   brand: { display: "flex", alignItems: "center", gap: 12, marginRight: 10, fontWeight: 950, letterSpacing: "-0.4px" },
   tabs: { display: "flex", gap: 7, flex: 1, alignItems: "center", flexWrap:"wrap" },
-  tab: { border: "1px solid #e0e6ee", background: "rgba(255,255,255,.9)", padding: "10px 15px", borderRadius: 13, fontSize: 13.5, fontWeight: 875, color: "#667386", cursor: "pointer", transition: "all 0.16s ease", boxShadow:"0 3px 10px rgba(55,72,110,.04)" },
+  // borderColor를 따로 적어 두어야 활성 탭이 풀릴 때 테두리가 검게 바뀌지 않습니다.
+  tab: { border: "1px solid #e0e6ee", borderColor: "#e0e6ee", background: "rgba(255,255,255,.9)", padding: "10px 15px", borderRadius: 13, fontSize: 13.5, fontWeight: 875, color: "#667386", cursor: "pointer", transition: "all 0.16s ease", boxShadow:"0 3px 10px rgba(55,72,110,.04)" },
   tabActive: { boxShadow: "0 7px 18px rgba(55,83,150,0.13)", transform:"translateY(-1px)" },
   accountActions: { display:"flex",alignItems:"center",gap:7,marginLeft:"auto" },
   profileButton: { display:"inline-flex",alignItems:"center",gap:5,border:"1px solid #d6deea",background:"#fff",padding:"8px 11px",borderRadius:10,color:"#52627a",fontSize:11.5,fontWeight:900,cursor:"pointer" },
@@ -3301,8 +3427,8 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
   ];
 
   return (
-    <div>
-      <div style={styles.noticeHero}>
+    <div className={isNewUi() ? "kdn-notice-layout" : undefined}>
+      <div className="kdn-notice-hero" style={styles.noticeHero}>
         <div style={{minWidth:0}}>
           <span style={styles.noticeHeroEyebrow}>공지·수업자료</span>
           <h1 style={styles.noticeHeroTitle}>공지 관리</h1>
@@ -3313,7 +3439,7 @@ function TeacherZoneView({ teacher, db, persist, showToast, scopeKey, grade, onL
         </div>
       </div>
 
-      <div style={styles.teacherWorkflow}>
+      <div className="kdn-notice-side" style={styles.teacherWorkflow}>
         <div className="teacher-workflow-steps" style={styles.teacherWorkflowSteps}>
           {workflowSteps.map(([step, label, caption]) => (
             <div key={step} style={{ ...styles.teacherWorkflowStep, ...(workflowStep === step ? styles.teacherWorkflowStepActive : {}), ...(workflowStep > step ? styles.teacherWorkflowStepDone : {}) }}>
@@ -3905,13 +4031,17 @@ function TimetableCard({ result, sid }) {
         <>
           {!hasTimetable && <div style={styles.warnBanner}><AlertTriangle size={14} /> {student.class}반 시간표 데이터가 없습니다.</div>}
           {hasTimetable && <NowLessonCard grid={grid} slot={lessonSlot} />}
+          <div className={isNewUi() && hasNotices ? "kdn-tt-layout" : undefined}>
+          <div className="kdn-tt-main">
           <GridTable grid={grid} nowSlot={lessonSlot?.state === "now" ? lessonSlot : null} />
           <div style={styles.legend} className="timetable-legend">
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#c7d2c4" }} /> 공통수업</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e7dfc7" }} /> 이동수업 (이동 없음)</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e3c6ae" }} /> 이동수업 (교실 이동)</span>
           </div>
-          {hasNotices && <NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} />}
+          </div>
+          {hasNotices && <aside className="kdn-tt-side no-print"><NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} /></aside>}
+          </div>
           {warnings.length > 0 && <div style={styles.warnBox} className="no-print"><div style={styles.warnBoxTitle}><AlertTriangle size={13} /> 확인 필요 {warnings.length}건</div><ul style={styles.warnUl}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
         </>
       ) : (

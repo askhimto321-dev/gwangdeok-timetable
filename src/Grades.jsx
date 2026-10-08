@@ -820,8 +820,8 @@ export default function GradesSection({
           <div style={counselFlow.steps}>{counselingFlowItems.map((item,index)=><button key={item.key} type="button" onClick={()=>navigateGradeTab(item.key)} style={{...counselFlow.step,...(tab===item.key?counselFlow.stepActive:{})}}><span style={{...counselFlow.stepNumber,...(tab===item.key?counselFlow.stepNumberActive:{})}}>{index+1}</span><span style={counselFlow.stepText}><b>{item.label}</b><small>{item.sub}</small></span>{index<counselingFlowItems.length-1&&<em style={counselFlow.arrow}>›</em>}</button>)}</div>
         </div>}
         {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
-          <div style={staffToolNav.wrap}>
-            <div style={staffToolNav.heading}><BarChart3 size={17} /><div style={staffToolNav.headingText}><b>교사용 분석·관리</b><span style={{ fontSize: 10.5, fontWeight: 650, color: "#7a8495" }}>학생 조회와 별도로 분석 도구를 사용할 수 있습니다.</span></div></div>
+          <div className="kdn-staff-tools" style={staffToolNav.wrap}>
+            <div className="kdn-staff-tools-head" style={staffToolNav.heading}><BarChart3 size={17} /><div style={staffToolNav.headingText}><b>교사용 분석·관리</b><span style={{ fontSize: 10.5, fontWeight: 650, color: "#7a8495" }}>학생 조회와 별도로 분석 도구를 사용할 수 있습니다.</span></div></div>
             <div style={staffToolNav.buttons}>
               <button type="button" onClick={() => navigateGradeTab("gradeCompare")} style={{ ...staffToolNav.button, ...(tab === "gradeCompare" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 학생 성적 비교</button>
               <button type="button" onClick={() => navigateGradeTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>

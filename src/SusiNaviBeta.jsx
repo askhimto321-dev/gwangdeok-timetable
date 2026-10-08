@@ -2186,6 +2186,9 @@ export default function SusiNaviBetaView({
     : (restoredViewState?.minimumFilter && restoredViewState.minimumFilter !== "전체" ? [restoredViewState.minimumFilter] : []));
   const [supportFilters, setSupportFilters] = useState(restoredSupportFilters);
   const [resultSort, setResultSort] = useState(restoredViewState?.resultSort || "default");
+  // 새 UI: 결과를 카드(자세히)·목록(한눈에 비교) 중 골라 봅니다. 고른 방식은 이 브라우저에 기억합니다.
+  const [resultLayout, setResultLayoutState] = useState(() => { try { return localStorage.getItem("kd_navi_result_layout") === "list" ? "list" : "card"; } catch { return "card"; } });
+  const setResultLayout = value => { setResultLayoutState(value); try { localStorage.setItem("kd_navi_result_layout", value); } catch { /* ignore */ } };
   const [cutoffBasis, setCutoffBasis] = useState(restoredViewState?.cutoffBasis === "50" ? "50" : (restoredViewState?.cutoffBasis === "70" ? "70" : readCutoffPreference()));
   const [connectionMode, setConnectionMode] = useState(restoredViewState?.connectionMode === "university" ? "university" : "grade");
   const [connectionRange, setConnectionRange] = useState(restoredViewState?.connectionRange || "0.30");
@@ -3012,7 +3015,12 @@ export default function SusiNaviBetaView({
           </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
-            {visibleResultRows.length ? visibleResultRows.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress, schoolTrend }, index) => <ResultCard
+            {isNewUi() && <div role="group" aria-label="결과 보기 방식" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 10 }}>
+              {[["card", "카드로 자세히"], ["list", "목록으로 비교"]].map(([value, label]) => <button key={value} type="button" aria-pressed={resultLayout === value} onClick={() => setResultLayout(value)} style={{ minHeight: 40, padding: "0 14px", borderRadius: 11, border: "1px solid var(--kdn-line)", background: resultLayout === value ? "var(--kdn-accent-soft)" : "transparent", color: resultLayout === value ? "var(--kdn-accent-text)" : "var(--kdn-ink-soft)", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>{label}</button>)}
+            </div>}
+            {isNewUi() && resultLayout === "list" && visibleResultRows.length ? <NaviResultTable rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
+              isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
+              : (visibleResultRows.length ? visibleResultRows.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress, schoolTrend }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
               row={row}
               minimums={minimums}
@@ -3046,7 +3054,7 @@ export default function SusiNaviBetaView({
               onAddCompare={addCompareItem}
               compareTray={compareTray}
               onOpenWorkspace={() => navigateViewTab("workspace")}
-            />) : <div style={ui.noResult}>조건에 맞는 결과가 없습니다. 위의 ‘현재 적용 조건’을 확인하고 연결 조건이나 검색 필터를 해제해주세요.</div>}
+            />) : <div style={ui.noResult}>조건에 맞는 결과가 없습니다. 위의 ‘현재 적용 조건’을 확인하고 연결 조건이나 검색 필터를 해제해주세요.</div>)}
           </div>
           {pageCount > 1 && <Pagination page={page} pageCount={pageCount} onChange={changePage} />}
           <div style={ui.resultWorkflowFooter}>
@@ -3367,6 +3375,50 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
     <div style={ui.schoolTrendAction}>
       {onOpenCases ? <button type="button" style={ui.schoolTrendOpenButton} onClick={() => onOpenCases(university, department, "")}>광덕고 대입 결과에서 전체 보기 ›</button> : <span>교사용 ‘2024–2026 광덕고 대입 결과’ 탭에서 전체 사례를 확인합니다.</span>}
     </div>
+  </div>;
+}
+
+// 새 UI 목록 보기: 모집단위 한 줄씩 핵심만(전형 수 · 지원 구간 분포 · 수능최저) 보여주고,
+// 줄을 누르면 그 자리에서 전형별 '학생 ↔ 컷' 막대가 펼쳐집니다.
+export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite }) {
+  const [openKey, setOpenKey] = useState("");
+  const order = ["상향", "소신", "적정", "안정", "하향"];
+  return <div style={{ overflowX: "auto", borderRadius: 18, border: "1px solid var(--kdn-line)", background: "var(--kdn-surface)" }}>
+    <table style={{ width: "100%", minWidth: 860, borderCollapse: "collapse", fontSize: 14.5 }}>
+      <thead><tr style={{ textAlign: "left", color: "var(--kdn-muted)", fontSize: 13 }}>
+        <th style={{ padding: "12px 8px 12px 16px", width: 44 }}><span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>관심</span></th>
+        <th style={{ padding: "12px 10px", fontWeight: 700 }}>대학 · 2027 모집단위</th>
+        <th style={{ padding: "12px 10px", fontWeight: 700 }}>지역 · 계열</th>
+        <th style={{ padding: "12px 10px", fontWeight: 700, textAlign: "center" }}>교과 · 종합</th>
+        <th style={{ padding: "12px 10px", fontWeight: 700 }}>지원 구간 ({cutoffBasis}%컷)</th>
+        <th style={{ padding: "12px 10px", fontWeight: 700 }}>수능최저</th>
+        <th style={{ padding: "12px 16px 12px 10px", width: 90 }} />
+      </tr></thead>
+      <tbody>{rows.map(({ row, minimumEvaluations }) => {
+        const [, region, , university, , unit2027, field, teaching = [], holistic = []] = row;
+        const key = `${universityIdentityKey(university, region)}-${unitIdentityKey(unit2027)}-${compactText(field || "공통")}`;
+        const open = openKey === key;
+        const counts = {};
+        [...teaching, ...holistic].forEach(item => { const label = supportBand(convertedGrade, cutoffValue(item, cutoffBasis))?.label; if (label) counts[label] = (counts[label] || 0) + 1; });
+        const minimum = minimumEvaluationSummary(minimumEvaluations || []);
+        const favorite = isFavorite?.(row);
+        const favoriteItem = { source: "susiNaviBeta", university, universityKey: universityIdentityKey(university, region), campus: universityCampus(university, region), department: unit2027, admissionType: "", sourceLabel: "수시NAVI Beta", region, field, note: "2027 수시NAVI Beta 모집단위" };
+        return <React.Fragment key={key}>
+          <tr style={{ borderTop: "1px solid var(--kdn-line)", background: open ? "var(--kdn-surface-2)" : "transparent" }}>
+            <td style={{ padding: "10px 8px 10px 16px" }}><button type="button" aria-label={favorite ? `${university} 관심 해제` : `${university} 관심 저장`} aria-pressed={!!favorite} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(favoriteItem)} style={{ width: 36, height: 36, border: 0, borderRadius: 10, background: "transparent", color: favorite ? "#e0a000" : "var(--kdn-muted)", cursor: favoriteEnabled ? "pointer" : "default", opacity: favoriteEnabled ? 1 : .45 }}><Star size={17} fill={favorite ? "currentColor" : "none"} /></button></td>
+            <td style={{ padding: "10px" }}><span style={{ display: "grid", gap: 2 }}><b style={{ fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)" }}>{university}</b><span style={{ color: "var(--kdn-ink-soft)", fontWeight: 600 }}>{unit2027}</span></span></td>
+            <td style={{ padding: "10px", color: "var(--kdn-ink-soft)" }}>{[region, field].filter(Boolean).join(" · ")}</td>
+            <td style={{ padding: "10px", textAlign: "center", fontWeight: 800, color: "var(--kdn-ink)" }}>{teaching.length} · {holistic.length}</td>
+            <td style={{ padding: "10px" }}><span style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>{order.filter(label => counts[label]).map(label => { const meta = SUPPORT_META[label]; return <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 999, border: `1px solid ${meta.border}`, background: meta.background, color: meta.color, fontSize: 12.5, fontWeight: 800 }}>{label} {counts[label]}</span>; })}{!Object.keys(counts).length && <span style={{ color: "var(--kdn-muted)" }}>{convertedGrade == null ? "학생 내신 없음" : "-"}</span>}</span></td>
+            <td style={{ padding: "10px", color: "var(--kdn-ink-soft)", fontWeight: 600 }}>{!minimum.total ? "없음" : <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{minimum.satisfied > 0 && <span style={{ color: "#287348", fontWeight: 800 }}>충족 {minimum.satisfied}</span>}{minimum.unsatisfied > 0 && <span style={{ color: "#b05244", fontWeight: 800 }}>미충족 {minimum.unsatisfied}</span>}{minimum.total - minimum.satisfied - minimum.unsatisfied > 0 && <span>확인 {minimum.total - minimum.satisfied - minimum.unsatisfied}</span>}</span>}</td>
+            <td style={{ padding: "10px 16px 10px 10px", textAlign: "right" }}><button type="button" aria-expanded={open} onClick={() => setOpenKey(open ? "" : key)} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 36, padding: "0 10px", borderRadius: 10, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>{open ? "접기" : "컷 보기"}{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></td>
+          </tr>
+          {open && <tr><td colSpan={7} style={{ padding: "0 16px 16px" }}><CutStrip limit={12}
+            items={[...teaching.map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...holistic.map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))]}
+            studentGrade={convertedGrade} cutoffBasis={cutoffBasis} /></td></tr>}
+        </React.Fragment>;
+      })}</tbody>
+    </table>
   </div>;
 }
 
