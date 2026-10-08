@@ -1734,7 +1734,16 @@ export default function App() {
   const canSeeTeacherZone = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor);
   const dashboardNavigate = (target, options = {}) => {
     switchSection(target);
-    if (options.focusSearch) window.setTimeout(() => document.querySelector('input[placeholder*="통합 검색"]')?.focus(), 350);
+    // 학생 검색창(새 UI 작업 줄)으로 이동합니다. 화면 전환 직후라 그려질 때까지 몇 번 다시 시도합니다.
+    if (options.focusSearch) {
+      let tries = 0;
+      const focusSearch = () => {
+        const input = document.getElementById("kdn-student-search") || document.querySelector('input[placeholder*="통합 검색"]');
+        if (input) { input.scrollIntoView({ block: "center" }); input.focus(); input.select?.(); return; }
+        if (++tries < 12) window.setTimeout(focusSearch, 120);
+      };
+      window.setTimeout(focusSearch, 60);
+    }
   };
   const dashboardProps = {
     kind: loggedInStudent && !staffWorkspaceEnabled && !loggedInMonitor ? "student" : "staff",
@@ -2284,7 +2293,7 @@ function StaffStudentWorkspaceBar({
         <div style={newBar.topRow}>
           <div style={newBar.search}>
             <Search size={18} color="currentColor" />
-            <input ref={searchInputRef} value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => setDraftQuery(event.target.value)} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }}
+            <input id="kdn-student-search" ref={searchInputRef} value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => setDraftQuery(event.target.value)} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }}
               onKeyDown={event => { if (event.key === "Enter" && matches[0]) { event.preventDefault(); pickStudent(matches[0].sid); } if (event.key === "Escape") event.currentTarget.blur(); }}
               placeholder="학생 이름 · 학번 · 반번호로 검색" aria-label="학생 검색" style={newBar.input} />
             {draftQuery ? <button type="button" aria-label="검색어 지우기" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={newBar.clear}><X size={15} /></button>

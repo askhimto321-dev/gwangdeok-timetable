@@ -3902,9 +3902,10 @@ function StudentLookup({
 function NewCounselHeader({ sid, gdb, student, studentInfo, favoriteCount, showPlan, onOpenPlan }) {
   const planItems = useSupportPlanItems(sid);
   const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
-  return <div className="no-print" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "stretch", marginBottom: 12 }}>
-    <div style={{ flex: "999 1 600px", minWidth: 0 }}><CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} onOpenPlan={onOpenPlan} /></div>
-    {showPlan && <div style={{ flex: "1 1 300px", minWidth: 0 }}><SupportPlanSlots items={planItems} onOpen={onOpenPlan} /></div>}
+  // 요약 카드 한 줄 + (관심대학·상담 단계에서는) 지원 구성 6칸 한 줄을 위아래로 붙여 둡니다.
+  return <div className="no-print" style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+    <CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} onOpenPlan={onOpenPlan} />
+    {showPlan && <SupportPlanSlots items={planItems} onOpen={onOpenPlan} />}
   </div>;
 }
 

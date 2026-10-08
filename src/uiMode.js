@@ -344,6 +344,7 @@ const BASE_CSS = {
 
 // 다크 · 라이트 공통: 새 상단 메뉴의 모바일 배치, 겹치는 옛 머리 줄 숨김, 떠 있는 버튼 색 정리.
 const SHARED_NEW_CSS = `
+  :root:root{--kd-brand:#c8470f;--kd-brand-dark:#a0390b;--kd-brand-border:#e07a45}
   .kdn-mode-short{display:none}
   @media screen{.kdn-print-only{display:none!important}}
   /* 학생 작업 줄: 안내 문구를 줄이고 버튼을 크게 */
@@ -374,6 +375,16 @@ const SHARED_NEW_CSS = `
   /* 성적·진학: 교사용 분석 도구는 눈에 덜 띄는 보조 도구 줄로 */
   .kdn-staff-tools{background:transparent!important;border:0!important;box-shadow:none!important;padding:4px 0!important}
   .kdn-staff-tools-head span{display:none!important}
+  /* 상담 4단계: 바깥 상자 없이 단계 버튼만 한 줄로 */
+  .kd-counsel-flow{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important;margin-bottom:10px!important}
+  /* NAVI: 시험 운영 안내는 한 줄로, 자동 반영 설명 문단은 숨김, 필터 글자 크게 */
+  .susi-beta-beta-notice{padding-top:10px!important;padding-bottom:10px!important}
+  .susi-beta-beta-notice>div{display:flex!important;flex-wrap:wrap;gap:4px 10px;align-items:baseline;min-width:0}
+  .susi-beta-beta-notice br{display:none}
+  .susi-beta-beta-notice span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;min-width:0;flex:1 1 300px}
+  .susi-beta-student-auto p{display:none!important}
+  .susi-beta-filter-grid label,.susi-beta-filter-grid button{font-size:14px!important}
+  .susi-beta-query input{font-size:16px!important}
   /* 관리자: 상단 탭 줄을 왼쪽 메뉴로 */
   .kdn-admin-layout{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
   .kdn-admin-layout>.kdn-admin-nav{flex:1 1 210px;max-width:260px;flex-direction:column!important;flex-wrap:nowrap!important;gap:4px!important;padding:10px;border-radius:20px;background:var(--kdn-surface);border:1px solid var(--kdn-line);position:sticky;top:84px}

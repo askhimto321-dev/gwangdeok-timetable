@@ -62,7 +62,6 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
       <div style={s.identity}>
         <span style={s.avatar} aria-hidden="true">{initial}</span>
         <div style={s.identityText}>
-          <span style={s.eyebrow}>학생 상담 흐름</span>
           <b style={s.name}>{student.name || "이름 미등록"}</b>
           <span style={s.meta}>{[classLine, student.sid].filter(Boolean).join(" · ")}</span>
           {student.latestMockLabel && <span style={s.metaSub}>최근 모의고사 · {student.latestMockLabel}</span>}
@@ -73,7 +72,7 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
         <Stat label="국수영과" value={fmt(groups.국수영과)} tone="teal" />
         <Stat label="최근 모의 3합" value={mock?.sum3 ?? "-"} tone="purple" />
         <Stat label="관심 대학" value={favoriteCount} unit="개" tone="amber" />
-        <Stat label="수시 지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} />
+        <Stat label="지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} />
       </div>
     </section>
   );
@@ -93,48 +92,49 @@ export function SupportPlanSlots({ items, onOpen }) {
           <li key={index} style={item ? s.slot : s.slotEmpty}>
             <span style={s.slotNo}>{index + 1}</span>
             {item ? (
-              <span style={s.slotText}>
-                <b style={s.slotTitle}>{[item.university, item.department].filter(Boolean).join(" · ") || "저장한 전형"}</b>
-                <small style={s.slotSub}>{[item.admissionType, item.track && item.track !== item.admissionType ? item.track : ""].filter(Boolean).join(" · ") || item.source || ""}</small>
+              <span style={s.slotText} title={[item.university, item.department, item.admissionType].filter(Boolean).join(" · ")}>
+                <b style={s.slotTitle}>{item.university || "저장한 전형"}</b>
+                <small style={s.slotSub}>{[item.department, item.admissionType].filter(Boolean).join(" · ") || item.track || item.source || ""}</small>
               </span>
             ) : <span style={s.slotEmptyText}>빈 자리</span>}
           </li>
         ))}
       </ol>
-      {onOpen && <button type="button" onClick={onOpen} style={s.planButton}>지원 구성 자세히 보기 · 인쇄</button>}
+      {onOpen && <button type="button" onClick={onOpen} style={s.planButton}>자세히 · 인쇄</button>}
     </section>
   );
 }
 
 const s = {
-  card: { display: "flex", flexWrap: "wrap", gap: 20, alignItems: "center", padding: "20px 22px", borderRadius: 22, background: "#ffffff", border: "1px solid #e1e5eb", height: "100%", boxSizing: "border-box" },
-  identity: { display: "flex", alignItems: "center", gap: 14, flex: "1 1 320px", minWidth: 0 },
-  avatar: { width: 58, height: 58, borderRadius: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft, #fff0e6)", color: "var(--kdn-accent-text, #b23e0c)", fontSize: 24, fontWeight: 950, flex: "none" },
+  // 이름 칸은 내용 너비만, 숫자 칸 5개는 남은 너비를 나눠 한 줄로(좁은 화면에서는 가로로 밀어 보기).
+  card: { display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", padding: "14px 16px", borderRadius: 20, background: "#ffffff", border: "1px solid #e1e5eb", boxSizing: "border-box" },
+  identity: { display: "flex", alignItems: "center", gap: 12, flex: "0 1 auto", minWidth: 200 },
+  avatar: { width: 48, height: 48, borderRadius: 16, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft, #fff0e6)", color: "var(--kdn-accent-text, #b23e0c)", fontSize: 24, fontWeight: 950, flex: "none" },
   identityText: { display: "grid", gap: 3, minWidth: 0 },
   eyebrow: { fontSize: 12.5, fontWeight: 800, color: "#5d6574" },
-  name: { fontSize: 26, fontWeight: 800, color: "#141821", letterSpacing: "-.02em" },
+  name: { fontSize: 22, fontWeight: 800, color: "#141821", letterSpacing: "-.02em" },
   meta: { fontSize: 15.5, fontWeight: 600, color: "#2a3140", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   metaSub: { fontSize: 13.5, fontWeight: 700, color: "#5d6574", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  stats: { flex: "999 1 560px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 },
-  stat: { display: "grid", gap: 6, alignContent: "start", padding: "14px 16px", borderRadius: 16, background: "#f3f5f8", textAlign: "left", font: "inherit", border: 0 },
+  stats: { flex: "1 1 520px", minWidth: 0, display: "grid", gridTemplateColumns: "repeat(5, minmax(96px, 1fr))", gap: 8, overflowX: "auto" },
+  stat: { display: "grid", gap: 4, alignContent: "start", padding: "10px 12px", borderRadius: 14, background: "#f3f5f8", textAlign: "left", font: "inherit", border: 0 },
   statButton: { cursor: "pointer" },
   statAccent: { background: "var(--kdn-accent-soft, #fff0e6)" },
-  statLabel: { fontSize: 14, fontWeight: 700, lineHeight: 1.35 },
+  statLabel: { fontSize: 13.5, fontWeight: 700, lineHeight: 1.3, whiteSpace: "nowrap" },
   statLabelAccent: { color: "var(--kdn-accent-text, #b23e0c)" },
-  statValue: { fontSize: 28, fontWeight: 800, lineHeight: 1, color: "#141821", whiteSpace: "nowrap" },
+  statValue: { fontSize: 24, fontWeight: 800, lineHeight: 1.05, color: "#141821", whiteSpace: "nowrap" },
   statValueAccent: { color: "var(--kdn-accent-text, #b23e0c)" },
   statUnit: { fontSize: 13, fontWeight: 700, color: "#5d6574" },
-  plan: { display: "grid", gap: 10, padding: "16px 18px", borderRadius: 20, background: "#ffffff", border: "1px solid #e1e5eb" },
-  planHead: { display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 },
+  plan: { display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 20, background: "#ffffff", border: "1px solid #e1e5eb", flexWrap: "wrap" },
+  planHead: { display: "grid", gap: 2, flex: "0 0 auto", minWidth: 110 },
   planTitle: { fontSize: 17, fontWeight: 950, color: "#1f2430" },
   planCount: { fontSize: 14, fontWeight: 900, color: "var(--kdn-accent-text, #b23e0c)" },
-  planList: { listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 7 },
-  slot: { display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", borderRadius: 13, background: "#f3f5f8", minWidth: 0 },
-  slotEmpty: { display: "flex", alignItems: "center", gap: 11, padding: "10px 12px", borderRadius: 13, border: "1px dashed #c9ced8", minWidth: 0 },
-  slotNo: { width: 18, fontSize: 14, fontWeight: 950, color: "#5d6574", flex: "none" },
+  planList: { listStyle: "none", margin: 0, padding: 0, display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 6, flex: "1 1 520px", minWidth: 0 },
+  slot: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 12, background: "#f3f5f8", minWidth: 0 },
+  slotEmpty: { display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 12, border: "1px dashed #c9ced8", minWidth: 0 },
+  slotNo: { width: 14, fontSize: 13.5, fontWeight: 950, color: "#5d6574", flex: "none" },
   slotText: { display: "grid", gap: 2, minWidth: 0 },
   slotTitle: { fontSize: 14.5, fontWeight: 900, color: "#1f2430", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  slotSub: { fontSize: 12.5, fontWeight: 700, color: "#4a5262" },
+  slotSub: { fontSize: 12.5, fontWeight: 700, color: "#4a5262", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   slotEmptyText: { fontSize: 12.5, fontWeight: 700, color: "#5d6574" },
-  planButton: { minHeight: 42, borderRadius: 13, border: "1px solid #d5dae2", background: "transparent", color: "#1f2430", fontSize: 14, fontWeight: 900, cursor: "pointer" },
+  planButton: { flex: "0 0 auto", minHeight: 42, padding: "0 14px", borderRadius: 13, border: "1px solid #d5dae2", background: "transparent", color: "#1f2430", fontSize: 14, fontWeight: 900, cursor: "pointer" },
 };
