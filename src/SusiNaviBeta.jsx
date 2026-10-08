@@ -2783,7 +2783,7 @@ export default function SusiNaviBetaView({
             {/* 3순위(모평 선택·시뮬레이션): 수능최저 판정에 쓸 모의고사 회차를 직접 고를 수 있습니다.
                 회차마다 그 회차 성적만 통째로 사용하고, 서로 다른 회차의 과목별 최고 등급을 섞어 쓰지 않습니다. */}
             {selectedStudent?.sid && (selectedStudent.availableMockExams?.length > 1) && (
-              <div style={{ marginBottom: 12, padding: "11px 13px", border: "1px solid #d4deed", borderRadius: 12, background: "linear-gradient(135deg,#f7faff,#fbfcff)" }}>
+              <div className="kdn-mock-rounds" style={{ marginBottom: 12, padding: "11px 13px", border: "1px solid #d4deed", borderRadius: 12, background: "linear-gradient(135deg,#f7faff,#fbfcff)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
                   <span style={{ fontSize: 9.5, color: "#728097", fontWeight: 800 }}>수능최저 판정 기준 회차</span>
                   <b style={{ fontSize: 13, color: "#2b3f60" }}>{effectiveStudent?.latestMockLabel || "회차 선택"}</b>
@@ -2963,6 +2963,7 @@ export default function SusiNaviBetaView({
               <div style={ui.schoolSourceCard}><div style={ui.sourceCardCopy}><small>광덕고 별도 사례</small><b>2024–2026 우리 학교 실제 지원 결과</b><span>지원·합격·합격률과 세부전형별 현황을 별도로 표시합니다.</span></div>{onOpenCases && <button type="button" style={ui.sourceLegendLink} onClick={() => onOpenCases("", "", "")}>광덕고 대입 결과 탭 열기 ›</button>}</div>
             </div>
           </details>
+          <div className="kdn-navi-toolbar" style={isNewUi() ? undefined : { display: "contents" }}>
           <div className="susi-beta-result-controls" style={ui.resultControlPanel}>
             <div style={ui.resultControlHeading}><b>결과 필터·정렬</b><span>이 화면에서도 조건을 바로 조정할 수 있습니다. 복수 선택 필터는 같은 항목 안에서 OR로 적용됩니다.</span></div>
             <div style={ui.resultControlGrid}>
@@ -3012,6 +3013,7 @@ export default function SusiNaviBetaView({
               setQuery("");
               setPage(1);
             }}><option value="">전체 대학</option>{detailUniversities.map(name => <option key={name} value={name}>{name}</option>)}</select></label>
+          </div>
           </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
@@ -3133,10 +3135,10 @@ function MultiFilterSelect({ label, values = [], onChange, options = [], compact
   return <details className="susi-beta-multi-filter" style={{ ...ui.multiFilter, ...(compact ? ui.multiFilterCompact : {}) }}>
     <summary style={ui.multiFilterSummary}><span>{label}</span><b title={selected.join(", ")}>{summary}</b><ChevronDown size={14}/></summary>
     <div style={ui.multiFilterMenu}>
-      <button type="button" onClick={() => onChange([])} style={{ ...ui.multiFilterOption, ...(!selected.length ? ui.multiFilterOptionActive : {}) }}><span>전체</span>{!selected.length && <b>✓</b>}</button>
+      <button type="button" data-kdn-bare onClick={() => onChange([])} style={{ ...ui.multiFilterOption, ...(!selected.length ? ui.multiFilterOptionActive : {}) }}><span>전체</span>{!selected.length && <b>✓</b>}</button>
       {options.map(option => {
         const active = selected.includes(option);
-        return <button type="button" key={option} onClick={() => toggle(option)} style={{ ...ui.multiFilterOption, ...(active ? ui.multiFilterOptionActive : {}) }}><span>{option}</span>{active && <b>✓</b>}</button>;
+        return <button type="button" data-kdn-bare key={option} onClick={() => toggle(option)} style={{ ...ui.multiFilterOption, ...(active ? ui.multiFilterOptionActive : {}) }}><span>{option}</span>{active && <b>✓</b>}</button>;
       })}
       {!!selected.length && <button type="button" onClick={() => onChange([])} style={ui.multiFilterClear}>선택 초기화</button>}
     </div>
@@ -4323,6 +4325,53 @@ const ui = {
   compareMetricGrid: { display: "grid", gridTemplateColumns: "repeat(2,minmax(0,1fr))", gap: 6 },
   compareMissing: { padding: 12, borderRadius: 9, background: "#faf6f5", color: "#9b5d54", fontSize: 11.5, fontWeight: 850, textAlign: "center" },
 };
+
+/* 새 UI(다크·라이트): 눌러지는 요소는 항상 테두리가 보이게 하고, 선택된 상태는 강조색 테두리 + 옅은 강조 채움으로
+   통일합니다. 상단 배너는 주황 그라데이션 대신 차분한 카드로 바꿔, 화면 안의 강조색이 실제 버튼에만 쓰이게 합니다. */
+const CONTROL = { border: "1px solid #c3c9d3", background: "#ffffff", color: "#2a3140" };
+const CONTROL_ON = { border: "1px solid var(--kdn-accent)", background: "var(--kdn-accent-soft)", color: "var(--kdn-accent-text)", boxShadow: "inset 0 0 0 1px var(--kdn-accent)", transform: "none" };
+if (isNewUi()) Object.assign(ui, {
+  hero: { padding: "18px 22px", borderRadius: 18, display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 18, color: "#1f2430", background: "#ffffff", border: "1px solid #dfe2e8" },
+  heroEyebrow: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 800, color: "#5d6574" },
+  heroTitle: { margin: "4px 0 4px", fontSize: 26, lineHeight: 1.2, letterSpacing: "-.03em", wordBreak: "keep-all", color: "#141821" },
+  heroText: { margin: 0, fontSize: 14.5, lineHeight: 1.55, color: "#3a4150", wordBreak: "keep-all" },
+  heroStats: { minWidth: 150, display: "grid", gap: 3, textAlign: "right", whiteSpace: "nowrap", color: "#2a3140", fontSize: 14 },
+  betaNotice: { display: "flex", gap: 9, alignItems: "flex-start", padding: "9px 14px", border: "1px solid #ecd9a6", borderRadius: 12, background: "#fff8e6", color: "#6e5320", fontSize: 13.5, lineHeight: 1.5 },
+  viewToolbar: { ...ui.viewToolbar, gridTemplateColumns: "minmax(0,1fr) auto", border: "1px solid #dfe2e8", boxShadow: "0 6px 18px rgba(31,36,48,.06)" },
+  viewTab: { ...ui.viewTab, minHeight: 58, borderColor: "#c3c9d3", background: "#ffffff", color: "#2a3140" },
+  viewTabActive: { borderColor: "var(--kdn-accent)", background: "var(--kdn-accent-soft)", color: "var(--kdn-accent-text)", boxShadow: "inset 0 0 0 1px var(--kdn-accent)" },
+  cutoffStatusChip: { minWidth: 120, display: "grid", placeItems: "center", alignContent: "center", gap: 1, padding: "6px 12px", border: "1px solid #dfe2e8", borderRadius: 12, background: "#f4f5f8", color: "#1f2430", textAlign: "center" },
+  printButton: { minWidth: 160, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "0 14px", ...CONTROL, borderRadius: 12, fontSize: 14, fontWeight: 800, cursor: "pointer" },
+  segmented: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 },
+  segmentBtn: { minHeight: 42, padding: "0 14px", ...CONTROL, borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: "pointer" },
+  segmentActive: CONTROL_ON,
+  cutoffBasisToggle: { display: "inline-grid", gridTemplateColumns: "1fr 1fr", gap: 6 },
+  cutoffBasisBtn: { minWidth: 120, minHeight: 50, display: "grid", placeItems: "center", gap: 2, padding: "6px 12px", ...CONTROL, borderRadius: 11, cursor: "pointer" },
+  cutoffBasisActive: CONTROL_ON,
+  resultCutoffControl: { display: "inline-flex", alignItems: "center", gap: 6, color: "#3a4150", fontSize: 13.5, fontWeight: 800 },
+  resultCutoffButton: { minWidth: 66, height: 38, ...CONTROL, borderRadius: 10, fontSize: 13.5, fontWeight: 850, cursor: "pointer" },
+  resultCutoffActive: CONTROL_ON,
+  globalConversionControls: { display: "none" },
+  supportLegendItem: { ...ui.supportLegendItem, minHeight: 36, padding: "0 12px", fontSize: 13 },
+  supportFilterBtn: { minHeight: 36, padding: "0 14px", ...CONTROL, borderRadius: 999, fontSize: 13, fontWeight: 850, cursor: "pointer" },
+  supportFilterBtnActive: CONTROL_ON,
+  favoriteFilterWrap: { display: "flex", alignItems: "center", gap: 9 },
+  favoriteFilterBtn: { minHeight: 42, display: "inline-flex", alignItems: "center", gap: 6, padding: "0 14px", ...CONTROL, borderRadius: 11, fontSize: 13.5, fontWeight: 800, cursor: "pointer" },
+  directResultButton: { minHeight: 43, padding: "0 16px", ...CONTROL, borderRadius: 11, fontSize: 14, fontWeight: 800, cursor: "pointer" },
+  backToSearchButton: { flex: "0 0 auto", minHeight: 42, padding: "0 14px", ...CONTROL, borderRadius: 11, fontSize: 14, fontWeight: 800, cursor: "pointer" },
+  studentAutoBar: { marginBottom: 12, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 24px", padding: "12px 16px", border: "1px solid #dfe2e8", borderRadius: 12, background: "#f4f5f8" },
+  studentAutoGrade: { display: "flex", alignItems: "baseline", gap: 8, color: "#1f2430" },
+  resultContextGuide: { ...ui.resultContextGuide, background: "#ffffff", border: "1px solid #dfe2e8", padding: "14px 18px" },
+  resultContextOneLine: { display: "none" },
+  resultControlHeading: { display: "none" },
+  detailSearchHeading: { display: "none" },
+  detailSearchPanel: { display: "grid", gridTemplateColumns: "minmax(0,1.6fr) minmax(220px,.7fr)", gap: 12, alignItems: "end" },
+  activeFilterLabel: { color: "#3a4150", fontSize: 13, fontWeight: 850 },
+  activeFilterEmpty: { color: "#5d6574", fontSize: 13, fontWeight: 700 },
+  resultCount: { display: "flex", alignItems: "baseline", gap: 8, color: "#3a4150", fontSize: 14 },
+  favoriteFilterLabel: { fontSize: 13, fontWeight: 800, color: "#3a4150" },
+  supportFilterEyebrow: { fontSize: 13, fontWeight: 900, color: "var(--kdn-accent-text)", whiteSpace: "nowrap" },
+});
 
 const betaCss = `
 .susi-beta-tab-panel{font-size:13px}
