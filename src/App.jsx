@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Moon, Sun, ChevronDown } from "lucide-react";
+import { Moon, Sun, ChevronDown, GraduationCap } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
@@ -1771,7 +1771,7 @@ export default function App() {
   if (!anyLoggedIn) {
     return (
       isNewUi() ? <NewUiLanding attemptLogin={attemptLogin} showToast={showToast} /> :
-      <div style={styles.app}>
+      <div className="kdn-app" style={styles.app}>
         <style>{globalCss}</style>
         <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 20px 0" }}><UiModeSwitch compact /></div>
         <div style={{ padding: "26px 20px 40px" }}>
@@ -1786,7 +1786,7 @@ export default function App() {
   }
 
   return (
-    <div style={styles.app}>
+    <div className="kdn-app" style={styles.app}>
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
       {!loggedInStudent && <QuickLinksDock />}
@@ -2310,15 +2310,18 @@ function StaffStudentWorkspaceBar({
           {recent.length > 0 && <div style={newBar.recent}><span style={newBar.recentLabel}>최근</span>{recent.map(student => <button key={student.sid} type="button" onClick={() => pickStudent(student.sid)} style={newBar.recentChip}>{student.name}<small style={newBar.recentSid}>{student.sid}</small></button>)}</div>}
         </div>
         <div role="tablist" aria-label="학생 화면" style={newBar.tabs}>
-          {STUDENT_WORKSPACE_GROUPS.map((group, groupIndex) => <React.Fragment key={group.label}>
-            {groupIndex > 0 && <span aria-hidden="true" style={newBar.divider} />}
-            <span style={newBar.groupLabel}>{group.label}</span>
-            {group.views.map(key => {
-              const active = activeView === key;
-              const preload = key === "susiNaviBeta" ? preloadSusiNaviSafely : undefined;
-              return <button key={key} type="button" role="tab" aria-selected={active} onMouseEnter={preload} onFocus={preload} onClick={() => onViewChange(key)} style={{ ...newBar.tab, ...(active ? newBar.tabActive : {}) }}>{labelFor(key)}</button>;
-            })}
-          </React.Fragment>)}
+          {/* 학생 조회 / 진학 상담을 색이 다른 묶음(알약 모양 그룹)으로 나눠, 어떤 탭이 어느 일에 속하는지 한눈에 보이게 합니다. */}
+          {STUDENT_WORKSPACE_GROUPS.map(group => {
+            const tone = group.label === "진학 상담" ? newBar.groupCounsel : newBar.groupLookup;
+            return <div key={group.label} role="presentation" style={{ ...newBar.group, background: tone.bg, borderColor: tone.border }}>
+              <span style={{ ...newBar.groupLabel, color: tone.label }}>{group.label === "진학 상담" ? <GraduationCap size={15} aria-hidden="true" /> : <Search size={15} aria-hidden="true" />}{group.label}</span>
+              {group.views.map(key => {
+                const active = activeView === key;
+                const preload = key === "susiNaviBeta" ? preloadSusiNaviSafely : undefined;
+                return <button key={key} data-kdn-bare type="button" role="tab" aria-selected={active} onMouseEnter={preload} onFocus={preload} onClick={() => onViewChange(key)} style={{ ...newBar.tab, ...(active ? { ...newBar.tabActive, color: tone.label } : {}) }}>{labelFor(key)}</button>;
+              })}
+            </div>;
+          })}
         </div>
       </div>
     </div>;
@@ -2414,17 +2417,19 @@ const newBar = {
   matchHint: { marginLeft: "auto", fontSize: 12, fontWeight: 800, color: "var(--kdn-muted)" },
   selected: { display: "flex", alignItems: "center", gap: 10, padding: "6px 14px 6px 6px", borderRadius: 999, background: "var(--kdn-accent-soft)" },
   selectedAvatar: { width: 34, height: 34, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", fontSize: 15, fontWeight: 900 },
-  selectedName: { fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)" },
+  selectedName: { fontSize: 15.5, fontWeight: 700, color: "var(--kdn-ink)" },
   selectedMeta: { fontSize: 12.5, fontWeight: 600, color: "var(--kdn-ink-soft)" },
   recent: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
   recentLabel: { fontSize: 13, fontWeight: 700, color: "var(--kdn-muted)", marginRight: 2 },
   recentChip: { display: "inline-flex", alignItems: "baseline", gap: 6, minHeight: 34, padding: "0 12px", borderRadius: 999, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 14, fontWeight: 700, cursor: "pointer" },
   recentSid: { fontSize: 12, fontWeight: 600, color: "var(--kdn-muted)" },
-  tabs: { display: "flex", alignItems: "stretch", gap: 2, overflowX: "auto", scrollbarWidth: "none" },
-  groupLabel: { display: "inline-flex", alignItems: "center", padding: "0 6px 0 2px", fontSize: 12.5, fontWeight: 800, color: "var(--kdn-muted)", whiteSpace: "nowrap" },
-  divider: { width: 1, margin: "10px 10px", background: "var(--kdn-line)", flex: "none" },
-  tab: { flex: "none", minHeight: 46, padding: "0 14px", border: 0, borderBottomWidth: 3, borderBottomStyle: "solid", borderBottomColor: "transparent", background: "transparent", color: "var(--kdn-ink-soft)", fontSize: 15, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" },
-  tabActive: { color: "var(--kdn-ink)", borderBottomColor: "var(--kdn-accent)" },
+  tabs: { display: "flex", alignItems: "center", gap: 10, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 12 },
+  group: { flex: "none", display: "flex", alignItems: "center", gap: 2, padding: 4, borderRadius: 14, borderWidth: 1, borderStyle: "solid" },
+  groupLookup: { bg: "#edf2fb", border: "#d3def0", label: "#1c4aa8" },
+  groupCounsel: { bg: "#fdf0e8", border: "#f2d3c0", label: "#ad3b0a" },
+  groupLabel: { display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px 0 8px", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" },
+  tab: { flex: "none", minHeight: 38, padding: "0 14px", border: 0, borderRadius: 10, background: "transparent", color: "var(--kdn-ink-soft)", fontSize: 15, fontWeight: 700, cursor: "pointer" },
+  tabActive: { background: "var(--kdn-surface)", fontWeight: 850, boxShadow: "0 1px 3px rgba(20,24,33,.14), 0 0 0 1px rgba(20,24,33,.06)" },
 };
 
 function TeacherZoneWorkspace({
@@ -2561,7 +2566,7 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
     ...(showAdmin ? [{ key: "admin", label: "관리자" }] : []),
   ];
   return (
-    <nav className="no-print" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
+    <nav className="no-print kdn-top-nav" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
       <div className="kdn-nav-inner" style={newUiNavStyles.inner}>
         <div style={newUiNavStyles.brand}>
           <span style={newUiNavStyles.logo}>KD</span>
