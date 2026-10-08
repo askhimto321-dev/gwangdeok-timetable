@@ -4,8 +4,10 @@ import App from './App.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import './theme.css'
 import { applyUiModeToDocument } from './uiMode.js'
+import { installChunkReloadHandler } from './chunkReload.js'
 
 applyUiModeToDocument()
+installChunkReloadHandler()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

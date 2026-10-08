@@ -588,6 +588,9 @@ const SHARED_NEW_CSS = `
   .kdn-step-next{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--kdn-line)}
   .kdn-step-next span{font-size:14px;color:var(--kdn-muted)}
   .kdn-step-next button{min-height:46px;padding:0 20px;border-radius:12px;border:0;background:var(--kdn-accent);color:var(--kdn-accent-ink);font-size:15px;font-weight:800;cursor:pointer}
+  .kdn-step-next .kdn-step-prev{background:var(--kdn-surface);color:var(--kdn-ink-soft);border:1px solid var(--kdn-control-line);font-weight:700}
+  .kdn-calc-steps{grid-template-columns:repeat(3,minmax(0,1fr));margin:2px 0 4px}
+  @media (max-width:760px){.kdn-search-steps{grid-template-columns:1fr}}
   .kdn-step-back{margin-bottom:12px;min-height:36px;padding:0 14px;border-radius:999px;border:1px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);font-size:13.5px;font-weight:600;cursor:pointer}
   /* 성적 산출·최성보: 진한 배너 대신 대시보드식 페이지 머리(큰 제목 + 설명 + 오른쪽 버튼).
      주요 동작(학교 공동 저장 / 출결 확인 저장)만 강조색, 나머지는 테두리 버튼 */
