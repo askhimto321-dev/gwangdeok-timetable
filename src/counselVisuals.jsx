@@ -41,13 +41,14 @@ export function useSupportPlanItems(sid) {
   return items;
 }
 
-function Stat({ label, value, unit, tone = "blue", onClick, title }) {
+function Stat({ label, value, unit, tone = "blue", onClick, title, progress }) {
   const Tag = onClick ? "button" : "div";
   const toneStyle = toneTileStyle(tone);
   return (
     <Tag type={onClick ? "button" : undefined} onClick={onClick} title={title} style={{ ...s.stat, ...toneStyle.tile, ...(onClick ? s.statButton : {}) }}>
       <span style={{ ...s.statLabel, ...toneStyle.label }}>{label}</span>
       <b style={{ ...s.statValue, ...(tone === "accent" ? s.statValueAccent : {}) }}>{value}{unit && <small style={s.statUnit}> {unit}</small>}</b>
+      {progress != null && <span style={s.progressTrack} aria-hidden="true"><span style={{ ...s.progressFill, width: `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%` }} /></span>}
     </Tag>
   );
 }
@@ -80,7 +81,7 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
         <Stat label="국수영과" value={fmt(groups.국수영과)} tone="teal" />
         <Stat label="최근 모의고사 3합" value={mock?.sum3 ?? "-"} tone="purple" />
         <Stat label="관심 대학" value={favoriteCount} unit="개" tone="amber" />
-        <Stat label="지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} />
+        <Stat label="지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} progress={planCount == null ? null : planCount / PLAN_LIMIT} />
       </div>
     </section>
   );
@@ -130,6 +131,8 @@ const s = {
   stats: { flex: "1 1 620px", minWidth: 0, display: "grid", gap: 12, overflowX: "auto" },
   stat: { display: "grid", gap: 8, alignContent: "start", padding: "14px 16px", borderRadius: 16, background: "#f3f5f8", textAlign: "left", font: "inherit", border: 0 },
   statButton: { cursor: "pointer" },
+  progressTrack: { display: "block", height: 4, borderRadius: 999, background: "rgba(173,59,10,.16)", overflow: "hidden" },
+  progressFill: { display: "block", height: "100%", borderRadius: 999, background: "var(--kdn-accent, #cf4a12)" },
   statAccent: { background: "var(--kdn-accent-soft, #fff0e6)" },
   statLabel: { fontSize: 13.5, fontWeight: 650, lineHeight: 1.3, whiteSpace: "nowrap" },
   statLabelAccent: { color: "var(--kdn-accent-text, #b23e0c)" },

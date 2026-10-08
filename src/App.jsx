@@ -2747,6 +2747,24 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
   );
 }
 
+// 수업 카운트다운: 지금 수업이면 끝나기까지, 다음 수업이면 시작까지 남은 시간을 큰 고정폭 숫자로(1초마다 갱신).
+function LessonCountdown({ slot }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => { const timer = window.setInterval(() => setNow(new Date()), 1000); return () => window.clearInterval(timer); }, []);
+  const targetMinutes = slot.state === "now" ? slot.start + LESSON_MINUTES : slot.start;
+  const left = Math.max(0, targetMinutes * 60 - (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()));
+  const parts = [["시", Math.floor(left / 3600)], ["분", Math.floor(left / 60) % 60], ["초", left % 60]].filter(([unit, value], index) => index > 0 || value > 0);
+  return <div style={dash.countdown} aria-label={`${slot.state === "now" ? "수업 종료" : "수업 시작"}까지 남은 시간`}>
+    <span style={dash.countdownLabel}>{slot.state === "now" ? "끝나기까지" : "시작까지"}</span>
+    <span style={dash.countdownDigits}>
+      {parts.map(([unit, value], index) => <React.Fragment key={unit}>
+        {index > 0 && <span style={dash.countdownSep} aria-hidden="true">:</span>}
+        <span style={dash.countdownCell}><b style={{ ...dash.countdownNum, ...(index === 0 ? dash.countdownNumLead : {}) }}>{String(value).padStart(2, "0")}</b><small style={dash.countdownUnit}>{unit}</small></span>
+      </React.Fragment>)}
+    </span>
+  </div>;
+}
+
 function DashboardLessonCard({ lesson, onOpen }) {
   const slot = lesson?.slot;
   const cell = slot ? lesson.grid?.[slot.day]?.[slot.pi] : null;
@@ -2756,6 +2774,7 @@ function DashboardLessonCard({ lesson, onOpen }) {
     {slot ? <>
       <b style={dash.cardBig}>{slot.period}교시</b>
       <span style={dash.cardTime}>{slot.day}요일 · {clockText(slot.start)}–{clockText(slot.start + LESSON_MINUTES)}</span>
+      <LessonCountdown slot={slot} />
       <div style={dash.cardRow}><span style={dash.cardLabel}>과목</span><b style={dash.cardValue}>{cell ? cell.subject : "수업 없음"}</b></div>
       {place && <div style={dash.cardRow}><span style={dash.cardLabel}>교실</span><b style={dash.cardValue}>{place}</b></div>}
     </> : <b style={dash.cardValue}>{lesson?.hasTimetable === false ? "등록된 시간표가 없어요." : "오늘 남은 수업이 없어요."}</b>}
@@ -2795,6 +2814,14 @@ const dash = {
   art: { height: 300, borderRadius: 26, overflow: "hidden" },
   floatCard: { position: "relative", margin: "-150px 0 0 28px", width: "min(400px, calc(100% - 28px))", display: "grid", gap: 10, padding: "24px 24px 20px", borderRadius: 24, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 24px 60px rgba(0,0,0,.35)" },
   cardKicker: { fontSize: 14, fontWeight: 800, color: "var(--kdn-muted)" },
+  countdown: { display: "grid", gap: 6, padding: "12px 14px", borderRadius: 14, background: "var(--kdn-surface-2)", border: "1px solid var(--kdn-line)" },
+  countdownLabel: { fontSize: 12.5, fontWeight: 600, color: "var(--kdn-muted)", letterSpacing: ".04em" },
+  countdownDigits: { display: "flex", alignItems: "flex-start", gap: 6 },
+  countdownCell: { display: "grid", justifyItems: "center", gap: 2 },
+  countdownNum: { fontFamily: "'JetBrains Mono','SFMono-Regular',ui-monospace,Menlo,Consolas,monospace", fontSize: 30, fontWeight: 700, lineHeight: 1, color: "var(--kdn-ink)", fontVariantNumeric: "tabular-nums" },
+  countdownNumLead: { color: "var(--kdn-accent)" },
+  countdownSep: { fontSize: 22, lineHeight: "30px", color: "var(--kdn-muted)" },
+  countdownUnit: { fontSize: 11.5, fontWeight: 500, color: "var(--kdn-muted)" },
   cardBig: { fontSize: 40, fontWeight: 950, lineHeight: 1.05, letterSpacing: "-.02em" },
   cardTime: { fontSize: 15, fontWeight: 700, color: "var(--kdn-ink-soft)", lineHeight: 1.5 },
   cardRow: { display: "grid", gap: 3, paddingTop: 12, borderTop: "1px solid var(--kdn-line)" },

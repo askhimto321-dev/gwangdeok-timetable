@@ -112,14 +112,15 @@ const NEW_UI_SWAPS = {
   "#fff4e9": "#fff0e6",
   "#c36e3e": "#ef8a55",
 };
-const DARK_PAGE_BG = "#1d1e24";
+const DARK_PAGE_BG = "#111215";
+const WARM_HUE = (55 * Math.PI) / 180;
 
 function swapKey(rgb, a) { return a >= 0.999 ? formatColor(rgb, 1) : null; }
 
 // 다크 모드: 역할별 밝기 재배치. L/C는 OKLCH 기준(0~1).
 function darkMap(role, [L, C, H]) {
   if (role === "bg") {
-    if (L >= 0.8) return [0.28 + (1 - L) * 1.0, Math.min(C * 1.6, 0.06), H];
+    if (L >= 0.8) return [0.225 + (1 - L) * 1.0, Math.min(C * 1.6, 0.06), H];
     if (L >= 0.55) return [0.4 + (0.8 - L) * 0.4, C * 0.9, H];
     if (C < 0.03 && L < 0.42) return [0.42, C, H];
     return [L, C, H];
@@ -131,7 +132,8 @@ function darkMap(role, [L, C, H]) {
     return [L, C, H];
   }
   if (role === "border") {
-    if (L >= 0.75) return [0.38 + (1 - L) * 0.3, C * 0.8, H];
+    // 옅은 회색 선은 어두운 바탕에서 주황빛이 도는 가는 선으로(따뜻한 경계선)
+    if (L >= 0.75) return C < 0.03 ? [0.34 + (1 - L) * 0.3, 0.03, WARM_HUE] : [0.36 + (1 - L) * 0.3, C * 0.8, H];
     if (C < 0.03 && L < 0.45) return [0.5, C, H];
     return [L, C, H];
   }
@@ -439,8 +441,12 @@ function mapSheet(sheet, mode) {
 
 const BASE_CSS = {
   dark: `
-    :root{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e8e5df;--kdn-muted:#cfccc5;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#1f2238;--kdn-panel:#2e3040;--kdn-control-line:#50525f}
-    html,body{background:#1d1e24;color:#f4f1ea;word-break:keep-all;overflow-wrap:break-word}
+    :root{color-scheme:dark;--kdn-bg:#111215;--kdn-surface:#18191d;--kdn-surface-2:#212227;--kdn-line:#3a2d24;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e8e5df;--kdn-muted:#cfccc5;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-hero-art:#1f2238;--kdn-panel:#2e3040;--kdn-control-line:#50525f}
+    html,body{background:#111215;color:#f4f1ea;word-break:keep-all;overflow-wrap:break-word}
+    /* 위쪽에 은은한 주황 빛 번짐(어두운 바탕 + 강조색 글로우) */
+    body,.kdn-app{background:radial-gradient(1100px 520px at 18% -40px,rgba(255,122,61,.13) 0,rgba(255,122,61,0) 70%),#111215!important;background-repeat:no-repeat!important}
+    .kdn-top-nav{background:rgba(10,10,12,.88)!important;border-bottom-color:#3a2a1e!important;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+    .kdn-work-bar{background:rgba(17,18,21,.82)!important;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
     ::selection{background:#ff7a3d55}`,
   light: `
     :root{color-scheme:light;--kdn-bg:#f4f5f8;--kdn-surface:#ffffff;--kdn-surface-2:#f0f1f5;--kdn-line:#dfe2e8;--kdn-ink:#1f2430;--kdn-ink-soft:#3a4150;--kdn-muted:#5d6574;--kdn-accent:#cf4a12;--kdn-accent-ink:#ffffff;--kdn-accent-soft:#fff0e6;--kdn-accent-text:#b23e0c;--kdn-hero-art:#1f2238;--kdn-panel:#2a3040;--kdn-control-line:#c3c9d3}
