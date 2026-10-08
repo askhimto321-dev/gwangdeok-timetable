@@ -313,6 +313,20 @@ export function mapCssText(css, mode = ACTIVE_MODE) {
 /* ---------- JSX props 변환 (src/kdjsx 런타임이 호출) ---------- */
 
 const GRAPHIC_ATTRS = ["fill", "stroke", "stopColor", "floodColor"];
+/* 표 가독성: 넓은 화면에서 표가 9~11px 글자로 남아 잘 안 보이던 문제. 표 전체 글자는 14px(열이 아주 많은
+   '전체 열' 표는 12.5px)로, 칸마다 따로 작게 지정한 글자는 12.5px 이상으로 올립니다. 시간표 표는 칸이 좁아 제외합니다. */
+const tableCache = new WeakMap();
+function tableReadable(type, style, className = "") {
+  if (/timetable/.test(className || "")) return style;
+  const cached = tableCache.get(style);
+  if (cached) return cached;
+  const px = typeof style.fontSize === "number" ? style.fontSize : (typeof style.fontSize === "string" && /^\d+(\.\d+)?px$/.test(style.fontSize) ? parseFloat(style.fontSize) : null);
+  let next = style;
+  if (type === "table" && px != null && px < 13.5) next = { ...style, fontSize: px < 9.5 ? 12.5 : 14 };
+  else if (type !== "table" && px != null && px < 12.5) next = { ...style, fontSize: 12.5 };
+  tableCache.set(style, next);
+  return next;
+}
 /* 버튼 경계: 새 UI에서 테두리도 채움도 없는(또는 흰색·옅은 회색 채움) 버튼은 바탕과 구분되지 않아
    눌러지는 요소인지 알기 어렵습니다. 크기(높이·좌우 여백)로 보아 '버튼 모양'인 것에만 1px 테두리를
    붙입니다. 글자 링크처럼 여백이 없는 버튼과 data-kdn-bare 표시가 있는 버튼은 그대로 둡니다. */
@@ -367,6 +381,10 @@ export function mapElementProps(type, props, mode = ACTIVE_MODE) {
   if (mode === "classic" || !props) return props;
   let out = null;
   const set = (key, value) => { if (value !== props[key]) { out ??= { ...props }; out[key] = value; } };
+  if (props.style && typeof props.style === "object" && (type === "table" || type === "td" || type === "th")) {
+    const tuned = tableReadable(type, props.style, props.className);
+    if (tuned !== props.style) props = { ...props, style: tuned };
+  }
   if (props.style && typeof props.style === "object") {
     const base = type === "button" && !props["data-kdn-bare"] && !/^(menuitem|option)/.test(props.role || "") ? withControlBorder(props.style) : props.style;
     set("style", base === props.style ? mapStyleObject(props.style, mode) : mapStyleObject(base, mode));
@@ -413,7 +431,9 @@ const BASE_CSS = {
     html,body{background:#f4f5f8;color:#1f2430;word-break:keep-all;overflow-wrap:break-word}
     body,.kdn-app{background:radial-gradient(1100px 520px at 6% 0,#ffe3d1 0,rgba(255,227,209,0) 72%),radial-gradient(1000px 520px at 98% 0,#dbe6ff 0,rgba(219,230,255,0) 72%),#f4f5f8!important;background-repeat:no-repeat!important}
     /* 위쪽 메뉴·작업 줄은 반투명 + 흐림으로, 뒤의 옅은 색 번짐이 비쳐 화면이 덜 밋밋하게 */
-    .kdn-top-nav,.kdn-work-bar{background:rgba(255,255,255,.62)!important;-webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px)}`,
+    .kdn-work-bar{background:rgba(255,255,255,.62)!important;-webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px)}
+    /* 라이트 모드에도 다크 모드의 상단 메뉴를 그대로 씁니다(밝은 본문 + 진한 머리 줄로 화면에 무게 중심). */
+    .kdn-top-nav{color-scheme:dark;--kdn-bg:#1d1e24;--kdn-surface:#272830;--kdn-surface-2:#31323c;--kdn-line:#3b3c47;--kdn-ink:#f4f1ea;--kdn-ink-soft:#e8e5df;--kdn-muted:#cfccc5;--kdn-accent:#ff7a3d;--kdn-accent-ink:#1b1006;--kdn-accent-soft:#3a2a20;--kdn-accent-text:#ffb089;--kdn-control-line:#50525f;background:rgba(26,27,33,.94)!important;border-bottom-color:#2c2d36!important;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}`,
 };
 
 // 다크 · 라이트 공통: 새 상단 메뉴의 모바일 배치, 겹치는 옛 머리 줄 숨김, 떠 있는 버튼 색 정리.
@@ -504,6 +524,17 @@ const SHARED_NEW_CSS = `
   .susi-beta-plan-empty small{display:none}
   .susi-beta-plan-empty:first-of-type small{display:block;flex-basis:100%;text-align:center}
   .susi-beta-plan-empty:first-of-type{flex-wrap:wrap}
+  /* 관심대학 카드: 학생↔컷 막대가 좁은 칸에 눌려 겹치던 문제 — 줄바꿈을 허용하고 막대 줄은 카드 폭을 씁니다 */
+  .kd-consultation-ui .favorite-print-item-detail>summary{flex-wrap:wrap!important;align-items:flex-start!important;row-gap:8px!important}
+  .kd-consultation-ui .favorite-print-item-text{flex:1 1 560px!important;min-width:0!important}
+  .kd-consultation-ui .favorite-print-item-text>span.no-print{width:100%;max-width:880px}
+  .kd-consultation-ui .favorite-print-course-preview{flex:1 1 100%!important;margin:2px 0 0 39px!important}
+  .kd-consultation-ui .favorite-print-course-preview em{font-size:12.5px!important}
+  .kd-consultation-ui .favorite-print-course-preview small{font-size:12px!important;padding:3px 8px!important}
+  /* 표: 머리 줄은 진하게, 줄마다 마우스를 올리면 옅은 강조(시간표 제외) */
+  table:not(.student-timetable-table) thead th{color:var(--kdn-ink)!important;font-weight:800}
+  table:not(.student-timetable-table) tbody tr:hover>td{box-shadow:inset 0 0 0 999px rgba(207,74,18,.045)}
+  table:not(.student-timetable-table) td{color:var(--kdn-ink)}
   /* NAVI 대학 상세: 검색·필터·적용 조건을 한 상자(툴바)로. 검색 줄이 맨 위 */
   .kdn-navi-toolbar{display:flex;flex-direction:column;gap:14px;padding:16px 18px;border:1px solid var(--kdn-line);border-radius:16px;background:var(--kdn-surface)}
   .kdn-navi-toolbar>*{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important}
