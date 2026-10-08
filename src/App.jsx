@@ -2424,12 +2424,62 @@ function NewUiLanding({ attemptLogin, showToast }) {
             <span style={{ display: "block", color: "var(--kdn-accent)" }}>가야 할까?</span>
           </h1>
           <p style={{ margin: 0, fontSize: 18, lineHeight: 1.7, color: "var(--kdn-ink-soft)" }}>이동수업 시간표와 학급 공지, 성적·진학 상담 자료를<br/>한 계정으로 모아 봅니다.</p>
-          <p style={{ margin: 0, fontSize: 14, color: "var(--kdn-muted)", fontWeight: 700 }}>학생 · 선생님 · 관리자 계정 모두 오른쪽에서 로그인합니다.</p>
+          <p style={{ margin: 0, fontSize: 14, color: "var(--kdn-muted)", fontWeight: 700 }}>학생 · 선생님 · 관리자 모두 같은 로그인 창을 씁니다.</p>
         </section>
-        <section aria-label="로그인" style={{ flex: "1 1 340px", maxWidth: 420, minWidth: 0 }}>
-          <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+        <section aria-label="로그인" style={{ flex: "1 1 360px", maxWidth: 460, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <LandingHeroArt />
+          <div style={{ marginTop: -70, position: "relative", padding: "0 14px" }}>
+            <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+          </div>
+        </section>
+        <section aria-labelledby="kdn-features" style={{ flex: "1 1 100%", display: "grid", gap: 16, marginTop: 12 }}>
+          <h2 id="kdn-features" style={{ margin: 0, fontSize: 22, fontWeight: 900 }}>KDTIME에서 할 수 있는 일</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 14 }}>
+            {LANDING_FEATURES.map(item => (
+              <article key={item.title} style={{ display: "grid", gap: 10, padding: 20, borderRadius: 20, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)" }}>
+                <span style={{ width: 44, height: 44, borderRadius: 14, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft)", color: "var(--kdn-accent-text)" }}>{item.icon}</span>
+                <b style={{ fontSize: 17, fontWeight: 900 }}>{item.title}</b>
+                <span style={{ fontSize: 14, lineHeight: 1.6, color: "var(--kdn-ink-soft)" }}>{item.text}</span>
+              </article>
+            ))}
+          </div>
         </section>
       </main>
+      <footer style={{ borderTop: "1px solid var(--kdn-line)" }}>
+        <div style={{ maxWidth: 1180, margin: "0 auto", padding: "22px 24px", display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 13, fontWeight: 700, color: "var(--kdn-muted)" }}>
+          <span>광덕고등학교 · KDTIME {SITE_TITLE.includes("BETA") ? "[BETA]" : ""}</span>
+          <span>로그인 문제는 담임 선생님 또는 관리자에게 문의해주세요.</span>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+const LANDING_FEATURES = [
+  { title: "이동수업 시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 명단을 바로 조회해요.", icon: <Calendar size={22} /> },
+  { title: "성적 · 진학", text: "내신 추이, 대학 탐색, 수시 NAVI 분석과 지원 구성을 한 흐름으로 봐요.", icon: <BookOpen size={22} /> },
+  { title: "학급 공지", text: "공지사항 · 제출 · 신청 · 상담 알림과 수업자료를 한곳에서 받아요.", icon: <Bell size={22} /> },
+  { title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 최소성취수준 관리를 선생님 계정으로.", icon: <Users size={22} /> },
+];
+
+// 고정 색 그림이라 화면 모드 색 변환을 거치지 않도록 문자열로 넣습니다(밤하늘 + 학교 건물).
+const LANDING_HERO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 460 230" preserveAspectRatio="xMidYMax slice">
+<rect width="460" height="230" fill="#1f2238"/><circle cx="380" cy="56" r="24" fill="#f7d9a8"/><circle cx="390" cy="49" r="22" fill="#1f2238"/>
+<g fill="#e9e3d6" opacity=".85"><circle cx="60" cy="40" r="1.8"/><circle cx="140" cy="76" r="1.4"/><circle cx="236" cy="32" r="1.8"/><circle cx="300" cy="96" r="1.4"/><circle cx="440" cy="120" r="1.4"/><circle cx="30" cy="120" r="1.4"/></g>
+<rect x="0" y="196" width="460" height="34" fill="#181a2b"/><rect x="100" y="112" width="260" height="86" rx="6" fill="#2d3050"/><rect x="200" y="82" width="60" height="116" rx="6" fill="#383c62"/>
+<circle cx="230" cy="106" r="12" fill="#1f2238"/><path d="M230 99v7l4 3" stroke="#f7d9a8" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+<rect x="120" y="128" width="22" height="18" rx="4" fill="#ff9a5c"/><rect x="152" y="128" width="22" height="18" rx="4" fill="#4a4e78"/><rect x="120" y="158" width="22" height="18" rx="4" fill="#4a4e78"/><rect x="152" y="158" width="22" height="18" rx="4" fill="#ff9a5c"/>
+<rect x="286" y="128" width="22" height="18" rx="4" fill="#4a4e78"/><rect x="318" y="128" width="22" height="18" rx="4" fill="#ff9a5c"/><rect x="286" y="158" width="22" height="18" rx="4" fill="#ff9a5c"/><rect x="318" y="158" width="22" height="18" rx="4" fill="#4a4e78"/>
+<rect x="218" y="166" width="24" height="32" rx="10" fill="#1f2238"/></svg>`;
+
+// 로그인 화면 오른쪽 그림. public/kdtime-hero.jpg 파일을 넣으면 그 사진이 대신 보입니다(권장 1600×800).
+function LandingHeroArt() {
+  const [photoOk, setPhotoOk] = useState(true);
+  return (
+    <div aria-hidden="true" style={{ height: 230, borderRadius: 26, overflow: "hidden", background: "var(--kdn-hero-art)", position: "relative" }}>
+      {photoOk
+        ? <img src="/kdtime-hero.jpg" alt="" onError={() => setPhotoOk(false)} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        : <div style={{ width: "100%", height: "100%" }} dangerouslySetInnerHTML={{ __html: LANDING_HERO_SVG }} />}
     </div>
   );
 }
