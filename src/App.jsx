@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Moon, Sun, ChevronDown, GraduationCap } from "lucide-react";
+import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
@@ -1643,6 +1643,7 @@ export default function App() {
     return { sid: selectedStudentSid, name: info.name || "", classLabel: info.class ? `${info.class}반 ${info.number || ""}${info.number ? "번" : ""}`.trim() : "" };
   }, [dashboardActive, selectedStudentSid, db.roster]);
 
+  const [teacherZoneRequest, setTeacherZoneRequest] = useState(null);
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   const globalLogout = () => {
@@ -1733,6 +1734,8 @@ export default function App() {
   // 새 UI 대시보드(로그인 후 첫 화면)에 넘길 값. 훅은 로그인 여부와 관계없이 항상 같은 순서로 호출합니다.
   const canSeeMinimum = !!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))));
   const canSeeTeacherZone = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor);
+  // 최성보 화면의 '성적 산출' 버튼 → 선생님 ZONE을 성적 산출 탭으로 엽니다.
+  const openGradeCalc = canSeeTeacherZone ? () => { setTeacherZoneRequest({ mode: "grades", at: Date.now() }); switchSection("teacherZone"); } : undefined;
   const dashboardNavigate = (target, options = {}) => {
     switchSection(target);
     // 학생 검색창(새 UI 작업 줄)으로 이동합니다. 화면 전환 직후라 그려질 때까지 몇 번 다시 시도합니다.
@@ -1832,6 +1835,8 @@ export default function App() {
         />
       ) : activeSection === "teacherZone" ? (
         <TeacherZoneWorkspace
+          modeRequest={teacherZoneRequest}
+          onOpenMinimum={canSeeMinimum ? () => switchSection("minimumAchievement") : undefined}
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInDepartment={loggedInDepartment} loggedInMonitor={loggedInMonitor}
           viewedTeacher={viewedTeacher} setViewedTeacher={setViewedTeacher}
           db={db} persist={persist} showToast={showToast} accounts={accounts} persistAccounts={persistAccounts}
@@ -1850,6 +1855,7 @@ export default function App() {
             accessRole={loggedInAdmin ? "admin" : loggedInDepartment ? "department" : loggedInMonitor ? "monitor" : (loggedInTeacher && normalizedTeacherRole(loggedInTeacher) === "gradeHead") ? "gradeHead" : "teacher"}
             homeroomClass={loggedInTeacher?.homeroomClass || ""}
             setGrade={setGrade}
+            onOpenGradeCalc={openGradeCalc}
             allowedGrades={(loggedInAdmin || loggedInDepartment || loggedInMonitor) ? GRADES : [teacherRoleGrade(loggedInTeacher || {})]}
           /></DeferredPanel>
         </div>
@@ -2494,6 +2500,7 @@ const newBar = {
 };
 
 function TeacherZoneWorkspace({
+  modeRequest, onOpenMinimum,
   loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor,
   viewedTeacher, setViewedTeacher, db, persist, showToast, accounts, persistAccounts,
   grade, setGrade, semester, scopeKey, roster, allRosters, enrollments, allowedGrades,
@@ -2515,6 +2522,7 @@ function TeacherZoneWorkspace({
     } catch { return "grades"; }
   });
   const [visitedWorkspaceModes, setVisitedWorkspaceModes] = useState(() => [workspaceMode]);
+  useEffect(() => { if (modeRequest?.mode) setWorkspaceMode(modeRequest.mode); }, [modeRequest?.at]);
   const [lastDepartmentToolView, setLastDepartmentToolView] = useState(() => ["contacts", "records", "gradeData"].includes(workspaceMode) ? workspaceMode : "contacts");
   useEffect(() => {
     setVisitedWorkspaceModes(current => current.includes(workspaceMode) ? current : [...current, workspaceMode]);
@@ -2550,6 +2558,7 @@ function TeacherZoneWorkspace({
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무 (Beta)</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("gradeData")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "gradeData" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Database size={15} /> 자료 관리</button>}
+        {onOpenMinimum && <button type="button" onClick={onOpenMinimum} title="최소성취수준 화면으로 이동" style={{ ...teacherZoneWorkspaceStyles.modeButton, marginLeft: 6 }}><ShieldCheck size={15} /> 최성보 현황 ↗</button>}
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>

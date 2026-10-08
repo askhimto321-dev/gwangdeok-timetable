@@ -3902,9 +3902,13 @@ function StudentLookup({
 function NewCounselHeader({ sid, gdb, student, studentInfo, favoriteCount, showPlan, onOpenPlan }) {
   const planItems = useSupportPlanItems(sid);
   const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
+  // 요약 카드의 '9등급 환산'은 NAVI와 같은 환산 방식(기존/통계 기반)과 자료를 씁니다.
+  const [naviData, setNaviData] = useState(null);
+  useEffect(() => { let active = true; loadSusiNaviBetaData().then(value => { if (active) setNaviData(value || null); }).catch(() => {}); return () => { active = false; }; }, []);
+  const naviGrade = useMemo(() => student ? studentNaviGrade(naviData, student) : null, [naviData, student]);
   // 요약 카드 한 줄 + (관심대학·상담 단계에서는) 지원 구성 6칸 한 줄을 위아래로 붙여 둡니다.
   return <div className="no-print" style={{ display: "grid", gap: 12, marginBottom: 16 }}>
-    <CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} onOpenPlan={onOpenPlan} />
+    <CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} onOpenPlan={onOpenPlan} naviGrade={naviGrade} />
     {showPlan && <SupportPlanSlots items={planItems} onOpen={onOpenPlan} />}
   </div>;
 }
