@@ -81,3 +81,11 @@ test("새 UI 가독성: 작은 글자만 한 단계 키운다", async () => {
   assert.equal(mapStyleObject({ fontSize: 10 }, "dark").fontSize, 11.5);
   assert.equal(mapStyleObject({ fontSize: 10 }, "classic").fontSize, 10);
 });
+
+test("새 UI 해상도: 화면 너비 컨테이너만 넓히고 기존 UI는 그대로", async () => {
+  const { wideMaxWidth } = await import("../src/uiMode.js");
+  assert.equal(wideMaxWidth(1040), "min(1440px, calc(100vw - 48px))");
+  assert.equal(wideMaxWidth(420), 420);
+  assert.equal(mapStyleObject({ maxWidth: 1040 }, "dark").maxWidth, "min(1440px, calc(100vw - 48px))");
+  assert.equal(mapStyleObject({ maxWidth: 1040 }, "classic").maxWidth, 1040);
+});

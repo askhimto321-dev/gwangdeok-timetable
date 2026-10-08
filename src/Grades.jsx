@@ -3903,7 +3903,7 @@ function NewCounselHeader({ sid, gdb, student, studentInfo, favoriteCount, showP
   const planItems = useSupportPlanItems(sid);
   const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
   // 요약 카드 한 줄 + (관심대학·상담 단계에서는) 지원 구성 6칸 한 줄을 위아래로 붙여 둡니다.
-  return <div className="no-print" style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+  return <div className="no-print" style={{ display: "grid", gap: 12, marginBottom: 16 }}>
     <CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} onOpenPlan={onOpenPlan} />
     {showPlan && <SupportPlanSlots items={planItems} onOpen={onOpenPlan} />}
   </div>;

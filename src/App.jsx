@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Moon, Sun, ChevronDown } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
@@ -2600,7 +2601,11 @@ function UiModeMenu() {
   }, [open]);
   return (
     <div ref={ref} className="no-print" style={{ position: "relative" }}>
-      <button type="button" aria-label="화면 설정" aria-haspopup="menu" aria-expanded={open} title="화면 설정" onClick={() => setOpen(value => !value)} style={{ ...newUiNavStyles.ghost, width: 42, padding: 0, justifyContent: "center" }}><Settings size={18} /></button>
+      <button type="button" aria-label={`화면 모드: ${current === "dark" ? "다크" : current === "light" ? "라이트" : "기존 UI"} (바꾸기)`} aria-haspopup="menu" aria-expanded={open} title="화면 모드 바꾸기" onClick={() => setOpen(value => !value)} style={{ ...newUiNavStyles.ghost, gap: 7, padding: "0 12px" }}>
+        {current === "light" ? <Sun size={17} /> : <Moon size={17} />}
+        <span className="kdn-mode-long">{current === "dark" ? "다크 모드" : current === "light" ? "라이트 모드" : "기존 UI"}</span>
+        <ChevronDown size={15} />
+      </button>
       {open && <div role="menu" aria-label="화면 모드" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 60, width: 220, padding: 8, borderRadius: 16, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 18px 40px rgba(0,0,0,.35)" }}>
         <div style={{ padding: "6px 10px 8px", fontSize: 13, fontWeight: 800, color: "var(--kdn-muted)" }}>화면 모드</div>
         {UI_MODES.map(mode => (

@@ -3346,6 +3346,12 @@ function SupportConnectionExplorer({
 
 function SupportTrendPanel({ trend, compact = false, university = "", department = "", onOpenCases }) {
   const value = trend || { total: 0, accepted: 0, rate: null, detailTypes: [], scope: "연결 자료 없음" };
+  if (isNewUi() && !Number(value.total || 0)) {
+    return <div className="susi-beta-school-trend kdn-trend-empty" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "10px 18px", borderTop: "1px solid var(--kdn-line)", fontSize: 14, color: "var(--kdn-muted)" }}>
+      <span><b style={{ color: "var(--kdn-ink-soft)", fontWeight: 800 }}>광덕고 별도 사례</b> · 2024–2026 연결 사례 없음</span>
+      {onOpenCases && <button type="button" onClick={() => onOpenCases(university, department, "")} style={{ border: 0, background: "transparent", color: "var(--kdn-accent-text)", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>광덕고 대입 결과 ›</button>}
+    </div>;
+  }
   const visibleTypes = value.detailTypes?.slice(0, compact ? 4 : 8) || [];
   const hiddenCount = Math.max(0, Number(value.detailTypes?.length || 0) - visibleTypes.length);
   return <div className={`susi-beta-school-trend ${compact ? "is-compact" : "is-expanded"}`} style={{ ...ui.schoolTrendPanel, ...(compact ? ui.schoolTrendCompact : ui.schoolTrendExpanded) }}>
@@ -3422,6 +3428,18 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
   </div>;
 }
 
+// 새 UI 결과 카드 오른쪽 핵심 숫자(참고 사이트의 '12위 / 186명' 방식): 적정 이상(적정·안정·하향) 전형 수 / 전체 전형 수.
+function ResultKeyFigure({ tracks = [], convertedGrade, cutoffBasis = "70" }) {
+  const labels = tracks.map(item => supportBand(convertedGrade, cutoffValue(item, cutoffBasis))?.label).filter(Boolean);
+  if (!tracks.length) return null;
+  const good = labels.filter(label => ["적정", "안정", "하향"].includes(label)).length;
+  return <div style={{ display: "grid", gap: 2, padding: "8px 16px", borderLeft: "1px solid var(--kdn-line)", minWidth: 128 }}>
+    <span style={{ fontSize: 13, fontWeight: 700, color: "var(--kdn-muted)" }}>적정 이상 전형</span>
+    <b style={{ fontSize: 30, fontWeight: 800, lineHeight: 1.05, color: "var(--kdn-ink)" }}>{labels.length ? good : "-"}<small style={{ fontSize: 16, fontWeight: 700, color: "var(--kdn-muted)" }}> / {tracks.length}</small></b>
+    <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--kdn-muted)" }}>{labels.length ? `${cutoffBasis}%컷 기준` : "학생 내신 입력 필요"}</span>
+  </div>;
+}
+
 function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationStatus = "ready", recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
   const [open, setOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("all");
@@ -3454,9 +3472,11 @@ function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories =
           <div style={ui.universityLine}><span style={ui.resultEntityLabel}>대학</span><h3 style={ui.universityName}>{university}</h3><span style={ui.fieldBadge}>{field}</span><span style={ui.naviInlineBadge}>NAVI 통합 데이터</span></div>
           <div style={ui.resultDepartmentLine}><span style={ui.resultEntityLabel}>2027 모집단위</span><b style={ui.unitTitle}>{unit2027}</b></div>
           <span style={ui.location}>{[regionGroup, region, detailRegion].filter(Boolean).join(" · ")}</span>
+          {isNewUi() && <span style={{ fontSize: 15, fontWeight: 700, color: "var(--kdn-ink-soft)", marginTop: 2 }}>교과 {teaching?.length || 0} · 종합 {holistic?.length || 0} · 수능최저 {minimums?.length || 0}건</span>}
           {minimumSummary.unsatisfied > 0 && <span style={ui.minimumAlertBadge}><AlertTriangle size={12}/>{minimumSummary.unsatisfied === minimumSummary.total ? "수능최저 미도달" : `수능최저 일부 미도달 ${minimumSummary.unsatisfied}건`}</span>}
         </div>
-        <div style={ui.resultQuickStats}>
+        {isNewUi() && <ResultKeyFigure tracks={[...(teaching || []), ...(holistic || [])]} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} />}
+        <div className="kdn-hide-new" style={ui.resultQuickStats}>
           <span><small>교과전형</small><b>{teaching?.length || 0}개</b></span>
           <span><small>종합전형</small><b>{holistic?.length || 0}개</b></span>
           <span><small>수능최저</small><b>{minimums?.length || 0}건</b></span>
@@ -3471,7 +3491,7 @@ function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories =
       {isNewUi() && !open && <div style={{ padding: "0 18px 14px" }}><CutStrip
         items={[...(teaching || []).map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...(holistic || []).map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))]}
         studentGrade={convertedGrade} cutoffBasis={cutoffBasis} onMore={() => setOpen(true)} /></div>}
-      {open && <div style={ui.resultCardBody}>
+      {open && <div className="kdn-result-body" style={ui.resultCardBody}>
         <div className="susi-beta-result-identity" style={ui.resultIdentity}>
           <b style={ui.identityLabel}>NAVI 모집단위 연결 정보</b>
           <span style={ui.identitySourceNote}>경기도교육청 제공 2027 모집단위와<br/>대학 공개 2026 입시결과를 연결한 정보입니다.</span>
