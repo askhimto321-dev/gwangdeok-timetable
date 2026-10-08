@@ -233,6 +233,12 @@ export function readableFontSize(value) {
   return typeof value === "number" ? next : `${next}px`;
 }
 
+// 해상도 활용: 새 UI에서는 화면 너비용 컨테이너(1000~1300px 고정)를 넓은 모니터에서 최대 1440px까지 넓힙니다.
+export function wideMaxWidth(value) {
+  if (typeof value !== "number" || value < 1000 || value > 1300) return value;
+  return "min(1440px, calc(100vw - 48px))";
+}
+
 const styleCache = new WeakMap();
 export function mapStyleObject(style, mode = ACTIVE_MODE) {
   if (mode === "classic" || !style || typeof style !== "object") return style;
@@ -240,7 +246,8 @@ export function mapStyleObject(style, mode = ACTIVE_MODE) {
   if (cached) return cached;
   const result = mapStyleColors(style, mode);
   const size = readableFontSize(result.fontSize);
-  const finalStyle = size !== result.fontSize ? { ...result, fontSize: size } : result;
+  const width = wideMaxWidth(result.maxWidth);
+  const finalStyle = size !== result.fontSize || width !== result.maxWidth ? { ...result, fontSize: size, maxWidth: width } : result;
   styleCache.set(style, finalStyle);
   return finalStyle;
 }
@@ -377,6 +384,10 @@ const SHARED_NEW_CSS = `
   .kdn-staff-tools-head span{display:none!important}
   /* 상담 4단계: 바깥 상자 없이 단계 버튼만 한 줄로 */
   .kd-counsel-flow{border:0!important;background:transparent!important;box-shadow:none!important;padding:0!important;margin-bottom:10px!important}
+  .kd-counsel-flow>div:last-child{gap:12px!important}
+  .kd-counsel-flow button{min-height:58px!important;padding:10px 14px!important}
+  .kdn-staff-tools{margin:6px 0 16px!important}
+  .kdn-staff-tools button{min-height:38px!important;padding:0 12px!important}
   /* NAVI: 시험 운영 안내는 한 줄로, 자동 반영 설명 문단은 숨김, 필터 글자 크게 */
   .susi-beta-beta-notice{padding-top:10px!important;padding-bottom:10px!important}
   .susi-beta-beta-notice>div{display:flex!important;flex-wrap:wrap;gap:4px 10px;align-items:baseline;min-width:0}
@@ -385,6 +396,11 @@ const SHARED_NEW_CSS = `
   .susi-beta-student-auto p{display:none!important}
   .susi-beta-filter-grid label,.susi-beta-filter-grid button{font-size:14px!important}
   .susi-beta-query input{font-size:16px!important}
+  /* NAVI 결과 카드: 전형별 '수시지원 추가'는 테두리 버튼으로(강조 버튼이 너무 많지 않게), 펼친 상세는 전형 카드를 넓게 */
+  .susi-beta-result-card button.kd-support-plan-button.kd-support-plan-button.is-compact:not(.is-saved){background:transparent;color:var(--kdn-accent-text);border-color:var(--kdn-accent);box-shadow:none;min-height:38px}
+  .susi-beta-result-card button.kd-support-plan-button.kd-support-plan-button.is-compact:not(.is-saved):hover{background:var(--kdn-accent);color:var(--kdn-accent-ink)}
+  .kdn-result-body{display:grid!important;grid-template-columns:minmax(0,1fr)!important}
+  .kdn-result-body>.susi-beta-result-identity{order:2;display:grid!important;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;align-items:start}
   /* 관리자: 상단 탭 줄을 왼쪽 메뉴로 */
   .kdn-admin-layout{display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start}
   .kdn-admin-layout>.kdn-admin-nav{flex:1 1 210px;max-width:260px;flex-direction:column!important;flex-wrap:nowrap!important;gap:4px!important;padding:10px;border-radius:20px;background:var(--kdn-surface);border:1px solid var(--kdn-line);position:sticky;top:84px}
