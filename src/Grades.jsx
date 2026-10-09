@@ -17,6 +17,7 @@ import {buildCounselingFactIndex,counselingFactsForFavorite,loadRecommendedSubje
 import { CutStrip } from './naviVisuals.jsx';
 import { GradeInsights, GradeHeatmap } from './gradeInsights.jsx';
 import GradeSimulator, { GradeSimPresetChips } from './GradeSimulator.jsx';
+import { CompareOverview, SemesterChips, printGradeComparison, COMPARE_COLORS } from './gradeCompareVisuals.jsx';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
 import { isNewUi, getUiMode } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
@@ -569,6 +570,7 @@ export default function GradesSection({
   selectedStudentQuery,
   onSelectedStudentQueryChange,
   requestedStudentView,
+  requestedStudentViewNonce = 0,
   onWorkspaceViewChange,
   enrolledSubjectsByStudent = {},
   persistGrades,
@@ -776,7 +778,7 @@ export default function GradesSection({
     if (requestedStudentView === "susiNaviBeta") navigateGradeTab("susiNaviBeta", { replace: true });
     if (requestedStudentView === "admissionCases") navigateGradeTab("admissionCases", { replace: true });
     if (requestedStudentView === "mockAnalysis") navigateGradeTab("mockAnalysis", { replace: true });
-  }, [requestedStudentView, loggedInStudent]);
+  }, [requestedStudentView, requestedStudentViewNonce, loggedInStudent]);
 
   const counselingFlowItems = loggedInStudent
     ? [
@@ -1036,9 +1038,10 @@ function StudentGradeComparison({ gdb, roster, currentGrade }) {
         {selectedSids.length>0&&<div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{selectedSids.map(sid=>{const info=rosterBySid.get(sid);return <span key={sid} style={{display:"inline-flex",alignItems:"center",gap:6,padding:"6px 8px",border:"1px solid #cedbea",borderRadius:999,background:"#f6f9fd",color:"#385977",fontSize:10.5,fontWeight:850}}><b>{info?.name||sid}</b><small>{sid}</small><button type="button" onClick={()=>setSelectedSids(prev=>prev.filter(value=>value!==sid))} style={{display:"grid",placeItems:"center",width:17,height:17,padding:0,border:0,borderRadius:99,background:"#e4ebf3",color:"#6d7f91",cursor:"pointer"}}><X size={10}/></button></span>})}<button type="button" onClick={()=>setSelectedSids([])} style={{border:"1px solid #e5c9c6",borderRadius:999,padding:"6px 9px",background:"#fff7f6",color:"#a14f47",fontSize:10.5,fontWeight:900,cursor:"pointer"}}>전체 해제</button></div>}
       </div>
     </section>
+    {rows.length>0 && isNewUi() && <CompareOverview rows={rows} ranked={ranked}/>}
     {rows.length===0 ? <EmptyBox text="비교할 학생을 2명 이상 검색해 추가하세요. 한 명부터도 미리 볼 수 있습니다."/> : <section style={{...card,padding:0,overflow:"hidden",borderTop:"4px solid #315f95"}}>
-      <div style={{padding:"13px 15px",display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",borderBottom:"1px solid #e3e8ee",background:"#f8fafc"}}><div><b style={{fontSize:13.5,color:"#263f5d"}}>누적 내신 비교</b><div style={{fontSize:10.5,color:"#7b8796",marginTop:3}}>5등급제 학생은 원등급과 기존 9등급 환산을 함께 표시합니다. 숫자가 낮을수록 상위입니다.</div></div><span style={{fontSize:10.5,fontWeight:900,color:"#526a83"}}>{currentGrade}학년 · {rows.length}명</span></div>
-      <div style={{overflowX:"auto"}}><table style={{...table.base,minWidth:930,tableLayout:"fixed"}}><colgroup><col style={{width:150}}/><col style={{width:108}}/><col style={{width:118}}/><col style={{width:118}}/><col style={{width:118}}/><col style={{width:126}}/><col/></colgroup><thead><tr><th style={table.th}>학생</th><th style={table.th}>전과목 누적</th><th style={table.th}>국·영·수·사·과</th><th style={table.th}>국·영·수·과</th><th style={table.th}>국·영·수·사</th><th style={table.th}>최근 학기</th><th style={table.th}>학기별 전과목 평균</th></tr></thead><tbody>{rows.map(row=>{const rank=ranked.get(row.sid);return <tr key={row.sid}><td style={{...table.td,textAlign:"left"}}><div style={{display:"flex",alignItems:"center",gap:7}}>{rank&&<span style={{display:"grid",placeItems:"center",width:25,height:25,borderRadius:8,background:rank===1?"#315f95":"#eef3f9",color:rank===1?"#fff":"#4f6780",fontSize:9.5,fontWeight:950}}>{rank}</span>}<div><b style={{display:"block",fontSize:12.5,color:"#253b55"}}>{row.name}</b><small style={{display:"block",marginTop:2,fontSize:9.5,color:"#7d8996"}}>{row.sid} · {row.classNumber}반 {row.number}번</small></div></div></td><td style={table.td}>{gradeBox(row.overall)}</td><td style={table.td}>{gradeBox(row.coreAll)}</td><td style={table.td}>{gradeBox(row.coreScience)}</td><td style={table.td}>{gradeBox(row.coreSocial)}</td><td style={table.td}><div style={{display:"grid",gap:2,justifyItems:"center"}}><small style={{fontSize:9,color:"#7b8997",fontWeight:850}}>{row.latestKey?SEMESTER_LABELS[row.latestKey]:"자료 없음"}</small><b style={{fontSize:12.5,color:"#354f6e"}}>{row.latestPrimary??"-"}</b>{row.latestConverted!=null&&<small style={{fontSize:9,color:"#7a6a91"}}>9환산 {row.latestConverted}</small>}</div></td><td style={{...table.td,textAlign:"left"}}><div style={{display:"flex",gap:4,flexWrap:"wrap"}}>{row.trend.length?row.trend.map(item=><span key={item.key} style={{display:"inline-flex",alignItems:"center",gap:3,padding:"4px 6px",borderRadius:7,background:"#f1f5f9",color:"#526980",fontSize:9.5,fontWeight:850}}><small style={{fontSize:8.5,color:"#8995a3"}}>{item.key}</small>{item.value}</span>):<span style={{color:"#a0a9b6"}}>-</span>}</div></td></tr>})}</tbody></table></div>
+      <div style={{padding:"13px 15px",display:"flex",justifyContent:"space-between",gap:10,alignItems:"center",borderBottom:"1px solid #e3e8ee",background:"#f8fafc"}}><div><b style={{fontSize:13.5,color:"#263f5d"}}>누적 내신 비교</b><div style={{fontSize:10.5,color:"#7b8796",marginTop:3}}>5등급제 학생은 원등급과 기존 9등급 환산을 함께 표시합니다. 숫자가 낮을수록 상위입니다.</div></div><div style={{display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:10.5,fontWeight:900,color:"#526a83"}}>{currentGrade}학년 · {rows.length}명</span><button type="button" className="no-print" onClick={()=>printGradeComparison(rows,ranked,currentGrade)} style={{display:"inline-flex",alignItems:"center",gap:5,minHeight:34,padding:"0 12px",borderRadius:9,border:"1px solid #cbd5e1",background:"#fff",color:"#253b55",fontSize:12,fontWeight:850,cursor:"pointer"}}><Printer size={14}/>인쇄·PDF</button></div></div>
+      <div style={{overflowX:"auto"}}><table style={{...table.base,minWidth:930,tableLayout:"fixed"}}><colgroup><col style={{width:150}}/><col style={{width:108}}/><col style={{width:118}}/><col style={{width:118}}/><col style={{width:118}}/><col style={{width:126}}/><col/></colgroup><thead><tr><th style={table.th}>학생</th><th style={table.th}>전과목 누적</th><th style={table.th}>국·영·수·사·과</th><th style={table.th}>국·영·수·과</th><th style={table.th}>국·영·수·사</th><th style={table.th}>최근 학기</th><th style={table.th}>학기별 전과목 평균</th></tr></thead><tbody>{rows.map(row=>{const rank=ranked.get(row.sid);return <tr key={row.sid}><td style={{...table.td,textAlign:"left"}}><div style={{display:"flex",alignItems:"center",gap:7}}>{rank&&<span style={{display:"grid",placeItems:"center",width:25,height:25,borderRadius:8,background:rank===1?"#315f95":"#eef3f9",color:rank===1?"#fff":"#4f6780",fontSize:9.5,fontWeight:950}}>{rank}</span>}<div><b style={{display:"flex",alignItems:"center",gap:5,fontSize:12.5,color:"#253b55"}}><i aria-hidden="true" style={{width:8,height:8,borderRadius:99,background:COMPARE_COLORS[rows.indexOf(row)%COMPARE_COLORS.length]}}/>{row.name}</b><small style={{display:"block",marginTop:2,fontSize:9.5,color:"#7d8996"}}>{row.sid} · {row.classNumber}반 {row.number}번</small></div></div></td><td style={table.td}>{gradeBox(row.overall)}</td><td style={table.td}>{gradeBox(row.coreAll)}</td><td style={table.td}>{gradeBox(row.coreScience)}</td><td style={table.td}>{gradeBox(row.coreSocial)}</td><td style={table.td}><div style={{display:"grid",gap:2,justifyItems:"center"}}><small style={{fontSize:9,color:"#7b8997",fontWeight:850}}>{row.latestKey?SEMESTER_LABELS[row.latestKey]:"자료 없음"}</small><b style={{fontSize:12.5,color:"#354f6e"}}>{row.latestPrimary??"-"}</b>{row.latestConverted!=null&&<small style={{fontSize:9,color:"#7a6a91"}}>9환산 {row.latestConverted}</small>}</div></td><td style={{...table.td,textAlign:"left"}}><SemesterChips trend={row.trend}/></td></tr>})}</tbody></table></div>
     </section>}
   </div>;
 }
@@ -1647,6 +1650,8 @@ function ReportSummaryTiles({ items = [] }) {
   </div>;
 }
 
+function showGradesForPaging(mode) { return mode === "grades" || mode === "both"; }
+
 function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   const { semesterData, mockData, admissionRows, studentAccounts, cohortSettings } = gdb;
 
@@ -1781,6 +1786,14 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
 
   // 새 UI는 인사이트(시안 C)를 먼저 보여주고, 과목×학기 히트맵·교과별 그래프·모의고사를 탭으로 고릅니다.
   const [trendTab, setTrendTab] = useState(() => (isNewUi() ? "insight" : "category"));
+  // 새 UI: 성적 리포트를 한 화면에 길게 늘어놓지 않고 페이지(내신 → 평균 → 모의고사 → 리포트)로 나눠 봅니다.
+  const REPORT_PAGES = [["school", "내신 성적", "학기별 과목 성적"], ["average", "교과·계열 평균", "교과·조합 평균"], ["mock", "모의고사", "회차별 등급·최저합"], ["report", "성적 리포트", "인사이트·시뮬레이터"]];
+  const [reportPage, setReportPage] = useState("school");
+  const paged = isNewUi() && showGradesForPaging(mode);
+  const pageOn = key => !paged || reportPage === key;
+  const reportPageIndex = REPORT_PAGES.findIndex(([key]) => key === reportPage);
+  const goReportPage = key => { setReportPage(key); if (typeof window !== "undefined") window.scrollTo({ top: Math.max(0, (reportPagerRef.current?.getBoundingClientRect().top || 0) + window.scrollY - 90), behavior: "smooth" }); };
+  const reportPagerRef = useRef(null);
   const [selectedCategoryTrend, setSelectedCategoryTrend] = useState("전과목");
   const [selectedMockSubject, setSelectedMockSubject] = useState("전과목 평균");
 
@@ -1864,6 +1877,9 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         { label: activeMockKey ? `모의고사 3합 · ${mockCalendarLabel(activeMockKey, entryYear)}` : "모의고사 3합", value: sums.sum3, digits: 0, tone: "purple" },
         { label: "수능최저 충족 대학", value: matchedUniversities.length, unit: "곳", digits: 0, tone: "amber" },
       ]} />}
+      {paged && hasAnyData && <div ref={reportPagerRef} className="kdn-search-steps kdn-substeps kdn-report-pages no-print" role="tablist" aria-label="성적 리포트 페이지">
+        {REPORT_PAGES.map(([key, label, note], index) => <button key={key} type="button" role="tab" aria-selected={reportPage === key} className={reportPage === key ? "is-active" : ""} onClick={() => goReportPage(key)}><span>{index + 1}</span><b>{label}</b><small>{note}</small></button>)}
+      </div>}
       {showGradePrintOptions && <div className="grade-print-option-overlay no-print" onMouseDown={event=>{if(event.target===event.currentTarget)setShowGradePrintOptions(false)}}>
         <section className="grade-print-option-modal">
           <div className="grade-print-option-head"><div><b>성적표 인쇄 설정</b><span>9등급 환산 방식과 인쇄 항목을 선택하면 A4 한 페이지에 맞춰 자동 배치합니다.</span></div><button type="button" onClick={()=>setShowGradePrintOptions(false)}><X size={16}/></button></div>
@@ -1891,7 +1907,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         <EmptyBox text="아직 등록된 성적 데이터가 없습니다. 관리자가 원본 데이터를 업로드하면 여기에 표시됩니다." />
       )}
 
-      {showGrades && (
+      {pageOn("school") && showGrades && (
         <div style={card}>
           <SectionHeading
             title="내신 성적"
@@ -2027,7 +2043,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         </div>
       )}
 
-      {showGrades && hasAnyGrades && (
+      {pageOn("average") && showGrades && hasAnyGrades && (
         <div style={card}>
           <SectionHeading
             title={`교과별 평균 (${gradeDisplayLabel})`}
@@ -2055,7 +2071,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         </div>
       )}
 
-      {showGrades && hasAnyGrades && (
+      {pageOn("average") && showGrades && hasAnyGrades && (
         <div style={card}>
           <SectionHeading
             title={`계열별 평균 (${gradeDisplayLabel})`}
@@ -2071,7 +2087,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         </div>
       )}
 
-      {showGrades && (
+      {pageOn("mock") && showGrades && (
         <div style={card}>
           <SectionHeading
             title="모의고사 성적"
@@ -2113,7 +2129,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
       )}
 
 
-      {showGrades && (hasAnyGrades || availableMockKeys.length > 0) && (
+      {pageOn("report") && showGrades && (hasAnyGrades || availableMockKeys.length > 0) && (
         <div style={card}>
           <SectionHeading
             title={isNewUi() ? "성적 리포트" : "성적 추이 그래프"}
@@ -2199,6 +2215,11 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         </div>
       )}
 
+      {paged && hasAnyData && <div className="kdn-step-next no-print" style={{ marginBottom: 16 }}>
+        {reportPageIndex > 0 ? <button type="button" className="kdn-step-prev" onClick={() => goReportPage(REPORT_PAGES[reportPageIndex - 1][0])}>‹ {REPORT_PAGES[reportPageIndex - 1][1]}</button> : <span />}
+        <span style={{ flex: 1 }} />
+        {reportPageIndex < REPORT_PAGES.length - 1 && <button type="button" onClick={() => goReportPage(REPORT_PAGES[reportPageIndex + 1][0])}>다음: {REPORT_PAGES[reportPageIndex + 1][1]} ›</button>}
+      </div>}
       {showAdmission && (
         <div style={card}>
           <SectionHeading

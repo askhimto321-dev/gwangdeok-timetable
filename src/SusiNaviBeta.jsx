@@ -76,6 +76,7 @@ function triggerSectionPrint(targetClass) {
   frame.contentWindow?.addEventListener('afterprint',()=>frame.remove(),{once:true});
   window.setTimeout(()=>frame.remove(),300000);
 }
+const textCache = new Map(), compactCache = new Map();
 const CONVERSION_PREF_KEY = "kd_susi_navi_conversion_pref_v1";
 const CUTOFF_PREF_KEY = "kd_susi_navi_cutoff_pref_v1";
 const CONNECTION_PAGE_SIZE = 12;
@@ -277,11 +278,18 @@ function recommendationIdentityKey(item = {}) {
   return `${universityIdentityKey(item.university, item.region || "")}|${compactText(item.department || "전체")}|${compactText(item.field || "")}`;
 }
 
+// 렌더마다 같은 문자열을 수만 번 정규화하므로 결과를 캐시합니다(입력 문자열에만 의존). 캐시는 파일 맨 위에 선언.
 function normalizeText(value) {
-  return String(value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  const raw = String(value ?? "");
+  let hit = textCache.get(raw);
+  if (hit === undefined) { hit = raw.normalize("NFKC").replace(/\s+/g, " ").trim(); if (textCache.size > 40000) textCache.clear(); textCache.set(raw, hit); }
+  return hit;
 }
 function compactText(value) {
-  return normalizeText(value).replace(/\s+/g, "").toLowerCase();
+  const raw = String(value ?? "");
+  let hit = compactCache.get(raw);
+  if (hit === undefined) { hit = normalizeText(raw).replace(/\s+/g, "").toLowerCase(); if (compactCache.size > 40000) compactCache.clear(); compactCache.set(raw, hit); }
+  return hit;
 }
 function normalizeUniversityAliasText(value) {
   return normalizeText(value)
@@ -534,7 +542,16 @@ function rowSupportLabels(row, convertedGrade, cutoffBasis = "50") {
     .map(item => supportBand(convertedGrade, cutoffValue(item, cutoffBasis))?.label)
     .filter(Boolean));
 }
+const compactUnitCache = new Map(), unitTokenCache = new Map();
 function compactUnit(value) {
+  const key = String(value ?? "");
+  if (compactUnitCache.has(key)) return compactUnitCache.get(key);
+  const result = compactUnitRaw(key);
+  if (compactUnitCache.size > 20000) compactUnitCache.clear();
+  compactUnitCache.set(key, result);
+  return result;
+}
+function compactUnitRaw(value) {
   return compactText(normalizeText(value)
     .replace(/[（]/g, "(").replace(/[）]/g, ")")
     .replace(/\([^)]*\)/g, " ")
@@ -544,7 +561,16 @@ function compactUnit(value) {
     .replace(/전공$/g, "")
     .replace(/계열|모집단위|전공자율선택제|자율전공/g, " "));
 }
+// 모집단위 이름 토큰도 같은 이름이 반복되므로 캐시합니다(배열은 읽기 전용으로만 사용).
 function unitTokens(value) {
+  const key = String(value ?? "");
+  if (unitTokenCache.has(key)) return unitTokenCache.get(key);
+  const result = unitTokensRaw(key);
+  if (unitTokenCache.size > 20000) unitTokenCache.clear();
+  unitTokenCache.set(key, result);
+  return result;
+}
+function unitTokensRaw(value) {
   return unique(normalizeText(value)
     .replace(/[（]/g, "(").replace(/[）]/g, ")")
     .replace(/학부|학과|전공|계열|모집단위|전공자율선택제/g, " ")
@@ -2600,8 +2626,15 @@ export default function SusiNaviBetaView({
   // 성능 개선(렉): recommendedData가 바뀔 때만 한 번 학과명·계열별 Map을 만들어 두고,
   // 아래 enriched에서는 모집단위마다 이 Map에서 바로 찾아 씁니다(전체 자료를 매번 훑지 않음).
   const recommendationEstimateIndexes = useMemo(() => buildRecommendationEstimateIndexes(recommendedData), [recommendedData]);
-  const recommendationForRow = useCallback(row => recommendationForUnit(recommendedData, row?.[3], row?.[1], row?.[5], recommendationEstimateIndexes, row?.[6])
-    || estimateRecommendationForUnit(recommendationEstimateIndexes, row?.[3], row?.[1], row?.[5], row?.[6]), [recommendedData, recommendationEstimateIndexes]);
+  // 같은 모집단위(row 객체)는 자료가 바뀌기 전까지 결과가 같으므로 탭·보기 전환마다 다시 찾지 않도록 캐시합니다.
+  const recommendationCache = useMemo(() => new WeakMap(), [recommendedData, recommendationEstimateIndexes]);
+  const recommendationForRow = useCallback(row => {
+    if (row && typeof row === "object" && recommendationCache.has(row)) return recommendationCache.get(row);
+    const value = recommendationForUnit(recommendedData, row?.[3], row?.[1], row?.[5], recommendationEstimateIndexes, row?.[6])
+      || estimateRecommendationForUnit(recommendationEstimateIndexes, row?.[3], row?.[1], row?.[5], row?.[6]);
+    if (row && typeof row === "object") recommendationCache.set(row, value);
+    return value;
+  }, [recommendedData, recommendationEstimateIndexes, recommendationCache]);
 
   const enriched = useMemo(() => canonicalRecords.map(row => {
     const target={university:row[3],region:row[1],department:row[5],field:row[6]};
@@ -3478,6 +3511,7 @@ function SupportConnectionExplorer({
 
 function SupportTrendPanel({ trend, compact = false, university = "", department = "", onOpenCases }) {
   const value = trend || { total: 0, accepted: 0, rate: null, detailTypes: [], scope: "연결 자료 없음" };
+  if (isNewUi() && !Number(value.total || 0) && compact) return null;
   if (isNewUi() && !Number(value.total || 0)) {
     return <div className="susi-beta-school-trend kdn-trend-empty" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "10px 18px", borderTop: "1px solid var(--kdn-line)", fontSize: 14, color: "var(--kdn-muted)" }}>
       <span><b style={{ color: "var(--kdn-ink-soft)", fontWeight: 800 }}>광덕고 별도 사례</b> · 2024–2026 연결 사례 없음</span>
@@ -3522,18 +3556,23 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
   const [openKey, setOpenKey] = useState("");
   const order = ["상향", "소신", "적정", "안정", "하향"];
   return <div style={{ overflowX: "auto", borderRadius: 18, border: "1px solid var(--kdn-line)", background: "var(--kdn-surface)" }}>
-    <table style={{ width: "100%", minWidth: 860, borderCollapse: "collapse", fontSize: 14.5 }}>
+    <table style={{ width: "100%", minWidth: 980, borderCollapse: "collapse", fontSize: 14.5 }}>
       <thead><tr style={{ textAlign: "left", color: "var(--kdn-muted)", fontSize: 13 }}>
         <th style={{ padding: "12px 8px 12px 16px", width: 44 }}><span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>관심</span></th>
         <th style={{ padding: "12px 10px", fontWeight: 700 }}>대학 · 2027 모집단위</th>
         <th style={{ padding: "12px 10px", fontWeight: 700 }}>지역 · 계열</th>
         <th style={{ padding: "12px 10px", fontWeight: 700, textAlign: "center" }}>교과 · 종합</th>
-        <th style={{ padding: "12px 10px", fontWeight: 700 }}>지원 구간 ({cutoffBasis}%컷)</th>
+        <th style={{ padding: "12px 10px", fontWeight: 700 }}>가장 가까운 전형 컷 ({cutoffBasis}%)</th>
+        <th style={{ padding: "12px 10px", fontWeight: 700 }}>지원 구간</th>
         <th style={{ padding: "12px 10px", fontWeight: 700 }}>수능최저</th>
-        <th style={{ padding: "12px 16px 12px 10px", width: 90 }} />
+        <th style={{ padding: "12px 16px 12px 10px", width: 104 }} />
       </tr></thead>
-      <tbody>{rows.map(({ row, minimumEvaluations }) => {
+      <tbody>{rows.map(({ row, minimumEvaluations }, rowIndex) => {
         const [, region, , university, , unit2027, field, teaching = [], holistic = []] = row;
+        // 같은 대학이 이어지면 대학명은 첫 줄에만 쓰고, 대학이 바뀌는 줄 위에 굵은 선을 그어 묶음을 구분합니다.
+        const prevUniversity = rowIndex > 0 ? rows[rowIndex - 1]?.row?.[3] : null;
+        const newGroup = prevUniversity !== university;
+        const primary = rowPrimaryTrack(row, convertedGrade, cutoffBasis);
         const key = `${universityIdentityKey(university, region)}-${unitIdentityKey(unit2027)}-${compactText(field || "공통")}`;
         const open = openKey === key;
         const counts = {};
@@ -3542,16 +3581,17 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
         const favorite = isFavorite?.(row);
         const favoriteItem = { source: "susiNaviBeta", university, universityKey: universityIdentityKey(university, region), campus: universityCampus(university, region), department: unit2027, admissionType: "", sourceLabel: "수시NAVI Beta", region, field, note: "2027 수시NAVI Beta 모집단위" };
         return <React.Fragment key={key}>
-          <tr style={{ borderTop: "1px solid var(--kdn-line)", background: open ? "var(--kdn-surface-2)" : "transparent" }}>
+          <tr className="kdn-nrt-row" style={{ borderTop: newGroup ? "2px solid var(--kdn-control-line)" : "1px dashed var(--kdn-line)", background: open ? "var(--kdn-accent-soft)" : "transparent" }}>
             <td style={{ padding: "10px 8px 10px 16px" }}><button type="button" aria-label={favorite ? `${university} 관심 해제` : `${university} 관심 저장`} aria-pressed={!!favorite} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(favoriteItem)} style={{ width: 36, height: 36, border: 0, borderRadius: 10, background: "transparent", color: favorite ? "#e0a000" : "var(--kdn-muted)", cursor: favoriteEnabled ? "pointer" : "default", opacity: favoriteEnabled ? 1 : .45 }}><Star size={17} fill={favorite ? "currentColor" : "none"} /></button></td>
-            <td style={{ padding: "10px" }}><span style={{ display: "grid", gap: 2 }}><b style={{ fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)" }}>{university}</b><span style={{ color: "var(--kdn-ink-soft)", fontWeight: 600 }}>{unit2027}</span></span></td>
+            <td style={{ padding: "10px" }}><span style={{ display: "grid", gap: 2 }}>{newGroup ? <b style={{ fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)" }}>{university}</b> : <small style={{ fontSize: 12, color: "var(--kdn-muted)" }}>└ {university}</small>}<span style={{ color: "var(--kdn-ink)", fontWeight: 700, fontSize: 15 }}>{unit2027}</span></span></td>
             <td style={{ padding: "10px", color: "var(--kdn-ink-soft)" }}>{[region, field].filter(Boolean).join(" · ")}</td>
-            <td style={{ padding: "10px", textAlign: "center", fontWeight: 800, color: "var(--kdn-ink)" }}>{teaching.length} · {holistic.length}</td>
+            <td style={{ padding: "10px", textAlign: "center", whiteSpace: "nowrap", fontSize: 13.5, color: "var(--kdn-ink-soft)" }}>교과 <b style={{ color: "var(--kdn-ink)" }}>{teaching.length}</b> · 종합 <b style={{ color: "var(--kdn-ink)" }}>{holistic.length}</b></td>
+            <td style={{ padding: "10px" }}>{primary ? <span style={{ display: "grid", gap: 1 }}><span style={{ fontSize: 12.5, color: "var(--kdn-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 170 }}>{primary.kind} {primary.name}</span><span style={{ display: "flex", alignItems: "baseline", gap: 8 }}><b style={{ fontSize: 16, fontWeight: 800, color: "var(--kdn-ink)", fontVariantNumeric: "tabular-nums" }}>{primary.cut.toFixed(2)}</b>{primary.gap != null && <span style={{ fontSize: 13.5, fontWeight: 800, color: primary.gap >= 0 ? "#15803d" : "#b91c1c", whiteSpace: "nowrap" }}>{Math.abs(primary.gap).toFixed(2)} {primary.gap >= 0 ? "여유" : "부족"}</span>}</span></span> : <span style={{ color: "var(--kdn-muted)" }}>컷 없음</span>}</td>
             <td style={{ padding: "10px" }}><span style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>{order.filter(label => counts[label]).map(label => { const meta = SUPPORT_META[label]; return <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 999, border: `1px solid ${meta.border}`, background: meta.background, color: meta.color, fontSize: 12.5, fontWeight: 800 }}>{label} {counts[label]}</span>; })}{!Object.keys(counts).length && <span style={{ color: "var(--kdn-muted)" }}>{convertedGrade == null ? "학생 내신 없음" : "-"}</span>}</span></td>
             <td style={{ padding: "10px", color: "var(--kdn-ink-soft)", fontWeight: 600 }}>{!minimum.total ? "없음" : <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{minimum.satisfied > 0 && <span style={{ color: "#287348", fontWeight: 800 }}>충족 {minimum.satisfied}</span>}{minimum.unsatisfied > 0 && <span style={{ color: "#b05244", fontWeight: 800 }}>미충족 {minimum.unsatisfied}</span>}{minimum.total - minimum.satisfied - minimum.unsatisfied > 0 && <span>확인 {minimum.total - minimum.satisfied - minimum.unsatisfied}</span>}</span>}</td>
-            <td style={{ padding: "10px 16px 10px 10px", textAlign: "right" }}><button type="button" aria-expanded={open} onClick={() => setOpenKey(open ? "" : key)} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 36, padding: "0 10px", borderRadius: 10, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>{open ? "접기" : "컷 보기"}{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></td>
+            <td style={{ padding: "10px 16px 10px 10px", textAlign: "right" }}><button type="button" aria-expanded={open} onClick={() => setOpenKey(open ? "" : key)} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 36, padding: "0 10px", whiteSpace: "nowrap", borderRadius: 10, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>{open ? "접기" : "컷 보기"}{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></td>
           </tr>
-          {open && <tr><td colSpan={7} style={{ padding: "0 16px 16px" }}><CutStrip limit={12}
+          {open && <tr style={{ background: "var(--kdn-accent-soft)" }}><td colSpan={8} style={{ padding: "0 16px 16px" }}><CutStrip limit={12}
             items={[...teaching.map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...holistic.map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))]}
             studentGrade={convertedGrade} cutoffBasis={cutoffBasis} /></td></tr>}
         </React.Fragment>;
@@ -3702,8 +3742,9 @@ function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories =
     ["regularMinimum", `정시·최저 ${(regular ? 1 : 0) + (minimums?.length || 0)}`],
   ];
   return (
-    <article className="susi-beta-result-card" style={ui.resultCard}>
-      <div style={ui.resultSummary}>
+    <article className={isNewUi() && !open ? "susi-beta-result-card kdn-rc-compact" : "susi-beta-result-card"} style={ui.resultCard}>
+      <div className={isNewUi() && !open ? "kdn-rc-top" : undefined} style={isNewUi() && !open ? undefined : { display: "contents" }}>
+      <div className="kdn-rc-summary" style={ui.resultSummary}>
         <div style={ui.resultSummaryIdentity}>
           <div style={ui.universityLine}><span style={ui.resultEntityLabel}>대학</span><h3 style={ui.universityName}>{university}</h3><span style={ui.fieldBadge}>{field}</span><span style={ui.naviInlineBadge}>NAVI 통합 데이터</span></div>
           <div style={ui.resultDepartmentLine}><span style={ui.resultEntityLabel}>2027 모집단위</span><b style={ui.unitTitle}>{unit2027}</b></div>
@@ -3724,9 +3765,10 @@ function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories =
           <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={ui.resultToggle}>{open ? <ChevronUp size={16}/> : <ChevronDown size={16}/>} {open ? "상세 접기" : "상세 펼치기"}</button>
         </div>
       </div>
-      {isNewUi() && !open && <div style={{ padding: "0 18px 14px" }}><CutStrip
+      {isNewUi() && !open && <div className="kdn-rc-cuts"><CutStrip compact
         items={[...(teaching || []).map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...(holistic || []).map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))]}
-        studentGrade={convertedGrade} cutoffBasis={cutoffBasis} onMore={() => setOpen(true)} /></div>}
+        studentGrade={convertedGrade} cutoffBasis={cutoffBasis} onMore={() => setOpen(true)} />{!(teaching?.length || holistic?.length) && <div className="kdn-rc-nocut">이 모집단위는 공개된 교과·종합 컷이 없습니다. 상세를 펼쳐 정시·수능최저를 확인하세요.</div>}</div>}
+      </div>
       {open && <div className="kdn-result-body" style={ui.resultCardBody}>
         <div className="susi-beta-result-identity" style={ui.resultIdentity}>
           <b style={ui.identityLabel}>NAVI 모집단위 연결 정보</b>

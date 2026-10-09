@@ -1096,6 +1096,8 @@ export default function App() {
   const [selectedStudentSid, setSelectedStudentSid] = useState(null);
   const [selectedStudentQuery, setSelectedStudentQuery] = useState("");
   const [studentWorkspaceView, setStudentWorkspaceView] = useState("grades");
+  // 같은 작업 탭을 다시 눌러도(예: 학생 성적 비교를 보다가 성적 리포트) 성적 화면이 그 보기로 돌아가도록 요청 번호를 올립니다.
+  const [workspaceViewNonce, setWorkspaceViewNonce] = useState(0);
   const [studentWorkspaceTabs, setStudentWorkspaceTabs] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("kd_session") || "{}");
@@ -1679,6 +1681,7 @@ export default function App() {
     const nextTab = view === "timetable" ? "student" : tab;
     pushAppRoute({ section: nextSection, studentWorkspaceView: view, tab: nextTab });
     setStudentWorkspaceView(view);
+    setWorkspaceViewNonce(value => value + 1);
     if (view === "timetable") {
       setSection("timetable");
       setTab("student");
@@ -1833,6 +1836,7 @@ export default function App() {
           selectedStudentQuery={selectedStudentQuery}
           onSelectedStudentQueryChange={updateSelectedStudentQuery}
           requestedStudentView={studentWorkspaceView}
+          requestedStudentViewNonce={workspaceViewNonce}
           onWorkspaceViewChange={syncStudentWorkspaceView}
           enrolledSubjectsByStudent={enrolledSubjectsByStudent}
           persistGrades={persistGrades}
@@ -1883,6 +1887,7 @@ export default function App() {
           selectedStudentQuery={undefined}
           onSelectedStudentQueryChange={undefined}
           requestedStudentView={studentWorkspaceView}
+          requestedStudentViewNonce={workspaceViewNonce}
           enrolledSubjectsByStudent={enrolledSubjectsByStudent}
           persistGrades={persistGrades}
         /></DeferredPanel>

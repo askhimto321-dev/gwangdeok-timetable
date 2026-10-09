@@ -1,5 +1,5 @@
 // 새 UI(다크·라이트)에서 NAVI 결과와 상담 관심대학 카드가 함께 쓰는 시각 요소입니다.
-// - CutStrip: 전형별 "학생 ↔ 50~70%컷" 위치 막대 + 지원 구간 배지
+// - CutStrip: 전형별 컷 비교 표(50%·70% 컷, 학생과의 차이, 지원 구간 배지)
 // - SupportBandTiles: 지원 구간(상향~하향)별 개수 타일(누르면 해당 구간만 보기)
 // 색은 admissionMetrics.js의 SUPPORT_BAND_META(라이트 기준 값)를 그대로 쓰고,
 // 다크 모드 변환은 uiMode.js가 렌더 시점에 일괄 처리합니다.
@@ -45,7 +45,19 @@ export function CutPositionBar({ student, cut50, cut70, band }) {
   );
 }
 
+// 컷 차이 막대(가운데 = 컷): 학생 성적이 컷보다 좋으면 오른쪽 초록, 부족하면 왼쪽 빨강으로 뻗습니다.
+function MarginBar({ margin }) {
+  if (margin == null) return <span style={cut.marginTrack} />;
+  const width = `${Math.min(1, Math.abs(margin) / 1.5) * 50}%`;
+  const good = margin >= 0;
+  return <span style={cut.marginTrack} aria-hidden="true">
+    <span style={cut.marginCenter} />
+    <span style={{ ...cut.marginFill, ...(good ? { left: "50%", background: "#16a34a" } : { right: "50%", background: "#dc2626" }), width }} />
+  </span>;
+}
+
 // items: [{ kind: "교과"|"종합", name, cut50, cut70 }]
+// 전형별 컷 비교 표: 수직선 대신 숫자(50%·70% 컷)와 "컷보다 얼마나 여유/부족한지"를 크게 보여줍니다.
 export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit = 4, onMore, compact = false }) {
   const rows = items.filter(item => validGrade(item.cut50) != null || validGrade(item.cut70) != null);
   if (!rows.length) return null;
@@ -54,23 +66,24 @@ export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit =
   return (
     <div style={{ ...strip.wrap, ...(compact ? strip.wrapCompact : {}) }}>
       <div style={strip.head}>
-        <span>학생 ↔ 컷 <small style={strip.headHint}>({SCALE_MIN}등급 ─ {SCALE_MAX}등급 · {cutoffBasis}%컷으로 구간 판정)</small></span>
-        <span style={strip.legend}>
-          <span style={strip.legendItem}><span style={strip.legendRange} />50~70%컷</span>
-          {hasStudent && <span style={strip.legendItem}><span style={strip.legendStudent} />학생 {fmt(studentGrade)}</span>}
-        </span>
+        <span>전형별 컷 비교 <small style={strip.headHint}>{hasStudent ? `학생 9등급 ${fmt(studentGrade)} · ${cutoffBasis}% 컷 기준 판정` : `${cutoffBasis}% 컷 기준`}</small></span>
+        {hasStudent && <span style={strip.legend}><span style={strip.legendItem}><i style={{ ...cut.legendDot, background: "#16a34a" }} />컷보다 여유</span><span style={strip.legendItem}><i style={{ ...cut.legendDot, background: "#dc2626" }} />컷보다 부족</span></span>}
       </div>
+      <div style={cut.headRow}><span>전형</span><span style={cut.num}>50% 컷</span><span style={cut.num}>70% 컷</span>{hasStudent && <span style={{ textAlign: "center" }}>내 성적과 차이</span>}<span style={{ textAlign: "right" }}>판정</span></div>
       {shown.map((item, index) => {
-        const cut = cutoffBasis === "50" ? item.cut50 : item.cut70;
-        const band = hasStudent ? supportBandFor(studentGrade, cut) : null;
+        const basisCut = cutoffBasis === "50" ? item.cut50 : item.cut70;
+        const band = hasStudent ? supportBandFor(studentGrade, basisCut) : null;
+        const margin = band ? -band.diff : null;
         return (
-          <div key={`${item.kind}-${item.name}-${index}`} style={strip.row}>
+          <div key={`${item.kind}-${item.name}-${index}`} style={{ ...cut.row, ...(index % 2 ? cut.rowAlt : {}) }}>
             <span style={strip.name}><TrackChip kind={item.kind} /><b style={strip.nameText} title={item.name}>{item.name || item.kind}</b></span>
-            <span style={strip.barCell}>
-              <CutPositionBar student={studentGrade} cut50={item.cut50} cut70={item.cut70} band={band} />
-              <small style={strip.numbers}>50% {fmt(item.cut50)} · 70% {fmt(item.cut70)}{band ? ` · 차이 ${band.diff > 0 ? "+" : ""}${band.diff.toFixed(2)}` : ""}</small>
-            </span>
-            <span style={strip.band}>{hasStudent ? <BandPill band={band} size="sm" /> : <small style={strip.noStudent}>학생 내신 없음</small>}</span>
+            <span style={{ ...cut.num, ...(cutoffBasis === "50" ? cut.numOn : {}) }}>{fmt(item.cut50)}</span>
+            <span style={{ ...cut.num, ...(cutoffBasis !== "50" ? cut.numOn : {}) }}>{fmt(item.cut70)}</span>
+            {hasStudent && <span style={cut.diffCell}>
+              <b style={{ ...cut.diff, color: margin == null ? "#5a6b7d" : margin >= 0 ? "#15803d" : "#b91c1c" }}>{margin == null ? "-" : `${Math.abs(margin).toFixed(2)} ${margin >= 0 ? "여유" : "부족"}`}</b>
+              <MarginBar margin={margin} />
+            </span>}
+            <span style={{ textAlign: "right" }}>{hasStudent ? <BandPill band={band} size="sm" /> : <small style={strip.noStudent}>학생 내신 없음</small>}</span>
           </div>
         );
       })}
@@ -80,6 +93,20 @@ export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit =
     </div>
   );
 }
+
+const cut = {
+  headRow: { display: "grid", gridTemplateColumns: "minmax(140px,1.6fr) 70px 70px minmax(150px,1.2fr) 70px", gap: 10, padding: "0 10px 6px", fontSize: 12, fontWeight: 700, color: "#5d6574", borderBottom: "1px solid #e3e6ec" },
+  row: { display: "grid", gridTemplateColumns: "minmax(140px,1.6fr) 70px 70px minmax(150px,1.2fr) 70px", gap: 10, alignItems: "center", padding: "9px 10px", borderRadius: 10 },
+  rowAlt: { background: "rgba(100,116,139,.06)" },
+  num: { textAlign: "right", fontSize: 14.5, fontWeight: 600, color: "#5d6574", fontVariantNumeric: "tabular-nums" },
+  numOn: { fontSize: 16, fontWeight: 800, color: "#1f2430" },
+  diffCell: { display: "grid", gap: 4, justifyItems: "center" },
+  diff: { fontSize: 15, fontWeight: 800, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" },
+  marginTrack: { position: "relative", display: "block", width: "100%", maxWidth: 160, height: 8, borderRadius: 999, background: "#eef0f4" },
+  marginCenter: { position: "absolute", left: "50%", top: -3, width: 2, height: 14, marginLeft: -1, borderRadius: 1, background: "#64748b" },
+  marginFill: { position: "absolute", top: 0, height: 8, borderRadius: 999 },
+  legendDot: { display: "inline-block", width: 9, height: 9, borderRadius: 99 },
+};
 
 // counts: { 상향: n, ... }, active: ["상향", ...]
 export function SupportBandTiles({ counts = {}, active = [], disabled = false, onToggle, onReset }) {
