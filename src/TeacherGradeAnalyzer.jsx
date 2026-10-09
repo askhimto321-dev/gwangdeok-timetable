@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { isNewUi } from "./uiMode.js";
 import CriteriaPresets from "./CriteriaPresets.jsx";
+import { ResultListDetail, ResultDistribution } from "./gradeResultViews.jsx";
 
 const FONT_STACK = '"KDRound","Pretendard", "SUIT", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
 const GRADE_CUMULATIVE = {
@@ -404,6 +405,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const [panelMode, setPanelMode] = useState("analysis");
   const newUi = isNewUi();
   const [calcStep, setCalcStep] = useState(1);
+  // 결과 확인 보기: 대시보드(A, 기본) · 학생 목록+상세(B) · 분포 차트(C). 고른 보기는 이 브라우저에 기억합니다.
+  const [resultLook, setResultLookState] = useState(() => { try { const saved = localStorage.getItem("kd_grade_result_look"); return ["dashboard", "list", "chart"].includes(saved) ? saved : "dashboard"; } catch { return "dashboard"; } });
+  const setResultLook = value => { setResultLookState(value); try { localStorage.setItem("kd_grade_result_look", value); } catch { /* 저장 실패해도 화면 전환은 됨 */ } };
   const [dataSubjectFilter, setDataSubjectFilter] = useState("all");
   const [dataClassFilter, setDataClassFilter] = useState("all");
   const writtenInputRef = useRef(null);
@@ -1461,7 +1465,13 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
               {activeView === "combined" && <MetricCard label="미처리" value={`${eligibleActiveRows.filter(row => !row.complete).length}명`} caption="공란·결시 확인 필요" danger={eligibleActiveRows.some(row => !row.complete)} />}
             </>}
           </div>
-          {activeView !== "minimum" && <div style={ui.summaryGrid}>
+          {newUi && activeView !== "minimum" && <div className="kdn-view-switch is-left" role="group" aria-label="결과 보기 방식">
+            <span>보기</span>
+            {[["dashboard", "대시보드"], ["list", "학생 목록 + 상세"], ["chart", "분포 차트"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={resultLook === key} className={resultLook === key ? "is-on" : ""} onClick={() => setResultLook(key)}>{label}</button>)}
+          </div>}
+          {newUi && activeView !== "minimum" && resultLook === "chart" && <ResultDistribution rows={eligibleActiveRows} scoreOf={activeView === "combined" ? row => (row.complete ? row.convertedScore : null) : row => row.score}
+            maxScore={activeView === "combined" ? 100 : (Number(selectedWritten?.maxScore) || 100)} cutoffs={gradeDistribution} stats={activeStats} combined={activeView === "combined"} total={completeActiveRows.length} />}
+          {activeView !== "minimum" && (!newUi || resultLook === "dashboard") && <div style={ui.summaryGrid}>
             <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 등급컷</div><GradeCutoffTable rows={gradeDistribution} total={completeActiveRows.length}/><p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
             {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><PieChart size={16} /> 성취도 분포</div><AchievementDonut rows={achievementDistribution} total={completeActiveRows.length} mode={settings.achievementMode} settings={settings}/></div>}
           </div>}
@@ -1491,9 +1501,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             <button type="button" className="student-score-edit-launch" disabled={readOnlyWorkspace} onClick={()=>openStudentEditor()}><Plus size={13}/> 학생 성적 입력·수정</button>
             <span style={ui.resultCount}>{filteredRows.length}명 표시</span>
           </div>
-          <div style={ui.tableScroll}>
+          {newUi && activeView !== "minimum" && resultLook === "list" ? <ResultListDetail rows={filteredRows} scoreOf={activeView === "combined" ? row => row.convertedScore : row => row.score}
+            maxScore={activeView === "combined" ? 100 : (Number(selectedWritten?.maxScore) || 100)} written={sortedWritten} areas={canonicalAreas} combined={activeView === "combined"} total={completeActiveRows.length} onEdit={readOnlyWorkspace ? null : openStudentEditor} />
+          : !(newUi && activeView !== "minimum" && resultLook === "chart") && <div style={ui.tableScroll}>
             {activeView === "combined" ? <CombinedTable rows={filteredRows} written={sortedWritten} areas={canonicalAreas} onEdit={readOnlyWorkspace?null:openStudentEditor} /> : activeView === "minimum" ? <MinimumTable rows={filteredRows} settings={settings} minimumSettings={minimumSettings} onEdit={readOnlyWorkspace?null:openStudentEditor} /> : <WrittenTable rows={filteredRows} assessment={selectedWritten} onEdit={readOnlyWorkspace?null:openStudentEditor} />}
-          </div>
+          </div>}
         </>}
         {newUi && <div className="kdn-step-next"><button type="button" className="kdn-step-prev" onClick={() => setCalcStep(2)}>‹ 이전</button><span style={{flex:1}} /></div>}
       </section>

@@ -339,6 +339,12 @@ function hasRegular(info) {
 function unique(values) {
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko"));
 }
+function conversionMethodLabel(method, group, short = false) {
+  if (method === "statistical") return short ? "통계 Beta" : `통계 기반 Beta · ${group}`;
+  if (method === "manual") return "직접 입력";
+  return "기존 환산";
+}
+
 function readConversionPreference() {
   if (typeof window === "undefined") return { method: "legacy", group: "전교과" };
   try {
@@ -360,48 +366,92 @@ function readCutoffPreference() {
 // NAVI 화면에서 마지막으로 고른 환산 방식·컷 기준을 그대로 써서, 다른 화면(상담 관심대학 카드)도
 // NAVI와 같은 학생 환산 내신·지원 구간으로 보이게 합니다.
 // 새 UI 기준 설정 ① (시안 A · 계산기형): 왼쪽 입력, 오른쪽 진한 결과판(큰 숫자 + 범위 막대 + 두 방식 비교).
-function NaviCalculator({ data, selectedStudent, effectiveStudent, onPickMock, grade5, setGrade5, method, setMethod, group, setGroup, conversion, onNext }) {
+// 기준 설정(시안 B 단계 마법사): 왼쪽 단계 목록 → 가운데 질문 하나씩 → 오른쪽 계산 결과 패널(입력할 때마다 바로 바뀜).
+// 4단계 "검색 조건"은 기존 대학·모집단위 검색 화면(searchStep 2)으로 넘어갑니다.
+function NaviCalculator({ data, selectedStudent, effectiveStudent, onPickMock, grade5, setGrade5, method, setMethod, group, setGroup, conversion, manualGrade9, setManualGrade9, onNext }) {
+  const [step, setStep] = useState(1);
   const legacy = conversionDetails(data, "legacy", group, grade5)?.value ?? null;
   const stat = conversionDetails(data, "statistical", group, grade5);
-  const fmt2 = value => (value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
+  const fmt2 = value => (value == null || value === "" || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
   const range = (() => { const m = String(conversion?.range || "").match(/(\d+(?:\.\d+)?)\s*[-~–]\s*(\d+(?:\.\d+)?)/); return m ? [Number(m[1]), Number(m[2])] : null; })();
   const pos = v => `${Math.min(100, Math.max(0, ((Number(v) - 1) / 5) * 100))}%`;
   const diff = stat?.value != null && legacy != null ? Number(stat.value) - Number(legacy) : null;
   const exams = selectedStudent?.availableMockExams || [];
-  const choice = (key, title, note, value, accent) => <button type="button" aria-pressed={method === key} onClick={() => setMethod(key)} className={method === key ? "kdn-calc-choice is-on" : "kdn-calc-choice"}>
-    <b>{title}{key === "statistical" && <em>Beta</em>}</b><span>{note}</span><strong style={accent && method === key ? { color: "var(--kdn-accent-text)" } : undefined}>{fmt2(value)}</strong>
+  const groups = selectedStudent?.grade5ByGroup || {};
+  const steps = [
+    [1, "학생 · 회차", selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""} · ${effectiveStudent?.latestMockLabel || "모의고사 없음"}` : "학생 미선택 · 직접 입력"],
+    [2, "내신 입력", grade5 ? `5등급제 ${method === "statistical" ? group : "전교과"} ${fmt2(grade5)}` : "입력 전"],
+    [3, "환산 방식", `${conversionMethodLabel(method, group)} · ${fmt2(conversion?.value)}`],
+    [4, "검색 조건", "지역 · 계열 · 전형"],
+  ];
+  const go = next => (next === 4 ? onNext() : setStep(next));
+  const choice = (key, title, note, value) => <button type="button" aria-pressed={method === key} onClick={() => setMethod(key)} className={method === key ? "kdn-calc-choice is-on" : "kdn-calc-choice"}>
+    <span className="kdn-wiz-radio" aria-hidden="true" />
+    <b>{title}{key === "statistical" && <em>Beta</em>}</b><span>{note}</span>{value !== undefined && <strong>{value}</strong>}
   </button>;
-  return <div className="kdn-calc">
-    <section className="kdn-calc-input">
-      <div className="kdn-calc-head"><div><b>환산 기준</b><span>학생 성적을 9등급 기준으로 바꿔 대학 컷과 비교합니다.</span></div>{selectedStudent?.sid && <em>{selectedStudent.sid} {selectedStudent.name || ""} · 자동 반영</em>}</div>
-      <div className="kdn-calc-row">
-        <label className="kdn-calc-field is-grade"><span>5등급제 {method === "statistical" ? group : "전교과"} 내신</span><input type="number" min="1" max="5" step="0.01" value={grade5} onChange={event => setGrade5(event.target.value)} /></label>
-        <label className="kdn-calc-field"><span>수능최저 판정 회차</span>
-          {exams.length > 1 ? <select value={effectiveStudent?.latestMockKey || ""} onChange={event => onPickMock(event.target.value)}>{exams.map((exam, index) => <option key={exam.key} value={exam.key}>{exam.label}{index === exams.length - 1 ? " (최근)" : ""}</option>)}</select>
-            : <div className="kdn-calc-static">{effectiveStudent?.latestMockLabel || "모의고사 기록 없음"}</div>}
-        </label>
+  const question = {
+    1: ["누구의 성적으로 판정할까요?", "학생을 고르면 내신과 모의고사가 자동으로 들어옵니다. 수능최저는 고른 회차 성적만으로 판정합니다."],
+    2: ["5등급제 내신을 확인하세요.", "성적표에서 불러온 값이며, 상담 중 가정값으로 바꿔볼 수 있습니다."],
+    3: ["어떤 방식으로 9등급을 환산할까요?", `내신 ${fmt2(grade5)}(5등급제)을 대학 컷과 비교할 9등급 값으로 바꿉니다.`],
+  }[step];
+  return <div className="kdn-wiz">
+    <nav className="kdn-wiz-steps" aria-label="기준 설정 단계">
+      <span className="kdn-wiz-eyebrow">2027 수시 NAVI · 기준 설정</span>
+      {steps.map(([n, label, note]) => <button key={n} type="button" data-kdn-bare onClick={() => go(n)} aria-current={step === n ? "step" : undefined} className={step === n ? "is-on" : n < step ? "is-done" : ""}>
+        <span className="kdn-wiz-dot">{n < step ? "✓" : n}</span><span className="kdn-wiz-label"><b>{label}</b><small>{note}</small></span>
+      </button>)}
+      <p>한 단계씩 정하면 마지막에 그 기준으로 대학 목록이 열립니다. 오른쪽 결과는 입력할 때마다 바로 바뀝니다.</p>
+    </nav>
+    <section className="kdn-wiz-main">
+      <div className="kdn-wiz-body">
+        <div className="kdn-wiz-q"><span>STEP {step} / 4</span><b>{question[0]}</b><small>{question[1]}</small></div>
+        {step === 1 && <>
+          <div className={selectedStudent?.sid ? "kdn-wiz-student" : "kdn-wiz-student is-empty"}>
+            {selectedStudent?.sid ? <><span className="kdn-wiz-avatar">{String(selectedStudent.name || "?").charAt(0)}</span><div><b>{selectedStudent.name || "학생"}</b><small>{selectedStudent.sid} · 성적표 자동 반영</small></div></>
+              : <div><b>선택한 학생이 없습니다</b><small>위쪽 학생 조회에서 학생을 고르거나, 다음 단계에서 내신을 직접 입력하세요.</small></div>}
+          </div>
+          {exams.length > 0 && <div className="kdn-calc-field"><span>수능최저 판정 회차</span>
+            <div className="kdn-wiz-rounds">{exams.map((exam, index) => <button key={exam.key} type="button" data-kdn-bare aria-pressed={effectiveStudent?.latestMockKey === exam.key} className={effectiveStudent?.latestMockKey === exam.key ? "is-on" : ""} onClick={() => onPickMock(exam.key)}><b>{exam.label}</b>{index === exams.length - 1 && <small>최근</small>}</button>)}</div>
+          </div>}
+        </>}
+        {step === 2 && <>
+          <label className="kdn-calc-field is-grade"><span>5등급제 {method === "statistical" ? group : "전교과"} 내신</span><input type="number" min="1" max="5" step="0.01" value={grade5} onChange={event => setGrade5(event.target.value)} placeholder="예: 1.40" /></label>
+          {Object.keys(groups).length > 0 && <div className="kdn-calc-field"><span>교과 조합별 내신 (누르면 그 조합으로 통계 환산)</span>
+            <div className="kdn-wiz-rounds">{CONVERSION_GROUPS.filter(key => groups[key] != null).map(key => <button key={key} type="button" data-kdn-bare aria-pressed={method === "statistical" && group === key} className={method === "statistical" && group === key ? "is-on" : ""} onClick={() => { setGroup(key); setMethod("statistical"); }}><b>{key}</b><small>{fmt2(groups[key])}</small></button>)}</div>
+          </div>}
+        </>}
+        {step === 3 && <>
+          <div className="kdn-calc-choices is-three">
+            {choice("legacy", "기존 환산", "2 × 내신 − 1 · 모든 대학 공통 참고값", fmt2(legacy))}
+            {choice("statistical", "통계 기반", `일반고 53,149명 자료로 추정${stat?.range ? ` · ${stat.range}` : ""}`, fmt2(stat?.value))}
+            <div className={method === "manual" ? "kdn-calc-choice is-on" : "kdn-calc-choice"} onClick={() => setMethod("manual")} role="button" tabIndex={0} aria-pressed={method === "manual"} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") setMethod("manual"); }}>
+              <span className="kdn-wiz-radio" aria-hidden="true" />
+              <b>직접 입력</b><span>대학별 환산 결과를 알고 있을 때</span>
+              <input type="number" min="1" max="9" step="0.01" value={manualGrade9} placeholder="9등급 값" aria-label="9등급 값 직접 입력" onFocus={() => setMethod("manual")} onChange={event => { setMethod("manual"); setManualGrade9(event.target.value); }} />
+            </div>
+          </div>
+          {method === "statistical" && <label className="kdn-calc-inline"><span>교과 조합</span><select value={group} onChange={event => setGroup(event.target.value)}>{CONVERSION_GROUPS.map(value => <option key={value}>{value}</option>)}</select><small>통계 기반 환산에 쓰는 교과 묶음</small></label>}
+        </>}
       </div>
-      <div className="kdn-calc-field"><span>환산 방식</span>
-        <div className="kdn-calc-choices">
-          {choice("legacy", "기존 환산", "2 × 내신 − 1 · 모든 대학 공통 참고값", legacy, false)}
-          {choice("statistical", "통계 기반", "일반고 53,149명 자료로 추정", stat?.value, true)}
-        </div>
-      </div>
-      <label className="kdn-calc-inline"><span>교과 조합</span><select value={group} onChange={event => setGroup(event.target.value)} disabled={method !== "statistical"}>{CONVERSION_GROUPS.map(value => <option key={value}>{value}</option>)}</select><small>통계 기반에서만 바뀝니다</small></label>
+      <footer className="kdn-wiz-foot">
+        <span className="kdn-wiz-now">현재 기준 <b>{conversionMethodLabel(method, group)} · {fmt2(conversion?.value)}</b></span>
+        {step > 1 && <button type="button" className="kdn-wiz-prev" onClick={() => setStep(step - 1)}>‹ 이전</button>}
+        <button type="button" className="kdn-wiz-next" onClick={() => go(step + 1)}>다음: {steps[step][1]} ›</button>
+      </footer>
     </section>
     <section className="kdn-calc-result" aria-live="polite">
       <span className="kdn-calc-eyebrow">9등급 환산 결과</span>
       <div className="kdn-calc-big"><b>{fmt2(conversion?.value)}</b><span>등급</span></div>
-      <span className="kdn-calc-sub">{method === "statistical" ? <>통계 기반 Beta · {group}{range && <> · <b>예상 범위 {range[0].toFixed(2)} – {range[1].toFixed(2)}</b></>}</> : "기존 환산 · 계산식 2 × 내신 − 1"}</span>
+      <span className="kdn-calc-sub">{method === "statistical" ? <>통계 기반 Beta · {group}{range && <> · <b>예상 범위 {range[0].toFixed(2)} – {range[1].toFixed(2)}</b></>}</> : method === "manual" ? "직접 입력한 9등급 값" : "기존 환산 · 계산식 2 × 내신 − 1"}</span>
       <div className="kdn-calc-scale" aria-hidden="true">
         <span className="track" />
         {range && <span className="band" style={{ left: pos(range[0]), width: `calc(${pos(range[1])} - ${pos(range[0])})` }} />}
-        {method === "statistical" && legacy != null && <span className="ghost" style={{ left: pos(legacy) }} />}
+        {method !== "legacy" && legacy != null && <span className="ghost" style={{ left: pos(legacy) }} />}
         {conversion?.value != null && <span className="mark" style={{ left: pos(conversion.value) }} />}
       </div>
       <div className="kdn-calc-axis"><span>1등급</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6등급</span></div>
       <div className="kdn-calc-compare">
-        <div><span>기존 환산{method === "statistical" ? " (회색 선)" : ""}</span><b>{fmt2(legacy)}</b></div>
+        <div><span>기존 환산{method !== "legacy" ? " (회색 선)" : ""}</span><b>{fmt2(legacy)}</b></div>
         <div className="is-accent"><span>통계 기반 · {group}</span><b>{fmt2(stat?.value)}{diff != null && <small> {diff >= 0 ? "+" : ""}{diff.toFixed(2)}</small>}</b></div>
       </div>
       <p>대학별 공식 환산등급이 아닌 참고값입니다. 지원 전 대학별 모집요강을 확인하세요.</p>
@@ -2239,14 +2289,16 @@ export default function SusiNaviBetaView({
   const [supportFilters, setSupportFilters] = useState(restoredSupportFilters);
   const [resultSort, setResultSort] = useState(restoredViewState?.resultSort || "default");
   // 새 UI: 결과를 카드(자세히)·목록(한눈에 비교) 중 골라 봅니다. 고른 방식은 이 브라우저에 기억합니다.
-  const [resultLayout, setResultLayoutState] = useState(() => { try { return localStorage.getItem("kd_navi_result_layout") === "list" ? "list" : "card"; } catch { return "card"; } });
-  const setResultLayout = value => { setResultLayoutState(value); try { localStorage.setItem("kd_navi_result_layout", value); } catch { /* ignore */ } };
+  // 기본은 표(시안 A), 카드 격자(B)·분포 지도(C)·상세 카드를 골라 볼 수 있습니다.
+  const [resultLayout, setResultLayoutState] = useState(() => { try { const saved = localStorage.getItem("kd_navi_result_layout_v2"); return ["list", "grid", "map", "card"].includes(saved) ? saved : "list"; } catch { return "list"; } });
+  const setResultLayout = value => { setResultLayoutState(value); try { localStorage.setItem("kd_navi_result_layout_v2", value); } catch { /* ignore */ } };
   const [cutoffBasis, setCutoffBasis] = useState(restoredViewState?.cutoffBasis === "50" ? "50" : (restoredViewState?.cutoffBasis === "70" ? "70" : readCutoffPreference()));
   const [connectionMode, setConnectionMode] = useState(restoredViewState?.connectionMode === "university" ? "university" : "grade");
   const [connectionRange, setConnectionRange] = useState(restoredViewState?.connectionRange || "0.30");
   const [connectionUniversity, setConnectionUniversity] = useState(restoredViewState?.connectionUniversity || "");
   const [favoriteOnly, setFavoriteOnly] = useState(Boolean(restoredViewState?.favoriteOnly));
   const [searchStep, setSearchStep] = useState(1);
+  const [manualGrade9, setManualGrade9] = useState("");
   const [viewTab, setViewTab] = useState(["search", "results", "connection", "workspace"].includes(restoredViewState?.viewTab) ? restoredViewState.viewTab : "search");
   const [connectionFocus, setConnectionFocus] = useState(restoredViewState?.connectionFocus || null);
   const [page, setPage] = useState(Math.max(1, Number(restoredViewState?.page || 1)));
@@ -2495,7 +2547,13 @@ export default function SusiNaviBetaView({
     connectionRange, connectionUniversity, favoriteOnly, connectionFocus, focusUniversity, focusDepartment, page,
   ]);
 
-  const conversion = useMemo(() => conversionDetails(data, conversionMethod, conversionGroup, deferredGrade5), [data, conversionMethod, conversionGroup, deferredGrade5]);
+  // 직접 입력: 대학별 환산 결과를 이미 알고 있을 때 9등급 값을 그대로 판정에 씁니다.
+  const conversion = useMemo(() => {
+    if (conversionMethod !== "manual") return conversionDetails(data, conversionMethod, conversionGroup, deferredGrade5);
+    const value = Number(manualGrade9);
+    if (manualGrade9 === "" || !Number.isFinite(value) || value < 1 || value > 9) return null;
+    return { input: Number(deferredGrade5) || null, value: Math.round(value * 100) / 100, range: "", cumulative: "", sourceGrade: null, manual: true };
+  }, [data, conversionMethod, conversionGroup, deferredGrade5, manualGrade9]);
   const studentSubjects = useMemo(() => uniqueStudentSubjects(selectedStudent?.subjects || []), [selectedStudent?.subjects]);
   // 3순위(모평 선택·시뮬레이션): 선택한 회차가 있으면 그 회차 성적으로, 없으면 기존처럼 최신 회차로
   // 최저를 판정합니다. sid·내신·minimumRows 등 다른 필드는 그대로 두고 모의고사 관련 필드만 바꿔치기하므로,
@@ -2826,8 +2884,8 @@ export default function SusiNaviBetaView({
 
         {viewTab === "search" && <div className="susi-beta-tab-panel" style={ui.tabPanel}>
           <div className="susi-beta-criteria-guide kdn-hide-new" style={ui.tabGuide}><b>1단계 · 기준 설정</b><span><strong>학생의 5등급 내신을 9등급 기준으로 환산</strong>하고, 대학·지역·계열·전형 조건을 설정합니다.<br/><em>다음 단계에서 대학 상세 결과를 먼저 확인한 뒤 지원 연결 탐색으로 이어집니다.</em></span></div>
-          {isNewUi() && <div className="kdn-search-steps kdn-substeps" role="tablist" aria-label="기준 설정 단계">
-            {[[1, "환산 기준", `${conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"} · ${conversionMethod === "statistical" ? "통계 Beta" : "기존 환산"}`], [2, "대학·모집단위 검색", `${filtered.length.toLocaleString()}건`]].map(([step, label, note]) => (
+          {isNewUi() && searchStep === 2 && <div className="kdn-search-steps kdn-substeps" role="tablist" aria-label="기준 설정 단계">
+            {[[1, "환산 기준", `${conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"} · ${conversionMethodLabel(conversionMethod, conversionGroup, true)}`], [2, "대학·모집단위 검색", `${filtered.length.toLocaleString()}건`]].map(([step, label, note]) => (
               <button key={step} type="button" role="tab" aria-selected={searchStep === step} onClick={() => setSearchStep(step)} className={searchStep === step ? "is-active" : ""}>
                 <span>{step}</span><b>{label}</b><small>{note}</small>
               </button>
@@ -2835,7 +2893,7 @@ export default function SusiNaviBetaView({
           </div>}
           {isNewUi() && searchStep === 1 && <NaviCalculator data={data} selectedStudent={selectedStudent} effectiveStudent={effectiveStudent} onPickMock={setSelectedMockKey}
             grade5={grade5} setGrade5={setGrade5} method={conversionMethod} setMethod={setConversionMethod} group={conversionGroup} setGroup={setConversionGroup}
-            conversion={conversion} onNext={() => setSearchStep(2)} />}
+            conversion={conversion} manualGrade9={manualGrade9} setManualGrade9={setManualGrade9} onNext={() => setSearchStep(2)} />}
           {!isNewUi() && <div className="kdn-accent-panel" style={ui.converterPanel}>
             <div style={ui.sectionHeading}><div className="kdn-step-badge" style={ui.step}>1</div><div><b style={ui.sectionTitle}>5·9등급 환산 기준</b><span style={ui.sectionSub}>현재 방식과 통계 기반 방식을 비교해서 사용할 수 있습니다.</span></div></div>
             {selectedStudent?.sid && <div className="susi-beta-student-auto" style={ui.studentAutoBar}>
@@ -2911,7 +2969,7 @@ export default function SusiNaviBetaView({
                 <div style={ui.supportFilterHeading}>
                   <span style={ui.supportFilterEyebrow}>지원 구간 다중 필터</span>
                   <b style={ui.supportFilterOneLine}>
-                    <span>비교 기준: <em>{conversionMethod === "legacy" ? "기존 환산" : `통계 기반 Beta · ${conversionGroup}`}</em> {conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"}</span>
+                    <span>비교 기준: <em>{conversionMethodLabel(conversionMethod, conversionGroup)}</em> {conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"}</span>
                     <span>{admissionFilters.length === 1 && admissionFilters[0] === "정시" ? <em>정시만 선택 중 · 지원구간 필터는 수시 교과·종합 전형에만 적용됩니다.</em> : conversion?.value == null ? <em>학생 환산등급을 입력하면 지원구간 필터를 사용할 수 있습니다.</em> : <><em>합격자 {cutoffBasis}%컷</em> 기준 · 여러 구간을 동시에 선택하면 합집합으로 조회합니다.</>}</span>
                   </b>
                 </div>
@@ -3011,7 +3069,7 @@ export default function SusiNaviBetaView({
                 <div className="susi-beta-current-grade" style={ui.currentGradeHero}>
                   <span style={ui.currentGradeLabel}>현재 학생 내신</span>
                   <b style={ui.currentGradeValue}>{conversion?.value != null ? Number(conversion.value).toFixed(2) : "-"}</b>
-                  <small style={ui.currentGradeHelp}>9등급 환산 · 원등급 {grade5 || "-"} · {conversionMethod === "statistical" ? `통계 Beta · ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</small>
+                  <small style={ui.currentGradeHelp}>9등급 환산 · 원등급 {grade5 || "-"} · {conversionMethodLabel(conversionMethod, conversionGroup)} · {cutoffBasis}%컷 판정</small>
                 </div>
               </div>
               <div className="susi-beta-result-description" style={ui.resultContextOneLine}>현재 검색·필터 조건에 맞는 2027 모집단위입니다. 자료 출처는 아래 <strong>‘자료 기준 안내’</strong>에서 확인할 수 있습니다.</div>
@@ -3082,10 +3140,15 @@ export default function SusiNaviBetaView({
           </div>
           {connectionFocus?.department && !connectionFocusDepartmentMatched && <div style={ui.focusFallbackNotice}><AlertTriangle size={14}/><span>연결된 학과명 <b>{connectionFocus.department}</b>과 2027 모집단위명이 정확히 일치하지 않아, <strong>{connectionFocus.university} 대학 전체 모집단위</strong>를 표시합니다. 아래 목록에서 해당 학과를 다시 선택할 수 있습니다.</span></div>}
           <div style={ui.resultList}>
-            {isNewUi() && <div role="group" aria-label="결과 보기 방식" style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 10 }}>
-              {[["card", "카드로 자세히"], ["list", "목록으로 비교"]].map(([value, label]) => <button key={value} type="button" aria-pressed={resultLayout === value} onClick={() => setResultLayout(value)} style={{ minHeight: 40, padding: "0 14px", borderRadius: 11, border: "1px solid var(--kdn-line)", background: resultLayout === value ? "var(--kdn-accent-soft)" : "transparent", color: resultLayout === value ? "var(--kdn-accent-text)" : "var(--kdn-ink-soft)", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>{label}</button>)}
+            {isNewUi() && <div className="kdn-view-switch" role="group" aria-label="결과 보기 방식">
+              <span>보기</span>
+              {[["list", "표"], ["grid", "카드"], ["map", "분포 지도"], ["card", "상세 카드"]].map(([value, label]) => <button key={value} type="button" data-kdn-bare aria-pressed={resultLayout === value} className={resultLayout === value ? "is-on" : ""} onClick={() => setResultLayout(value)}>{label}</button>)}
             </div>}
-            {isNewUi() && resultLayout === "list" && visibleResultRows.length ? <NaviResultTable rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
+            {isNewUi() && resultLayout === "map" && filtered.length ? <NaviResultMap rows={filtered} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
+              isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
+              : isNewUi() && resultLayout === "grid" && visibleResultRows.length ? <NaviResultGrid rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
+              isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
+              : isNewUi() && resultLayout === "list" && visibleResultRows.length ? <NaviResultTable rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
               isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
               : (visibleResultRows.length ? visibleResultRows.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress, schoolTrend }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
@@ -3123,7 +3186,7 @@ export default function SusiNaviBetaView({
               onOpenWorkspace={() => navigateViewTab("workspace")}
             />) : <div style={ui.noResult}>조건에 맞는 결과가 없습니다. 위의 ‘현재 적용 조건’을 확인하고 연결 조건이나 검색 필터를 해제해주세요.</div>)}
           </div>
-          {pageCount > 1 && <Pagination page={page} pageCount={pageCount} onChange={changePage} />}
+          {pageCount > 1 && !(isNewUi() && resultLayout === "map") && <Pagination page={page} pageCount={pageCount} onChange={changePage} />}
           <div style={ui.resultWorkflowFooter}>
             <div style={ui.guideCopy}><b>대학 정보를 확인했나요?</b><span>현재 성적 전체 후보를 조회하거나, 각 대학 카드의 버튼으로 특정 대학과 비슷한 대학을 찾을 수 있습니다.</span></div>
             <button type="button" style={ui.resultConnectPrimary} onClick={() => { setConnectionMode("grade"); setConnectionUniversity(""); navigateViewTab("connection"); }}>다음: 지원 연결 탐색 ›</button>
@@ -3322,8 +3385,8 @@ function SupportConnectionExplorer({
     <div style={ui.connectionControls}>
       {mode === "grade" ? <div className="susi-beta-connection-criteria" style={ui.connectionCriterion}>
         <div style={ui.connectionCriteriaHeading}><b>현재 적용 중인 비교 기준</b><span>환산 방식과 교과 조합을 확인한 뒤, 학생 등급과 선택 컷을 기준으로 후보를 계산합니다.</span></div>
-        <div style={{ ...ui.criterionItem, ...ui.criterionMethod }}><small style={ui.criterionLabel}>환산 방식</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? "통계 기반 Beta" : "기존 2×내신−1"}</b></div>
-        <div style={{ ...ui.criterionItem, ...ui.criterionGroup }}><small style={ui.criterionLabel}>교과 조합</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? conversionGroup : "전교과"}</b></div>
+        <div style={{ ...ui.criterionItem, ...ui.criterionMethod }}><small style={ui.criterionLabel}>환산 방식</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? "통계 기반 Beta" : conversionMethod === "manual" ? "직접 입력" : "기존 2×내신−1"}</b></div>
+        <div style={{ ...ui.criterionItem, ...ui.criterionGroup }}><small style={ui.criterionLabel}>교과 조합</small><b style={ui.criterionValue}>{conversionMethod === "statistical" ? conversionGroup : conversionMethod === "manual" ? "-" : "전교과"}</b></div>
         <div style={{ ...ui.criterionItem, ...ui.criterionGrade }}><small style={ui.criterionLabel}>학생 9등급 환산</small><b style={ui.criterionValueStrong}>{gradeReady ? Number(convertedGrade).toFixed(2) : "입력 필요"}</b></div>
         <div style={{ ...ui.criterionItem, ...ui.criterionCut }}><small style={ui.criterionLabel}>지원 컷 기준</small><b style={ui.criterionValueStrong}>{cutoffBasis}%컷</b></div>
       </div> : <label style={{ ...ui.connectionSelectLabel, ...ui.connectionUniversitySelector }}><span>① 기준 대학을 선택하세요</span><select value={university} onChange={event => onUniversityChange(event.target.value)} style={ui.connectionSelect}><option value="">대학을 선택하면 결과가 표시됩니다</option>{universities.map(name => <option key={name} value={name}>{name}</option>)}</select>{university && <small><b>{university}</b>의 공개 컷과 계열·전형이 가까운 다른 대학을 찾는 중입니다.</small>}</label>}
@@ -3495,6 +3558,110 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
   </div>;
 }
 
+// 모집단위 한 곳의 대표 전형: 학생 9등급과 컷이 가장 가까운 전형(학생 성적이 없으면 첫 전형).
+function rowPrimaryTrack(row, convertedGrade, cutoffBasis = "70") {
+  const tracks = [...(row?.[7] || []).map(item => ({ kind: "교과", item })), ...(row?.[8] || []).map(item => ({ kind: "종합", item }))]
+    .filter(({ item }) => validGrade(cutoffValue(item, cutoffBasis)) != null);
+  if (!tracks.length) return null;
+  const grade = validGrade(convertedGrade);
+  const pick = grade == null ? tracks[0] : tracks.reduce((best, entry) => Math.abs(cutoffValue(entry.item, cutoffBasis) - grade) < Math.abs(cutoffValue(best.item, cutoffBasis) - grade) ? entry : best);
+  const cut = Number(cutoffValue(pick.item, cutoffBasis));
+  return { ...pick, name: pick.item[0], cut50: validGrade(pick.item[1]), cut70: validGrade(pick.item[2]), cut, gap: grade == null ? null : cut - grade, band: supportBand(grade, cut), count: tracks.length };
+}
+const RESULT_SCALE = [1, 5];
+const scalePos = value => `${Math.min(100, Math.max(0, ((Number(value) - RESULT_SCALE[0]) / (RESULT_SCALE[1] - RESULT_SCALE[0])) * 100))}%`;
+function rowFavoriteItem(row) {
+  const [, region, , university, , unit2027, field] = row;
+  return { source: "susiNaviBeta", university, universityKey: universityIdentityKey(university, region), campus: universityCampus(university, region), department: unit2027, admissionType: "", sourceLabel: "수시NAVI Beta", region, field, note: "2027 수시NAVI Beta 모집단위" };
+}
+
+// 결과 시안 B: 모집단위 카드 격자. 대표 전형의 컷 차이를 크게, 50~70% 컷 구간과 학생 위치를 눈금으로.
+export function NaviResultGrid({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite }) {
+  const grade = validGrade(convertedGrade);
+  return <div className="kdn-rgrid">{rows.map(({ row, minimumEvaluations }, index) => {
+    const [, region, , university, , unit2027, field] = row;
+    const key = `${universityIdentityKey(university, region)}-${unitIdentityKey(unit2027)}-${compactText(field || "공통")}-${index}`;
+    const track = rowPrimaryTrack(row, grade, cutoffBasis);
+    const band = track?.band;
+    const minimum = minimumEvaluationSummary(minimumEvaluations || []);
+    const favorite = isFavorite?.(row);
+    const zone = track && track.cut50 != null && track.cut70 != null ? [Math.min(track.cut50, track.cut70), Math.max(track.cut50, track.cut70)] : null;
+    return <article key={key} className="kdn-rcard" style={{ "--band": band?.color || "#8a93a3", "--band-bg": band?.background || "var(--kdn-surface-2)" }}>
+      <div className="kdn-rcard-head">
+        <div><small>{university}{track ? ` · ${track.kind} ${track.name}` : ""}</small><b>{unit2027}</b></div>
+        {band ? <span className="kdn-rcard-tag">{band.label}</span> : <span className="kdn-rcard-tag is-none">판정 전</span>}
+      </div>
+      <div className="kdn-rcard-gap">{track?.gap != null ? <><b>{track.gap >= 0 ? "+" : "−"}{Math.abs(track.gap).toFixed(2)}</b><span>{cutoffBasis}% 컷 {track.cut.toFixed(2)}{track.gap >= 0 ? "보다 여유" : "보다 부족"}</span></> : <span>{track ? `${cutoffBasis}% 컷 ${track.cut.toFixed(2)}` : "입시결과 없음"}</span>}</div>
+      <div className="kdn-rcard-scale" aria-hidden="true"><i className="t" />{zone && <i className="z" style={{ left: scalePos(zone[0]), width: `calc(${scalePos(zone[1])} - ${scalePos(zone[0])})` }} />}{grade != null && <i className="me" style={{ left: scalePos(grade) }} />}</div>
+      <div className="kdn-rcard-axis" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+      <div className="kdn-rcard-foot">
+        <span className={minimum.unsatisfied > 0 ? "is-bad" : minimum.total ? "is-ok" : ""}>{!minimum.total ? "수능최저 없음" : minimum.unsatisfied > 0 ? `최저 미충족 ${minimum.unsatisfied}` : minimum.satisfied > 0 ? `최저 충족 ${minimum.satisfied}` : "최저 확인 필요"}</span>
+        <small>{[region, field].filter(Boolean).join(" · ")}{track?.count > 1 ? ` · 전형 ${track.count}개` : ""}</small>
+        <button type="button" aria-pressed={!!favorite} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(rowFavoriteItem(row))}><Star size={15} fill={favorite ? "currentColor" : "none"} />{favorite ? "관심 저장됨" : "관심 대학"}</button>
+      </div>
+    </article>;
+  })}</div>;
+}
+
+// 결과 시안 C: 컷 분포 지도. 점 하나 = 모집단위(대표 전형 컷), 가로 = 컷, 줄 = 계열, 주황 선 = 학생.
+export function NaviResultMap({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite }) {
+  const grade = validGrade(convertedGrade);
+  const [selectedKey, setSelectedKey] = useState("");
+  const points = useMemo(() => rows.slice(0, 600).map((entry, index) => {
+    const { row } = entry;
+    const track = rowPrimaryTrack(row, grade, cutoffBasis);
+    if (!track) return null;
+    return { entry, track, key: `${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}-${index}`, field: String(row[6] || "기타").trim() || "기타" };
+  }).filter(Boolean), [rows, grade, cutoffBasis]);
+  const lanes = useMemo(() => {
+    const counts = {};
+    points.forEach(point => { counts[point.field] = (counts[point.field] || 0) + 1; });
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name]) => name);
+    return Object.keys(counts).length > top.length ? [...top, "그 외"] : top;
+  }, [points]);
+  const laneOf = point => (lanes.includes(point.field) ? point.field : "그 외");
+  const selected = points.find(point => point.key === selectedKey) || points[0] || null;
+  const bands = ["상향", "소신", "적정", "안정", "하향"];
+  const bandCounts = {};
+  points.forEach(point => { if (point.track.band) bandCounts[point.track.band.label] = (bandCounts[point.track.band.label] || 0) + 1; });
+  if (!points.length) return <div className="kdn-rmap-empty">컷 자료가 있는 모집단위가 없습니다.</div>;
+  const favorite = selected ? isFavorite?.(selected.entry.row) : false;
+  return <div className="kdn-rmap">
+    <section className="kdn-rmap-chart">
+      <div className="kdn-rmap-head"><div><b>컷 분포 지도</b><span>점 하나 = 모집단위 · 가로 = {cutoffBasis}% 컷(왼쪽일수록 높은 성적) · 주황 선 = 학생{grade != null ? ` ${grade.toFixed(2)}` : ""}</span></div>
+        <div className="kdn-rmap-legend">{bands.filter(label => bandCounts[label]).map(label => <span key={label} style={{ color: SUPPORT_META[label].color }}><i style={{ background: SUPPORT_META[label].color }} />{label} {bandCounts[label]}</span>)}</div></div>
+      <div className="kdn-rmap-plot" style={{ "--lanes": lanes.length }}>
+        {lanes.map((lane, index) => <div key={lane} className="kdn-rmap-lane" style={{ gridRow: index + 1 }}><span>{lane}</span><div /></div>)}
+        <div className="kdn-rmap-dots">
+          {points.map((point, index) => {
+            const lane = lanes.indexOf(laneOf(point));
+            const jitter = ((index * 37) % 60) / 100 - 0.3;
+            const color = point.track.band?.color || "#8a93a3";
+            const on = selected?.key === point.key;
+            return <button key={point.key} type="button" data-kdn-bare className={on ? "is-on" : ""} title={`${point.entry.row[3]} ${point.entry.row[5]} · ${point.track.cut.toFixed(2)}`} aria-label={`${point.entry.row[3]} ${point.entry.row[5]} 컷 ${point.track.cut.toFixed(2)}`}
+              onClick={() => setSelectedKey(point.key)} style={{ left: scalePos(point.track.cut), top: `calc(${((lane + 0.5 + jitter * 0.6) / lanes.length) * 100}%)`, background: color }} />;
+          })}
+          {grade != null && <><i className="kdn-rmap-me" style={{ left: scalePos(grade) }} /><b className="kdn-rmap-me-tip" style={{ left: scalePos(grade) }}>{grade.toFixed(2)}</b></>}
+        </div>
+        <div className="kdn-rmap-axis"><span>1.0</span><span>2.0</span><span>3.0</span><span>4.0</span><span>5.0</span></div>
+      </div>
+      {rows.length > 600 && <small className="kdn-rmap-note">앞쪽 600곳만 표시합니다. 필터로 범위를 좁혀 보세요.</small>}
+    </section>
+    {selected && <aside className="kdn-rmap-detail">
+      <span className="kdn-rmap-eyebrow">선택한 모집단위</span>
+      <div><small>{selected.entry.row[3]} · {selected.track.kind} {selected.track.name}</small><b>{selected.entry.row[5]}</b></div>
+      {selected.track.band && <div className="kdn-rmap-verdict"><span style={{ background: selected.track.band.color }}>{selected.track.band.label}</span>{selected.track.gap != null && <em>컷보다 <b>{Math.abs(selected.track.gap).toFixed(2)}</b> {selected.track.gap >= 0 ? "여유" : "부족"}</em>}</div>}
+      <dl>
+        <div><dt>50% 컷</dt><dd>{selected.track.cut50 != null ? selected.track.cut50.toFixed(2) : "-"}</dd></div>
+        <div><dt>70% 컷</dt><dd>{selected.track.cut70 != null ? selected.track.cut70.toFixed(2) : "-"}</dd></div>
+        <div><dt>지역 · 계열</dt><dd>{[selected.entry.row[1], selected.entry.row[6]].filter(Boolean).join(" · ") || "-"}</dd></div>
+        <div><dt>전형 수</dt><dd>교과 {(selected.entry.row[7] || []).length} · 종합 {(selected.entry.row[8] || []).length}</dd></div>
+      </dl>
+      <button type="button" className="kdn-rmap-fav" aria-pressed={!!favorite} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(rowFavoriteItem(selected.entry.row))}><Star size={16} fill={favorite ? "currentColor" : "none"} />{favorite ? "관심 대학에 저장됨" : "관심 대학에 저장"}</button>
+    </aside>}
+  </div>;
+}
+
 // 새 UI 결과 카드 오른쪽 핵심 숫자(참고 사이트의 '12위 / 186명' 방식): 적정 이상(적정·안정·하향) 전형 수 / 전체 전형 수.
 function ResultKeyFigure({ tracks = [], convertedGrade, cutoffBasis = "70" }) {
   const labels = tracks.map(item => supportBand(convertedGrade, cutoffValue(item, cutoffBasis))?.label).filter(Boolean);
@@ -3591,7 +3758,7 @@ function printAdmissionSummary(items = [], cutoffBasis = "50") {
 function PrintResultSheet({ rows = [], page, total, conversionMethod, conversionGroup, convertedGrade, cutoffBasis, query, region, field, admissionType, minimumFilter }) {
   return <section className="susi-beta-print-sheet">
     <header><div><h1>2027 수시NAVI Beta 검색 결과</h1><p>2027 모집단위 · 2026 입시결과 연결 자료</p></div><div><b>현재 페이지 {page}</b><span>전체 검색 결과 {Number(total || 0).toLocaleString()}건</span></div></header>
-    <div className="print-criteria"><span>학생 9등급 환산 <b>{validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"}</b></span><span>환산 <b>{conversionMethod === "statistical" ? `통계 Beta · ${conversionGroup}` : "기존 환산"}</b></span><span>판정 <b>{cutoffBasis}%컷</b></span><span>검색 <b>{query || "전체"}</b></span><span>필터 <b>{[region, field, admissionType, minimumFilter].join(" · ")}</b></span></div>
+    <div className="print-criteria"><span>학생 9등급 환산 <b>{validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"}</b></span><span>환산 <b>{conversionMethodLabel(conversionMethod, conversionGroup)}</b></span><span>판정 <b>{cutoffBasis}%컷</b></span><span>검색 <b>{query || "전체"}</b></span><span>필터 <b>{[region, field, admissionType, minimumFilter].join(" · ")}</b></span></div>
     <table><thead><tr><th>대학</th><th>2027 모집단위</th><th>지역·계열</th><th>교과전형</th><th>종합전형</th><th>정시 참고</th><th>수능최저 · 자료연도 확인</th></tr></thead><tbody>{rows.map(({ row, minimums, minimumEvaluations = [] }, index) => <tr key={`${row[3]}-${row[5]}-${index}`}><td><b>{row[3]}</b></td><td>{row[5]}</td><td>{[row[1], row[6]].filter(Boolean).join(" · ")}</td><td>{printAdmissionSummary(row[7], cutoffBasis)}</td><td>{printAdmissionSummary(row[8], cutoffBasis)}</td><td>{row[9] ? `${row[9][0] || "일반"} · 70% ${row[9][2] ?? "-"}` : "-"}</td><td>{minimums?.slice(0, 2).map((item, i) => `${minimumEvaluations[i]?.year || "연도 확인"} ${item[3] || item[2] || "전형"}: ${minimumEvaluations[i]?.ruleText || item[8] || "확인"}`).join(" / ") || "-"}</td></tr>)}</tbody></table>
     <footer>※ 대학 공식 모집요강을 반드시 최종 확인하세요. 화면의 ‘현재 결과 인쇄·PDF’는 현재 페이지 최대 12개 모집단위를 A4 가로 1페이지로 정리합니다.</footer>
   </section>;
@@ -3813,7 +3980,7 @@ function SupportDecisionWorkspace({
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero kdn-hide-new" style={ui.workspaceHero}>
       <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch95</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
-      <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethod === "statistical" ? `통계 Beta ${conversionGroup}` : "기존 환산"} · {cutoffBasis}%컷 판정</span></div>
+      <div style={ui.workspaceStudent}><small>현재 학생</small><b>{selectedStudent?.sid ? `${selectedStudent.sid} ${selectedStudent.name || ""}` : "학생 미선택"}</b><span>내신 9등급 환산 {validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-"} · {conversionMethodLabel(conversionMethod, conversionGroup)} · {cutoffBasis}%컷 판정</span></div>
     </div>
 
     <div className="susi-beta-counsel-flow kdn-hide-new" style={ui.workspaceFlow}>
