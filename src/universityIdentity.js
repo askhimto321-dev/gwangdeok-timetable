@@ -8,6 +8,8 @@ export const UNIVERSITY_CAMPUS_ALIASES = {
   경기대: { 서울: "서울", 경기: "수원", 수원: "수원" },
   명지대: { 서울: "서울", 경기: "용인", 용인: "용인" },
   고려대: { 서울: "서울", 세종: "세종" },
+  // 2026 전수조사: NAVI는 '연세대|서울', '연세대|인천'(국제캠), '연세대(미래)|강원'을, 대입 사례는 '연세대학교(서울)'을 씁니다.
+  연세대: { 서울: "서울", 신촌: "서울", 인천: "서울", 송도: "서울", 국제: "서울", 강원: "미래", 원주: "미래", 미래: "미래" },
   건국대: { 서울: "서울", 충북: "글로컬", 충주: "글로컬", 글로컬: "글로컬" },
   중앙대: { 서울: "서울", 경기: "다빈치", 안성: "다빈치", 다빈치: "다빈치" },
   홍익대: { 서울: "서울", 세종: "세종" },
@@ -25,6 +27,8 @@ export function canonicalCampus(base, campus) {
 function universityBaseKeyRaw(value) {
   let text = normalizeText(value)
     .replace(/[（]/g, "(").replace(/[）]/g, ")")
+    // 대입 사례 원본의 '중부대학교(금산) - 충청캠퍼스', '한서대학교(태안) -항공학부'처럼 하이픈 뒤 설명은 대학명이 아닙니다.
+    .replace(/\s+-\s*.*$|\s*-\s+.*$/, "")
     // 대학 식별용 기본키에서는 괄호·슬래시 뒤의 캠퍼스/지역 표기를 모두 제외합니다.
     .replace(/\([^)]*\)/g, "")
     .replace(/\s*[\/|]\s*(?:서울|ERICA|에리카|WISE|와이즈|메디컬|글로벌|글로컬|국제|세종|수원|죽전|천안|안양|성남|인천|안산|안성|미래|다빈치|송도|용인|경주)(?:캠퍼스)?\s*$/gi, "")
@@ -39,6 +43,9 @@ function universityBaseKeyRaw(value) {
     덕성여자대: "덕성여대", 성신여자대: "성신여대",
     서울여자대: "서울여대", 숙명여자대: "숙명여대",
     서울과기대: "서울과학기술대", 한국외국어대: "한국외대",
+    // NAVI 표기와 다른 정식 명칭·통합 전 이름(2026 전수조사)
+    부산외국어대: "부산외대", 금오공과대: "금오공대", 안동대: "경국대",
+    차의과대: "차의과학대", KENTECH: "한국에너지공과대", 켄텍: "한국에너지공과대",
   };
   text = aliases[text] || text;
   return compactText(text);
@@ -46,6 +53,9 @@ function universityBaseKeyRaw(value) {
 function universityCampusRaw(value, region = "") {
   const text = normalizeText(value).replace(/[（]/g, "(").replace(/[）]/g, ")");
   const base = universityBaseKey(text);
+  // 캠퍼스가 하나인 대학은 '백석대학교(천안)', '수원대학교(수원)'처럼 괄호에 소재지가 붙어 있어도 같은 대학입니다.
+  // 여러 캠퍼스를 따로 모집하는 대학(UNIVERSITY_CAMPUS_ALIASES)만 캠퍼스를 구분합니다.
+  if (!UNIVERSITY_CAMPUS_ALIASES[base]) return "단일";
   let explicit = "";
   if (/ERICA|에리카/i.test(text)) explicit = "ERICA";
   if (!explicit) {
