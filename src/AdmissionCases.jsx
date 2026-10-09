@@ -1367,41 +1367,109 @@ function Overview({rows}){
     </Section>
   </div>;
 }
+// 대학·전형별 탭: ① 대학 찾기(표) → ② 대학 요약 → ③ 모집단위·전형 사례 순서로 나눠 보여 줍니다.
+// 처음에는 아무 대학도 고르지 않은 상태로 시작하며(자동 선택 없음), 언제든 ①로 돌아가 선택을 해제할 수 있습니다.
+const UNIVERSITY_PAGE_SIZE=15,UNIT_PAGE_SIZE=20;
+function MiniPager({page,max,onChange}){
+  if(max<=1)return null;
+  return <div className="kdn-uni-pager"><button type="button" disabled={page<=1} onClick={()=>onChange(page-1)}>이전</button><span><b>{page}</b> / {max}</span><button type="button" disabled={page>=max} onClick={()=>onChange(page+1)}>다음</button></div>;
+}
 function UniversityAnalysis({rows,focusUniversity="",selectedUniversity="",onSelectedUniversityChange,onOpenDepartmentCases,onOpenSusiNavi,onAddSupportPlan,onOpenSupportPlan}){
+  const newUi=isNewUi();
   const[query,setQuery]=useState("");
+  const[sortKey,setSortKey]=useState("total");
+  const[listPage,setListPage]=useState(1);
+  const[step,setStep]=useState(selectedUniversity?"summary":"find");
+  const[unitQuery,setUnitQuery]=useState("");
+  const[unitPage,setUnitPage]=useState(1);
   const allUniversities=useMemo(()=>groupStats(rows,x=>x.universityNormalized||x.university),[rows]);
-  const universities=useMemo(()=>{const q=query.trim().toLowerCase();return allUniversities.filter(x=>!q||x.label.toLowerCase().includes(q)).slice(0,100)},[allUniversities,query]);
-  const selected=selectedUniversity;
-  const setSelected=value=>onSelectedUniversityChange?.(value);
-  useEffect(()=>{if(!focusUniversity)return;const base=String(focusUniversity).trim();setQuery(base);const match=allUniversities.find(item=>caseUniversityBase(item.label)===caseUniversityBase(focusUniversity)&&(!caseCampusLabel(focusUniversity)||caseCampusLabel(item.label)===caseCampusLabel(focusUniversity)))||allUniversities.find(item=>normalizeSearchText(item.label).includes(normalizeSearchText(base)));if(match)setSelected(match.label)},[focusUniversity,allUniversities]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(()=>{if(!universities.length){if(selected)setSelected("");return}if(!selected||!universities.some(item=>item.label===selected))setSelected(universities[0].label)},[query,universities.map(item=>item.label).join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const universities=useMemo(()=>{
+    const q=normalizeSearchText(query.trim());
+    const list=allUniversities.filter(x=>!q||normalizeSearchText(x.label).includes(q));
+    if(sortKey==="rate")return[...list].sort((a,b)=>(b.rate??-1)-(a.rate??-1)||b.total-a.total);
+    if(sortKey==="cut")return[...list].sort((a,b)=>(a.median??99)-(b.median??99)||b.total-a.total);
+    if(sortKey==="name")return[...list].sort((a,b)=>a.label.localeCompare(b.label,"ko"));
+    return list;
+  },[allUniversities,query,sortKey]);
+  const selected=selectedUniversity&&allUniversities.some(item=>item.label===selectedUniversity)?selectedUniversity:"";
+  const setSelected=value=>{onSelectedUniversityChange?.(value);setStep(value?"summary":"find");setUnitQuery("");setUnitPage(1)};
+  useEffect(()=>{if(!focusUniversity)return;const base=String(focusUniversity).trim();const match=allUniversities.find(item=>caseUniversityBase(item.label)===caseUniversityBase(focusUniversity)&&(!caseCampusLabel(focusUniversity)||caseCampusLabel(item.label)===caseCampusLabel(focusUniversity)))||allUniversities.find(item=>normalizeSearchText(item.label).includes(normalizeSearchText(base)));if(match)setSelected(match.label);else setQuery(base)},[focusUniversity,allUniversities]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(!selected&&step!=="find")setStep("find")},[selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(()=>setListPage(1),[query,sortKey,rows.length]);
   const selectedRows=useMemo(()=>selected?rows.filter(x=>(x.universityNormalized||x.university)===selected):[],[rows,selected]);
   const details=useMemo(()=>buildUniversityDetails(selectedRows),[selectedRows]);
+  const typeStats=useMemo(()=>groupStats(selectedRows,x=>x.admissionType),[selectedRows]);
+  const gradeStats=useMemo(()=>groupStats(selectedRows.filter(x=>x.gradeBand),x=>`${x.gradeBand}등급대`).sort((a,b)=>parseFloat(a.label)-parseFloat(b.label)),[selectedRows]);
   const acceptedGrades=selectedRows.filter(x=>x.finalResult==="합격").map(x=>x.overallGrade);
   const selectedAccepted=selectedRows.filter(x=>x.finalResult==="합격").length;
   const selectedRate=selectedRows.length?selectedAccepted/selectedRows.length*100:0;
   const holistic=selectedRows.some(row=>String(row.admissionType||row.detailType||"").includes("종합"));
-  return <div style={{display:"grid",gap:12}}>
-    <div style={styles.universitySearchPanel}>
-      <div style={{display:"grid",gap:5,minWidth:220}}>
-        <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={styles.searchStepBadge}>대학 상세</span><b style={{fontSize:18,color:"#22334a",letterSpacing:"-.025em"}}>대학별 지원·합격 현황 조회</b></div>
-        <span style={{fontSize:12.5,lineHeight:1.55,color:"#66758a"}}>대학명을 검색한 뒤 오른쪽 목록에서 학교를 선택하면 모집단위·전형별 사례가 아래에 표시됩니다.</span>
+  const unitFiltered=useMemo(()=>{const q=normalizeSearchText(unitQuery.trim());return q?details.filter(row=>normalizeSearchText(`${row.department} ${row.type}`).includes(q)):details},[details,unitQuery]);
+  useEffect(()=>setUnitPage(1),[unitQuery,selected]);
+  const listMax=Math.max(1,Math.ceil(universities.length/UNIVERSITY_PAGE_SIZE));
+  const listVisible=universities.slice((listPage-1)*UNIVERSITY_PAGE_SIZE,listPage*UNIVERSITY_PAGE_SIZE);
+  const unitMax=newUi?Math.max(1,Math.ceil(unitFiltered.length/UNIT_PAGE_SIZE)):1;
+  const unitRows=newUi?unitFiltered.slice((unitPage-1)*UNIT_PAGE_SIZE,unitPage*UNIT_PAGE_SIZE):unitFiltered;
+  const universityHead=<div style={styles.universityHead}>{null}</div>;
+  const header=<div style={styles.universityHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:20,color:"#202a35"}}>{selected}</b><span style={{fontSize:12,color:"#737b87"}}>광덕고 2024~2026 통합 지원 사례</span></div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span className={`admission-sample-badge is-${caseSufficiency(selectedRows.length).level}`} title={caseSufficiency(selectedRows.length).detail}>{caseSufficiency(selectedRows.length).label}</span><RateBand rate={selectedRate} total={selectedRows.length}/>{onOpenSusiNavi&&<button type="button" className="admission-link-button is-navi" onClick={()=>onOpenSusiNavi(selected,"")}>NAVI 분석 <ExternalLink size={11}/></button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan}/>}</div></div>;
+  const statStrip=<div className="admission-stat-strip"><div><small>지원 사례</small><b style={{color:COLORS.blue}}>{selectedRows.length}건</b></div><div><small>합격 사례</small><b style={{color:COLORS.green}}>{selectedAccepted}건</b></div><div><small>합격자 전교과 50%컷</small><b>{fmt(median(acceptedGrades))}</b></div><div><small>합격자 전교과 25~75%</small><b>{fmt(percentile(acceptedGrades,.25))} ~ {fmt(percentile(acceptedGrades,.75))}</b></div></div>;
+  const holisticNotice=holistic&&<div className="admission-holistic-notice" style={{marginTop:12}}><AlertTriangle size={15}/><span><b>학생부종합 참고</b> · 학생부종합은 서류·활동·과목 선택 등을 종합 평가하므로 커트라인은 참고용으로만 활용하세요.</span></div>;
+  const unitTable=<>{newUi&&<div className="kdn-uni-toolbar"><span className="kdn-uni-search"><Search size={16}/><input value={unitQuery} onChange={e=>setUnitQuery(e.target.value)} placeholder="모집단위·전형 이름으로 좁히기"/></span><small>{unitFiltered.length}개 모집단위·전형</small><MiniPager page={unitPage} max={unitMax} onChange={setUnitPage}/></div>}<div style={{marginTop:12}}><Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"20%"}}/><col style={{width:"21%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"10%"}}/><col style={{width:"7%"}}/><col style={{width:"14%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률</th><th>전교과<br/>50%컷</th><th>상담 연계</th></tr></thead><tbody>{unitRows.map(row=><tr key={`${row.department}|${row.type}`}><td><button type="button" className="admission-department-link" onClick={()=>onOpenDepartmentCases?.(selected,row.department,"")} title="이 모집단위의 전체 사례 조회">{row.department}</button></td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td><td><div className="admission-row-actions">{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi(selected,row.department)}>NAVI</button>}{onAddSupportPlan&&<SupportPlanButton compact onClick={()=>onAddSupportPlan(supportPlanFromCase(row.sample||{department:row.department,detailType:row.type},selected))}>수시지원 추가</SupportPlanButton>}</div></td></tr>)}</tbody></Table></div>{newUi&&<MiniPager page={unitPage} max={unitMax} onChange={setUnitPage}/>}</>;
+  if(!newUi){
+    return <div style={{display:"grid",gap:12}}>
+      <div style={styles.universitySearchPanel}>
+        <div style={{display:"grid",gap:5,minWidth:220}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span style={styles.searchStepBadge}>대학 상세</span><b style={{fontSize:18,color:"#22334a",letterSpacing:"-.025em"}}>대학별 지원·합격 현황 조회</b></div>
+          <span style={{fontSize:12.5,lineHeight:1.55,color:"#66758a"}}>대학명을 검색한 뒤 오른쪽 목록에서 학교를 선택하면 모집단위·전형별 사례가 아래에 표시됩니다.</span>
+        </div>
+        <div className="admission-university-picker">
+          <label className="admission-university-control">
+            <span className="admission-university-control-label"><span>① 대학명 검색</span><small>일부 이름만 입력해도 됩니다.</small></span>
+            <span className="admission-university-searchbox"><Search size={19} color="#536984"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="예: 중앙대, 동국대, 가톨릭대"/>{query&&<button type="button" className="admission-university-search-clear" onClick={()=>setQuery("")} aria-label="검색어 지우기">×</button>}<span className="admission-university-result-count">{universities.length}개</span></span>
+          </label>
+          <label className="admission-university-control">
+            <span className="admission-university-control-label"><span>② 조회할 대학 선택</span><small>지원·합격 사례 수를 함께 표시합니다.</small></span>
+            <select value={selected} onChange={e=>setSelected(e.target.value)}><option value="">대학을 선택하세요 (선택 안 함)</option>{selected&&!universities.some(row=>row.label===selected)&&<option value={selected}>{selected}</option>}{universities.slice(0,200).map(row=><option key={row.label} value={row.label}>{row.label} · 지원 {row.total}건 · 합격 {row.accepted}건</option>)}</select>
+          </label>
+        </div>
       </div>
-      <div className="admission-university-picker">
-        <label className="admission-university-control">
-          <span className="admission-university-control-label"><span>① 대학명 검색</span><small>일부 이름만 입력해도 됩니다.</small></span>
-          <span className="admission-university-searchbox"><Search size={19} color="#536984"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="예: 중앙대, 동국대, 가톨릭대"/>{query&&<button type="button" className="admission-university-search-clear" onClick={()=>setQuery("")} aria-label="검색어 지우기">×</button>}<span className="admission-university-result-count">{universities.length}개</span></span>
-        </label>
-        <label className="admission-university-control">
-          <span className="admission-university-control-label"><span>② 조회할 대학 선택</span><small>지원·합격 사례 수를 함께 표시합니다.</small></span>
-          <select value={selected} onChange={e=>setSelected(e.target.value)}>{universities.map(row=><option key={row.label} value={row.label}>{row.label} · 지원 {row.total}건 · 합격 {row.accepted}건</option>)}</select>
-        </label>
+      <div style={styles.universityDetail}>{!selected?<Empty title="조회할 대학을 선택하세요." text="대학명을 검색한 뒤 목록에서 학교를 고르면 모집단위·전형별 사례가 표시됩니다."/>:<>{header}{statStrip}{holisticNotice}{unitTable}</>}</div>
+    </div>;
+  }
+  const steps=[["find","대학 찾기",selected?`선택: ${selected}`:`${allUniversities.length}개 대학`],["summary","대학 요약",selected?`지원 ${selectedRows.length} · 합격 ${selectedAccepted}`:"대학을 먼저 고르세요"],["units","모집단위·전형",selected?`${details.length}개 묶음`:"대학을 먼저 고르세요"]];
+  return <div className="kdn-uni" style={{display:"grid",gap:14}}>
+    <StepTabs value={step} onChange={key=>{if(key!=="find"&&!selected)return;setStep(key)}} items={steps}/>
+    {step==="find"&&<section className="kdn-uni-panel">
+      <div className="kdn-uni-toolbar">
+        <span className="kdn-uni-search"><Search size={16}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="대학명 검색 (예: 중앙대, 한양대 ERICA)"/>{query&&<button type="button" data-kdn-bare onClick={()=>setQuery("")} aria-label="검색어 지우기">×</button>}</span>
+        <span className="kdn-uni-sort">{[["total","지원 많은 순"],["rate","합격률 순"],["cut","50%컷 높은 순"],["name","가나다"]].map(([key,label])=><button key={key} type="button" className={sortKey===key?"is-on":""} onClick={()=>setSortKey(key)}>{label}</button>)}</span>
+        <small>{universities.length}개 대학</small>
+        {selected&&<button type="button" className="kdn-uni-clear" onClick={()=>setSelected("")}>선택 해제 ({selected})</button>}
       </div>
-    </div>
-    <div style={styles.universityDetail}>{!selected?<Empty title="검색 결과가 없습니다." text="대학명을 다시 입력하거나 검색어를 지워보세요."/>:<><div style={styles.universityHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:20,color:"#202a35"}}>{selected}</b><span style={{fontSize:12,color:"#737b87"}}>광덕고 2024~2026 통합 지원 사례</span></div><div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}><span className={`admission-sample-badge is-${caseSufficiency(selectedRows.length).level}`} title={caseSufficiency(selectedRows.length).detail}>{caseSufficiency(selectedRows.length).label}</span><RateBand rate={selectedRate} total={selectedRows.length}/>{onOpenSusiNavi&&<button type="button" className="admission-link-button is-navi" onClick={()=>onOpenSusiNavi(selected,"")}>NAVI 분석 <ExternalLink size={11}/></button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan}/>}</div></div>
-      <div className="admission-stat-strip"><div><small>지원 사례</small><b style={{color:COLORS.blue}}>{selectedRows.length}건</b></div><div><small>합격 사례</small><b style={{color:COLORS.green}}>{selectedAccepted}건</b></div><div><small>합격자 전교과 50%컷</small><b>{fmt(median(acceptedGrades))}</b></div><div><small>합격자 전교과 25~75%</small><b>{fmt(percentile(acceptedGrades,.25))} ~ {fmt(percentile(acceptedGrades,.75))}</b></div></div>
-      {holistic&&<div className="admission-holistic-notice" style={{marginTop:12}}><AlertTriangle size={15}/><span><b>학생부종합 참고</b> · 학생부종합은 서류·활동·과목 선택 등을 종합 평가하므로 커트라인은 참고용으로만 활용하세요.</span></div>}
-      <div style={{marginTop:12}}><Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"20%"}}/><col style={{width:"21%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"10%"}}/><col style={{width:"7%"}}/><col style={{width:"14%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률</th><th>전교과<br/>50%컷</th><th>상담 연계</th></tr></thead><tbody>{details.map(row=><tr key={`${row.department}|${row.type}`}><td><button type="button" className="admission-department-link" onClick={()=>onOpenDepartmentCases?.(selected,row.department,"")} title="이 모집단위의 전체 사례 조회">{row.department}</button></td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td><td><div className="admission-row-actions">{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi(selected,row.department)}>NAVI</button>}{onAddSupportPlan&&<SupportPlanButton compact onClick={()=>onAddSupportPlan(supportPlanFromCase(row.sample||{department:row.department,detailType:row.type},selected))}>수시지원 추가</SupportPlanButton>}</div></td></tr>)}</tbody></Table></div></>}</div>
+      {universities.length?<div className="kdn-case-table-wrap"><table className="kdn-case-table kdn-uni-table">
+        <thead><tr><th>대학</th><th className="n">지원</th><th className="n">최초합</th><th className="n">충원합</th><th className="n">불합격</th><th>합격 비율</th><th className="n">합격자 50%컷</th><th/></tr></thead>
+        <tbody>{listVisible.map(stat=><tr key={stat.label} className={stat.label===selected?"is-selected":""} onClick={()=>setSelected(stat.label)}>
+          <td><span className="uni"><b>{stat.label}</b>{stat.label===selected&&<small className="kdn-uni-chip">선택됨</small>}</span></td>
+          <td className="n"><b>{stat.total}</b></td><td className="n ok">{stat.first}</td><td className="n">{stat.waitlist}</td><td className="n no">{stat.rejected}</td>
+          <td><span className="rate"><i><em style={{width:`${Math.min(100,stat.rate||0)}%`}}/></i><small>{fmt(stat.rate,1)}%</small></span></td>
+          <td className="n"><b>{fmt(stat.median)}</b></td>
+          <td className="go"><ChevronRight size={17}/></td>
+        </tr>)}</tbody>
+      </table></div>:<Empty title="검색 결과가 없습니다." text="대학명을 다시 입력하거나 검색어를 지워보세요."/>}
+      <MiniPager page={listPage} max={listMax} onChange={setListPage}/>
+    </section>}
+    {step!=="find"&&selected&&<section className="kdn-uni-panel">
+      {header}
+      {step==="summary"&&<>
+        {statStrip}{holisticNotice}
+        <div className="kdn-uni-two">
+          <div className="kdn-uni-card"><b className="kdn-uni-card-title">전형별 지원·합격</b><VerticalBars rows={typeStats}/></div>
+          <div className="kdn-uni-card"><b className="kdn-uni-card-title">등급대별 결과</b>{gradeStats.length?<GradeBandChart grades={gradeStats}/>:<span className="kdn-uni-empty">등급이 입력된 사례가 없습니다.</span>}</div>
+        </div>
+        <div className="kdn-uni-next"><button type="button" onClick={()=>setStep("units")}>모집단위·전형별 사례 {details.length}개 보기 <ChevronRight size={15}/></button></div>
+      </>}
+      {step==="units"&&<>{holisticNotice}{unitTable}</>}
+    </section>}
   </div>;
 }
 

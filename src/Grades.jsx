@@ -19,7 +19,7 @@ import { GradeInsights, GradeHeatmap } from './gradeInsights.jsx';
 import GradeSimulator, { GradeSimPresetChips } from './GradeSimulator.jsx';
 import { CompareOverview, SemesterChips, printGradeComparison, COMPARE_COLORS } from './gradeCompareVisuals.jsx';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
-import { isNewUi, getUiMode } from './uiMode.js';
+import { isNewUi, getUiMode, rawColors } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
 import { LayoutGrid } from 'lucide-react';
@@ -1541,6 +1541,9 @@ const STUDENT_GRADE_PRINT_CSS = `
 .grade-print-paper-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 11px;border:1px solid #dce4ec;border-radius:11px;background:#fafbfd}.grade-print-paper-row>span>b{display:block;font-size:11.5px;color:#344d69}.grade-print-paper-row>span>small{display:block;margin-top:3px;font-size:9.5px;line-height:1.4;color:#7b8999}.grade-print-paper-row>div{display:flex;gap:5px}.grade-print-paper-row button{min-width:48px;border:1px solid #d1dce8;border-radius:8px;padding:7px 9px;background:#fff;color:#64758a;font-size:10.5px;font-weight:900;cursor:pointer}.grade-print-paper-row button.is-active{background:#315f95;border-color:#315f95;color:#fff}
 .grade-print-option-actions{display:flex;justify-content:space-between;gap:9px;padding:13px 18px 17px;border-top:1px solid #edf1f5}.grade-print-option-actions>div{display:flex;gap:7px}.grade-print-option-actions button{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #cdd9e6;border-radius:9px;padding:8px 11px;background:#fff;color:#526980;font-size:11px;font-weight:900;cursor:pointer}.grade-print-option-actions button.primary{background:#3568a3;color:#fff;border-color:#3568a3}
 @media(max-width:640px){.grade-print-conversion-options,.grade-print-beta-row{grid-template-columns:1fr}.grade-print-option-actions{align-items:stretch;flex-direction:column}.grade-print-option-actions>div{display:grid;grid-template-columns:1fr 1fr}}
+`;
+// 인쇄 양식 자체의 색: 다크 모드에서도 흰 종이에 맞는 원래 색으로 인쇄되도록 변환하지 않고 그립니다(rawColors).
+const STUDENT_GRADE_PRINT_PAPER_CSS = `
 @media print {
   @page{size:A4 landscape;margin:3.5mm}
   html,body{width:100%!important;height:auto!important;margin:0!important;padding:0!important;background:#fff!important}
@@ -1585,6 +1588,21 @@ const STUDENT_GRADE_PRINT_CSS = `
   .student-grade-print-sheet-clone .report-trend-head b{font-size:7.4px;color:#2c4c70}.student-grade-print-sheet-clone .report-trend-head span{font-size:5.9px;color:#78899b;font-weight:800}
   .student-grade-print-sheet-clone .report-trend-chart,.student-grade-print-sheet-clone .mock-trend-chart{display:block;width:100%;height:calc(100% - 7mm);min-height:0;padding:.2mm .8mm .4mm;overflow:visible}
   .student-grade-print-sheet-clone .report-category-head{padding:1.2mm 1.7mm;background:#f4f7fb;border-bottom:1px solid #d8e1eb;font-size:7.4px;font-weight:950;color:#2c4c70}.student-grade-print-sheet-clone .report-category-card table{height:calc(100% - 7mm)}.student-grade-print-sheet-clone .report-category-card th{font-size:6px;padding:1mm .5mm;background:#eef3fa}.student-grade-print-sheet-clone .report-category-card td{font-size:6.2px;padding:1mm .5mm}.student-grade-print-sheet-clone .category-average{font-weight:950;color:#315f92;background:#f4f8fd}.student-grade-print-sheet-clone .mock-table th{font-size:6.2px;padding:1.15mm .65mm;background:#eef3fa}
+  .student-grade-print-sheet-clone .pt-rows{display:grid;grid-auto-rows:minmax(0,1fr);align-content:center;gap:1mm;height:calc(100% - 7mm);padding:1.4mm 2.4mm;overflow:hidden}
+  .student-grade-print-sheet-clone .pt-row{display:grid;grid-template-columns:16mm minmax(0,1fr) 15mm 10mm;gap:1.8mm;align-items:center;min-height:0;max-height:6mm}
+  .student-grade-print-sheet-clone .pt-sem{font-size:6.6px;font-weight:900;color:#4a5f77;white-space:nowrap}
+  .student-grade-print-sheet-clone .pt-track{display:block;height:min(100%,3.8mm);min-height:2.4mm;border-radius:1mm;background:#eef2f7;overflow:hidden}
+  .student-grade-print-sheet-clone .pt-bar{display:block;height:100%;border-radius:1mm;background:#9db6d3}
+  .student-grade-print-sheet-clone .pt-row.is-latest .pt-bar{background:#315f92}.student-grade-print-sheet-clone .pt-row.is-latest .pt-sem{color:#203b5c}
+  .student-grade-print-sheet-clone .pt-val{font-size:7.6px;font-weight:950;color:#203b5c;white-space:nowrap;text-align:right}.student-grade-print-sheet-clone .pt-val small{font-size:6.2px;color:#6b7c90;font-weight:850}
+  .student-grade-print-sheet-clone .pt-chg{font-size:6.4px;font-weight:950;color:#7b8999;text-align:right;white-space:nowrap}.student-grade-print-sheet-clone .pt-chg.up{color:#15803d}.student-grade-print-sheet-clone .pt-chg.down{color:#b91c1c}
+  .student-grade-print-sheet-clone .pt-empty{display:grid;place-items:center;height:calc(100% - 7mm);font-size:7.5px;color:#91a0b0;font-weight:800}
+  .student-grade-print-sheet-clone .pm-table{height:calc(100% - 7mm)}
+  .student-grade-print-sheet-clone .pm-table th{font-size:6px;padding:.7mm .3mm;background:#f4f7fb}.student-grade-print-sheet-clone .pm-table th.grp{color:#2c4c70;background:#eaf1f9}
+  .student-grade-print-sheet-clone .pm-table td{font-size:7.2px;padding:.5mm .3mm;font-weight:950}
+  .student-grade-print-sheet-clone .pm-table td.pm-round{font-size:6.3px;font-weight:880;color:#273c56;white-space:nowrap;overflow:visible}
+  .student-grade-print-sheet-clone .pm-table td.ok{background:#e6f4ea;color:#15803d}.student-grade-print-sheet-clone .pm-table td.no{color:#b6c0cc}
+  .student-grade-print-sheet-clone .pm-table .grp-start{border-left:1.2px solid #b9c7d8}
   .student-grade-print-sheet-clone .mock-table table{height:100%}.student-grade-print-sheet-clone .mock-table thead{height:7mm}.student-grade-print-sheet-clone .mock-table tbody tr{height:calc((100% - 7mm)/var(--mock-row-count,6))}.student-grade-print-sheet-clone .mock-table td{font-size:6.2px;padding:.55mm .55mm;vertical-align:middle}
   .student-grade-print-sheet-clone .sum-cell{font-weight:950;color:#315f92;background:#f4f8fd}
 .student-grade-print-sheet-clone[data-print-category="false"] .report-category-card{display:none!important}.student-grade-print-sheet-clone[data-print-trend="false"] .report-trend-card{display:none!important}.student-grade-print-sheet-clone[data-print-mock-chart="false"] .mock-trend-card{display:none!important}.student-grade-print-sheet-clone[data-print-mock="false"] .mock-table{display:none!important}
@@ -1612,81 +1630,63 @@ const STUDENT_GRADE_PRINT_CSS = `
 `
 
 
+// 인쇄용 학기별 평균: 학기마다 가로 막대(길수록 좋은 성적)와 숫자, 직전 학기 대비 변화를 한 줄씩 보여 줍니다.
 function StudentGradePrintTrend({ semesterKeys = [], groups, gradeSystem, entryYear, grade9Label = "기존 환산 9등급" }) {
-  const values = semesterKeys.map(key => {
+  const rows = semesterKeys.map(key => {
     const index = SEMESTER_KEYS.indexOf(key);
-    return groups?.["전과목"]?.perSemester9?.[index]
-      ?? groups?.["전과목"]?.perSemester5?.[index]
-      ?? null;
+    const v5 = gradeSystem === 5 ? groups?.["전과목"]?.perSemester5?.[index] ?? null : null;
+    const v9 = groups?.["전과목"]?.perSemester9?.[index] ?? groups?.["전과목"]?.perSemester5?.[index] ?? null;
+    return { key, v5, v9 };
   });
-  const width = 360;
-  const height = 132;
-  const left = 28;
-  const right = 12;
-  const top = 29;
-  const bottom = 24;
-  const innerWidth = width - left - right;
-  const innerHeight = height - top - bottom;
-  const pointX = index => semesterKeys.length <= 1 ? left + innerWidth / 2 : left + (innerWidth * index) / (semesterKeys.length - 1);
-  const pointY = value => top + ((Math.max(1, Math.min(9, Number(value))) - 1) / 8) * innerHeight;
-  const valid = values.map((value, index) => Number.isFinite(Number(value)) ? { value: Number(value), index } : null).filter(Boolean);
-  const linePoints = valid.map(item => `${pointX(item.index)},${pointY(item.value)}`).join(" ");
-  return <article className="report-trend-card">
-    <div className="report-trend-head"><b>전과목 평균 등급 추이</b><span>{gradeSystem === 5 ? grade9Label : "9등급제 기준"}</span></div>
-    <svg className="report-trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="전과목 평균 등급 추이">
-      <rect x={left} y={top} width={innerWidth} height={innerHeight * .125} rx="4" fill="#edf7f1" />
-      {[1,3,5,7,9].map(gradeValue => {
-        const y = pointY(gradeValue);
-        return <g key={gradeValue}><line x1={left} x2={width-right} y1={y} y2={y} stroke="#dbe3ec" strokeWidth="1"/><text x={left-9} y={y+3} textAnchor="middle" fontSize="8" fontWeight="800" fill="#68798c">{gradeValue}</text></g>;
+  const ratio = (value, max) => (value == null ? 0 : Math.max(0.04, Math.min(1, (max + 0.5 - Number(value)) / (max - 0.5))));
+  return rawColors(() => <article className="report-trend-card">
+    <div className="report-trend-head"><b>학기별 전과목 평균</b><span>막대(9등급 기준)가 길수록 좋은 성적 · {gradeSystem === 5 ? `5등급 / ${grade9Label}` : "9등급제"}</span></div>
+    <div className="pt-rows">
+      {rows.map((row, index) => {
+        const prev = index > 0 ? rows[index - 1]?.v9 : null;
+        const change = prev != null && row.v9 != null ? Math.round((prev - row.v9) * 100) / 100 : null;
+        const latest = index === rows.length - 1;
+        return <div className={`pt-row${latest ? " is-latest" : ""}`} key={row.key}>
+          <span className="pt-sem">{semesterCalendarLabel(row.key, entryYear).replace(/^\d{4}년\s*/, "")}</span>
+          <span className="pt-track"><i className="pt-bar" style={{ width: `${ratio(row.v9, 9) * 100}%` }} /></span>
+          <b className="pt-val">{row.v5 != null ? <>{row.v5}<small> / {row.v9 ?? "-"}</small></> : (row.v9 ?? "-")}</b>
+          <span className={`pt-chg${change > 0 ? " up" : change < 0 ? " down" : ""}`}>{change == null || Math.abs(change) < 0.01 ? (index ? "유지" : "") : `${change > 0 ? "▲" : "▼"}${Math.abs(change).toFixed(2)}`}</span>
+        </div>;
       })}
-      {semesterKeys.map((key,index) => <line key={key} x1={pointX(index)} x2={pointX(index)} y1={top} y2={top+innerHeight} stroke="#eef2f6" strokeWidth="1"/>)}
-      {linePoints && <polyline points={linePoints} fill="none" stroke="#315f92" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>}
-      {valid.map(item => <g key={item.index}><circle cx={pointX(item.index)} cy={pointY(item.value)} r="4.5" fill="#fff" stroke="#315f92" strokeWidth="2.5"/><rect x={pointX(item.index)-15} y={pointY(item.value)-22} width="30" height="15" rx="7.5" fill="#274e78"/><text x={pointX(item.index)} y={pointY(item.value)-11.5} textAnchor="middle" fontSize="8.5" fontWeight="900" fill="#fff">{item.value}</text></g>)}
-      {semesterKeys.map((key,index) => <text key={`label-${key}`} x={pointX(index)} y={height-8} textAnchor="middle" fontSize="7.3" fontWeight="800" fill="#52667c">{key.replace("-","-")}</text>)}
-      {!valid.length && <text x={width/2} y={height/2} textAnchor="middle" fontSize="10" fontWeight="800" fill="#91a0b0">등록된 등급 평균 없음</text>}
-    </svg>
-  </article>;
+      {!rows.some(row => row.v9 != null) && <div className="pt-empty">등록된 등급 평균 없음</div>}
+    </div>
+  </article>);
 }
 
+// 자주 쓰이는 수능최저 기준: 회차마다 어디까지 충족했는지 ●/·로 바로 읽히는 표(그래프 대신).
+const PRINT_MINIMUM_RULES = [
+  { key: "sum2", label: "2합", limits: [4, 5, 6, 7] },
+  { key: "sum3", label: "3합", limits: [6, 7, 9] },
+  { key: "sum4", label: "4합", limits: [8, 10, 12] },
+];
 function StudentGradePrintMockTrend({ mockRows = [], entryYear }) {
-  const width = 360;
-  const height = 132;
-  const left = 30;
-  const right = 12;
-  const top = 18;
-  const bottom = 28;
-  const innerWidth = width - left - right;
-  const innerHeight = height - top - bottom;
-  const series = [
-    { key: "sum2", label: "2합", stroke: "#315f92" },
-    { key: "sum3", label: "3합", stroke: "#7a61a8" },
-    { key: "sum4", label: "4합", stroke: "#c17a35" },
-  ];
-  const values = mockRows.flatMap(row => series.map(item => Number(row.sums?.[item.key])).filter(Number.isFinite));
-  const maxValue = Math.max(12, ...values);
-  const minValue = Math.min(2, ...values);
-  const span = Math.max(1, maxValue - minValue);
-  const pointX = index => mockRows.length <= 1 ? left + innerWidth / 2 : left + (innerWidth * index) / (mockRows.length - 1);
-  const pointY = value => top + ((Number(value) - minValue) / span) * innerHeight;
-  return <article className="mock-trend-card">
-    <div className="report-trend-head"><b>모의고사 최저합 추이</b><span>낮을수록 우수 · 2합/3합/4합</span></div>
-    <svg className="mock-trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="모의고사 최저합 추이">
-      {[0,.5,1].map((ratio,index) => { const value = Math.round((minValue + span * ratio) * 10) / 10; const y = top + innerHeight * ratio; return <g key={index}><line x1={left} x2={width-right} y1={y} y2={y} stroke="#dbe3ec" strokeWidth="1"/><text x={left-12} y={y+3} textAnchor="middle" fontSize="7.5" fontWeight="800" fill="#68798c">{value}</text></g>; })}
-      {series.map((item,seriesIndex) => {
-        const valid = mockRows.map((row,index) => Number.isFinite(Number(row.sums?.[item.key])) ? { index, value:Number(row.sums[item.key]) } : null).filter(Boolean);
-        const points = valid.map(point => `${pointX(point.index)},${pointY(point.value)}`).join(" ");
-        return <g key={item.key}>{points && <polyline points={points} fill="none" stroke={item.stroke} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>}{valid.map(point => <circle key={point.index} cx={pointX(point.index)} cy={pointY(point.value)} r="3" fill="#fff" stroke={item.stroke} strokeWidth="2"/>)}<circle cx={74+seriesIndex*62} cy="8" r="3" fill={item.stroke}/><text x={81+seriesIndex*62} y="11" fontSize="7.5" fontWeight="900" fill="#52667c">{item.label}</text></g>;
-      })}
-      {mockRows.map((row,index) => <text key={row.key} x={pointX(index)} y={height-8} textAnchor="middle" fontSize="6.7" fontWeight="800" fill="#52667c">{mockCalendarLabel(row.key,entryYear).replace("2025년 ","").replace("2026년 ","")}</text>)}
-      {!mockRows.length && <text x={width/2} y={height/2} textAnchor="middle" fontSize="10" fontWeight="800" fill="#91a0b0">등록된 모의고사 성적 없음</text>}
-    </svg>
-  </article>;
+  return rawColors(() => <article className="mock-trend-card">
+    <div className="report-trend-head"><b>수능최저 충족표</b><span>● 충족 · 자주 쓰이는 최저 기준</span></div>
+    {mockRows.length ? <table className="pm-table"><thead>
+      <tr><th rowSpan={2}>회차</th>{PRINT_MINIMUM_RULES.map(rule => <th key={rule.key} colSpan={rule.limits.length} className="grp">{rule.label} 이내</th>)}</tr>
+      <tr>{PRINT_MINIMUM_RULES.flatMap(rule => rule.limits.map(limit => <th key={`${rule.key}${limit}`} className={limit === rule.limits[0] ? "grp-start" : ""}>{limit}</th>))}</tr>
+    </thead><tbody>{mockRows.map(row => {
+      const [g, m] = row.key.split("-");
+      return <tr key={row.key}><td className="pm-round">{`${g}학년 ${m}월`}</td>{PRINT_MINIMUM_RULES.flatMap(rule => {
+        const value = Number(row.sums?.[rule.key]);
+        return rule.limits.map(limit => {
+          const ok = Number.isFinite(value) && value <= limit;
+          return <td key={`${rule.key}${limit}`} className={`${ok ? "ok" : "no"}${limit === rule.limits[0] ? " grp-start" : ""}`}>{Number.isFinite(value) ? (ok ? "●" : "·") : "-"}</td>;
+        });
+      })}</tr>;
+    })}</tbody></table> : <div className="pt-empty">등록된 모의고사 성적 없음</div>}
+  </article>);
 }
 
 function StudentGradePrintCategoryTable({ semesterKeys, groups, gradeSystem, entryYear }) {
   const categories = ["국어", "영어", "수학", "사회", "과학"];
   const field = gradeSystem === 5 ? "perSemester9" : "perSemester9";
-  return <article className="report-category-card">
+  return rawColors(() => <article className="report-category-card">
     <div className="report-category-head">교과별 평균 등급</div>
     <table><thead><tr><th>교과</th>{semesterKeys.map(key=><th key={key}>{key}</th>)}<th>평균</th></tr></thead><tbody>{categories.map(category=>{
       const values = semesterKeys.map(key=>groups?.[category]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null);
@@ -1694,7 +1694,7 @@ function StudentGradePrintCategoryTable({ semesterKeys, groups, gradeSystem, ent
       const average = valid.length ? Math.round(valid.reduce((sum,value)=>sum+Number(value),0)/valid.length*100)/100 : null;
       return <tr key={category}><td><b>{category}</b></td>{values.map((value,index)=><td key={semesterKeys[index]}>{value ?? "-"}</td>)}<td className="category-average">{average ?? "-"}</td></tr>;
     })}</tbody></table>
-  </article>;
+  </article>);
 }
 
 function StudentGradePrintSheet({
@@ -1721,19 +1721,22 @@ function StudentGradePrintSheet({
   const grade9Note = gradeSystem === 5 && grade9Method === "statistical"
     ? (betaReady ? "평균·교과별 표·추이 그래프는 통계 Beta 환산을 적용했습니다." : "통계 Beta 자료를 불러오지 못해 기존 환산값으로 표시했습니다.")
     : "평균·교과별 표·추이 그래프는 기존 2n-1 환산을 적용했습니다.";
-  const gradeText = subject => {
-    const source = getSubjectGrade(subject);
-    if (source == null) return "-";
-    return gradeSystem === 5 ? `${source} / ${Math.round(grade5to9(source) * 100) / 100}` : `${source}`;
+  // 과목별로는 9등급 환산 대신 석차(동석차 포함)와 수강자수를 보여 줍니다.
+  const rankText = subject => {
+    const rank = subject?.rank == null || subject.rank === "" ? null : String(subject.rank).trim();
+    const size = subject?.classSize == null || subject.classSize === "" ? null : String(subject.classSize).trim();
+    if (!rank) return "-";
+    return size ? `${rank} / ${size}` : rank;
   };
-  return <section className="student-grade-print-sheet" data-semester-count={Math.max(1, Math.min(5, (displaySemesterKeys || []).length))} aria-hidden="true">
+  return rawColors(() => <section className="student-grade-print-sheet" data-semester-count={Math.max(1, Math.min(5, (displaySemesterKeys || []).length))} aria-hidden="true">
+    <style>{STUDENT_GRADE_PRINT_PAPER_CSS}</style>
     <header className="report-header">
       <div>
         <div className="report-kicker">광덕고등학교 학생 성적 상담표</div>
         <div className="report-title">학기별 내신 및 모의고사 성적</div>
         <div className="report-student">{sid} {studentName} · {location || "학급 정보 미등록"} · {entryYear}학년도 입학생 · {gradeSystem}등급제</div>
       </div>
-      <div className="report-meta">출력일 {printedAt}<br/>9등급 평균 기준: <b>{grade9Label}</b><br/>{gradeSystem === 5 ? "과목별 상세 등급은 5등급 / 기존 9등급 환산 순입니다." : "등급 표기는 9등급제 기준입니다."}</div>
+      <div className="report-meta">출력일 {printedAt}<br/>9등급 평균 기준: <b>{grade9Label}</b><br/>과목별 등급은 {gradeSystem}등급제 석차등급, 석차는 석차(동석차)/수강자수입니다.</div>
     </header>
     <div className="report-summary">
       <div><small>{gradeSystem === 5 ? "전과목 평균 · 5등급" : "전과목 평균 · 9등급"}</small><b>{gradeSystem === 5 ? (overall5 ?? "-") : (overall9 ?? "-")}</b></div>
@@ -1742,7 +1745,7 @@ function StudentGradePrintSheet({
       <div><small>최근 모의고사 · 3합</small><b>{latestSums.sum3 ?? "-"}</b></div>
       <div><small>최근 모의고사 · 4합</small><b>{latestSums.sum4 ?? "-"}</b></div>
     </div>
-    <div className="report-section-title">학기별 내신 성적 <span>과목 · 학점 · 원점수 · 성취도 · 석차등급</span></div>
+    <div className="report-section-title">학기별 내신 성적 <span>과목 · 학점 · 원점수 · 성취도 · 석차등급 · 석차</span></div>
     <div className="semester-grid">
       {(displaySemesterKeys || []).map(key => {
         const index = SEMESTER_KEYS.indexOf(key);
@@ -1751,7 +1754,7 @@ function StudentGradePrintSheet({
         const avg9 = groups?.["전과목"]?.perSemester9?.[index] ?? null;
         return <article className="semester-card" key={key}>
           <div className="semester-head"><b>{semesterCalendarLabel(key, entryYear)}</b><span>{gradeSystem === 5 ? `평균 ${avg5 ?? "-"} / 환산 ${avg9 ?? "-"}` : `평균 ${avg9 ?? avg5 ?? "-"}`}</span></div>
-          {subjects.length ? <table><colgroup><col style={{width:"41%"}}/><col style={{width:"10%"}}/><col style={{width:"15%"}}/><col style={{width:"14%"}}/><col style={{width:"20%"}}/></colgroup><thead><tr><th>과목</th><th>학점</th><th>원점수</th><th>성취도</th><th>{gradeSystem === 5 ? "등급 5/9" : "등급"}</th></tr></thead><tbody>{subjects.map((subject, subjectIndex) => <tr key={`${key}-${subject.subject}-${subjectIndex}`}><td className="subject">{subject.subject}</td><td>{subject.credit ?? "-"}</td><td>{subject.score ?? "-"}</td><td>{subject.achievement ?? "-"}</td><td>{gradeText(subject)}</td></tr>)}</tbody></table> : <div className="empty-semester">등록된 성적 없음</div>}
+          {subjects.length ? <table><colgroup><col style={{width:"34%"}}/><col style={{width:"9%"}}/><col style={{width:"13%"}}/><col style={{width:"12%"}}/><col style={{width:"10%"}}/><col style={{width:"22%"}}/></colgroup><thead><tr><th>과목</th><th>학점</th><th>원점수</th><th>성취도</th><th>등급</th><th>석차/수강자</th></tr></thead><tbody>{subjects.map((subject, subjectIndex) => <tr key={`${key}-${subject.subject}-${subjectIndex}`}><td className="subject">{subject.subject}</td><td>{subject.credit ?? "-"}</td><td>{subject.score ?? "-"}</td><td>{subject.achievement ?? "-"}</td><td><b>{getSubjectGrade(subject) ?? "-"}</b></td><td>{rankText(subject)}</td></tr>)}</tbody></table> : <div className="empty-semester">등록된 성적 없음</div>}
         </article>;
       })}
     </div>
@@ -1760,10 +1763,10 @@ function StudentGradePrintSheet({
       <StudentGradePrintCategoryTable semesterKeys={displaySemesterKeys || []} groups={groups} gradeSystem={gradeSystem} entryYear={entryYear} />
       <StudentGradePrintTrend semesterKeys={displaySemesterKeys || []} groups={groups} gradeSystem={gradeSystem} entryYear={entryYear} grade9Label={grade9Label} />
       <StudentGradePrintMockTrend mockRows={mockRows} entryYear={entryYear} />
-      <div className="mock-table"><table><colgroup><col style={{width:"15%"}}/>{MOCK_SUBJECTS.map(subject => <col key={subject} style={{width:"9.5%"}}/>)}<col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/></colgroup><thead><tr><th>회차</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}<th>2합</th><th>3합</th><th>4합</th></tr></thead><tbody>{mockRows.length ? mockRows.map(({key,result,sums}) => <tr key={key}><td>{mockCalendarLabel(key,entryYear)}</td>{MOCK_SUBJECTS.map(subject => <td key={subject}>{result?.[subject] ?? "-"}</td>)}<td className="sum-cell">{sums.sum2 ?? "-"}</td><td className="sum-cell">{sums.sum3 ?? "-"}</td><td className="sum-cell">{sums.sum4 ?? "-"}</td></tr>) : <tr><td colSpan={10}>등록된 모의고사 성적 없음</td></tr>}</tbody></table></div>
+      <div className="mock-table"><table><colgroup><col style={{width:"16%"}}/>{MOCK_SUBJECTS.map(subject => <col key={subject} style={{width:"9.5%"}}/>)}<col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/></colgroup><thead><tr><th>회차</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}<th>2합</th><th>3합</th><th>4합</th></tr></thead><tbody>{mockRows.length ? mockRows.map(({key,result,sums}) => <tr key={key}><td className="mock-round" title={mockCalendarLabel(key,entryYear)}>{(() => { const [g, m] = key.split("-"); return `${g}학년 ${m}월`; })()}</td>{MOCK_SUBJECTS.map(subject => <td key={subject}>{result?.[subject] ?? "-"}</td>)}<td className="sum-cell">{sums.sum2 ?? "-"}</td><td className="sum-cell">{sums.sum3 ?? "-"}</td><td className="sum-cell">{sums.sum4 ?? "-"}</td></tr>) : <tr><td colSpan={10}>등록된 모의고사 성적 없음</td></tr>}</tbody></table></div>
     </div>
     <footer className="report-footer"><span>본 자료는 학생 상담을 위한 참고 자료입니다.</span><span>광덕고등학교 성적·시간표 시스템</span></footer>
-  </section>;
+  </section>);
 }
 
 // 새 UI 성적 리포트 상단 요약 숫자 칸(화면 전용).

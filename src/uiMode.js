@@ -397,8 +397,16 @@ export function withControlBorder(style) {
   controlCache.set(style, out);
   return out;
 }
+/* 인쇄용 종이 양식처럼 화면 모드와 상관없이 원래 색(흰 종이)으로 그려야 하는 부분은
+   rawColors(() => <...>)로 감싸면 그 안에서 만들어지는 요소의 색을 변환하지 않습니다.
+   (개발 서버는 JSX 런타임을 따로 묶어 이 모듈이 두 벌 생기므로 카운터는 globalThis에 둡니다.) */
+const RAW_KEY = "__kdRawColorDepth";
+export function rawColors(render) {
+  globalThis[RAW_KEY] = (globalThis[RAW_KEY] || 0) + 1;
+  try { return render(); } finally { globalThis[RAW_KEY] -= 1; }
+}
 export function mapElementProps(type, props, mode = ACTIVE_MODE) {
-  if (mode === "classic" || !props) return props;
+  if (mode === "classic" || globalThis[RAW_KEY] > 0 || !props) return props;
   let out = null;
   const set = (key, value) => { if (value !== props[key]) { out ??= { ...props }; out[key] = value; } };
   if (props.style && typeof props.style === "object" && (type === "table" || type === "td" || type === "th")) {
@@ -1157,6 +1165,32 @@ const SHARED_NEW_CSS = `
   .kdn-gh-chip em{font-style:normal;padding:5px 8px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;background:rgba(255,255,255,.55);color:#1f2430}
   .kdn-gh-chip b{display:flex;align-items:center;padding:5px 9px;font-family:var(--kdn-num-font);font-size:15px;font-weight:800}
   .kdn-gh-chip.l1{background:#e2531a;color:#ffffff}.kdn-gh-chip.l2{background:#f6a37a;color:#3b1505}.kdn-gh-chip.l3{background:#fde3d3;color:#7a2a08}.kdn-gh-chip.l4{background:#e5e7eb;color:#374151}.kdn-gh-chip.l0{background:#f1f5f9;color:#475569;box-shadow:inset 0 0 0 1px #e2e8f0}
+  .kdn-uni-panel{display:grid;gap:14px;padding:18px;border-radius:18px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
+  .kdn-uni-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .kdn-uni-toolbar>small{font-size:13px;color:var(--kdn-muted);font-family:var(--kdn-num-font)}
+  .kdn-uni-search{display:inline-flex;align-items:center;gap:8px;flex:1 1 260px;min-width:0;max-width:420px;height:42px;padding:0 12px;border-radius:12px;border:1px solid var(--kdn-line);background:var(--kdn-surface-2);color:var(--kdn-muted)}
+  .kdn-uni-search input{flex:1;min-width:0;border:0!important;outline:0;background:transparent!important;font:inherit;font-size:15px;color:var(--kdn-ink);box-shadow:none!important}
+  .kdn-uni-search button{border:0;background:transparent;color:var(--kdn-muted);font-size:18px;cursor:pointer;padding:0 4px}
+  .kdn-uni-sort{display:inline-flex;gap:4px;padding:3px;border-radius:11px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line)}
+  .kdn-uni-sort button{min-height:34px;padding:0 12px;border-radius:8px;border:0!important;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--kdn-muted);cursor:pointer}
+  .kdn-uni-sort button.is-on{background:var(--kdn-surface);color:var(--kdn-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .kdn-uni-clear{margin-left:auto;min-height:34px;padding:0 12px;border-radius:9px;font:inherit;font-size:13px;font-weight:700;color:var(--kdn-accent);background:var(--kdn-accent-soft);cursor:pointer}
+  .kdn-uni-table{min-width:760px}
+  .kdn-uni-table td:first-child,.kdn-uni-table th:first-child{text-align:left!important}
+  .kdn-uni-table tbody tr.is-selected{background:var(--kdn-accent-soft)!important}
+  .kdn-uni-chip{padding:2px 8px;border-radius:999px;background:var(--kdn-accent);color:var(--kdn-accent-ink);font-size:11.5px;font-weight:800}
+  .kdn-uni-pager{display:flex;align-items:center;justify-content:center;gap:10px;font-size:14px;color:var(--kdn-muted)}
+  .kdn-uni-toolbar .kdn-uni-pager{margin-left:auto}
+  .kdn-uni-pager b{font-family:var(--kdn-num-font);color:var(--kdn-ink)}
+  .kdn-uni-pager button{min-height:32px;padding:0 12px;border-radius:8px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+  .kdn-uni-pager button:disabled{opacity:.4;cursor:default}
+  .kdn-uni-two{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px}
+  .kdn-uni-card{display:grid;align-content:start;gap:12px;padding:16px;border-radius:14px;border:1px solid var(--kdn-line);background:var(--kdn-surface-2);min-width:0}
+  .kdn-uni-card-title{font-size:15px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-uni-empty{font-size:14px;color:var(--kdn-muted)}
+  .kdn-uni-next{display:flex;justify-content:flex-end}
+  .kdn-uni-next button{display:inline-flex;align-items:center;gap:6px;min-height:42px;padding:0 18px;border-radius:12px;font:inherit;font-size:14.5px;font-weight:800;background:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important;border:0!important;cursor:pointer}
+  @media (max-width:640px){.kdn-uni-two{grid-template-columns:1fr}.kdn-uni-panel{padding:12px}.kdn-uni-clear{margin-left:0}}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
