@@ -71,9 +71,9 @@ export function SemesterChips({ trend = [] }) {
   </span>)}</div>;
 }
 
-export function printGradeComparison(rows = [], ranked = new Map(), currentGrade = "") {
+export function printGradeComparison(rows = [], ranked = new Map(), currentGrade = "", title = "") {
   if (typeof document === "undefined" || !rows.length) return;
-  const chart = trendSvg(rows, { width: 700, height: 230 });
+  const chart = rows.length <= 8 ? trendSvg(rows, { width: 700, height: 230 }) : null;
   const svg = chart ? `<svg viewBox="0 0 ${chart.width} ${chart.height}" width="100%" style="max-height:62mm">${chart.ticks.map(t => `<line x1="36" x2="${chart.width - 12}" y1="${chart.y(t)}" y2="${chart.y(t)}" stroke="#dde3ea"/><text x="2" y="${chart.y(t) + 4}" font-size="11" fill="#64748b">${t.toFixed(1)}</text>`).join("")}${chart.used.map(k => `<text x="${chart.x(k)}" y="${chart.height - 8}" font-size="11" text-anchor="middle" fill="#475569">${k}</text>`).join("")}${rows.map((row, i) => { const c = COMPARE_COLORS[i % COMPARE_COLORS.length]; const pts = row.trend.filter(it => chart.used.includes(it.key)).map(it => [chart.x(it.key), chart.y(Number(it.value))]); return (pts.length > 1 ? `<polyline points="${pts.map(p => p.join(",")).join(" ")}" fill="none" stroke="${c}" stroke-width="2.5"/>` : "") + pts.map(([px, py]) => `<circle cx="${px}" cy="${py}" r="3.5" fill="${c}"/>`).join(""); }).join("")}</svg>` : "";
   const cell = value => (value ? `<b>${fmt(value.primary)}</b>${value.converted != null ? `<br><small>9환산 ${fmt(value.converted)}</small>` : ""}` : "-");
   const body = rows.slice().sort((a, b) => (ranked.get(a.sid) || 99) - (ranked.get(b.sid) || 99)).map(row => `<tr><td class="c">${ranked.get(row.sid) || "-"}</td><td><span class="dot" style="background:${COMPARE_COLORS[rows.indexOf(row) % COMPARE_COLORS.length]}"></span><b>${esc(row.name)}</b><br><small>${esc(row.sid)} · ${esc(row.classNumber)}반 ${esc(row.number)}번</small></td><td class="c">${cell(row.overall)}</td><td class="c">${cell(row.coreAll)}</td><td class="c">${cell(row.coreScience)}</td><td class="c">${cell(row.coreSocial)}</td><td>${row.trend.map(it => `<span class="chip"><small>${it.key}</small> <b>${fmt(it.value)}</b></span>`).join(" ")}</td></tr>`).join("");
@@ -81,7 +81,7 @@ export function printGradeComparison(rows = [], ranked = new Map(), currentGrade
     header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1f2430;padding-bottom:6px;margin-bottom:8px}h1{margin:0;font-size:15pt}header span{font-size:8.5pt;color:#64748b}
     table{width:100%;border-collapse:collapse;margin-top:8px}th,td{border:1px solid #cbd5e1;padding:5px 6px;vertical-align:middle}th{background:#f1f5f9;font-size:8.5pt}td.c{text-align:center}small{color:#64748b;font-size:7.5pt}
     .dot{display:inline-block;width:8px;height:8px;border-radius:99px;margin-right:5px}.chip{display:inline-block;border:1px solid #e2e8f0;border-radius:5px;padding:1px 5px;margin:1px;font-size:8pt}`;
-  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>학생 성적 비교</title><style>${css}</style></head><body><header><h1>학생 성적 비교 · ${esc(currentGrade)}학년 ${rows.length}명</h1><span>숫자가 낮을수록 상위 · 출력 ${new Date().toLocaleDateString("ko-KR")}</span></header>${svg}<table><thead><tr><th>순위</th><th>학생</th><th>전과목 누적</th><th>국·영·수·사·과</th><th>국·영·수·과</th><th>국·영·수·사</th><th>학기별 전과목 평균</th></tr></thead><tbody>${body}</tbody></table></body></html>`;
+  const html = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>학생 성적 비교</title><style>${css}</style></head><body><header><h1>${esc(title || `학생 성적 비교 · ${currentGrade}학년`)} ${rows.length}명</h1><span>숫자가 낮을수록 상위 · 출력 ${new Date().toLocaleDateString("ko-KR")}</span></header>${svg}<table><thead><tr><th>순위</th><th>학생</th><th>전과목 누적</th><th>국·영·수·사·과</th><th>국·영·수·과</th><th>국·영·수·사</th><th>학기별 전과목 평균</th></tr></thead><tbody>${body}</tbody></table></body></html>`;
   const frame = document.createElement("iframe");
   frame.title = "학생 성적 비교 인쇄";
   frame.style.cssText = "position:fixed;left:-10000px;top:0;width:1100px;height:760px;border:0";
