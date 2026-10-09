@@ -767,7 +767,7 @@ export default function GradesSection({
   };
 
   useEffect(() => {
-    if (loggedInTeacher && !teacherHasGradeAccess && tab !== "class") navigateGradeTab("lookup", { replace: true });
+    if (loggedInTeacher && !teacherHasGradeAccess && tab !== "class" && tab !== "classGrades") navigateGradeTab("lookup", { replace: true });
   }, [loggedInTeacher, teacherHasGradeAccess, tab]);
 
   useEffect(() => {
@@ -831,6 +831,7 @@ export default function GradesSection({
               <button type="button" onClick={() => navigateGradeTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
               <button type="button" className="kdn-dup-nav" onClick={() => navigateGradeTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
               <button type="button" className="kdn-dup-nav" onMouseEnter={preloadSusiNaviView} onFocus={preloadSusiNaviView} onClick={() => navigateGradeTab("susiNaviBeta")} style={{ ...staffToolNav.button, ...(tab === "susiNaviBeta" ? staffToolNav.active : {}) }}><BookOpen size={13} /> 2027 수시NAVI <span style={{ fontSize: 9, opacity: .78 }}>Beta</span></button>
+              {(loggedInAdmin || (loggedInTeacher && loggedInTeacher.homeroomClass)) && <button type="button" onClick={() => navigateGradeTab("classGrades")} style={{ ...staffToolNav.button, ...(tab === "classGrades" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> {loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "학급 성적"}</button>}
               {loggedInTeacher && loggedInTeacher.homeroomClass && <button type="button" onClick={() => navigateGradeTab("class")} style={{ ...staffToolNav.button, ...(tab === "class" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 담임반 학생 계정</button>}
             </div>
           </div>
@@ -925,6 +926,9 @@ export default function GradesSection({
             caseRows={gdb?.admissionCases || []}
           /></React.Suspense>
         </div>}
+        {tab === "classGrades" && (loggedInAdmin || (loggedInTeacher && loggedInTeacher.homeroomClass)) && (
+          <ClassGradeOverview gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin={!!loggedInAdmin} onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
+        )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
         )}
@@ -984,6 +988,62 @@ function buildStudentComparisonRow(sid, studentInfo, gdb) {
     latestConverted: lastIndex >= 0 && gradeSystem === 5 ? groups?.전과목?.perSemester9?.[lastIndex] ?? null : null,
     trend: SEMESTER_KEYS.map((key, index) => ({ key, value: gradeSystem === 5 ? groups?.전과목?.perSemester5?.[index] ?? null : groups?.전과목?.perSemester9?.[index] ?? null })).filter(item => item.value != null),
   };
+}
+
+// 담임(또는 관리자)용 학급 성적 한눈에 보기: 반 학생 전체의 누적 내신·조합·학기 흐름을 순위표와 분포로.
+function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent }) {
+  const classes = useMemo(() => Array.from(new Set(Object.values(roster || {}).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
+  const [pickedClass, setPickedClass] = useState(String(homeroomClass || ""));
+  const classNo = isAdmin ? (pickedClass || classes[0] || "") : String(homeroomClass || "");
+  const rows = useMemo(() => Object.entries(roster || {})
+    .filter(([, info]) => String(info?.class || "") === classNo)
+    .sort((a, b) => Number(a[1]?.number || 0) - Number(b[1]?.number || 0))
+    .map(([sid, info]) => buildStudentComparisonRow(String(sid), info, gdb)).filter(Boolean), [roster, classNo, gdb]);
+  const ranked = useMemo(() => new Map(rows.filter(row => row.overall?.primary != null).slice().sort((a, b) => a.overall.primary - b.overall.primary).map((row, index) => [row.sid, index + 1])), [rows]);
+  const graded = rows.filter(row => row.overall?.primary != null);
+  const avg = graded.length ? graded.reduce((sum, row) => sum + row.overall.primary, 0) / graded.length : null;
+  const delta = row => { const t = row.trend; return t.length >= 2 ? t[t.length - 2].value - t[t.length - 1].value : null; };
+  const up = rows.filter(row => (delta(row) ?? 0) > 0.004).length, down = rows.filter(row => (delta(row) ?? 0) < -0.004).length;
+  const scale = rows.some(row => row.gradeSystem === 9) ? 9 : 5;
+  const bins = scale === 5 ? [[1, 1.5], [1.5, 2], [2, 2.5], [2.5, 3], [3, 3.5], [3.5, 4], [4, 5.01]] : [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 9.01]];
+  const counts = bins.map(([lo, hi]) => graded.filter(row => row.overall.primary >= lo && row.overall.primary < hi).length);
+  const maxCount = Math.max(1, ...counts);
+  const ordered = rows.slice().sort((a, b) => (ranked.get(a.sid) || 999) - (ranked.get(b.sid) || 999));
+  if (!classNo) return <EmptyBox text="담당 학급이 지정되어 있지 않습니다. 관리자에게 담임 학급 등록을 요청해주세요." />;
+  return <div style={{ display: "grid", gap: 14 }}>
+    <section className="kdn-classg-hero" style={{ ...card, padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "18px 20px", background: "linear-gradient(135deg,#315f95,#667bb0)", color: "#fff" }}>
+        <div><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 950, fontSize: 19 }}><UsersRound size={20} />{currentGrade}학년 {classNo}반 성적</div><div style={{ marginTop: 4, fontSize: 11.5, color: "#e9f0f8" }}>반 학생 전체의 누적 내신과 교과 조합, 학기별 흐름을 한 화면에서 봅니다. 숫자가 낮을수록 상위입니다.</div></div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {isAdmin && <select value={classNo} onChange={event => setPickedClass(event.target.value)} style={{ minHeight: 36, borderRadius: 9, border: 0, padding: "0 10px", fontWeight: 800 }}>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
+          <button type="button" className="no-print" onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${classNo}반 성적 ·`)} disabled={!rows.length} style={{ display: "inline-flex", alignItems: "center", gap: 5, minHeight: 36, padding: "0 12px", borderRadius: 9, border: "1px solid rgba(255,255,255,.5)", background: "rgba(255,255,255,.12)", color: "#fff", fontSize: 12.5, fontWeight: 850, cursor: "pointer" }}><Printer size={14} />인쇄·PDF</button>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, padding: 16 }}>
+        {[["학생 수", `${rows.length}명`, `성적 있는 학생 ${graded.length}명`], ["반 평균 (전교과)", avg == null ? "-" : avg.toFixed(2), `${scale}등급제`], [scale === 5 ? "1점대 학생" : "1~2등급대", `${graded.filter(row => row.overall.primary < 2).length}명`, "누적 전교과 기준"], ["직전 학기보다", `▲${up} · ▼${down}`, "상승 · 하락 학생 수"]].map(([label, value, note]) => <div key={label} style={{ display: "grid", gap: 4, padding: "12px 14px", borderRadius: 12, background: "#f6f8fb", border: "1px solid #e3e8ef" }}><span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>{label}</span><b style={{ fontSize: 24, fontWeight: 900, color: "#1f2430", fontVariantNumeric: "tabular-nums" }}>{value}</b><small style={{ fontSize: 11.5, color: "#64748b" }}>{note}</small></div>)}
+      </div>
+      {graded.length > 0 && <div style={{ padding: "0 16px 16px" }}>
+        <b style={{ fontSize: 13.5, color: "#253b55" }}>전교과 분포</b>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120, marginTop: 8 }}>{bins.map(([lo, hi], index) => <div key={lo} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4, height: "100%" }}>
+          <b style={{ fontSize: 12.5, color: "#253b55" }}>{counts[index]}</b>
+          <i style={{ display: "block", width: "100%", height: `${(counts[index] / maxCount) * 80}%`, minHeight: counts[index] ? 4 : 0, borderRadius: "8px 8px 2px 2px", background: index < 2 ? "#e2531a" : index < 4 ? "#f6a37a" : "#cbd5e1" }} />
+          <small style={{ fontSize: 11, color: "#64748b", whiteSpace: "nowrap" }}>{lo}~{hi > scale ? scale : hi}</small>
+        </div>)}</div>
+      </div>}
+    </section>
+    {!rows.length ? <EmptyBox text={`${classNo}반 학생 명단이 없습니다.`} /> : <section style={{ ...card, padding: 0, overflow: "hidden" }}>
+      <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 900 }}><thead><tr><th style={table.th}>순위</th><th style={table.th}>학생</th><th style={table.th}>전과목 누적</th><th style={table.th}>국·영·수·사·과</th><th style={table.th}>국·영·수·과</th><th style={table.th}>직전 대비</th><th style={table.th}>학기별 전과목 평균</th></tr></thead>
+      <tbody>{ordered.map(row => { const d = delta(row); return <tr key={row.sid}>
+        <td style={table.td}><b style={{ fontSize: 14 }}>{ranked.get(row.sid) || "-"}</b></td>
+        <td style={{ ...table.td, textAlign: "left" }}>{onOpenStudent ? <button type="button" onClick={() => onOpenStudent(row.sid)} style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}><b style={{ display: "block", fontSize: 13.5, color: "#1f4f86", textDecoration: "underline", textUnderlineOffset: 3 }}>{row.name}</b><small style={{ fontSize: 10.5, color: "#7d8996" }}>{row.number}번 · {row.sid}</small></button> : <><b style={{ display: "block", fontSize: 13.5 }}>{row.name}</b><small style={{ fontSize: 10.5, color: "#7d8996" }}>{row.number}번 · {row.sid}</small></>}</td>
+        <td style={table.td}><b style={{ fontSize: 15, color: "#1f2430" }}>{row.overall?.primary ?? "-"}</b>{row.overall?.converted != null && <small style={{ display: "block", fontSize: 10.5, color: "#7a6a91" }}>9환산 {row.overall.converted}</small>}</td>
+        <td style={table.td}>{row.coreAll?.primary ?? "-"}</td>
+        <td style={table.td}>{row.coreScience?.primary ?? "-"}</td>
+        <td style={table.td}>{d == null ? <span style={{ color: "#a0a9b6" }}>-</span> : <b style={{ color: d > 0.004 ? "#15803d" : d < -0.004 ? "#b91c1c" : "#64748b" }}>{d > 0.004 ? "▲" : d < -0.004 ? "▼" : "＝"}{Math.abs(d).toFixed(2)}</b>}</td>
+        <td style={{ ...table.td, textAlign: "left" }}><SemesterChips trend={row.trend} /></td>
+      </tr>; })}</tbody></table></div>
+    </section>}
+  </div>;
 }
 
 function StudentGradeComparison({ gdb, roster, currentGrade }) {

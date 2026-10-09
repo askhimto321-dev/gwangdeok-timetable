@@ -1207,9 +1207,13 @@ export default function App() {
             const selectedGrade = String(saved.selectedStudentSid).charAt(0);
             if (GRADES.includes(selectedGrade) && !DISABLED_GRADES.includes(selectedGrade)) setGrade(selectedGrade);
           }
-          // 새 UI가 처음 열릴 때는 저장된 마지막 화면 대신 대시보드를 한 번 보여줍니다.
+          // 새 UI: 사이트에 새로 들어올 때는 항상 대시보드부터 보여줍니다.
+          // 새로고침·뒤로/앞으로 가기로 다시 열린 경우에만 마지막 화면을 이어서 엽니다.
           let showDashboardIntro = false;
-          try { showDashboardIntro = isNewUi() && !localStorage.getItem("kd_dashboard_intro_v1"); if (showDashboardIntro) localStorage.setItem("kd_dashboard_intro_v1", "1"); } catch { /* localStorage unavailable */ }
+          try {
+            const navType = performance.getEntriesByType?.("navigation")?.[0]?.type || "navigate";
+            showDashboardIntro = isNewUi() && navType !== "reload" && navType !== "back_forward";
+          } catch { /* performance API unavailable */ }
           if (showDashboardIntro) setSection("home");
           else if (saved.section) setSection(saved.section);
           if (STUDENT_WORKSPACE_VIEW_KEYS.includes(saved.studentWorkspaceView)) {
