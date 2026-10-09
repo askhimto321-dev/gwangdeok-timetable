@@ -24,6 +24,7 @@ import { readStorage, writeStorage } from "./storage.js";
 import { evaluateAdmissionRequirement } from "./gradeEngine.js";
 import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAccentKey } from "./admissionMetrics.js";
 import { CutStrip, SupportBandTiles } from "./naviVisuals.jsx";
+import { GradeSimPresetChips } from "./GradeSimulator.jsx";
 import { isNewUi } from "./uiMode.js";
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 import SupportPlanPresets from "./SupportPlanPresets.jsx";
@@ -391,7 +392,7 @@ function NaviCalculator({ data, selectedStudent, effectiveStudent, onPickMock, g
   </button>;
   const question = {
     1: ["누구의 성적으로 판정할까요?", "학생을 고르면 내신과 모의고사가 자동으로 들어옵니다. 수능최저는 고른 회차 성적만으로 판정합니다."],
-    2: ["5등급제 내신을 확인하세요.", "성적표에서 불러온 값이며, 상담 중 가정값으로 바꿔볼 수 있습니다."],
+    2: ["5등급제 내신을 확인하세요.", "성적표에서 불러온 값입니다. 직접 고치거나, 성적 시뮬레이터에서 저장한 프리셋을 눌러 예상 내신으로 바꿔 볼 수 있습니다."],
     3: ["어떤 방식으로 9등급을 환산할까요?", `내신 ${fmt2(grade5)}(5등급제)을 대학 컷과 비교할 9등급 값으로 바꿉니다.`],
   }[step];
   return <div className="kdn-wiz">
@@ -416,6 +417,7 @@ function NaviCalculator({ data, selectedStudent, effectiveStudent, onPickMock, g
         </>}
         {step === 2 && <>
           <label className="kdn-calc-field is-grade"><span>5등급제 {method === "statistical" ? group : "전교과"} 내신</span><input type="number" min="1" max="5" step="0.01" value={grade5} onChange={event => setGrade5(event.target.value)} placeholder="예: 1.40" /></label>
+          <GradeSimPresetChips sid={selectedStudent?.sid} group={method === "statistical" ? group : "전교과"} activeValue={grade5} onPick={(preset, value) => { if (value != null) setGrade5(Number(value).toFixed(2)); }} />
           {Object.keys(groups).length > 0 && <div className="kdn-calc-field"><span>교과 조합별 내신 (누르면 그 조합으로 통계 환산)</span>
             <div className="kdn-wiz-rounds">{CONVERSION_GROUPS.filter(key => groups[key] != null).map(key => <button key={key} type="button" data-kdn-bare aria-pressed={method === "statistical" && group === key} className={method === "statistical" && group === key ? "is-on" : ""} onClick={() => { setGroup(key); setMethod("statistical"); }}><b>{key}</b><small>{fmt2(groups[key])}</small></button>)}</div>
           </div>}
