@@ -774,10 +774,6 @@ export default function GradesSection({
   }, [loggedInTeacher, teacherHasGradeAccess, tab]);
 
   useEffect(() => {
-    if (requestedGradeTab === "classGrades" && (loggedInAdmin || loggedInTeacher?.homeroomClass)) navigateGradeTab("classGrades", { replace: true });
-  }, [requestedGradeTab, requestedGradeTabNonce]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
     if (!requestedStudentView || loggedInStudent) return;
     if (requestedStudentView === "grades") navigateGradeTab("lookup", { replace: true });
     if (requestedStudentView === "admission") navigateGradeTab("lookupAdmission", { replace: true });
@@ -786,6 +782,10 @@ export default function GradesSection({
     if (requestedStudentView === "admissionCases") navigateGradeTab("admissionCases", { replace: true });
     if (requestedStudentView === "mockAnalysis") navigateGradeTab("mockAnalysis", { replace: true });
   }, [requestedStudentView, requestedStudentViewNonce, loggedInStudent]);
+  // 대시보드 '반별 성적 확인' 바로가기: 위의 작업 탭 이동보다 뒤에 두어야 처음 열릴 때 덮어쓰이지 않습니다.
+  useEffect(() => {
+    if (requestedGradeTab === "classGrades" && (loggedInAdmin || loggedInTeacher?.homeroomClass)) navigateGradeTab("classGrades", { replace: true });
+  }, [requestedGradeTab, requestedGradeTabNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counselingFlowItems = loggedInStudent
     ? [
