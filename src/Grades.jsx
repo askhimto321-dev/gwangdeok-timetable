@@ -23,6 +23,7 @@ import { isNewUi, getUiMode, rawColors } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
 import { LayoutGrid } from 'lucide-react';
+import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore.js';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
@@ -4641,6 +4642,62 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
   </div>;
 }
 
+// 새 UI 관심대학·상담 화면 구성: A 2단 작업대 · B 상담 타임라인 · C 수시 6장 보드. 브라우저마다 기억합니다.
+const CONSULT_LAYOUT_KEY = "kd_consult_layout";
+const CONSULT_LAYOUTS = [["workbench", "2단 작업대"], ["timeline", "상담 타임라인"], ["board", "수시 6장 보드"]];
+function readConsultLayout() { try { const value = localStorage.getItem(CONSULT_LAYOUT_KEY); return CONSULT_LAYOUTS.some(([key]) => key === value) ? value : "workbench"; } catch { return "workbench"; } }
+function useConsultPlanState(sid) {
+  const [state, setState] = useState({ items: [], status: "loading" });
+  useEffect(() => {
+    let active = true;
+    const refresh = () => loadSupportPlan(sid).then(items => { if (active) setState({ items, status: "ready" }); }).catch(() => { if (active) setState(current => ({ ...current, status: "error" })); });
+    setState({ items: [], status: "loading" });
+    refresh();
+    const unsubscribe = subscribeSupportPlanChanges(sid, refresh);
+    return () => { active = false; unsubscribe(); };
+  }, [sid]);
+  return state;
+}
+const consultPlanKey = item => `${String(item?.university || "").replace(/\s/g, "")}|${String(item?.department || "").replace(/\s/g, "")}`;
+function ConsultSideSummary({ favorites = [], planItems = [], notes = [], onOpenAdmission, onOpenSusiNavi, onOpenSupportPlan }) {
+  const latest = notes[0];
+  const types = planItems.reduce((acc, item) => { const key = /종합/.test(item.admissionType || item.track || "") ? "종합" : /교과/.test(item.admissionType || item.track || "") ? "교과" : "기타"; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
+  return <aside className="kd-consult-side no-print">
+    <section><b>지금 지원 구성 {planItems.length}/6</b><div className="slots">{Array.from({ length: 6 }, (_, index) => <i key={index} className={planItems[index] ? (/종합/.test(planItems[index].admissionType || "") ? "is-h" : "is-on") : ""} title={planItems[index] ? `${planItems[index].university} ${planItems[index].department}` : "빈 칸"} />)}</div><small>{Object.entries(types).map(([key, value]) => `${key} ${value}`).join(" · ") || "아직 담은 전형이 없습니다."}</small>{onOpenSupportPlan && <button type="button" onClick={onOpenSupportPlan}>지원 구성 열기 ›</button>}</section>
+    <section><b>최근 상담</b>{latest ? <><small className="dt">{latest.date || "날짜 미입력"} · {latest.author || "작성자"}</small><p>{String(latest.text || "").slice(0, 120)}{String(latest.text || "").length > 120 ? "…" : ""}</p></> : <small>아직 상담 기록이 없습니다.</small>}<small>총 {notes.length}회</small></section>
+    <section><b>관심 대학 {favorites.length}</b><div className="chips">{favorites.slice(0, 10).map((item, index) => <span key={`${item.university}-${index}`}>{item.university}{item.department ? ` · ${item.department}` : ""}</span>)}{favorites.length > 10 && <span>+{favorites.length - 10}</span>}</div>
+      <div className="links">{onOpenAdmission && <button type="button" onClick={() => onOpenAdmission("")}>대학 탐색</button>}{onOpenSusiNavi && <button type="button" onClick={() => onOpenSusiNavi("")}>NAVI 분석</button>}</div></section>
+  </aside>;
+}
+function ConsultPlanBoard({ sid, planItems = [], status, favorites = [], onOpenSupportPlan }) {
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+  const inPlan = new Set(planItems.map(consultPlanKey));
+  const pool = favorites.filter(item => item.university && item.department && !inPlan.has(consultPlanKey(item)));
+  const run = async (key, action, item) => {
+    setBusy(key); setMessage("");
+    try {
+      const mod = await import("./SusiNaviBeta.jsx");
+      const result = action === "add" ? await mod.addSusiSupportPlanExternal(sid, { ...item, source: item.source || "관심대학·상담" }) : await mod.removeSusiSupportPlanExternal(sid, item);
+      if (!result?.ok) setMessage(result?.error || "저장하지 못했습니다.");
+    } catch (error) { setMessage(error?.message || "저장하지 못했습니다."); }
+    finally { setBusy(""); }
+  };
+  const typeOf = item => (/종합/.test(item.admissionType || item.track || "") ? "종합" : /교과/.test(item.admissionType || item.track || "") ? "교과" : (item.admissionType || "기타"));
+  return <section className="kd-consult-board no-print">
+    <header><b>수시 지원 구성 {planItems.length}/6</b><span>관심 대학에서 담고, 카드의 ✕로 뺍니다. NAVI의 지원 구성과 같은 목록입니다.</span>{onOpenSupportPlan && <button type="button" onClick={onOpenSupportPlan}>NAVI에서 판정 보기 ›</button>}</header>
+    {status === "error" && <div className="err">지원 구성을 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요.</div>}
+    <div className="slots">{Array.from({ length: 6 }, (_, index) => {
+      const item = planItems[index];
+      if (!item) return <div key={index} className="slot is-empty"><b>{index + 1}</b><span>빈 칸</span><small>아래 관심 대학에서 담기</small></div>;
+      const key = `rm-${index}`;
+      return <div key={index} className={`slot t-${typeOf(item)}`}><div className="top"><b>{index + 1}</b><em>{typeOf(item)}</em><button type="button" data-kdn-bare disabled={!!busy} onClick={() => run(key, "remove", item)} aria-label={`${item.university} 빼기`}>{busy === key ? "…" : "✕"}</button></div><strong>{item.university}</strong><span>{item.department}</span><small>{item.track}</small></div>;
+    })}</div>
+    {message && <div className="err">{message}</div>}
+    <div className="pool"><b>관심 대학 (지원 구성 밖) {pool.length}</b>{pool.length ? <div className="chips">{pool.map((item, index) => { const key = `add-${index}`; return <button key={key} type="button" data-kdn-bare disabled={!!busy || planItems.length >= 6} onClick={() => run(key, "add", item)} title={planItems.length >= 6 ? "6장이 모두 찼습니다." : "지원 구성에 담기"}><span>{item.university} · {item.department}</span><small>{item.admissionType || item.track || ""}</small><em>{busy === key ? "…" : planItems.length >= 6 ? "6장 가득" : "+ 담기"}</em></button>; })}</div> : <small>모집단위까지 저장된 관심 대학이 모두 담겼거나 없습니다.</small>}</div>
+  </section>;
+}
+
 export function StudentConsultationView({
   sid,
   gdb,
@@ -4668,6 +4725,11 @@ export function StudentConsultationView({
   const [cardFocus, setCardFocus] = useState(false);
   const [printPaper, setPrintPaper] = useState("A4");
   const supportPlanCount = useSupportPlanCount(sid);
+  const newUi = isNewUi();
+  const [consultLayout, setConsultLayoutState] = useState(readConsultLayout);
+  const setConsultLayout = value => { setConsultLayoutState(value); try { localStorage.setItem(CONSULT_LAYOUT_KEY, value); } catch { /* 저장 실패는 무시 */ } };
+  const layout = newUi ? consultLayout : "classic";
+  const planState = useConsultPlanState(newUi ? sid : "");
   const notes = useMemo(
     () => [...(gdb?.admissionCounseling?.[String(sid)] || [])].sort((a,b)=>String(b.date||b.createdAt||"").localeCompare(String(a.date||a.createdAt||""))),
     [gdb?.admissionCounseling, sid],
@@ -4732,6 +4794,7 @@ export function StudentConsultationView({
       <button type="button" className="kd-consult-action" aria-pressed={cardFocus} onClick={()=>setCardFocus(value=>!value)}><LayoutGrid size={16}/>{cardFocus ? '상세 보기' : '대학 요약 보기'}</button>
       <button type="button" className="kd-consult-action is-print" onClick={()=>setPrintOptionsOpen(true)}><Printer size={16}/>상담 인쇄·PDF 저장</button>
     </div>
+    {newUi && <div className="kdn-case-layout-switch no-print"><span>화면 구성</span><div>{CONSULT_LAYOUTS.map(([key,label])=><button key={key} type="button" className={consultLayout===key?"is-on":""} aria-pressed={consultLayout===key} onClick={()=>setConsultLayout(key)}>{label}</button>)}</div></div>}
     <div className="counseling-print-root" style={{display:"grid",gap:14}}>
     <div className="counseling-print-student-banner"><StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" /></div>
     <div className="kd-consult-linkhub no-print" style={consultationView.linkHub}>
@@ -4739,6 +4802,9 @@ export function StudentConsultationView({
       <div className="kd-consult-linkhub-stats" style={consultationView.linkHubStats}><span><small>관심 항목</small><b>{favorites.length}개</b></span><span><small>지원 구성</small><b>{supportPlanCount == null ? "확인 필요" : `${supportPlanCount}/6`}</b></span><span><small>상담 기록</small><b>{notes.length}건</b></span></div>
       <div style={consultationView.linkHubActions}>{onOpenAdmission&&<button type="button" onClick={()=>onOpenAdmission("")} style={consultationView.linkHubButton}><GraduationCap size={13}/>대학 탐색</button>}{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi("","")} style={consultationView.linkHubButton}><BookOpen size={13}/>NAVI 분석</button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan} count={supportPlanCount}/>}{onOpenCases&&<button type="button" onClick={()=>onOpenCases("","","")} style={consultationView.linkHubButton}><BarChart3 size={13}/>광덕고 사례</button>}</div>
     </div>
+    {layout==="board" && <ConsultPlanBoard sid={sid} planItems={planState.items} status={planState.status} favorites={favorites} onOpenSupportPlan={onOpenSupportPlan}/>}
+    <div className={`kd-consult-body is-${layout}`}>
+    {layout==="timeline" && <ConsultSideSummary favorites={favorites} planItems={planState.items} notes={notes} onOpenAdmission={onOpenAdmission} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan}/>}
     <div className="counseling-print-favorites"><StudentFavoritesView sid={sid} gdb={gdb} selectedStudent={selectedStudent} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
     <div className="counseling-print-notes" style={consultationView.card}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={()=>setPrintOptionsOpen(true)} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="상담 기록과 관심 대학·학과의 포함 여부를 선택해 인쇄합니다."><Printer size={13}/>인쇄·PDF</button></div>
@@ -4765,6 +4831,7 @@ export function StudentConsultationView({
           {!!note.attachments?.length && <div className="counseling-print-attachment-label">첨부 목록: {note.attachments.map(file=>file.fileName || '첨부파일').join(' · ')} (파일 본문은 별도 확인)</div>}
         </article>) : <div style={consultationView.empty}>저장된 상담 기록이 없습니다.</div>}
       </div>
+    </div>
     </div>
     </div>
     {printOptionsOpen&&<div className="counseling-print-option-overlay no-print" role="dialog" aria-modal="true" aria-label="상담 인쇄 항목 선택">

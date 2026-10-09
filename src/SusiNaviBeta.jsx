@@ -145,6 +145,13 @@ export async function addSusiSupportPlanExternal(studentSid = "", item = {}) {
   return mutateWorkspaceList(sid, "plan", "add", normalizedItem, supportPlanItemKey);
 }
 
+// 상담 화면의 지원 구성 보드에서 한 장을 뺄 때 씁니다(NAVI와 같은 항목 키).
+export async function removeSusiSupportPlanExternal(studentSid = "", item = {}) {
+  const sid = String(studentSid || "").trim();
+  if (!sid) return { ok: false, error: "학생을 먼저 선택해주세요." };
+  return mutateWorkspaceList(sid, "plan", "remove", item, supportPlanItemKey);
+}
+
 function normalizeCourseNumerals(value) {
   return normalizeText(value)
     // NFKC 정규화 뒤에는 Ⅰ·Ⅱ·Ⅲ도 I·II·III가 됩니다. 과목명 끝의 로마 숫자만
