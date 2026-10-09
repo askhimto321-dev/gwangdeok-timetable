@@ -1072,7 +1072,23 @@ const CLASS_GRADE_CSS = `
 .cg-stack{display:flex;gap:2px;height:22px}
 .cg-stack span{display:flex;align-items:center;justify-content:center;min-width:6px;border-radius:6px;font-size:12px;font-weight:700}
 .cg-row-s{display:grid;justify-items:end;gap:3px}.cg-row-s b{font-size:16px;font-weight:800;color:var(--kdn-ink,#1f2430)}
-@media (max-width:900px){.cg-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cg-row{grid-template-columns:60px minmax(0,1fr)}.cg-row-s{grid-column:2;justify-items:start;grid-auto-flow:column;gap:8px}}
+.cg-cnt{display:grid;justify-items:center;gap:1px;line-height:1.1}
+.cg-cnt b{font-size:16px;font-weight:800;color:var(--kdn-ink,#1f2430)}.cg-cnt b em{font-style:normal;margin-left:1px;font-size:11.5px;font-weight:600;color:var(--kdn-muted,#5d6574)}
+.cg-cnt small{font-size:11.5px;font-weight:600;color:var(--kdn-muted,#8a92a0)}
+.cg-table{table-layout:fixed}
+.cg-table td.grp,.cg-table th.grp{border-left:1px solid var(--kdn-line,#e3e6ec)}
+.cg-table tbody tr:nth-child(even) td{background:var(--kdn-surface-2,#fafbfc)}
+.cg-sortbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:2px 0 8px}
+.cg-sortbar>span{font-size:13px;font-weight:700;color:var(--kdn-muted,#5d6574)}
+.cg-sortbar button{min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--kdn-line,#e3e6ec);background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:700;color:var(--kdn-ink-soft,#3a4150);cursor:pointer}
+.cg-sortbar button.is-on{background:var(--kdn-ink,#1f2430);border-color:var(--kdn-ink,#1f2430);color:var(--kdn-surface,#fff)}
+.cg-row{grid-template-columns:40px 104px minmax(0,1fr) 150px}
+.cg-row-n small{white-space:nowrap}
+.cg-rk{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:999px;font-size:13px;font-weight:800;background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-ink-soft,#3a4150)}
+.cg-rk.top{background:#fff0e6;color:#c2410c;box-shadow:inset 0 0 0 1.5px #f6b48f}
+.cg-row-s small{font-size:12px;color:var(--kdn-muted,#5d6574)}
+@media (max-width:900px){.cg-row{grid-template-columns:34px 60px minmax(0,1fr)}.cg-row-s{grid-column:3}}
+@media (max-width:900px){.cg-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cg-row{grid-template-columns:34px 92px minmax(0,1fr)}.cg-row-s{grid-column:2 / -1;justify-items:start;grid-auto-flow:column;gap:8px}}
 @media print{.cg-hero-tools{display:none}}
 `;
 const CG_BAND_COLORS = ["#e2531a", "#f08a5d", "#f6b896", "#f3d2bd", "#b6c0cd", "#9aa6b5", "#7f8b9c"];
@@ -1084,6 +1100,14 @@ const classToneClass = (value, scale) => {
 const fmt2 = value => (value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
 const changeTone = d => (d == null ? "cg-flat" : d > 0.004 ? "cg-up" : d < -0.004 ? "cg-down" : "cg-flat");
 const changeMark = d => (d > 0.004 ? "▲" : d < -0.004 ? "▼" : "＝");
+// 반 비교 순위 기준(낮을수록 좋은 값은 오름차순, 비율·상승폭은 내림차순).
+const CLASS_SORTS = [
+  { key: "mean", label: "평균", value: stat => stat.mean, fmt: stat => fmt2(stat.mean) },
+  { key: "median", label: "중앙값", value: stat => stat.median, fmt: stat => fmt2(stat.median) },
+  { key: "best", label: "최고 성적", value: stat => stat.best, fmt: stat => fmt2(stat.best) },
+  { key: "top", label: "1등급대 비율", value: stat => (stat.n ? stat.top / stat.n : null), desc: true, fmt: stat => (stat.n ? `${Math.round(stat.top / stat.n * 100)}%` : "-") },
+  { key: "change", label: "직전 학기 상승", value: stat => stat.change, desc: true, fmt: stat => (stat.change == null ? "-" : `${changeMark(stat.change)}${Math.abs(stat.change).toFixed(2)}`) },
+];
 // 반 성적 요약 칸: 흰 카드 4개(학생 수 · 반 평균 · 1등급대 · 직전 학기 변화)
 function ClassGradeKpis({ rows, graded, avg, gradeMean, scale, up, down }) {
   const topCount = graded.filter(row => row.overall.primary < 2).length;
@@ -1103,7 +1127,7 @@ function ClassGradeHistogram({ bins, counts, total, scale, avg }) {
   return <div className="cg-hist">
     <div className="cg-sec-h"><b>전교과 누적 분포</b><span>막대 = 구간별 학생 수 · 주황 글자 = 반 평균이 있는 구간</span></div>
     <div className="cg-bars" style={{ "--n": bins.length }}>{bins.map(([lo], index) => <div key={lo} className="cg-bar">
-      <b>{counts[index]}<small>{total ? `${Math.round(counts[index] / total * 100)}%` : ""}</small></b>
+      <span className="cg-cnt"><b>{counts[index]}<em>명</em></b><small>{total ? `${Math.round(counts[index] / total * 100)}%` : ""}</small></span>
       {rawColors(() => <i style={{ height: `${(counts[index] / maxCount) * 74}%`, minHeight: counts[index] ? 6 : 2, background: CG_BAND_COLORS[index] || "#c0c8d3", outline: index === avgBin ? "2px solid var(--kdn-ink,#1f2430)" : "none", outlineOffset: 2 }} />)}
     </div>)}</div>
     <div className="cg-axis" style={{ "--n": bins.length }}>{bins.map(([lo, hi], index) => <span key={lo} className={index === avgBin ? "is-avg" : ""}>{index === avgBin ? "● " : ""}{lo.toFixed(1)}–{(hi > scale ? scale : hi).toFixed(1)}</span>)}</div>
@@ -1129,20 +1153,23 @@ function SemesterSteps({ trend = [] }) {
   })}</div>;
 }
 // 반 비교: 반마다 등급 구간별 학생 수를 가는 막대로 쌓아 비교합니다(왼쪽일수록 상위 구간).
-function ClassBandCompare({ classStats = [], scale, gradeMean, highlight = "", onPick }) {
+function ClassBandCompare({ classStats = [], scale, gradeMean, highlight = "", onPick, sortKey = "mean", onSort }) {
+  const crit = CLASS_SORTS.find(item => item.key === sortKey) || CLASS_SORTS[0];
   const bands = scale === 5
     ? [[1, 2, "1등급대", "#e2531a", "#fff", "1.00~1.99"], [2, 3, "2등급대", "#f6b896", "#7a2a08", "2.00~2.99"], [3, 4, "3등급대", "#b6c0cd", "#1f2430", "3.00~3.99"], [4, 5.01, "4등급 이하", "#7f8b9c", "#fff", "4.00 이상"]]
     : [[1, 3, "1~2등급", "#e2531a", "#fff", ""], [3, 5, "3~4등급", "#f6b896", "#7a2a08", ""], [5, 7, "5~6등급", "#b6c0cd", "#1f2430", ""], [7, 9.01, "7등급 이하", "#7f8b9c", "#fff", ""]];
   return <div className="cg-cmp">
     <div className="cg-sec-h"><b>반별 전교과 구간 비율</b><span className="cg-legend">{bands.map(([, , label, color, , range]) => <span key={label}>{rawColors(() => <i style={{ background: color }} />)}{label}{range ? ` (${range})` : ""}</span>)}{gradeMean != null && <span>학년 평균 <b style={{ fontSize: 13, color: "var(--kdn-ink,#1f2430)" }}>{gradeMean.toFixed(2)}</b></span>}</span></div>
+    <div className="cg-sortbar"><span>순위 기준</span>{CLASS_SORTS.map(item => <button key={item.key} type="button" data-kdn-bare className={sortKey === item.key ? "is-on" : ""} onClick={() => onSort?.(item.key)}>{item.label}</button>)}</div>
     {classStats.map(stat => {
       const mine = stat.no === highlight;
       const counts = bands.map(([lo, hi]) => stat.list.filter(v => v >= lo && v < hi).length);
       const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null;
       return <div key={stat.no} className={`cg-row${mine ? " mine" : ""}`}>
+        <span className={`cg-rk${stat.rank <= 3 ? " top" : ""}`}>{stat.rank}</span>
         <button type="button" className="cg-row-n" onClick={() => onPick?.(stat.no)} style={{ cursor: onPick ? "pointer" : "default" }}><b>{stat.no}반</b><small>{stat.n}명{mine ? " · 우리 반" : ""}</small></button>
         <div className="cg-stack">{rawColors(() => counts.map((count, index) => count ? <span key={index} title={`${bands[index][2]} ${count}명`} style={{ flex: count, background: bands[index][3], color: bands[index][4] }}>{count >= 2 || stat.n < 12 ? count : ""}</span> : null))}</div>
-        <div className="cg-row-s"><b>{stat.mean == null ? "-" : stat.mean.toFixed(2)}</b>{gap != null && <span className={`cg-pill ${changeTone(gap)}`}>학년 대비 {changeMark(gap)}{Math.abs(gap).toFixed(2)}</span>}</div>
+        <div className="cg-row-s"><small>{crit.label}</small><b>{crit.fmt(stat)}</b>{crit.key === "mean" && gap != null && <span className={`cg-pill ${changeTone(gap)}`}>학년 대비 {changeMark(gap)}{Math.abs(gap).toFixed(2)}</span>}</div>
       </div>;
     })}
   </div>;
@@ -1176,6 +1203,12 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
     return { no, list, n: list.length, mean, median, best: list[0] ?? null, top: list.filter(v => v < 2).length, change: lastDeltas.length ? lastDeltas.reduce((s, v) => s + v, 0) / lastDeltas.length : null };
   }), [classes, allRows]);
   const gradeMean = (() => { const all = classStats.flatMap(stat => stat.list); return all.length ? all.reduce((s, v) => s + v, 0) / all.length : null; })();
+  const [cmpSort, setCmpSort] = useState("mean");
+  const sortedStats = useMemo(() => {
+    const crit = CLASS_SORTS.find(item => item.key === cmpSort) || CLASS_SORTS[0];
+    const list = classStats.slice().sort((a, b) => { const va = crit.value(a), vb = crit.value(b); if (va == null) return 1; if (vb == null) return -1; return crit.desc ? vb - va : va - vb; });
+    return list.map((stat, index) => ({ ...stat, rank: index + 1 }));
+  }, [classStats, cmpSort]);
   if (!classNo && !isAdmin) return <EmptyBox text="담당 학급이 지정되어 있지 않습니다. 관리자에게 담임 학급 등록을 요청해주세요." />;
   return <div className="cg">
     <style>{CLASS_GRADE_CSS}</style>
@@ -1192,23 +1225,24 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
         <ClassGradeKpis rows={rows} graded={graded} avg={avg} gradeMean={gradeMean} scale={scale} up={up} down={down} />
         {graded.length > 0 && <ClassGradeHistogram bins={bins} counts={counts} total={graded.length} scale={scale} avg={avg} />}
       </>}
-      {view === "compare" && <ClassBandCompare classStats={classStats} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
+      {view === "compare" && <ClassBandCompare classStats={sortedStats} sortKey={cmpSort} onSort={setCmpSort} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
     </section>
     {view === "class" && (!rows.length ? <EmptyBox text={`${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
-      <div className="cg-table-wrap"><table className="cg-table"><thead><tr><th className="c">순위</th><th>학생</th><th className="r">전교과 누적</th><th className="c">국·영·수·사·과</th><th className="c">국·영·수·과</th><th className="r">직전 → 최근 학기</th><th>학기별 전교과 평균</th></tr></thead>
+      <div className="cg-table-wrap"><table className="cg-table"><colgroup><col style={{ width: 64 }} /><col style={{ width: 150 }} /><col style={{ width: 120 }} /><col style={{ width: 118 }} /><col style={{ width: 118 }} /><col style={{ width: 200 }} /><col /></colgroup><thead><tr><th className="c">순위</th><th>학생</th><th className="r">전교과 누적</th><th className="c grp">국·영·수·사·과</th><th className="c">국·영·수·과</th><th className="r grp">직전 → 최근 학기</th><th className="grp">학기별 전교과 평균</th></tr></thead>
       <tbody>{ordered.map(row => { const v = row.overall?.primary; const rank = ranked.get(row.sid); return <tr key={row.sid}>
         <td className="c">{rank ? <span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}</span> : "-"}</td>
         <td>{onOpenStudent ? <button type="button" data-kdn-bare className="cg-name" onClick={() => onOpenStudent(row.sid)}><b>{row.name}</b><small>{row.number}번 · {row.sid}</small></button> : <span className="cg-name"><b>{row.name}</b><small>{row.number}번 · {row.sid}</small></span>}</td>
         <td className="r">{v == null ? <span className="cg-sub">-</span> : <><span className="cg-big">{v.toFixed(2)}</span>{row.overall?.converted != null && <span className="cg-sub">9등급 환산 {Number(row.overall.converted).toFixed(2)}</span>}</>}</td>
-        {[row.coreAll?.primary, row.coreScience?.primary].map((value, i) => <td key={i} className="c"><span className={`cg-tone ${classToneClass(value, scale)}`}>{value == null ? "-" : Number(value).toFixed(2)}</span></td>)}
-        <td className="r"><SemesterChange trend={row.trend} /></td>
-        <td><SemesterSteps trend={row.trend} /></td>
+        {[row.coreAll?.primary, row.coreScience?.primary].map((value, i) => <td key={i} className={i === 0 ? "c grp" : "c"}><span className={`cg-tone ${classToneClass(value, scale)}`}>{value == null ? "-" : Number(value).toFixed(2)}</span></td>)}
+        <td className="r grp"><SemesterChange trend={row.trend} /></td>
+        <td className="grp"><SemesterSteps trend={row.trend} /></td>
       </tr>; })}</tbody></table></div>
       <div className="cg-foot">숫자가 낮을수록 좋은 성적 · ▲ 초록 = 앞 학기보다 좋아짐, ▼ 빨강 = 낮아짐 · 진한 숫자 = 가장 최근 학기</div>
     </section>)}
     {view === "compare" && <section className="cg-card">
-      <div className="cg-table-wrap"><table className="cg-table" style={{ minWidth: 640 }}><thead><tr><th>반</th><th className="r">학생</th><th className="r">평균</th><th className="r">학년 평균 대비</th><th className="r">중앙값</th><th className="r">최고</th><th className="r">{scale === 5 ? "1등급대" : "1~2등급"}</th><th className="r">직전 학기 평균 변화</th></tr></thead>
-        <tbody>{classStats.slice().sort((a, b) => (a.mean ?? 99) - (b.mean ?? 99)).map(stat => { const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null; return <tr key={stat.no}>
+      <div className="cg-table-wrap"><table className="cg-table" style={{ minWidth: 700 }}><thead><tr><th className="c" style={{ width: 64 }}>순위</th><th>반</th><th className="r">학생</th><th className="r">평균</th><th className="r">학년 평균 대비</th><th className="r">중앙값</th><th className="r">최고</th><th className="r">{scale === 5 ? "1등급대" : "1~2등급"}</th><th className="r">직전 학기 평균 변화</th></tr></thead>
+        <tbody>{sortedStats.map(stat => { const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null; return <tr key={stat.no}>
+          <td className="c"><span className={`cg-rk${stat.rank <= 3 ? " top" : ""}`}>{stat.rank}</span></td>
           <td><b style={{ color: "var(--kdn-ink,#1f2430)" }}>{stat.no}반</b></td><td className="r">{stat.n}명</td>
           <td className="r"><span className="cg-big" style={{ fontSize: 15.5 }}>{fmt2(stat.mean)}</span></td>
           <td className="r">{gap == null ? "-" : <span className={`cg-pill ${changeTone(gap)}`}>{changeMark(gap)} {Math.abs(gap).toFixed(2)}</span>}</td>
