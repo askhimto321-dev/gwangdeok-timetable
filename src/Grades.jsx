@@ -15,6 +15,7 @@ import themeCss from './theme.css?raw';
 import CounselingAdmissionFacts from './CounselingAdmissionFacts.jsx';
 import {buildCounselingFactIndex,counselingFactsForFavorite,loadRecommendedSubjectData,studentNaviGrade} from './SusiNaviBeta.jsx';
 import { CutStrip } from './naviVisuals.jsx';
+import { GradeInsights, GradeHeatmap } from './gradeInsights.jsx';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
 import { isNewUi, getUiMode } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
@@ -1777,7 +1778,8 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   }, [scopedAdmissionRows, reportMinimumStudent]);
   const comment = gradeAnalysisComment(overallAverage, sums.sum2, sums.sum3, sums.sum4, gradeSystem);
 
-  const [trendTab, setTrendTab] = useState("category");
+  // 새 UI는 인사이트(시안 C)를 먼저 보여주고, 과목×학기 히트맵·교과별 그래프·모의고사를 탭으로 고릅니다.
+  const [trendTab, setTrendTab] = useState(() => (isNewUi() ? "insight" : "category"));
   const [selectedCategoryTrend, setSelectedCategoryTrend] = useState("전과목");
   const [selectedMockSubject, setSelectedMockSubject] = useState("전과목 평균");
 
@@ -2113,13 +2115,21 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
       {showGrades && (hasAnyGrades || availableMockKeys.length > 0) && (
         <div style={card}>
           <SectionHeading
-            title="성적 추이 그래프"
-            description={`선택한 항목 한 개만 그래프로 표시하여 선이 겹치지 않도록 했습니다. 내신은 ${gradeDisplayLabel} 기준이며, 위쪽의 1등급에 가까울수록 우수합니다.`}
+            title={isNewUi() ? "성적 리포트" : "성적 추이 그래프"}
+            description={isNewUi() ? `학기별 흐름과 교과별 강점·관리 포인트를 정리했습니다. 내신은 ${gradeDisplayLabel} 기준이며, 1등급에 가까울수록 우수합니다.` : `선택한 항목 한 개만 그래프로 표시하여 선이 겹치지 않도록 했습니다. 내신은 ${gradeDisplayLabel} 기준이며, 위쪽의 1등급에 가까울수록 우수합니다.`}
           />
-          <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+          {isNewUi() ? <div className="kdn-view-switch is-left" role="group" aria-label="성적 리포트 보기">
+            {[["insight", "인사이트"], ["heatmap", "과목 × 학기"], ["category", "교과별 그래프"], ["mock", "모의고사"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={trendTab === key} className={trendTab === key ? "is-on" : ""} onClick={() => setTrendTab(key)}>{label}</button>)}
+          </div> : <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
             <TrendTabButton active={trendTab === "category"} onClick={() => setTrendTab("category")}>교과별 내신</TrendTabButton>
             <TrendTabButton active={trendTab === "mock"} onClick={() => setTrendTab("mock")}>모의고사</TrendTabButton>
-          </div>
+          </div>}
+
+          {trendTab === "insight" && <GradeInsights groups={displayGroups} groupField={displayGradeScale === 9 ? "perSemester9" : "perSemester5"} semesterKeys={availableSemesters} allKeys={SEMESTER_KEYS}
+            labels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))} scale={displayGradeScale} gradeLabel={gradeDisplayLabel} studentName={studentName}
+            overallAverage={displayGradeScale === 9 ? displayGroups["전과목"]?.avg9 : displayGroups["전과목"]?.avg5} />}
+          {trendTab === "heatmap" && <GradeHeatmap subjectLists={subjectLists} semesterKeys={availableSemesters} allKeys={SEMESTER_KEYS}
+            labels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))} gradeSystem={gradeSystem} groups={groups} groupField={gradeSystem === 9 ? "perSemester9" : "perSemester5"} />}
 
           {trendTab === "category" && (
             <div>

@@ -2836,7 +2836,7 @@ const dash = {
   countdownLabel: { fontSize: 12.5, fontWeight: 600, color: "var(--kdn-muted)", letterSpacing: ".04em" },
   countdownDigits: { display: "flex", alignItems: "flex-start", gap: 6 },
   countdownCell: { display: "grid", justifyItems: "center", gap: 2 },
-  countdownNum: { fontFamily: "'JetBrains Mono','SFMono-Regular',ui-monospace,Menlo,Consolas,monospace", fontSize: 30, fontWeight: 700, lineHeight: 1, color: "var(--kdn-ink)", fontVariantNumeric: "tabular-nums" },
+  countdownNum: { fontFamily: "var(--kdn-num-font)", fontSize: 30, fontWeight: 700, lineHeight: 1, color: "var(--kdn-ink)", fontVariantNumeric: "tabular-nums" },
   countdownNumLead: { color: "var(--kdn-accent)" },
   countdownSep: { fontSize: 22, lineHeight: "30px", color: "var(--kdn-muted)" },
   countdownUnit: { fontSize: 11.5, fontWeight: 500, color: "var(--kdn-muted)" },
