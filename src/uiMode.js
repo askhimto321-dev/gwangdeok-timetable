@@ -1141,6 +1141,22 @@ const SHARED_NEW_CSS = `
   .kdn-case-table .rate em{display:block;height:100%;background:#16a34a;border-radius:999px}
   .kdn-case-table .rate small{font-family:var(--kdn-num-font);font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft)}
   .kdn-case-table .go{color:var(--kdn-muted);text-align:right}
+  /* 교과 × 학기 성취 지도 */
+  .kdn-gh{display:grid;gap:6px;min-width:560px}
+  .kdn-gh-corner{display:flex;align-items:flex-end;padding:0 8px 6px;font-size:12px;font-weight:700;color:var(--kdn-muted)}
+  .kdn-gh-col{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:10px 8px;border-radius:12px;background:var(--kdn-ink);color:var(--kdn-surface)}
+  .kdn-gh-col b{font-size:14.5px;font-weight:800}
+  .kdn-gh-col small{font-family:var(--kdn-num-font);font-size:12px;opacity:.75}
+  .kdn-gh-row{display:flex;flex-direction:column;justify-content:center;gap:2px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2);box-shadow:inset 4px 0 0 var(--c)}
+  .kdn-gh-row b{font-size:15px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-gh-row small{font-family:var(--kdn-num-font);font-size:12px;color:var(--kdn-muted)}
+  .kdn-gh-cell{display:flex;flex-wrap:wrap;align-content:center;gap:5px;padding:8px;border-radius:12px;border:1px solid var(--kdn-line);background:var(--kdn-surface);min-height:46px}
+  .kdn-gh-cell.is-empty{justify-content:center;background:repeating-linear-gradient(45deg,var(--kdn-surface-2) 0 6px,var(--kdn-surface) 6px 12px)}
+  .kdn-gh-cell.is-empty small{font-size:12px;color:var(--kdn-muted)}
+  .kdn-gh-chip{display:inline-flex;align-items:stretch;border-radius:9px;overflow:hidden;font-size:13px;max-width:100%}
+  .kdn-gh-chip em{font-style:normal;padding:5px 8px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px;background:rgba(255,255,255,.55);color:#1f2430}
+  .kdn-gh-chip b{display:flex;align-items:center;padding:5px 9px;font-family:var(--kdn-num-font);font-size:15px;font-weight:800}
+  .kdn-gh-chip.l1{background:#e2531a;color:#ffffff}.kdn-gh-chip.l2{background:#f6a37a;color:#3b1505}.kdn-gh-chip.l3{background:#fde3d3;color:#7a2a08}.kdn-gh-chip.l4{background:#e5e7eb;color:#374151}.kdn-gh-chip.l0{background:#f1f5f9;color:#475569;box-shadow:inset 0 0 0 1px #e2e8f0}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}

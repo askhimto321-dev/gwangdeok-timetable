@@ -64,44 +64,46 @@ function heatLevel(grade, scale) {
   return g <= 1 ? 1 : g === 2 ? 2 : g === 3 ? 3 : 4;
 }
 
+// 교과 × 학기 성취 지도: 줄 = 교과(국어·수학…), 칸 = 학기, 칸 안에 그 학기 과목을 등급 색 칩으로.
+// 과목마다 한 줄씩 쓰면 학기마다 이름이 바뀌는 과목(공통국어1→2→문학) 때문에 표가 길고 빈칸투성이가 됩니다.
+const HEAT_ORDER = [["국어", "#2563eb"], ["수학", "#16a34a"], ["영어", "#9333ea"], ["한국사", "#b45309"], ["사회", "#c2410c"], ["과학", "#0891b2"], ["기술가정/정보", "#0f766e"], ["제2외국어/한문", "#a16207"], ["기타", "#64748b"]];
 export function GradeHeatmap({ subjectLists = [], semesterKeys = [], allKeys = [], labels = [], gradeSystem = 5, groups, groupField }) {
   const scale = Number(gradeSystem) === 9 ? 9 : 5;
-  const rows = React.useMemo(() => {
-    const map = new Map();
+  const grid = React.useMemo(() => {
+    const byCat = new Map();
     semesterKeys.forEach((key, column) => {
       (subjectLists[allKeys.indexOf(key)] || []).forEach(subject => {
         const grade = getSubjectGrade(subject);
-        if (grade == null || !subject?.subject) return;
-        const name = String(subject.subject).trim();
+        if (!subject?.subject) return;
         const category = normalizeCategory(subject.category, subject.subject);
-        if (!map.has(name)) map.set(name, { name, category, credit: Number(subject.credit) || 0, cells: semesterKeys.map(() => null) });
-        map.get(name).cells[column] = grade;
+        if (!byCat.has(category)) byCat.set(category, semesterKeys.map(() => []));
+        byCat.get(category)[column].push({ name: String(subject.subject).trim(), grade, credit: Number(subject.credit) || 0, achievement: subject.achievement || "" });
       });
     });
-    const order = ["국어", "수학", "영어", "한국사", "사회", "과학"];
-    return [...map.values()].sort((a, b) => {
-      const ai = order.indexOf(a.category), bi = order.indexOf(b.category);
-      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi) || a.cells.findIndex(v => v != null) - b.cells.findIndex(v => v != null);
-    });
+    const known = HEAT_ORDER.map(([name]) => name);
+    return [...byCat.entries()].sort((a, b) => (known.indexOf(a[0]) < 0 ? 99 : known.indexOf(a[0])) - (known.indexOf(b[0]) < 0 ? 99 : known.indexOf(b[0])));
   }, [subjectLists, semesterKeys, allKeys]);
   const counts = {};
-  rows.forEach(row => row.cells.forEach(value => { if (value != null) { const g = Math.round(value); counts[g] = (counts[g] || 0) + 1; } }));
+  grid.forEach(([, cells]) => cells.flat().forEach(item => { if (item.grade != null) { const g = Math.round(item.grade); counts[g] = (counts[g] || 0) + 1; } }));
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
   const overall = seriesFor(groups, "전과목", groupField, semesterKeys, allKeys);
-  if (!rows.length) return <div className="kdn-gi-empty">등록된 과목 성적이 없습니다.</div>;
+  if (!grid.length) return <div className="kdn-gi-empty">등록된 과목 성적이 없습니다.</div>;
+  const color = name => (HEAT_ORDER.find(([key]) => key === name) || HEAT_ORDER[HEAT_ORDER.length - 1])[1];
+  const catAvg = cells => { const all = cells.flat().filter(item => item.grade != null && item.credit > 0); const credits = all.reduce((sum, item) => sum + item.credit, 0); return credits ? all.reduce((sum, item) => sum + item.grade * item.credit, 0) / credits : null; };
   return <div className="kdn-gi-heat-wrap">
     <div className="kdn-gi-heat-head">
-      <div><b>과목 × 학기 성취 지도</b><span>진할수록 좋은 등급 · {scale}등급제 원등급 · 빗금은 미이수</span></div>
-      <div className="kdn-gi-legend">{[1, 2, 3, 4].map(level => <span key={level}><i className={`kdn-gi-cell l${level}`} />{scale === 9 ? ["1–2", "3–4", "5–6", "7–9"][level - 1] : ["1", "2", "3", "4–5"][level - 1]}</span>)}<span><i className="kdn-gi-cell l0" />미이수</span></div>
+      <div><b>교과 × 학기 성취 지도</b><span>줄 = 교과 · 칸 = 학기 · 칩 = 과목(숫자는 석차등급, 진할수록 좋은 등급) · {scale}등급제 원등급</span></div>
+      <div className="kdn-gi-legend">{[1, 2, 3, 4].map(level => <span key={level}><i className={`kdn-gi-cell l${level}`} />{scale === 9 ? ["1–2", "3–4", "5–6", "7–9"][level - 1] : ["1", "2", "3", "4–5"][level - 1]}</span>)}<span><i className="kdn-gi-cell l0" />성취도만</span></div>
     </div>
-    <div className="kdn-gi-heat" style={{ gridTemplateColumns: `minmax(130px,190px) repeat(${semesterKeys.length}, minmax(64px,1fr))` }}>
-      <span />{labels.map(label => <span key={label} className="kdn-gi-col">{label}</span>)}
-      {rows.map(row => <React.Fragment key={row.name}>
-        <span className="kdn-gi-name"><b>{row.name}</b><small>{row.category}{row.credit ? ` · ${row.credit}단위` : ""}</small></span>
-        {row.cells.map((value, index) => <span key={index} className={`kdn-gi-cell l${heatLevel(value, scale)}`}>{value != null ? <b>{Number.isInteger(Number(value)) ? value : fmt(value)}</b> : "—"}</span>)}
+    <div className="kdn-gh" style={{ gridTemplateColumns: `minmax(120px,150px) repeat(${semesterKeys.length}, minmax(150px,1fr))` }}>
+      <span className="kdn-gh-corner">교과 \ 학기</span>
+      {labels.map((label, index) => { const [year, sem] = String(label).split(" · "); return <span key={label} className="kdn-gh-col"><b>{sem ? `${sem.replace("-", "학년 ")}학기` : label}</b><small>{year}{overall[index] != null ? ` · 평균 ${fmt(overall[index])}` : ""}</small></span>; })}
+      {grid.map(([category, cells]) => <React.Fragment key={category}>
+        <span className="kdn-gh-row" style={{ "--c": color(category) }}><b>{category}</b><small>{(() => { const avg = catAvg(cells); return avg == null ? "" : `평균 ${avg.toFixed(2)}`; })()}</small></span>
+        {cells.map((items, index) => <span key={index} className={items.length ? "kdn-gh-cell" : "kdn-gh-cell is-empty"}>
+          {items.length ? items.map(item => <span key={item.name} className={`kdn-gh-chip l${heatLevel(item.grade, scale)}`} title={`${item.name} · ${item.credit}단위 · ${item.grade != null ? `${item.grade}등급` : "성취도만"}${item.achievement ? ` · 성취도 ${item.achievement}` : ""}`}><em>{item.name}</em><b>{item.grade != null ? (Number.isInteger(Number(item.grade)) ? item.grade : fmt(item.grade)) : (item.achievement || "-")}</b></span>) : <small>미이수</small>}
+        </span>)}
       </React.Fragment>)}
-      <span className="kdn-gi-name is-total"><b>전과목 평균</b><small>단위수 가중</small></span>
-      {overall.map((value, index) => <span key={index} className="kdn-gi-cell is-total"><b>{fmt(value)}</b></span>)}
     </div>
     {total > 0 && <div className="kdn-gi-dist">
       <span>등급 분포 · {total}개 성적</span>
