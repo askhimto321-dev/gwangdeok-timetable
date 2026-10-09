@@ -3337,6 +3337,11 @@ function SupportConnectionExplorer({
   const [candidateQuery, setCandidateQuery] = useState("");
   const deferredCandidateQuery = useDeferredValue(candidateQuery);
   const [connectionBandFilters, setConnectionBandFilters] = useState([]);
+  // 새 UI는 표가 기본(한 페이지 25줄), 카드 보기를 고를 수 있습니다.
+  const [connectionView, setConnectionViewState] = useState(() => { try { return localStorage.getItem("kd_navi_conn_view") === "card" ? "card" : "table"; } catch { return "table"; } });
+  const setConnectionView = next => { setConnectionViewState(next); setResultPage(1); try { localStorage.setItem("kd_navi_conn_view", next); } catch { /* 저장 실패는 무시 */ } };
+  const tableView = isNewUi() && connectionView === "table";
+  const pageSize = tableView ? 25 : CONNECTION_PAGE_SIZE;
 
   const rawBandCounts = useMemo(() => rawResults.reduce((acc, item) => {
     const label = gradeReady ? supportBand(convertedGrade, item.referenceCut)?.label : null;
@@ -3373,12 +3378,12 @@ function SupportConnectionExplorer({
     if (!needle) return allResults;
     return allResults.filter(item => compactText(`${item.university} ${item.department} ${item.originalDepartment || ""} ${item.field} ${item.track} ${item.admissionType}`).includes(needle));
   }, [allResults, deferredCandidateQuery]);
-  const resultPageCount = Math.max(1, Math.ceil(searchedResults.length / CONNECTION_PAGE_SIZE));
+  const resultPageCount = Math.max(1, Math.ceil(searchedResults.length / pageSize));
   const compactResults = useMemo(() => representativeConnectionResults(searchedResults, CONNECTION_PAGE_SIZE, mode), [searchedResults, mode]);
   const summaryBandCounts = useMemo(() => compactResults.reduce((acc, item) => { const label = connectionSupportBand(item); acc[label] = (acc[label] || 0) + 1; return acc; }, {}), [compactResults]);
   const results = useMemo(() => displayMode === "all"
-    ? searchedResults.slice((resultPage - 1) * CONNECTION_PAGE_SIZE, resultPage * CONNECTION_PAGE_SIZE)
-    : compactResults, [displayMode, searchedResults, resultPage, compactResults]);
+    ? searchedResults.slice((resultPage - 1) * pageSize, resultPage * pageSize)
+    : compactResults, [displayMode, searchedResults, resultPage, compactResults, pageSize]);
   const renderedResults = useMemo(() => results.map(item => ({
     item,
     trend: schoolCaseTrend(caseRows, item.university, item.region, item.integratedScope ? "" : (item.originalDepartment || item.department), item.admissionType),
@@ -3389,6 +3394,80 @@ function SupportConnectionExplorer({
     setResultPage(1);
   };
 
+  if (isNewUi()) {
+    const methodLabel = conversionMethod === "statistical" ? `통계 Beta · ${conversionGroup}` : conversionMethod === "manual" ? "직접 입력" : "기존 2×내신−1 · 전교과";
+    const emptyText = mode === "grade" && !gradeReady ? "5등급 내신을 입력하거나 학생을 선택하면 성적대 연결 결과가 표시됩니다." : mode === "university" && !university ? "기준 대학을 고르면 비슷한 대학이 표시됩니다." : connectionBandFilters.length ? "선택한 지원구간에 맞는 후보가 없습니다. 지원구간 선택을 줄여 보세요." : "조건에 맞는 후보가 없습니다. 허용할 컷 차이를 넓혀 보세요.";
+    const openCases = item => onOpenCases?.(item.university, item.integratedScope ? "" : (item.originalDepartment || item.department), item.admissionType || "");
+    return <section className="kdn-conn">
+      <header className="kdn-conn-head">
+        <div><b>지원 연결 탐색</b><span>학생 성적이나 기준 대학과 컷이 가까운 모집단위를 한 표에서 비교합니다.</span></div>
+        <button type="button" className="kdn-conn-ghost" onClick={onBack}>‹ 대학 상세로</button>
+      </header>
+      <div className="kdn-conn-bar">
+        <div className="kdn-conn-seg" role="tablist" aria-label="지원 연결 탐색 방식">
+          <button type="button" role="tab" aria-selected={mode === "grade"} className={mode === "grade" ? "is-on" : ""} onClick={() => onModeChange("grade")}>내 성적으로 찾기</button>
+          <button type="button" role="tab" aria-selected={mode === "university"} className={mode === "university" ? "is-on" : ""} onClick={() => onModeChange("university")}>비슷한 대학 찾기</button>
+        </div>
+        {mode === "grade"
+          ? <div className="kdn-conn-crit"><span><small>학생 9등급</small><b>{gradeReady ? Number(convertedGrade).toFixed(2) : "입력 필요"}</b></span><span><small>비교 컷</small><b>{cutoffBasis}%컷</b></span><span><small>환산</small><b className="sm">{methodLabel}</b></span></div>
+          : <label className="kdn-conn-field"><small>기준 대학</small><select value={university} onChange={event => onUniversityChange(event.target.value)}><option value="">대학 선택</option>{universities.map(name => <option key={name} value={name}>{name}</option>)}</select></label>}
+        <label className="kdn-conn-field"><small>허용 컷 차이</small><select value={range} onChange={event => onRangeChange(event.target.value)}><option value="0.20">±0.20</option><option value="0.30">±0.30</option><option value="0.50">±0.50</option><option value="0.80">±0.80</option></select></label>
+        <div className="kdn-conn-total"><small>후보</small><b>{total.toLocaleString()}</b><span>건</span></div>
+      </div>
+      {mode === "grade" && <div className="kdn-conn-bands" aria-label="지원 구간 필터">
+        <span className="lb">지원 구간</span>
+        {Object.entries(SUPPORT_META).map(([label, meta]) => {
+          const active = connectionBandFilters.includes(label);
+          return <button type="button" key={label} disabled={!gradeReady} aria-pressed={active} className={active ? "is-on" : ""} onClick={() => setConnectionBandFilters(current => current.includes(label) ? current.filter(value => value !== label) : [...current, label])} style={{ color: active ? "#fff" : meta.color, background: active ? meta.color : meta.background, borderColor: active ? meta.color : meta.border }}>{label}<em>{Number(rawBandCounts[label] || 0).toLocaleString()}</em></button>;
+        })}
+        {!!connectionBandFilters.length && <button type="button" className="kdn-conn-ghost" onClick={() => setConnectionBandFilters([])}>전체</button>}
+        <span className="kdn-conn-src">컷 출처 · 학과 공개 <b>{filteredOfficial.toLocaleString()}</b> · 계열 통합 <b>{filteredIntegrated.toLocaleString()}</b></span>
+      </div>}
+      {!!total && <div className="kdn-conn-tools">
+        <label className="kdn-conn-search"><Search size={16}/><input value={candidateQuery} onChange={event => { setCandidateQuery(event.target.value); setResultPage(1); }} placeholder="후보 안에서 대학·학과·전형 검색" />{candidateQuery && <button type="button" data-kdn-bare onClick={() => { setCandidateQuery(""); setResultPage(1); }} aria-label="검색어 지우기"><X size={14}/></button>}</label>
+        <div className="kdn-conn-seg sm">
+          <button type="button" className={displayMode === "all" ? "is-on" : ""} onClick={() => setMode("all")}>전체 {searchedResults.length.toLocaleString()}건</button>
+          <button type="button" className={displayMode === "representative" ? "is-on" : ""} onClick={() => setMode("representative")} title="대학이 겹치지 않게, 컷 차이·공개컷·지원 구간을 고르게 뽑은 12건">균형 요약 12건</button>
+        </div>
+        <div className="kdn-conn-seg sm">
+          <button type="button" className={connectionView === "table" ? "is-on" : ""} onClick={() => setConnectionView("table")}>표</button>
+          <button type="button" className={connectionView === "card" ? "is-on" : ""} onClick={() => setConnectionView("card")}>카드</button>
+        </div>
+      </div>}
+      {!results.length ? <div className="kdn-conn-empty">{emptyText}</div> : tableView ? <div className="kdn-case-table-wrap"><table className="kdn-case-table kdn-conn-table">
+        <thead><tr><th/><th>대학 · 모집단위</th><th>전형</th><th className="n">기준 컷</th><th className="n">{mode === "grade" ? "학생과 차이" : "기준대와 차이"}</th><th>판정</th><th>NAVI 사례</th><th>광덕고 지원 → 합격</th><th/></tr></thead>
+        <tbody>{renderedResults.map(({ item, trend }) => {
+          const diff = Number(mode === "grade" ? item.difference : item.linkDifference);
+          const support = mode === "grade" ? supportBand(convertedGrade, item.referenceCut) : null;
+          const favorite = favorites.some(value => favoriteMatchesConnection(value, item));
+          const margin = mode === "grade" && gradeReady ? Number(item.referenceCut) - Number(convertedGrade) : null;
+          return <tr key={`${mode}-${item.key}`} className={selectedKey === item.key ? "is-selected" : ""} onClick={() => { setSelectedKey(item.key); onOpenUniversity?.(item); }}>
+            <td className="fv"><button type="button" data-kdn-bare className={favorite ? "fav is-on" : "fav"} disabled={!favoriteEnabled} aria-label={favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"} onClick={event => { event.stopPropagation(); onToggleFavorite?.(connectionFavoriteItem(item)); }}><Star size={15} fill={favorite ? "currentColor" : "none"}/></button></td>
+            <td><b className="u">{item.university}</b><span className="d">{item.department}</span><small className="m">{[item.field, item.track].filter(Boolean).join(" · ")}{item.minimumSummary?.unsatisfied > 0 && <em className="warn"> · 최저 미도달</em>}</small></td>
+            <td><span className="t">{item.admissionType}</span><small className={item.integratedScope ? "src int" : "src off"}>{item.integratedScope ? "계열 통합컷" : "학과 공개컷"}</small></td>
+            <td className="n"><b>{Number(item.referenceCut).toFixed(2)}</b></td>
+            <td className="n">{mode === "grade" && margin != null ? <b style={{ color: margin >= 0 ? "#15803d" : "#b91c1c" }}>{Math.abs(margin).toFixed(2)} {margin >= 0 ? "여유" : "부족"}</b> : <b>{Number.isFinite(diff) ? Math.abs(diff).toFixed(2) : "-"}</b>}</td>
+            <td>{support ? <span className="admission-band-badge kdn-conn-band" style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <small className="m">{item.linkedTarget ? `${item.linkedTarget.university} 기준` : "유사"}</small>}</td>
+            <td className="n">{item.caseCount ? `${item.caseCount.toLocaleString()}건` : "-"}</td>
+            <td>{trend.total ? <button type="button" data-kdn-bare className="kdn-conn-school" onClick={event => { event.stopPropagation(); openCases(item); }} title="광덕고 대입 결과에서 사례 보기"><b>{trend.total}</b>→<b className="ok">{trend.accepted}</b><span className="rate"><i><em style={{ width: `${Math.min(100, Number(trend.rate || 0))}%` }}/></i></span><small>{trend.rate == null ? "-" : `${trend.rate}%`}</small></button> : <small className="m">사례 없음</small>}</td>
+            <td className="go"><ChevronRight size={17}/></td>
+          </tr>;
+        })}</tbody>
+      </table></div> : null}
+      {!!results.length && !tableView && <div style={ui.connectionGrid}>{renderedResults.map(({ item, trend }) => {
+        const support = mode === "grade" ? supportBand(convertedGrade, item.referenceCut) : null;
+        const favorite = favorites.some(value => favoriteMatchesConnection(value, item));
+        const diff = Math.abs(Number(mode === "grade" ? item.difference : item.linkDifference));
+        return <article key={`${mode}-${item.key}`} className="kdn-conn-card" onClick={() => onOpenUniversity?.(item)}>
+          <div className="top"><div><b>{item.university}</b><span>{item.department}</span><small>{item.admissionType} · {item.integratedScope ? "계열 통합컷" : "학과 공개컷"}</small></div><button type="button" data-kdn-bare className={favorite ? "fav is-on" : "fav"} disabled={!favoriteEnabled} onClick={event => { event.stopPropagation(); onToggleFavorite?.(connectionFavoriteItem(item)); }} aria-label="즐겨찾기"><Star size={15} fill={favorite ? "currentColor" : "none"}/></button></div>
+          <div className="nums"><span><small>기준 컷</small><b>{Number(item.referenceCut).toFixed(2)}</b></span><span><small>차이</small><b>{Number.isFinite(diff) ? diff.toFixed(2) : "-"}</b></span><span><small>광덕고</small><b>{trend.total ? `${trend.accepted}/${trend.total}` : "-"}</b></span></div>
+          <div className="foot">{support ? <span className="admission-band-badge" style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <span/>}{trend.total > 0 && <button type="button" data-kdn-bare className="kdn-conn-link" onClick={event => { event.stopPropagation(); openCases(item); }}>광덕고 사례 ›</button>}</div>
+        </article>;
+      })}</div>}
+      {displayMode === "all" && resultPageCount > 1 && <Pagination page={resultPage} pageCount={resultPageCount} onChange={setResultPage}/>}
+      <p className="kdn-conn-note">기준 컷은 대학 공개 모집단위 컷이 있으면 그 값을, 없으면 NAVI 대학·전형·계열 통합컷을 씁니다. 광덕고 사례는 2024–2026 실제 지원 결과로 NAVI 사례와 따로 집계합니다. 줄을 누르면 대학 상세로 이동합니다.</p>
+    </section>;
+  }
   return <section className="susi-beta-connection-panel" style={ui.connectionPanel}>
     <div style={ui.connectionHead}>
       <div style={ui.connectionTitleWrap}>
