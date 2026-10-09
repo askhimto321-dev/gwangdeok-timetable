@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck } from "lucide-react";
+import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3 } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
@@ -16,6 +16,7 @@ const loadSusiNaviModule = () => susiNaviModulePromise || (susiNaviModulePromise
 const preloadSusiNaviSafely = () => { loadSusiNaviModule().catch(() => {}); };
 const GradesSection = lazy(() => loadGradesModule().then(module => ({ default: module.default })));
 const AdminGradesUpload = lazy(() => loadGradesModule().then(module => ({ default: module.AdminGradesUpload })));
+const ClassGradeOverviewPanel = lazy(() => loadGradesModule().then(module => ({ default: module.ClassGradeOverview })));
 const AdminStudentAccounts = lazy(() => loadGradesModule().then(module => ({ default: module.AdminStudentAccounts })));
 const TeacherGradeAnalyzer = lazy(() => import("./TeacherGradeAnalyzer.jsx"));
 const MinimumAchievement = lazy(() => import("./MinimumAchievement.jsx"));
@@ -5004,6 +5005,7 @@ function AdminConsole(props) {
       <div className="kdn-admin-nav" style={styles.adminTabs}>
         <button onClick={() => setSub("timetable")} style={{ ...styles.adminTabBtn, ...(sub === "timetable" ? styles.adminTabBtnActive : {}) }}><ClipboardList size={14} /> 시간표 관리</button>
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
+        <button onClick={() => setSub("classGrades")} style={{ ...styles.adminTabBtn, ...(sub === "classGrades" ? styles.adminTabBtnActive : {}) }}><BarChart3 size={14} /> 반별 성적</button>
         <button onClick={() => setSub("accounts")} style={{ ...styles.adminTabBtn, ...(sub === "accounts" ? styles.adminTabBtnActive : {}) }}><Lock size={14} /> 계정 관리</button>
         <button onClick={() => setSub("staffNotices")} style={{ ...styles.adminTabBtn, ...(sub === "staffNotices" ? styles.adminTabBtnActive : {}) }}><Megaphone size={14} /> 교직원 공지</button>
         <button onClick={() => setSub("academicCalendar")} style={{ ...styles.adminTabBtn, ...(sub === "academicCalendar" ? styles.adminTabBtnActive : {}) }}><Calendar size={14} /> 학사일정</button>
@@ -5017,6 +5019,9 @@ function AdminConsole(props) {
         props.gdb ? <DeferredPanel label="성적 데이터 관리 화면을 불러오는 중입니다."><AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} roster={props.roster} currentGrade={props.grade} /></DeferredPanel>
           : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>
       )}
+      {sub === "classGrades" && (props.gdb
+        ? <DeferredPanel label="반별 성적 화면을 불러오는 중입니다."><ClassGradeOverviewPanel gdb={props.gdb} roster={props.roster} currentGrade={props.grade} isAdmin /></DeferredPanel>
+        : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>)}
       {sub === "accounts" && <AdminAccountConsole {...props} />}
       {sub === "staffNotices" && <AdminStaffNoticePanel accounts={props.accounts} notices={props.db.staffNotices || []} persist={props.persist} showToast={props.showToast} />}
       {sub === "academicCalendar" && <AdminAcademicCalendar calendar={props.db.academicCalendar || {}} persist={props.persist} showToast={props.showToast} />}

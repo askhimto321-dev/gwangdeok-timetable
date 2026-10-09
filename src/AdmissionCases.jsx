@@ -1152,6 +1152,12 @@ function caseYearLabel(row){
 }
 function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmission,onOpenSusiNavi,onAddSupportPlan,onOpenSupportPlan,admissionRows=[],selectedUniversity="",onSelectUniversity,onBackUniversity,onOpenDepartmentCases,quickFilters=null,supportBands=[]}){
   const[range,setRange]=useState(0.5);
+  // 새 UI: 한 화면에 모든 정보를 늘어놓지 않도록 페이지(비교 기준·요약 / 대학별 지원 사례)로 나누고,
+  // 대학별 지원 사례는 표를 기본으로, 카드 보기를 선택할 수 있게 합니다.
+  const[matchPage,setMatchPage]=useState("list");
+  const[caseView,setCaseViewState]=useState(()=>{try{return localStorage.getItem("kd_case_university_view")==="card"?"card":"table"}catch{return"table"}});
+  const setCaseView=value=>{setCaseViewState(value);try{localStorage.setItem("kd_case_university_view",value)}catch{/* ignore */}};
+  const[detailPage,setDetailPage]=useState("units");
   const similar=useMemo(()=>{
     if(profile?.converted==null)return[];
     return rows.filter(row=>{
@@ -1221,18 +1227,24 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
         </div>
         {holistic&&<div className="admission-holistic-notice"><AlertTriangle size={15}/><span><b>학생부종합 참고</b> · 서류·활동·과목 선택 등이 함께 평가되므로 50%컷은 성적 위치를 확인하는 참고값으로만 활용하세요.</span></div>}
       </section>
-      <Section title="모집단위·전형별 결과" description="해당 대학의 모집단위와 전형을 지원 사례 수와 합격자 전교과 50%컷으로 비교합니다.">
+      {isNewUi()&&<StepTabs value={detailPage} onChange={setDetailPage} items={[["units","모집단위·전형별 결과",`${detailRows.length}개 모집단위·전형`],["similar","학생 유사 사례",`${selectedSimilar.length}건`]]}/>}
+      {(!isNewUi()||detailPage==="units")&&<Section title="모집단위·전형별 결과" description="해당 대학의 모집단위와 전형을 지원 사례 수와 합격자 전교과 50%컷으로 비교합니다.">
         <Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"20%"}}/><col style={{width:"21%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"7%"}}/><col style={{width:"10%"}}/><col style={{width:"7%"}}/><col style={{width:"14%"}}/></colgroup><thead><tr><th>모집단위</th><th>전형</th><th>지원</th><th>최초합</th><th>충원합</th><th>불합격</th><th>합격률</th><th>전교과<br/>50%컷</th><th>상담 연계</th></tr></thead><tbody>{detailRows.map(row=><tr key={`${row.department}|${row.type}`}><td><button type="button" className="admission-department-link" onClick={()=>onOpenDepartmentCases?.(selectedUniversity,row.department,"")} title="이 모집단위의 전체 사례 조회">{row.department}</button></td><td style={{textAlign:"left",color:"#566171"}}>{row.type}</td><td><b style={{color:COLORS.blue}}>{row.total}</b></td><td style={{color:COLORS.blue,fontWeight:800}}>{row.first}</td><td style={{color:COLORS.purple,fontWeight:800}}>{row.waitlist}</td><td style={{color:COLORS.red,fontWeight:800}}>{row.rejected}</td><td><RateBand rate={row.rate} total={row.total} compact/></td><td>{fmt(row.median)}</td><td><div className="admission-row-actions">{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi(selectedUniversity,row.department)}>NAVI</button>}{onAddSupportPlan&&<SupportPlanButton compact onClick={()=>onAddSupportPlan(supportPlanFromCase(row.sample||{department:row.department,detailType:row.type},selectedUniversity))}>수시지원 추가</SupportPlanButton>}</div></td></tr>)}</tbody></Table>
-      </Section>
-      <Section title={`학생 유사 사례 ${selectedSimilar.length}건`} description={`현재 9등급 환산 ${fmt(profile.converted)}에서 ±${autoSimilar.rangeUsed.toFixed(1)} 범위의 사례입니다.`} aside={<div className="admission-current-university"><small>현재 조회 대학</small><b>{selectedUniversity}</b></div>}>
+      </Section>}
+      {(!isNewUi()||detailPage==="similar")&&<Section title={`학생 유사 사례 ${selectedSimilar.length}건`} description={`현재 9등급 환산 ${fmt(profile.converted)}에서 ±${autoSimilar.rangeUsed.toFixed(1)} 범위의 사례입니다.`} aside={<div className="admission-current-university"><small>현재 조회 대학</small><b>{selectedUniversity}</b></div>}>
         {/* 8번 요청: 선택한 범위(±{range})에 사례가 부족해 자동으로 넓혔다면 그 사실을 분명히 표시합니다. */}
         {autoSimilar.widened&&<div className="admission-holistic-notice" style={{marginBottom:10}}><AlertTriangle size={15}/><span>선택한 ±{range.toFixed(1)} 범위에는 사례가 너무 적어 <b>±{autoSimilar.rangeUsed.toFixed(1)}까지 자동으로 넓혔습니다.</b> 범위를 넓혀 나온 결과이니 그 점을 감안해서 참고하세요.</span></div>}
         {selectedSimilar.length?<Table style={{tableLayout:"fixed"}} className="admission-detail-table"><colgroup><col style={{width:"6%"}}/><col style={{width:"12%"}}/><col style={{width:"17%"}}/><col style={{width:"20%"}}/><col style={{width:"9%"}}/><col style={{width:"9%"}}/><col style={{width:"14%"}}/><col style={{width:"13%"}}/></colgroup><thead><tr><th>관심</th><th>연도</th><th>모집단위</th><th>전형</th><th>전교과</th><th>대학 환산</th><th>최종 결과</th><th>등록 여부</th></tr></thead><tbody>{selectedSimilar.slice(0,40).map(row=>{const registration=registrationDisplay(row);const favoriteItem={source:"case",favoriteKind:"학과",university:selectedUniversity,department:row.department,admissionType:row.detailType||row.admissionType,label:`${selectedUniversity} ${row.department}`};return <tr key={row.caseId}><td>{onToggleFavorite&&<button type="button" className={`admission-favorite-button ${isFavorite(favorites,favoriteItem)?"is-active":""}`} onClick={()=>onToggleFavorite(favoriteItem)} title="이 유사 사례를 상담·관심 대학에 저장" aria-label="유사 사례 즐겨찾기"><Star size={13} fill="currentColor"/></button>}</td><td style={{color:"#7b8491",whiteSpace:"nowrap",wordBreak:"keep-all"}}>{caseYearLabel(row)}</td><td style={{textAlign:"left",fontWeight:800}}>{row.department}</td><td style={{textAlign:"left"}}>{row.detailType||row.admissionType}</td><td>{fmt(row.overallGrade)}</td><td>{fmt(row.universityGrade)}</td><td><span style={{...styles.badge,...resultStyle(row.finalResultDetail)}}>{row.finalResultDetail}</span></td><td><span style={{...styles.registrationBadge,color:registration.color,background:registration.background}}>{registration.label}</span></td></tr>})}</tbody></Table>:<Empty title="현재 범위의 유사 사례가 없습니다." text="대학 전체 지원 결과는 위 표에서 확인할 수 있습니다."/>}
-      </Section>
+      </Section>}
     </div>;
   }
 
+  const showSummary=!isNewUi()||matchPage==="summary";
+  const showList=!isNewUi()||matchPage==="list";
   return <div style={{display:"grid",gap:16}}>
+    {isNewUi()&&<StepTabs value={matchPage} onChange={setMatchPage} items={[["summary","비교 기준 · 요약",`환산 ${fmt(profile.converted)} · ±${range.toFixed(1)}`],["list","대학별 지원 사례",`${stats.length}개 대학 · 유사 ${visibleSimilar.length}건`]]}/>}
+    {isNewUi()&&showList&&<div className="kdn-case-strip"><span>학생 환산 <b>{fmt(profile.converted)}</b></span><span>비교 범위 <b>±{range.toFixed(1)}</b>{[0.3,0.5,1].map(value=><button type="button" key={value} className={range===value?"is-on":""} onClick={()=>setRange(value)}>±{value.toFixed(1)}</button>)}</span><span>유사 지원 <b>{visibleSimilar.length}</b> · 합격 <b>{accepted}</b></span></div>}
+    {showSummary&&<>
     <div style={styles.notice}><AlertTriangle size={16}/><span>과거 사례는 9등급제 자료입니다. 5등급제 학생은 9등급 환산값으로 비교하며, 상향·소신·적정·안정·하향은 <b>합격자 전교과 50%컷과의 차이</b>를 기준으로 표시합니다.</span></div>
     <div className="admission-range-panel">
       <div><b>성적 비교 범위</b><span>계열·전형 조건은 위의 분석 조건을 그대로 사용합니다.</span></div>
@@ -1245,10 +1257,12 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
       <div><small>유사 지원 · 합격</small><b><span style={{color:COLORS.blue}}>{visibleSimilar.length}</span><span style={{color:"#98a1ad",padding:"0 5px"}}>/</span><span style={{color:COLORS.green}}>{accepted}</span></b></div>
     </div>
     <SummaryCards rows={visibleSimilar}/>
-    {quickFilters}
-    <Section className="admission-current-support" title="현재 성적 기준 대학별 지원 사례" description={<>지원 구간은 합격 사례 비율이 아닙니다.<br/><strong>학생의 9등급 환산 내신과 합격자 전교과 50%컷의 차이</strong>로 산출합니다.</>}>
+    {isNewUi()&&<div className="kdn-step-next"><span style={{flex:1}}/><button type="button" onClick={()=>setMatchPage("list")}>다음: 대학별 지원 사례 ›</button></div>}
+    </>}
+    {showList&&quickFilters}
+    {showList&&<Section className="admission-current-support" aside={isNewUi()?<div className="kdn-view-switch" role="group" aria-label="대학별 지원 사례 보기"><span>보기</span>{[["table","표"],["card","카드"]].map(([key,label])=><button key={key} type="button" data-kdn-bare className={caseView===key?"is-on":""} aria-pressed={caseView===key} onClick={()=>setCaseView(key)}>{label}</button>)}</div>:null} title="현재 성적 기준 대학별 지원 사례" description={<>지원 구간은 합격 사례 비율이 아닙니다.<br/><strong>학생의 9등급 환산 내신과 합격자 전교과 50%컷의 차이</strong>로 산출합니다.</>}>
       {hasHolistic&&<div className="admission-holistic-notice" style={{marginBottom:12}}><AlertTriangle size={15}/><span><b>학생부종합 전형</b>은 서류·활동·과목 선택 등을 종합 평가하므로 50%컷과 지원 구간을 참고용으로만 활용하세요.</span></div>}
-      {stats.length?<div style={styles.caseCards}>{stats.map(stat=>{
+      {stats.length&&isNewUi()&&caseView==="table"?<CaseUniversityTable stats={stats} profile={profile} favorites={favorites} onToggleFavorite={onToggleFavorite} onSelect={label=>onSelectUniversity?.(label)}/>:stats.length?<div style={styles.caseCards}>{stats.map(stat=>{
         const sample=caseSufficiency(stat.total),difference=gradeDifference(profile.converted,stat.median),rate=stat.total?stat.accepted/stat.total*100:0,fit=applicationBand(profile.converted,stat.median);
         return <button type="button" className="admission-university-card" key={stat.label} style={styles.caseCard} onClick={()=>onSelectUniversity?.(stat.label)}>
           <div style={styles.caseCardHead}><div style={{display:"grid",gap:4}}><b style={{fontSize:15.5,color:"#222b36"}}>{stat.label}</b><span style={{fontSize:10.5,color:"#7b8491"}}>클릭하여 상세 보기</span></div><div style={{display:"flex",gap:6,alignItems:"center"}}>{onToggleFavorite&&<span role="button" tabIndex={0} className={`admission-favorite-button ${isFavorite(favorites,{source:"case",university:stat.label})?"is-active":""}`} onClick={event=>{event.stopPropagation();onToggleFavorite({source:"case",favoriteKind:"대학",university:stat.label,label:`${stat.label} 광덕고 사례`})}} onKeyDown={event=>{if(event.key==="Enter"){event.stopPropagation();onToggleFavorite({source:"case",favoriteKind:"대학",university:stat.label,label:`${stat.label} 광덕고 사례`})}}} title="관심 대학에 저장"><Star size={14} fill="currentColor"/></span>}<span className={`admission-sample-badge is-${sample.level}`} title={sample.detail}>{sample.label}</span></div></div>
@@ -1257,8 +1271,36 @@ function StudentMatch({rows,profile,favorites=[],onToggleFavorite,onOpenAdmissio
           <div style={styles.caseFooter}><div style={{display:"grid",gap:3}}><span style={{fontSize:10.5,color:"#777f8b"}}>합격 사례 비율 {fmt(rate,1)}%</span><div style={{display:"flex",alignItems:"center",gap:6}}><span style={{fontWeight:800}}>50%컷 기준</span><span className="admission-band-badge" title={fit.detail} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span></div></div><ChevronRight size={17} color="#7a8799"/></div>
         </button>;
       })}</div>:<Empty title="선택한 범위의 유사 사례가 없습니다." text="성적 범위를 넓히거나 위의 분석 조건을 완화해보세요."/>}
-    </Section>
+    </Section>}
   </div>;
+}
+
+// 페이지 단계 탭(새 UI 공용 스타일 kdn-substeps)
+function StepTabs({value,onChange,items}){
+  return <div className="kdn-search-steps kdn-substeps" role="tablist">{items.map(([key,label,note],index)=><button key={key} type="button" role="tab" aria-selected={value===key} className={value===key?"is-active":""} onClick={()=>onChange(key)}><span>{index+1}</span><b>{label}</b><small>{note}</small></button>)}</div>;
+}
+
+// 대학별 지원 사례 표(새 UI 기본 보기): 한 줄에 판정·50%컷 차이·사례 수·합격률을 모아 비교하고, 줄을 누르면 대학 상세로.
+function CaseUniversityTable({stats=[],profile,favorites=[],onToggleFavorite,onSelect}){
+  return <div className="kdn-case-table-wrap"><table className="kdn-case-table">
+    <thead><tr><th>대학</th><th>지원 구간</th><th className="n">합격자 50%컷</th><th>내 성적 대비</th><th className="n">유사 지원</th><th className="n">합격</th><th className="n">불합격</th><th>합격 비율</th><th>표본</th><th/></tr></thead>
+    <tbody>{stats.map(stat=>{
+      const sample=caseSufficiency(stat.total),difference=gradeDifference(profile.converted,stat.median),rate=stat.total?stat.accepted/stat.total*100:0,fit=applicationBand(profile.converted,stat.median);
+      const fav=isFavorite(favorites,{source:"case",university:stat.label});
+      return <tr key={stat.label} onClick={()=>onSelect(stat.label)}>
+        <td><span className="uni">{onToggleFavorite&&<button type="button" data-kdn-bare className={fav?"fav is-on":"fav"} aria-label={fav?`${stat.label} 관심 해제`:`${stat.label} 관심 저장`} onClick={event=>{event.stopPropagation();onToggleFavorite({source:"case",favoriteKind:"대학",university:stat.label,label:`${stat.label} 광덕고 사례`})}}><Star size={15} fill={fav?"currentColor":"none"}/></button>}<b>{stat.label}</b></span></td>
+        <td><span className="admission-band-badge" title={fit.detail} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span></td>
+        <td className="n"><b>{fmt(stat.median)}</b></td>
+        <td><b style={{color:difference.color}} title={difference.detail}>{difference.label}</b></td>
+        <td className="n">{stat.total}</td>
+        <td className="n ok">{stat.accepted}</td>
+        <td className="n no">{stat.rejected}</td>
+        <td><span className="rate"><i><em style={{width:`${Math.min(100,rate)}%`}}/></i><small>{fmt(rate,1)}%</small></span></td>
+        <td><span className={`admission-sample-badge is-${sample.level}`} title={sample.detail}>{sample.label}</span></td>
+        <td className="go"><ChevronRight size={17}/></td>
+      </tr>;
+    })}</tbody>
+  </table></div>;
 }
 function Bars({rows}){
   const max=Math.max(1,...rows.map(x=>x.total));
