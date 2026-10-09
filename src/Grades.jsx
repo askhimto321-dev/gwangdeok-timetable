@@ -16,6 +16,7 @@ import CounselingAdmissionFacts from './CounselingAdmissionFacts.jsx';
 import {buildCounselingFactIndex,counselingFactsForFavorite,loadRecommendedSubjectData,studentNaviGrade} from './SusiNaviBeta.jsx';
 import { CutStrip } from './naviVisuals.jsx';
 import { GradeInsights, GradeHeatmap } from './gradeInsights.jsx';
+import GradeSimulator, { GradeSimPresetChips } from './GradeSimulator.jsx';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
 import { isNewUi, getUiMode } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
@@ -2119,7 +2120,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
             description={isNewUi() ? `학기별 흐름과 교과별 강점·관리 포인트를 정리했습니다. 내신은 ${gradeDisplayLabel} 기준이며, 1등급에 가까울수록 우수합니다.` : `선택한 항목 한 개만 그래프로 표시하여 선이 겹치지 않도록 했습니다. 내신은 ${gradeDisplayLabel} 기준이며, 위쪽의 1등급에 가까울수록 우수합니다.`}
           />
           {isNewUi() ? <div className="kdn-view-switch is-left" role="group" aria-label="성적 리포트 보기">
-            {[["insight", "인사이트"], ["heatmap", "과목 × 학기"], ["category", "교과별 그래프"], ["mock", "모의고사"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={trendTab === key} className={trendTab === key ? "is-on" : ""} onClick={() => setTrendTab(key)}>{label}</button>)}
+            {[["insight", "인사이트"], ["heatmap", "과목 × 학기"], ["sim", "성적 시뮬레이터"], ["category", "교과별 그래프"], ["mock", "모의고사"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={trendTab === key} className={trendTab === key ? "is-on" : ""} onClick={() => setTrendTab(key)}>{label}</button>)}
           </div> : <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
             <TrendTabButton active={trendTab === "category"} onClick={() => setTrendTab("category")}>교과별 내신</TrendTabButton>
             <TrendTabButton active={trendTab === "mock"} onClick={() => setTrendTab("mock")}>모의고사</TrendTabButton>
@@ -2128,6 +2129,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
           {trendTab === "insight" && <GradeInsights groups={displayGroups} groupField={displayGradeScale === 9 ? "perSemester9" : "perSemester5"} semesterKeys={availableSemesters} allKeys={SEMESTER_KEYS}
             labels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))} scale={displayGradeScale} gradeLabel={gradeDisplayLabel} studentName={studentName}
             overallAverage={displayGradeScale === 9 ? displayGroups["전과목"]?.avg9 : displayGroups["전과목"]?.avg5} />}
+          {trendTab === "sim" && <GradeSimulator sid={sid} studentName={studentName} gradeSystem={gradeSystem} subjectLists={subjectLists} semesterKeys={SEMESTER_KEYS} labelOf={key => semesterCalendarLabel(key, entryYear)} />}
           {trendTab === "heatmap" && <GradeHeatmap subjectLists={subjectLists} semesterKeys={availableSemesters} allKeys={SEMESTER_KEYS}
             labels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))} gradeSystem={gradeSystem} groups={groups} groupField={gradeSystem === 9 ? "perSemester9" : "perSemester5"} />}
 
@@ -3919,6 +3921,7 @@ function NewCounselHeader({ sid, gdb, student, studentInfo, favoriteCount, showP
   // 요약 카드 한 줄 + (관심대학·상담 단계에서는) 지원 구성 6칸 한 줄을 위아래로 붙여 둡니다.
   return <div className="no-print" style={{ display: "grid", gap: 12, marginBottom: 16 }}>
     <CounselStudentSummary student={student} identity={identity} favoriteCount={favoriteCount} planCount={planItems?.length} onOpenPlan={onOpenPlan} naviGrade={naviGrade} />
+    <GradeSimPresetChips sid={student?.sid} />
     {showPlan && <SupportPlanSlots items={planItems} onOpen={onOpenPlan} />}
   </div>;
 }
