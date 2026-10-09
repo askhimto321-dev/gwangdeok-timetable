@@ -2,7 +2,7 @@ import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRe
 import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
-import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
+import { UI_MODES, getUiMode, setUiMode, isNewUi, rawColors } from "./uiMode.js";
 import { TILE_TONES } from "./counselVisuals.jsx";
 
 // 큰 분석 화면은 실제로 열 때 내려받습니다. 로그인 화면에서 NAVI·대입결과·성적분석
@@ -4297,6 +4297,91 @@ const nowCardStyles = {
   next: { display: "grid", gap: 2, fontSize: 13, fontWeight: 700, color: "var(--kdn-ink-soft)", textAlign: "right" },
 };
 
+// 새 UI 시간표 보드: 과목별 색, 오늘·지금 수업 강조, 이동수업 배지, 오른쪽 '지금 수업'·'오늘 동선' 카드.
+// 인쇄는 기존 표(GridTable)를 그대로 씁니다.
+const TT_TONES = [
+  [/국어|문학|독서|화법|작문|언어/, "#fde8e8", "#b42318"],
+  [/수학|대수|미적|확률|기하|수Ⅰ|수Ⅱ/, "#e0ecff", "#1d4ed8"],
+  [/영어|English/, "#e6f6ec", "#15803d"],
+  [/물리|화학|생명|지구|과학/, "#dff4f7", "#0e7490"],
+  [/한국사|역사|사회|지리|윤리|경제|정치|법|세계|동아시아|문화/, "#fff1d6", "#a16207"],
+  [/체육|운동|스포츠/, "#ede9fe", "#6d28d9"],
+  [/미술|음악|예술|연극|디자인/, "#fce7f3", "#be185d"],
+  [/정보|기술|가정|프로그래밍|인공지능/, "#e8eef9", "#3b5b9a"],
+  [/일본|중국|독일|프랑스|스페인|한문|외국/, "#f0f7e4", "#4d7c0f"],
+];
+function ttTone(subject = "") {
+  const hit = TT_TONES.find(([re]) => re.test(String(subject)));
+  return hit ? { bg: hit[1], fg: hit[2] } : { bg: "#f1f5f9", fg: "#475569" };
+}
+function ttPlace(c) {
+  if (!c) return "";
+  if (c.type === "move") return c.roomLabel || "";
+  return c.location || "";
+}
+function TimetableBoard({ grid, slot, homeroomLabel }) {
+  const todayIdx = slot ? DAYS.indexOf(slot.day) : (() => { const d = new Date().getDay() - 1; return d >= 0 && d <= 4 ? d : -1; })();
+  const nowPi = slot?.state === "now" ? slot.pi : -1;
+  const passedPi = slot ? (slot.state === "now" ? slot.pi : slot.pi) : (todayIdx >= 0 ? PERIODS.length : -1);
+  return rawColors(() => <div className="kdn-ttb">
+    <div className="kdn-ttb-grid">
+      <div />
+      {DAYS.map((d, di) => <div key={d} className={`kdn-ttb-dh${di === todayIdx ? " is-today" : ""}`}>{d}{di === todayIdx && <span>오늘</span>}</div>)}
+      {PERIODS.map((p, pi) => <React.Fragment key={p}>
+        <div className="kdn-ttb-pt"><b>{p}</b><small>{PERIOD_TIME[p]}</small></div>
+        {DAYS.map((d, di) => {
+          const c = grid?.[d]?.[pi];
+          const today = di === todayIdx;
+          if (!c) return <div key={d} className={`kdn-ttb-cell is-empty${today ? " is-today" : ""}`} />;
+          const tone = ttTone(c.subject);
+          const now = today && pi === nowPi;
+          const past = today && pi < passedPi && !now;
+          const place = ttPlace(c);
+          return <div key={d} className={`kdn-ttb-cell${today ? " is-today" : ""}${now ? " is-now" : ""}${past ? " is-past" : ""}`} style={{ "--bg": tone.bg, "--fg": tone.fg }} title={[c.subject, c.group, place].filter(Boolean).join(" · ")}>
+            <b>{renderTimetableSubject(c.subject)}</b>
+            <small>{c.type === "move" ? `${c.group ? `${c.group} · ` : ""}${place || "교실 확인"}` : (place || homeroomLabel)}</small>
+            {c.type === "move" && c.moved && <em>이동</em>}
+            {now && <i>지금</i>}
+          </div>;
+        })}
+      </React.Fragment>)}
+    </div>
+    <div className="kdn-ttb-legend"><span><i style={{ background: "#dff4f7", borderColor: "#0e7490" }} />과학</span><span><i style={{ background: "#e0ecff", borderColor: "#1d4ed8" }} />수학</span><span><i style={{ background: "#fde8e8", borderColor: "#b42318" }} />국어</span><span><i style={{ background: "#e6f6ec", borderColor: "#15803d" }} />영어</span><span className="em">이동 = 교실 이동 수업</span><span className="r">흐린 칸 = 지난 수업 · 빗금 = 수업 없음</span></div>
+  </div>);
+}
+function LiveLessonCard({ grid, slot }) {
+  if (!slot) return <section className="kdn-ttl is-off"><small>오늘 수업</small><b>지금은 수업 시간이 아니에요</b><span>주말이거나 오늘 수업이 끝났어요.</span></section>;
+  const cell = grid?.[slot.day]?.[slot.pi];
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const elapsed = slot.state === "now" ? Math.max(0, minutes - slot.start) : 0;
+  const left = slot.state === "now" ? Math.max(0, LESSON_MINUTES - elapsed) : Math.max(0, slot.start - minutes);
+  const place = !cell ? "" : cell.type === "move" ? [cell.roomLabel, cell.group && `이동수업 ${cell.group}`].filter(Boolean).join(" · ") : (cell.location || "우리 반 교실");
+  return <section className="kdn-ttl">
+    <div className="k"><span className={slot.state === "now" ? "live" : "next"}>{slot.state === "now" ? "● 지금" : "다음 수업"}</span><small>{slot.period}교시 · {clockText(slot.start)}–{clockText(slot.start + LESSON_MINUTES)}</small></div>
+    <b>{cell ? cell.subject : "수업 없음"}</b>
+    {place && <span className="pl">📍 {place}</span>}
+    {slot.state === "now" && <div className="bar"><i style={{ width: `${Math.min(100, (elapsed / LESSON_MINUTES) * 100)}%` }} /></div>}
+    <div className="ft"><span>{slot.state === "now" ? `${elapsed}분 지남` : "시작까지"}</span><b>{left}분 {slot.state === "now" ? "남음" : ""}</b></div>
+  </section>;
+}
+function TodayRoute({ grid, slot, homeroomLabel }) {
+  const dayIdx = slot ? DAYS.indexOf(slot.day) : new Date().getDay() - 1;
+  if (dayIdx < 0 || dayIdx > 4) return null;
+  const day = DAYS[dayIdx];
+  const items = PERIODS.map((p, pi) => ({ p, pi, c: grid?.[day]?.[pi] })).filter(item => item.c);
+  if (!items.length) return null;
+  const nowPi = slot?.state === "now" ? slot.pi : -1, nextPi = slot ? slot.pi : 99;
+  return <section className="kdn-ttr">
+    <b className="h">오늘 이동 동선 · {day}요일</b>
+    {items.map(item => {
+      const place = item.c.type === "move" ? (item.c.roomLabel || "교실 확인") : (item.c.location || homeroomLabel);
+      const state = item.pi === nowPi ? "cur" : item.pi < nextPi ? "done" : "";
+      return <div key={item.p} className={`row ${state}`}><b>{item.p}교시</b><i /><span>{item.c.subject}{item.c.type === "move" && item.c.moved ? <em>{place}</em> : <small>{place}</small>}</span></div>;
+    })}
+  </section>;
+}
+
 function TimetableCard({ result, sid }) {
   const { student, grid, warnings, hasTimetable, notices, homeroomNotices, classroomCourses = [] } = result;
   const hasNotices = (notices && notices.length > 0) || (homeroomNotices && homeroomNotices.length > 0);
@@ -4319,8 +4404,16 @@ function TimetableCard({ result, sid }) {
       {view === "timetable" ? (
         <>
           {!hasTimetable && <div style={styles.warnBanner}><AlertTriangle size={14} /> {student.class}반 시간표 데이터가 없습니다.</div>}
-          {hasTimetable && <NowLessonCard grid={grid} slot={lessonSlot} />}
-          <div className={isNewUi() && hasNotices ? "kdn-tt-layout" : undefined}>
+          {hasTimetable && !isNewUi() && <NowLessonCard grid={grid} slot={lessonSlot} />}
+          {isNewUi() && hasTimetable && <div className="kdn-ttb-layout no-print">
+            <TimetableBoard grid={grid} slot={lessonSlot} homeroomLabel={`${student.class}반 교실`} />
+            <aside className="kdn-ttb-side">
+              <LiveLessonCard grid={grid} slot={lessonSlot} />
+              <TodayRoute grid={grid} slot={lessonSlot} homeroomLabel={`${student.class}반 교실`} />
+              {hasNotices && <NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} />}
+            </aside>
+          </div>}
+          <div className={isNewUi() && hasTimetable ? "print-only" : isNewUi() && hasNotices ? "kdn-tt-layout" : undefined}>
           <div className="kdn-tt-main">
           <GridTable grid={grid} nowSlot={lessonSlot?.state === "now" ? lessonSlot : null} />
           <div style={styles.legend} className="timetable-legend">
@@ -4329,7 +4422,7 @@ function TimetableCard({ result, sid }) {
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: "#e3c6ae" }} /> 이동수업 (교실 이동)</span>
           </div>
           </div>
-          {hasNotices && <aside className="kdn-tt-side no-print"><NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} /></aside>}
+          {hasNotices && !(isNewUi() && hasTimetable) && <aside className="kdn-tt-side no-print"><NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} /></aside>}
           </div>
           {warnings.length > 0 && <div style={styles.warnBox} className="no-print"><div style={styles.warnBoxTitle}><AlertTriangle size={13} /> 확인 필요 {warnings.length}건</div><ul style={styles.warnUl}>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul></div>}
         </>
