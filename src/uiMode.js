@@ -1442,6 +1442,10 @@ const SHARED_NEW_CSS = `
   .admission-case-ui .admission-case-print-control select{min-width:88px;font-size:13px!important;padding-right:22px!important}
   .admission-case-ui .admission-case-print-control .admission-case-print-button{flex:none;width:auto!important;white-space:nowrap;font-size:12.5px!important}
   .admission-case-ui .admission-case-compact-control>span,.admission-case-ui .admission-case-compact-control label>span{font-size:11.5px!important}
+  body{padding-bottom:120px}
+  .kd-history-edge{top:auto!important;bottom:20px!important;transform:none!important;width:40px!important;height:40px!important;border-radius:999px!important;box-shadow:0 4px 14px rgba(20,24,33,.12)}
+  .kd-history-edge-left{left:18px!important}.kd-history-edge-right{left:64px!important;right:auto!important}
+  @media print{body{padding-bottom:0}}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
