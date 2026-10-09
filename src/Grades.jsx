@@ -3327,7 +3327,7 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
                 {regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}
               </select>
             </div>
-            <div style={admissionToolbar.filterCluster}>
+            <div className={isNewUi() && admissionViewMode === "mock" ? "kdn-hide-new" : undefined} style={admissionToolbar.filterCluster}>
               <span style={admissionToolbar.filterLabel}>표시</span>
               <div style={admissionToolbar.filterGroup}>
                 <button type="button" onClick={() => setAdmissionTableView("focus")} style={{ ...btn.chip, ...(admissionTableView === "focus" ? btn.chipActive : {}) }}>핵심 열</button>
@@ -3337,7 +3337,7 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
           </div>
           {admissionViewMode === "mock" && (
             <div style={admissionToolbar.secondaryRow}>
-              <div style={admissionToolbar.filterCluster}>
+              <div className={isNewUi() ? "kdn-hide-new" : undefined} style={admissionToolbar.filterCluster}>
                 <span style={admissionToolbar.filterLabel}>진단 결과</span>
                 <div style={admissionToolbar.filterGroup}>
                   {[
@@ -3385,6 +3385,8 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
           <EmptyBox text="관리자가 대학별 입시전형표를 아직 등록하지 않았습니다." />
         ) : !displayRows.length ? (
           <div style={chartEmpty}>검색 조건에 맞는 전형이 없습니다.</div>
+        ) : admissionViewMode === "mock" && isNewUi() ? (
+          <AdmissionMinimumBoard rows={displayRows} statusCounts={statusCounts} total={evaluatedRows.length} statusFilter={statusFilter} onStatusFilter={setStatusFilter} onToggleFavorite={onToggleFavorite} favoriteActive={favoriteActive} caseLinkForRow={caseLinkForRow} onOpenCases={onOpenCases} />
         ) : admissionViewMode === "mock" ? (
           <div style={{ ...table.scroll, overflowX: "visible" }}>
             <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 8.9 : 9.8, minWidth:0 }}>
@@ -3566,6 +3568,87 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
       )}
     </div>
   );
+}
+
+// 새 UI 지원 가능성 진단: 대학별로 묶고, 전형마다 "대학 기준 ↔ 내 최저"를 한 줄로 비교합니다.
+// 판정 근거·최근 충족 이력·지원자격은 줄을 펼쳐서 봅니다.
+const MIN_BOARD_PAGE = 12;
+function minimumMargin(result) {
+  if (result?.ruleType === "each" || result?.studentSum == null || result?.threshold == null) return null;
+  return Number(result.threshold) - Number(result.studentSum);
+}
+function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, statusFilter, onStatusFilter, onToggleFavorite, favoriteActive, caseLinkForRow, onOpenCases }) {
+  const [page, setPage] = useState(1);
+  const [open, setOpen] = useState(() => new Set());
+  const groups = useMemo(() => {
+    const map = new Map();
+    rows.forEach(row => { const key = row.university || "대학 미지정"; if (!map.has(key)) map.set(key, []); map.get(key).push(row); });
+    return Array.from(map, ([university, items]) => ({ university, items }));
+  }, [rows]);
+  useEffect(() => setPage(1), [rows]);
+  const pageCount = Math.max(1, Math.ceil(groups.length / MIN_BOARD_PAGE));
+  const visible = groups.slice((page - 1) * MIN_BOARD_PAGE, page * MIN_BOARD_PAGE);
+  const toggle = key => setOpen(current => { const next = new Set(current); next.has(key) ? next.delete(key) : next.add(key); return next; });
+  const summary = [["all", "전체", total, ""], ["satisfied", "충족", statusCounts.satisfied, "ok"], ["unsatisfied", "미충족", statusCounts.unsatisfied, "no"], ["review", "별도 확인", statusCounts.review, "rv"]];
+  const pager = pageCount > 1 && <div className="kdn-minb-pager"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>이전</button><span><b>{page}</b> / {pageCount} · 대학 {groups.length}곳</span><button type="button" disabled={page >= pageCount} onClick={() => setPage(page + 1)}>다음</button></div>;
+  return <div className="kdn-minb">
+    <div className="kdn-minb-sum">{summary.map(([key, label, count, tone]) => <button key={key} type="button" data-kdn-bare className={`${tone} ${statusFilter === key ? "is-on" : ""}`} onClick={() => onStatusFilter(key)}><small>{label}</small><b>{Number(count || 0).toLocaleString()}</b></button>)}<span className="hint">충족에는 최저 없음 전형이 포함됩니다.</span></div>
+    {pager}
+    {visible.map(group => {
+      const first = group.items[0];
+      const caseLink = caseLinkForRow({ ...first, department: "", track: "" });
+      const ok = group.items.filter(row => ["satisfied", "no-minimum"].includes(row.evaluation.status)).length;
+      return <section key={group.university} className="kdn-minb-uni">
+        <header>
+          <b>{group.university}</b>
+          {first.region && first.region !== "미지정" && <span className="rg">{first.region}</span>}
+          <span className="ct">전형 {group.items.length} · 충족 <b>{ok}</b></span>
+          {caseLink.count > 0 && onOpenCases && <button type="button" data-kdn-bare className="cs" onClick={() => onOpenCases(caseLink.university, "", "")}>광덕고 사례 {caseLink.count}건 ›</button>}
+        </header>
+        {group.items.map(row => {
+          const result = row.evaluation;
+          const meta = admissionStatusMeta(result.status);
+          const key = `${row.university}-${row._index}`;
+          const isOpen = open.has(key);
+          const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
+          const margin = minimumMargin(result);
+          const studentText = admissionStudentResultText(result);
+          const fav = favoriteActive({ source: "admission", university: row.university, region: row.region, department: row.department, admissionType: row.track });
+          const detail = result.ruleText || row.historySummary?.decidedCount > 0 || (result.status === "unsatisfied" && row.improvementAdvice) || (row.eligibility && row.eligibility.status !== "none") || ["manual", "unlinked"].includes(result.status);
+          return <div key={key} className={`kdn-minb-row s-${result.status}${isOpen ? " is-open" : ""}`}>
+            <div className="line">
+              {onToggleFavorite ? <button type="button" data-kdn-bare className={fav ? "fav is-on" : "fav"} title="상담·관심 대학에 저장" onClick={() => onToggleFavorite({ source: "admission", favoriteKind: "전형", university: row.university, department: row.department, admissionType: row.track, region: row.region, field: (row._fieldTags || []).join(", "), label: `${row.university} ${row.department || row.track || ""}` })}><Star size={14} fill={fav ? "currentColor" : "none"} /></button> : <span />}
+              <div className="dep"><b>{row.department || "전 모집단위"}</b><span>{row.track}</span>{!!(row._fieldTags || []).length && <small>{row._fieldTags.join(" · ")}</small>}</div>
+              <div className="subj">{result.status === "no-minimum" || !(result.subjectsText || row.requiredSubjects) ? <span className="mt">-</span> : <AdmissionSubjectRule value={result.subjectsText || row.requiredSubjects} />}</div>
+              <div className="cmp">
+                {result.status === "no-minimum" ? <span className="none">최저 없음</span> : hasMinimum ? <>
+                  <span className="need"><small>대학 기준</small><b>{admissionMinimumText(result)}</b></span>
+                  <span className="arrow">↔</span>
+                  <span className="mine"><small>내 최저</small><b>{studentText ? studentText.replace(/^\d합\s*/, "") : "-"}</b></span>
+                  {margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? `${margin} 여유` : `${-margin} 부족`}</em>}
+                </> : <span className="mt">요강 확인</span>}
+              </div>
+              <span className="st" style={meta.style}>{meta.label}</span>
+              <div className="act">
+                {detail && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}
+                {row.guideDocs.length ? row.guideDocs.slice(0, 2).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}
+              </div>
+            </div>
+            {isOpen && <div className="detail">
+              {result.year && <span><b>{result.year}학년도</b> {result.yearMismatch ? "참고 기준" : "기준"}</span>}
+              {result.ruleText && <span>{result.ruleText}</span>}
+              {result.reason && <span>{result.reason}</span>}
+              {result.source && <span className="src">{result.source}</span>}
+              {row.historySummary?.decidedCount > 0 && <span>최근 {row.historySummary.decidedCount}회 중 <b>{row.historySummary.satisfiedCount}회</b> 충족</span>}
+              {result.status === "unsatisfied" && row.improvementAdvice && <span className="adv">{improvementAdviceText(row.improvementAdvice)}</span>}
+              {row.eligibility && row.eligibility.status !== "none" && <span className="elg">지원자격 · {row.eligibility.label}</span>}
+            </div>}
+          </div>;
+        })}
+      </section>;
+    })}
+    {pager}
+  </div>;
 }
 
 function admissionStatusMeta(status) {
