@@ -1007,7 +1007,7 @@ const classGradeTone = (value, scale) => {
   return { background: "#eef1f5", color: "#334155" };
 };
 
-// 반 성적 요약 칸: 색 타일 4개(학생 수 · 반 평균 · 1점대 · 직전 학기 변화)
+// 반 성적 요약 칸: 색 타일 4개(학생 수 · 반 평균 · 1등급대 · 직전 학기 변화)
 function ClassGradeKpis({ rows, graded, avg, gradeMean, scale, up, down }) {
   const topCount = graded.filter(row => row.overall.primary < 2).length;
   const gap = avg != null && gradeMean != null ? gradeMean - avg : null;
@@ -1020,7 +1020,7 @@ function ClassGradeKpis({ rows, graded, avg, gradeMean, scale, up, down }) {
   return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12, padding: 16 }}>
     {tile("blue", "학생 수", big(rows.length, "명"), `성적이 있는 학생 ${graded.length}명`, <UsersRound size={15} />)}
     {tile("accent", "반 평균 · 전교과", big(avg == null ? "-" : avg.toFixed(2)), gap == null ? `${scale}등급제` : <>학년 평균 {gradeMean.toFixed(2)} · <b style={{ color: gap > 0.004 ? "#15803d" : gap < -0.004 ? "#b91c1c" : "#475569" }}>{gap > 0.004 ? `${gap.toFixed(2)} 좋음` : gap < -0.004 ? `${Math.abs(gap).toFixed(2)} 낮음` : "같음"}</b></>, <BarChart3 size={15} />)}
-    {tile("teal", scale === 5 ? "1점대 학생" : "1~2등급대 학생", big(topCount, "명"), graded.length ? `반의 ${Math.round(topCount / graded.length * 100)}% · 누적 전교과 기준` : "누적 전교과 기준", <TrendingUp size={15} />)}
+    {tile("teal", scale === 5 ? "1등급대 학생" : "1~2등급 학생", big(topCount, "명"), graded.length ? `반의 ${Math.round(topCount / graded.length * 100)}% · 누적 전교과 기준` : "누적 전교과 기준", <TrendingUp size={15} />)}
     {tile("amber", "직전 학기보다", <span style={{ display: "flex", alignItems: "baseline", gap: 14 }}>{big(`▲${up}`, "", "#15803d")}{big(`▼${down}`, "", "#b91c1c")}</span>, "좋아진 학생 · 낮아진 학생", <TrendingUp size={15} />)}
   </div>;
 }
@@ -1066,12 +1066,12 @@ function SemesterSteps({ trend = [] }) {
 // 반 비교: 반마다 등급 구간별 학생 비율을 100% 막대로 쌓아 비교합니다(왼쪽일수록 상위 구간).
 function ClassBandCompare({ classStats = [], scale, gradeMean, highlight = "", onPick }) {
   const bands = scale === 5
-    ? [[1, 2, "1점대", "#e2531a", "#ffffff"], [2, 3, "2점대", "#f6a37a", "#3b1505"], [3, 4, "3점대", "#cbd5e1", "#1f2430"], [4, 5.01, "4점대 이상", "#8f9bb0", "#ffffff"]]
+    ? [[1, 2, "1등급대", "#e2531a", "#ffffff", "1.00~1.99"], [2, 3, "2등급대", "#f6a37a", "#3b1505", "2.00~2.99"], [3, 4, "3등급대", "#cbd5e1", "#1f2430", "3.00~3.99"], [4, 5.01, "4등급 이하", "#8f9bb0", "#ffffff", "4.00 이상"]]
     : [[1, 3, "1~2등급", "#e2531a", "#ffffff"], [3, 5, "3~4등급", "#f6a37a", "#3b1505"], [5, 7, "5~6등급", "#cbd5e1", "#1f2430"], [7, 9.01, "7등급 이하", "#8f9bb0", "#ffffff"]];
   return <>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
       <b style={{ fontSize: 16, color: "#1f2430" }}>반별 전교과 구간 비율</b>
-      <span style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12.5, fontWeight: 700, color: "#475569" }}>{bands.map(([, , label, color]) => <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 12, height: 12, borderRadius: 3, background: color }} />{label}</span>)}{gradeMean != null && <span>학년 평균 {gradeMean.toFixed(2)}</span>}</span>
+      <span style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12.5, fontWeight: 700, color: "#475569" }}>{bands.map(([, , label, color, , range]) => <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 12, height: 12, borderRadius: 3, background: color }} />{label}{range && <small style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>({range})</small>}</span>)}{gradeMean != null && <span>학년 평균 {gradeMean.toFixed(2)}</span>}</span>
     </div>
     <div style={{ display: "grid", gap: 8 }}>{classStats.map(stat => {
       const mine = stat.no === highlight;
@@ -1144,7 +1144,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
     </section>)}
     {view === "compare" && <section style={{ ...card, padding: 18, display: "grid", gap: 14 }}>
       <ClassBandCompare classStats={classStats} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />
-      <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 620 }}><thead><tr><th style={table.th}>반</th><th style={table.th}>학생</th><th style={table.th}>평균</th><th style={table.th}>학년 평균 대비</th><th style={table.th}>중앙값</th><th style={table.th}>최고</th><th style={table.th}>{scale === 5 ? "1점대" : "1~2등급대"}</th><th style={table.th}>직전 학기 평균 변화</th></tr></thead>
+      <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 620 }}><thead><tr><th style={table.th}>반</th><th style={table.th}>학생</th><th style={table.th}>평균</th><th style={table.th}>학년 평균 대비</th><th style={table.th}>중앙값</th><th style={table.th}>최고</th><th style={table.th}>{scale === 5 ? "1등급대" : "1~2등급"}</th><th style={table.th}>직전 학기 평균 변화</th></tr></thead>
         <tbody>{classStats.slice().sort((a, b) => (a.mean ?? 99) - (b.mean ?? 99)).map(stat => { const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null; return <tr key={stat.no}>
           <td style={table.td}><b>{stat.no}반</b></td><td style={table.td}>{stat.n}명</td>
           <td style={table.td}><b style={{ fontSize: 14.5 }}>{stat.mean == null ? "-" : stat.mean.toFixed(2)}</b></td>
