@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3 } from "lucide-react";
+import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi } from "./uiMode.js";
@@ -2551,9 +2551,12 @@ function TeacherZoneWorkspace({
   const [workspaceMode, setWorkspaceMode] = useState(() => {
     try {
       const saved = localStorage.getItem(modeStorageKey);
+      // 새 UI는 들어올 때 항상 업무 카드 홈부터 보여 줍니다(마지막 작업은 홈에서 '이어서 하기'로 표시).
+      if (isNewUi()) return "home";
       return ["grades", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : "grades";
-    } catch { return "grades"; }
+    } catch { return isNewUi() ? "home" : "grades"; }
   });
+  const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : ""; } catch { return ""; } });
   const [visitedWorkspaceModes, setVisitedWorkspaceModes] = useState(() => [workspaceMode]);
   useEffect(() => { if (modeRequest?.mode) setWorkspaceMode(modeRequest.mode); }, [modeRequest?.at]);
   const [lastDepartmentToolView, setLastDepartmentToolView] = useState(() => ["contacts", "records", "gradeData"].includes(workspaceMode) ? workspaceMode : "contacts");
@@ -2565,6 +2568,7 @@ function TeacherZoneWorkspace({
     if ((!canUseNotice && workspaceMode === "notice") || (!canUseGradeDepartmentTools && ["contacts", "records", "gradeData"].includes(workspaceMode))) setWorkspaceMode("grades");
   }, [canUseNotice, canUseGradeDepartmentTools, workspaceMode]);
   useEffect(() => {
+    if (workspaceMode === "home") return;
     try { localStorage.setItem(modeStorageKey, workspaceMode); } catch { /* localStorage unavailable */ }
   }, [modeStorageKey, workspaceMode]);
   const mergedRoster = useMemo(() => {
@@ -2586,6 +2590,7 @@ function TeacherZoneWorkspace({
   return <div style={styles.body}>
     <div className="no-print" style={teacherZoneWorkspaceStyles.toolbar}>
       <div style={teacherZoneWorkspaceStyles.modeTabs}>
+        {isNewUi() && <button type="button" onClick={() => setWorkspaceMode("home")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "home" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 홈</button>}
         <button type="button" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
         {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
@@ -2595,6 +2600,7 @@ function TeacherZoneWorkspace({
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
+    {workspaceMode === "home" && <TeacherZoneHome actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum} />}
     {visitedWorkspaceModes.includes("grades") && <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
       <DeferredPanel label="성적 산출 도구를 불러오는 중입니다."><TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={activeAccessRole}
@@ -2605,6 +2611,39 @@ function TeacherZoneWorkspace({
     {canUseGradeDepartmentTools && visitedWorkspaceModes.some(mode => ["contacts", "records", "gradeData"].includes(mode)) && <div style={{ display: ["contacts", "records", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records", "gradeData"].includes(workspaceMode))}>
       <DeferredPanel label="학년부 도구를 불러오는 중입니다."><GradeDepartmentTools view={lastDepartmentToolView} db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} /></DeferredPanel>
     </div>}
+  </div>;
+}
+
+// 새 UI 선생님 ZONE 홈: 쓸 수 있는 업무를 카드로 모으고, 마지막으로 하던 업무를 '이어서 하기'로 강조합니다.
+function TeacherZoneHome({ actor, activeTeacher, grade, lastMode, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum }) {
+  const rawName = String(activeTeacher?.name || actor?.name || "").trim();
+  const callName = !rawName || /선생님$/.test(rawName) ? "선생님" : `${rawName} 선생님`;
+  const homeroom = activeTeacher?.homeroomClass ? `${grade}학년 ${activeTeacher.homeroomClass}반 담임` : isAdmin ? "관리자" : `${grade}학년`;
+  const cards = [
+    { key: "grades", icon: <FileSpreadsheet size={20} />, tone: "#c2410c", soft: "#fff0e6", title: "성적 산출", tag: "학기말", text: "NEIS 지필·수행 파일을 올려 반영비율대로 학기말 성적을 계산합니다.", points: ["① 파일 업로드 → ② 산출 기준 → ③ 결과 확인", "개인 임시 저장 · 학교 공동 저장"], primary: "성적 산출 열기", show: true },
+    { key: "notice", icon: <Megaphone size={20} />, tone: "#1d4ed8", soft: "#e0ecff", title: "공지·수업자료", tag: "학생에게 전달", text: "담당 반 학생에게 공지·제출·신청 안내와 수업자료를 보냅니다.", points: ["마감일 · 첨부파일 · 읽음 확인", "과목별 · 반별 대상 선택"], primary: "공지 쓰기", show: canUseNotice },
+    { key: "contacts", icon: <Users size={20} />, tone: "#0e7490", soft: "#dff4f7", title: "학생 비상연락망", tag: "2학년부", text: "학교에 반영된 2학년 비상연락망을 반별로 확인합니다.", points: ["반·번호·이름으로 찾기", "자료 관리에서 반영한 최신본"], primary: "연락망 보기", show: canUseDept },
+    { key: "records", icon: <BookOpen size={20} />, tone: "#6d28d9", soft: "#ede9fe", title: "생기부 업무", tag: "Beta", text: "진로 활동 배정과 학생 소감문을 반별로 정리합니다.", points: ["소감문 응답 확인", "활동 배정 현황"], primary: "생기부 업무 열기", show: canUseDept },
+    { key: "gradeData", icon: <Database size={20} />, tone: "#92400e", soft: "#fff1d6", title: "자료 관리", tag: "학교 반영", text: "2학년부 업무 파일과 소감문 파일을 올리고 학교 자료로 반영합니다.", points: ["임시 저장 → 학교 자료로 반영", "같은 이름 파일은 교체"], primary: "자료 관리 열기", show: canUseDept },
+    { key: "minimum", icon: <ShieldCheck size={20} />, tone: "#b42318", soft: "#fdecea", title: "최성보 현황", tag: "다른 메뉴", text: "학급·과목별 최소성취수준 주의 대상과 미도달 학생을 확인합니다.", points: ["공통과목: 출석 2/3 + 성취율 40%", "선택과목: 출석 2/3"], primary: "현황 보기 ↗", show: !!onOpenMinimum },
+  ].filter(card => card.show);
+  const last = cards.find(card => card.key === lastMode);
+  return <div className="kdn-tz">
+    <section className="kdn-tz-hero">
+      <span className="av"><Users size={22} /></span>
+      <div><small>선생님 ZONE · {homeroom}</small><b>{callName}, {last ? `지난번 하던 '${last.title}'부터 이어서 할까요?` : "오늘 어떤 업무를 할까요?"}</b></div>
+      {last && <button type="button" onClick={() => onOpen(last.key)}>{last.title} 이어서 하기 ›</button>}
+    </section>
+    <div className="kdn-tz-grid">{cards.map(card => {
+      const isLast = card.key === lastMode;
+      const open = () => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));
+      return <section key={card.key} className={`kdn-tz-card${isLast ? " is-last" : ""}`} style={{ "--a": card.tone, "--s": card.soft }}>
+        <div className="top"><span className="ic">{card.icon}</span><h4>{card.title}</h4><span className="tag">{isLast ? "최근 작업" : card.tag}</span></div>
+        <p>{card.text}</p>
+        <ul>{card.points.map(point => <li key={point}>{point}</li>)}</ul>
+        <div className="acts"><button type="button" className="p" onClick={open}>{isLast ? "이어서 하기 ›" : card.primary}</button></div>
+      </section>;
+    })}</div>
   </div>;
 }
 
