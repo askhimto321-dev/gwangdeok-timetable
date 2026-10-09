@@ -22,7 +22,7 @@ export function canonicalCampus(base, campus) {
   if (/^(?:WISE|와이즈|경주)$/i.test(raw)) return "WISE";
   return map[raw] || map[raw.toUpperCase()] || (raw.toUpperCase() === "ERICA" ? "ERICA" : raw);
 }
-export function universityBaseKey(value) {
+function universityBaseKeyRaw(value) {
   let text = normalizeText(value)
     .replace(/[（]/g, "(").replace(/[）]/g, ")")
     // 대학 식별용 기본키에서는 괄호·슬래시 뒤의 캠퍼스/지역 표기를 모두 제외합니다.
@@ -43,7 +43,7 @@ export function universityBaseKey(value) {
   text = aliases[text] || text;
   return compactText(text);
 }
-export function universityCampus(value, region = "") {
+function universityCampusRaw(value, region = "") {
   const text = normalizeText(value).replace(/[（]/g, "(").replace(/[）]/g, ")");
   const base = universityBaseKey(text);
   let explicit = "";
@@ -64,6 +64,20 @@ export function universityCampus(value, region = "") {
   // 같은 캠퍼스가 '전남/광주'처럼 서로 다른 지역 문자열로 저장돼 중복 카드가 생기는 것을 막습니다.
   return "단일";
 }
-export function universityIdentityKey(value, region = "") {
-  return `${universityBaseKey(value)}|${universityCampus(value, region)}`;
+// NAVI는 수천 개 모집단위를 렌더할 때마다 같은 대학명을 수만 번 정규화합니다. 결과가 입력에만 달려 있으므로
+// 캐시해 두고(최대 2만 개, 넘치면 비움) 같은 값은 바로 돌려줍니다.
+function memo(fn, max = 20000) {
+  const store = new Map();
+  return (...args) => {
+    const key = args.length === 1 ? String(args[0] ?? "") : args.map(arg => String(arg ?? "")).join("\u0001");
+    const hit = store.get(key);
+    if (hit !== undefined) return hit;
+    const value = fn(...args);
+    if (store.size >= max) store.clear();
+    store.set(key, value);
+    return value;
+  };
 }
+export const universityBaseKey = memo(universityBaseKeyRaw);
+export const universityCampus = memo(universityCampusRaw);
+export const universityIdentityKey = memo((value, region = "") => `${universityBaseKey(value)}|${universityCampus(value, region)}`);

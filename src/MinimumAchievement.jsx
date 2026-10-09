@@ -137,6 +137,9 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
     .filter(item=>String(item.grade)===String(grade))
     .filter(item=>isManager||isHomeroom||item.ownerId===actor?.id)
     .sort((a,b)=>String(a.subject||"").localeCompare(String(b.subject||""),"ko")),[db.teacherGradeWorkspaces,grade,isManager,isHomeroom,actor?.id]);
+  // 새 UI: 현황 확인을 페이지(요약·주의 대상 → 학생별 최종 확인 → 출결 일괄 반영)로 나눕니다. 인쇄는 모든 페이지를 함께 출력합니다.
+  const [minPage,setMinPage]=useState("overview");
+  const mOff=key=>isNewUi()&&minPage!==key?" kdn-mpage-off":"";
   const [subjectFilter,setSubjectFilter]=useState("all");
   const [classFilter,setClassFilter]=useState(isHomeroom?String(homeroomClass):"all");
   const [statusFilter,setStatusFilter]=useState("attention");
@@ -290,12 +293,15 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
       <div style={ui.gradeTabs}><span>학년</span>{gradeTabs.map(value=><button key={value} type="button" onClick={()=>setGrade?.(value)} style={{...ui.gradeTab,...(String(grade)===value?ui.gradeTabActive:{})}}>{value}학년</button>)}</div>
     </div>
     {panelMode==="status"&&<>
-    <section className="minimum-rule-grid" style={ui.ruleGrid}>
+    {isNewUi()&&!!allWorkspaces.length&&<div className="kdn-search-steps kdn-substeps no-minimum-dashboard-print" role="tablist" aria-label="최성보 현황 페이지" style={{margin:"4px 0 14px"}}>
+      {[["overview","요약 · 주의 대상",`주의·미도달 ${attentionRows.length}건`],["detail","학생별 최종 확인",`${visibleRows.length}건`],...(canManageAttendance?[["attendance","출결 일괄 반영","학급별 출결 처리"]]:[])].map(([key,label,note],index)=><button key={key} type="button" role="tab" aria-selected={minPage===key} className={minPage===key?"is-active":""} onClick={()=>setMinPage(key)}><span>{index+1}</span><b>{label}</b><small>{note}</small></button>)}
+    </div>}
+    <section className={`minimum-rule-grid${mOff("overview")}`} style={ui.ruleGrid}>
       <div style={ui.ruleCard}><span style={ui.ruleIcon}><ShieldCheck size={18}/></span><div style={ui.ruleCopy}><span style={ui.commonRuleBadge}>공통과목</span><strong>출석 2/3 이상 + 성취율 40% 이상</strong><small>두 기준을 모두 충족해야 합니다.</small></div></div>
       <div style={ui.ruleCard}><span style={{...ui.ruleIcon,...ui.electiveIcon}}><BookOpenCheck size={18}/></span><div style={ui.ruleCopy}><span style={ui.electiveRuleBadge}>선택과목</span><strong>출석 2/3 이상</strong><small>학업성취율 기준은 적용하지 않습니다.</small></div></div>
     </section>
     {!allWorkspaces.length?<div style={ui.empty}><BookOpenCheck size={34}/><b>학교에 반영된 과목 성적이 없습니다.</b><span>과목 담당 교사가 선생님 ZONE에서 ‘공동 작업 저장’을 눌러야 표시됩니다.</span>{onOpenGradeCalc&&<button type="button" onClick={onOpenGradeCalc} style={ui.emptyAction}>성적 산출로 이동 ›</button>}</div>:<>
-      <section className="no-minimum-dashboard-print minimum-filter-section" style={ui.section}>
+      <section className={`no-minimum-dashboard-print minimum-filter-section${isNewUi()&&minPage==="attendance"?" kdn-mpage-off":""}`} style={ui.section}>
         <div style={ui.filterHeader}><div className="minimum-filter-title"><b>최종 확인 필터</b><span>학생·과목·판정 상태를 조합해 확인합니다.</span></div><span style={ui.roleBadge}>{isHomeroom?`${homeroomClass}반 담임`:"학년 전체 권한"}</span></div>
         <div style={ui.toolbar}>
           <div className="minimum-search-box" style={ui.search}><span style={ui.searchIcon}><Search size={15}/></span><label><b>학생·과목 검색</b><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="이름 또는 과목명 입력"/></label></div>
@@ -306,7 +312,7 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
         <div className="minimum-metric-grid" style={ui.metrics}><Metric label="조회 학생" value={`${visibleRows.length}명`} caption="현재 필터 결과"/><Metric label="주의 대상자" value={`${summary.risk}명`} tone="warn" caption="다음 평가 점수 확인"/><Metric label="미도달" value={`${summary.fail}명`} tone="bad" caption="학업 또는 출결 미도달"/><Metric label="확인 필요" value={`${summary.check}명`} caption="출결·미입력 자료 확인"/><Metric label="도달" value={`${summary.reached}명`} tone="good" caption="이수 기준 충족"/></div>
       </section>
 
-      {canManageAttendance&&<section className="no-minimum-dashboard-print" style={{...ui.section,...ui.bulkSection}}>
+      {canManageAttendance&&<section className={`no-minimum-dashboard-print${mOff("attendance")}`} style={{...ui.section,...ui.bulkSection}}>
         <div style={ui.bulkHeader}><div className="minimum-bulk-title"><span style={ui.bulkIcon}><ListChecks size={18}/></span><div><b>학급별 출결 일괄 반영</b><small>출결 미도달 학생만 선택하면, 같은 학급의 나머지 학생은 자동으로 출결 도달 처리됩니다.</small></div></div><span style={ui.roleBadge}>{isHomeroom?`${homeroomClass}반 입력`:"전체 학급 입력"}</span></div>
         <div className="minimum-bulk-grid" style={ui.bulkGrid}>
           <div className="minimum-bulk-target-panel">
@@ -327,12 +333,12 @@ export default function MinimumAchievement({db={},persist,actor,accessRole="teac
         </div>
       </section>}
 
-      {!!attentionRows.length&&<section className="minimum-attention-panel" style={ui.attentionPanel}>
+      {!!attentionRows.length&&<section className={`minimum-attention-panel${mOff("overview")}`} style={ui.attentionPanel}>
         <div style={ui.attentionHead}><div className="minimum-attention-title"><span><ShieldAlert size={17}/></span><div><b>{isHomeroom?`${homeroomClass}반`:"학년 전체"} 주의·미도달</b><small>주의 대상자와 미도달 학생을 과목별로 우선 확인합니다.</small></div></div><strong>{attentionRows.length}건</strong></div>
         <div className="minimum-attention-list" style={ui.attentionList}>{previewRows.map(row=><div key={`${row.workspaceId}-${row.sid}`} className={`minimum-attention-chip is-${row.overallStatus}`} style={{...ui.attentionChip,...(row.overallStatus==="fail"?ui.attentionChipFail:{})}}><span>{row.classNumber}반 {row.number}번</span><b>{row.name||row.sid}</b><small>{row.subject}</small><em>{row.overall}</em></div>)}</div>
         {attentionRows.length>12&&<button type="button" className="no-minimum-dashboard-print" style={ui.moreButton} onClick={()=>setShowAllAttention(value=>!value)}>{showAllAttention?<><ChevronUp size={14}/>접기</>:<><ChevronDown size={14}/>전체보기 ({attentionRows.length}건)</>}</button>}
       </section>}
-      <section className="minimum-final-section" style={ui.section}>
+      <section className={`minimum-final-section${mOff("detail")}`} style={ui.section}>
         <div style={ui.tableTitle}><div><Users size={16}/><b>학생별·과목별 최종 확인</b></div><span>{visibleRows.length}건</span></div>
         <div style={ui.tableWrap}><table className="minimum-final-table"><thead><tr><th>반·번호</th><th>성명</th><th>과목</th><th>유형</th><th>현재 환산</th><th>학업 판정</th><th>과목 출결</th><th>최종 판정</th></tr></thead><tbody>{visibleRows.map(row=><tr key={`${row.workspaceId}-${row.sid}`} className={`row-${row.overallStatus}`}><td className="minimum-class-cell"><b>{row.classNumber}반 {row.number}번</b></td><td className="minimum-name-cell"><b>{row.name||"이름 미연결"}</b></td><td className="minimum-subject-cell"><b title={row.subject}>{row.subject}</b></td><td><CourseBadge type={row.courseType}/></td><td className="minimum-score-cell"><b>{row.earned.toFixed(2)}</b>{isNewUi()&&<AchievementBar value={row.earned} completed={row.completedWeight}/>}{row.missing.length?<small className="minimum-input-warning">미입력 {row.missing.length}건</small>:<small className="minimum-input-complete"><Check size={10}/>입력 완료</small>}</td><td><StatusBadge status={row.academicStatus}>{row.academicLabel}</StatusBadge></td><td>{canEditRow(row)?<select className="minimum-attendance-select" value={attendanceDraft?.[row.workspaceId]?.[row.sid]?.status||"확인필요"} onChange={event=>updateAttendance(row,{status:event.target.value})}><option value="확인필요">확인 필요</option><option value="도달">출결 도달</option><option value="미도달">출결 미도달</option></select>:<span className={`minimum-attendance-text is-${row.attendanceStatus}`}>{row.attendanceStatus}</span>}</td><td><StatusBadge status={row.overallStatus}>{row.overall}</StatusBadge></td></tr>)}</tbody></table></div>
         {!visibleRows.length&&<div style={ui.noRows}>선택한 조건에 해당하는 학생이 없습니다.</div>}
