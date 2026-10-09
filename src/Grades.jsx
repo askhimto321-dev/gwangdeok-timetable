@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert, CheckCircle2, Star, MessageSquare, Paperclip, Download, X, ArrowLeft } from "lucide-react";
-import { readStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, diagnoseAdmissionFileBackends, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
+import { readStorage, updateStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, diagnoseAdmissionFileBackends, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
 import SupportPlanButton, { useSupportPlanCount } from "./SupportPlanButton.jsx";
 import { extractPdfFilesFromZip } from "./zipReader.js";
 import { conversionDetails, loadSusiNaviBetaData } from "./susiNaviData.js";
@@ -572,6 +572,8 @@ export default function GradesSection({
   onSelectedStudentQueryChange,
   requestedStudentView,
   requestedStudentViewNonce = 0,
+  requestedGradeTab = "",
+  requestedGradeTabNonce = 0,
   onWorkspaceViewChange,
   enrolledSubjectsByStudent = {},
   persistGrades,
@@ -770,6 +772,10 @@ export default function GradesSection({
   useEffect(() => {
     if (loggedInTeacher && !teacherHasGradeAccess && tab !== "class" && tab !== "classGrades") navigateGradeTab("lookup", { replace: true });
   }, [loggedInTeacher, teacherHasGradeAccess, tab]);
+
+  useEffect(() => {
+    if (requestedGradeTab === "classGrades" && (loggedInAdmin || loggedInTeacher?.homeroomClass)) navigateGradeTab("classGrades", { replace: true });
+  }, [requestedGradeTab, requestedGradeTabNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!requestedStudentView || loggedInStudent) return;
@@ -1000,22 +1006,85 @@ const classGradeTone = (value, scale) => {
   if (t < 0.45) return { background: "#fde3d3", color: "#7a2a08" };
   return { background: "#eef1f5", color: "#334155" };
 };
-function MiniTrend({ trend = [], scale = 5 }) {
-  const values = trend.map(item => Number(item.value)).filter(Number.isFinite);
-  if (!values.length) return <span style={{ color: "#a0a9b6" }}>-</span>;
-  const lo = Math.max(1, Math.min(...values) - 0.3), hi = Math.min(scale, Math.max(...values) + 0.3);
-  const w = 120, h = 34, x = i => (trend.length === 1 ? w / 2 : 6 + (i * (w - 12)) / (trend.length - 1)), y = v => 5 + ((v - lo) / Math.max(0.01, hi - lo)) * (h - 10);
-  const last = values[values.length - 1], prev = values[values.length - 2];
-  const tone = prev == null ? "#64748b" : last < prev - 0.004 ? "#15803d" : last > prev + 0.004 ? "#b91c1c" : "#64748b";
-  return <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }} title={trend.map(item => `${item.key} ${Number(item.value).toFixed(2)}`).join(" → ")}>
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true">
-      <polyline points={trend.map((item, i) => `${x(i)},${y(Number(item.value))}`).join(" ")} fill="none" stroke={tone} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-      {trend.map((item, i) => <circle key={item.key} cx={x(i)} cy={y(Number(item.value))} r={i === trend.length - 1 ? 3.8 : 2.6} fill={i === trend.length - 1 ? tone : "#ffffff"} stroke={tone} strokeWidth="1.8" />)}
-    </svg>
-    <b style={{ fontSize: 13, color: "#1f2430", fontVariantNumeric: "tabular-nums" }}>{last.toFixed(2)}</b>
-  </span>;
-}
 
+// 반 성적 요약 칸: 색 타일 4개(학생 수 · 반 평균 · 1점대 · 직전 학기 변화)
+function ClassGradeKpis({ rows, graded, avg, gradeMean, scale, up, down }) {
+  const topCount = graded.filter(row => row.overall.primary < 2).length;
+  const gap = avg != null && gradeMean != null ? gradeMean - avg : null;
+  const tile = (tone, label, body, note, icon) => { const t = toneTileStyle(tone); return <div style={{ display: "grid", gap: 6, padding: "16px 18px", borderRadius: 16, ...t.tile }}>
+    <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13.5, fontWeight: 800, ...t.label }}>{icon}{label}</span>
+    {body}
+    <small style={{ fontSize: 12.5, fontWeight: 600, color: "#475569" }}>{note}</small>
+  </div>; };
+  const big = (value, unit, color = "#141821") => <b style={{ fontSize: 32, fontWeight: 900, lineHeight: 1, color, fontVariantNumeric: "tabular-nums" }}>{value}{unit && <small style={{ fontSize: 15, fontWeight: 800, marginLeft: 3 }}>{unit}</small>}</b>;
+  return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12, padding: 16 }}>
+    {tile("blue", "학생 수", big(rows.length, "명"), `성적이 있는 학생 ${graded.length}명`, <UsersRound size={15} />)}
+    {tile("accent", "반 평균 · 전교과", big(avg == null ? "-" : avg.toFixed(2)), gap == null ? `${scale}등급제` : <>학년 평균 {gradeMean.toFixed(2)} · <b style={{ color: gap > 0.004 ? "#15803d" : gap < -0.004 ? "#b91c1c" : "#475569" }}>{gap > 0.004 ? `${gap.toFixed(2)} 좋음` : gap < -0.004 ? `${Math.abs(gap).toFixed(2)} 낮음` : "같음"}</b></>, <BarChart3 size={15} />)}
+    {tile("teal", scale === 5 ? "1점대 학생" : "1~2등급대 학생", big(topCount, "명"), graded.length ? `반의 ${Math.round(topCount / graded.length * 100)}% · 누적 전교과 기준` : "누적 전교과 기준", <TrendingUp size={15} />)}
+    {tile("amber", "직전 학기보다", <span style={{ display: "flex", alignItems: "baseline", gap: 14 }}>{big(`▲${up}`, "", "#15803d")}{big(`▼${down}`, "", "#b91c1c")}</span>, "좋아진 학생 · 낮아진 학생", <TrendingUp size={15} />)}
+  </div>;
+}
+// 전교과 분포 막대: 구간 이름을 막대 아래 칩으로 크게, 막대 위에는 인원과 비율
+function ClassGradeHistogram({ bins, counts, total, scale, avg }) {
+  const maxCount = Math.max(1, ...counts);
+  const avgBin = avg == null ? -1 : bins.findIndex(([lo, hi]) => avg >= lo && avg < hi);
+  return <div style={{ padding: "0 16px 18px" }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}><b style={{ fontSize: 15, color: "#1f2430" }}>전교과 누적 분포</b><span style={{ fontSize: 12.5, color: "#64748b" }}>막대 = 구간별 학생 수 · ◆ = 반 평균이 있는 구간</span></div>
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 150, marginTop: 10, paddingBottom: 6, borderBottom: "2px solid #cbd5e1" }}>{bins.map(([lo, hi], index) => <div key={lo} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4, height: "100%" }}>
+      <b style={{ fontSize: 15, fontWeight: 900, color: "#1f2430" }}>{counts[index]}<small style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginLeft: 3 }}>{total ? `${Math.round(counts[index] / total * 100)}%` : ""}</small></b>
+      <i style={{ display: "block", width: "100%", height: `${(counts[index] / maxCount) * 78}%`, minHeight: counts[index] ? 6 : 2, borderRadius: "8px 8px 2px 2px", background: index < 2 ? "#e2531a" : index < 4 ? "#f6a37a" : "#cbd5e1" }} />
+    </div>)}</div>
+    <div style={{ display: "flex", gap: 10, marginTop: 8 }}>{bins.map(([lo, hi], index) => <span key={lo} style={{ flex: 1, textAlign: "center", padding: "6px 4px", borderRadius: 9, background: index === avgBin ? "#1f2430" : "#eef1f5", color: index === avgBin ? "#ffffff" : "#1f2430", fontSize: 13.5, fontWeight: 850, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{index === avgBin ? "◆ " : ""}{lo.toFixed(1)}~{(hi > scale ? scale : hi).toFixed(1)}</span>)}</div>
+  </div>;
+}
+const fmt2 = value => (value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
+// 직전 학기 → 최근 학기 값과 변화량을 숫자로 보여 줍니다(낮을수록 좋은 성적).
+function SemesterChange({ trend = [] }) {
+  if (trend.length < 2) return trend.length ? <span style={{ fontSize: 13, color: "#64748b" }}>최근 {fmt2(trend[0].value)} · 비교 학기 없음</span> : <span style={{ color: "#a0a9b6" }}>-</span>;
+  const prev = trend[trend.length - 2], last = trend[trend.length - 1];
+  const d = prev.value - last.value;
+  const tone = d > 0.004 ? { bg: "#dcfce7", c: "#15803d", s: "▲" } : d < -0.004 ? { bg: "#fee2e2", c: "#b91c1c", s: "▼" } : { bg: "#f1f5f9", c: "#64748b", s: "＝" };
+  return <div style={{ display: "grid", justifyItems: "center", gap: 4 }}>
+    <span style={{ fontSize: 13.5, fontVariantNumeric: "tabular-nums", color: "#475569", whiteSpace: "nowrap" }}>{fmt2(prev.value)} → <b style={{ fontSize: 15, color: "#1f2430" }}>{fmt2(last.value)}</b></span>
+    <span style={{ padding: "2px 9px", borderRadius: 999, background: tone.bg, color: tone.c, fontSize: 12.5, fontWeight: 850 }}>{tone.s} {Math.abs(d).toFixed(2)}</span>
+  </div>;
+}
+// 학기별 전교과 평균을 칸으로 나열하고, 칸마다 앞 학기 대비 변화를 작게 적습니다.
+function SemesterSteps({ trend = [] }) {
+  if (!trend.length) return <span style={{ color: "#a0a9b6" }}>-</span>;
+  return <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{trend.map((item, index) => {
+    const d = index ? trend[index - 1].value - item.value : null;
+    const c = d == null ? "#94a3b8" : d > 0.004 ? "#15803d" : d < -0.004 ? "#b91c1c" : "#94a3b8";
+    const last = index === trend.length - 1;
+    return <span key={item.key} style={{ display: "grid", justifyItems: "center", gap: 1, minWidth: 54, padding: "4px 6px", borderRadius: 9, border: `1px solid ${last ? "#1f2430" : "#e2e8f0"}`, background: last ? "#f8fafc" : "#ffffff" }}>
+      <small style={{ fontSize: 10.5, fontWeight: 700, color: "#64748b" }}>{item.key.replace("-", "학년 ")}학기</small>
+      <b style={{ fontSize: 14, fontWeight: 900, color: "#1f2430", fontVariantNumeric: "tabular-nums" }}>{fmt2(item.value)}</b>
+      <small style={{ fontSize: 10.5, fontWeight: 800, color: c }}>{d == null ? "시작" : `${d > 0.004 ? "▲" : d < -0.004 ? "▼" : "＝"}${Math.abs(d).toFixed(2)}`}</small>
+    </span>;
+  })}</div>;
+}
+// 반 비교: 반마다 등급 구간별 학생 비율을 100% 막대로 쌓아 비교합니다(왼쪽일수록 상위 구간).
+function ClassBandCompare({ classStats = [], scale, gradeMean, highlight = "", onPick }) {
+  const bands = scale === 5
+    ? [[1, 2, "1점대", "#e2531a", "#ffffff"], [2, 3, "2점대", "#f6a37a", "#3b1505"], [3, 4, "3점대", "#cbd5e1", "#1f2430"], [4, 5.01, "4점대 이상", "#8f9bb0", "#ffffff"]]
+    : [[1, 3, "1~2등급", "#e2531a", "#ffffff"], [3, 5, "3~4등급", "#f6a37a", "#3b1505"], [5, 7, "5~6등급", "#cbd5e1", "#1f2430"], [7, 9.01, "7등급 이하", "#8f9bb0", "#ffffff"]];
+  return <>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+      <b style={{ fontSize: 16, color: "#1f2430" }}>반별 전교과 구간 비율</b>
+      <span style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12.5, fontWeight: 700, color: "#475569" }}>{bands.map(([, , label, color]) => <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 12, height: 12, borderRadius: 3, background: color }} />{label}</span>)}{gradeMean != null && <span>학년 평균 {gradeMean.toFixed(2)}</span>}</span>
+    </div>
+    <div style={{ display: "grid", gap: 8 }}>{classStats.map(stat => {
+      const mine = stat.no === highlight;
+      const counts = bands.map(([lo, hi]) => stat.list.filter(v => v >= lo && v < hi).length);
+      const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null;
+      return <div key={stat.no} style={{ display: "grid", gridTemplateColumns: "64px minmax(0,1fr) 150px", gap: 12, alignItems: "center", padding: "8px 10px", borderRadius: 12, background: mine ? "#fff4ec" : "transparent", border: mine ? "1px solid #fbd0b5" : "1px solid transparent" }}>
+        <button type="button" onClick={() => onPick?.(stat.no)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: onPick ? "pointer" : "default" }}><b style={{ fontSize: 15.5, color: "#1f2430" }}>{stat.no}반</b><small style={{ display: "block", fontSize: 11, color: mine ? "#c2410c" : "#64748b", fontWeight: 700 }}>{mine ? "우리 반 · " : ""}{stat.n}명</small></button>
+        <div style={{ display: "flex", height: 30, borderRadius: 8, overflow: "hidden", background: "#f1f5f9" }}>{counts.map((count, index) => count ? <span key={index} title={`${bands[index][2]} ${count}명`} style={{ flex: count, display: "flex", alignItems: "center", justifyContent: "center", minWidth: 22, background: bands[index][3], color: bands[index][4], fontSize: 12.5, fontWeight: 850, fontVariantNumeric: "tabular-nums" }}>{count}</span> : null)}</div>
+        <div style={{ display: "grid", justifyItems: "end", fontVariantNumeric: "tabular-nums" }}><b style={{ fontSize: 16, color: "#1f2430" }}>평균 {stat.mean == null ? "-" : stat.mean.toFixed(2)}</b>{gap != null && <small style={{ fontSize: 12, fontWeight: 800, color: gap > 0.004 ? "#15803d" : gap < -0.004 ? "#b91c1c" : "#64748b" }}>학년 대비 {gap > 0.004 ? "▲" : gap < -0.004 ? "▼" : "＝"}{Math.abs(gap).toFixed(2)}</small>}</div>
+      </div>;
+    })}</div>
+  </>;
+}
 export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent }) {
   const classes = useMemo(() => Array.from(new Set(Object.values(roster || {}).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
   const [pickedClass, setPickedClass] = useState(String(homeroomClass || ""));
@@ -1034,9 +1103,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const scale = allRows.some(row => row.gradeSystem === 9) ? 9 : 5;
   const bins = scale === 5 ? [[1, 1.5], [1.5, 2], [2, 2.5], [2.5, 3], [3, 3.5], [3.5, 4], [4, 5.01]] : [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 9.01]];
   const counts = bins.map(([lo, hi]) => graded.filter(row => row.overall.primary >= lo && row.overall.primary < hi).length);
-  const maxCount = Math.max(1, ...counts);
   const ordered = rows.slice().sort((a, b) => (ranked.get(a.sid) || 999) - (ranked.get(b.sid) || 999));
-  const pos = value => `${Math.min(100, Math.max(0, ((value - 1) / (scale - 1)) * 100))}%`;
   // 반 비교 통계
   const classStats = useMemo(() => classes.map(no => {
     const list = allRows.filter(row => String(row.classNumber) === no && row.overall?.primary != null).map(row => row.overall.primary).sort((a, b) => a - b);
@@ -1059,52 +1126,24 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
         </div>
       </div>
       {view === "class" && <>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10, padding: 16 }}>
-          {[["학생 수", `${rows.length}명`, `성적 있는 학생 ${graded.length}명`], ["반 평균 (전교과)", avg == null ? "-" : avg.toFixed(2), gradeMean == null ? `${scale}등급제` : `학년 평균 ${gradeMean.toFixed(2)}`], [scale === 5 ? "1점대 학생" : "1~2등급대", `${graded.filter(row => row.overall.primary < 2).length}명`, "누적 전교과 기준"], ["직전 학기보다", `▲${up} · ▼${down}`, "좋아진 · 낮아진 학생 수"]].map(([label, value, note]) => <div key={label} style={{ display: "grid", gap: 4, padding: "12px 14px", borderRadius: 12, background: "#f6f8fb", border: "1px solid #e3e8ef" }}><span style={{ fontSize: 12, fontWeight: 700, color: "#64748b" }}>{label}</span><b style={{ fontSize: 24, fontWeight: 900, color: "#1f2430", fontVariantNumeric: "tabular-nums" }}>{value}</b><small style={{ fontSize: 11.5, color: "#64748b" }}>{note}</small></div>)}
-        </div>
-        {graded.length > 0 && <div style={{ padding: "0 16px 16px" }}>
-          <b style={{ fontSize: 13.5, color: "#253b55" }}>전교과 분포</b>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 120, marginTop: 8 }}>{bins.map(([lo, hi], index) => <div key={lo} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4, height: "100%" }}>
-            <b style={{ fontSize: 12.5, color: "#253b55" }}>{counts[index]}</b>
-            <i style={{ display: "block", width: "100%", height: `${(counts[index] / maxCount) * 80}%`, minHeight: counts[index] ? 4 : 0, borderRadius: "8px 8px 2px 2px", background: index < 2 ? "#e2531a" : index < 4 ? "#f6a37a" : "#cbd5e1" }} />
-            <small style={{ fontSize: 11, color: "#64748b", whiteSpace: "nowrap" }}>{lo}~{hi > scale ? scale : hi}</small>
-          </div>)}</div>
-        </div>}
+        <ClassGradeKpis rows={rows} graded={graded} avg={avg} gradeMean={gradeMean} scale={scale} up={up} down={down} />
+        {graded.length > 0 && <ClassGradeHistogram bins={bins} counts={counts} total={graded.length} scale={scale} avg={avg} />}
       </>}
     </section>
     {view === "class" && (!rows.length ? <EmptyBox text={`${classNo}반 학생 명단이 없습니다.`} /> : <section style={{ ...card, padding: 0, overflow: "hidden" }}>
-      <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 940 }}><thead><tr><th style={table.th}>순위</th><th style={table.th}>학생</th><th style={{ ...table.th, minWidth: 190 }}>전과목 누적 (반 안 위치)</th><th style={table.th}>국·영·수·사·과</th><th style={table.th}>국·영·수·과</th><th style={table.th}>직전 대비</th><th style={table.th}>학기별 흐름</th></tr></thead>
+      <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 940 }}><thead><tr><th style={table.th}>순위</th><th style={table.th}>학생</th><th style={table.th}>전교과 누적</th><th style={table.th}>국·영·수·사·과</th><th style={table.th}>국·영·수·과</th><th style={table.th}>직전 학기 → 최근 학기</th><th style={table.th}>학기별 전교과 평균</th></tr></thead>
       <tbody>{ordered.map((row, index) => { const d = delta(row); const v = row.overall?.primary; const rank = ranked.get(row.sid); return <tr key={row.sid} style={{ background: index % 2 ? "#fafbfc" : "#ffffff" }}>
         <td style={table.td}>{rank ? <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 9, background: rank <= 3 ? "#1f2430" : "#eef1f5", color: rank <= 3 ? "#ffffff" : "#334155", fontWeight: 900, fontSize: 13.5 }}>{rank}</span> : "-"}</td>
         <td style={{ ...table.td, textAlign: "left" }}>{onOpenStudent ? <button type="button" onClick={() => onOpenStudent(row.sid)} style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}><b style={{ display: "block", fontSize: 14, color: "#1f4f86" }}>{row.name}</b><small style={{ fontSize: 11, color: "#7d8996" }}>{row.number}번 · {row.sid}</small></button> : <><b style={{ display: "block", fontSize: 14 }}>{row.name}</b><small style={{ fontSize: 11, color: "#7d8996" }}>{row.number}번 · {row.sid}</small></>}</td>
-        <td style={{ ...table.td, textAlign: "left" }}>{v == null ? <span style={{ color: "#a0a9b6" }}>-</span> : <div style={{ display: "grid", gridTemplateColumns: "48px minmax(0,1fr)", gap: 8, alignItems: "center" }}>
-          <b style={{ fontSize: 16, color: "#1f2430", fontVariantNumeric: "tabular-nums" }}>{v.toFixed(2)}</b>
-          <span style={{ position: "relative", display: "block", height: 8, borderRadius: 999, background: "linear-gradient(90deg,#e2531a,#f6c37a 35%,#e2e8f0 70%)" }}><i style={{ position: "absolute", left: pos(v), top: -4, width: 4, height: 16, marginLeft: -2, borderRadius: 2, background: "#1f2430" }} />{avg != null && <i style={{ position: "absolute", left: pos(avg), top: -2, width: 2, height: 12, marginLeft: -1, background: "#64748b", opacity: .6 }} title={`반 평균 ${avg.toFixed(2)}`} />}</span>
-          {row.overall?.converted != null && <small style={{ gridColumn: "1 / -1", fontSize: 10.5, color: "#7a6a91" }}>9환산 {row.overall.converted}</small>}
-        </div>}</td>
+        <td style={table.td}>{v == null ? <span style={{ color: "#a0a9b6" }}>-</span> : <div style={{ display: "grid", justifyItems: "center", gap: 1 }}><b style={{ fontSize: 17, fontWeight: 900, color: "#1f2430", fontVariantNumeric: "tabular-nums" }}>{v.toFixed(2)}</b>{row.overall?.converted != null && <small style={{ fontSize: 11, color: "#64748b" }}>9등급 환산 {Number(row.overall.converted).toFixed(2)}</small>}</div>}</td>
         {[row.coreAll?.primary, row.coreScience?.primary].map((value, i) => <td key={i} style={table.td}><span style={{ display: "inline-block", minWidth: 52, padding: "4px 8px", borderRadius: 8, fontWeight: 800, fontVariantNumeric: "tabular-nums", ...classGradeTone(value, scale) }}>{value ?? "-"}</span></td>)}
-        <td style={table.td}>{d == null ? <span style={{ color: "#a0a9b6" }}>-</span> : <span style={{ display: "inline-block", padding: "4px 9px", borderRadius: 999, fontWeight: 850, fontSize: 12.5, background: d > 0.004 ? "#dcfce7" : d < -0.004 ? "#fee2e2" : "#f1f5f9", color: d > 0.004 ? "#15803d" : d < -0.004 ? "#b91c1c" : "#64748b" }}>{d > 0.004 ? "▲" : d < -0.004 ? "▼" : "＝"} {Math.abs(d).toFixed(2)}</span>}</td>
-        <td style={{ ...table.td, textAlign: "left" }}><MiniTrend trend={row.trend} scale={scale} /></td>
+        <td style={table.td}><SemesterChange trend={row.trend} /></td>
+        <td style={{ ...table.td, textAlign: "left" }}><SemesterSteps trend={row.trend} /></td>
       </tr>; })}</tbody></table></div>
-      <div style={{ padding: "10px 16px", fontSize: 11.5, color: "#64748b", borderTop: "1px solid #eef1f5" }}>막대의 진한 선 = 학생 위치, 회색 선 = 반 평균 · 직전 대비 ▲는 등급이 좋아진 것 · 흐름 그래프는 위로 갈수록 좋은 성적(마지막 학기 색: 초록 상승, 빨강 하락)</div>
+      <div style={{ padding: "10px 16px", fontSize: 12, color: "#64748b", borderTop: "1px solid #eef1f5" }}>숫자가 낮을수록 좋은 성적 · ▲ 초록 = 직전 학기보다 좋아짐, ▼ 빨강 = 낮아짐 · 학기별 칸의 작은 숫자는 바로 앞 학기와의 차이</div>
     </section>)}
     {view === "compare" && <section style={{ ...card, padding: 18, display: "grid", gap: 14 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}><b style={{ fontSize: 16, color: "#1f2430" }}>반별 전교과 분포</b><span style={{ fontSize: 12, color: "#64748b" }}>점 하나 = 학생 · 굵은 선 = 반 평균 · 점선 = 학년 평균{gradeMean != null ? ` ${gradeMean.toFixed(2)}` : ""}</span></div>
-      <div style={{ display: "grid", gap: 6 }}>
-        {classStats.map(stat => { const mine = stat.no === String(homeroomClass || (isAdmin ? "" : classNo)); return <div key={stat.no} style={{ display: "grid", gridTemplateColumns: "56px minmax(0,1fr) 230px", gap: 12, alignItems: "center", padding: "8px 10px", borderRadius: 12, background: mine ? "#fff4ec" : "transparent", border: mine ? "1px solid #fbd0b5" : "1px solid transparent" }}>
-          <button type="button" onClick={() => { if (isAdmin) { setPickedClass(stat.no); setView("class"); } }} style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: isAdmin ? "pointer" : "default" }}><b style={{ fontSize: 15, color: "#1f2430" }}>{stat.no}반</b>{mine && <small style={{ display: "block", fontSize: 10.5, color: "#c2410c", fontWeight: 800 }}>우리 반</small>}</button>
-          <div style={{ position: "relative", height: 30, borderRadius: 8, background: "linear-gradient(90deg,rgba(226,83,26,.12),rgba(226,232,240,.5))" }}>
-            {gradeMean != null && <i style={{ position: "absolute", left: pos(gradeMean), top: 0, bottom: 0, borderLeft: "1.5px dashed #64748b" }} />}
-            {stat.list.map((v, i) => <i key={i} style={{ position: "absolute", left: pos(v), top: 9 + ((i * 7) % 12) - 3, width: 8, height: 8, marginLeft: -4, borderRadius: 999, background: v < 2 ? "#e2531a" : v < 3 ? "#f59e6b" : "#94a3b8", opacity: .85 }} />)}
-            {stat.mean != null && <i style={{ position: "absolute", left: pos(stat.mean), top: -3, bottom: -3, width: 4, marginLeft: -2, borderRadius: 2, background: "#1f2430" }} />}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 6, fontVariantNumeric: "tabular-nums" }}>
-            {[["평균", stat.mean], ["중앙", stat.median], ["최고", stat.best]].map(([label, value]) => <span key={label} style={{ display: "grid", fontSize: 10.5, color: "#64748b" }}>{label}<b style={{ fontSize: 14, color: "#1f2430" }}>{value == null ? "-" : value.toFixed(2)}</b></span>)}
-            <span style={{ display: "grid", fontSize: 10.5, color: "#64748b" }}>{scale === 5 ? "1점대" : "1~2등급"}<b style={{ fontSize: 14, color: "#c2410c" }}>{stat.top}<small style={{ fontSize: 10.5, color: "#64748b" }}>/{stat.n}</small></b></span>
-          </div>
-        </div>; })}
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", padding: "0 248px 0 78px", fontSize: 11, color: "#64748b" }}>{Array.from({ length: scale }, (_, i) => <span key={i}>{i + 1}</span>)}</div>
+      <ClassBandCompare classStats={classStats} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />
       <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 620 }}><thead><tr><th style={table.th}>반</th><th style={table.th}>학생</th><th style={table.th}>평균</th><th style={table.th}>학년 평균 대비</th><th style={table.th}>중앙값</th><th style={table.th}>최고</th><th style={table.th}>{scale === 5 ? "1점대" : "1~2등급대"}</th><th style={table.th}>직전 학기 평균 변화</th></tr></thead>
         <tbody>{classStats.slice().sort((a, b) => (a.mean ?? 99) - (b.mean ?? 99)).map(stat => { const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null; return <tr key={stat.no}>
           <td style={table.td}><b>{stat.no}반</b></td><td style={table.td}>{stat.n}명</td>
@@ -4659,11 +4698,43 @@ function useConsultPlanState(sid) {
   return state;
 }
 const consultPlanKey = item => `${String(item?.university || "").replace(/\s/g, "")}|${String(item?.department || "").replace(/\s/g, "")}`;
-function ConsultSideSummary({ favorites = [], planItems = [], notes = [], onOpenAdmission, onOpenSusiNavi, onOpenSupportPlan }) {
+// 상담 '확인할 일' 체크리스트: 학생별로 저장하고(kd_counsel_todos_v1:학번), 체크·삭제도 바로 저장합니다.
+const counselTodoKey = sid => `kd_counsel_todos_v1:${String(sid || "")}`;
+function ConsultTodoList({ sid, canEdit = false }) {
+  const [items, setItems] = useState([]);
+  const [status, setStatus] = useState("loading");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    setStatus("loading");
+    readStorage(counselTodoKey(sid), { items: [] }).then(value => { if (active) { setItems(Array.isArray(value?.items) ? value.items : []); setStatus("ready"); } }).catch(() => { if (active) setStatus("error"); });
+    return () => { active = false; };
+  }, [sid]);
+  const mutate = async change => {
+    setBusy(true);
+    const result = await updateStorage(counselTodoKey(sid), { items: [] }, stored => ({ ...stored, items: change(Array.isArray(stored?.items) ? stored.items : []), updatedAt: new Date().toISOString() }));
+    setBusy(false);
+    if (result?.ok) { setItems(result.value.items); setStatus("ready"); } else setStatus("error");
+  };
+  const add = () => { const value = text.trim().slice(0, 80); if (!value) return; setText(""); mutate(list => [...list, { id: `todo_${Date.now().toString(36)}`, text: value, done: false, createdAt: new Date().toISOString() }]); };
+  const open = items.filter(item => !item.done).length;
+  return <section className="kd-consult-todo">
+    <b>확인할 일 <small>{open}개 남음</small></b>
+    {status === "error" && <small className="err">저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요.</small>}
+    {items.length ? <ul>{items.map(item => <li key={item.id} className={item.done ? "is-done" : ""}>
+      <label><input type="checkbox" checked={!!item.done} disabled={!canEdit || busy} onChange={() => mutate(list => list.map(value => value.id === item.id ? { ...value, done: !value.done, doneAt: value.done ? null : new Date().toISOString() } : value))} /><span>{item.text}</span></label>
+      {canEdit && <button type="button" data-kdn-bare disabled={busy} onClick={() => mutate(list => list.filter(value => value.id !== item.id))} aria-label="삭제">✕</button>}
+    </li>)}</ul> : status !== "loading" && <small>다음 상담 전에 확인할 일을 적어 두세요.</small>}
+    {canEdit && <div className="add"><input value={text} onChange={event => setText(event.target.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); add(); } }} placeholder="예: 11월 모의 수학 등급 확인" maxLength={80} /><button type="button" disabled={busy || !text.trim()} onClick={add}>추가</button></div>}
+  </section>;
+}
+function ConsultSideSummary({ sid, canEdit = false, favorites = [], planItems = [], notes = [], onOpenAdmission, onOpenSusiNavi, onOpenSupportPlan }) {
   const latest = notes[0];
   const types = planItems.reduce((acc, item) => { const key = /종합/.test(item.admissionType || item.track || "") ? "종합" : /교과/.test(item.admissionType || item.track || "") ? "교과" : "기타"; acc[key] = (acc[key] || 0) + 1; return acc; }, {});
   return <aside className="kd-consult-side no-print">
     <section><b>지금 지원 구성 {planItems.length}/6</b><div className="slots">{Array.from({ length: 6 }, (_, index) => <i key={index} className={planItems[index] ? (/종합/.test(planItems[index].admissionType || "") ? "is-h" : "is-on") : ""} title={planItems[index] ? `${planItems[index].university} ${planItems[index].department}` : "빈 칸"} />)}</div><small>{Object.entries(types).map(([key, value]) => `${key} ${value}`).join(" · ") || "아직 담은 전형이 없습니다."}</small>{onOpenSupportPlan && <button type="button" onClick={onOpenSupportPlan}>지원 구성 열기 ›</button>}</section>
+    <ConsultTodoList sid={sid} canEdit={canEdit} />
     <section><b>최근 상담</b>{latest ? <><small className="dt">{latest.date || "날짜 미입력"} · {latest.author || "작성자"}</small><p>{String(latest.text || "").slice(0, 120)}{String(latest.text || "").length > 120 ? "…" : ""}</p></> : <small>아직 상담 기록이 없습니다.</small>}<small>총 {notes.length}회</small></section>
     <section><b>관심 대학 {favorites.length}</b><div className="chips">{favorites.slice(0, 10).map((item, index) => <span key={`${item.university}-${index}`}>{item.university}{item.department ? ` · ${item.department}` : ""}</span>)}{favorites.length > 10 && <span>+{favorites.length - 10}</span>}</div>
       <div className="links">{onOpenAdmission && <button type="button" onClick={() => onOpenAdmission("")}>대학 탐색</button>}{onOpenSusiNavi && <button type="button" onClick={() => onOpenSusiNavi("")}>NAVI 분석</button>}</div></section>
@@ -4803,8 +4874,9 @@ export function StudentConsultationView({
       <div style={consultationView.linkHubActions}>{onOpenAdmission&&<button type="button" onClick={()=>onOpenAdmission("")} style={consultationView.linkHubButton}><GraduationCap size={13}/>대학 탐색</button>}{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi("","")} style={consultationView.linkHubButton}><BookOpen size={13}/>NAVI 분석</button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan} count={supportPlanCount}/>}{onOpenCases&&<button type="button" onClick={()=>onOpenCases("","","")} style={consultationView.linkHubButton}><BarChart3 size={13}/>광덕고 사례</button>}</div>
     </div>
     {layout==="board" && <ConsultPlanBoard sid={sid} planItems={planState.items} status={planState.status} favorites={favorites} onOpenSupportPlan={onOpenSupportPlan}/>}
+    {layout!=="timeline" && layout!=="classic" && <div className="kd-consult-todo-row no-print"><ConsultTodoList sid={sid} canEdit={canEdit} /></div>}
     <div className={`kd-consult-body is-${layout}`}>
-    {layout==="timeline" && <ConsultSideSummary favorites={favorites} planItems={planState.items} notes={notes} onOpenAdmission={onOpenAdmission} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan}/>}
+    {layout==="timeline" && <ConsultSideSummary sid={sid} canEdit={canEdit} favorites={favorites} planItems={planState.items} notes={notes} onOpenAdmission={onOpenAdmission} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan}/>}
     <div className="counseling-print-favorites"><StudentFavoritesView sid={sid} gdb={gdb} selectedStudent={selectedStudent} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
     <div className="counseling-print-notes" style={consultationView.card}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={()=>setPrintOptionsOpen(true)} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="상담 기록과 관심 대학·학과의 포함 여부를 선택해 인쇄합니다."><Printer size={13}/>인쇄·PDF</button></div>
