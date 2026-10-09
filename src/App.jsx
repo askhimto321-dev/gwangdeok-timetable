@@ -1676,6 +1676,8 @@ export default function App() {
   };
   const activeSection = section || (isNewUi() ? "home" : "grades");
   const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
+  // 대시보드 바로가기에서 성적·진학의 특정 탭(예: 반별 성적)을 바로 열 때 씁니다.
+  const [gradeTabRequest, setGradeTabRequest] = useState({ tab: "", nonce: 0 });
   const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
   const changeStudentWorkspaceView = (view) => {
     if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
@@ -1786,7 +1788,9 @@ export default function App() {
     onOpenStudentView: view => (staffWorkspaceEnabled ? changeStudentWorkspaceView(view) : switchSection(view === "timetable" ? "timetable" : "grades")),
     shortcuts: [
       { key: "grades", tone: "blue", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
-      { key: "gradeLookup", tone: "sky", title: "성적 확인", text: loggedInStudent ? "내 내신·모의고사 성적 리포트" : "학생 내신·모의고사 성적 리포트를 바로 열기", icon: <BarChart3 size={22} />, onClick: () => (loggedInStudent ? switchSection("grades") : staffWorkspaceEnabled ? changeStudentWorkspaceView("grades") : switchSection("grades")) },
+      (loggedInAdmin || loggedInTeacher?.homeroomClass)
+        ? { key: "classGrades", tone: "sky", title: "반별 성적 확인", text: loggedInAdmin ? "반마다 누적 내신·분포·학기별 변화와 반끼리 비교" : `${loggedInTeacher.homeroomClass}반 누적 내신·분포·학기별 변화와 반 비교`, icon: <BarChart3 size={22} />, onClick: () => { setGradeTabRequest(current => ({ tab: "classGrades", nonce: current.nonce + 1 })); switchSection("grades"); } }
+        : { key: "gradeLookup", tone: "sky", title: "성적 확인", text: loggedInStudent ? "내 내신·모의고사 성적 리포트" : "학생 내신·모의고사 성적 리포트를 바로 열기", icon: <BarChart3 size={22} />, onClick: () => (loggedInStudent ? switchSection("grades") : staffWorkspaceEnabled ? changeStudentWorkspaceView("grades") : switchSection("grades")) },
       { key: "timetable", tone: "teal", title: "시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 학급 공지", icon: <Calendar size={22} />, onClick: () => switchSection("timetable") },
       ...(canSeeTeacherZone ? [{ key: "teacherZone", tone: "purple", title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 비상연락망, 생기부 업무", icon: <Users size={22} />, onClick: () => switchSection("teacherZone") }] : []),
       ...(canSeeMinimum ? [{ key: "minimumAchievement", tone: "amber", title: "최소성취수준", text: "과목·학급별 최성보 판정과 출결 확인", icon: <Check size={22} />, onClick: () => switchSection("minimumAchievement") }] : []),
@@ -1843,6 +1847,8 @@ export default function App() {
           onSelectedStudentQueryChange={updateSelectedStudentQuery}
           requestedStudentView={studentWorkspaceView}
           requestedStudentViewNonce={workspaceViewNonce}
+          requestedGradeTab={gradeTabRequest.tab}
+          requestedGradeTabNonce={gradeTabRequest.nonce}
           onWorkspaceViewChange={syncStudentWorkspaceView}
           enrolledSubjectsByStudent={enrolledSubjectsByStudent}
           persistGrades={persistGrades}
@@ -1894,6 +1900,8 @@ export default function App() {
           onSelectedStudentQueryChange={undefined}
           requestedStudentView={studentWorkspaceView}
           requestedStudentViewNonce={workspaceViewNonce}
+          requestedGradeTab={gradeTabRequest.tab}
+          requestedGradeTabNonce={gradeTabRequest.nonce}
           enrolledSubjectsByStudent={enrolledSubjectsByStudent}
           persistGrades={persistGrades}
         /></DeferredPanel>

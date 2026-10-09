@@ -1368,6 +1368,22 @@ const SHARED_NEW_CSS = `
   .kd-consult-side .chips{display:flex;flex-wrap:wrap;gap:5px}.kd-consult-side .chips span{padding:3px 9px;border-radius:999px;background:var(--kdn-surface-2);font-size:12px;font-weight:700;color:var(--kdn-ink-soft)}
   .kd-consult-side button{justify-self:start;min-height:30px;padding:0 10px;border-radius:8px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
   .kd-consult-side .links{display:flex;gap:6px;flex-wrap:wrap}
+  .kd-consult-todo{display:grid;gap:8px;padding:14px;border-radius:16px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
+  .kd-consult-todo>b{font-size:14.5px;color:var(--kdn-ink)}.kd-consult-todo>b small{font-size:12px;font-weight:700;color:var(--kdn-accent-text);margin-left:6px}
+  .kd-consult-todo>small{font-size:12.5px;color:var(--kdn-muted)}.kd-consult-todo .err{color:#b91c1c}
+  .kd-consult-todo ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+  .kd-consult-todo li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:9px;background:var(--kdn-surface-2)}
+  .kd-consult-todo li label{display:flex;align-items:center;gap:8px;flex:1;min-width:0;font-size:13.5px;color:var(--kdn-ink);cursor:pointer}
+  .kd-consult-todo li input{width:16px;height:16px;accent-color:var(--kdn-accent);flex:none}
+  .kd-consult-todo li.is-done label span{color:var(--kdn-muted);text-decoration:line-through}
+  .kd-consult-todo li button{border:0;background:transparent;color:var(--kdn-muted);cursor:pointer;font-size:12px}
+  .kd-consult-todo .add{display:flex;gap:6px}
+  .kd-consult-todo .add input{flex:1;min-width:0;height:34px;padding:0 10px;border-radius:9px;border:1px solid var(--kdn-line);background:var(--kdn-surface-2);font:inherit;font-size:13.5px;color:var(--kdn-ink)}
+  .kd-consult-todo .add button{min-height:34px;padding:0 12px;border-radius:9px;font:inherit;font-size:13px;font-weight:800;background:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important;border:0!important;cursor:pointer}
+  .kd-consult-todo .add button:disabled{opacity:.45}
+  .kd-consult-todo-row .kd-consult-todo{grid-template-columns:auto minmax(0,1fr) minmax(260px,auto);align-items:center}
+  .kd-consult-todo-row .kd-consult-todo ul{display:flex;flex-wrap:wrap}
+  @media (max-width:900px){.kd-consult-todo-row .kd-consult-todo{grid-template-columns:minmax(0,1fr)}}
   .kd-consult-board{display:grid;gap:12px;padding:16px;border-radius:20px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
   .kd-consult-board>header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.kd-consult-board>header b{font-size:17px;color:var(--kdn-ink)}.kd-consult-board>header span{font-size:13px;color:var(--kdn-muted)}
   .kd-consult-board>header button{margin-left:auto;min-height:32px;padding:0 12px;border-radius:9px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
