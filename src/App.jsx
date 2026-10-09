@@ -1786,6 +1786,7 @@ export default function App() {
     onOpenStudentView: view => (staffWorkspaceEnabled ? changeStudentWorkspaceView(view) : switchSection(view === "timetable" ? "timetable" : "grades")),
     shortcuts: [
       { key: "grades", tone: "blue", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
+      { key: "gradeLookup", tone: "sky", title: "성적 확인", text: loggedInStudent ? "내 내신·모의고사 성적 리포트" : "학생 내신·모의고사 성적 리포트를 바로 열기", icon: <BarChart3 size={22} />, onClick: () => (loggedInStudent ? switchSection("grades") : staffWorkspaceEnabled ? changeStudentWorkspaceView("grades") : switchSection("grades")) },
       { key: "timetable", tone: "teal", title: "시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 학급 공지", icon: <Calendar size={22} />, onClick: () => switchSection("timetable") },
       ...(canSeeTeacherZone ? [{ key: "teacherZone", tone: "purple", title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 비상연락망, 생기부 업무", icon: <Users size={22} />, onClick: () => switchSection("teacherZone") }] : []),
       ...(canSeeMinimum ? [{ key: "minimumAchievement", tone: "amber", title: "최소성취수준", text: "과목·학급별 최성보 판정과 출결 확인", icon: <Check size={22} />, onClick: () => switchSection("minimumAchievement") }] : []),
