@@ -43,8 +43,9 @@ const STUDENT_WORKSPACE_VIEWS = [
   ["admissionCases", "광덕고 대입 결과"],
 ];
 const STUDENT_WORKSPACE_GROUPS = [
-  { label: "학생 조회", views: ["grades", "timetable", "admissionCases"] },
-  { label: "진학 상담", views: ["admission", "consultation", "susiNaviBeta"] },
+  // 학생 조회 = 그 학생 자체의 기록, 진학 상담 = 대학·전형을 찾고 비교하는 도구(광덕고 대입 결과·NAVI 포함).
+  { label: "학생 조회", views: ["grades", "timetable"] },
+  { label: "진학 상담", views: ["admission", "consultation", "susiNaviBeta", "admissionCases"] },
 ];
 const STUDENT_WORKSPACE_VIEW_KEYS = STUDENT_WORKSPACE_VIEWS.map(([key]) => key);
 
@@ -4300,14 +4301,15 @@ const nowCardStyles = {
 // 새 UI 시간표 보드: 과목별 색, 오늘·지금 수업 강조, 이동수업 배지, 오른쪽 '지금 수업'·'오늘 동선' 카드.
 // 인쇄는 기존 표(GridTable)를 그대로 씁니다.
 const TT_TONES = [
-  [/국어|문학|독서|화법|작문|언어/, "#fde8e8", "#b42318"],
-  [/수학|대수|미적|확률|기하|수Ⅰ|수Ⅱ/, "#e0ecff", "#1d4ed8"],
-  [/영어|English/, "#e6f6ec", "#15803d"],
-  [/물리|화학|생명|지구|과학/, "#dff4f7", "#0e7490"],
-  [/한국사|역사|사회|지리|윤리|경제|정치|법|세계|동아시아|문화/, "#fff1d6", "#a16207"],
-  [/체육|운동|스포츠/, "#ede9fe", "#6d28d9"],
-  [/미술|음악|예술|연극|디자인/, "#fce7f3", "#be185d"],
-  [/정보|기술|가정|프로그래밍|인공지능/, "#e8eef9", "#3b5b9a"],
+  [/진로|자율|자치|동아리|창체|봉사/, "#f1f5f9", "#475569"],
+  [/인문|윤리|한국사|역사|사회|지리|경제|정치|법|세계|동아시아|문화/, "#fff1d6", "#a16207"],
+  [/국어|문학|독서|독작|화법|작문|언어|매체/, "#fde8e8", "#b42318"],
+  [/수학|대수|미적|확률|기하|수Ⅰ|수Ⅱ|수1|수2/, "#e0ecff", "#1d4ed8"],
+  [/영어|English|영미/, "#e6f6ec", "#15803d"],
+  [/물리|화학|생명|지구|과학|역학|에너지|물질|우주|행성|천체|생태/, "#dff4f7", "#0e7490"],
+  [/체육|운동|스포츠|스문/, "#ede9fe", "#6d28d9"],
+  [/미술|음악|예술|연극|디자인|미창|연주|창작/, "#fce7f3", "#be185d"],
+  [/정보|기술|가정|프로그래밍|인공지능|데이터|코딩/, "#e8eef9", "#3b5b9a"],
   [/일본|중국|독일|프랑스|스페인|한문|외국/, "#f0f7e4", "#4d7c0f"],
 ];
 function ttTone(subject = "") {
@@ -4319,11 +4321,12 @@ function ttPlace(c) {
   if (c.type === "move") return c.roomLabel || "";
   return c.location || "";
 }
-function TimetableBoard({ grid, slot, homeroomLabel }) {
-  const todayIdx = slot ? DAYS.indexOf(slot.day) : (() => { const d = new Date().getDay() - 1; return d >= 0 && d <= 4 ? d : -1; })();
+function TimetableBoard({ grid, slot, homeroomLabel, print = false }) {
+  if (print) slot = null;
+  const todayIdx = print ? -1 : slot ? DAYS.indexOf(slot.day) : (() => { const d = new Date().getDay() - 1; return d >= 0 && d <= 4 ? d : -1; })();
   const nowPi = slot?.state === "now" ? slot.pi : -1;
   const passedPi = slot ? (slot.state === "now" ? slot.pi : slot.pi) : (todayIdx >= 0 ? PERIODS.length : -1);
-  return rawColors(() => <div className="kdn-ttb">
+  return rawColors(() => <div className={print ? "kdn-ttb is-print" : "kdn-ttb"}>
     <div className="kdn-ttb-grid">
       <div />
       {DAYS.map((d, di) => <div key={d} className={`kdn-ttb-dh${di === todayIdx ? " is-today" : ""}`}>{d}{di === todayIdx && <span>오늘</span>}</div>)}
@@ -4339,14 +4342,14 @@ function TimetableBoard({ grid, slot, homeroomLabel }) {
           const place = ttPlace(c);
           return <div key={d} className={`kdn-ttb-cell${today ? " is-today" : ""}${now ? " is-now" : ""}${past ? " is-past" : ""}`} style={{ "--bg": tone.bg, "--fg": tone.fg }} title={[c.subject, c.group, place].filter(Boolean).join(" · ")}>
             <b>{renderTimetableSubject(c.subject)}</b>
-            <small>{c.type === "move" ? `${c.group ? `${c.group} · ` : ""}${place || "교실 확인"}` : (place || homeroomLabel)}</small>
+            {c.type === "move" ? <span className="mv">{c.group && <span className="g">{c.group}반</span>}<span className={c.moved ? "rm go" : "rm"}>{c.moved ? "→ " : ""}{place || "교실 확인"}</span></span> : <small>{place || homeroomLabel}</small>}
             {c.type === "move" && c.moved && <em>이동</em>}
             {now && <i>지금</i>}
           </div>;
         })}
       </React.Fragment>)}
     </div>
-    <div className="kdn-ttb-legend"><span><i style={{ background: "#dff4f7", borderColor: "#0e7490" }} />과학</span><span><i style={{ background: "#e0ecff", borderColor: "#1d4ed8" }} />수학</span><span><i style={{ background: "#fde8e8", borderColor: "#b42318" }} />국어</span><span><i style={{ background: "#e6f6ec", borderColor: "#15803d" }} />영어</span><span className="em">이동 = 교실 이동 수업</span><span className="r">흐린 칸 = 지난 수업 · 빗금 = 수업 없음</span></div>
+    <div className="kdn-ttb-legend"><span><i style={{ background: "#dff4f7", borderColor: "#0e7490" }} />과학</span><span><i style={{ background: "#e0ecff", borderColor: "#1d4ed8" }} />수학</span><span><i style={{ background: "#fde8e8", borderColor: "#b42318" }} />국어</span><span><i style={{ background: "#e6f6ec", borderColor: "#15803d" }} />영어</span><span className="em">이동 = 교실 이동 수업</span>{print ? <span className="r">→ 표시 = 그 교실로 이동 · 빗금 = 수업 없음</span> : <span className="r">흐린 칸 = 지난 수업 · 빗금 = 수업 없음</span>}</div>
   </div>);
 }
 function LiveLessonCard({ grid, slot }) {
@@ -4413,7 +4416,8 @@ function TimetableCard({ result, sid }) {
               {hasNotices && <NoticesTabs notices={notices} homeroomNotices={homeroomNotices} className="no-print" sid={sid} />}
             </aside>
           </div>}
-          <div className={isNewUi() && hasTimetable ? "print-only" : isNewUi() && hasNotices ? "kdn-tt-layout" : undefined}>
+          {isNewUi() && hasTimetable && <div className="print-only kdn-ttb-printwrap"><TimetableBoard grid={grid} homeroomLabel={`${student.class}반 교실`} print /></div>}
+          <div className={isNewUi() && hasTimetable ? "kdn-hide-new" : isNewUi() && hasNotices ? "kdn-tt-layout" : undefined}>
           <div className="kdn-tt-main">
           <GridTable grid={grid} nowSlot={lessonSlot?.state === "now" ? lessonSlot : null} />
           <div style={styles.legend} className="timetable-legend">

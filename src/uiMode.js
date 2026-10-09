@@ -1497,6 +1497,13 @@ const SHARED_NEW_CSS = `
   .kdn-ttb-cell small{font-size:11.5px;color:#5d6574;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .kdn-ttb-cell em{position:absolute;top:6px;right:7px;font-style:normal;font-size:10.5px;font-weight:800;padding:1px 6px;border-radius:999px;background:#ffffff;color:var(--fg)}
   .kdn-ttb-cell i{position:absolute;bottom:6px;right:7px;font-style:normal;font-size:10.5px;font-weight:800;padding:2px 7px;border-radius:999px;background:#e2531a;color:#fff}
+  .kdn-ttb-cell .mv{display:flex;align-items:center;gap:4px;flex-wrap:wrap;min-width:0}
+  .kdn-ttb-cell .mv .g{font-size:11.5px;font-weight:600;color:#5d6574}
+  .kdn-ttb-cell .mv .rm{padding:1px 7px;border-radius:6px;background:#ffffff;border:1px solid var(--fg);color:var(--fg);font-size:12px;font-weight:800;white-space:nowrap}
+  .kdn-ttb-cell .mv .rm.go{background:var(--fg);color:#ffffff}
+  [data-kd-ui="dark"] .kdn-ttb-cell .mv .g{color:#b8b4ac}
+  [data-kd-ui="dark"] .kdn-ttb-cell .mv .rm{background:#18191d;color:color-mix(in srgb,var(--fg) 45%,#ffffff);border-color:color-mix(in srgb,var(--fg) 60%,#ffffff)}
+  [data-kd-ui="dark"] .kdn-ttb-cell .mv .rm.go{background:color-mix(in srgb,var(--fg) 70%,#ffffff);color:#111215}
   .kdn-ttb-cell.is-empty{background:repeating-linear-gradient(135deg,var(--kdn-surface-2) 0 6px,transparent 6px 12px);border-left:4px solid var(--kdn-line)}
   .kdn-ttb-cell.is-today{box-shadow:inset 0 0 0 1px rgba(226,83,26,.22)}
   .kdn-ttb-cell.is-past{opacity:.45}
@@ -1528,8 +1535,39 @@ const SHARED_NEW_CSS = `
   [data-kd-ui="dark"] .kdn-ttr .row em{background:rgba(14,116,144,.25);color:#9be3ef}
   .kdn-ttr .row.done{opacity:.5}.kdn-ttr .row.done i{background:var(--kdn-line)}
   .kdn-ttr .row.cur b{color:#c2410c}.kdn-ttr .row.cur i{border-color:#e2531a;background:#e2531a;box-shadow:0 0 0 4px rgba(226,83,26,.18)}
+  @media print{
+    html,body{background:#ffffff!important}
+    .kdn-ttb-printwrap{margin-top:3mm}
+    .student-timetable-card{background:#ffffff!important;color:#1f2430!important;border-color:#e3e6ec!important;box-shadow:none!important}
+    .student-timetable-card .timetable-print-header,.student-timetable-card .timetable-print-header *{color:#1f2430!important;background:transparent!important}
+    .student-timetable-card .timetable-print-meta,.student-timetable-card .timetable-print-class{color:#5d6574!important}
+    .kdn-ttb.is-print{padding:0!important;border:0!important;border-radius:0!important;gap:2mm!important;background:#ffffff!important}
+    .kdn-ttb.is-print *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+    .kdn-ttb.is-print .kdn-ttb-grid{grid-template-columns:13mm repeat(5,minmax(0,1fr))!important;gap:1.4mm!important}
+    .kdn-ttb.is-print .kdn-ttb-dh{height:8mm!important;font-size:10pt!important;background:#f1f3f6!important;color:#1f2430!important}
+    .kdn-ttb.is-print .kdn-ttb-pt b{font-size:11pt!important;color:#1f2430!important}.kdn-ttb.is-print .kdn-ttb-pt small{font-size:7.5pt!important;color:#5d6574!important}
+    .kdn-ttb.is-print .kdn-ttb-cell{min-height:18mm!important;padding:1.4mm 2mm 1.4mm 2.6mm!important;border-radius:2.4mm!important;box-shadow:none!important;outline:0!important;opacity:1!important;break-inside:avoid}
+    .kdn-ttb.is-print .kdn-ttb-cell:not(.is-empty){background:var(--bg)!important}
+    .kdn-ttb.is-print .kdn-ttb-cell b{font-size:10.5pt!important;color:var(--fg)!important}
+    .kdn-ttb.is-print .kdn-ttb-cell small,.kdn-ttb.is-print .kdn-ttb-cell .mv .g{font-size:7.5pt!important;color:#5d6574!important}
+    .kdn-ttb.is-print .kdn-ttb-cell .mv .rm{font-size:8pt!important;background:#ffffff!important;color:var(--fg)!important;border-color:var(--fg)!important}
+    .kdn-ttb.is-print .kdn-ttb-cell .mv .rm.go{background:var(--fg)!important;color:#ffffff!important}
+    .kdn-ttb.is-print .kdn-ttb-cell em{font-size:7pt!important;background:#ffffff!important;color:var(--fg)!important}
+    .kdn-ttb.is-print .kdn-ttb-cell.is-empty{background:repeating-linear-gradient(135deg,#f1f3f6 0 4px,#ffffff 4px 8px)!important;border-left-color:#e3e6ec!important}
+    .kdn-ttb.is-print .kdn-ttb-legend{font-size:8pt!important;color:#5d6574!important}
+    .kdn-ttb.is-print .kdn-ttb-legend i{border-left-width:2px!important}
+    .per-page-2 .kdn-ttb.is-print .kdn-ttb-cell{min-height:9.5mm!important;padding:0.8mm 1.6mm 0.8mm 2.2mm!important}
+    .per-page-2 .kdn-ttb.is-print .kdn-ttb-cell b{font-size:8.5pt!important}
+    .per-page-2 .kdn-ttb.is-print .kdn-ttb-cell small,.per-page-2 .kdn-ttb.is-print .kdn-ttb-cell em{display:none!important}
+    .per-page-2 .kdn-ttb.is-print .kdn-ttb-dh{height:6mm!important;font-size:9pt!important}
+    .per-page-2 .kdn-ttb.is-print .kdn-ttb-legend{display:none!important}
+  }
   @media (max-width:1000px){.kdn-ttb-layout{grid-template-columns:minmax(0,1fr)}.kdn-ttb-side{position:static}}
-  @media (max-width:640px){.kdn-ttb{padding:8px}.kdn-ttb-grid{grid-template-columns:34px repeat(5,minmax(0,1fr));gap:3px}.kdn-ttb-cell{min-height:52px;padding:4px 4px 4px 6px;border-left-width:3px}.kdn-ttb-cell b{font-size:11.5px;word-break:break-all;letter-spacing:-.03em}.kdn-ttb-cell small,.kdn-ttb-cell em,.kdn-ttb-cell i,.kdn-ttb-dh span{display:none}.kdn-ttb-pt small{display:none}.kdn-ttb-legend .r{margin-left:0}}
+  @media (max-width:640px){.kdn-ttb{padding:8px}.kdn-ttb-grid{grid-template-columns:34px repeat(5,minmax(0,1fr));gap:3px}.kdn-ttb-cell{min-height:52px;padding:4px 4px 4px 6px;border-left-width:3px}.kdn-ttb-cell b{font-size:11.5px;word-break:break-all;letter-spacing:-.03em}.kdn-ttb-cell small,.kdn-ttb-cell em,.kdn-ttb-cell i,.kdn-ttb-dh span,.kdn-ttb-cell .mv .g{display:none}.kdn-ttb-cell .mv .rm{font-size:10px;padding:0 4px}.kdn-ttb-pt small{display:none}.kdn-ttb-legend .r{margin-left:0}}
+  .admission-case-ui .kdn-case-table th,.admission-case-ui .kdn-case-table td{text-align:left!important;border-left:0!important;border-right:0!important}
+  .admission-case-ui .kdn-case-table th.n,.admission-case-ui .kdn-case-table td.n{text-align:right!important}
+  .admission-case-ui .kdn-case-table td.go,.admission-case-ui .kdn-case-table th:last-child:empty{text-align:center!important;width:40px}
+  .kdn-case-table th{font-size:12.5px!important}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
