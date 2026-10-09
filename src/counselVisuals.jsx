@@ -1,7 +1,8 @@
 // 새 UI 상담 화면 상단: 학생 요약 카드와 수시 지원 구성 6칸 패널.
 // 값은 Grades.jsx가 이미 계산한 상담용 학생 정보(susiNaviStudent)와 지원 구성 저장소를 그대로 씁니다.
 import React from "react";
-import { BookOpen, Gauge, BarChart3, Heart, ClipboardList } from "lucide-react";
+import { BookOpen, Gauge, BarChart3, ClipboardList } from "lucide-react";
+import { studentMockChips } from "./naviMinimum.js";
 import { loadSupportPlan, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 
 const PLAN_LIMIT = 6;
@@ -54,7 +55,20 @@ function Stat({ label, value, unit, tone = "blue", onClick, title, progress, ico
   );
 }
 
-// naviGrade: NAVI와 같은 방식(기존 환산 2×내신−1 또는 통계 기반)으로 계산한 9등급 환산값 { value, method, group }
+// 막대 위 위치 표시: 등급 눈금(min~max) 위에 학생 값(진한 선), 비교값(회색 선), 범위(옅은 띠)를 그립니다.
+function ScaleBar({ min, max, value, ghost, band, color = "#1f2430", track = "#e5e9f0", fill }) {
+  const pos = v => `${Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100))}%`;
+  const ok = v => v != null && Number.isFinite(Number(v));
+  return <span aria-hidden="true" style={{ position: "relative", display: "block", height: 10, borderRadius: 999, background: fill || track, margin: "6px 0 2px" }}>
+    {band && ok(band[0]) && ok(band[1]) && <span style={{ position: "absolute", top: 0, height: 10, borderRadius: 999, left: pos(band[0]), width: `calc(${pos(band[1])} - ${pos(band[0])})`, background: "#38bdf8", minWidth: 6 }} />}
+    {ok(ghost) && <span style={{ position: "absolute", top: -3, width: 4, height: 16, marginLeft: -2, borderRadius: 2, left: pos(ghost), background: "#94a3b8" }} />}
+    {ok(value) && <span style={{ position: "absolute", top: -5, width: 4, height: 20, marginLeft: -2, borderRadius: 2, left: pos(value), background: color }} />}
+  </span>;
+}
+const parseRange = text => { const m = String(text || "").match(/(\d+(?:\.\d+)?)\s*[-~–]\s*(\d+(?:\.\d+)?)/); return m ? [Number(m[1]), Number(m[2])] : null; };
+
+// 상담 요약(시안 A): 왼쪽 프로필, 오른쪽 2×2 지표 카드(숫자 + 막대/칩 시각화).
+// naviGrade: NAVI와 같은 방식으로 계산한 9등급 환산 { value, range, raw, method, group }
 export function CounselStudentSummary({ student, identity, favoriteCount = 0, planCount, onOpenPlan, naviGrade }) {
   if (!student) return null;
   const groups = student.grade5ByGroup || {};
@@ -62,26 +76,58 @@ export function CounselStudentSummary({ student, identity, favoriteCount = 0, pl
   const initial = String(student.name || "?").trim().charAt(0) || "?";
   const classLine = [identity?.grade && `${identity.grade}학년`, identity?.classNumber && `${identity.classNumber}반`, identity?.number && `${identity.number}번`].filter(Boolean).join(" ");
   const isFiveScale = student.gradeSystem !== 9;
-  const methodLabel = naviGrade?.method === "statistical" ? "통계" : "기존";
+  const scaleMax = isFiveScale ? 5 : 9;
+  const total = groups.전교과 ?? student.grade5;
+  const range = parseRange(naviGrade?.range);
+  const legacy = naviGrade?.raw != null ? 2 * naviGrade.raw - 1 : null;
+  const chips = studentMockChips(student);
+  const filled = planCount == null ? 0 : Math.min(PLAN_LIMIT, planCount);
   return (
-    <section className="kdn-summary-card" aria-label="학생 요약" style={s.card}>
-      <div className="kdn-summary-identity" style={s.identity}>
-        <span style={s.avatar} aria-hidden="true">{initial}</span>
-        <div style={s.identityText}>
-          <b style={s.name}>{student.name || "이름 미등록"}</b>
-          <span style={s.chips}>
-            {classLine && <span style={s.classChip}>{classLine}</span>}
-            {student.sid && <span style={s.sidChip}>{student.sid}</span>}
-          </span>
-          {student.latestMockLabel && <span style={s.metaSub}><span style={s.dot} aria-hidden="true" />최근 모의고사 {student.latestMockLabel}</span>}
+    <section className="kdn-sum" aria-label="학생 요약" style={s.card}>
+      <div style={s.profile}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={s.avatar} aria-hidden="true">{initial}</span>
+          <div style={{ display: "grid", gap: 3, minWidth: 0 }}>
+            <span style={s.eyebrow}>상담 학생</span>
+            <b style={s.name}>{student.name || "이름 미등록"}</b>
+          </div>
+        </div>
+        <div style={s.chips}>
+          {classLine && <span style={s.classChip}>{classLine}</span>}
+          {student.sid && <span style={s.plainChip}>{student.sid}</span>}
+          <span style={s.plainChip}>{isFiveScale ? "5등급제" : "9등급제"}</span>
+        </div>
+        <div style={s.infoRows}>
+          <div style={s.infoRow}><span>최근 모의고사</span><b>{student.latestMockLabel || "기록 없음"}</b></div>
+          <div style={s.infoRow}><span>관심 대학</span><b>{favoriteCount}곳</b></div>
         </div>
       </div>
-      <div style={{ ...s.stats, gridTemplateColumns: `repeat(${isFiveScale ? 5 : 4}, minmax(108px, 1fr))` }}>
-        <Stat icon={BookOpen} label="전교과 내신" value={fmt(groups.전교과 ?? student.grade5)} unit={student.gradeSystem === 5 ? "5등급" : ""} tone="blue" />
-        {isFiveScale && <Stat icon={Gauge} label="9등급 환산" value={fmt(naviGrade?.value)} unit={naviGrade?.value != null ? methodLabel : ""} tone="sky" title={naviGrade?.method === "statistical" ? `통계 기반 Beta · ${naviGrade.group || "전교과"} (NAVI와 같은 방식)` : "기존 환산 2×내신−1 (NAVI와 같은 방식)"} />}
-        <Stat icon={BarChart3} label="최근 모의고사 3합" value={mock?.sum3 ?? "-"} tone="purple" />
-        <Stat icon={Heart} label="관심 대학" value={favoriteCount} unit="개" tone="amber" />
-        <Stat icon={ClipboardList} label="지원 구성 ›" value={planCount == null ? "-" : planCount} unit={`/ ${PLAN_LIMIT}`} tone="accent" onClick={onOpenPlan} progress={planCount == null ? null : planCount / PLAN_LIMIT} />
+      <div style={s.grid}>
+        <div style={{ ...s.cell, background: "#f6f8fc", borderColor: "#e6eaf2" }}>
+          <div style={s.cellHead}><span style={s.cellLabel}><BookOpen size={16} aria-hidden="true" /> 전교과 내신</span><span style={s.cellNote}>{student.gradeYear ? `${student.gradeYear}학년까지` : ""}</span></div>
+          <div style={s.valueRow}><b style={s.value}>{fmt(total)}</b><span style={s.unit}>{isFiveScale ? "5등급제" : "등급"}</span></div>
+          <ScaleBar min={1} max={scaleMax} value={total} fill="linear-gradient(90deg,#2563eb 0%,#93c5fd 50%,#e5e7eb 100%)" />
+          <div style={s.axis}><span>1등급</span><span>{scaleMax}등급</span></div>
+        </div>
+        {isFiveScale ? <div style={{ ...s.cell, background: "#f5fbff", borderColor: "#dbeef9" }} title={naviGrade?.method === "statistical" ? "통계 기반 Beta (NAVI와 같은 방식)" : "기존 환산 2×내신−1 (NAVI와 같은 방식)"}>
+          <div style={s.cellHead}><span style={s.cellLabel}><Gauge size={16} aria-hidden="true" /> 9등급 환산</span><span style={s.methodChip}>{naviGrade?.method === "statistical" ? `통계 Beta · ${naviGrade.group || "전교과"}` : "기존 환산"}</span></div>
+          <div style={s.valueRow}><b style={s.value}>{fmt(naviGrade?.value)}</b>{range && <span style={s.unit}>예상 {range[0].toFixed(2)} – {range[1].toFixed(2)}</span>}</div>
+          <ScaleBar min={1} max={6} value={naviGrade?.value} ghost={naviGrade?.method === "statistical" ? legacy : null} band={range} color="#0c4a6e" />
+          <div style={s.axis}><span>1</span>{naviGrade?.method === "statistical" && legacy != null && <span>▲ 회색: 기존 환산 {fmt(legacy)}</span>}<span>6등급</span></div>
+        </div> : <div style={{ ...s.cell, background: "#f5fbff", borderColor: "#dbeef9" }}>
+          <div style={s.cellHead}><span style={s.cellLabel}><Gauge size={16} aria-hidden="true" /> 관심 대학</span></div>
+          <div style={s.valueRow}><b style={s.value}>{favoriteCount}</b><span style={s.unit}>곳</span></div>
+        </div>}
+        <div style={{ ...s.cell, background: "#faf7ff", borderColor: "#ebe3fb" }}>
+          <div style={s.cellHead}><span style={s.cellLabel}><BarChart3 size={16} aria-hidden="true" /> 최근 모의고사 3합</span><span style={s.cellNote}>{student.latestMockLabel || ""}</span></div>
+          <div style={s.valueRow}><b style={s.value}>{mock?.sum3 ?? "-"}</b>{mock?.sum3 != null && <span style={s.unit}>합</span>}</div>
+          <div style={s.subjectChips}>{chips ? chips.map(([label, value]) => <span key={label} style={s.subjectChip}>{label} <b>{value}</b></span>) : <span style={s.cellNote}>과목별 등급 없음</span>}</div>
+        </div>
+        <button type="button" onClick={onOpenPlan} disabled={!onOpenPlan} style={{ ...s.cell, ...s.planCell }}>
+          <div style={s.cellHead}><span style={s.cellLabel}><ClipboardList size={16} aria-hidden="true" /> 수시 지원 구성</span>{onOpenPlan && <span style={s.openLink}>열기 →</span>}</div>
+          <div style={s.valueRow}><b style={{ ...s.value, color: "#b23e0c" }}>{planCount == null ? "-" : planCount}</b><span style={s.unit}>/ {PLAN_LIMIT}장</span></div>
+          <span style={s.slots}>{Array.from({ length: PLAN_LIMIT }, (_, index) => <span key={index} style={index < filled ? s.slotOn : s.slotOff} />)}</span>
+        </button>
       </div>
     </section>
   );
@@ -115,13 +161,37 @@ export function SupportPlanSlots({ items, onOpen }) {
 }
 
 const s = {
+  // 시안 A
+  profile: { display: "flex", flexDirection: "column", gap: 14, paddingRight: 24, borderRight: "1px solid #eceef2", minWidth: 0 },
+  eyebrow: { fontSize: 12.5, fontWeight: 600, color: "#b23e0c", letterSpacing: ".04em" },
+  plainChip: { display: "inline-flex", alignItems: "center", minHeight: 26, padding: "0 10px", borderRadius: 999, border: "1px solid #dfe2e8", color: "#3a4150", fontSize: 13, fontWeight: 600, fontVariantNumeric: "tabular-nums" },
+  infoRows: { display: "grid", gap: 6, fontSize: 13.5, color: "#5d6574" },
+  infoRow: { display: "flex", justifyContent: "space-between", gap: 10 },
+  grid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, minWidth: 0 },
+  cell: { display: "flex", flexDirection: "column", gap: 6, padding: "16px 18px", borderRadius: 18, border: "1px solid", minWidth: 0, textAlign: "left", font: "inherit", color: "#1f2430" },
+  planCell: { background: "#fff8f3", borderColor: "#fbd9c4", cursor: "pointer" },
+  cellHead: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  cellLabel: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 600, color: "#3a4150" },
+  cellNote: { fontSize: 12.5, color: "#5d6574", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  methodChip: { fontSize: 12, fontWeight: 600, padding: "2px 8px", borderRadius: 999, background: "#e0f2fe", color: "#075985", whiteSpace: "nowrap" },
+  valueRow: { display: "flex", alignItems: "baseline", gap: 8 },
+  value: { fontSize: 36, fontWeight: 750, letterSpacing: "-.02em", lineHeight: 1.05, color: "#141821", fontVariantNumeric: "tabular-nums" },
+  unit: { fontSize: 13.5, color: "#5d6574", fontWeight: 500 },
+  axis: { display: "flex", justifyContent: "space-between", fontSize: 11.5, color: "#5d6574" },
+  subjectChips: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 },
+  subjectChip: { padding: "3px 9px", borderRadius: 8, background: "#ede9fe", color: "#4c1d95", fontSize: 13 },
+  openLink: { fontSize: 13, fontWeight: 700, color: "#b23e0c" },
+  slots: { display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 6, marginTop: 6 },
+  slotOn: { height: 12, borderRadius: 4, background: "#e2531a" },
+  slotOff: { height: 12, borderRadius: 4, border: "1.5px dashed #f0a37a", boxSizing: "border-box" },
+
   // 이름 칸은 내용 너비만, 숫자 칸 5개는 남은 너비를 나눠 한 줄로(좁은 화면에서는 가로로 밀어 보기).
-  card: { display: "flex", flexWrap: "wrap", gap: 24, alignItems: "center", padding: "18px 22px", borderRadius: 20, background: "#ffffff", border: "1px solid #e1e5eb", boxSizing: "border-box" },
+  card: { display: "grid", gridTemplateColumns: "minmax(240px, 300px) minmax(0, 1fr)", gap: 24, padding: 24, borderRadius: 24, background: "#ffffff", border: "1px solid #e1e5eb", boxSizing: "border-box", boxShadow: "0 10px 30px rgba(20,24,33,.06)" },
   identity: { display: "flex", alignItems: "center", gap: 14, flex: "0 1 auto", minWidth: 220 },
-  avatar: { width: 52, height: 52, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #ffd9c2, #ffeadd)", color: "#ad3b0a", fontSize: 22, fontWeight: 800, flex: "none" },
+  avatar: { width: 60, height: 60, boxShadow: "0 0 0 4px #ffe3d1", borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #ff9a5c, #e2531a)", color: "#ffffff", fontSize: 24, fontWeight: 800, flex: "none" },
   identityText: { display: "grid", gap: 6, minWidth: 0, lineHeight: 1.35 },
   eyebrow: { fontSize: 12.5, fontWeight: 800, color: "#5d6574" },
-  name: { fontSize: 26, fontWeight: 800, color: "#141821", letterSpacing: "-.025em", lineHeight: 1.15 },
+  name: { fontSize: 30, fontWeight: 800, color: "#141821", letterSpacing: "-.025em", lineHeight: 1.1 },
   chips: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
   classChip: { display: "inline-flex", alignItems: "center", minHeight: 24, padding: "0 10px", borderRadius: 999, background: "#fff0e6", color: "#ad3b0a", fontSize: 13, fontWeight: 700 },
   sidChip: { display: "inline-flex", alignItems: "center", minHeight: 24, padding: "0 9px", borderRadius: 999, border: "1px solid #dfe2e8", color: "#3a4150", fontSize: 12.5, fontWeight: 600, fontVariantNumeric: "tabular-nums", letterSpacing: ".03em" },
