@@ -627,18 +627,61 @@ const SHARED_NEW_CSS = `
   .kdn-hero-clock-chips em.is-dday{background:#ffffff;color:#1b1006}
   @media (prefers-reduced-motion:reduce){.kdn-nav-clock-time i,.kdn-hero-clock-time i{animation:none}}
   /* 현재 학생 · 상담 요약 이름 칸: KDTIME 머리 줄과 같은 진한 그라데이션 패널 */
-  .kdn-current-student,.kdn-summary-identity{background:linear-gradient(135deg,#1c1d24 0%,#2b2621 100%)!important;border:1px solid #3a2d24!important;box-shadow:0 10px 26px rgba(20,12,6,.22)!important}
-  .kdn-current-student b,.kdn-summary-identity b{color:#ffffff!important}
+  .kdn-current-student{background:linear-gradient(135deg,#1c1d24 0%,#2b2621 100%)!important;border:1px solid #3a2d24!important;box-shadow:0 10px 26px rgba(20,12,6,.22)!important}
+  .kdn-current-student b{color:#ffffff!important}
+  .kdn-current-student>span:first-child{box-shadow:0 0 0 3px rgba(255,122,61,.35)}
   .kdn-current-student>span:nth-child(2) small:first-child{color:#ffb089!important}
   .kdn-current-student>span:nth-child(2) small,.kdn-current-student b span{color:#cfccc5!important}
   .kdn-current-student>button{background:rgba(255,255,255,.12)!important;color:#ffffff!important}
-  .kdn-current-student>span:first-child,.kdn-summary-identity>span:first-child{box-shadow:0 0 0 3px rgba(255,122,61,.35)}
-  .kdn-summary-identity{padding:14px 20px 14px 14px;border-radius:18px;align-self:stretch}
-  .kdn-summary-identity>span:first-child{background:linear-gradient(135deg,#ff9a5c,#e2531a)!important;color:#ffffff!important}
-  .kdn-summary-identity span span:first-child{background:rgba(255,122,61,.2)!important;color:#ffb089!important}
-  .kdn-summary-identity span span:nth-child(2){border-color:rgba(255,255,255,.25)!important;color:#e8e5df!important}
-  .kdn-summary-identity>div>span:last-child{color:#cfccc5!important}
-  .kdn-summary-card{padding:12px 16px 12px 12px!important;align-items:stretch!important}
+  @media (max-width:900px){.kdn-sum{grid-template-columns:minmax(0,1fr)!important}.kdn-sum>div:first-child{border-right:0!important;padding-right:0!important}}
+  @media (max-width:560px){.kdn-sum>div:last-child{grid-template-columns:minmax(0,1fr)!important}}
+  /* NAVI 기준 설정 ① 계산기형(시안 A) */
+  .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
+  @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
+  .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
+  .kdn-calc-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+  .kdn-calc-head>div{display:grid;gap:4px}
+  .kdn-calc-head b{font-size:22px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-calc-head span{font-size:14px;color:var(--kdn-muted)}
+  .kdn-calc-head em{font-style:normal;padding:6px 12px;border-radius:999px;background:#e8f7ee;color:#166534;font-size:13px;font-weight:600;white-space:nowrap}
+  .kdn-calc-row{display:grid;grid-template-columns:200px minmax(0,1fr);gap:16px}
+  @media (max-width:640px){.kdn-calc-row{grid-template-columns:minmax(0,1fr)}}
+  .kdn-calc-field{display:flex;flex-direction:column;gap:8px;font-size:14px;font-weight:600;color:var(--kdn-ink-soft)}
+  .kdn-calc-field input,.kdn-calc-field select,.kdn-calc-static{height:60px;padding:0 16px;border-radius:14px;border:1.5px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink);font:inherit;font-size:17px;font-weight:600;box-sizing:border-box;display:flex;align-items:center}
+  .kdn-calc-field.is-grade input{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:28px;font-weight:700}
+  .kdn-calc-choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .kdn-calc-choice{display:flex;flex-direction:column;gap:6px;align-items:flex-start;padding:16px 18px;border-radius:16px;border:1.5px solid var(--kdn-control-line);background:var(--kdn-surface);font:inherit;text-align:left;color:var(--kdn-ink);cursor:pointer}
+  .kdn-calc-choice.is-on{border:2px solid var(--kdn-accent);background:var(--kdn-accent-soft)}
+  .kdn-calc-choice b{font-size:16px;font-weight:800;display:inline-flex;gap:6px;align-items:center}
+  .kdn-calc-choice b em{font-style:normal;font-size:11.5px;padding:2px 7px;border-radius:999px;background:var(--kdn-accent);color:var(--kdn-accent-ink)}
+  .kdn-calc-choice span{font-size:13px;font-weight:500;color:var(--kdn-muted)}
+  .kdn-calc-choice strong{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:22px;font-weight:700;color:var(--kdn-ink-soft)}
+  .kdn-calc-inline{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:14px;font-weight:600;color:var(--kdn-ink-soft)}
+  .kdn-calc-inline select{height:44px;padding:0 14px;border-radius:12px;border:1.5px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink);font:inherit;font-size:15px}
+  .kdn-calc-inline select:disabled{opacity:.5}
+  .kdn-calc-inline small{font-size:13px;font-weight:500;color:var(--kdn-muted)}
+  .kdn-calc-result{display:flex;flex-direction:column;gap:14px;padding:26px 28px;border-radius:22px;background:linear-gradient(160deg,#17181d 0%,#27211c 100%)!important;color:#f4f1ea;border:1px solid #3a2d24}
+  .kdn-calc-eyebrow{font-size:14px;font-weight:600;color:#ffb089;letter-spacing:.04em}
+  .kdn-calc-big{display:flex;align-items:baseline;gap:12px}
+  .kdn-calc-big b{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:80px;font-weight:700;line-height:.95;letter-spacing:-.03em;color:#ffffff}
+  .kdn-calc-big span{font-size:16px;color:#cfccc5}
+  .kdn-calc-sub{font-size:15px;color:#cfccc5}
+  .kdn-calc-sub b{color:#ffffff;font-weight:600}
+  .kdn-calc-scale{position:relative;height:40px;margin-top:4px}
+  .kdn-calc-scale .track{position:absolute;left:0;right:0;top:16px;height:8px;border-radius:999px;background:rgba(255,255,255,.14)}
+  .kdn-calc-scale .band{position:absolute;top:12px;height:16px;min-width:8px;border-radius:6px;background:rgba(255,122,61,.45)}
+  .kdn-calc-scale .ghost{position:absolute;top:8px;width:3px;height:24px;margin-left:-1.5px;border-radius:2px;background:#9aa0ab}
+  .kdn-calc-scale .mark{position:absolute;top:4px;width:4px;height:32px;margin-left:-2px;border-radius:2px;background:#ff7a3d}
+  .kdn-calc-axis{display:flex;justify-content:space-between;font-size:12px;color:#9aa0ab;margin-top:-8px}
+  .kdn-calc-compare{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .kdn-calc-compare>div{display:flex;flex-direction:column;gap:4px;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.06)}
+  .kdn-calc-compare>div.is-accent{background:rgba(255,122,61,.14)}
+  .kdn-calc-compare span{font-size:12.5px;color:#9aa0ab}
+  .kdn-calc-compare>div.is-accent span{color:#ffb089}
+  .kdn-calc-compare b{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;font-size:22px;color:#ffffff}
+  .kdn-calc-compare b small{font-size:13px;color:#ffb089}
+  .kdn-calc-result p{margin:0;font-size:12.5px;line-height:1.6;color:#9aa0ab}
+  .kdn-calc-next{margin-top:auto;min-height:52px;border-radius:14px;border:0;background:#ff7a3d;color:#1b1006;font:inherit;font-size:16px;font-weight:800;cursor:pointer}
   /* NAVI: 선택된 큰 탭은 주황 그라데이션, 기준 설정 안 작은 단계는 얇은 진행 줄, 패널 위쪽 강조선 */
   :root .susi-beta-view-tabs button[role="tab"][aria-selected="true"]{background:linear-gradient(135deg,#ff8a4c,#d9480f)!important;border-color:transparent!important;box-shadow:0 8px 20px rgba(217,72,15,.28)!important;color:#ffffff!important}
   :root .susi-beta-view-tabs button[role="tab"][aria-selected="true"] b,:root .susi-beta-view-tabs button[role="tab"][aria-selected="true"] small{color:#ffffff!important;opacity:.95}

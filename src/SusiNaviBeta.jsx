@@ -359,11 +359,62 @@ function readCutoffPreference() {
 
 // NAVI 화면에서 마지막으로 고른 환산 방식·컷 기준을 그대로 써서, 다른 화면(상담 관심대학 카드)도
 // NAVI와 같은 학생 환산 내신·지원 구간으로 보이게 합니다.
+// 새 UI 기준 설정 ① (시안 A · 계산기형): 왼쪽 입력, 오른쪽 진한 결과판(큰 숫자 + 범위 막대 + 두 방식 비교).
+function NaviCalculator({ data, selectedStudent, effectiveStudent, onPickMock, grade5, setGrade5, method, setMethod, group, setGroup, conversion, onNext }) {
+  const legacy = conversionDetails(data, "legacy", group, grade5)?.value ?? null;
+  const stat = conversionDetails(data, "statistical", group, grade5);
+  const fmt2 = value => (value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
+  const range = (() => { const m = String(conversion?.range || "").match(/(\d+(?:\.\d+)?)\s*[-~–]\s*(\d+(?:\.\d+)?)/); return m ? [Number(m[1]), Number(m[2])] : null; })();
+  const pos = v => `${Math.min(100, Math.max(0, ((Number(v) - 1) / 5) * 100))}%`;
+  const diff = stat?.value != null && legacy != null ? Number(stat.value) - Number(legacy) : null;
+  const exams = selectedStudent?.availableMockExams || [];
+  const choice = (key, title, note, value, accent) => <button type="button" aria-pressed={method === key} onClick={() => setMethod(key)} className={method === key ? "kdn-calc-choice is-on" : "kdn-calc-choice"}>
+    <b>{title}{key === "statistical" && <em>Beta</em>}</b><span>{note}</span><strong style={accent && method === key ? { color: "var(--kdn-accent-text)" } : undefined}>{fmt2(value)}</strong>
+  </button>;
+  return <div className="kdn-calc">
+    <section className="kdn-calc-input">
+      <div className="kdn-calc-head"><div><b>환산 기준</b><span>학생 성적을 9등급 기준으로 바꿔 대학 컷과 비교합니다.</span></div>{selectedStudent?.sid && <em>{selectedStudent.sid} {selectedStudent.name || ""} · 자동 반영</em>}</div>
+      <div className="kdn-calc-row">
+        <label className="kdn-calc-field is-grade"><span>5등급제 {method === "statistical" ? group : "전교과"} 내신</span><input type="number" min="1" max="5" step="0.01" value={grade5} onChange={event => setGrade5(event.target.value)} /></label>
+        <label className="kdn-calc-field"><span>수능최저 판정 회차</span>
+          {exams.length > 1 ? <select value={effectiveStudent?.latestMockKey || ""} onChange={event => onPickMock(event.target.value)}>{exams.map((exam, index) => <option key={exam.key} value={exam.key}>{exam.label}{index === exams.length - 1 ? " (최근)" : ""}</option>)}</select>
+            : <div className="kdn-calc-static">{effectiveStudent?.latestMockLabel || "모의고사 기록 없음"}</div>}
+        </label>
+      </div>
+      <div className="kdn-calc-field"><span>환산 방식</span>
+        <div className="kdn-calc-choices">
+          {choice("legacy", "기존 환산", "2 × 내신 − 1 · 모든 대학 공통 참고값", legacy, false)}
+          {choice("statistical", "통계 기반", "일반고 53,149명 자료로 추정", stat?.value, true)}
+        </div>
+      </div>
+      <label className="kdn-calc-inline"><span>교과 조합</span><select value={group} onChange={event => setGroup(event.target.value)} disabled={method !== "statistical"}>{CONVERSION_GROUPS.map(value => <option key={value}>{value}</option>)}</select><small>통계 기반에서만 바뀝니다</small></label>
+    </section>
+    <section className="kdn-calc-result" aria-live="polite">
+      <span className="kdn-calc-eyebrow">9등급 환산 결과</span>
+      <div className="kdn-calc-big"><b>{fmt2(conversion?.value)}</b><span>등급</span></div>
+      <span className="kdn-calc-sub">{method === "statistical" ? <>통계 기반 Beta · {group}{range && <> · <b>예상 범위 {range[0].toFixed(2)} – {range[1].toFixed(2)}</b></>}</> : "기존 환산 · 계산식 2 × 내신 − 1"}</span>
+      <div className="kdn-calc-scale" aria-hidden="true">
+        <span className="track" />
+        {range && <span className="band" style={{ left: pos(range[0]), width: `calc(${pos(range[1])} - ${pos(range[0])})` }} />}
+        {method === "statistical" && legacy != null && <span className="ghost" style={{ left: pos(legacy) }} />}
+        {conversion?.value != null && <span className="mark" style={{ left: pos(conversion.value) }} />}
+      </div>
+      <div className="kdn-calc-axis"><span>1등급</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6등급</span></div>
+      <div className="kdn-calc-compare">
+        <div><span>기존 환산{method === "statistical" ? " (회색 선)" : ""}</span><b>{fmt2(legacy)}</b></div>
+        <div className="is-accent"><span>통계 기반 · {group}</span><b>{fmt2(stat?.value)}{diff != null && <small> {diff >= 0 ? "+" : ""}{diff.toFixed(2)}</small>}</b></div>
+      </div>
+      <p>대학별 공식 환산등급이 아닌 참고값입니다. 지원 전 대학별 모집요강을 확인하세요.</p>
+      <button type="button" className="kdn-calc-next" onClick={onNext}>이 기준으로 대학 검색 →</button>
+    </section>
+  </div>;
+}
+
 export function studentNaviGrade(data, student) {
   const { method, group } = readConversionPreference();
   const raw = method === "statistical" ? (student?.grade5ByGroup?.[group] ?? student?.grade5) : student?.grade5;
   const conversion = raw == null || raw === "" ? null : conversionDetails(data, method, group, raw);
-  return { value: conversion?.value ?? null, cutoffBasis: readCutoffPreference(), method, group };
+  return { value: conversion?.value ?? null, range: conversion?.range || "", raw: raw == null || raw === "" ? null : Number(raw), cutoffBasis: readCutoffPreference(), method, group };
 }
 
 function sameUniversityCampus(left, leftRegion = "", right, rightRegion = "") {
@@ -2782,7 +2833,10 @@ export default function SusiNaviBetaView({
               </button>
             ))}
           </div>}
-          {(!isNewUi() || searchStep === 1) && <div className="kdn-accent-panel" style={ui.converterPanel}>
+          {isNewUi() && searchStep === 1 && <NaviCalculator data={data} selectedStudent={selectedStudent} effectiveStudent={effectiveStudent} onPickMock={setSelectedMockKey}
+            grade5={grade5} setGrade5={setGrade5} method={conversionMethod} setMethod={setConversionMethod} group={conversionGroup} setGroup={setConversionGroup}
+            conversion={conversion} onNext={() => setSearchStep(2)} />}
+          {!isNewUi() && <div className="kdn-accent-panel" style={ui.converterPanel}>
             <div style={ui.sectionHeading}><div className="kdn-step-badge" style={ui.step}>1</div><div><b style={ui.sectionTitle}>5·9등급 환산 기준</b><span style={ui.sectionSub}>현재 방식과 통계 기반 방식을 비교해서 사용할 수 있습니다.</span></div></div>
             {selectedStudent?.sid && <div className="susi-beta-student-auto" style={ui.studentAutoBar}>
               <div style={ui.studentAutoIdentity}><span>선택 학생 자동 반영</span><b>{selectedStudent.sid} {selectedStudent.name || "학생"}</b></div>
