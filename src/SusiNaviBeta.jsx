@@ -4047,6 +4047,43 @@ function minimumWorkspaceMeta(status) {
   // manual과는 다른 회색 배지로 표시합니다(주의색 남용 방지).
   return { label: "최저 자료 미연결", style: ui.workspaceMinimumNeutral };
 }
+// 새 UI 수시 지원 구성 머리: 6칸 리본(지원 구간 색) + 지원 균형 막대 + 전형·최저·대학 분산 + 구성 조언.
+// 색은 인라인 대신 클래스(is-up 등)로 줘서 다크 모드에서도 진한 색이 그대로 유지됩니다.
+const PLAN_BAND_ORDER = ["상향", "소신", "적정", "안정", "하향"];
+function planAdvice({ planItems, supportCounts, minimumCounts }) {
+  const tips = [];
+  const safe = (supportCounts["안정"] || 0) + (supportCounts["하향"] || 0);
+  const high = (supportCounts["상향"] || 0) + (supportCounts["소신"] || 0);
+  if (planItems.length >= 3 && !safe) tips.push(planItems.length < 6 ? `안정·하향 카드가 없어요. 남은 ${6 - planItems.length}칸 중 하나는 안정 이하 전형으로 채우는 것을 권장합니다.` : "안정·하향 카드가 없어요. 한 장은 안정 이하 전형으로 바꾸는 것을 검토하세요.");
+  else if (high >= 4) tips.push(`상향·소신이 ${high}장이에요. 적정·안정 쪽과 균형을 맞춰 보세요.`);
+  if (minimumCounts.unsatisfied) tips.push(`수능최저 미도달 ${minimumCounts.unsatisfied}장 — 최근 모평 기준이니 다음 모평 결과로 다시 확인하세요.`);
+  return tips;
+}
+function PlanOverview({ student, convertedGrade, cutoffBasis, planItems, slots, supportCounts, admissionCounts, minimumCounts, uniqueUniversityCount, tools }) {
+  const judged = PLAN_BAND_ORDER.reduce((sum, label) => sum + (supportCounts[label] || 0), 0);
+  const tips = planAdvice({ planItems, supportCounts, minimumCounts });
+  const grade = validGrade(convertedGrade) != null ? Number(convertedGrade).toFixed(2) : "-";
+  const manual = (minimumCounts.manual || 0) + (minimumCounts.unlinked || 0);
+  return <section className="kdn-spw">
+    <div className="kdn-spw-head">
+      <div><small>수시 지원 구성{student?.sid ? ` · ${student.sid} ${student.name || ""}` : ""}</small><b>6장 중 {planItems.length}장 담음 <span>· 환산 {grade} · {cutoffBasis}%컷 판정{student?.latestMockLabel ? ` · ${student.latestMockLabel}` : ""}</span></b></div>
+      <div className="kdn-spw-tools">{tools}</div>
+    </div>
+    <div className="kdn-spw-slots">{slots.map((item, index) => {
+      if (!item) return <div key={`empty-${index}`} className="kdn-spw-slot is-empty"><b>＋ {index + 1}번 비어 있음</b><small>대학 상세·광덕고 대입결과에서 담기</small></div>;
+      const band = item.support?.label;
+      return <div key={supportPlanItemKey(item.stored)} className={`kdn-spw-slot is-${SUPPORT_META[band]?.key || "none"}`} title={`${item.stored.university} ${item.stored.department} · ${item.stored.admissionType || ""} ${item.stored.track || ""}`}><span className="no">{index + 1}</span><b>{item.stored.university}</b><small>{item.stored.department}{item.stored.admissionType ? ` · ${item.stored.admissionType}` : ""}</small><span className="band">{band || "판정 없음"}</span></div>;
+    })}</div>
+    <div className="kdn-spw-stats">
+      <div className="kdn-spw-stat is-balance"><small>지원 균형 (상향 → 하향)</small><div className="kdn-spw-meter">{judged ? PLAN_BAND_ORDER.filter(label => supportCounts[label]).map(label => <i key={label} className={`is-${SUPPORT_META[label].key}`} style={{ width: `${(supportCounts[label] / judged) * 100}%` }} />) : null}</div><div className="kdn-spw-legend">{PLAN_BAND_ORDER.map(label => <span key={label} className={`is-${SUPPORT_META[label].key}${supportCounts[label] ? "" : " is-zero"}`}>{label} {supportCounts[label] || 0}</span>)}</div></div>
+      <div className="kdn-spw-stat"><small>전형 구성</small><div className="kdn-spw-chips">{Object.entries(admissionCounts).map(([label, count]) => <span key={label} className={`is-${trackAccentKey(label)}`}>{label} {count}</span>)}{!planItems.length && <em>-</em>}</div></div>
+      <div className="kdn-spw-stat"><small>수능최저</small><b><span className="ok">충족 {minimumCounts.satisfied || 0}</span>{minimumCounts.unsatisfied ? <span className="ng"> · 미도달 {minimumCounts.unsatisfied}</span> : null}</b><em>{[minimumCounts["no-minimum"] ? `최저 없음 ${minimumCounts["no-minimum"]}` : "", manual ? `확인 필요 ${manual}` : "", minimumCounts.unavailable ? `성적 없음 ${minimumCounts.unavailable}` : ""].filter(Boolean).join(" · ") || "\u00a0"}</em></div>
+      <div className="kdn-spw-stat"><small>대학 분산</small><b>{planItems.length ? `${uniqueUniversityCount}개 대학 · ${planItems.length}전형` : "지원 후보 없음"}</b></div>
+    </div>
+    {tips.map(tip => <p key={tip} className="kdn-spw-tip">{tip}</p>)}
+  </section>;
+}
+
 function SupportDecisionWorkspace({
   selectedStudent,
   convertedGrade,
@@ -4107,6 +4144,10 @@ function SupportDecisionWorkspace({
     return next;
   });
 
+  const newUi = isNewUi();
+  const focusButton = <button type="button" className="kd-plan-action is-focus" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}><LayoutGrid size={15}/>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button>;
+  const printButton = <SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={!printItems.some(Boolean)}/>;
+  const summaryPrintButton = <button type="button" className="kd-plan-action is-summary-print" disabled={!planItems.length} onClick={()=>triggerSectionPrint('kd-print-target-plan')}><Printer size={14}/>간단 요약표 인쇄</button>;
   return <div className={`susi-beta-tab-panel susi-beta-workspace${planFocused ? ' is-plan-focused' : ''}`} style={ui.tabPanel}>
     <div className="susi-beta-workspace-hero kdn-hide-new" style={ui.workspaceHero}>
       <div><span style={ui.workspaceEyebrow}>상담 전략 · Patch95</span><h3>전형 비교와 수시 지원 구성</h3><p>관심 대학의 전형별 근거를 비교하고, 상담할 지원 후보를 최대 6개로 정리하세요.</p></div>
@@ -4125,8 +4166,9 @@ function SupportDecisionWorkspace({
     {workspaceMessage && <div role="status" style={ui.workspaceMessage}>{workspaceBusy && <Loader2 size={13} className="spin"/>}{workspaceMessage}</div>}
 
     <section className="kd-plan-section" ref={planSectionRef} tabIndex={-1} aria-label="수시 지원 구성" style={{...ui.workspaceSection,scrollMarginTop:12}}>
-      <div style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
-      <div className="kd-plan-tools is-primary"><button type="button" className="kd-plan-action is-focus" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}><LayoutGrid size={15}/>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button><SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={!printItems.some(Boolean)}/><small className="kd-plan-student-context">{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>
+      {newUi && <PlanOverview student={selectedStudent} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} planItems={planItems} slots={slots} supportCounts={supportCounts} admissionCounts={admissionCounts} minimumCounts={minimumCounts} uniqueUniversityCount={uniqueUniversityCount} tools={<>{focusButton}{printButton}{summaryPrintButton}</>}/>}
+      <div className={newUi ? "kdn-hide-new" : undefined} style={ui.workspaceSectionHead}><div><b>수시 지원 구성</b><span>교과·종합·논술·실기 등 상담에서 검토할 전형을 최대 6개까지 정리합니다.</span></div><span style={ui.workspaceCount}>{planItems.length}/6</span></div>
+      {!newUi && <div className="kd-plan-tools is-primary">{focusButton}{printButton}<small className="kd-plan-student-context">{selectedStudent?.sid} {selectedStudent?.name} · {selectedStudent?.latestMockLabel || '모평 미선택'}</small></div>}
       <SupportPlanPresets sid={selectedStudent?.sid} items={planItems.map(item => item.stored)} />
       {/* 15번 요청: 카드 전체를 인쇄할지 상담 중인 일부 전형만 인쇄할지 선택합니다. */}
       {planItems.length > 0 && <div className="kd-plan-tools" style={{ flexWrap: "wrap", gap: 8 }}>
@@ -4143,12 +4185,12 @@ function SupportDecisionWorkspace({
           })}
         </div>}
       </div>}
-      <div className="kd-plan-tools is-summary"><button type="button" className="kd-plan-action is-summary-print" disabled={!planItems.length} onClick={()=>triggerSectionPrint('kd-print-target-plan')}><Printer size={14}/>간단 요약표 인쇄</button></div>
+      {!newUi && <div className="kd-plan-tools is-summary">{summaryPrintButton}</div>}
       <PrintPlanSheet items={slots} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent}/>
       {/* 1번 요청: 긴 문장 하나를 그대로 넣으면 좁은 칸에서 단어 중간이 아니라 " · " 뒤에서
           꺾여 마지막 항목만 혼자 남는 문제가 있었습니다. 항목마다 색이 있는 배지로 나누면
           몇 개가 남든 배지 단위로만 줄바꿈되어 항상 자연스럽습니다. */}
-      <div className="susi-beta-workspace-summary" style={ui.workspaceSummaryGrid}>
+      <div className={newUi ? "susi-beta-workspace-summary kdn-hide-new" : "susi-beta-workspace-summary"} style={ui.workspaceSummaryGrid}>
         <div><small>지원 구간</small><div style={ui.summaryChipRow}>
           {["상향","소신","적정","안정","하향"].filter(label => supportCounts[label]).map(label => {
             const meta = SUPPORT_META[label];
@@ -4175,7 +4217,7 @@ function SupportDecisionWorkspace({
         <div><small>대학 분산</small><b>{planItems.length ? `${uniqueUniversityCount}개 대학 · ${planItems.length}개 전형` : "지원 후보 없음"}</b></div>
       </div>
       <div className="susi-beta-plan-grid" style={ui.planGrid}>{slots.map((item, index) => {
-        if (!item) return <article className="susi-beta-plan-empty" key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>아래 전형 비교, NAVI 대학 상세 또는 광덕고 대입결과에서 ‘수시지원 추가’를 눌러 담으세요.</small></article>;
+        if (!item) return <article className={newUi ? "susi-beta-plan-empty kdn-hide-new" : "susi-beta-plan-empty"} key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>아래 전형 비교, NAVI 대학 상세 또는 광덕고 대입결과에서 ‘수시지원 추가’를 눌러 담으세요.</small></article>;
         return <SupportDecisionCard key={supportPlanItemKey(item.stored)} item={item} index={index} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent} busy={workspaceBusy} onRemove={onRemovePlan} onOpenCases={onOpenCases}/>;
       })}</div>
       <div className="kd-plan-footer" style={ui.workspaceFooter}><span>지원 구간은 현재 학생 환산등급과 선택한 {cutoffBasis}%컷을 기준으로 다시 계산됩니다.</span><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세에서 추가</button></div>

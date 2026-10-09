@@ -1,5 +1,5 @@
 import React from 'react';
-import { validGrade, supportBandClassName, trackChipClassName, trackAccentKey } from './admissionMetrics.js';
+import { validGrade, supportBandClassName, trackChipClassName, trackAccentKey, SUPPORT_BAND_META } from './admissionMetrics.js';
 import { minimumDisplay, minimumYearLabel, studentMockChips, shortSubjectName } from './naviMinimum.js';
 import { recommendedCourseDisplayName } from './recommendationPresentation.js';
 import './supportDecision.css';
@@ -82,7 +82,7 @@ export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis
   const ev=item.comparisonEvidence?.minimumEvaluation || item.minimumEvaluation;
   const minimum=minimumDisplay(ev,item.minimumStatus);
   const difference=validGrade(studentGrade)!=null && validGrade(cut)!=null ? Number(studentGrade)-Number(cut) : null;
-  return <article className="susi-beta-plan-card kd-decision-card">
+  return <article className={`susi-beta-plan-card kd-decision-card is-band-${SUPPORT_BAND_META[item.support?.label]?.key || 'none'}`}>
     <header><div><h4>{item.stored.university}</h4><p>{item.stored.department}</p><span className={trackChipClassName(item.stored.admissionType)}>{item.stored.admissionType || '전형 확인'} · {item.stored.track}</span></div><span className={`kd-decision-number is-${trackAccentKey(item.stored.admissionType)}`}>{index+1}</span></header>
     <div className="kd-decision-primary">
       {/* 학생 등급과 컷을 각각 색이 다른 상자로 분리해, 두 숫자를 문장처럼 줄줄이 읽지 않고

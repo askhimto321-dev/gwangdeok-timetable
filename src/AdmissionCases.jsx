@@ -968,13 +968,52 @@ function RateBand({rate,total,compact=false}){
   </div>;
 }
 
-function StudentConnector({profile,query,onQuery,onSelect,roster}){
+// 학번·이름 검색 입력과 자동 선택(학번 5자리 입력 시)을 예전 연동 상자와 새 UI 학생 카드가 함께 씁니다.
+function useStudentSearch({profile,query,onQuery,onSelect,roster}){
   const[draft,setDraft]=useState(()=>String(query||""));
   useEffect(()=>{const external=String(query||"");if(profile?.sid||!draft||external==="")setDraft(external)},[query,profile?.sid]); // eslint-disable-line react-hooks/exhaustive-deps
   const hits=useMemo(()=>{const q=String(draft||"").trim().toLowerCase();return q?Object.entries(roster||{}).filter(([sid,info])=>`${sid} ${info?.name||""}`.toLowerCase().includes(q)).slice(0,8):[]},[draft,roster]);
   useEffect(()=>{const sid=String(draft||"").trim();if(!/^\d{5}$/.test(sid)||profile?.sid===sid||!roster?.[sid])return undefined;const timer=window.setTimeout(()=>{onSelect(sid);onQuery(sid)},90);return()=>window.clearTimeout(timer)},[draft,profile?.sid,roster,onSelect,onQuery]);
+  const change=next=>{setDraft(next);if(!next.trim()){onSelect("");onQuery("")}};
+  const pick=sid=>{setDraft(sid);onSelect(sid);onQuery(sid)};
+  return {draft,setDraft,hits,change,pick};
+}
+
+// 새 UI: 학생 연동과 환산 기준을 한 장으로 합쳤습니다. 예전에는 두 상자를 반씩 나눠 놓아
+// 좁은 칸에서 환산 상자(최소 700px 넘는 4칸 그리드)가 카드 밖으로 밀려 나갔습니다.
+function CaseStudentBar({profile,query,onQuery,onSelect,roster,method,onMethodChange,group,onGroupChange,status}){
+  const{draft,hits,change,pick}=useStudentSearch({profile,query,onQuery,onSelect,roster});
+  const loading=method==="statistical"&&status==="loading";
+  const unavailable=method==="statistical"&&status==="missing";
+  const failed=method==="statistical"&&status==="error";
+  const search=<div className="kdn-csb-search"><Search size={16}/><input value={draft} onChange={e=>change(e.target.value)} placeholder="학번 또는 이름 검색" aria-label="학생 검색"/>{hits.length>0&&<div className="kdn-csb-hits">{hits.map(([sid,info])=><button key={sid} type="button" data-kdn-bare onClick={()=>pick(sid)}><span>{sid}</span><b>{info?.name||"이름 미등록"}</b><small>선택 ›</small></button>)}</div>}</div>;
+  if(!profile)return <section className="kdn-csb is-empty"><div className="kdn-csb-top">{search}<p>학생을 고르면 현재 성적과 과거 사례를 연결하고, 5등급제 학생은 비교 기준(환산 방식·교과 조합)을 여기서 정합니다.</p></div></section>;
+  const five=profile.gradeSystem===5;
+  return <section className="kdn-csb">
+    <div className="kdn-csb-top">
+      {search}
+      <div className="kdn-csb-who"><span className="av">{String(profile.name||"?").slice(0,1)}</span><div><div><span className="sid">{profile.sid}</span><b>{profile.name}</b></div><div className="tags"><span>{profile.grade}학년</span><span>{profile.entryYear}학년도 입학</span><span>{profile.gradeSystem}등급제</span></div></div></div>
+      <div className="kdn-csb-mock"><span className="lbl"><small>모의 최저</small><small>최신 회차</small></span>{[["2합",profile.sums?.sum2],["3합",profile.sums?.sum3],["4합",profile.sums?.sum4]].map(([label,value])=><span key={label}><small>{label}</small><b>{value??"-"}</b></span>)}</div>
+      {!five&&<div className="kdn-csb-res is-dark"><small>사례 비교값 · 전교과</small><b>{fmt(profile.converted)}</b></div>}
+    </div>
+    {five&&<div className="kdn-csb-flow">
+      <div className="kdn-csb-cell"><small>5등급 원내신</small><b>{fmt(profile.average)}</b><em>{group}</em></div>
+      <span className="arr" aria-hidden="true">→</span>
+      <div className="kdn-csb-pick">
+        <div className="kdn-csb-seg" role="group" aria-label="대입 사례 환산 방식"><button type="button" data-kdn-bare aria-pressed={method==="legacy"} onClick={()=>onMethodChange("legacy")}>기존 환산<small>2×내신−1</small></button><button type="button" data-kdn-bare aria-pressed={method==="statistical"} onClick={()=>onMethodChange("statistical")}><span>통계 버전<em>Beta</em></span><small>일반고 통계 추정</small></button></div>
+        <label className="kdn-csb-sel"><small>교과 조합</small><select value={group} onChange={event=>onGroupChange(event.target.value)}>{CASE_CONVERSION_GROUPS.map(value=><option key={value}>{value}</option>)}</select></label>
+      </div>
+      <span className="arr" aria-hidden="true">→</span>
+      <div className="kdn-csb-res"><small>사례 비교 9등급값</small><b>{loading?"…":fmt(profile.converted)}</b><em>{profile.conversionApplied==="statistical"?(profile.conversionRange?`예상 범위 ${profile.conversionRange}`:"통계 추정값"):(unavailable||failed?"Beta 자료 없음 · 기존 환산 적용":"기존 환산값")}</em></div>
+    </div>}
+    {five&&<p className={`kdn-csb-note${unavailable||failed?" is-warning":""}`}>{loading?"수시NAVI Beta 통계 변환표를 불러오는 중입니다.":unavailable?"관리자에 반영된 통계 변환표가 없어 기존 환산값을 임시로 사용합니다.":failed?"통계 변환표를 불러오지 못해 기존 환산값을 임시로 사용합니다.":method==="statistical"?"통계 Beta는 대학별 공식 환산등급이 아닌 일반고 표본 기반 추정값입니다. 예상 범위와 함께 참고하세요.":"과거 사례는 9등급제 자료라, 5등급 내신은 위 값으로 바꿔 비교합니다. 대학별 공식 환산등급이 아닙니다."}</p>}
+  </section>;
+}
+
+function StudentConnector({profile,query,onQuery,onSelect,roster}){
+  const{draft,hits,change,pick}=useStudentSearch({profile,query,onQuery,onSelect,roster});
   return <div className="admission-case-student" style={styles.studentConnector}>
-    <div style={styles.studentSearchPanel}><label style={styles.label}>학생 성적 연동</label><div style={{position:"relative"}}><Search size={16} style={{position:"absolute",left:12,top:12,color:"#748094"}}/><input style={{...styles.input,paddingLeft:36,height:42,fontWeight:800,color:"#24344a"}} value={draft} onChange={e=>{const next=e.target.value;setDraft(next);if(!next.trim()){onSelect("");onQuery("")}}} placeholder="학번 또는 이름 검색"/>{hits.length>0&&<div className="admission-case-search" style={styles.searchResults}>{hits.map(([sid,info])=><button key={sid} onClick={()=>{setDraft(sid);onSelect(sid);onQuery(sid)}}><span className="admission-case-search-id">{sid}</span><b className="admission-case-search-name">{info?.name||"이름 미등록"}</b><small className="admission-case-search-action">선택 ›</small></button>)}</div>}</div></div>
+    <div style={styles.studentSearchPanel}><label style={styles.label}>학생 성적 연동</label><div style={{position:"relative"}}><Search size={16} style={{position:"absolute",left:12,top:12,color:"#748094"}}/><input style={{...styles.input,paddingLeft:36,height:42,fontWeight:800,color:"#24344a"}} value={draft} onChange={e=>change(e.target.value)} placeholder="학번 또는 이름 검색"/>{hits.length>0&&<div className="admission-case-search" style={styles.searchResults}>{hits.map(([sid,info])=><button key={sid} onClick={()=>pick(sid)}><span className="admission-case-search-id">{sid}</span><b className="admission-case-search-name">{info?.name||"이름 미등록"}</b><small className="admission-case-search-action">선택 ›</small></button>)}</div>}</div></div>
     {profile?<div className="admission-student-profile" style={styles.studentProfile}>
       <div style={styles.studentProfileIdentity}><span style={styles.studentProfileEyebrow}>선택 학생</span><div style={styles.studentProfileTitle}><b>{profile.sid}</b><strong>{profile.name}</strong></div><div className="admission-student-profile-badges" style={styles.studentProfileBadges}><span>{profile.entryYear}학년도 입학생</span><span>{profile.grade}학년</span><span>{profile.gradeSystem}등급제</span></div></div>
       <div className="admission-student-score-groups">
@@ -1764,10 +1803,10 @@ export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedS
   const breadcrumb=["광덕고 대입 결과",tabLabel,studentUniversity||universitySelection||searchFocus.university,searchFocus.department].filter(Boolean).join("  ›  ");
   const selectTab=key=>navigate({tab:key,studentUniversity:"",universitySelection:key==="university"?universitySelection:"",searchFocus:key==="search"?searchFocus:{university:"",department:"",admissionType:""}});
   const navBlock=(navDepth>0||onBackToConsultation||focusUniversity)&&<div className="admission-internal-nav"><div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>{navDepth>0&&<button type="button" onClick={goBack}><ArrowLeft size={14}/>이전 화면</button>}{onBackToConsultation&&<button type="button" onClick={onBackToConsultation}><ArrowLeft size={14}/>상담·관심 대학으로</button>}<span>{breadcrumb}</span></div>{focusUniversity&&<span>연결 대학 <b>{focusUniversity}</b> <button type="button" className="admission-clear-button" style={{marginLeft:6}} onClick={()=>{setUniversitySelection("");onClearFocus?.()}}>연결 필터 해제</button></span>}</div>;
-  const studentBlock=<><div className={isNewUi()?"kdn-case-top":undefined} style={isNewUi()?undefined:{display:"contents"}}>
+  const studentBlock=isNewUi()?<CaseStudentBar profile={profile} query={query} onQuery={setQuery} onSelect={setSid} roster={roster} method={caseConversionMethod} onMethodChange={setCaseConversionMethod} group={caseConversionGroup} onGroupChange={setCaseConversionGroup} status={caseBetaStatus}/>:<>
     <StudentConnector profile={profile} query={query} onQuery={setQuery} onSelect={setSid} roster={roster}/>
     <CaseConversionPanel profile={profile} method={caseConversionMethod} onMethodChange={setCaseConversionMethod} group={caseConversionGroup} onGroupChange={setCaseConversionGroup} status={caseBetaStatus}/>
-    </div></>;
+    </>;
   const tabItems=[["student","학생 맞춤 분석"],["overview","전체 현황"],["university","대학·전형별"],["dimension","등급·지역별"],["search","사례 검색"]];
   const tabsBlock=<div className="kdn-case-tabs" style={styles.tabs}>{[["student","학생 맞춤 분석"],["overview","전체 현황"],["university","대학·전형별"],["dimension","등급·지역별"],["search","사례 검색"]].map(([key,label])=><button key={key} onClick={()=>selectTab(key)} style={{...styles.tab,...(tab===key?styles.tabActive:{})}}>{label}</button>)}</div>;
   const filterBlock=<><FilterPanel cases={cases} filters={filters} setFilters={setFilters} filteredCount={filtered.length}/><div className={isNewUi()?"kdn-hide-new":undefined} style={styles.filteredCount}><Filter size={13}/>전체 {cases.length.toLocaleString()}건 중 현재 조건에 해당하는 사례 <b>{filtered.length.toLocaleString()}건</b></div>{filtered.length===0&&<div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",borderRadius:11,background:"#fff4ed",border:"1px solid #f1cfb7",color:"#8a4f25",fontSize:12}}><AlertTriangle size={16}/><span>조건에 해당하는 사례가 없습니다. 상단의 <b>전체 초기화</b>를 누르거나 선택 범위를 넓혀보세요.</span></div>}</>;
