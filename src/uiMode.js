@@ -1409,6 +1409,43 @@ const SHARED_NEW_CSS = `
   .kd-consult-board .err{padding:8px 12px;border-radius:10px;background:#fdecea;color:#b91c1c;font-size:13px}
   @media (max-width:1000px){.kd-consult-board .slots{grid-template-columns:repeat(3,minmax(0,1fr))}}
   @media (max-width:560px){.kd-consult-board .slots{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .kdn-cs-table{min-width:900px}
+  .admission-case-ui .kdn-cs-table th,.admission-case-ui .kdn-cs-table td{text-align:left!important;border-left:0!important;border-right:0!important;vertical-align:middle}
+  .admission-case-ui .kdn-cs-table th.n,.admission-case-ui .kdn-cs-table td.n{text-align:right!important}
+  .kdn-cs-table tbody tr{cursor:default}
+  .kdn-cs-table td{padding:9px 12px}
+  .kdn-cs-table td.fv{width:44px}
+  .kdn-cs-table .fav{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:8px;border:1px solid var(--kdn-line);background:var(--kdn-surface);color:var(--kdn-muted);cursor:pointer}
+  .kdn-cs-table .fav.is-on{color:#e0a000;border-color:#f3d27a}
+  .kdn-cs-table .u{display:block;font-size:14.5px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-cs-table .d{display:block;font-size:13.5px;font-weight:600;color:var(--kdn-ink-soft)}
+  .kdn-cs-table .m{display:block;font-size:12px;color:var(--kdn-muted)}
+  .kdn-cs-table .t{display:block;font-size:13.5px;font-weight:700;color:var(--kdn-ink-soft)}
+  .kdn-cs-table td.n{text-align:right}
+  .kdn-cs-table .g{display:block;font-family:var(--kdn-num-font);font-size:17px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-cs-table .kdn-cs-band{display:inline-block;margin-top:3px;font-size:11.5px!important}
+  .kdn-cs-table td.sub span{display:block;font-family:var(--kdn-num-font);font-size:13.5px;font-weight:700;color:var(--kdn-ink-soft)}
+  .kdn-cs-table td.sub small{font-family:inherit;font-size:11px;font-weight:600;color:var(--kdn-muted);margin-right:5px}
+  .kdn-cs-result{display:inline-block;padding:3px 10px;border-radius:999px;border:1px solid;font-size:12.5px;font-weight:800;white-space:nowrap}
+  .kdn-cs-table .reg{display:block;margin-top:3px;font-size:12px;font-weight:700}
+  .kdn-cs-table td.act{white-space:nowrap}
+  .kdn-cs-btn{min-height:30px;padding:0 10px;margin-right:4px;border-radius:8px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font:inherit;font-size:12.5px;font-weight:800;color:var(--kdn-ink-soft);cursor:pointer}
+  .kdn-cs-btn.is-accent{background:var(--kdn-accent-soft);color:var(--kdn-accent-text);border-color:transparent}
+  .kdn-cs-btn:hover{border-color:var(--kdn-accent)}
+  .admission-case-ui .admission-case-search-actions{display:flex!important;flex-wrap:wrap!important;align-items:stretch!important;gap:8px!important}
+  .admission-case-ui .admission-case-search-actions>*{flex:1 1 auto;min-width:0}
+  .admission-case-ui .admission-case-range-filter{flex:0 1 auto;overflow:visible!important;flex-wrap:nowrap!important}
+  .admission-case-ui .admission-case-sort-control{flex:1 1 200px}
+  .admission-case-ui .admission-case-print-control{flex:0 0 auto!important}
+  .admission-case-ui .admission-case-print-control{display:flex!important;align-items:center!important;gap:8px!important;min-width:0}
+  .admission-case-ui .admission-case-print-control label{flex:1 1 auto;min-width:96px}
+  .admission-case-ui .admission-case-print-control select{min-width:88px;font-size:13px!important;padding-right:22px!important}
+  .admission-case-ui .admission-case-print-control .admission-case-print-button{flex:none;width:auto!important;white-space:nowrap;font-size:12.5px!important}
+  .admission-case-ui .admission-case-compact-control>span,.admission-case-ui .admission-case-compact-control label>span{font-size:11.5px!important}
+  body{padding-bottom:120px}
+  .kd-history-edge{top:auto!important;bottom:20px!important;transform:none!important;width:40px!important;height:40px!important;border-radius:999px!important;box-shadow:0 4px 14px rgba(20,24,33,.12)}
+  .kd-history-edge-left{left:18px!important}.kd-history-edge-right{left:64px!important;right:auto!important}
+  @media print{body{padding-bottom:0}}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
