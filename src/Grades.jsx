@@ -998,93 +998,156 @@ function buildStudentComparisonRow(sid, studentInfo, gdb) {
 }
 
 // 담임(또는 관리자)용 학급 성적: '우리 반'(분포·순위표)과 '반 비교'(학년 전체 반별 분포·평균) 두 보기.
-const classGradeTone = (value, scale) => {
-  if (value == null) return { background: "transparent", color: "#94a3b8" };
+// 화면 모양은 아래 CLASS_GRADE_CSS 한 곳에서 관리합니다(새 UI 변수가 없으면 기본 색으로 표시).
+const CLASS_GRADE_CSS = `
+.cg{display:grid;gap:16px;font-variant-numeric:tabular-nums}
+.cg-card{background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e3e6ec);border-radius:20px;overflow:hidden}
+.cg-hero{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:20px 24px;background:radial-gradient(420px 160px at 100% 0%,rgba(226,83,26,.32),transparent),linear-gradient(160deg,#17181d,#2a221c);color:#f4f1ea}
+.cg-hero h3{display:flex;align-items:center;gap:9px;margin:0;font-size:21px;font-weight:800;color:#fff;letter-spacing:-.01em}
+.cg-hero p{margin:5px 0 0;font-size:13.5px;color:#cfccc5}
+.cg-hero-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cg-seg{display:inline-flex;gap:2px;padding:3px;border-radius:12px;background:rgba(255,255,255,.1)}
+.cg-seg button{min-height:34px;padding:0 14px;border:0;border-radius:9px;background:transparent;color:#e5e1d8;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.cg-seg button.is-on{background:#fff;color:#1f2430}
+.cg-hero select{min-height:40px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font:inherit;font-size:14px;font-weight:700}
+.cg-hero select option{color:#1f2430}
+.cg-ghost{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#fff;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.cg-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:18px 20px 6px}
+.cg-kpi{display:grid;gap:8px;align-content:start;padding:16px 18px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e3e6ec)}
+.cg-kpi-l{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--kdn-muted,#5d6574)}
+.cg-kpi-l i{display:grid;place-items:center;width:28px;height:28px;border-radius:9px;font-style:normal}
+.cg-kpi-v{display:flex;align-items:baseline;gap:4px;font-size:30px;font-weight:800;line-height:1.05;color:var(--kdn-ink,#1f2430);letter-spacing:-.02em}
+.cg-kpi-v small{font-size:14px;font-weight:700;color:var(--kdn-muted,#5d6574)}
+.cg-kpi-n{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--kdn-muted,#5d6574)}
+.cg-pill{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap}
+.cg-up{background:#e7f6ec;color:#15803d}.cg-down{background:#fdecec;color:#c0262d}.cg-flat{background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-muted,#5d6574)}
+.cg-split{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cg-split span{display:grid;gap:2px;padding:6px 10px;border-radius:10px}
+.cg-split b{font-size:24px;font-weight:800;line-height:1.1}.cg-split small{font-size:12px;font-weight:600}
+.cg-hist{padding:14px 20px 20px}
+.cg-sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.cg-sec-h b{font-size:16px;font-weight:800;color:var(--kdn-ink,#1f2430)}
+.cg-sec-h span{font-size:12.5px;color:var(--kdn-muted,#5d6574)}
+.cg-bars{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:12px;align-items:end;height:150px;padding:0 4px;border-bottom:1px solid var(--kdn-line,#e3e6ec);background:linear-gradient(var(--kdn-line,#eef0f4) 1px,transparent 1px) 0 0/100% 37.5px}
+.cg-bar{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:5px;height:100%}
+.cg-bar b{font-size:15px;font-weight:800;color:var(--kdn-ink,#1f2430)}.cg-bar b small{margin-left:3px;font-size:11.5px;font-weight:600;color:var(--kdn-muted,#5d6574)}
+.cg-bar i{display:block;width:62%;max-width:72px;border-radius:8px 8px 3px 3px}
+.cg-axis{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));gap:12px;padding:8px 4px 0}
+.cg-axis span{text-align:center;font-size:12.5px;font-weight:600;color:var(--kdn-muted,#5d6574);white-space:nowrap}
+.cg-axis span.is-avg{color:#c2410c;font-weight:800}
+.cg-table-wrap{overflow-x:auto}
+.cg-table{width:100%;min-width:900px;border-collapse:separate;border-spacing:0}
+.cg-table th{position:sticky;top:0;padding:11px 14px;text-align:left;font-size:12.5px;font-weight:700;color:var(--kdn-muted,#5d6574);background:var(--kdn-surface-2,#f6f7fa);border-bottom:1px solid var(--kdn-line,#e3e6ec);white-space:nowrap}
+.cg-table td{padding:12px 14px;border-bottom:1px solid var(--kdn-line,#eef0f4);font-size:14px;color:var(--kdn-ink-soft,#3a4150);vertical-align:middle}
+.cg-table tbody tr:last-child td{border-bottom:0}
+.cg-table tbody tr:hover td{background:var(--kdn-surface-2,#fafbfc)}
+.cg-table .r{text-align:right}.cg-table .c{text-align:center}
+.cg-rank{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:999px;font-size:13.5px;font-weight:800;background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-ink-soft,#3a4150)}
+.cg-rank.top{background:#fff0e6;color:#c2410c;box-shadow:inset 0 0 0 1.5px #f6b48f}
+.cg-name{display:grid;gap:2px;border:0;background:transparent;padding:0;text-align:left;font:inherit;cursor:pointer}
+.cg-name b{font-size:14.5px;font-weight:700;color:var(--kdn-ink,#1f2430)}.cg-name:hover b{color:#c2410c}
+.cg-name small{font-size:12px;color:var(--kdn-muted,#5d6574)}
+.cg-big{display:block;font-size:17px;font-weight:800;color:var(--kdn-ink,#1f2430)}
+.cg-sub{display:block;font-size:12px;color:var(--kdn-muted,#5d6574)}
+.cg-tone{display:inline-block;min-width:54px;padding:4px 9px;border-radius:8px;text-align:center;font-size:13.5px;font-weight:700}
+.cg-t1{background:#fde4d6;color:#b23e0c}.cg-t2{background:#fff0e6;color:#c2410c}.cg-t3{background:#fef6ee;color:#9a5b2b}.cg-t4{background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-ink-soft,#3a4150)}
+.cg-chg{display:flex;align-items:center;justify-content:flex-end;gap:8px;white-space:nowrap}
+.cg-chg span{font-size:13px;color:var(--kdn-muted,#5d6574)}.cg-chg b{font-size:15px;font-weight:800;color:var(--kdn-ink,#1f2430)}
+.cg-steps{display:flex;align-items:flex-end;gap:0}
+.cg-step{display:grid;justify-items:center;gap:1px;min-width:62px;padding:0 8px;border-left:1px solid var(--kdn-line,#e3e6ec)}
+.cg-step:first-child{border-left:0;padding-left:0}
+.cg-step small{font-size:11px;color:var(--kdn-muted,#8a92a0)}
+.cg-step b{font-size:14.5px;font-weight:700;color:var(--kdn-ink-soft,#3a4150)}
+.cg-step.last b{font-size:15.5px;font-weight:800;color:var(--kdn-ink,#1f2430)}
+.cg-step em{font-style:normal;font-size:11.5px;font-weight:700}
+.cg-foot{padding:11px 16px;font-size:12.5px;color:var(--kdn-muted,#5d6574);border-top:1px solid var(--kdn-line,#eef0f4);background:var(--kdn-surface-2,#fafbfc)}
+.cg-cmp{display:grid;gap:4px;padding:18px 20px}
+.cg-legend{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--kdn-muted,#5d6574)}
+.cg-legend span{display:inline-flex;align-items:center;gap:6px}.cg-legend i{width:10px;height:10px;border-radius:3px}
+.cg-row{display:grid;grid-template-columns:76px minmax(0,1fr) 150px;gap:16px;align-items:center;padding:10px 12px;border-radius:12px}
+.cg-row:hover{background:var(--kdn-surface-2,#f6f7fa)}
+.cg-row.mine{background:#fff7f1;box-shadow:inset 3px 0 0 #e2531a}
+.cg-row-n{border:0;background:transparent;padding:0;text-align:left;font:inherit}
+.cg-row-n b{display:block;font-size:15px;font-weight:800;color:var(--kdn-ink,#1f2430)}.cg-row-n small{font-size:12px;color:var(--kdn-muted,#5d6574)}
+.cg-stack{display:flex;gap:2px;height:22px}
+.cg-stack span{display:flex;align-items:center;justify-content:center;min-width:6px;border-radius:6px;font-size:12px;font-weight:700}
+.cg-row-s{display:grid;justify-items:end;gap:3px}.cg-row-s b{font-size:16px;font-weight:800;color:var(--kdn-ink,#1f2430)}
+@media (max-width:900px){.cg-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cg-row{grid-template-columns:60px minmax(0,1fr)}.cg-row-s{grid-column:2;justify-items:start;grid-auto-flow:column;gap:8px}}
+@media print{.cg-hero-tools{display:none}}
+`;
+const CG_BAND_COLORS = ["#e2531a", "#f08a5d", "#f6b896", "#f3d2bd", "#b6c0cd", "#9aa6b5", "#7f8b9c"];
+const classToneClass = (value, scale) => {
+  if (value == null) return "cg-t4";
   const t = Math.min(1, Math.max(0, (value - 1) / (scale - 1)));
-  if (t < 0.15) return { background: "#e2531a", color: "#ffffff" };
-  if (t < 0.3) return { background: "#f6a37a", color: "#3b1505" };
-  if (t < 0.45) return { background: "#fde3d3", color: "#7a2a08" };
-  return { background: "#eef1f5", color: "#334155" };
+  return t < 0.15 ? "cg-t1" : t < 0.3 ? "cg-t2" : t < 0.45 ? "cg-t3" : "cg-t4";
 };
-
-// 반 성적 요약 칸: 색 타일 4개(학생 수 · 반 평균 · 1등급대 · 직전 학기 변화)
+const fmt2 = value => (value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
+const changeTone = d => (d == null ? "cg-flat" : d > 0.004 ? "cg-up" : d < -0.004 ? "cg-down" : "cg-flat");
+const changeMark = d => (d > 0.004 ? "▲" : d < -0.004 ? "▼" : "＝");
+// 반 성적 요약 칸: 흰 카드 4개(학생 수 · 반 평균 · 1등급대 · 직전 학기 변화)
 function ClassGradeKpis({ rows, graded, avg, gradeMean, scale, up, down }) {
   const topCount = graded.filter(row => row.overall.primary < 2).length;
   const gap = avg != null && gradeMean != null ? gradeMean - avg : null;
-  const tile = (tone, label, body, note, icon) => { const t = toneTileStyle(tone); return <div style={{ display: "grid", gap: 6, padding: "16px 18px", borderRadius: 16, ...t.tile }}>
-    <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13.5, fontWeight: 800, ...t.label }}>{icon}{label}</span>
-    {body}
-    <small style={{ fontSize: 12.5, fontWeight: 600, color: "#475569" }}>{note}</small>
-  </div>; };
-  const big = (value, unit, color = "#141821") => <b style={{ fontSize: 32, fontWeight: 900, lineHeight: 1, color, fontVariantNumeric: "tabular-nums" }}>{value}{unit && <small style={{ fontSize: 15, fontWeight: 800, marginLeft: 3 }}>{unit}</small>}</b>;
-  return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 12, padding: 16 }}>
-    {tile("blue", "학생 수", big(rows.length, "명"), `성적이 있는 학생 ${graded.length}명`, <UsersRound size={15} />)}
-    {tile("accent", "반 평균 · 전교과", big(avg == null ? "-" : avg.toFixed(2)), gap == null ? `${scale}등급제` : <>학년 평균 {gradeMean.toFixed(2)} · <b style={{ color: gap > 0.004 ? "#15803d" : gap < -0.004 ? "#b91c1c" : "#475569" }}>{gap > 0.004 ? `${gap.toFixed(2)} 좋음` : gap < -0.004 ? `${Math.abs(gap).toFixed(2)} 낮음` : "같음"}</b></>, <BarChart3 size={15} />)}
-    {tile("teal", scale === 5 ? "1등급대 학생" : "1~2등급 학생", big(topCount, "명"), graded.length ? `반의 ${Math.round(topCount / graded.length * 100)}% · 누적 전교과 기준` : "누적 전교과 기준", <TrendingUp size={15} />)}
-    {tile("amber", "직전 학기보다", <span style={{ display: "flex", alignItems: "baseline", gap: 14 }}>{big(`▲${up}`, "", "#15803d")}{big(`▼${down}`, "", "#b91c1c")}</span>, "좋아진 학생 · 낮아진 학생", <TrendingUp size={15} />)}
+  const label = (icon, bg, fg, text) => <span className="cg-kpi-l"><i style={{ background: bg, color: fg }}>{icon}</i>{text}</span>;
+  return <div className="cg-kpis">
+    <div className="cg-kpi">{label(<UsersRound size={15} />, "#e0ecff", "#1d4ed8", "학생 수")}<span className="cg-kpi-v">{rows.length}<small>명</small></span><span className="cg-kpi-n">성적이 있는 학생 {graded.length}명</span></div>
+    <div className="cg-kpi">{label(<BarChart3 size={15} />, "#fff0e6", "#c2410c", "반 평균 · 전교과")}<span className="cg-kpi-v">{avg == null ? "-" : avg.toFixed(2)}</span><span className="cg-kpi-n">{gap == null ? `${scale}등급제` : <>학년 평균 {gradeMean.toFixed(2)}<span className={`cg-pill ${changeTone(gap)}`}>{changeMark(gap)} {Math.abs(gap).toFixed(2)}</span></>}</span></div>
+    <div className="cg-kpi">{label(<TrendingUp size={15} />, "#e7f6ec", "#15803d", scale === 5 ? "1등급대 학생" : "1~2등급 학생")}<span className="cg-kpi-v">{topCount}<small>명</small></span><span className="cg-kpi-n">{graded.length ? `반의 ${Math.round(topCount / graded.length * 100)}% · 누적 전교과 기준` : "누적 전교과 기준"}</span></div>
+    <div className="cg-kpi">{label(<TrendingUp size={15} />, "#fff4d6", "#a16207", "직전 학기보다")}<div className="cg-split"><span style={{ background: "#e7f6ec", color: "#15803d" }}><b>▲ {up}</b><small>좋아진 학생</small></span><span style={{ background: "#fdecec", color: "#c0262d" }}><b>▼ {down}</b><small>낮아진 학생</small></span></div></div>
   </div>;
 }
-// 전교과 분포 막대: 구간 이름을 막대 아래 칩으로 크게, 막대 위에는 인원과 비율
+// 전교과 분포 막대: 구간 색을 단계로 바꾸고, 반 평균이 있는 구간 이름을 강조합니다.
 function ClassGradeHistogram({ bins, counts, total, scale, avg }) {
   const maxCount = Math.max(1, ...counts);
   const avgBin = avg == null ? -1 : bins.findIndex(([lo, hi]) => avg >= lo && avg < hi);
-  return <div style={{ padding: "0 16px 18px" }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}><b style={{ fontSize: 15, color: "#1f2430" }}>전교과 누적 분포</b><span style={{ fontSize: 12.5, color: "#64748b" }}>막대 = 구간별 학생 수 · ◆ = 반 평균이 있는 구간</span></div>
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 150, marginTop: 10, paddingBottom: 6, borderBottom: "2px solid #cbd5e1" }}>{bins.map(([lo, hi], index) => <div key={lo} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 4, height: "100%" }}>
-      <b style={{ fontSize: 15, fontWeight: 900, color: "#1f2430" }}>{counts[index]}<small style={{ fontSize: 11.5, fontWeight: 700, color: "#64748b", marginLeft: 3 }}>{total ? `${Math.round(counts[index] / total * 100)}%` : ""}</small></b>
-      <i style={{ display: "block", width: "100%", height: `${(counts[index] / maxCount) * 78}%`, minHeight: counts[index] ? 6 : 2, borderRadius: "8px 8px 2px 2px", background: index < 2 ? "#e2531a" : index < 4 ? "#f6a37a" : "#cbd5e1" }} />
+  return <div className="cg-hist">
+    <div className="cg-sec-h"><b>전교과 누적 분포</b><span>막대 = 구간별 학생 수 · 주황 글자 = 반 평균이 있는 구간</span></div>
+    <div className="cg-bars" style={{ "--n": bins.length }}>{bins.map(([lo], index) => <div key={lo} className="cg-bar">
+      <b>{counts[index]}<small>{total ? `${Math.round(counts[index] / total * 100)}%` : ""}</small></b>
+      {rawColors(() => <i style={{ height: `${(counts[index] / maxCount) * 74}%`, minHeight: counts[index] ? 6 : 2, background: CG_BAND_COLORS[index] || "#c0c8d3", outline: index === avgBin ? "2px solid var(--kdn-ink,#1f2430)" : "none", outlineOffset: 2 }} />)}
     </div>)}</div>
-    <div style={{ display: "flex", gap: 10, marginTop: 8 }}>{bins.map(([lo, hi], index) => <span key={lo} style={{ flex: 1, textAlign: "center", padding: "6px 4px", borderRadius: 9, background: index === avgBin ? "#1f2430" : "#eef1f5", color: index === avgBin ? "#ffffff" : "#1f2430", fontSize: 13.5, fontWeight: 850, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{index === avgBin ? "◆ " : ""}{lo.toFixed(1)}~{(hi > scale ? scale : hi).toFixed(1)}</span>)}</div>
+    <div className="cg-axis" style={{ "--n": bins.length }}>{bins.map(([lo, hi], index) => <span key={lo} className={index === avgBin ? "is-avg" : ""}>{index === avgBin ? "● " : ""}{lo.toFixed(1)}–{(hi > scale ? scale : hi).toFixed(1)}</span>)}</div>
   </div>;
 }
-const fmt2 = value => (value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
-// 직전 학기 → 최근 학기 값과 변화량을 숫자로 보여 줍니다(낮을수록 좋은 성적).
+// 직전 학기 → 최근 학기 값과 변화량(낮을수록 좋은 성적).
 function SemesterChange({ trend = [] }) {
-  if (trend.length < 2) return trend.length ? <span style={{ fontSize: 13, color: "#64748b" }}>최근 {fmt2(trend[0].value)} · 비교 학기 없음</span> : <span style={{ color: "#a0a9b6" }}>-</span>;
+  if (trend.length < 2) return trend.length ? <span className="cg-sub">최근 {fmt2(trend[0].value)} · 비교 없음</span> : <span className="cg-sub">-</span>;
   const prev = trend[trend.length - 2], last = trend[trend.length - 1];
   const d = prev.value - last.value;
-  const tone = d > 0.004 ? { bg: "#dcfce7", c: "#15803d", s: "▲" } : d < -0.004 ? { bg: "#fee2e2", c: "#b91c1c", s: "▼" } : { bg: "#f1f5f9", c: "#64748b", s: "＝" };
-  return <div style={{ display: "grid", justifyItems: "center", gap: 4 }}>
-    <span style={{ fontSize: 13.5, fontVariantNumeric: "tabular-nums", color: "#475569", whiteSpace: "nowrap" }}>{fmt2(prev.value)} → <b style={{ fontSize: 15, color: "#1f2430" }}>{fmt2(last.value)}</b></span>
-    <span style={{ padding: "2px 9px", borderRadius: 999, background: tone.bg, color: tone.c, fontSize: 12.5, fontWeight: 850 }}>{tone.s} {Math.abs(d).toFixed(2)}</span>
-  </div>;
+  return <div className="cg-chg"><span>{fmt2(prev.value)} →</span><b>{fmt2(last.value)}</b><span className={`cg-pill ${changeTone(d)}`}>{changeMark(d)} {Math.abs(d).toFixed(2)}</span></div>;
 }
-// 학기별 전교과 평균을 칸으로 나열하고, 칸마다 앞 학기 대비 변화를 작게 적습니다.
+// 학기별 전교과 평균: 칸 테두리 대신 얇은 구분선으로 나열하고, 앞 학기 대비 변화를 작게 적습니다.
 function SemesterSteps({ trend = [] }) {
-  if (!trend.length) return <span style={{ color: "#a0a9b6" }}>-</span>;
-  return <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{trend.map((item, index) => {
+  if (!trend.length) return <span className="cg-sub">-</span>;
+  return <div className="cg-steps">{trend.map((item, index) => {
     const d = index ? trend[index - 1].value - item.value : null;
-    const c = d == null ? "#94a3b8" : d > 0.004 ? "#15803d" : d < -0.004 ? "#b91c1c" : "#94a3b8";
-    const last = index === trend.length - 1;
-    return <span key={item.key} style={{ display: "grid", justifyItems: "center", gap: 1, minWidth: 54, padding: "4px 6px", borderRadius: 9, border: `1px solid ${last ? "#1f2430" : "#e2e8f0"}`, background: last ? "#f8fafc" : "#ffffff" }}>
-      <small style={{ fontSize: 10.5, fontWeight: 700, color: "#64748b" }}>{item.key.replace("-", "학년 ")}학기</small>
-      <b style={{ fontSize: 14, fontWeight: 900, color: "#1f2430", fontVariantNumeric: "tabular-nums" }}>{fmt2(item.value)}</b>
-      <small style={{ fontSize: 10.5, fontWeight: 800, color: c }}>{d == null ? "시작" : `${d > 0.004 ? "▲" : d < -0.004 ? "▼" : "＝"}${Math.abs(d).toFixed(2)}`}</small>
+    return <span key={item.key} className={`cg-step${index === trend.length - 1 ? " last" : ""}`}>
+      <small>{item.key.replace("-", "-")}학기</small>
+      <b>{fmt2(item.value)}</b>
+      <em style={{ color: d == null ? "#8a92a0" : d > 0.004 ? "#15803d" : d < -0.004 ? "#c0262d" : "#8a92a0" }}>{d == null ? "·" : `${changeMark(d)}${Math.abs(d).toFixed(2)}`}</em>
     </span>;
   })}</div>;
 }
-// 반 비교: 반마다 등급 구간별 학생 비율을 100% 막대로 쌓아 비교합니다(왼쪽일수록 상위 구간).
+// 반 비교: 반마다 등급 구간별 학생 수를 가는 막대로 쌓아 비교합니다(왼쪽일수록 상위 구간).
 function ClassBandCompare({ classStats = [], scale, gradeMean, highlight = "", onPick }) {
   const bands = scale === 5
-    ? [[1, 2, "1등급대", "#e2531a", "#ffffff", "1.00~1.99"], [2, 3, "2등급대", "#f6a37a", "#3b1505", "2.00~2.99"], [3, 4, "3등급대", "#cbd5e1", "#1f2430", "3.00~3.99"], [4, 5.01, "4등급 이하", "#8f9bb0", "#ffffff", "4.00 이상"]]
-    : [[1, 3, "1~2등급", "#e2531a", "#ffffff"], [3, 5, "3~4등급", "#f6a37a", "#3b1505"], [5, 7, "5~6등급", "#cbd5e1", "#1f2430"], [7, 9.01, "7등급 이하", "#8f9bb0", "#ffffff"]];
-  return <>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-      <b style={{ fontSize: 16, color: "#1f2430" }}>반별 전교과 구간 비율</b>
-      <span style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 12.5, fontWeight: 700, color: "#475569" }}>{bands.map(([, , label, color, , range]) => <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><i style={{ width: 12, height: 12, borderRadius: 3, background: color }} />{label}{range && <small style={{ fontSize: 11, fontWeight: 600, color: "#64748b" }}>({range})</small>}</span>)}{gradeMean != null && <span>학년 평균 {gradeMean.toFixed(2)}</span>}</span>
-    </div>
-    <div style={{ display: "grid", gap: 8 }}>{classStats.map(stat => {
+    ? [[1, 2, "1등급대", "#e2531a", "#fff", "1.00~1.99"], [2, 3, "2등급대", "#f6b896", "#7a2a08", "2.00~2.99"], [3, 4, "3등급대", "#b6c0cd", "#1f2430", "3.00~3.99"], [4, 5.01, "4등급 이하", "#7f8b9c", "#fff", "4.00 이상"]]
+    : [[1, 3, "1~2등급", "#e2531a", "#fff", ""], [3, 5, "3~4등급", "#f6b896", "#7a2a08", ""], [5, 7, "5~6등급", "#b6c0cd", "#1f2430", ""], [7, 9.01, "7등급 이하", "#7f8b9c", "#fff", ""]];
+  return <div className="cg-cmp">
+    <div className="cg-sec-h"><b>반별 전교과 구간 비율</b><span className="cg-legend">{bands.map(([, , label, color, , range]) => <span key={label}>{rawColors(() => <i style={{ background: color }} />)}{label}{range ? ` (${range})` : ""}</span>)}{gradeMean != null && <span>학년 평균 <b style={{ fontSize: 13, color: "var(--kdn-ink,#1f2430)" }}>{gradeMean.toFixed(2)}</b></span>}</span></div>
+    {classStats.map(stat => {
       const mine = stat.no === highlight;
       const counts = bands.map(([lo, hi]) => stat.list.filter(v => v >= lo && v < hi).length);
       const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null;
-      return <div key={stat.no} style={{ display: "grid", gridTemplateColumns: "64px minmax(0,1fr) 150px", gap: 12, alignItems: "center", padding: "8px 10px", borderRadius: 12, background: mine ? "#fff4ec" : "transparent", border: mine ? "1px solid #fbd0b5" : "1px solid transparent" }}>
-        <button type="button" onClick={() => onPick?.(stat.no)} style={{ border: 0, background: "transparent", padding: 0, textAlign: "left", cursor: onPick ? "pointer" : "default" }}><b style={{ fontSize: 15.5, color: "#1f2430" }}>{stat.no}반</b><small style={{ display: "block", fontSize: 11, color: mine ? "#c2410c" : "#64748b", fontWeight: 700 }}>{mine ? "우리 반 · " : ""}{stat.n}명</small></button>
-        <div style={{ display: "flex", height: 30, borderRadius: 8, overflow: "hidden", background: "#f1f5f9" }}>{counts.map((count, index) => count ? <span key={index} title={`${bands[index][2]} ${count}명`} style={{ flex: count, display: "flex", alignItems: "center", justifyContent: "center", minWidth: 22, background: bands[index][3], color: bands[index][4], fontSize: 12.5, fontWeight: 850, fontVariantNumeric: "tabular-nums" }}>{count}</span> : null)}</div>
-        <div style={{ display: "grid", justifyItems: "end", fontVariantNumeric: "tabular-nums" }}><b style={{ fontSize: 16, color: "#1f2430" }}>평균 {stat.mean == null ? "-" : stat.mean.toFixed(2)}</b>{gap != null && <small style={{ fontSize: 12, fontWeight: 800, color: gap > 0.004 ? "#15803d" : gap < -0.004 ? "#b91c1c" : "#64748b" }}>학년 대비 {gap > 0.004 ? "▲" : gap < -0.004 ? "▼" : "＝"}{Math.abs(gap).toFixed(2)}</small>}</div>
+      return <div key={stat.no} className={`cg-row${mine ? " mine" : ""}`}>
+        <button type="button" className="cg-row-n" onClick={() => onPick?.(stat.no)} style={{ cursor: onPick ? "pointer" : "default" }}><b>{stat.no}반</b><small>{stat.n}명{mine ? " · 우리 반" : ""}</small></button>
+        <div className="cg-stack">{rawColors(() => counts.map((count, index) => count ? <span key={index} title={`${bands[index][2]} ${count}명`} style={{ flex: count, background: bands[index][3], color: bands[index][4] }}>{count >= 2 || stat.n < 12 ? count : ""}</span> : null))}</div>
+        <div className="cg-row-s"><b>{stat.mean == null ? "-" : stat.mean.toFixed(2)}</b>{gap != null && <span className={`cg-pill ${changeTone(gap)}`}>학년 대비 {changeMark(gap)}{Math.abs(gap).toFixed(2)}</span>}</div>
       </div>;
-    })}</div>
-  </>;
+    })}
+  </div>;
 }
+
 export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent }) {
   const classes = useMemo(() => Array.from(new Set(Object.values(roster || {}).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
   const [pickedClass, setPickedClass] = useState(String(homeroomClass || ""));
@@ -1114,43 +1177,43 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   }), [classes, allRows]);
   const gradeMean = (() => { const all = classStats.flatMap(stat => stat.list); return all.length ? all.reduce((s, v) => s + v, 0) / all.length : null; })();
   if (!classNo && !isAdmin) return <EmptyBox text="담당 학급이 지정되어 있지 않습니다. 관리자에게 담임 학급 등록을 요청해주세요." />;
-  const tabBtn = (key, label) => <button type="button" onClick={() => setView(key)} style={{ minHeight: 36, padding: "0 14px", borderRadius: 9, border: view === key ? "1px solid #ffffff" : "1px solid rgba(255,255,255,.4)", background: view === key ? "#ffffff" : "transparent", color: view === key ? "#1f3f68" : "#ffffff", fontSize: 13, fontWeight: 850, cursor: "pointer" }}>{label}</button>;
-  return <div style={{ display: "grid", gap: 14 }}>
-    <section className="kdn-classg-hero" style={{ ...card, padding: 0, overflow: "hidden" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "18px 20px", background: "linear-gradient(135deg,#315f95,#667bb0)", color: "#fff" }}>
-        <div><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 950, fontSize: 19 }}><UsersRound size={20} />{currentGrade}학년 {view === "compare" ? "반별 비교" : `${classNo}반 성적`}</div><div style={{ marginTop: 4, fontSize: 11.5, color: "#e9f0f8" }}>{view === "compare" ? "학년 전체 반의 전교과 분포와 평균을 나란히 비교합니다." : "반 학생 전체의 누적 내신과 교과 조합, 학기별 흐름을 한 화면에서 봅니다."} 숫자가 낮을수록 상위입니다.</div></div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {tabBtn("class", isAdmin ? "반 성적" : "우리 반")}{tabBtn("compare", "반 비교")}
-          {isAdmin && view === "class" && <select value={classNo} onChange={event => setPickedClass(event.target.value)} style={{ minHeight: 36, borderRadius: 9, border: 0, padding: "0 10px", fontWeight: 800 }}>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
-          {view === "class" && <button type="button" className="no-print" onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${classNo}반 성적 ·`)} disabled={!rows.length} style={{ display: "inline-flex", alignItems: "center", gap: 5, minHeight: 36, padding: "0 12px", borderRadius: 9, border: "1px solid rgba(255,255,255,.5)", background: "rgba(255,255,255,.12)", color: "#fff", fontSize: 12.5, fontWeight: 850, cursor: "pointer" }}><Printer size={14} />인쇄·PDF</button>}
+  return <div className="cg">
+    <style>{CLASS_GRADE_CSS}</style>
+    <section className="cg-card">
+      <div className="cg-hero">
+        <div><h3><UsersRound size={21} />{currentGrade}학년 {view === "compare" ? "반별 비교" : `${classNo}반 성적`}</h3><p>{view === "compare" ? "학년 전체 반의 전교과 분포와 평균을 나란히 비교합니다." : "누적 내신, 교과 조합, 학기별 변화를 한 화면에서 봅니다."} 숫자가 낮을수록 상위입니다.</p></div>
+        <div className="cg-hero-tools">
+          <div className="cg-seg" role="tablist"><button type="button" className={view === "class" ? "is-on" : ""} onClick={() => setView("class")}>{isAdmin ? "반 성적" : "우리 반"}</button><button type="button" className={view === "compare" ? "is-on" : ""} onClick={() => setView("compare")}>반 비교</button></div>
+          {isAdmin && view === "class" && <select value={classNo} onChange={event => setPickedClass(event.target.value)} aria-label="반 선택">{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
+          {view === "class" && <button type="button" className="cg-ghost no-print" data-kdn-bare onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${classNo}반 성적 ·`)} disabled={!rows.length}><Printer size={15} />인쇄·PDF</button>}
         </div>
       </div>
       {view === "class" && <>
         <ClassGradeKpis rows={rows} graded={graded} avg={avg} gradeMean={gradeMean} scale={scale} up={up} down={down} />
         {graded.length > 0 && <ClassGradeHistogram bins={bins} counts={counts} total={graded.length} scale={scale} avg={avg} />}
       </>}
+      {view === "compare" && <ClassBandCompare classStats={classStats} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
     </section>
-    {view === "class" && (!rows.length ? <EmptyBox text={`${classNo}반 학생 명단이 없습니다.`} /> : <section style={{ ...card, padding: 0, overflow: "hidden" }}>
-      <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 940 }}><thead><tr><th style={table.th}>순위</th><th style={table.th}>학생</th><th style={table.th}>전교과 누적</th><th style={table.th}>국·영·수·사·과</th><th style={table.th}>국·영·수·과</th><th style={table.th}>직전 학기 → 최근 학기</th><th style={table.th}>학기별 전교과 평균</th></tr></thead>
-      <tbody>{ordered.map((row, index) => { const d = delta(row); const v = row.overall?.primary; const rank = ranked.get(row.sid); return <tr key={row.sid} style={{ background: index % 2 ? "#fafbfc" : "#ffffff" }}>
-        <td style={table.td}>{rank ? <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 9, background: rank <= 3 ? "#1f2430" : "#eef1f5", color: rank <= 3 ? "#ffffff" : "#334155", fontWeight: 900, fontSize: 13.5 }}>{rank}</span> : "-"}</td>
-        <td style={{ ...table.td, textAlign: "left" }}>{onOpenStudent ? <button type="button" onClick={() => onOpenStudent(row.sid)} style={{ border: 0, background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}><b style={{ display: "block", fontSize: 14, color: "#1f4f86" }}>{row.name}</b><small style={{ fontSize: 11, color: "#7d8996" }}>{row.number}번 · {row.sid}</small></button> : <><b style={{ display: "block", fontSize: 14 }}>{row.name}</b><small style={{ fontSize: 11, color: "#7d8996" }}>{row.number}번 · {row.sid}</small></>}</td>
-        <td style={table.td}>{v == null ? <span style={{ color: "#a0a9b6" }}>-</span> : <div style={{ display: "grid", justifyItems: "center", gap: 1 }}><b style={{ fontSize: 17, fontWeight: 900, color: "#1f2430", fontVariantNumeric: "tabular-nums" }}>{v.toFixed(2)}</b>{row.overall?.converted != null && <small style={{ fontSize: 11, color: "#64748b" }}>9등급 환산 {Number(row.overall.converted).toFixed(2)}</small>}</div>}</td>
-        {[row.coreAll?.primary, row.coreScience?.primary].map((value, i) => <td key={i} style={table.td}><span style={{ display: "inline-block", minWidth: 52, padding: "4px 8px", borderRadius: 8, fontWeight: 800, fontVariantNumeric: "tabular-nums", ...classGradeTone(value, scale) }}>{value ?? "-"}</span></td>)}
-        <td style={table.td}><SemesterChange trend={row.trend} /></td>
-        <td style={{ ...table.td, textAlign: "left" }}><SemesterSteps trend={row.trend} /></td>
+    {view === "class" && (!rows.length ? <EmptyBox text={`${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
+      <div className="cg-table-wrap"><table className="cg-table"><thead><tr><th className="c">순위</th><th>학생</th><th className="r">전교과 누적</th><th className="c">국·영·수·사·과</th><th className="c">국·영·수·과</th><th className="r">직전 → 최근 학기</th><th>학기별 전교과 평균</th></tr></thead>
+      <tbody>{ordered.map(row => { const v = row.overall?.primary; const rank = ranked.get(row.sid); return <tr key={row.sid}>
+        <td className="c">{rank ? <span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}</span> : "-"}</td>
+        <td>{onOpenStudent ? <button type="button" data-kdn-bare className="cg-name" onClick={() => onOpenStudent(row.sid)}><b>{row.name}</b><small>{row.number}번 · {row.sid}</small></button> : <span className="cg-name"><b>{row.name}</b><small>{row.number}번 · {row.sid}</small></span>}</td>
+        <td className="r">{v == null ? <span className="cg-sub">-</span> : <><span className="cg-big">{v.toFixed(2)}</span>{row.overall?.converted != null && <span className="cg-sub">9등급 환산 {Number(row.overall.converted).toFixed(2)}</span>}</>}</td>
+        {[row.coreAll?.primary, row.coreScience?.primary].map((value, i) => <td key={i} className="c"><span className={`cg-tone ${classToneClass(value, scale)}`}>{value == null ? "-" : Number(value).toFixed(2)}</span></td>)}
+        <td className="r"><SemesterChange trend={row.trend} /></td>
+        <td><SemesterSteps trend={row.trend} /></td>
       </tr>; })}</tbody></table></div>
-      <div style={{ padding: "10px 16px", fontSize: 12, color: "#64748b", borderTop: "1px solid #eef1f5" }}>숫자가 낮을수록 좋은 성적 · ▲ 초록 = 직전 학기보다 좋아짐, ▼ 빨강 = 낮아짐 · 학기별 칸의 작은 숫자는 바로 앞 학기와의 차이</div>
+      <div className="cg-foot">숫자가 낮을수록 좋은 성적 · ▲ 초록 = 앞 학기보다 좋아짐, ▼ 빨강 = 낮아짐 · 진한 숫자 = 가장 최근 학기</div>
     </section>)}
-    {view === "compare" && <section style={{ ...card, padding: 18, display: "grid", gap: 14 }}>
-      <ClassBandCompare classStats={classStats} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />
-      <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 620 }}><thead><tr><th style={table.th}>반</th><th style={table.th}>학생</th><th style={table.th}>평균</th><th style={table.th}>학년 평균 대비</th><th style={table.th}>중앙값</th><th style={table.th}>최고</th><th style={table.th}>{scale === 5 ? "1등급대" : "1~2등급"}</th><th style={table.th}>직전 학기 평균 변화</th></tr></thead>
+    {view === "compare" && <section className="cg-card">
+      <div className="cg-table-wrap"><table className="cg-table" style={{ minWidth: 640 }}><thead><tr><th>반</th><th className="r">학생</th><th className="r">평균</th><th className="r">학년 평균 대비</th><th className="r">중앙값</th><th className="r">최고</th><th className="r">{scale === 5 ? "1등급대" : "1~2등급"}</th><th className="r">직전 학기 평균 변화</th></tr></thead>
         <tbody>{classStats.slice().sort((a, b) => (a.mean ?? 99) - (b.mean ?? 99)).map(stat => { const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null; return <tr key={stat.no}>
-          <td style={table.td}><b>{stat.no}반</b></td><td style={table.td}>{stat.n}명</td>
-          <td style={table.td}><b style={{ fontSize: 14.5 }}>{stat.mean == null ? "-" : stat.mean.toFixed(2)}</b></td>
-          <td style={table.td}>{gap == null ? "-" : <b style={{ color: gap > 0.004 ? "#15803d" : gap < -0.004 ? "#b91c1c" : "#64748b" }}>{gap > 0.004 ? "▲" : gap < -0.004 ? "▼" : "＝"} {Math.abs(gap).toFixed(2)}</b>}</td>
-          <td style={table.td}>{stat.median == null ? "-" : stat.median.toFixed(2)}</td><td style={table.td}>{stat.best == null ? "-" : stat.best.toFixed(2)}</td><td style={table.td}>{stat.top}명</td>
-          <td style={table.td}>{stat.change == null ? "-" : <span style={{ color: stat.change > 0.004 ? "#15803d" : stat.change < -0.004 ? "#b91c1c" : "#64748b", fontWeight: 800 }}>{stat.change > 0.004 ? "▲" : stat.change < -0.004 ? "▼" : "＝"} {Math.abs(stat.change).toFixed(2)}</span>}</td>
+          <td><b style={{ color: "var(--kdn-ink,#1f2430)" }}>{stat.no}반</b></td><td className="r">{stat.n}명</td>
+          <td className="r"><span className="cg-big" style={{ fontSize: 15.5 }}>{fmt2(stat.mean)}</span></td>
+          <td className="r">{gap == null ? "-" : <span className={`cg-pill ${changeTone(gap)}`}>{changeMark(gap)} {Math.abs(gap).toFixed(2)}</span>}</td>
+          <td className="r">{fmt2(stat.median)}</td><td className="r">{fmt2(stat.best)}</td><td className="r">{stat.top}명</td>
+          <td className="r">{stat.change == null ? "-" : <span className={`cg-pill ${changeTone(stat.change)}`}>{changeMark(stat.change)} {Math.abs(stat.change).toFixed(2)}</span>}</td>
         </tr>; })}</tbody></table></div>
     </section>}
   </div>;
