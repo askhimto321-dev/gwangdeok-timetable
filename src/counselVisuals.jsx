@@ -174,15 +174,15 @@ function CounselSummaryCards({ student, identity, favoriteCount = 0, planCount, 
         {isFiveScale ? <div style={{ ...s.cell, background: "#f5fbff", borderColor: "#dbeef9" }} title={naviGrade?.method === "statistical" ? "통계 기반 Beta (NAVI와 같은 방식)" : "기존 환산 2×내신−1 (NAVI와 같은 방식)"}>
           <div style={s.cellHead}><span style={s.cellLabel}><Gauge size={16} aria-hidden="true" /> 9등급 환산</span><span style={s.methodChip}>{naviGrade?.method === "statistical" ? `통계 Beta · ${naviGrade.group || "전교과"}` : "기존 환산"}</span></div>
           <div style={s.valueRow}><b style={s.value}>{fmt(naviGrade?.value)}</b>{range && <span style={s.unit}>예상 {range[0].toFixed(2)} – {range[1].toFixed(2)}</span>}</div>
-          <ScaleBar min={1} max={6} value={naviGrade?.value} ghost={naviGrade?.method === "statistical" ? legacy : null} band={range} color="var(--kdn-ink)" />
-          <div style={s.axis}><span>1</span>{naviGrade?.method === "statistical" && legacy != null && <span>▲ 회색: 기존 환산 {fmt(legacy)}</span>}<span>6등급</span></div>
+          <ScaleBar min={1} max={9} value={naviGrade?.value} ghost={naviGrade?.method === "statistical" ? legacy : null} band={range} color="var(--kdn-ink)" />
+          <div style={s.axis}><span>1</span>{naviGrade?.method === "statistical" && legacy != null && <span>▲ 회색: 기존 환산 {fmt(legacy)}</span>}<span>9등급</span></div>
         </div> : <div style={{ ...s.cell, background: "#f5fbff", borderColor: "#dbeef9" }}>
           <div style={s.cellHead}><span style={s.cellLabel}><Gauge size={16} aria-hidden="true" /> 관심 대학</span></div>
           <div style={s.valueRow}><b style={s.value}>{favoriteCount}</b><span style={s.unit}>곳</span></div>
         </div>}
         <div style={{ ...s.cell, background: "#faf7ff", borderColor: "#ebe3fb" }}>
           <div style={s.cellHead}><span style={s.cellLabel}><BarChart3 size={16} aria-hidden="true" /> 최근 모의고사 3합</span><span style={s.cellNote}>{student.latestMockLabel || ""}</span></div>
-          <div style={s.valueRow}><b style={s.value}>{mock?.sum3 ?? "-"}</b>{mock?.sum3 != null && <span style={s.unit}>합</span>}</div>
+          <div style={s.valueRow}><b style={s.value}>{mock?.sum3 ?? "-"}</b>{mock?.sum3 != null && <span style={s.unit}>가장 좋은 3과목 (한국사 제외)</span>}</div>
           <div style={s.subjectChips}>{chips ? chips.map(([label, value]) => <span key={label} style={s.subjectChip}>{label} <b>{value}</b></span>) : <span style={s.cellNote}>과목별 등급 없음</span>}</div>
         </div>
         <button type="button" onClick={onOpenPlan} disabled={!onOpenPlan} style={{ ...s.cell, ...s.planCell }}>

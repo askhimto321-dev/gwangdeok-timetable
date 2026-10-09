@@ -374,7 +374,7 @@ function NaviCalculator({ data, selectedStudent, effectiveStudent, onPickMock, g
   const stat = conversionDetails(data, "statistical", group, grade5);
   const fmt2 = value => (value == null || value === "" || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(2));
   const range = (() => { const m = String(conversion?.range || "").match(/(\d+(?:\.\d+)?)\s*[-~–]\s*(\d+(?:\.\d+)?)/); return m ? [Number(m[1]), Number(m[2])] : null; })();
-  const pos = v => `${Math.min(100, Math.max(0, ((Number(v) - 1) / 5) * 100))}%`;
+  const pos = v => `${Math.min(100, Math.max(0, ((Number(v) - 1) / 8) * 100))}%`;
   const diff = stat?.value != null && legacy != null ? Number(stat.value) - Number(legacy) : null;
   const exams = selectedStudent?.availableMockExams || [];
   const groups = selectedStudent?.grade5ByGroup || {};
@@ -449,7 +449,7 @@ function NaviCalculator({ data, selectedStudent, effectiveStudent, onPickMock, g
         {method !== "legacy" && legacy != null && <span className="ghost" style={{ left: pos(legacy) }} />}
         {conversion?.value != null && <span className="mark" style={{ left: pos(conversion.value) }} />}
       </div>
-      <div className="kdn-calc-axis"><span>1등급</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6등급</span></div>
+      <div className="kdn-calc-axis"><span>1등급</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9등급</span></div>
       <div className="kdn-calc-compare">
         <div><span>기존 환산{method !== "legacy" ? " (회색 선)" : ""}</span><b>{fmt2(legacy)}</b></div>
         <div className="is-accent"><span>통계 기반 · {group}</span><b>{fmt2(stat?.value)}{diff != null && <small> {diff >= 0 ? "+" : ""}{diff.toFixed(2)}</small>}</b></div>
