@@ -1639,6 +1639,8 @@ export default function App() {
             ? { role: "학생", id: loggedInStudent.id, name: loggedInStudent.name }
             : { role: classAuthed ? "공용 조회" : "이용자", id: "", name: "" };
 
+  // 대시보드 바로가기에서 성적·진학의 특정 탭(예: 반별 성적)을 바로 열 때 씁니다(훅이므로 loading 조기 반환보다 먼저).
+  const [gradeTabRequest, setGradeTabRequest] = useState({ tab: "", nonce: 0 });
   // 새 UI 대시보드용 값(훅이라 아래 loading 조기 반환보다 먼저 호출합니다).
   const dashboardActive = isNewUi() && (section || "home") === "home";
   const dashboardLessonSlot = useLessonSlot(dashboardActive && !!loggedInStudent);
@@ -1676,8 +1678,6 @@ export default function App() {
   };
   const activeSection = section || (isNewUi() ? "home" : "grades");
   const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
-  // 대시보드 바로가기에서 성적·진학의 특정 탭(예: 반별 성적)을 바로 열 때 씁니다.
-  const [gradeTabRequest, setGradeTabRequest] = useState({ tab: "", nonce: 0 });
   const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
   const changeStudentWorkspaceView = (view) => {
     if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
