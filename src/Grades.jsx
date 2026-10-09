@@ -831,7 +831,7 @@ export default function GradesSection({
               <button type="button" onClick={() => navigateGradeTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
               <button type="button" className="kdn-dup-nav" onClick={() => navigateGradeTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
               <button type="button" className="kdn-dup-nav" onMouseEnter={preloadSusiNaviView} onFocus={preloadSusiNaviView} onClick={() => navigateGradeTab("susiNaviBeta")} style={{ ...staffToolNav.button, ...(tab === "susiNaviBeta" ? staffToolNav.active : {}) }}><BookOpen size={13} /> 2027 수시NAVI <span style={{ fontSize: 9, opacity: .78 }}>Beta</span></button>
-              {(loggedInAdmin || (loggedInTeacher && loggedInTeacher.homeroomClass)) && <button type="button" onClick={() => navigateGradeTab("classGrades")} style={{ ...staffToolNav.button, ...(tab === "classGrades" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> {loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "학급 성적"}</button>}
+              {(loggedInAdmin || (loggedInTeacher && loggedInTeacher.homeroomClass)) && <button type="button" onClick={() => navigateGradeTab("classGrades")} style={{ ...staffToolNav.button, ...(tab === "classGrades" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> {loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적"}</button>}
               {loggedInTeacher && loggedInTeacher.homeroomClass && <button type="button" onClick={() => navigateGradeTab("class")} style={{ ...staffToolNav.button, ...(tab === "class" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 담임반 학생 계정</button>}
             </div>
           </div>
@@ -991,7 +991,7 @@ function buildStudentComparisonRow(sid, studentInfo, gdb) {
 }
 
 // 담임(또는 관리자)용 학급 성적 한눈에 보기: 반 학생 전체의 누적 내신·조합·학기 흐름을 순위표와 분포로.
-function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent }) {
+export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent }) {
   const classes = useMemo(() => Array.from(new Set(Object.values(roster || {}).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
   const [pickedClass, setPickedClass] = useState(String(homeroomClass || ""));
   const classNo = isAdmin ? (pickedClass || classes[0] || "") : String(homeroomClass || "");

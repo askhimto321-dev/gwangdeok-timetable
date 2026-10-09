@@ -1117,6 +1117,30 @@ const SHARED_NEW_CSS = `
   .kdn-gband-row .rt b{font-family:var(--kdn-num-font);font-size:16px;font-weight:800;color:#15803d}
   .kdn-gband-row .ct b{font-family:var(--kdn-num-font);font-size:16px;font-weight:800;color:var(--kdn-ink)}
   .kdn-gband-row small{font-size:11.5px;color:var(--kdn-muted)}
+  .kdn-case-strip{display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-radius:14px;background:var(--kdn-surface);border:1px solid var(--kdn-line);font-size:14px;color:var(--kdn-muted)}
+  .kdn-case-strip>span{display:inline-flex;align-items:center;gap:6px}
+  .kdn-case-strip b{font-family:var(--kdn-num-font);font-size:17px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-case-strip button{min-height:30px;padding:0 10px;border-radius:8px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+  .kdn-case-strip button.is-on{background:var(--kdn-ink)!important;color:var(--kdn-surface)!important;border-color:var(--kdn-ink)!important}
+  .kdn-case-table-wrap{overflow-x:auto;border-radius:14px;border:1px solid var(--kdn-line)}
+  .kdn-case-table{width:100%;min-width:900px;border-collapse:collapse;font-size:14px}
+  .kdn-case-table th{padding:11px 12px;text-align:left;font-size:12.5px;font-weight:700;color:var(--kdn-muted);background:var(--kdn-surface-2);border-bottom:1px solid var(--kdn-line);white-space:nowrap}
+  .kdn-case-table td{padding:11px 12px;border-bottom:1px solid var(--kdn-line);color:var(--kdn-ink-soft);vertical-align:middle}
+  .kdn-case-table tbody tr{cursor:pointer;transition:background .12s}
+  .kdn-case-table tbody tr:nth-child(even){background:rgba(100,116,139,.04)}
+  .kdn-case-table tbody tr:hover{background:var(--kdn-accent-soft)}
+  .kdn-case-table .n{text-align:right;font-family:var(--kdn-num-font);font-variant-numeric:tabular-nums}
+  .kdn-case-table td.n b{font-size:15.5px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-case-table td.ok{color:#15803d;font-weight:800}.kdn-case-table td.no{color:#b91c1c;font-weight:700}
+  .kdn-case-table .uni{display:inline-flex;align-items:center;gap:8px}
+  .kdn-case-table .uni b{font-size:15px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-case-table .fav{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:8px;border:1px solid var(--kdn-line);background:var(--kdn-surface);color:var(--kdn-muted);cursor:pointer}
+  .kdn-case-table .fav.is-on{color:#e0a000;border-color:#f3d27a}
+  .kdn-case-table .rate{display:inline-flex;align-items:center;gap:8px}
+  .kdn-case-table .rate i{display:block;width:80px;height:8px;border-radius:999px;background:var(--kdn-surface-2);overflow:hidden}
+  .kdn-case-table .rate em{display:block;height:100%;background:#16a34a;border-radius:999px}
+  .kdn-case-table .rate small{font-family:var(--kdn-num-font);font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft)}
+  .kdn-case-table .go{color:var(--kdn-muted);text-align:right}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
@@ -1167,11 +1191,17 @@ const SHARED_NEW_CSS = `
   :root .susi-beta-view-tabs button[role="tab"][aria-selected="true"]{background:linear-gradient(135deg,#ff8a4c,#d9480f)!important;border-color:transparent!important;box-shadow:0 8px 20px rgba(217,72,15,.28)!important;color:#ffffff!important}
   :root .susi-beta-view-tabs button[role="tab"][aria-selected="true"] b,:root .susi-beta-view-tabs button[role="tab"][aria-selected="true"] small{color:#ffffff!important;opacity:.95}
   :root .susi-beta-view-toolbar [role="tab"][aria-selected="true"]>span{background:#ffffff!important;color:#d9480f!important}
-  .kdn-substeps{display:flex!important;gap:4px!important;padding:5px!important;border-radius:14px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line)}
-  .kdn-substeps button{flex:1;border:0!important;background:transparent!important;box-shadow:none!important;padding:8px 14px!important;border-radius:10px!important}
-  .kdn-substeps button.is-active{background:var(--kdn-surface)!important;box-shadow:0 1px 3px rgba(20,24,33,.16),inset 0 -3px 0 var(--kdn-accent)!important}
-  .kdn-substeps button+button{position:relative}
-  .kdn-substeps button+button::before{content:"›";position:absolute;left:-8px;top:50%;transform:translateY(-50%);color:var(--kdn-muted);font-size:18px}
+  /* 페이지 단계 탭: 각 단계를 테두리 있는 칸으로 나누고, 현재 단계는 진한 칸으로 확실히 구분 */
+  .kdn-substeps{display:grid!important;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px!important;padding:0!important;margin:20px 0 16px!important;background:transparent!important;border:0!important}
+  @media (max-width:760px){.kdn-substeps{grid-auto-flow:row}}
+  .kdn-substeps button{position:relative;padding:12px 16px!important;border-radius:14px!important;border:1.5px solid var(--kdn-line)!important;background:var(--kdn-surface)!important;box-shadow:none!important;transition:border-color .15s,background .15s}
+  .kdn-substeps button:hover{border-color:var(--kdn-control-line)!important;background:var(--kdn-surface-2)!important}
+  .kdn-substeps button.is-active{background:var(--kdn-ink)!important;border-color:var(--kdn-ink)!important;box-shadow:0 8px 20px rgba(20,24,33,.18)!important}
+  .kdn-substeps button.is-active>b{color:var(--kdn-surface)!important}
+  .kdn-substeps button.is-active>small{color:var(--kdn-surface)!important;opacity:.75}
+  .kdn-substeps button.is-active>span{background:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important}
+  .kdn-substeps button+button::before{content:"›";position:absolute;left:-9px;top:50%;transform:translateY(-50%);color:var(--kdn-muted);font-size:16px;font-weight:700}
+  @media (max-width:760px){.kdn-substeps button+button::before{display:none}}
   .kdn-accent-panel{position:relative;overflow:hidden}
   .kdn-accent-panel::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#ff8a4c,#d9480f 60%,transparent)}
   .kdn-step-badge{background:linear-gradient(135deg,#ff8a4c,#d9480f)!important;color:#ffffff!important;border-radius:999px!important;box-shadow:0 3px 8px rgba(217,72,15,.3)}

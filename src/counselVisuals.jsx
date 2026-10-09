@@ -1,8 +1,6 @@
 // 새 UI 상담 화면 상단: 학생 요약 카드와 수시 지원 구성 6칸 패널.
 // 값은 Grades.jsx가 이미 계산한 상담용 학생 정보(susiNaviStudent)와 지원 구성 저장소를 그대로 씁니다.
 import React from "react";
-import { BookOpen, Gauge, BarChart3, ClipboardList } from "lucide-react";
-import { studentMockChips } from "./naviMinimum.js";
 import { loadSupportPlan, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 
 const PLAN_LIMIT = 6;
@@ -55,40 +53,18 @@ function Stat({ label, value, unit, tone = "blue", onClick, title, progress, ico
   );
 }
 
-// 막대 위 위치 표시: 등급 눈금(min~max) 위에 학생 값(진한 선), 비교값(회색 선), 범위(옅은 띠)를 그립니다.
-function ScaleBar({ min, max, value, ghost, band, color = "#1f2430", track = "#e5e9f0", fill }) {
-  const pos = v => `${Math.min(100, Math.max(0, ((v - min) / (max - min)) * 100))}%`;
-  const ok = v => v != null && Number.isFinite(Number(v));
-  return <span aria-hidden="true" style={{ position: "relative", display: "block", height: 10, borderRadius: 999, background: fill || track, margin: "6px 0 2px" }}>
-    {band && ok(band[0]) && ok(band[1]) && <span style={{ position: "absolute", top: 0, height: 10, borderRadius: 999, left: pos(band[0]), width: `calc(${pos(band[1])} - ${pos(band[0])})`, background: "#38bdf8", minWidth: 6 }} />}
-    {ok(ghost) && <span style={{ position: "absolute", top: -3, width: 4, height: 16, marginLeft: -2, borderRadius: 2, left: pos(ghost), background: "#94a3b8" }} />}
-    {ok(value) && <span style={{ position: "absolute", top: -5, width: 4, height: 20, marginLeft: -2, borderRadius: 2, left: pos(value), background: color }} />}
-  </span>;
-}
 const parseRange = text => { const m = String(text || "").match(/(\d+(?:\.\d+)?)\s*[-~–]\s*(\d+(?:\.\d+)?)/); return m ? [Number(m[1]), Number(m[2])] : null; };
 
 // 상담 요약(시안 A): 왼쪽 프로필, 오른쪽 2×2 지표 카드(숫자 + 막대/칩 시각화).
 // naviGrade: NAVI와 같은 방식으로 계산한 9등급 환산 { value, range, raw, method, group }
-const SUMMARY_STYLE_KEY = "kd_counsel_summary_style";
-function readSummaryStyle() { try { return window.localStorage.getItem(SUMMARY_STYLE_KEY) === "report" ? "report" : "card"; } catch { return "card"; } }
-
-// 요약 카드 모양 전환(카드형 A / 리포트형 B). 선생님마다 고른 모양을 이 브라우저에 기억합니다.
-function SummaryStyleSwitch({ value, onChange }) {
-  return <span className="kdn-sum-switch" role="group" aria-label="요약 카드 모양">
-    {[["card", "카드형"], ["report", "리포트형"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={value === key} className={value === key ? "is-on" : ""} onClick={() => onChange(key)}>{label}</button>)}
-  </span>;
-}
-
+// 상담 학생 요약은 리포트형(진한 머리 + 9등급 눈금 + 한 줄 지표) 하나로 통일합니다.
 export function CounselStudentSummary(props) {
-  const [look, setLook] = React.useState(readSummaryStyle);
-  const change = next => { setLook(next); try { window.localStorage.setItem(SUMMARY_STYLE_KEY, next); } catch { /* 저장 못 해도 화면 전환은 됨 */ } };
   if (!props.student) return null;
-  const toggle = <SummaryStyleSwitch value={look} onChange={change} />;
-  return look === "report" ? <CounselSummaryReport {...props} toggle={toggle} /> : <CounselSummaryCards {...props} toggle={toggle} />;
+  return <CounselSummaryReport {...props} />;
 }
 
 // 시안 B: 진한 리포트 머리 + 9등급 눈금 위 학생 위치 + 아래 한 줄 지표. 색은 uiMode.js의 .kdn-sumb 규칙이 정합니다.
-function CounselSummaryReport({ student, identity, favoriteCount = 0, planCount, onOpenPlan, naviGrade, toggle }) {
+function CounselSummaryReport({ student, identity, favoriteCount = 0, planCount, onOpenPlan, naviGrade }) {
   const groups = student.grade5ByGroup || {};
   const isFiveScale = student.gradeSystem !== 9;
   const total = groups.전교과 ?? student.grade5;
@@ -108,7 +84,7 @@ function CounselSummaryReport({ student, identity, favoriteCount = 0, planCount,
           <div className="kdn-sumb-name"><b>{student.name || "이름 미등록"}</b>{student.sid && <span>{student.sid}</span>}</div>
           <div className="kdn-sumb-chips">{classLine && <span>{classLine}</span>}{student.latestMockLabel && <span>최근 모의고사 {student.latestMockLabel}</span>}<span className="is-accent">{isFiveScale ? "5등급제" : "9등급제"}</span></div>
         </div>
-        <div className="kdn-sumb-actions">{toggle}{onOpenPlan && <button type="button" className="kdn-sumb-cta" onClick={onOpenPlan}>수시 지원 구성 열기</button>}</div>
+        <div className="kdn-sumb-actions">{onOpenPlan && <button type="button" className="kdn-sumb-cta" onClick={onOpenPlan}>수시 지원 구성 열기</button>}</div>
       </div>
       <div className="kdn-sumb-scale">
         <div className="kdn-sumb-scale-head"><span>9등급 기준 위치 · {methodText}{range && ` · 예상 ${range[0].toFixed(2)} – ${range[1].toFixed(2)}`}</span>{ok(legacy) && <span>회색 선: 기존 환산 {fmt(legacy)}</span>}</div>
@@ -126,70 +102,6 @@ function CounselSummaryReport({ student, identity, favoriteCount = 0, planCount,
         <div><span>최근 모의고사 3합</span><b>{mock?.sum3 ?? "-"}</b></div>
         <div><span>관심 대학</span><b>{favoriteCount}<small> 곳</small></b></div>
         <div><span>수시 지원 구성</span><b className="is-accent">{planCount == null ? "-" : planCount}<small> / {PLAN_LIMIT}</small></b></div>
-      </div>
-    </section>
-  );
-}
-
-function CounselSummaryCards({ student, identity, favoriteCount = 0, planCount, onOpenPlan, naviGrade, toggle }) {
-  const groups = student.grade5ByGroup || {};
-  const mock = student.latestMockSums;
-  const initial = String(student.name || "?").trim().charAt(0) || "?";
-  const classLine = [identity?.grade && `${identity.grade}학년`, identity?.classNumber && `${identity.classNumber}반`, identity?.number && `${identity.number}번`].filter(Boolean).join(" ");
-  const isFiveScale = student.gradeSystem !== 9;
-  const scaleMax = isFiveScale ? 5 : 9;
-  const total = groups.전교과 ?? student.grade5;
-  const range = parseRange(naviGrade?.range);
-  const legacy = naviGrade?.raw != null ? 2 * naviGrade.raw - 1 : null;
-  const chips = studentMockChips(student);
-  const filled = planCount == null ? 0 : Math.min(PLAN_LIMIT, planCount);
-  return (
-    <section className="kdn-sum" aria-label="학생 요약" style={s.card}>
-      <div style={s.profile}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <span style={s.avatar} aria-hidden="true">{initial}</span>
-          <div style={{ display: "grid", gap: 3, minWidth: 0 }}>
-            <span style={s.eyebrow}>상담 학생</span>
-            <b style={s.name}>{student.name || "이름 미등록"}</b>
-          </div>
-        </div>
-        <div style={s.chips}>
-          {classLine && <span style={s.classChip}>{classLine}</span>}
-          {student.sid && <span style={s.plainChip}>{student.sid}</span>}
-          <span style={s.plainChip}>{isFiveScale ? "5등급제" : "9등급제"}</span>
-        </div>
-        <div style={s.infoRows}>
-          <div style={s.infoRow}><span>최근 모의고사</span><b>{student.latestMockLabel || "기록 없음"}</b></div>
-          <div style={s.infoRow}><span>관심 대학</span><b>{favoriteCount}곳</b></div>
-        </div>
-        <div style={{ marginTop: "auto" }}>{toggle}</div>
-      </div>
-      <div style={s.grid}>
-        <div style={{ ...s.cell, background: "#f6f8fc", borderColor: "#e6eaf2" }}>
-          <div style={s.cellHead}><span style={s.cellLabel}><BookOpen size={16} aria-hidden="true" /> 전교과 내신</span><span style={s.cellNote}>{student.gradeYear ? `${student.gradeYear}학년까지` : ""}</span></div>
-          <div style={s.valueRow}><b style={s.value}>{fmt(total)}</b><span style={s.unit}>{isFiveScale ? "5등급제" : "등급"}</span></div>
-          <ScaleBar min={1} max={scaleMax} value={total} fill="linear-gradient(90deg,#2563eb 0%,#93c5fd 50%,#e5e7eb 100%)" />
-          <div style={s.axis}><span>1등급</span><span>{scaleMax}등급</span></div>
-        </div>
-        {isFiveScale ? <div style={{ ...s.cell, background: "#f5fbff", borderColor: "#dbeef9" }} title={naviGrade?.method === "statistical" ? "통계 기반 Beta (NAVI와 같은 방식)" : "기존 환산 2×내신−1 (NAVI와 같은 방식)"}>
-          <div style={s.cellHead}><span style={s.cellLabel}><Gauge size={16} aria-hidden="true" /> 9등급 환산</span><span style={s.methodChip}>{naviGrade?.method === "statistical" ? `통계 Beta · ${naviGrade.group || "전교과"}` : "기존 환산"}</span></div>
-          <div style={s.valueRow}><b style={s.value}>{fmt(naviGrade?.value)}</b>{range && <span style={s.unit}>예상 {range[0].toFixed(2)} – {range[1].toFixed(2)}</span>}</div>
-          <ScaleBar min={1} max={9} value={naviGrade?.value} ghost={naviGrade?.method === "statistical" ? legacy : null} band={range} color="var(--kdn-ink)" />
-          <div style={s.axis}><span>1</span>{naviGrade?.method === "statistical" && legacy != null && <span>▲ 회색: 기존 환산 {fmt(legacy)}</span>}<span>9등급</span></div>
-        </div> : <div style={{ ...s.cell, background: "#f5fbff", borderColor: "#dbeef9" }}>
-          <div style={s.cellHead}><span style={s.cellLabel}><Gauge size={16} aria-hidden="true" /> 관심 대학</span></div>
-          <div style={s.valueRow}><b style={s.value}>{favoriteCount}</b><span style={s.unit}>곳</span></div>
-        </div>}
-        <div style={{ ...s.cell, background: "#faf7ff", borderColor: "#ebe3fb" }}>
-          <div style={s.cellHead}><span style={s.cellLabel}><BarChart3 size={16} aria-hidden="true" /> 최근 모의고사 3합</span><span style={s.cellNote}>{student.latestMockLabel || ""}</span></div>
-          <div style={s.valueRow}><b style={s.value}>{mock?.sum3 ?? "-"}</b>{mock?.sum3 != null && <span style={s.unit}>가장 좋은 3과목 (한국사 제외)</span>}</div>
-          <div style={s.subjectChips}>{chips ? chips.map(([label, value]) => <span key={label} style={s.subjectChip}>{label} <b>{value}</b></span>) : <span style={s.cellNote}>과목별 등급 없음</span>}</div>
-        </div>
-        <button type="button" onClick={onOpenPlan} disabled={!onOpenPlan} style={{ ...s.cell, ...s.planCell }}>
-          <div style={s.cellHead}><span style={s.cellLabel}><ClipboardList size={16} aria-hidden="true" /> 수시 지원 구성</span>{onOpenPlan && <span style={s.openLink}>열기 →</span>}</div>
-          <div style={s.valueRow}><b style={{ ...s.value, color: "#b23e0c" }}>{planCount == null ? "-" : planCount}</b><span style={s.unit}>/ {PLAN_LIMIT}장</span></div>
-          <span style={s.slots}>{Array.from({ length: PLAN_LIMIT }, (_, index) => <span key={index} style={index < filled ? s.slotOn : s.slotOff} />)}</span>
-        </button>
       </div>
     </section>
   );
