@@ -22,13 +22,10 @@ import {
 } from "lucide-react";
 import { isNewUi } from "./uiMode.js";
 import CriteriaPresets from "./CriteriaPresets.jsx";
+import { gradeQuotaCumulative, compareVectors, vectorKey, rankAndGrade } from "./gradeQuota.js";
 import { ResultListDetail, ResultDistribution } from "./gradeResultViews.jsx";
 
 const FONT_STACK = '"KDRound","Pretendard", "SUIT", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
-const GRADE_CUMULATIVE = {
-  5: [10, 34, 66, 90, 100],
-  9: [4, 11, 23, 40, 60, 77, 89, 96, 100],
-};
 const FIXED_COMMON_CUTS = { ab: 90, bc: 80, cd: 70, de: 60, ei: 40 };
 const FIXED_ELECTIVE_CUTS = { ab: 90, bc: 80, cd: 70, de: 60, ei: null };
 
@@ -187,25 +184,6 @@ function writtenOrder(item) {
   if (direct) return direct;
   return 99;
 }
-function gradeFromPercentile(percentile, system) {
-  const thresholds = GRADE_CUMULATIVE[Number(system)] || GRADE_CUMULATIVE[5];
-  const index = thresholds.findIndex(limit => percentile <= limit + 1e-9);
-  return index < 0 ? thresholds.length : index + 1;
-}
-function gradeQuotaCumulative(total, system) {
-  const thresholds = GRADE_CUMULATIVE[Number(system)] || GRADE_CUMULATIVE[5];
-  return thresholds.map(percent => Math.round((Number(total) || 0) * percent / 100));
-}
-function assignQuotaGrades(rows, system) {
-  const quotas = gradeQuotaCumulative(rows.length, system);
-  rows.forEach(row => {
-    const groupEnd = Number(row.rank || 0) + Math.max(1, Number(row.tieCount || 1)) - 1;
-    const index = quotas.findIndex(limit => groupEnd <= limit);
-    row.grade = index < 0 ? quotas.length : index + 1;
-    row.percentile = rows.length ? (Number(row.midRank || row.rank || 0) / rows.length) * 100 : null;
-  });
-  return quotas;
-}
 function achievementFromScore(score, courseType, mode, manualCuts) {
   if (!Number.isFinite(score)) return "-";
   const cuts = mode === "manual"
@@ -219,17 +197,6 @@ function achievementFromScore(score, courseType, mode, manualCuts) {
   if (courseType === "common" && ei != null) return score >= ei ? "E" : "미도달";
   return "E";
 }
-function numberOrLow(value) { return Number.isFinite(Number(value)) ? Number(value) : -Infinity; }
-function compareVectors(a, b) {
-  const length = Math.max(a.length, b.length);
-  for (let index = 0; index < length; index += 1) {
-    const av = numberOrLow(a[index]);
-    const bv = numberOrLow(b[index]);
-    if (Math.abs(av - bv) > 1e-9) return bv - av;
-  }
-  return 0;
-}
-function vectorKey(vector) { return vector.map(value => Number.isFinite(Number(value)) ? Number(value).toFixed(4) : "-").join("|"); }
 function assessmentStats(values) {
   const clean = values.filter(Number.isFinite);
   if (!clean.length) return { count: 0, average: null, max: null, min: null };
@@ -1000,21 +967,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         fullVector,
       };
     });
-    const completeRows = rows.filter(row => row.complete && !row.excluded).sort((a, b) => compareVectors(a.fullVector, b.fullVector) || a.sid.localeCompare(b.sid));
-    let previousKey = null;
-    let previousRank = 0;
-    completeRows.forEach((row, index) => {
-      const key = vectorKey(row.fullVector);
-      if (key !== previousKey) previousRank = index + 1;
-      row.rank = previousRank;
-      previousKey = key;
-    });
-    const tieCounts = completeRows.reduce((map, row) => map.set(vectorKey(row.fullVector), (map.get(vectorKey(row.fullVector)) || 0) + 1), new Map());
-    completeRows.forEach(row => {
-      row.tieCount = tieCounts.get(vectorKey(row.fullVector)) || 1;
-      row.midRank = row.rank + (row.tieCount - 1) / 2;
-    });
-    assignQuotaGrades(completeRows, settings.gradeSystem);
+    const completeRows = rankAndGrade(rows, { vectorOf: row => row.fullVector, isEligible: row => row.complete && !row.excluded, system: settings.gradeSystem });
     completeRows.forEach(row => {
       row.achievement = achievementFromScore(settings.achievementMode === "fixed" ? row.officialScore : row.convertedScore, settings.courseType, settings.achievementMode, settings.manualCuts);
     });
@@ -1056,21 +1009,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         vector,
       };
     });
-    const completeRows = rows.filter(row => row.complete && !row.excluded).sort((a, b) => compareVectors(a.vector, b.vector) || a.sid.localeCompare(b.sid));
-    let prior = null;
-    let rank = 0;
-    completeRows.forEach((row, index) => {
-      const key = vectorKey(row.vector);
-      if (key !== prior) rank = index + 1;
-      row.rank = rank;
-      prior = key;
-    });
-    const counts = completeRows.reduce((map, row) => map.set(vectorKey(row.vector), (map.get(vectorKey(row.vector)) || 0) + 1), new Map());
-    completeRows.forEach(row => {
-      row.tieCount = counts.get(vectorKey(row.vector)) || 1;
-      row.midRank = row.rank + (row.tieCount - 1) / 2;
-    });
-    assignQuotaGrades(completeRows, settings.gradeSystem);
+    const completeRows = rankAndGrade(rows, { vectorOf: row => row.vector, isEligible: row => row.complete && !row.excluded, system: settings.gradeSystem });
     return [...completeRows, ...rows.filter(row => !row.complete || row.excluded).sort((a, b) => Number(a.excluded) - Number(b.excluded) || a.sid.localeCompare(b.sid))];
   }, [sortedWritten, rosterNames, studentOverrides, weightTotal.written, settings.gradeSystem]);
 
@@ -1102,21 +1041,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         row.manualPriority = priority;
         row.vector = [row.score, priority == null ? null : 1000 - priority];
       });
-      const complete = rows.filter(row => Number.isFinite(row.score) && !row.excluded).sort((a, b) => compareVectors(a.vector, b.vector) || a.sid.localeCompare(b.sid));
-      let priorKey = null;
-      let rank = 0;
-      complete.forEach((row, index) => {
-        const key = vectorKey(row.vector);
-        if (key !== priorKey) rank = index + 1;
-        row.rank = rank;
-        priorKey = key;
-      });
-      const counts = complete.reduce((map, row) => map.set(vectorKey(row.vector), (map.get(vectorKey(row.vector)) || 0) + 1), new Map());
-      complete.forEach(row => {
-        row.tieCount = counts.get(vectorKey(row.vector)) || 1;
-        row.midRank = row.rank + (row.tieCount - 1) / 2;
-      });
-      assignQuotaGrades(complete, settings.gradeSystem);
+      const complete = rankAndGrade(rows, { vectorOf: row => row.vector, isEligible: row => Number.isFinite(row.score) && !row.excluded, system: settings.gradeSystem });
       result[item.id] = [...complete, ...rows.filter(row => !Number.isFinite(row.score) || row.excluded).sort((a,b)=>Number(a.excluded)-Number(b.excluded)||a.sid.localeCompare(b.sid))];
     });
     return result;
@@ -1409,6 +1334,41 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
 
       <div style={{display: !newUi || calcStep === 2 ? "contents" : "none"}}>
       <section style={ui.section}>
+        {newUi ? <div className="kdn-cc">
+          {/* 새 UI 산출 기준: 반영비율 막대 한 줄 + 지필/수행 두 칸 + 등급 옵션 한 줄, 규칙 문장은 접어 둡니다. */}
+          <div className="kdn-cc-top">
+            <div className="kdn-cc-head"><div><small>2단계 · 산출 기준</small><b>{Math.abs(weightTotal.total - 100) < 1e-9 ? "반영비율 설정 완료" : "반영비율을 100%로 맞추세요"}</b></div>
+              <span className={`kdn-cc-total ${Math.abs(weightTotal.total - 100) < 1e-9 ? "is-ok" : "is-warn"}`}>합계 {weightTotal.total}%{Math.abs(weightTotal.total - 100) < 1e-9 ? " ✓" : ` · ${weightTotal.total < 100 ? `${+(100 - weightTotal.total).toFixed(2)}% 부족` : `${+(weightTotal.total - 100).toFixed(2)}% 초과`}`}</span>
+              <button type="button" className="kdn-cc-save" onClick={saveCriteriaSettings} disabled={readOnlyWorkspace || criteriaSaving}><Save size={15}/>{criteriaSaving ? "저장 중" : "산출 기준 저장"}</button></div>
+            <div className="kdn-cc-bar">{[...sortedWritten.map(item => ({ key: item.id, label: item.title, weight: Number(item.weight) || 0, kind: "w" })), ...plannedWritten.map(item => ({ key: item.id, label: item.title || "예정 시험", weight: Number(item.weight) || 0, kind: "w" })), ...(uploadedAreas.length ? uploadedAreas : plannedPerformance).map(area => ({ key: area.id, label: `수행${area.order + 1}`, weight: Number(area.weight) || 0, kind: "p" }))].filter(seg => seg.weight > 0).map((seg, index, list) => <i key={seg.key} className={`is-${seg.kind} n${list.slice(0, index).filter(other => other.kind === seg.kind).length % 3}`} style={{ flex: seg.weight }} title={`${seg.label} ${seg.weight}%`}>{seg.weight >= 8 ? `${seg.label} ${seg.weight}%` : `${seg.weight}%`}</i>)}{weightTotal.total < 100 && <i className="is-empty" style={{ flex: 100 - weightTotal.total }}>미배정 {+(100 - weightTotal.total).toFixed(2)}%</i>}</div>
+          </div>
+          <div className="kdn-cc-cols">
+            <section className="kdn-cc-sec is-w"><h4><span className="dot" />지필평가<span className="sum">{weightTotal.written}%</span></h4>
+              {sortedWritten.map(item => <div key={item.id} className="kdn-cc-row"><div><b>{item.title}</b><small>{item.maxScore}점 만점 <span className="tag is-ok">성적 등록</span></small></div><label className="kdn-cc-inp"><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateWrittenWeight(item.id, event.target.value)} aria-label={`${item.title} 반영비율`} />%</label><button type="button" className="kdn-cc-x" title="이 시험 제거" disabled={readOnlyWorkspace} onClick={() => removeWritten(item.id)}>✕</button></div>)}
+              {plannedWritten.map(item => <div key={item.id} className="kdn-cc-row is-planned"><div><input className="kdn-cc-name" type="text" value={item.title || ""} disabled={readOnlyWorkspace} onChange={event => updatePlannedWritten(item.id, { title: event.target.value })} aria-label="예정 시험 이름" /><small><label className="kdn-cc-max"><input type="number" min="1" step="1" value={item.maxScore ?? 100} disabled={readOnlyWorkspace} onChange={event => updatePlannedWritten(item.id, { maxScore: asNumber(event.target.value) ?? 100 })} aria-label="만점" />점 만점</label> <span className="tag is-plan">예정</span></small></div><label className="kdn-cc-inp"><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updatePlannedWritten(item.id, { weight: asNumber(event.target.value) ?? 0 })} aria-label="예정 시험 반영비율" />%</label><button type="button" className="kdn-cc-x" title="예정 시험 제거" disabled={readOnlyWorkspace} onClick={() => removePlannedWritten(item.id)}>✕</button></div>)}
+              {!sortedWritten.length && !plannedWritten.length && <p className="kdn-cc-empty">지필평가 파일을 올리거나 예정 시험을 추가하세요.</p>}
+              {!readOnlyWorkspace && <button type="button" className="kdn-cc-add" onClick={addPlannedWritten}>＋ 예정 시험 추가</button>}
+            </section>
+            <section className="kdn-cc-sec is-p"><h4><span className="dot" />수행평가{performance.map(file => <button key={file.id} type="button" className="kdn-cc-file" disabled={readOnlyWorkspace} onClick={() => removePerformance(file.id)} title={`${file.fileName} 제거`}>{file.classes.join(", ")}반 ✕</button>)}<span className="sum">{weightTotal.performance}%</span></h4>
+              {uploadedAreas.length ? uploadedAreas.map(area => <div key={area.id} className="kdn-cc-row"><div><b title={area.name}>{area.name}</b><small>수행 {area.order + 1} · {area.maxScore}점</small></div><label className="kdn-cc-inp"><input type="number" min="0" max="100" step="0.01" value={area.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateAreaWeight(area.id, event.target.value)} aria-label={`수행 ${area.order + 1} 반영비율`} />%</label><span /></div>)
+                : plannedPerformance.map(area => <div key={area.id} className="kdn-cc-row is-planned"><div><input className="kdn-cc-name" type="text" value={area.name || ""} disabled={readOnlyWorkspace} onChange={event => updatePlannedPerformance(area.id, { name: event.target.value })} aria-label="수행 영역 이름" /><small>수행 {area.order + 1} · <label className="kdn-cc-max"><input type="number" min="1" step="1" value={area.maxScore ?? 100} disabled={readOnlyWorkspace} onChange={event => updatePlannedPerformance(area.id, { maxScore: asNumber(event.target.value) ?? 100 })} aria-label="만점" />점</label> <span className="tag is-plan">예정</span></small></div><label className="kdn-cc-inp"><input type="number" min="0" max="100" step="0.01" value={area.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updatePlannedPerformance(area.id, { weight: asNumber(event.target.value) ?? 0 })} aria-label="수행 영역 반영비율" />%</label><button type="button" className="kdn-cc-x" title="예정 수행 영역 제거" disabled={readOnlyWorkspace} onClick={() => removePlannedPerformance(area.id)}>✕</button></div>)}
+              {!uploadedAreas.length && !plannedPerformance.length && <p className="kdn-cc-empty">수행평가 파일을 올리거나 수행 영역을 추가하세요.</p>}
+              {!readOnlyWorkspace && !uploadedAreas.length && <button type="button" className="kdn-cc-add" onClick={addPlannedPerformance}>＋ 수행 영역 추가</button>}
+            </section>
+          </div>
+          <section className="kdn-cc-opts">
+            {[["석차등급", String(settings.gradeSystem), [["5", "5등급제"], ["9", "9등급제"]], value => setSettings(current => ({ ...current, gradeSystem: Number(value) }))],
+              ["과목 구분", settings.courseType, [["common", "공통과목"], ["elective", "선택과목"]], courseType => setSettings(current => ({ ...current, courseType }))],
+              ["성취도", settings.achievementMode, [["fixed", "고정분할"], ["manual", "추정·수동 컷"]], achievementMode => setSettings(current => ({ ...current, achievementMode }))]].map(([label, value, options, onChange]) => <div key={label} className="kdn-cc-opt"><small>{label}</small><div className="kdn-cc-seg" role="group" aria-label={label}>{options.map(([key, text]) => <button key={key} type="button" data-kdn-bare aria-pressed={value === key} disabled={readOnlyWorkspace} onClick={() => onChange(key)}>{text}</button>)}</div></div>)}
+            <div className="kdn-cc-rule"><b>{settings.achievementMode === "fixed" ? (settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E") : "성취도 컷을 아래에서 직접 입력"}</b><span>{settings.courseType === "common" ? "공통과목 최성보: 출석률 2/3 이상 · 학업성취율 40% 이상" : "선택과목 최성보: 출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div>
+            {settings.achievementMode === "manual" && <div className="kdn-cc-manual"><ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} /></div>}
+          </section>
+          <details className="kdn-cc-rules"><summary><b>산출 규칙</b><span>동점자 7단계 (정기시험 합계 → 수행 → 2차 → 1차 → …) · 석차는 소수 둘째 자리 · 원점수는 정수 표시</span></summary>
+            <ol><li>정기시험 환산 합계</li><li>수행평가</li><li>2차 지필</li><li>1차 지필</li><li>수행평가 NEIS 영역 순</li><li>2차 고배점 문항(최대 3개)</li><li>1차 고배점 문항(최대 3개)</li></ol>
+            <p>수행평가 100% 과목은 수행 영역 순서까지만 적용합니다. 모든 기준이 같은 학생은 동석차로 남기며, 등급 경계 인원에 걸린 동점자는 나누지 않고 모두 다음 등급으로 처리합니다.</p>
+            <p>영역별 환산점수 합계는 소수 셋째 자리에서 반올림해 둘째 자리까지 석차 산출에 사용합니다. 공식 원점수는 학기말 환산점수를 소수 첫째 자리에서 반올림한 정수로 표시하며, 평균과 분포 비율은 소수 첫째 자리까지 표시합니다.</p>
+          </details>
+        </div> : <>
         <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>2</span><strong style={ui.sectionTitle}>산출 기준 설정</strong><p style={ui.sectionHint}>반영비율 합계가 100%가 되어야 학기말 석차·등급을 확정합니다.</p></div><div style={ui.settingsHeaderActions}><span style={{ ...ui.totalBadge, ...(Math.abs(weightTotal.total - 100) < 1e-9 ? ui.totalBadgeOk : ui.totalBadgeWarn) }}>반영비율 {weightTotal.total}%</span><button type="button" style={ui.criteriaSaveButton} onClick={saveCriteriaSettings} disabled={readOnlyWorkspace || criteriaSaving}><Save size={14}/>{criteriaSaving ? "저장 중" : "산출 기준 저장"}</button></div></div>
         <div style={ui.settingsGrid}>
           <div className="teacher-grade-setting-card written-setting-card" style={ui.settingCard}>
@@ -1435,6 +1395,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         </div>
         <div style={ui.tieRuleBox}><b>동점자 처리 순서</b><span>학기말 환산점수가 같은 경우: ① 정기시험 환산 합계 → ② 수행평가 → ③ 2차 지필 → ④ 1차 지필 → ⑤ 수행평가 NEIS 영역 순 → ⑥ 2차 고배점 문항(최대 3개) → ⑦ 1차 고배점 문항(최대 3개)</span><small>수행평가 100% 과목은 수행 영역 순서까지만 적용합니다. 모든 기준이 같은 학생은 동석차로 남기며, 등급 경계 인원에 걸린 동점자는 나누지 않고 모두 다음 등급으로 처리합니다.</small></div>
         <div style={ui.roundingRuleBox}><b>소수점 처리</b><span>영역별 환산점수 합계는 소수 셋째 자리에서 반올림해 둘째 자리까지 석차 산출에 사용합니다.</span><span>공식 원점수는 학기말 환산점수를 소수 첫째 자리에서 반올림한 정수로 표시하며, 평균과 분포 비율은 소수 첫째 자리까지 표시합니다.</span></div>
+        </>}
         <CriteriaPresets teacher={teacher} disabled={readOnlyWorkspace} capture={captureCriteriaPreset} apply={applyCriteriaPreset} />
         {newUi && <div className="kdn-step-next"><button type="button" className="kdn-step-prev" onClick={() => setCalcStep(1)}>‹ 이전</button><span style={{flex:1}} /><button type="button" onClick={() => setCalcStep(3)}>다음: 결과 확인 ›</button></div>}
       </section>
@@ -1583,6 +1544,7 @@ function MissingState({ missing = [], complete = false }) {
 }
 function GradeBadge({ grade }) {
   if (!grade) return "-";
+  if (isNewUi()) return <span className={`kdn-gbadge g${Math.min(5, grade)}`}>{grade}등급</span>;
   return <span style={grade === 1 ? ui.firstGradeMark : ui.tableGrade}>{grade}등급</span>;
 }
 function CombinedTable({ rows, written, areas, onEdit }) {

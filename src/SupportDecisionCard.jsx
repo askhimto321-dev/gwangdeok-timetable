@@ -5,7 +5,7 @@ import { recommendedCourseDisplayName } from './recommendationPresentation.js';
 import './supportDecision.css';
 
 const fmt=value=>validGrade(value)==null?'—':Number(value).toFixed(2);
-export function RecommendedCourseDetails({progress, status='ready', printMode=false, compactPrint=false}) {
+export function RecommendedCourseDetails({progress, status='ready', printMode=false, compactPrint=false, defaultOpen=false}) {
   const matched=progress?.matchedCourses || [], missing=progress?.missingCourses || [];
   const matchedKeys=new Set(matched);
   const groups=progress?.courseGroups || [];
@@ -15,7 +15,7 @@ export function RecommendedCourseDetails({progress, status='ready', printMode=fa
   const statusLabel=loading?'자료 연결 중':loadFailed?'자료 연결 실패':unregistered?'공용 자료 미등록':!progress?.total?'권장과목 자료 없음':!progress?.studentCourseCount?'학생 과목자료 없음':`${progress.matched}/${progress.total}과목`;
   // 3번 요청: 인쇄본에는 클릭할 수 없으니 <details>를 항상 펼친 채로 찍습니다.
   const universityFieldEstimate=progress?.estimateKind==='university-field';
-  return <details className="kd-course-details" open={printMode || undefined}><summary><span>{universityFieldEstimate?'핵심·권장과목 이수 확인 (동일 대학 계열 참고)':progress?.estimated ? '권장과목 이수 확인 (추정)' : '핵심·권장과목 이수 확인'}</span><strong>{statusLabel}</strong></summary>
+  return <details className="kd-course-details" open={printMode || defaultOpen || undefined}><summary><span>{universityFieldEstimate?'핵심·권장과목 이수 확인 (동일 대학 계열 참고)':progress?.estimated ? '권장과목 이수 확인 (추정)' : '핵심·권장과목 이수 확인'}</span><strong>{statusLabel}</strong></summary>
     {/* 동일 대학·동일 계열의 공식 행으로 보완한 경우와 타 대학 통계 추정을 분명히 나눕니다. */}
     {universityFieldEstimate ? <p className="kd-course-source-note"><small>해당 학과의 직접 발표 행은 없지만, 이 대학이 발표한 ‘{progress.officialFieldLabel || '동일 계열'}’ {progress.referenceCount || 0}개 모집단위에서 과반 반복된 과목입니다. 해당 학과의 필수 기준으로 단정하지 않습니다.</small></p>
       : progress?.estimated && <p className="kd-course-source-note"><small>{progress.estimatedFrom?.length ? progress.estimatedFrom.join(', ') : '같은 학과·계열의 다른 대학'} 등 {progress.referenceCount || progress.estimatedFrom?.length || ''}개 대학 자료 중 최소 {progress.consensusThreshold || 2}개 대학·25% 이상 반복된 과목입니다. 이 대학이 직접 발표한 자료가 아닙니다.</small></p>}
@@ -96,7 +96,7 @@ export default function SupportDecisionCard({item,index,studentGrade,cutoffBasis
     <details className="kd-decision-evidence" open={printMode || undefined}><summary>출처·사례 근거</summary>
       <div className="kd-evidence-row"><b>담은 경로</b><span>{item.stored.source || '미제공'}</span></div>
       <div className="kd-evidence-row"><b>NAVI 통합 사례</b><span>{item.naviCaseCount!=null?`${item.naviCaseCount}건`:'미연결/미제공'}</span></div>
-      <div className="kd-evidence-row"><b>광덕고 별도 사례</b><span>{item.schoolTrend?.total?`지원 ${item.schoolTrend.total} · 합격 ${item.schoolTrend.accepted}`:'연결 없음'}</span></div>
+      <div className="kd-evidence-row"><b>광덕고 대입결과</b><span>{item.schoolMatch?.total?`${item.schoolMatch.tier} ${item.schoolMatch.label} · 지원 ${item.schoolMatch.total} · 합격 ${item.schoolMatch.accepted}${item.schoolMatch.acceptedGrade?` · 합격자 전교과 평균 ${fmt(item.schoolMatch.acceptedGrade.avg)}`:''}`:item.schoolTrend?.total?`지원 ${item.schoolTrend.total} · 합격 ${item.schoolTrend.accepted}`:(item.schoolMatch?.label||'연결 없음')}</span></div>
       <small>NAVI 사례는 대학·전형·계열 기준이며 학과 합격자 수가 아닙니다. 공개 컷 2026 · 최저 {ev?.year || '연도 확인'} · 사례 연도 미제공. 실제 지원연도 모집요강을 우선 확인하세요.</small>
     </details>
     {!printMode && <footer>{onOpenCases && item.stored.source==='광덕고 별도 사례' && <button type="button" onClick={()=>onOpenCases(item.stored.university,item.stored.department,item.stored.track)}>광덕고 사례 보기</button>}<button type="button" disabled={busy} onClick={()=>onRemove(item.stored)} aria-label={`${item.stored.university} ${item.stored.track} 지원 구성에서 삭제`}>삭제</button></footer>}

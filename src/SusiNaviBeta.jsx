@@ -1830,6 +1830,49 @@ function schoolCaseAccepted(row) {
 function schoolCaseAdmissionLabel(row) {
   return normalizeText(row?.detailType || row?.admissionType || "세부전형 미입력");
 }
+// 수시 지원 구성 '출처·사례 근거'용: 광덕고 대입결과를 NAVI 전형과 단계적으로 맞춥니다.
+// 예전에는 모집단위명·세부전형명이 글자 그대로 같을 때만 연결돼 대부분 '연결 없음'이었습니다.
+// A 같은 모집단위·같은 전형 → B 같은 모집단위·같은 유형 → C 같은 대학·같은 전형 → D 같은 대학·같은 유형 순으로
+// 가장 가까운 단계 하나만 쓰고, 어느 단계로 맞췄는지 화면에 그대로 보여줍니다.
+function caseTypeKey(value) {
+  const typeText = compactText(value);
+  if (/교과/.test(typeText)) return "교과";
+  if (/종합|학종|서류/.test(typeText)) return "종합";
+  if (/논술/.test(typeText)) return "논술";
+  if (/실기|특기/.test(typeText)) return "실기";
+  return typeText;
+}
+export function schoolCaseMatch(caseRows, item = {}, previousDepartment = "") {
+  const identity = universityIdentityKey(item.university, item.region || "");
+  const universityRows = (caseRows || []).filter(row => { const name = row?.university || row?.universityNormalized; return name && universityIdentityKey(name, row?.region) === identity; });
+  if (!universityRows.length) return { tier: null, label: "광덕고 지원 사례 없음", total: 0, accepted: 0 };
+  const units = [item.department, previousDepartment].filter(Boolean);
+  const sameUnit = row => units.some(unit => compactText(row?.department) === compactText(unit) || unitSimilar(row?.department, unit));
+  const wantTrack = trackIdentity(item.track || "");
+  const wantType = caseTypeKey(item.admissionType || item.track || "");
+  const sameTrack = row => Boolean(wantTrack) && trackIdentity(row?.detailType || row?.admissionType) === wantTrack;
+  const sameType = row => Boolean(wantType) && caseTypeKey(`${row?.admissionType || ""} ${row?.detailType || ""}`) === wantType;
+  const tiers = [
+    ["A", "같은 모집단위 · 같은 전형", row => sameUnit(row) && sameTrack(row)],
+    ["B", "같은 모집단위 · 같은 유형(세부전형 다름)", row => sameUnit(row) && sameType(row)],
+    ["C", "같은 대학 · 같은 전형(다른 모집단위)", sameTrack],
+    ["D", "같은 대학 · 같은 유형", sameType],
+  ];
+  for (const [tier, label, test] of tiers) {
+    const rows = universityRows.filter(test);
+    if (!rows.length) continue;
+    const accepted = rows.filter(schoolCaseAccepted);
+    const grades = accepted.map(row => Number(row?.overallGrade)).filter(value => Number.isFinite(value) && value > 0);
+    const years = [...new Set(rows.map(row => String(row?.admissionYear || "")).filter(year => /^20\d{2}$/.test(year)))].sort();
+    return {
+      tier, label, total: rows.length, accepted: accepted.length, years: years.join("·"),
+      acceptedGrade: grades.length ? { n: grades.length, avg: grades.reduce((sum, value) => sum + value, 0) / grades.length, min: Math.min(...grades), max: Math.max(...grades) } : null,
+      units: [...new Set(rows.map(row => row?.department).filter(Boolean))].slice(0, 3),
+    };
+  }
+  return { tier: null, label: "같은 대학 지원은 있으나 같은 유형 사례 없음", total: 0, accepted: 0, universityTotal: universityRows.length };
+}
+
 function schoolCaseTrend(caseRows, university, region = "", department = "", admissionType = "", strict = false) {
   const identity = universityIdentityKey(university, region);
   const base = universityBaseKey(university);
@@ -2837,6 +2880,7 @@ export default function SusiNaviBetaView({
       naviCaseCount: evidence?.naviCount ?? null,
       comparisonEvidence: evidence,
       schoolTrend: evidence?.school || schoolCaseTrend(caseRows, item.university, item.region, item.department, item.track || item.admissionType, true),
+      schoolMatch: schoolCaseMatch(caseRows, item, entry?.row?.[4] || ""),
     };
   });
   }, [viewTab, supportPlan, enrichedWorkspaceIndex, cutoffBasis, conversion?.value, conversionGroup, caseRows, data, effectiveStudent, studentSubjects, recommendationDisplayStatus, recommendationForRow]);
