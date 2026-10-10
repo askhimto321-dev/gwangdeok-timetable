@@ -3472,7 +3472,20 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
             ? "최저 유형별로 대학을 나누어 볼 수 있습니다. (사·과)처럼 괄호로 묶인 과목은 두 과목 중 더 높은 등급(숫자가 작은 등급) 1개만 반영합니다."
             : "대학명순으로 정렬되며, 핵심 열 보기와 전체 열 보기를 전환해 비교할 수 있습니다."}
         />
-        <div className="no-print" style={admissionToolbar.box}>
+        {isNewUi() && admissionViewMode === "mock" && <div className="no-print kdn-mtool">
+          <div className="row">
+            <label className="srch"><Search size={15} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="대학·학과 검색" aria-label="대학·학과 검색" /></label>
+            <span className="lbl">계열</span>
+            <div className="kdn-seg sm">{[["all", "전체"], ...ADMISSION_FIELD_FILTERS.map(field => [field, field])].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={key === "all" ? fieldFilters.length === 0 : fieldFilters.includes(key)} onClick={() => setFieldFilters(current => key === "all" ? [] : current.includes(key) ? current.filter(value => value !== key) : [...current, key])}>{label}<i>{fieldCounts[key] || 0}</i></button>)}</div>
+            <span className="lbl push">지역</span>
+            <select value={regionFilter} onChange={event => setRegionFilter(event.target.value)} aria-label="지역 선택"><option value="all">전체 지역</option>{regionOptions.map(regionName => <option key={regionName} value={regionName}>{regionName}</option>)}</select>
+          </div>
+          <div className="row">
+            <span className="lbl">최저 유형</span>
+            <div className="kdn-seg sm">{[["all", "전체"], ["1", "1합"], ["2", "2합"], ["3", "3합"], ["4", "4합"], ["none", "최저 없음"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={requirementFilter === key} onClick={() => setRequirementFilter(key)}>{label}<i>{requirementCounts[key] || 0}</i></button>)}</div>
+          </div>
+        </div>}
+        <div className={isNewUi() && admissionViewMode === "mock" ? "no-print kdn-hide-new" : "no-print"} style={admissionToolbar.box}>
           <div style={admissionToolbar.primaryRow}>
             <div style={{ ...searchBox.box, width: 215, minWidth: 185 }}>
               <Search size={15} color="#a39d8c" />
@@ -3765,6 +3778,7 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
   return <div className="kdn-minb">
     <div className="kdn-minb-sum">{summary.map(([key, label, count, tone]) => <button key={key} type="button" data-kdn-bare className={`${tone} ${statusFilter === key ? "is-on" : ""}`} onClick={() => onStatusFilter(key)}><small>{label}</small><b>{Number(count || 0).toLocaleString()}</b></button>)}<span className="hint">충족에는 최저 없음 전형이 포함됩니다.</span></div>
     {pager}
+    <div className="kdn-minb-grid">
     {visible.map(group => {
       const first = group.items[0];
       const caseLink = caseLinkForRow({ ...first, department: "", track: "" });
@@ -3773,7 +3787,7 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
         <header>
           <b>{group.university}</b>
           {first.region && first.region !== "미지정" && <span className="rg">{first.region}</span>}
-          <span className="ct">전형 {group.items.length} · 충족 <b>{ok}</b></span>
+          <span className="ct">충족 {ok}/{group.items.length}<i className="mt"><em style={{ width: `${(ok / Math.max(1, group.items.length)) * 100}%` }} /></i></span>
           {caseLink.count > 0 && onOpenCases && <button type="button" data-kdn-bare className="cs" onClick={() => onOpenCases(caseLink.university, "", "")}>광덕고 사례 {caseLink.count}건 ›</button>}
         </header>
         {group.items.map(row => {
@@ -3789,21 +3803,11 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
           return <div key={key} className={`kdn-minb-row s-${result.status}${isOpen ? " is-open" : ""}`}>
             <div className="line">
               {onToggleFavorite ? <button type="button" data-kdn-bare className={fav ? "fav is-on" : "fav"} title="상담·관심 대학에 저장" onClick={() => onToggleFavorite({ source: "admission", favoriteKind: "전형", university: row.university, department: row.department, admissionType: row.track, region: row.region, field: (row._fieldTags || []).join(", "), label: `${row.university} ${row.department || row.track || ""}` })}><Star size={14} fill={fav ? "currentColor" : "none"} /></button> : <span />}
-              <div className="dep"><b>{row.department || "전 모집단위"}</b><span>{row.track}</span>{!!(row._fieldTags || []).length && <small>{row._fieldTags.join(" · ")}</small>}</div>
-              <div className="subj">{result.status === "no-minimum" || !(result.subjectsText || row.requiredSubjects) ? <span className="mt">-</span> : <AdmissionSubjectRule value={result.subjectsText || row.requiredSubjects} />}</div>
-              <div className="cmp">
-                {result.status === "no-minimum" ? <span className="none">최저 없음</span> : hasMinimum ? <>
-                  <span className="need"><small>대학 기준</small><b>{admissionMinimumText(result)}</b></span>
-                  <span className="arrow">↔</span>
-                  <span className="mine"><small>내 최저</small><b>{studentText ? studentText.replace(/^\d합\s*/, "") : "-"}</b></span>
-                  {margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? `${margin} 여유` : `${-margin} 부족`}</em>}
-                </> : <span className="mt">요강 확인</span>}
-              </div>
-              <span className="st" style={meta.style}>{meta.label}</span>
-              <div className="act">
-                {detail && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}
-                {row.guideDocs.length ? row.guideDocs.slice(0, 2).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}
-              </div>
+              <div className="dep"><b>{row.track || "전형"}</b><span>{row.department || "전 모집단위"}{(row._fieldTags || []).length ? ` · ${row._fieldTags.join("·")}` : ""}</span></div>
+              <div className="rule">{result.status === "no-minimum" ? <b className="none">최저 없음</b> : hasMinimum ? <><b>{admissionMinimumText(result)}</b>{(result.subjectsText || row.requiredSubjects) && <AdmissionSubjectRule value={result.subjectsText || row.requiredSubjects} />}</> : <><b className="none">요강 확인</b><small>원문 조건</small></>}</div>
+              <div className="mine">{hasMinimum && studentText ? <><small>내 {result.ruleType === "each" ? "등급" : `${result.count}합`}</small>{result.ruleType === "each" ? <b className="each" title={studentText}>{(result.selectedSubjects || []).length ? result.selectedSubjects.map(x => x.grade).join("·") : studentText}</b> : <b>{studentText.replace(/^\d합\s*/, "")}</b>}</> : <b className="dash">–</b>}</div>
+              <div className="st"><span style={meta.style}>{meta.label}</span>{margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? `${margin} 여유` : `${-margin} 부족`}</em>}
+                <span className="act">{detail && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}{row.guideDocs.length ? row.guideDocs.slice(0, 1).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}</span></div>
             </div>
             {isOpen && <div className="detail">
               {result.year && <span><b>{result.year}학년도</b> {result.yearMismatch ? "참고 기준" : "기준"}</span>}
@@ -3818,6 +3822,7 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
         })}
       </section>;
     })}
+    </div>
     {pager}
   </div>;
 }
