@@ -2342,7 +2342,7 @@ const SHARED_NEW_CSS = `
   .kdn-mock-tabs button[aria-pressed="true"] b,.kdn-mock-tabs button[aria-pressed="true"] small,.kdn-mock-tabs button[aria-pressed="true"] span,.kdn-mock-tabs button[aria-pressed="true"] div{color:var(--kdn-surface)!important}
   [data-kd-ui="dark"] .kdn-mock-tabs button[aria-pressed="true"]{background:var(--kdn-accent)!important}[data-kd-ui="dark"] .kdn-mock-tabs button[aria-pressed="true"] *{color:#fff!important}
   .kdn-mock-tabs button:not([aria-pressed="true"]):hover{background:var(--kdn-surface)!important}
-  .kdn-mock-table{table-layout:auto!important;width:100%}
+  .kdn-mock-table{table-layout:fixed!important;width:100%}
   .kdn-mock-table col{width:auto!important}
   .kdn-mock-table th,.kdn-mock-table td{white-space:nowrap;text-align:center!important}
   .kdn-mock-kpi{position:relative;overflow:hidden}
