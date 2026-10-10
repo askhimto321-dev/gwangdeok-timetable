@@ -34,6 +34,7 @@ import { buildComparisonRows, minimumScopeRank, comparisonType, resolveMinimumLi
 import {catalogRowsForTarget,resolveCatalogMinimum,minimumTrackKey} from './minimumCatalog.js';
 import {favoriteAdmissionSelection,favoriteTrackKey} from './favoriteAdmission.js';
 import SupportDecisionCard from "./SupportDecisionCard.jsx";
+import SupportPlanViews, { PLAN_VIEWS } from "./SupportPlanViews.jsx";
 import SupportPlanPrint from "./SupportPlanPrint.jsx";
 import { evaluateNaviMinimumSafe, minimumDisplay, minimumYearLabel, minimumHistorySummary, minimumImprovementAdvice, improvementAdviceText } from "./naviMinimum.js";
 import { UNIVERSITY_CAMPUS_ALIASES, canonicalCampus, universityBaseKey, universityCampus, universityIdentityKey } from './universityIdentity.js';
@@ -4145,6 +4146,9 @@ function SupportDecisionWorkspace({
   });
 
   const newUi = isNewUi();
+  // 판정 카드 보기(컴팩트·한 줄 표·목록+상세·큰 카드)는 선생님마다 이 브라우저에 기억합니다.
+  const [planView, setPlanViewState] = useState(() => { try { const saved = localStorage.getItem("kd_plan_view"); return PLAN_VIEWS.some(([key]) => key === saved) ? saved : "compact"; } catch { return "compact"; } });
+  const setPlanView = value => { setPlanViewState(value); try { localStorage.setItem("kd_plan_view", value); } catch { /* localStorage unavailable */ } };
   const focusButton = <button type="button" className="kd-plan-action is-focus" aria-pressed={planFocused} onClick={()=>{setPlanFocused(value=>!value);requestAnimationFrame(()=>goToSection(planSectionRef));}}><LayoutGrid size={15}/>{planFocused ? '전체 작업 화면' : '6장 모아보기'}</button>;
   const printButton = <SupportPlanPrint items={printItems} student={selectedStudent} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} disabled={!printItems.some(Boolean)}/>;
   const summaryPrintButton = <button type="button" className="kd-plan-action is-summary-print" disabled={!planItems.length} onClick={()=>triggerSectionPrint('kd-print-target-plan')}><Printer size={14}/>간단 요약표 인쇄</button>;
@@ -4216,10 +4220,12 @@ function SupportDecisionWorkspace({
         </div></div>
         <div><small>대학 분산</small><b>{planItems.length ? `${uniqueUniversityCount}개 대학 · ${planItems.length}개 전형` : "지원 후보 없음"}</b></div>
       </div>
+      {newUi && <div className="kdn-pv-bar"><b>판정 카드</b><div className="kdn-view-switch" role="group" aria-label="판정 카드 보기"><span>보기</span>{PLAN_VIEWS.map(([key, label]) => <button key={key} type="button" data-kdn-bare className={planView === key ? "is-on" : ""} aria-pressed={planView === key} onClick={() => setPlanView(key)}>{label}</button>)}</div></div>}
+      {newUi && planView !== "card" ? <SupportPlanViews view={planView} planItems={slots} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent} busy={workspaceBusy} onRemove={onRemovePlan} onOpenCases={onOpenCases}/> :
       <div className="susi-beta-plan-grid" style={ui.planGrid}>{slots.map((item, index) => {
         if (!item) return <article className={newUi ? "susi-beta-plan-empty kdn-hide-new" : "susi-beta-plan-empty"} key={`empty-${index}`} style={ui.planEmpty}><span>{index + 1}</span><b>비어 있음</b><small>아래 전형 비교, NAVI 대학 상세 또는 광덕고 대입결과에서 ‘수시지원 추가’를 눌러 담으세요.</small></article>;
         return <SupportDecisionCard key={supportPlanItemKey(item.stored)} item={item} index={index} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} student={selectedStudent} busy={workspaceBusy} onRemove={onRemovePlan} onOpenCases={onOpenCases}/>;
-      })}</div>
+      })}</div>}
       <div className="kd-plan-footer" style={ui.workspaceFooter}><span>지원 구간은 현재 학생 환산등급과 선택한 {cutoffBasis}%컷을 기준으로 다시 계산됩니다.</span><button type="button" style={ui.workspaceSecondary} onClick={onGoResults}>대학 상세에서 추가</button></div>
     </section>
 
