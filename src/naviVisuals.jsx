@@ -69,13 +69,13 @@ export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit =
         <span>전형별 컷 비교 <small style={strip.headHint}>{hasStudent ? `학생 9등급 ${fmt(studentGrade)} · ${cutoffBasis}% 컷 기준 판정` : `${cutoffBasis}% 컷 기준`}</small></span>
         {hasStudent && <span style={strip.legend}><span style={strip.legendItem}><i style={{ ...cut.legendDot, background: "#16a34a" }} />컷보다 여유</span><span style={strip.legendItem}><i style={{ ...cut.legendDot, background: "#dc2626" }} />컷보다 부족</span></span>}
       </div>
-      <div style={cut.headRow}><span>전형</span><span style={cut.num}>50% 컷</span><span style={cut.num}>70% 컷</span>{hasStudent && <span style={{ textAlign: "center" }}>내 성적과 차이</span>}<span style={{ textAlign: "right" }}>판정</span></div>
+      <div className="kdn-cutstrip-head" style={cut.headRow}><span>전형</span><span style={cut.num}>50% 컷</span><span style={cut.num}>70% 컷</span>{hasStudent && <span style={{ textAlign: "center" }}>내 성적과 차이</span>}<span style={{ textAlign: "right" }}>판정</span></div>
       {shown.map((item, index) => {
         const basisCut = cutoffBasis === "50" ? item.cut50 : item.cut70;
         const band = hasStudent ? supportBandFor(studentGrade, basisCut) : null;
         const margin = band ? -band.diff : null;
         return (
-          <div key={`${item.kind}-${item.name}-${index}`} style={{ ...cut.row, ...(index % 2 ? cut.rowAlt : {}) }}>
+          <div key={`${item.kind}-${item.name}-${index}`} className="kdn-cutstrip-row" style={{ ...cut.row, ...(index % 2 ? cut.rowAlt : {}) }}>
             <span style={strip.name}><TrackChip kind={item.kind} /><b style={strip.nameText} title={item.name}>{item.name || item.kind}</b></span>
             <span style={{ ...cut.num, ...(cutoffBasis === "50" ? cut.numOn : {}) }}>{fmt(item.cut50)}</span>
             <span style={{ ...cut.num, ...(cutoffBasis !== "50" ? cut.numOn : {}) }}>{fmt(item.cut70)}</span>
