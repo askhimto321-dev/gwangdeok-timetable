@@ -784,7 +784,11 @@ export default function GradesSection({
   }, [requestedStudentView, requestedStudentViewNonce, loggedInStudent]);
   // 대시보드 '반별 성적 확인' 바로가기: 위의 작업 탭 이동보다 뒤에 두어야 처음 열릴 때 덮어쓰이지 않습니다.
   useEffect(() => {
+    // 상단 '교사용 분석' 묶음(학생 성적 비교·모의고사 분석·반별 성적·담임반 계정)도 같은 요청으로 엽니다.
+    const staffOk = loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess);
     if (requestedGradeTab === "classGrades" && (loggedInAdmin || loggedInTeacher?.homeroomClass)) navigateGradeTab("classGrades", { replace: true });
+    else if (["gradeCompare", "mockAnalysis"].includes(requestedGradeTab) && staffOk) navigateGradeTab(requestedGradeTab, { replace: true });
+    else if (requestedGradeTab === "class" && loggedInTeacher?.homeroomClass) navigateGradeTab("class", { replace: true });
   }, [requestedGradeTab, requestedGradeTabNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counselingFlowItems = loggedInStudent
@@ -830,7 +834,8 @@ export default function GradesSection({
           {!isNewUi() && <div style={counselFlow.head}><div><b>학생 상담 흐름</b><span>{activeFlowStudentName ? `${activeFlowStudentName} 학생 · ` : ""}성적 확인부터 관심대학·NAVI 분석·상담 기록까지 같은 흐름에서 이어집니다.</span></div><div className="kd-support-plan-entry-actions"><span style={counselFlow.favoriteCount}><Star size={12} fill="currentColor"/> 관심 {activeFlowFavoriteCount}</span><SupportPlanButton onClick={() => openSusiNaviWorkspace(tab === "consultation")} count={activeSupportPlanCount}/></div></div>}
           <div style={counselFlow.steps}>{counselingFlowItems.map((item,index)=><button key={item.key} type="button" onClick={()=>navigateGradeTab(item.key)} style={{...counselFlow.step,...(tab===item.key?counselFlow.stepActive:{})}}><span style={{...counselFlow.stepNumber,...(tab===item.key?counselFlow.stepNumberActive:{})}}>{index+1}</span><span style={counselFlow.stepText}><b>{item.label}</b><small>{item.sub}</small></span>{index<counselingFlowItems.length-1&&<em style={counselFlow.arrow}>›</em>}</button>)}</div>
         </div>}
-        {(loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
+        {/* 새 UI는 상단 탭 바의 '교사용 분석' 묶음으로 옮겨서 여기서는 그리지 않습니다. */}
+        {!isNewUi() && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
           <div className="kdn-staff-tools" style={staffToolNav.wrap}>
             <div className="kdn-staff-tools-head" style={staffToolNav.heading}><BarChart3 size={17} /><div style={staffToolNav.headingText}><b>교사용 분석·관리</b><span style={{ fontSize: 10.5, fontWeight: 650, color: "#7a8495" }}>학생 조회와 별도로 분석 도구를 사용할 수 있습니다.</span></div></div>
             <div style={staffToolNav.buttons}>

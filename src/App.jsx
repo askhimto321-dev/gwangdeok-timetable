@@ -1642,6 +1642,8 @@ export default function App() {
 
   // 대시보드 바로가기에서 성적·진학의 특정 탭(예: 반별 성적)을 바로 열 때 씁니다(훅이므로 loading 조기 반환보다 먼저).
   const [gradeTabRequest, setGradeTabRequest] = useState({ tab: "", nonce: 0 });
+  // 상단 탭 바의 '교사용 분석' 묶음에서 연 도구(학생 탭을 누르면 비웁니다).
+  const [teacherTool, setTeacherTool] = useState("");
   // 새 UI 대시보드용 값(훅이라 아래 loading 조기 반환보다 먼저 호출합니다).
   const dashboardActive = isNewUi() && (section || "home") === "home";
   const dashboardLessonSlot = useLessonSlot(dashboardActive && !!loggedInStudent);
@@ -1679,9 +1681,18 @@ export default function App() {
   };
   const activeSection = section || (isNewUi() ? "home" : "grades");
   const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
+  const staffToolAccess = !!loggedInAdmin || ((loggedInTeacher || loggedInDepartment) && (staffGradeAccessList || []).map(String).includes(String(grade)));
+  const teacherTools = !isNewUi() || !staffToolAccess ? [] : [
+    { key: "gradeCompare", label: "학생 성적 비교" },
+    { key: "mockAnalysis", label: "모의고사 분석" },
+    ...((loggedInAdmin || loggedInTeacher?.homeroomClass) ? [{ key: "classGrades", label: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적" }] : []),
+    ...(loggedInTeacher?.homeroomClass ? [{ key: "class", label: "담임반 계정" }] : []),
+  ];
+  const openTeacherTool = key => { setTeacherTool(key); setGradeTabRequest(current => ({ tab: key, nonce: current.nonce + 1 })); switchSection("grades"); };
   const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
   const changeStudentWorkspaceView = (view) => {
     if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
+    setTeacherTool("");
     prepareWorkspaceViewChange(view);
     const nextTabs = studentWorkspaceTabs.includes(view) ? studentWorkspaceTabs : [...studentWorkspaceTabs, view];
     if (!studentWorkspaceTabs.includes(view)) setStudentWorkspaceTabs(nextTabs);
@@ -1700,6 +1711,7 @@ export default function App() {
   };
   const syncStudentWorkspaceView = (view) => {
     if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
+    setTeacherTool("");
     prepareWorkspaceViewChange(view);
     setStudentWorkspaceView(view);
     setStudentWorkspaceTabs(prev => {
@@ -1790,7 +1802,7 @@ export default function App() {
     shortcuts: [
       { key: "grades", tone: "blue", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
       (loggedInAdmin || loggedInTeacher?.homeroomClass)
-        ? { key: "classGrades", tone: "sky", title: "반별 성적 확인", text: loggedInAdmin ? "반마다 누적 내신·분포·학기별 변화와 반끼리 비교" : `${loggedInTeacher.homeroomClass}반 누적 내신·분포·학기별 변화와 반 비교`, icon: <BarChart3 size={22} />, onClick: () => { setGradeTabRequest(current => ({ tab: "classGrades", nonce: current.nonce + 1 })); switchSection("grades"); } }
+        ? { key: "classGrades", tone: "sky", title: "반별 성적 확인", text: loggedInAdmin ? "반마다 누적 내신·분포·학기별 변화와 반끼리 비교" : `${loggedInTeacher.homeroomClass}반 누적 내신·분포·학기별 변화와 반 비교`, icon: <BarChart3 size={22} />, onClick: () => openTeacherTool("classGrades") }
         : { key: "gradeLookup", tone: "sky", title: "성적 확인", text: loggedInStudent ? "내 내신·모의고사 성적 리포트" : "학생 내신·모의고사 성적 리포트를 바로 열기", icon: <BarChart3 size={22} />, onClick: () => (loggedInStudent ? switchSection("grades") : staffWorkspaceEnabled ? changeStudentWorkspaceView("grades") : switchSection("grades")) },
       { key: "timetable", tone: "teal", title: "시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 학급 공지", icon: <Calendar size={22} />, onClick: () => switchSection("timetable") },
       ...(canSeeTeacherZone ? [{ key: "teacherZone", tone: "purple", title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 비상연락망, 생기부 업무", icon: <Users size={22} />, onClick: () => switchSection("teacherZone") }] : []),
@@ -1835,8 +1847,11 @@ export default function App() {
         onViewChange={changeStudentWorkspaceView}
         openTabs={studentWorkspaceTabs}
         onCloseTab={closeStudentWorkspaceTab}
+        teacherTools={teacherTools}
+        activeTool={activeSection === "grades" ? teacherTool : ""}
+        onTool={openTeacherTool}
       />}
-      {isNewUi() && staffWorkspaceEnabled && !selectedStudentSid && activeSection === "grades" && <WorkspaceEmptyState allRosters={db.roster} onSelect={sid => { updateSelectedStudentQuery(String(sid)); updateSelectedStudentSid(String(sid)); }} />}
+      {isNewUi() && staffWorkspaceEnabled && !selectedStudentSid && activeSection === "grades" && !teacherTool && <WorkspaceEmptyState allRosters={db.roster} onSelect={sid => { updateSelectedStudentQuery(String(sid)); updateSelectedStudentSid(String(sid)); }} />}
       {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <div style={{ display: activeSection === "grades" ? "block" : "none" }}>
         <DeferredPanel label="성적·진학 화면을 불러오는 중입니다."><GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
@@ -2301,6 +2316,9 @@ function StaffStudentWorkspaceBar({
   onViewChange,
   openTabs = ["grades"],
   onCloseTab,
+  teacherTools = [],
+  activeTool = "",
+  onTool,
 }) {
   const allowedGradeKey = useMemo(() => (allowedGrades || []).map(String).sort().join("|"), [allowedGrades]);
   const mergedStudents = useMemo(() => {
@@ -2408,12 +2426,17 @@ function StaffStudentWorkspaceBar({
             return <div key={group.label} role="presentation" style={{ ...newBar.group, background: tone.bg, borderColor: tone.border }}>
               <span style={{ ...newBar.groupLabel, color: tone.label }}>{group.label === "진학 상담" ? <GraduationCap size={15} aria-hidden="true" /> : <Search size={15} aria-hidden="true" />}{group.label}</span>
               {group.views.map(key => {
-                const active = activeView === key;
+                const active = !activeTool && activeView === key;
                 const preload = key === "susiNaviBeta" ? preloadSusiNaviSafely : undefined;
                 return <button key={key} data-kdn-bare type="button" role="tab" aria-selected={active} onMouseEnter={preload} onFocus={preload} onClick={() => onViewChange(key)} style={{ ...newBar.tab, ...(active ? { ...newBar.tabActive, color: tone.label } : {}) }}>{labelFor(key)}</button>;
               })}
             </div>;
           })}
+          {/* 교사용 분석: 학생을 고르지 않아도 쓰는 도구라 학생 탭과 다른 색 묶음으로 따로 둡니다. */}
+          {teacherTools.length > 0 && <div role="presentation" style={{ ...newBar.group, background: newBar.groupTeacher.bg, borderColor: newBar.groupTeacher.border }}>
+            <span style={{ ...newBar.groupLabel, color: newBar.groupTeacher.label }}><BarChart3 size={15} aria-hidden="true" />교사용 분석</span>
+            {teacherTools.map(tool => <button key={tool.key} data-kdn-bare type="button" role="tab" aria-selected={activeTool === tool.key} onClick={() => onTool?.(tool.key)} style={{ ...newBar.tab, ...(activeTool === tool.key ? { ...newBar.tabActive, color: newBar.groupTeacher.label } : {}) }}>{tool.label}</button>)}
+          </div>}
         </div>
       </div>
     </div>;
@@ -2524,10 +2547,11 @@ const newBar = {
   recentAvatar: { width: 28, height: 28, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, flex: "none" },
   recentName: { fontSize: 14, fontWeight: 650 },
   recentSid: { fontSize: 12, fontWeight: 500, color: "var(--kdn-muted)", fontVariantNumeric: "tabular-nums" },
-  tabs: { display: "flex", alignItems: "center", gap: 10, overflowX: "auto", scrollbarWidth: "none", paddingBottom: 12 },
-  group: { flex: "none", display: "flex", alignItems: "center", gap: 2, padding: 4, borderRadius: 14, borderWidth: 1, borderStyle: "solid" },
+  tabs: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", rowGap: 8, paddingBottom: 12 },
+  group: { flex: "none", display: "flex", alignItems: "center", gap: 2, padding: 4, borderRadius: 14, borderWidth: 1, borderStyle: "solid", maxWidth: "100%", boxSizing: "border-box", overflowX: "auto", scrollbarWidth: "none" },
   groupLookup: { bg: "#edf2fb", border: "#d3def0", label: "#1c4aa8" },
   groupCounsel: { bg: "#fdf0e8", border: "#f2d3c0", label: "#ad3b0a" },
+  groupTeacher: { bg: "#eef7f1", border: "#c9e6d3", label: "#17663a" },
   groupLabel: { display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px 0 8px", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" },
   tab: { flex: "none", minHeight: 38, padding: "0 14px", border: 0, borderRadius: 10, background: "transparent", color: "var(--kdn-ink-soft)", fontSize: 15, fontWeight: 700, cursor: "pointer" },
   tabActive: { background: "var(--kdn-surface)", fontWeight: 850, boxShadow: "0 1px 3px rgba(20,24,33,.14), 0 0 0 1px rgba(20,24,33,.06)" },
@@ -2711,7 +2735,7 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
     <nav className="no-print kdn-top-nav" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
       <div className="kdn-nav-inner" style={newUiNavStyles.inner}>
         {/* 로고(KDTIME)를 누르면 대시보드로 갑니다. 별도 '대시보드' 메뉴는 없앴습니다. */}
-        <button type="button" data-kdn-bare className="kdn-brand-home" onClick={() => onSwitch("home")} aria-label="KDTIME 대시보드로 이동" aria-current={active === "home" ? "page" : undefined} style={{ ...newUiNavStyles.brand, border: 0, background: "transparent", padding: 0, font: "inherit", color: "inherit", textAlign: "left", cursor: "pointer" }} title={`${SITE_TITLE} · 대시보드`}>
+        <button type="button" data-kdn-bare className="kdn-brand-home" onClick={() => onSwitch("home")} aria-label="KDTIME 대시보드로 이동" aria-current={active === "home" ? "page" : undefined} style={{ ...newUiNavStyles.brand, border: 0, background: "transparent", padding: 0, font: "inherit", textAlign: "left", cursor: "pointer" }} title={`${SITE_TITLE} · 대시보드`}>
           <span style={newUiNavStyles.logo}>KD</span>
           <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
             <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
