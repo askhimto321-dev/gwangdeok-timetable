@@ -1970,6 +1970,14 @@ const SHARED_NEW_CSS = `
   .kdn-ah-card.is-todo{box-shadow:0 0 0 2px color-mix(in srgb,#f59e0b 35%,transparent)}
   .kdn-ah-card.is-teal{--a:#0e7490}.kdn-ah-card.is-blue{--a:#2563eb}.kdn-ah-card.is-violet{--a:#7c3aed}.kdn-ah-card.is-amber{--a:#d97706}.kdn-ah-card.is-green{--a:#16a34a}.kdn-ah-card.is-sky{--a:#0284c7}.kdn-ah-card.is-orange{--a:#e2531a}.kdn-ah-card.is-pink{--a:#db2777}.kdn-ah-card.is-red{--a:#dc2626}
   [data-kd-ui="dark"] .kdn-ah-card .flag{background:#3a2a17;color:#f2c58a}
+  .kdn-cutcard{gap:8px!important}
+  .kdn-cutcard .nums{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end}
+  .kdn-cutcard .nums>div{display:grid;gap:1px}
+  .kdn-cutcard .nums .v{font-size:23px;line-height:1.1}
+  .kdn-cutcard .people{justify-items:end;padding:4px 10px;border-radius:10px;background:color-mix(in srgb,var(--c) 14%,var(--kdn-surface))}
+  .kdn-cutcard .people .v{font-size:26px;color:var(--kdn-ink)}.kdn-cutcard .people em{margin-left:1px;font-style:normal;font-size:13px;font-weight:700;color:var(--kdn-muted)}
+  .kdn-cutcard .meter{height:10px!important}
+  .kdn-cutcard .cnt .over{color:#c2410c}.kdn-cutcard .cnt .under{color:#2563eb}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
