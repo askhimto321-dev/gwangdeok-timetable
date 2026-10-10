@@ -994,11 +994,6 @@ function buildStudentComparisonRow(sid, studentInfo, gdb) {
     overall: valueFor("전과목"),
     coreAll: valueFor("국영수사과"),
     coreScience: valueFor("국영수과"),
-    kor: valueFor("국어"),
-    math: valueFor("수학"),
-    eng: valueFor("영어"),
-    soc: valueFor("사회"),
-    sci: valueFor("과학"),
     coreSocial: valueFor("국영수사"),
     semesterSubjects: subjectLists,
     latestKey: lastIndex >= 0 ? SEMESTER_KEYS[lastIndex] : "",
@@ -1006,7 +1001,7 @@ function buildStudentComparisonRow(sid, studentInfo, gdb) {
     latestConverted: lastIndex >= 0 && gradeSystem === 5 ? groups?.전과목?.perSemester9?.[lastIndex] ?? null : null,
     trend: SEMESTER_KEYS.map((key, index) => ({ key, value: gradeSystem === 5 ? groups?.전과목?.perSemester5?.[index] ?? null : groups?.전과목?.perSemester9?.[index] ?? null })).filter(item => item.value != null),
     // 반별 성적의 교과 조합 필터용: 조합마다 학기별 평균.
-    trendsBy: Object.fromEntries([["overall", "전과목"], ["coreAll", "국영수사과"], ["coreSocial", "국영수사"], ["coreScience", "국영수과"], ["kor", "국어"], ["math", "수학"], ["eng", "영어"], ["soc", "사회"], ["sci", "과학"]].map(([field, group]) => [field, SEMESTER_KEYS.map((key, index) => ({ key, value: gradeSystem === 5 ? groups?.[group]?.perSemester5?.[index] ?? null : groups?.[group]?.perSemester9?.[index] ?? null })).filter(item => item.value != null)])),
+    trendsBy: Object.fromEntries([["overall", "전과목"], ["coreAll", "국영수사과"], ["coreSocial", "국영수사"], ["coreScience", "국영수과"]].map(([field, group]) => [field, SEMESTER_KEYS.map((key, index) => ({ key, value: gradeSystem === 5 ? groups?.[group]?.perSemester5?.[index] ?? null : groups?.[group]?.perSemester9?.[index] ?? null })).filter(item => item.value != null)])),
   };
 }
 
@@ -1131,7 +1126,27 @@ const CLASS_GRADE_CSS = `
 .cg-table .cg-step.t1:not(.y1){border-left:2px solid var(--kdn-line-strong,#cfd4dc)}
 .cg-step.y1{--sem-c:#1d4ed8;--sem-bg:#e8efff}.cg-step.y2{--sem-c:#047857;--sem-bg:#e3f6ee}.cg-step.y3{--sem-c:#6d28d9;--sem-bg:#efeafd}
 [data-kd-ui="dark"] .cg-step.y1{--sem-c:#93c5fd;--sem-bg:rgba(59,130,246,.16)}[data-kd-ui="dark"] .cg-step.y2{--sem-c:#6ee7b7;--sem-bg:rgba(16,185,129,.16)}[data-kd-ui="dark"] .cg-step.y3{--sem-c:#c4b5fd;--sem-bg:rgba(139,92,246,.18)}
-.cg-seg-sep{align-self:center;width:1px;height:18px;margin:0 4px;background:rgba(255,255,255,.28)}
+.cg-semtable .cg-semhead span{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:8px;background:var(--sem-bg);color:var(--sem-c);font-size:12.5px;font-weight:800}
+.cg-semtable .cg-semhead span::before{content:"";width:8px;height:8px;border-radius:99px;background:var(--sem-c)}
+.cg-semhead.y1,.cg-semcell.y1{--sem-c:#1d4ed8;--sem-bg:#e8efff;--sem-tint:rgba(37,99,235,.035)}.cg-semhead.y2,.cg-semcell.y2{--sem-c:#047857;--sem-bg:#e3f6ee;--sem-tint:rgba(5,150,105,.04)}.cg-semhead.y3,.cg-semcell.y3{--sem-c:#6d28d9;--sem-bg:#efeafd;--sem-tint:rgba(124,58,237,.04)}
+[data-kd-ui="dark"] .cg-semhead.y1,[data-kd-ui="dark"] .cg-semcell.y1{--sem-c:#93c5fd;--sem-bg:rgba(59,130,246,.18);--sem-tint:rgba(59,130,246,.06)}[data-kd-ui="dark"] .cg-semhead.y2,[data-kd-ui="dark"] .cg-semcell.y2{--sem-c:#6ee7b7;--sem-bg:rgba(16,185,129,.18);--sem-tint:rgba(16,185,129,.06)}[data-kd-ui="dark"] .cg-semhead.y3,[data-kd-ui="dark"] .cg-semcell.y3{--sem-c:#c4b5fd;--sem-bg:rgba(139,92,246,.2);--sem-tint:rgba(139,92,246,.07)}
+.cg-semtable td.cg-semcell{background-image:linear-gradient(var(--sem-tint),var(--sem-tint))}
+.cg-semtable td.cg-semcell b{display:block;font-size:15.5px;font-weight:700;color:var(--kdn-ink-soft,#3a4150);font-variant-numeric:tabular-nums}
+.cg-semtable td.cg-semcell.last b{font-size:16.5px;font-weight:800;color:var(--kdn-ink,#1f2430)}
+.cg-semtable td.cg-semcell em{display:block;margin-top:2px;font-style:normal;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
+.cg-semtable th.ybreak,.cg-semtable td.ybreak{border-left:2px solid var(--kdn-line-strong,#cfd4dc)!important}
+.cg-semtable thead tr.h1 th{height:42px;box-sizing:border-box}
+.cg-semtable thead tr.h2 th{padding:7px 10px!important}
+.cg-semtable thead th{z-index:3}
+@media (min-width:1000px){
+  .cg-card{overflow:clip}
+  .cg-table-wrap.is-sticky{overflow:visible}
+  .cg-semtable thead tr.h1 th{position:sticky;top:var(--cg-sticky-top,70px)}
+  .cg-semtable thead tr.h2 th{position:sticky;top:calc(var(--cg-sticky-top,70px) + 42px)}
+}
+.cg-subject-pick{min-height:38px;max-width:210px;padding:0 10px;border-radius:11px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#f5f1ea;font:inherit;font-size:13.5px;font-weight:700}
+.cg-subject-pick option,.cg-subject-pick optgroup{color:#1f2430;background:#fff}
+.cg-subject-pick.is-on{background:#fff;color:#1f2430;border-color:#fff}
 .cg-none{display:inline-block;padding:3px 10px;border-radius:7px;background:var(--kdn-surface-2,#f1f3f6);border:1px dashed var(--kdn-line,#d6dbe3);font-size:12.5px;font-weight:700;color:var(--kdn-muted,#5d6574)}
 .cg-none.sm{padding:1px 7px;font-size:12px!important}
 .cg-miss{display:block;margin-top:2px;font-size:11.5px;color:var(--kdn-muted,#8a92a0)}
@@ -1155,9 +1170,13 @@ const CLASS_GRADE_CSS = `
 @media (max-width:900px){.cg-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cg-row{grid-template-columns:34px 92px minmax(0,1fr)}.cg-row-s{grid-column:2 / -1;justify-items:start;grid-auto-flow:column;gap:8px}}
 @media print{.cg-hero-tools{display:none}}
 `;
-// 교과 조합 4개 + 단일 교과 5개. 단일 교과는 그 교과 과목을 하나도 듣지 않은 학생을 '미수강'으로 표시합니다.
-const CLASS_METRICS = [["overall", "전교과"], ["coreAll", "국수영사과"], ["coreSocial", "국수영사"], ["coreScience", "국수영과"], ["kor", "국어"], ["math", "수학"], ["eng", "영어"], ["soc", "사회"], ["sci", "과학"]];
-const SINGLE_METRICS = new Set(["kor", "math", "eng", "soc", "sci"]);
+// 교과 조합 4개. 개별 과목(공통국어1·문학 등)은 'subj:과목명' 지표로 따로 고릅니다.
+const CLASS_METRICS = [["overall", "전교과"], ["coreAll", "국수영사과"], ["coreSocial", "국수영사"], ["coreScience", "국수영과"]];
+const SUBJECT_METRIC = "subj:";
+const subjectGradesOf = (row, name) => SEMESTER_KEYS.map((key, index) => {
+  const list = (row?.semesterSubjects?.[index] || []).filter(subject => String(subject?.subject || "").trim() === name).map(getSubjectGrade).filter(value => value != null);
+  return { key, value: list.length ? list.reduce((sum, v) => sum + v, 0) / list.length : null };
+});
 const CG_BAND_COLORS = ["#e2531a", "#f08a5d", "#f6b896", "#f3d2bd", "#b6c0cd", "#9aa6b5", "#7f8b9c"];
 const classToneClass = (value, scale) => {
   if (value == null) return "cg-t4";
@@ -1208,23 +1227,6 @@ function SemesterChange({ trend = [] }) {
   return <div className="cg-chg"><span>{fmt2(prev.value)} →</span><b>{fmt2(last.value)}</b><span className={`cg-pill ${changeTone(d)}`}>{changeMark(d)} {Math.abs(d).toFixed(2)}</span></div>;
 }
 // 학기별 전교과 평균: 칸 테두리 대신 얇은 구분선으로 나열하고, 앞 학기 대비 변화를 작게 적습니다.
-function SemesterSteps({ trend = [] }) {
-  if (!trend.length) return <span className="cg-sub">-</span>;
-  let prev = null;
-  return <div className="cg-steps">{trend.map((item, index) => {
-    const [year, term] = String(item.key).split("-");
-    const cls = `cg-step y${year} t${term}${index === trend.length - 1 ? " last" : ""}`;
-    // 단일 교과 보기에서 그 학기에 해당 교과 과목이 없으면 '미수강'으로 표시하고 변화 비교에서 건너뜁니다.
-    if (item.value == null) return <span key={item.key} className={`${cls} is-none`}><small>{year}학년 {term}학기</small><b className="cg-none sm">미수강</b><em>&nbsp;</em></span>;
-    const d = prev == null ? null : prev - item.value;
-    prev = item.value;
-    return <span key={item.key} className={cls}>
-      <small>{year}학년 {term}학기</small>
-      <b>{fmt2(item.value)}</b>
-      <em style={{ color: d == null ? "#8a92a0" : d > 0.004 ? "#15803d" : d < -0.004 ? "#c0262d" : "#8a92a0" }}>{d == null ? "시작" : `${changeMark(d)}${Math.abs(d).toFixed(2)}`}</em>
-    </span>;
-  })}</div>;
-}
 // 반 비교: 반마다 등급 구간별 학생 수를 가는 막대로 쌓아 비교합니다(왼쪽일수록 상위 구간).
 function ClassBandCompare({ metricLabel = "전교과",  classStats = [], scale, gradeMean, highlight = "", onPick, sortKey = "mean", onSort }) {
   const crit = CLASS_SORTS.find(item => item.key === sortKey) || CLASS_SORTS[0];
@@ -1254,22 +1256,44 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   // 교과 조합 필터(기본 전교과)와 표 정렬(순위순·학번순·번호순).
   const [metric, setMetric] = useState("overall");
   const [tableSort, setTableSort] = useState("rank");
-  const metricLabel = CLASS_METRICS.find(([key]) => key === metric)?.[1] || "전교과";
-  const val = row => row?.[metric]?.primary ?? null;
-  const trendOf = row => row?.trendsBy?.[metric] || row?.trend || [];
-  // 단일 교과: 성적이 있는 모든 학기를 보여주고, 그 교과가 없던 학기는 값 없이(미수강) 둡니다.
-  const stepsOf = row => {
-    if (!SINGLE_METRICS.has(metric)) return trendOf(row);
-    const byKey = new Map(trendOf(row).map(item => [item.key, item.value]));
-    return SEMESTER_KEYS.filter((key, index) => row?.semesterSubjects?.[index]?.length).map(key => ({ key, value: byKey.get(key) ?? null }));
+  const isSubject = metric.startsWith(SUBJECT_METRIC);
+  const subjectName = isSubject ? metric.slice(SUBJECT_METRIC.length) : "";
+  const metricLabel = isSubject ? subjectName : CLASS_METRICS.find(([key]) => key === metric)?.[1] || "전교과";
+  // 개별 과목: 그 과목 등급(여러 학기에 같은 이름이면 평균). 듣지 않은 학생은 값 없음 → '미수강'.
+  const val = row => {
+    if (!isSubject) return row?.[metric]?.primary ?? null;
+    const list = subjectGradesOf(row, subjectName).filter(item => item.value != null);
+    return list.length ? list.reduce((sum, item) => sum + item.value, 0) / list.length : null;
   };
+  const trendOf = row => isSubject ? subjectGradesOf(row, subjectName).filter(item => item.value != null) : (row?.trendsBy?.[metric] || row?.trend || []);
   const classNo = isAdmin ? (pickedClass || classes[0] || "") : String(homeroomClass || "");
   // 학년 전체 학생 행을 한 번 만들어 '우리 반'과 '반 비교'가 같이 씁니다.
   const allRows = useMemo(() => Object.entries(roster || {})
     .map(([sid, info]) => { const row = buildStudentComparisonRow(String(sid), info, gdb); return row ? { ...row, classNumber: String(info?.class || row.classNumber || ""), number: info?.number ?? row.number } : null; })
     .filter(Boolean), [roster, gdb]);
+  // 개별 과목 목록: 학년 학생들의 학기별 과목을 모아 학기 순서로 묶습니다(수강자 3명 이상).
+  const subjectOptions = useMemo(() => {
+    const map = new Map();
+    for (const row of allRows) SEMESTER_KEYS.forEach((key, index) => {
+      for (const subject of row.semesterSubjects?.[index] || []) {
+        const name = String(subject?.subject || "").trim();
+        if (!name || getSubjectGrade(subject) == null) continue;
+        if (!map.has(name)) map.set(name, { name, keys: new Set(), n: 0, first: index });
+        const item = map.get(name); item.keys.add(key); item.n += 1; item.first = Math.min(item.first, index);
+      }
+    });
+    return [...map.values()].filter(item => item.n >= 3).sort((a, b) => a.first - b.first || a.name.localeCompare(b.name, "ko"));
+  }, [allRows]);
+  // 개별 과목은 그 과목이 열린 학기만 칸으로 보여주고, 듣지 않았으면 '미수강'.
+  const stepsOf = row => {
+    if (!isSubject) return trendOf(row);
+    const keys = subjectOptions.find(item => item.name === subjectName)?.keys || new Set();
+    const byKey = new Map(subjectGradesOf(row, subjectName).map(item => [item.key, item.value]));
+    return SEMESTER_KEYS.filter(key => keys.has(key)).map(key => ({ key, value: byKey.get(key) ?? null }));
+  };
   const rows = useMemo(() => allRows.filter(row => String(row.classNumber) === classNo).sort((a, b) => Number(a.number || 0) - Number(b.number || 0)), [allRows, classNo]);
-  const ranked = useMemo(() => new Map(rows.filter(row => val(row) != null).slice().sort((a, b) => val(a) - val(b)).map((row, index) => [row.sid, index + 1])), [rows, metric]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 같은 값은 같은 순위(동석차)로 둡니다. 개별 과목은 등급이 정수라 동점이 많습니다.
+  const ranked = useMemo(() => { const values = rows.map(val).filter(v => v != null); return new Map(rows.filter(row => val(row) != null).map(row => [row.sid, 1 + values.filter(v => v < val(row) - 1e-9).length])); }, [rows, metric]); // eslint-disable-line react-hooks/exhaustive-deps
   const graded = rows.filter(row => val(row) != null);
   const avg = graded.length ? graded.reduce((sum, row) => sum + val(row), 0) / graded.length : null;
   const delta = row => { const t = trendOf(row); return t.length >= 2 ? t[t.length - 2].value - t[t.length - 1].value : null; };
@@ -1278,6 +1302,21 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const bins = scale === 5 ? [[1, 1.5], [1.5, 2], [2, 2.5], [2.5, 3], [3, 3.5], [3.5, 4], [4, 5.01]] : [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 9.01]];
   const counts = bins.map(([lo, hi]) => graded.filter(row => val(row) >= lo && val(row) < hi).length);
   const ordered = rows.slice().sort((a, b) => tableSort === "sid" ? String(a.sid).localeCompare(String(b.sid)) : tableSort === "number" ? (Number(a.number) || 99) - (Number(b.number) || 99) : (ranked.get(a.sid) || 999) - (ranked.get(b.sid) || 999));
+  // 학기 열: 이 반 학생들에게 실제로 값이 있는(또는 과목 보기에서 열린) 학기만 머리글로 한 번 보여줍니다.
+  const semCols = SEMESTER_KEYS.filter(key => rows.some(row => stepsOf(row).some(item => item.key === key)));
+  const semCells = row => {
+    const steps = new Map(stepsOf(row).map(item => [item.key, item]));
+    const lastKey = [...semCols].reverse().find(key => steps.get(key)?.value != null);
+    let prev = null;
+    return semCols.map((key, index) => {
+      const [y, t] = key.split("-");
+      const step = steps.get(key);
+      const value = step?.value ?? null;
+      const d = value != null && prev != null ? prev - value : null;
+      if (value != null) prev = value;
+      return { key, y, t, ybreak: index > 0 && t === "1", value, d, none: Boolean(step) && value == null && isSubject, last: key === lastKey };
+    });
+  };
   // 반 비교 통계
   const classStats = useMemo(() => classes.map(no => {
     const list = allRows.filter(row => String(row.classNumber) === no && val(row) != null).map(val).sort((a, b) => a - b);
@@ -1328,7 +1367,8 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
         <div><h3><UsersRound size={21} />{currentGrade}학년 {view === "compare" ? "반별 비교" : `${classNo}반 성적`}</h3><p>{view === "compare" ? `학년 전체 반의 ${metricLabel} 분포와 평균을 나란히 비교합니다.` : "누적 내신, 교과 조합, 학기별 변화를 한 화면에서 봅니다."} 숫자가 낮을수록 상위입니다.</p></div>
         <div className="cg-hero-tools">
           <div className="cg-seg" role="tablist"><button type="button" className={view === "class" ? "is-on" : ""} onClick={() => setView("class")}>{isAdmin ? "반 성적" : "우리 반"}</button><button type="button" className={view === "compare" ? "is-on" : ""} onClick={() => setView("compare")}>반 비교</button></div>
-          <div className="cg-seg cg-metric" role="group" aria-label="교과 조합·단일 교과">{CLASS_METRICS.map(([key, label], index) => <React.Fragment key={key}>{index === 4 && <span className="cg-seg-sep" aria-hidden="true" />}<button type="button" className={metric === key ? "is-on" : ""} title={key === "soc" ? "사회 교과(한국사 포함)" : undefined} onClick={() => setMetric(key)}>{label}</button></React.Fragment>)}</div>
+          <div className="cg-seg cg-metric" role="group" aria-label="교과 조합">{CLASS_METRICS.map(([key, label]) => <button key={key} type="button" className={metric === key ? "is-on" : ""} onClick={() => setMetric(key)}>{label}</button>)}</div>
+          {subjectOptions.length > 0 && <select className={`cg-subject-pick${isSubject ? " is-on" : ""}`} value={isSubject ? metric : ""} onChange={event => setMetric(event.target.value || "overall")} aria-label="개별 과목"><option value="">과목별 보기…</option>{SEMESTER_KEYS.map(key => { const list = subjectOptions.filter(item => [...item.keys][0] === key); if (!list.length) return null; const [y, t] = key.split("-"); return <optgroup key={key} label={`${y}학년 ${t}학기`}>{list.map(item => <option key={item.name} value={`${SUBJECT_METRIC}${item.name}`}>{item.name}</option>)}</optgroup>; })}</select>}
           {isAdmin && view === "class" && <select value={classNo} onChange={event => setPickedClass(event.target.value)} aria-label="반 선택">{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
           {view === "class" && <button type="button" className="cg-ghost no-print" data-kdn-bare onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${classNo}반 성적 ·`)} disabled={!rows.length}><Printer size={15} />인쇄·PDF</button>}
         </div>
@@ -1341,13 +1381,15 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
     </section>
     {view === "class" && (!rows.length ? <EmptyBox text={`${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
       <div className="cg-tablebar"><b>{metricLabel} 기준</b><span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"], ["number", "번호순"]].map(([key, label]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => setTableSort(key)}>{label}</button>)}</div></div>
-      <div className="cg-table-wrap"><table className="cg-table"><colgroup><col style={{ width: 70 }} /><col style={{ width: 160 }} /><col style={{ width: 150 }} /><col style={{ width: 210 }} /><col /></colgroup><thead><tr><th className="c">순위</th><th>학생</th><th className="c">{metricLabel} 누적</th><th className="c">직전 → 최근 학기</th><th className="c">학기별 {metricLabel} 평균</th></tr></thead>
+      <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 160 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} />{semCols.map(key => <col key={key} />)}</colgroup>
+      <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th rowSpan={2}>학생</th><th className="c" rowSpan={2}>{metricLabel} {isSubject ? "등급" : "누적"}</th><th className="c" rowSpan={2}>직전 → 최근 학기</th><th className="c grp" colSpan={Math.max(1, semCols.length)}>학기별 {metricLabel} {isSubject ? "등급" : "평균"}</th></tr>
+      <tr className="h2">{semCols.length ? semCols.map((key, index) => { const [y, t] = key.split("-"); return <th key={key} className={`c cg-semhead y${y} t${t}${index && t === "1" ? " ybreak" : ""}`}><span>{y}학년 {t}학기</span></th>; }) : <th className="c">-</th>}</tr></thead>
       <tbody>{ordered.map(row => { const v = val(row); const rank = ranked.get(row.sid); return <tr key={row.sid}>
         <td className="c">{rank ? <span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}<small>위</small></span> : "-"}</td>
         <td>{onOpenStudent ? <button type="button" data-kdn-bare className="cg-name" onClick={() => onOpenStudent(row.sid)}><b>{row.name}</b><span className="cg-ids"><em className="cg-no">{row.number}번</em><em className="cg-sid">{row.sid}</em></span></button> : <span className="cg-name"><b>{row.name}</b><span className="cg-ids"><em className="cg-no">{row.number}번</em><em className="cg-sid">{row.sid}</em></span></span>}</td>
-        <td className="c">{v == null ? (SINGLE_METRICS.has(metric) ? <span className="cg-none">미수강</span> : <span className="cg-sub">-</span>) : <><span className="cg-big">{v.toFixed(2)}</span>{row[metric]?.converted != null && <span className="cg-sub">9등급 환산 {Number(row[metric].converted).toFixed(2)}</span>}</>}</td>
+        <td className="c">{v == null ? (isSubject ? <span className="cg-none">미수강</span> : <span className="cg-sub">-</span>) : <><span className="cg-big">{v.toFixed(2)}</span>{row[metric]?.converted != null && <span className="cg-sub">9등급 환산 {Number(row[metric].converted).toFixed(2)}</span>}</>}</td>
         <td className="c"><SemesterChange trend={trendOf(row)} /></td>
-        <td className="c"><SemesterSteps trend={stepsOf(row)} /></td>
+        {semCols.length ? semCells(row).map(cell => <td key={cell.key} className={`c cg-semcell y${cell.y} t${cell.t}${cell.ybreak ? " ybreak" : ""}${cell.last ? " last" : ""}`}>{cell.none ? <span className="cg-none sm">미수강</span> : cell.value == null ? <span className="cg-sub">-</span> : <><b>{fmt2(cell.value)}</b><em style={{ color: cell.d == null ? "#8a92a0" : cell.d > 0.004 ? "#15803d" : cell.d < -0.004 ? "#c0262d" : "#8a92a0" }}>{cell.d == null ? "시작" : `${changeMark(cell.d)}${Math.abs(cell.d).toFixed(2)}`}</em></>}</td>) : <td className="c"><span className="cg-sub">-</span></td>}
       </tr>; })}</tbody></table></div>
       <div className="cg-foot">숫자가 낮을수록 좋은 성적 · ▲ 초록 = 앞 학기보다 좋아짐, ▼ 빨강 = 낮아짐 · 진한 숫자 = 가장 최근 학기</div>
     </section>)}
@@ -1355,7 +1397,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
       <div className="cg-table-wrap"><table className="cg-table" style={{ minWidth: 700 }}><thead><tr><th className="c" style={{ width: 64 }}>순위</th><th>반</th><th className="c">학생</th><th className="c">평균</th><th className="c">학년 평균 대비</th><th className="c">중앙값</th><th className="c">최고</th><th className="c">{scale === 5 ? "1등급대" : "1~2등급"}</th><th className="c">직전 학기 평균 변화</th></tr></thead>
         <tbody>{sortedStats.map(stat => { const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null; return <tr key={stat.no}>
           <td className="c"><span className={`cg-rk${stat.rank <= 3 ? " top" : ""}`}>{stat.rank}</span></td>
-          <td><b style={{ color: "var(--kdn-ink,#1f2430)" }}>{stat.no}반</b></td><td className="c">{stat.n}명{SINGLE_METRICS.has(metric) && stat.missing > 0 && <small className="cg-miss">미수강 {stat.missing}</small>}</td>
+          <td><b style={{ color: "var(--kdn-ink,#1f2430)" }}>{stat.no}반</b></td><td className="c">{stat.n}명{isSubject && stat.missing > 0 && <small className="cg-miss">미수강 {stat.missing}</small>}</td>
           <td className="c"><span className="cg-big" style={{ fontSize: 15.5 }}>{fmt2(stat.mean)}</span></td>
           <td className="c">{gap == null ? "-" : <span className={`cg-pill ${changeTone(gap)}`}>{changeMark(gap)} {Math.abs(gap).toFixed(2)}</span>}</td>
           <td className="c">{fmt2(stat.median)}</td><td className="c">{fmt2(stat.best)}</td><td className="c">{stat.top}명</td>
@@ -4774,7 +4816,9 @@ function FavoriteFactTiles({ studentGrade, cutoffBasis, admissions, cases, accep
   </div>;
 }
 
-function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorites = [], onToggleFavorite, onOpenAdmission, onOpenCases, onOpenSusiNavi, onOpenSupportPlan, hideBanner = false }) {
+function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorites = [], onToggleFavorite, onOpenAdmission, onOpenCases, onOpenSusiNavi, onOpenSupportPlan, hideBanner = false, explorer = false }) {
+  // D안(목록+상세): 왼쪽 목록에서 고른 대학 카드만 화면에 보이고, 인쇄에는 모든 카드가 나갑니다.
+  const [pickedGroup, setPickedGroup] = useState("");
   const identity = studentViewIdentityMeta({ sid, gdb, studentInfo });
   const [favoriteFilter, setFavoriteFilter] = useState("전체");
   const [favoriteNaviData, setFavoriteNaviData] = useState(null);
@@ -4856,10 +4900,17 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
   const favoriteContent = !(favorites || []).length
     ? <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 탐색이나 NAVI에서 별 아이콘을 눌러 상담 후보를 저장하세요." />
     : <div className="favorite-print-section" style={card}>
-        <SectionHeading title="관심 대학·학과" description="저장한 관심 대학을 중심으로 대학 지원 기준, NAVI 컷, 광덕고 실제 사례를 한 카드에서 연결해 상담할 수 있습니다." />
+        <div className={explorer ? "kdn-print-only" : undefined}><SectionHeading title="관심 대학·학과" description="저장한 관심 대학을 중심으로 대학 지원 기준, NAVI 컷, 광덕고 실제 사례를 한 카드에서 연결해 상담할 수 있습니다." /></div>
         {favoriteNaviStatus !== 'ready' && <div className="no-print" role="status" style={{fontSize:12,color:'#49617b',marginBottom:10}}>{favoriteNaviStatus === 'loading' ? 'NAVI 컷 자료 연결 중…' : <>NAVI 컷 자료를 불러오지 못했습니다. <button type="button" onClick={()=>setFavoriteRetry(value=>value+1)}>다시 불러오기</button></>}</div>}
-        <div className="no-print" style={favoriteView.filters}>{["전체","대학","학과","전형"].map(value=><button key={value} type="button" onClick={()=>setFavoriteFilter(value)} style={{...favoriteView.filterButton,...(favoriteFilter===value?favoriteView.filterActive:{})}}>{value}<span>{categoryCounts[value]||0}</span></button>)}</div>
-        {!groups.length ? <div style={favoriteView.filteredEmpty}>선택한 분류에 저장된 관심 항목이 없습니다.</div> : <div className="favorite-print-grid" style={favoriteView.grid}>{groups.map(group=>{
+        {!explorer && <div className="no-print" style={favoriteView.filters}>{["전체","대학","학과","전형"].map(value=><button key={value} type="button" onClick={()=>setFavoriteFilter(value)} style={{...favoriteView.filterButton,...(favoriteFilter===value?favoriteView.filterActive:{})}}>{value}<span>{categoryCounts[value]||0}</span></button>)}</div>}
+        {!groups.length ? <div style={favoriteView.filteredEmpty}>선택한 분류에 저장된 관심 항목이 없습니다.</div> : <div className={explorer ? "kd-fav-explorer" : undefined}>
+        {explorer && <aside className="kd-fav-list no-print">
+          <div className="hd"><b>관심 대학·학과</b><small>{favorites.length}</small></div>
+          <div className="chips">{["전체","대학","학과","전형"].map(value=><button key={value} type="button" data-kdn-bare className={favoriteFilter===value?"is-on":""} onClick={()=>setFavoriteFilter(value)}>{value} {categoryCounts[value]||0}</button>)}</div>
+          {groups.map(group=>{ const key=`${group.university}-${group.campus||"common"}`; const on=(pickedGroup && groups.some(item=>`${item.university}-${item.campus||"common"}`===pickedGroup)?pickedGroup:`${groups[0].university}-${groups[0].campus||"common"}`)===key; const depts=group.items.map(item=>item.department&&!/^(전체|대학 전체)$/.test(item.department)?item.department:"대학 저장"); return <button key={key} type="button" data-kdn-bare className={`it${on?" is-on":""}`} onClick={()=>setPickedGroup(key)}><b>{group.campus&&!String(group.university).includes(group.campus)?`${group.university} (${group.campus})`:group.university}</b><small>{[...new Set(depts)].join(" · ")}</small><em>{group.items.length}</em></button>; })}
+          <p className="add">대학 탐색·NAVI·대입결과에서 ★로 추가합니다.</p>
+        </aside>}
+        <div className="favorite-print-grid" style={explorer ? { display: "grid", gap: 12, minWidth: 0 } : favoriteView.grid}>{groups.map(group=>{
           const baseKey = universityKey(group.university);
           const baseAdmissions = favoriteAdmissionRows.filter(row => universityKey(row.university) === baseKey);
           const baseCases = favoriteCaseIndex.get(baseKey) || [];
@@ -4893,7 +4944,9 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
             item.admissionType || "",
           ).map(cut => ({ ...cut, favoriteDepartment: item.department || "" })));
           const uniqueGroupNaviCuts = Array.from(new Map(groupNaviCuts.map(item => [`${item.favoriteDepartment}|${item.kind}|${item.name}|${item.cut50}|${item.cut70}`, item])).values());
-          return <article className="favorite-print-card" key={`${group.university}-${resolvedCampus || "common"}`} style={favoriteView.card}>
+          const groupKey = `${group.university}-${group.campus||"common"}`;
+          const activeKey = pickedGroup && groups.some(item=>`${item.university}-${item.campus||"common"}`===pickedGroup) ? pickedGroup : `${groups[0].university}-${groups[0].campus||"common"}`;
+          return <article className={`favorite-print-card${explorer && groupKey !== activeKey ? " kd-fav-hidden" : ""}${explorer ? " is-explorer" : ""}`} key={`${group.university}-${resolvedCampus || "common"}`} style={favoriteView.card}>
             <div className="favorite-print-header" style={favoriteView.header}><div style={{display:"grid",gap:3,minWidth:0}}><b className="favorite-print-university" style={favoriteView.universityTitle}>{resolvedUniversity}</b><span className="favorite-print-count" style={favoriteView.universityCount}>{group.items.length}개 관심 항목</span></div><div className="no-print" style={favoriteView.linkCluster}><span style={favoriteView.linkClusterLabel}>상담 연결</span>{onOpenAdmission&&<button type="button" style={favoriteView.link} onClick={()=>onOpenAdmission(resolvedUniversity)}>지원 기준 <ExternalLink size={12}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenSusiNavi(resolvedUniversity,target?.department||"")}}>NAVI 분석 <ExternalLink size={12}/></button>}{onOpenSupportPlan&&<SupportPlanButton compact onClick={onOpenSupportPlan}/>}{onOpenCases&&<button type="button" style={favoriteView.link} onClick={()=>{const target=group.items.length===1?group.items[0]:null;onOpenCases(resolvedUniversity,target?.department||"",favoriteCaseAdmissionType(target))}}>{group.items.length===1&&group.items[0]?.department?"저장 학과 사례":"광덕고 사례"} <ExternalLink size={12}/></button>}</div></div>
             {isNewUi() && <div className="no-print"><FavoriteFactTiles studentGrade={naviGrade.value} cutoffBasis={naviGrade.cutoffBasis} admissions={admissions.length} cases={cases.length} accepted={accepted.length} cut50={cut50} /></div>}
             {/* 새 UI 화면에서는 위 칸이 대신 보이고, 인쇄물은 기존 구성 그대로 나갑니다. */}
@@ -4914,7 +4967,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
               return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><details className="favorite-print-item-detail" open={itemIndex===0 || undefined}><summary><span className="favorite-print-department-number">{itemIndex+1}</span><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-department-line"><span className="favorite-print-department-label">{schoolOnly?'대학':'학과'}</span><b>{item.department||"대학 전체"}</b><span className="favorite-print-kind" style={favoriteView.kindBadge}>{kind}</span></span><span className="favorite-print-track-line"><span className="favorite-print-track-label">전형</span><b>{item.admissionType|| (types.length===1?types[0]:'전형별 기준 보기')}</b></span>{item.department&&isNewUi()&&<span className="no-print" style={{display:"block",marginTop:6}}>{itemNaviCuts.length?<CutStrip compact limit={3} items={itemNaviCuts} studentGrade={naviGrade.value} cutoffBasis={naviGrade.cutoffBasis}/>:<small style={{color:"#5d6574",fontWeight:700}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "해당 전형 공개컷 연결 없음"}</small>}</span>}{item.department&&<span className={`favorite-print-item-navi-cuts${isNewUi()?" kdn-print-only":""}`} style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "해당 전형 공개컷 연결 없음"}</small>}</span>}</span>{coursePreview.length>0&&<span className="favorite-print-course-preview"><em>핵심·권장과목</em>{coursePreview.map(({label,course})=><small title={label} key={`${label}-${course}`}>{recommendedCourseDisplayName(course)}</small>)}</span>}</summary><div className="favorite-print-item-body"><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span>{schoolOnly?<p className="favorite-school-hint">학과를 추가하면 해당 모집단위의 전형별 수능최저와 권장과목을 연결합니다. 위 대학 공통 자료와 사례는 지금 확인할 수 있습니다.</p>:<CounselingAdmissionFacts facts={facts} student={factStudent} status={factsStatus} minimumStatus={favoriteNaviStatus} recommendationStatus={recommendationStatus} onRetry={()=>setFavoriteRetry(value=>value+1)}/>}</div></details></div>;
             })}</div>
           </article>
-        })}</div>}
+        })}</div></div>}
       </div>;
 
   return <div style={{display:"grid",gap:14}}>
@@ -4923,10 +4976,10 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
   </div>;
 }
 
-// 새 UI 관심대학·상담 화면 구성: A 2단 작업대 · B 상담 타임라인 · C 수시 6장 보드. 브라우저마다 기억합니다.
+// 새 UI 관심대학·상담 화면 구성: D 목록+상세(기본) · A 2단 작업대 · B 상담 타임라인 · C 수시 6장 보드. 브라우저마다 기억합니다.
 const CONSULT_LAYOUT_KEY = "kd_consult_layout";
-const CONSULT_LAYOUTS = [["workbench", "2단 작업대"], ["timeline", "상담 타임라인"], ["board", "수시 6장 보드"]];
-function readConsultLayout() { try { const value = localStorage.getItem(CONSULT_LAYOUT_KEY); return CONSULT_LAYOUTS.some(([key]) => key === value) ? value : "workbench"; } catch { return "workbench"; } }
+const CONSULT_LAYOUTS = [["explorer", "목록 + 상세"], ["workbench", "2단 작업대"], ["timeline", "상담 타임라인"], ["board", "수시 6장 보드"]];
+function readConsultLayout() { try { const value = localStorage.getItem(CONSULT_LAYOUT_KEY); return CONSULT_LAYOUTS.some(([key]) => key === value) ? value : "explorer"; } catch { return "explorer"; } }
 function useConsultPlanState(sid) {
   const [state, setState] = useState({ items: [], status: "loading" });
   useEffect(() => {
@@ -5119,7 +5172,7 @@ export function StudentConsultationView({
     {layout!=="timeline" && layout!=="classic" && <div className="kd-consult-todo-row no-print"><ConsultTodoList sid={sid} canEdit={canEdit} /></div>}
     <div className={`kd-consult-body is-${layout}`}>
     {layout==="timeline" && <ConsultSideSummary sid={sid} canEdit={canEdit} favorites={favorites} planItems={planState.items} notes={notes} onOpenAdmission={onOpenAdmission} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan}/>}
-    <div className="counseling-print-favorites"><StudentFavoritesView sid={sid} gdb={gdb} selectedStudent={selectedStudent} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
+    <div className="counseling-print-favorites"><StudentFavoritesView explorer={layout==="explorer"} sid={sid} gdb={gdb} selectedStudent={selectedStudent} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
     <div className="counseling-print-notes" style={consultationView.card}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={()=>setPrintOptionsOpen(true)} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="상담 기록과 관심 대학·학과의 포함 여부를 선택해 인쇄합니다."><Printer size={13}/>인쇄·PDF</button></div>
       {canEdit && <div className="no-print" style={consultationView.editor}>
