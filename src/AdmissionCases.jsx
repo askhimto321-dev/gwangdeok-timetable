@@ -1649,11 +1649,11 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
     const fav=isFavorite(favorites,selectedFavorite);
     return <tr key={`modern-${row.caseId}`}>
       <td className="fv">{onToggleFavorite&&<button type="button" data-kdn-bare className={fav?"fav is-on":"fav"} onClick={()=>onToggleFavorite(selectedFavorite)} title={favoriteMode==="individual"?"이 지원 사례 한 건만 저장":"같은 대학·학과·전형 묶음 저장"} aria-label="사례 즐겨찾기"><Star size={15} fill={fav?"currentColor":"none"}/></button>}</td>
-      <td><b className="u">{row.university}</b><span className="d">{row.department}</span><small className="m">{[row.region,row.field].filter(Boolean).join(" · ")}</small></td>
-      <td><span className="t">{row.admissionType}</span><small className="m">{row.detailType}</small></td>
-      <td className="n"><b className="g">{fmt(row.overallGrade)}</b>{showBand&&<span className="admission-band-badge kdn-cs-band" title={`${fit.detail} · 이 사례 전교과 내신 ${fmt(caseGrade)}`} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span>}</td>
-      <td className="n sub"><span><small>환산</small>{fmt(row.universityGrade)}</span><span><small>수능</small>{fmt(row.csatAverage)}</span></td>
-      <td><span className="kdn-cs-result" style={resultStyle(row.finalResultDetail)}>{row.finalResultDetail}</span>{registration.label&&registration.label!=="-"&&<small className="reg" style={{color:registration.color}}>{registration.label}</small>}</td>
+      <td className="ud" title={`${row.university} ${row.department} · ${[row.region,row.field].filter(Boolean).join(" · ")}`}><b className="u">{row.university}</b><span className="d">{row.department}</span><small className="m">{[row.region,row.field].filter(Boolean).join("·")}</small></td>
+      <td className="tp" title={`${row.admissionType} · ${row.detailType||""}`}><span className="t">{row.admissionType}</span><small className="m">{row.detailType}</small></td>
+      <td className="n gr"><b className="g">{fmt(row.overallGrade)}</b>{showBand&&<span className="admission-band-badge kdn-cs-band" title={`${fit.detail} · 이 사례 전교과 내신 ${fmt(caseGrade)}`} style={{color:fit.color,background:fit.background,borderColor:fit.border}}>{fit.label}</span>}</td>
+      <td className="n sub2">{fmt(row.universityGrade)}<span className="sl">/</span>{fmt(row.csatAverage)}</td>
+      <td className="rs"><span className="kdn-cs-result" style={resultStyle(row.finalResultDetail)}>{row.finalResultDetail}</span>{registration.label&&registration.label!=="-"&&<small className="reg" style={{color:registration.color}}>{registration.label}</small>}</td>
       <td className="act">{onOpenSusiNavi&&<button type="button" data-kdn-bare className="kdn-cs-btn" onClick={()=>onOpenSusiNavi(row.university,row.department)} title="이 모집단위를 NAVI에서 분석">NAVI</button>}{onAddSupportPlan&&<button type="button" data-kdn-bare className="kdn-cs-btn is-accent" onClick={()=>onAddSupportPlan(supportPlanFromCase(row))} title="수시 지원 구성에 추가">+ 지원</button>}</td>
     </tr>;
   });
@@ -1707,7 +1707,7 @@ function CaseSearch({rows,comparisonRows=[],profile,favorites=[],onToggleFavorit
     {focusResolution.message&&<div className="admission-case-link-fallback no-print"><AlertTriangle size={15}/><span><b>연결 범위를 자동 조정했습니다.</b>{focusResolution.message}</span></div>}
     {!isNewUi()&&<div className="admission-favorite-guide no-print"><span><strong>지원 구간 뱃지</strong> · 전교과 칸의 상향·소신·적정·안정·하향은 현재 학생의 9등급 환산과 화면에 표시된 해당 사례의 전교과 내신을 직접 비교한 값입니다. 대학별 자체 환산점수는 사용하지 않습니다.</span><div className="admission-favorite-mode"><button type="button" className={favoriteMode==="group"?"is-active":""} onClick={()=>setFavoriteMode("group")}>묶음 저장</button><button type="button" className={favoriteMode==="individual"?"is-active":""} onClick={()=>setFavoriteMode("individual")}>개별 저장</button></div></div>}
     <div className="admission-case-print-header print-only"><div><h2>대입 사례 세부 검색 결과</h2><strong>{studentPrintLabel}</strong><span>{printFilterLabel}</span></div><span>{sorted.length.toLocaleString()}건<br/>{new Date().toLocaleDateString("ko-KR")}</span></div>
-    {isNewUi()&&<div className="screen-only kdn-case-table-wrap"><table className="kdn-case-table kdn-cs-table"><thead><tr><th/><th>대학 · 모집단위</th><th>전형</th><th className="n" title="상향·소신·적정·안정·하향 = 학생 9등급 환산과 이 사례 전교과 내신의 차이(대학 자체 환산점수 아님)">전교과 · 구간 ⓘ</th><th className="n">대학 환산 · 수능</th><th>결과 · 등록</th><th>상담 연계</th></tr></thead><tbody>{renderModernRows(visible)}</tbody></table></div>}
+    {isNewUi()&&<div className="screen-only kdn-case-table-wrap"><table className="kdn-case-table kdn-cs-table is-compact"><colgroup><col style={{width:44}}/><col/><col style={{width:"22%"}}/><col style={{width:118}}/><col style={{width:104}}/><col style={{width:132}}/><col style={{width:128}}/></colgroup><thead><tr><th/><th>대학 · 모집단위</th><th>전형</th><th className="n" title="상향·소신·적정·안정·하향 = 학생 9등급 환산과 이 사례 전교과 내신의 차이(대학 자체 환산점수 아님)">전교과 · 구간 ⓘ</th><th className="n">환산 / 수능</th><th>결과 · 등록</th><th>상담 연계</th></tr></thead><tbody>{renderModernRows(visible)}</tbody></table></div>}
     <div className={isNewUi()?"screen-only kdn-hide-new":"screen-only"}><Table className="admission-case-search-table" wrapStyle={{overflowX:"auto",width:"100%",margin:0}}><colgroup><col style={{width:"10%"}}/><col style={{width:"13%"}}/><col style={{width:"12%"}}/><col style={{width:"9%"}}/><col style={{width:"17%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"9%"}}/><col style={{width:"6%"}}/></colgroup><thead><tr><th>상담 연계</th><th>대학</th><th>모집단위</th><th>지역·계열</th><th>전형</th><th className="grade-overall">전교과·구간</th><th className="grade-university">대학 환산</th><th className="grade-csat">수능 평균</th><th>최종 결과</th><th>등록</th></tr></thead><tbody>{renderRows(visible)}</tbody></Table></div>
     <div className="print-only print-landscape-only"><Table className="admission-case-search-table" wrapStyle={{overflow:"visible",width:"100%",margin:0,borderRadius:0}}><colgroup><col style={{width:"15%"}}/><col style={{width:"14%"}}/><col style={{width:"10%"}}/><col style={{width:"20%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"8%"}}/><col style={{width:"10%"}}/><col style={{width:"7%"}}/></colgroup><thead><tr><th>대학</th><th>모집단위</th><th>지역·계열</th><th>전형</th><th className="grade-overall">전교과·구간</th><th className="grade-university">대학 환산</th><th className="grade-csat">수능 평균</th><th>최종 결과</th><th>등록</th></tr></thead><tbody>{renderRows(sorted,true)}</tbody></Table></div>
     <div className="print-only print-portrait-only"><Table className="admission-case-search-table admission-case-portrait-table" wrapStyle={{overflow:"visible",width:"100%",margin:0,borderRadius:0}}><colgroup><col style={{width:"24%"}}/><col style={{width:"11%"}}/><col style={{width:"25%"}}/><col style={{width:"13%"}}/><col style={{width:"13%"}}/><col style={{width:"14%"}}/></colgroup><thead><tr><th>대학·모집단위</th><th>지역·계열</th><th>전형</th><th>내신·구간</th><th>환산·수능</th><th>결과·등록</th></tr></thead><tbody>{renderPortraitRows(sorted)}</tbody></Table></div>
@@ -1735,7 +1735,69 @@ function CaseConditionSummary({filters,filteredCount,total,profile,onReset}){
     <div className="stu"><small>연결 학생</small><b>{profile?.name?`${profile.name}`:"선택 안 함"}</b>{profile?.converted!=null&&<span>9등급 환산 {fmt(profile.converted)}</span>}</div>
   </div>;
 }
-function CaseSpotlight({cases,filtered,onUniversity,onDepartment,onTab,tab,tabItems}){
+// 시안 A 대시보드 홈: 요약 4칸 · 등급대별 합격률 · 전형별 결과 · 학생과 비슷한 성적의 합격 사례 많은 대학.
+function CaseHomeDashboard({rows=[],profile,onUniversity,onStudentTab}){
+  const accepted=rows.filter(row=>row.finalResult==="합격").length;
+  const rate=rows.length?accepted/rows.length*100:null;
+  const grades=useMemo(()=>groupStats(rows.filter(x=>x.gradeBand&&x.gradeBand<=6),x=>`${x.gradeBand}등급대`).sort((a,b)=>parseFloat(a.label)-parseFloat(b.label)),[rows]);
+  const types=useMemo(()=>groupStats(rows,x=>x.admissionType).slice(0,4),[rows]);
+  const studentBand=profile?.converted!=null?`${Math.max(1,Math.floor(profile.converted))}등급대`:"";
+  const top=useMemo(()=>{
+    const byUni=new Map();
+    rows.forEach(row=>{const key=row.universityNormalized||row.university;if(!key)return;if(!byUni.has(key))byUni.set(key,[]);byUni.get(key).push(row)});
+    const list=Array.from(byUni,([label,items])=>{
+      const near=profile?.converted!=null?items.filter(row=>row.overallGrade!=null&&Math.abs(row.overallGrade-profile.converted)<=0.5):items;
+      const acceptedNear=near.filter(row=>row.finalResult==="합격");
+      const cut=median(items.filter(row=>row.finalResult==="합격"&&row.overallGrade!=null).map(row=>row.overallGrade));
+      return{label,near:near.length,accepted:acceptedNear.length,rate:near.length?acceptedNear.length/near.length*100:0,cut};
+    }).filter(item=>item.near>0);
+    return list.sort((a,b)=>b.accepted-a.accepted||b.near-a.near).slice(0,6);
+  },[rows,profile?.converted]);
+  return <div className="kdn-ch">
+    <div className="kdn-ch-kpis">
+      <div><small>지원 사례</small><b>{rows.length.toLocaleString()}</b></div>
+      <div><small>합격 (최초+충원)</small><b className="ok">{accepted.toLocaleString()}</b></div>
+      <div><small>합격률</small><b>{rate==null?"-":fmt(rate,1)}<em>%</em></b></div>
+      <div className="me"><small>선택 학생 9등급 환산</small><b>{profile?.converted!=null?fmt(profile.converted):"학생 미선택"}</b></div>
+    </div>
+    <div className="kdn-ch-two">
+      <section className="kdn-ch-card"><h4>등급대별 합격률</h4>{grades.map(row=><div key={row.label} className={`kdn-ch-bar${row.label===studentBand?" is-me":""}`}><b>{row.label}{row.label===studentBand&&<i>◀ 학생</i>}</b><span className="tr"><i style={{width:`${Math.max(2,row.rate||0)}%`}}/></span><em>{row.rate==null?"-":`${Math.round(row.rate)}%`}</em></div>)}</section>
+      <section className="kdn-ch-card"><h4>전형별 결과</h4><div className="kdn-ch-tiles">{types.map(row=><div key={row.label}><small>{row.label}</small><b>{row.rate==null?"-":`${fmt(row.rate,1)}%`}</b><span>{row.total.toLocaleString()}건 · 합격 {row.accepted}</span></div>)}</div></section>
+    </div>
+    <section className="kdn-ch-card">
+      <div className="kdn-ch-head"><h4>{profile?.name?`${profile.name} 학생과 비슷한 성적(±0.5)의 합격 사례 많은 대학`:"합격 사례 많은 대학"}</h4>{profile&&onStudentTab&&<button type="button" data-kdn-bare onClick={onStudentTab}>전체 보기 →</button>}</div>
+      <div className="kdn-case-table-wrap"><table className="kdn-case-table kdn-gst"><thead><tr><th>대학</th>{profile&&<th>판정</th>}<th className="n">합격자 50%컷</th><th className="n">{profile?"유사 지원":"지원"}</th><th>합격 비율</th></tr></thead>
+        <tbody>{top.map(item=>{const band=profile?applicationBand(profile.converted,item.cut):null;return <tr key={item.label} onClick={()=>onUniversity?.(item.label)} style={{cursor:"pointer"}}><td><b>{item.label}</b></td>{profile&&<td><span className="kdn-ch-band" style={{color:band.color,background:band.background,borderColor:band.border}}>{band.label}</span></td>}<td className="n">{fmt(item.cut)}</td><td className="n">{item.near}</td><td><span className="kdn-ch-rate"><i style={{width:`${Math.max(2,item.rate)}%`}}/></span> {Math.round(item.rate)}%</td></tr>})}</tbody></table></div>
+    </section>
+  </div>;
+}
+
+// 시안 C 오른쪽 상세: 고른 대학(또는 대학·모집단위)의 사례 · 요약 · 같은 대학 다른 학과.
+function CaseQuickPanel({rows=[],selection,profile,onPick,onOpenFull}){
+  const[view,setView]=useState("cases");
+  const[page,setPage]=useState(1);
+  useEffect(()=>{setPage(1);setView("cases")},[selection?.university,selection?.department]);
+  const uniRows=useMemo(()=>rows.filter(row=>(row.universityNormalized||row.university)===selection?.university),[rows,selection?.university]);
+  const scoped=selection?.department?uniRows.filter(row=>row.department===selection.department):uniRows;
+  const accepted=scoped.filter(row=>row.finalResult==="합격");
+  const cut=median(accepted.map(row=>row.overallGrade).filter(value=>value!=null));
+  const sorted=[...scoped].sort((a,b)=>(Number(b.admissionYear)||0)-(Number(a.admissionYear)||0)||(a.overallGrade??9)-(b.overallGrade??9));
+  const max=Math.max(1,Math.ceil(sorted.length/10));
+  const verdicts=profile?.converted!=null?groupStats(scoped,row=>row.admissionType).filter(item=>item.median!=null).map(item=>({label:item.label,cut:item.median,band:applicationBand(profile.converted,item.median)})):[];
+  return <section className="kdn-cq">
+    <div className="kdn-cq-head"><div><h3>{selection.university}{selection.department?` · ${selection.department}`:""}</h3><small>지원 {scoped.length} · 합격 {accepted.length} · 합격자 50%컷 {fmt(cut)}</small></div>
+      <div className="kdn-seg" role="group" aria-label="보기">{[["cases","사례"],["summary","요약"],["others",selection.department?"같은 대학 다른 학과":"모집단위"]].map(([key,label])=><button key={key} type="button" data-kdn-bare aria-pressed={view===key} onClick={()=>setView(key)}>{label}</button>)}</div></div>
+    {view==="cases"&&<><div className="kdn-case-table-wrap"><table className="kdn-case-table kdn-gst"><thead><tr><th>연도</th>{!selection.department&&<th>모집단위</th>}<th>전형</th><th className="n">전교과</th><th className="n">대학 환산</th><th>결과</th><th>등록</th></tr></thead>
+      <tbody>{sorted.slice((page-1)*10,page*10).map(row=><tr key={row.caseId}><td>{caseYearLabel(row)}</td>{!selection.department&&<td><b>{row.department}</b></td>}<td>{row.detailType||row.admissionType}</td><td className="n"><b>{fmt(row.overallGrade)}</b></td><td className="n">{fmt(row.universityGrade)}</td><td><span style={{...styles.badge,...resultStyle(row.finalResultDetail)}}>{row.finalResultDetail}</span></td><td>{registrationDisplay(row).label}</td></tr>)}</tbody></table></div>
+      {max>1&&<div className="kdn-cq-pager"><button type="button" data-kdn-bare disabled={page<=1} onClick={()=>setPage(page-1)}>‹</button><span>{page} / {max}</span><button type="button" data-kdn-bare disabled={page>=max} onClick={()=>setPage(page+1)}>›</button></div>}</>}
+    {view==="summary"&&<GroupStatTable rows={groupStats(scoped,row=>row.detailType||row.admissionType)} label="전형"/>}
+    {view==="others"&&<div className="kdn-cq-others">{groupStats(uniRows,row=>row.department).map(item=><button key={item.label} type="button" data-kdn-bare className={item.label===selection.department?"is-on":""} onClick={()=>onPick(selection.university,item.label)}><b>{item.label}</b><span>지원 {item.total} · 합격 {item.accepted} · 50%컷 {fmt(item.median)}</span></button>)}</div>}
+    {verdicts.length>0&&<p className="kdn-cq-verdict"><b>{profile.name}({fmt(profile.converted)})</b> 기준: {verdicts.map((item,index)=><span key={item.label}>{index?", ":""}{item.label} 합격자 {fmt(item.cut)} → <strong style={{color:item.band.color}}>{item.band.label}</strong></span>)}</p>}
+    <div className="kdn-cq-foot"><button type="button" data-kdn-bare onClick={onOpenFull}>대학·전형별 전체 분석 열기 ›</button></div>
+  </section>;
+}
+
+function CaseSpotlight({cases,filtered,onUniversity,onDepartment,onTab,tab,tabItems,profile,selection,onSelect}){
   const[text,setText]=useState("");
   const deferred=useDeferredValue(text);
   const index=useMemo(()=>{
@@ -1756,23 +1818,24 @@ function CaseSpotlight({cases,filtered,onUniversity,onDepartment,onTab,tab,tabIt
   const unis=(strictUnis.length?strictUnis:needle?index.unis.filter(item=>anyHit(item.key)):[]).sort((a,b)=>b.total-a.total).slice(0,6);
   const deps=needle?index.deps.filter(item=>hit(item.key)).sort((a,b)=>b.total-a.total).slice(0,8):[];
   const top=useMemo(()=>[...index.unis].sort((a,b)=>b.total-a.total).slice(0,8),[index]);
-  const pick=()=>{if(unis[0])onUniversity(unis[0].label);else if(deps[0])onDepartment(deps[0].university,deps[0].department)};
+  const pick=()=>{if(unis[0])onSelect({university:unis[0].label,department:""});else if(deps[0])onSelect({university:deps[0].university,department:deps[0].department})};
   const accepted=filtered.filter(row=>row.finalResult==="합격").length;
   return <section className="kdn-case-c-hero">
     <div className="kdn-case-c-copy"><span>광덕고 대입 결과 · 2024–2026</span><h2>대학·학과 이름으로 바로 찾기</h2><small>{filtered.length.toLocaleString()}건 · 합격 {accepted.toLocaleString()} · {index.unis.length.toLocaleString()}개 대학</small></div>
     <label className="kdn-case-c-search"><Search size={20}/><input value={text} onChange={event=>setText(event.target.value)} onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();pick()}}} placeholder="예: 한양대 간호, 인천대, 경영학과"/>{text&&<button type="button" data-kdn-bare onClick={()=>setText("")} aria-label="검색어 지우기">×</button>}</label>
     {needle?<div className="kdn-case-c-results">
-      <div><small>대학 {unis.length}</small>{unis.length?unis.map(item=><button key={item.label} type="button" data-kdn-bare onClick={()=>onUniversity(item.label)}><b>{item.label}</b><span>지원 {item.total} · 합격 {item.accepted}</span></button>):<em>일치하는 대학 없음</em>}</div>
-      <div><small>모집단위 {deps.length}</small>{deps.length?deps.map(item=><button key={`${item.university}|${item.department}`} type="button" data-kdn-bare onClick={()=>onDepartment(item.university,item.department)}><b>{item.department}</b><span>{item.university} · 지원 {item.total} · 합격 {item.accepted}</span></button>):<em>일치하는 모집단위 없음</em>}</div>
-    </div>:<div className="kdn-case-c-chips"><small>지원 많은 대학</small>{top.map(item=><button key={item.label} type="button" data-kdn-bare onClick={()=>onUniversity(item.label)}>{item.label}</button>)}</div>}
+      <div><small>대학 {unis.length}</small>{unis.length?unis.map(item=><button key={item.label} type="button" data-kdn-bare className={selection?.university===item.label&&!selection?.department?"is-on":""} onClick={()=>onSelect({university:item.label,department:""})}><b>{item.label}</b><span>지원 {item.total} · 합격 {item.accepted}</span></button>):<em>일치하는 대학 없음</em>}</div>
+      <div><small>모집단위 {deps.length}</small>{deps.length?deps.map(item=><button key={`${item.university}|${item.department}`} type="button" data-kdn-bare className={selection?.university===item.university&&selection?.department===item.department?"is-on":""} onClick={()=>onSelect({university:item.university,department:item.department})}><b>{item.department}</b><span>{item.university} · 지원 {item.total} · 합격 {item.accepted}</span></button>):<em>일치하는 모집단위 없음</em>}</div>
+    </div>:<div className="kdn-case-c-chips"><small>지원 많은 대학</small>{top.map(item=><button key={item.label} type="button" data-kdn-bare onClick={()=>onSelect({university:item.label,department:""})}>{item.label}</button>)}</div>}
     <div className="kdn-case-c-tabs">{tabItems.map(([key,label])=><button key={key} type="button" data-kdn-bare className={tab===key?"is-on":""} onClick={()=>onTab(key)}>{label}</button>)}</div>
   </section>;
 }
 export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedStudentSid,onSelectedStudentSidChange,selectedStudentQuery,onSelectedStudentQueryChange,favorites=[],onToggleFavorite,onOpenAdmission,onOpenSusiNavi,onAddSupportPlan,onOpenSupportPlan,focusUniversity="",focusDepartment="",focusAdmissionType="",onBackToConsultation,onClearFocus}){
   const cases=useMemo(()=>prepareAdmissionCaseRows(gdb?.admissionCases||[]),[gdb?.admissionCases]);
-  const[tab,setTab]=useState("student");
+  const[tab,setTab]=useState(()=>isNewUi()&&readCaseLayout()==="dashboard"?"home":"student");
+  const[quickSel,setQuickSel]=useState(null);
   const[caseLayout,setCaseLayoutState]=useState(readCaseLayout);
-  const setCaseLayout=value=>{setCaseLayoutState(value);try{localStorage.setItem(CASE_LAYOUT_KEY,value)}catch{/* 저장 실패는 무시 */}};
+  const setCaseLayout=value=>{setCaseLayoutState(value);if(value==="dashboard"&&tab==="student")setTab("home");if(value!=="dashboard"&&tab==="home")setTab("student");try{localStorage.setItem(CASE_LAYOUT_KEY,value)}catch{/* 저장 실패는 무시 */}};
   const[wizardStep,setWizardStep]=useState("student");
   const[studentUniversity,setStudentUniversity]=useState("");
   const[universitySelection,setUniversitySelection]=useState("");
@@ -1839,7 +1902,7 @@ export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedS
     setNavDepth(0);
   },[focusUniversity,focusDepartment,focusAdmissionType]);
   if(!cases.length)return <Empty title="아직 저장된 대입 사례 데이터가 없습니다." text="관리자 → 성적 데이터 → 2024–2026 대입 사례 데이터에서 엑셀을 업로드하세요."/>;
-  const tabLabel={student:"학생 맞춤 분석",overview:"전체 현황",university:"대학·전형별",dimension:"등급·지역별",search:"사례 검색"}[tab]||"대입 결과";
+  const tabLabel={home:"대시보드",student:"학생 맞춤 분석",overview:"전체 현황",university:"대학·전형별",dimension:"등급·지역별",search:"사례 검색"}[tab]||"대입 결과";
   const breadcrumb=["광덕고 대입 결과",tabLabel,studentUniversity||universitySelection||searchFocus.university,searchFocus.department].filter(Boolean).join("  ›  ");
   const selectTab=key=>navigate({tab:key,studentUniversity:"",universitySelection:key==="university"?universitySelection:"",searchFocus:key==="search"?searchFocus:{university:"",department:"",admissionType:""}});
   const navBlock=(navDepth>0||onBackToConsultation||focusUniversity)&&<div className="admission-internal-nav"><div style={{display:"flex",gap:7,alignItems:"center",flexWrap:"wrap"}}>{navDepth>0&&<button type="button" onClick={goBack}><ArrowLeft size={14}/>이전 화면</button>}{onBackToConsultation&&<button type="button" onClick={onBackToConsultation}><ArrowLeft size={14}/>상담·관심 대학으로</button>}<span>{breadcrumb}</span></div>{focusUniversity&&<span>연결 대학 <b>{focusUniversity}</b> <button type="button" className="admission-clear-button" style={{marginLeft:6}} onClick={()=>{setUniversitySelection("");onClearFocus?.()}}>연결 필터 해제</button></span>}</div>;
@@ -1850,38 +1913,53 @@ export function AdmissionCaseAnalytics({gdb,roster={},currentGrade="2",selectedS
   const tabItems=[["student","학생 맞춤 분석"],["overview","전체 현황"],["university","대학·전형별"],["dimension","등급·지역별"],["search","사례 검색"]];
   const tabsBlock=<div className="kdn-case-tabs" style={styles.tabs}>{[["student","학생 맞춤 분석"],["overview","전체 현황"],["university","대학·전형별"],["dimension","등급·지역별"],["search","사례 검색"]].map(([key,label])=><button key={key} onClick={()=>selectTab(key)} style={{...styles.tab,...(tab===key?styles.tabActive:{})}}>{label}</button>)}</div>;
   const filterBlock=<><FilterPanel cases={cases} filters={filters} setFilters={setFilters} filteredCount={filtered.length} profile={profile}/><div className={isNewUi()?"kdn-hide-new":undefined} style={styles.filteredCount}><Filter size={13}/>전체 {cases.length.toLocaleString()}건 중 현재 조건에 해당하는 사례 <b>{filtered.length.toLocaleString()}건</b></div>{filtered.length===0&&<div style={{display:"flex",alignItems:"center",gap:9,padding:"12px 14px",borderRadius:11,background:"#fff4ed",border:"1px solid #f1cfb7",color:"#8a4f25",fontSize:12}}><AlertTriangle size={16}/><span>조건에 해당하는 사례가 없습니다. 상단의 <b>전체 초기화</b>를 누르거나 선택 범위를 넓혀보세요.</span></div>}</>;
-  const contentBlock=<>{tab!=="student"&&!isNewUi()&&<ResultQuickFilters filters={filters} setFilters={setFilters} profile={profile}/>}{tab==="student"&&<StudentMatch rows={studentFiltered} profile={profile} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenSusiNavi={onOpenSusiNavi} onAddSupportPlan={onAddSupportPlan} onOpenSupportPlan={onOpenSupportPlan} admissionRows={gdb?.admissionRows||[]} selectedUniversity={studentUniversity} onSelectUniversity={value=>value?navigate({tab:"student",studentUniversity:value}):setStudentUniversity("")} onBackUniversity={goBack} onOpenDepartmentCases={(university,department,admissionType)=>navigate({tab:"search",studentUniversity:"",universitySelection:"",searchFocus:{university,department,admissionType},filters:emptyCaseFilters()})} quickFilters={isNewUi()?null:<ResultQuickFilters filters={filters} setFilters={setFilters} profile={profile}/>} supportBands={filters.bands||[]}/>} {tab==="overview"&&<Overview rows={filtered}/>} {tab==="university"&&<UniversityAnalysis rows={filtered} focusUniversity={focusUniversity} selectedUniversity={universitySelection} onSelectedUniversityChange={setUniversitySelection} onOpenSusiNavi={onOpenSusiNavi} onAddSupportPlan={onAddSupportPlan} onOpenSupportPlan={onOpenSupportPlan} onOpenDepartmentCases={(university,department,admissionType)=>navigate({tab:"search",studentUniversity:"",universitySelection:"",searchFocus:{university,department,admissionType},filters:emptyCaseFilters()})}/>} {tab==="dimension"&&<DimensionAnalysis rows={filtered}/>} {tab==="search"&&<CaseSearch rows={filtered} comparisonRows={cases} profile={profile} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenSusiNavi={onOpenSusiNavi} onAddSupportPlan={onAddSupportPlan} onOpenSupportPlan={onOpenSupportPlan} focusUniversity={searchFocus.university||focusUniversity} focusDepartment={searchFocus.department||focusDepartment} focusAdmissionType={searchFocus.admissionType||focusAdmissionType} globalMinGrade={filters.minGrade} globalMaxGrade={filters.maxGrade} onClearLinkedFocus={()=>{setSearchFocus({university:"",department:"",admissionType:""});onClearFocus?.()}}/>}</>;
+  const contentBlock=<>{tab==="home"&&<CaseHomeDashboard rows={filtered} profile={profile} onUniversity={label=>navigate({tab:"university",studentUniversity:"",universitySelection:label,searchFocus:{university:"",department:"",admissionType:""}})} onStudentTab={()=>selectTab("student")}/>}{tab!=="student"&&tab!=="home"&&!isNewUi()&&<ResultQuickFilters filters={filters} setFilters={setFilters} profile={profile}/>}{tab==="student"&&<StudentMatch rows={studentFiltered} profile={profile} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenSusiNavi={onOpenSusiNavi} onAddSupportPlan={onAddSupportPlan} onOpenSupportPlan={onOpenSupportPlan} admissionRows={gdb?.admissionRows||[]} selectedUniversity={studentUniversity} onSelectUniversity={value=>value?navigate({tab:"student",studentUniversity:value}):setStudentUniversity("")} onBackUniversity={goBack} onOpenDepartmentCases={(university,department,admissionType)=>navigate({tab:"search",studentUniversity:"",universitySelection:"",searchFocus:{university,department,admissionType},filters:emptyCaseFilters()})} quickFilters={isNewUi()?null:<ResultQuickFilters filters={filters} setFilters={setFilters} profile={profile}/>} supportBands={filters.bands||[]}/>} {tab==="overview"&&<Overview rows={filtered}/>} {tab==="university"&&<UniversityAnalysis rows={filtered} focusUniversity={focusUniversity} selectedUniversity={universitySelection} onSelectedUniversityChange={setUniversitySelection} onOpenSusiNavi={onOpenSusiNavi} onAddSupportPlan={onAddSupportPlan} onOpenSupportPlan={onOpenSupportPlan} onOpenDepartmentCases={(university,department,admissionType)=>navigate({tab:"search",studentUniversity:"",universitySelection:"",searchFocus:{university,department,admissionType},filters:emptyCaseFilters()})}/>} {tab==="dimension"&&<DimensionAnalysis rows={filtered}/>} {tab==="search"&&<CaseSearch rows={filtered} comparisonRows={cases} profile={profile} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenSusiNavi={onOpenSusiNavi} onAddSupportPlan={onAddSupportPlan} onOpenSupportPlan={onOpenSupportPlan} focusUniversity={searchFocus.university||focusUniversity} focusDepartment={searchFocus.department||focusDepartment} focusAdmissionType={searchFocus.admissionType||focusAdmissionType} globalMinGrade={filters.minGrade} globalMaxGrade={filters.maxGrade} onClearLinkedFocus={()=>{setSearchFocus({university:"",department:"",admissionType:""});onClearFocus?.()}}/>}</>;
   const newUi=isNewUi();
   const layout=newUi?caseLayout:"classic";
   const hero=<>{newUi&&<CaseHero cases={cases} filtered={filtered}/>}
     <div className={isNewUi()?"kdn-hide-new":undefined} style={styles.hero}><div><small>광덕고 상담 지원 자료</small><h2>2024–2026 광덕고 대입 결과</h2><p>과거 졸업생의 통합 지원 사례를 등급·지역·전형별로 분석합니다. 학생 수가 아니라 지원 사례 수입니다.</p></div><div style={styles.heroMeta}><b>{cases.length.toLocaleString()}</b><span>통합 지원 사례</span></div></div></>;
   const switcher=newUi&&<CaseLayoutSwitch value={caseLayout} onChange={setCaseLayout}/>;
   if(layout==="dashboard")return <div className="admission-case-ui kdn-case-layout-a" style={styles.page}><style>{CSS}</style>
-    {hero}{switcher}
+    {switcher}
     <div className="kdn-case-a-grid">
       <aside className="kdn-case-a-side">
-        <nav className="kdn-case-a-nav">{tabItems.map(([key,label])=><button key={key} type="button" data-kdn-bare className={tab===key?"is-on":""} onClick={()=>selectTab(key)}><span>{label}</span><ChevronRight size={15}/></button>)}</nav>
+        <div className="kdn-case-a-brand"><small>2024–2026 지원 사례</small><b>광덕고 대입 결과</b><span>{cases.length.toLocaleString()}건 · {new Set(cases.map(row=>row.universityNormalized||row.university)).size.toLocaleString()}개 대학</span></div>
+        <nav className="kdn-case-a-nav">{[["home","대시보드"],...tabItems].map(([key,label])=><button key={key} type="button" data-kdn-bare className={tab===key?"is-on":""} onClick={()=>selectTab(key)}><span>{label}</span><ChevronRight size={15}/></button>)}</nav>
         <CaseConditionSummary filters={filters} filteredCount={filtered.length} total={cases.length} profile={profile} onReset={()=>setFilters(emptyCaseFilters())}/>
       </aside>
       <main className="kdn-case-a-main">{navBlock}{studentBlock}{filterBlock}{contentBlock}</main>
     </div>
   </div>;
   if(layout==="wizard"){
-    const steps=[["student","학생",profile?.name?`${profile.name} · 9환산 ${fmt(profile.converted)}`:"선택 안 함 (건너뛰기 가능)"],["filter","조건",`${filtered.length.toLocaleString()}건 해당`],["result","결과 보기",tabLabel]];
+    // 시안 B: 학생 → 조건 → 대학 고르기 → 대학 상세. 3·4단계는 학생이 있으면 학생 맞춤 분석(판정 표), 없으면 대학·전형별 표를 씁니다.
+    const pickTab=profile?.name?"student":"university";
+    const detailOpen=Boolean(studentUniversity||universitySelection);
+    const current=wizardStep==="result"?(detailOpen?"detail":"pick"):wizardStep;
+    const conditionText=[...(filters.fields||[]),...(filters.admissionGroups||[]),...(filters.regions||[])].join(" · ")||"전체 사례";
+    const steps=[["student","학생",profile?.name?`${profile.sid} ${profile.name} · 9환산 ${fmt(profile.converted)}`:"선택 안 함 (건너뛰기 가능)"],["filter","조건",`${conditionText} · ${filtered.length.toLocaleString()}건`],["pick","대학 고르기",profile?.name?"판정·50%컷으로 비교":"지원 많은 순으로 비교"],["detail","대학 상세",detailOpen?(studentUniversity||universitySelection):"대학을 먼저 고르세요"]];
+    const goStep=key=>{if(key==="student"||key==="filter"){setWizardStep(key);return}if(key==="pick"){setWizardStep("result");navigate({tab:pickTab,studentUniversity:"",universitySelection:"",searchFocus:{university:"",department:"",admissionType:""}});return}if(detailOpen)setWizardStep("result")};
+    const guide={student:"상담할 학생을 고르면 성적과 비슷한 사례·지원 구간 판정이 함께 표시됩니다. 학생 없이 전체 자료만 볼 수도 있습니다.",filter:"필요한 조건만 고르세요. 아무것도 고르지 않으면 전체 사례로 분석합니다.",pick:"표에서 대학 한 곳을 고르면 4단계에서 모집단위·전형별 사례를 봅니다.",detail:"모집단위·전형별 사례와 합격자 내신을 확인하고, 관심 대학·수시 지원 구성에 담을 수 있습니다."}[current];
     return <div className="admission-case-ui kdn-case-layout-b" style={styles.page}><style>{CSS}</style>
-      {hero}{switcher}
-      <StepTabs value={wizardStep} onChange={setWizardStep} items={steps}/>
-      {wizardStep==="student"&&<section className="kdn-case-b-step"><div className="kdn-case-b-guide"><b>1단계 · 상담할 학생을 고르세요</b><span>학생을 고르면 성적과 비슷한 사례·지원 구간 판정이 함께 표시됩니다. 학생 없이 전체 자료만 볼 수도 있습니다.</span></div>{studentBlock}<div className="kdn-case-b-next"><button type="button" className="ghost" onClick={()=>setWizardStep("filter")}>학생 없이 건너뛰기</button><button type="button" onClick={()=>setWizardStep("filter")}>다음: 조건 정하기 ›</button></div></section>}
-      {wizardStep==="filter"&&<section className="kdn-case-b-step"><div className="kdn-case-b-guide"><b>2단계 · 계열·전형·지역 조건</b><span>필요한 조건만 고르세요. 아무것도 고르지 않으면 전체 사례로 분석합니다.</span></div>{filterBlock}<div className="kdn-case-b-next"><button type="button" className="ghost" onClick={()=>setWizardStep("student")}>‹ 이전: 학생</button><button type="button" onClick={()=>{if(!profile?.name&&tab==="student")setTab("overview");setWizardStep("result")}}>다음: 결과 보기 ({filtered.length.toLocaleString()}건) ›</button></div></section>}
-      {wizardStep==="result"&&<section className="kdn-case-b-step is-result">{navBlock}{tabsBlock}{contentBlock}<div className="kdn-case-b-next"><button type="button" className="ghost" onClick={()=>setWizardStep("filter")}>‹ 조건 바꾸기</button></div></section>}
+      <div className="kdn-case-b-top"><div><small>광덕고 대입 결과 · 2024–2026 지원 사례 {cases.length.toLocaleString()}건</small><h2>어떤 대학을 알아볼까요?</h2></div>{switcher}</div>
+      <StepTabs value={current} onChange={goStep} items={steps}/>
+      <div className={`kdn-case-b-body${current==="pick"||current==="detail"?" is-wide":""}`}>
+        <div className="kdn-case-b-main">
+          {current==="student"&&<section className="kdn-case-b-step">{studentBlock}<div className="kdn-case-b-next"><button type="button" className="ghost" onClick={()=>setWizardStep("filter")}>학생 없이 건너뛰기</button><button type="button" onClick={()=>setWizardStep("filter")}>다음: 조건 정하기 ›</button></div></section>}
+          {current==="filter"&&<section className="kdn-case-b-step">{filterBlock}<div className="kdn-case-b-next"><button type="button" className="ghost" onClick={()=>setWizardStep("student")}>‹ 이전: 학생</button><button type="button" onClick={()=>goStep("pick")}>다음: 대학 고르기 ({filtered.length.toLocaleString()}건) ›</button></div></section>}
+          {(current==="pick"||current==="detail")&&<section className="kdn-case-b-step is-result">{navBlock}{contentBlock}<div className="kdn-case-b-next"><button type="button" className="ghost" onClick={()=>current==="detail"?goStep("pick"):setWizardStep("filter")}>{current==="detail"?"‹ 이전: 대학 고르기":"‹ 이전: 조건"}</button></div></section>}
+        </div>
+        <aside className="kdn-case-b-side">
+          <div className="kdn-case-b-tip"><small>이 단계에서 하는 일</small><b>{guide}</b></div>
+          <div className="kdn-case-b-sel"><b>선택한 조건</b><p><span>학생</span>{profile?.name?`${profile.name} (${fmt(profile.converted)})`:"없음"}</p><p><span>계열</span>{(filters.fields||[]).join("·")||"전체"}</p><p><span>전형</span>{(filters.admissionGroups||[]).join("·")||"전체"}</p><p><span>지역</span>{(filters.regions||[]).join("·")||"전체"}</p><p><span>사례</span>{filtered.length.toLocaleString()}건</p>{current!=="filter"&&<button type="button" data-kdn-bare onClick={()=>setWizardStep("filter")}>2단계로 돌아가 바꾸기</button>}</div>
+        </aside>
+      </div>
     </div>;
   }
   if(layout==="search")return <div className="admission-case-ui kdn-case-layout-c" style={styles.page}><style>{CSS}</style>
-    <CaseSpotlight cases={cases} filtered={filtered} onUniversity={label=>navigate({tab:"university",studentUniversity:"",universitySelection:label,searchFocus:{university:"",department:"",admissionType:""}})} onDepartment={(university,department)=>navigate({tab:"search",studentUniversity:"",universitySelection:"",searchFocus:{university,department,admissionType:""}})} onTab={selectTab} tab={tab} tabItems={tabItems}/>
+    <CaseSpotlight cases={cases} filtered={filtered} profile={profile} selection={quickSel} onSelect={sel=>setQuickSel(sel)} onUniversity={label=>navigate({tab:"university",studentUniversity:"",universitySelection:label,searchFocus:{university:"",department:"",admissionType:""}})} onDepartment={(university,department)=>navigate({tab:"search",studentUniversity:"",universitySelection:"",searchFocus:{university,department,admissionType:""}})} onTab={key=>{setQuickSel(null);selectTab(key)}} tab={quickSel?"":tab} tabItems={tabItems}/>
     {switcher}
-    {navBlock}
     <details className="kdn-case-c-more"><summary>학생 연결 · 환산 기준 · 계열·전형·지역 조건 <span>{profile?.name?`${profile.name} 연결됨`:"학생 미선택"} · {filtered.length.toLocaleString()}건</span></summary><div className="kdn-case-c-more-body">{studentBlock}{filterBlock}</div></details>
-    {contentBlock}
+    {quickSel?<CaseQuickPanel rows={filtered} selection={quickSel} profile={profile} onPick={(university,department)=>setQuickSel({university,department})} onOpenFull={()=>{const sel=quickSel;setQuickSel(null);if(sel.department)navigate({tab:"search",studentUniversity:"",universitySelection:"",searchFocus:{university:sel.university,department:sel.department,admissionType:""}});else navigate({tab:"university",studentUniversity:"",universitySelection:sel.university,searchFocus:{university:"",department:"",admissionType:""}})}}/>:<>{navBlock}{contentBlock}</>}
   </div>;
   return <div className="admission-case-ui" style={styles.page}><style>{CSS}</style>
     {hero}

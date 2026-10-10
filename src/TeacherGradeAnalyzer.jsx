@@ -364,6 +364,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const deferredSearch = useDeferredValue(search);
   const [classFilter, setClassFilter] = useState(homeroomClass ? String(homeroomClass) : "all");
   const [gradeFilter, setGradeFilter] = useState("all");
+  // 결과표 정렬: 석차순(기본) · 학번순 · 반·번호순. 브라우저에 기억합니다.
+  const [rowSort, setRowSortState] = useState(() => { try { return ["rank", "sid", "class"].includes(localStorage.getItem("kd_grade_row_sort")) ? localStorage.getItem("kd_grade_row_sort") : "rank"; } catch { return "rank"; } });
+  const setRowSort = value => { setRowSortState(value); try { localStorage.setItem("kd_grade_row_sort", value); } catch { /* 저장 실패해도 정렬은 됨 */ } };
   const [minimumFilter, setMinimumFilter] = useState("all");
   const [selectedSharedId, setSelectedSharedId] = useState("");
   const [uploadMessages, setUploadMessages] = useState([]);
@@ -1094,7 +1097,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     const query = normalizeToken(deferredSearch);
     if (!query) return true;
     return [row.sid, row.name, row.neisId].some(value => normalizeToken(value).includes(query));
-  }), [activeRows, activeView, classFilter, gradeFilter, minimumFilter, deferredSearch]);
+  }).sort((a, b) => rowSort === "sid" ? String(a.sid).localeCompare(String(b.sid)) : rowSort === "class" ? (Number(a.classNumber) || 99) - (Number(b.classNumber) || 99) || (Number(a.number) || 99) - (Number(b.number) || 99) : 0), [activeRows, activeView, classFilter, gradeFilter, minimumFilter, deferredSearch, rowSort]);
   const eligibleActiveRows = useMemo(() => activeRows.filter(row => !row.excluded), [activeRows]);
   const completeActiveRows = useMemo(() => eligibleActiveRows.filter(row => activeView === "combined" ? row.complete : activeView === "minimum" ? true : Number.isFinite(row.score)), [eligibleActiveRows, activeView]);
   const classes = useMemo(() => Array.from(new Set(activeRows.map(row => row.classNumber).filter(Boolean))).sort((a, b) => a - b), [activeRows]);
@@ -1452,7 +1455,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           {newUi && activeView !== "minimum" && resultLook === "classes" && <ResultClassCompare rows={eligibleActiveRows} scoreOf={activeView === "combined" ? row => (row.complete ? row.convertedScore : null) : row => row.score}
             maxScore={activeView === "combined" ? 100 : (Number(selectedWritten?.maxScore) || 100)} gradeSystem={settings.gradeSystem} written={sortedWritten} combined={activeView === "combined"} title={activeView === "combined" ? "학기말 환산 점수" : `${selectedWritten?.title || "지필"} 점수`} />}
           {activeView !== "minimum" && (!newUi || resultLook === "dashboard") && <div style={ui.summaryGrid}>
-            <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 등급컷{newUi && <small className="kdn-cutcards-hint">막대 = 실제 인원 · 검은 선 = 기준 인원(수강자 × 비율, 반올림)</small>}</div>{newUi ? <GradeCutCards rows={gradeDistribution} total={completeActiveRows.length}/> : <GradeCutoffTable rows={gradeDistribution} total={completeActiveRows.length}/>}<p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
+            <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 등급컷{newUi && <small className="kdn-cutcards-hint">인원 = 실제 배정 · 막대의 검은 선 = 기준 인원(수강자 × 비율, 반올림)</small>}</div>{newUi ? <GradeCutCards rows={gradeDistribution} total={completeActiveRows.length}/> : <GradeCutoffTable rows={gradeDistribution} total={completeActiveRows.length}/>}<p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
             {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><PieChart size={16} /> 성취도 분포</div><AchievementDonut rows={achievementDistribution} total={completeActiveRows.length} mode={settings.achievementMode} settings={settings}/></div>}
           </div>}
 
@@ -1478,6 +1481,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             <div style={ui.searchBox}><span style={ui.searchIcon}><Search size={15}/></span><div style={ui.searchField}><small style={ui.searchLabel}>학생 검색</small><input className="teacher-grade-analyzer-search-input" value={search} onChange={event => setSearch(event.target.value)} placeholder="학번 또는 이름을 입력하세요" /></div></div>
             <select value={classFilter} onChange={event => setClassFilter(event.target.value)} style={ui.select}><option value="all">전체 반</option>{classes.map(classNumber => <option key={classNumber} value={String(classNumber)}>{classNumber}반</option>)}</select>
             {activeView === "minimum" ? <select value={minimumFilter} onChange={event => setMinimumFilter(event.target.value)} style={ui.select}><option value="all">전체</option><option value="risk">주의 대상자</option><option value="fail">미도달</option><option value="check">확인 필요</option><option value="reached">도달</option></select> : <select value={gradeFilter} onChange={event => setGradeFilter(event.target.value)} style={ui.select}><option value="all">전체 등급</option>{Array.from({length:Number(settings.gradeSystem)},(_,index)=><option key={index+1} value={String(index+1)}>{index+1}등급</option>)}</select>}
+            <select value={rowSort} onChange={event => setRowSort(event.target.value)} style={ui.select} aria-label="정렬"><option value="rank">{activeView === "minimum" ? "기본 순서" : "석차순"}</option><option value="sid">학번순</option><option value="class">반·번호순</option></select>
             <button type="button" className="student-score-edit-launch" disabled={readOnlyWorkspace} onClick={()=>openStudentEditor()}><Plus size={13}/> 학생 성적 입력·수정</button>
             <span style={ui.resultCount}>{filteredRows.length}명 표시</span>
           </div>
@@ -1531,14 +1535,19 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
 // 새 UI 등급컷 카드: 등급마다 컷 점수를 크게, 실제 인원 막대와 기준 인원 눈금을 함께 보여줍니다.
 const CUT_CARD_COLORS = ["#e2531a", "#f08a4b", "#f6b26b", "#94a3b8", "#64748b", "#475569", "#334155", "#1e293b", "#0f172a"];
 function GradeCutCards({ rows, total }) {
-  const scale = Math.max(1, ...rows.map(item => Math.max(item.count || 0, item.target || 0)));
-  return <div className={`kdn-cutcards${rows.length > 5 ? " is-9" : ""}`}>{rows.map((item, index) => <div key={item.grade} className="kdn-cutcard" style={{ "--c": CUT_CARD_COLORS[Math.min(index, CUT_CARD_COLORS.length - 1)] }}>
-    <span className="g">{item.grade}등급</span>
-    <small>{index === rows.length - 1 ? "최저점" : "등급컷"}</small>
-    <b className="v">{item.min == null ? "-" : formatScore(item.min, 2)}</b>
-    <div className="meter" title={`실제 ${item.count}명 · 기준 ${item.target}명`}><i style={{ width: `${((item.count || 0) / scale) * 100}%` }} /><em style={{ left: `${((item.target || 0) / scale) * 100}%` }} /></div>
-    <div className="cnt"><span>실제 <b>{item.count}</b>명</span><span>기준 {item.target} · {total ? ((item.count / total) * 100).toFixed(1) : "0.0"}%</span></div>
-  </div>)}</div>;
+  return <div className={`kdn-cutcards${rows.length > 5 ? " is-9" : ""}`}>{rows.map((item, index) => {
+    const span = Math.max(1, item.count || 0, item.target || 0);
+    const diff = (item.count || 0) - (item.target || 0);
+    return <div key={item.grade} className="kdn-cutcard" style={{ "--c": CUT_CARD_COLORS[Math.min(index, CUT_CARD_COLORS.length - 1)] }}>
+      <span className="g">{item.grade}등급</span>
+      <div className="nums">
+        <div><small>{index === rows.length - 1 ? "최저점" : "등급컷"}</small><b className="v">{item.min == null ? "-" : formatScore(item.min, 2)}</b></div>
+        <div className="people"><small>인원</small><b className="v">{item.count}<em>명</em></b></div>
+      </div>
+      <div className="meter" title={`실제 ${item.count}명 · 기준 ${item.target}명`}><i style={{ width: `${((item.count || 0) / span) * 100}%` }} /><em style={{ left: `${((item.target || 0) / span) * 100}%` }} /></div>
+      <div className="cnt"><span>기준 {item.target}명{diff ? <b className={diff > 0 ? "over" : "under"}> ({diff > 0 ? "+" : ""}{diff})</b> : null}</span><span>{total ? ((item.count / total) * 100).toFixed(1) : "0.0"}%</span></div>
+    </div>;
+  })}</div>;
 }
 function GradeCutoffTable({ rows, total }) {
   return <div className="grade-cutoff-table-wrap"><table className="grade-cutoff-table"><thead><tr><th>등급</th><th>기준 인원</th><th>실제 인원</th><th>비율</th><th>등급컷</th></tr></thead><tbody>{rows.map(item=><tr key={item.grade}><td><span style={{...ui.gradePill,...(item.grade===1?ui.gradePillFirst:{})}}>{item.grade}등급</span></td><td>{item.target}명</td><td><b>{item.count}명</b></td><td>{total?((item.count/total)*100).toFixed(1):"0.0"}%</td><td><strong className="grade-cutoff-text">{item.min==null?"-":formatScore(item.min,2)}</strong></td></tr>)}</tbody></table></div>;
