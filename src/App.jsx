@@ -5158,8 +5158,43 @@ const ADMIN_TABS = [
   ["notices", <ClipboardList size={14} />, "공지 현황"],
   ["verify", <Check size={14} />, "검증"],
 ];
+// 새 UI 관리자 첫 화면: 데이터·사람·소통 상태를 카드로 모아 "오늘 확인할 일"을 먼저 보여줍니다(캔버스 ⑩ 관리자 홈 시안).
+function AdminHome({ db = {}, gdb, grade, semester, roster = {}, timetables = {}, accounts = {}, onOpen }) {
+  const semLabel = semester === "sem1" ? "1학기" : "2학기";
+  const classes = Array.from(new Set(Object.values(roster || {}).map(info => String(info?.class || "")).filter(Boolean)));
+  const ttClasses = Object.keys(timetables || {}).filter(key => timetables[key] && Object.keys(timetables[key] || {}).length);
+  const linked = classes.filter(no => ttClasses.includes(no) || ttClasses.includes(Number(no)) || ttClasses.some(key => String(key).replace(/\D/g, "") === no)).length;
+  const semKey = `${grade}-${semester === "sem1" ? 1 : 2}`;
+  const gradeStudents = Object.keys(gdb?.semesterData?.[semKey]?.students || {}).length;
+  const cases = (gdb?.admissionCases || []).length;
+  const pending = (accounts?.teacherPending || []).length;
+  const teachers = (accounts?.teachers || []).length;
+  const openFeedback = (db.feedback || []).filter(item => !item.status || item.status === "접수").length;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const nextEvent = (db.academicCalendar?.events || []).map(event => ({ ...event, d: Math.round((new Date(`${event.date}T00:00:00`) - today) / 86400000) })).filter(event => event.d >= 0).sort((a, b) => a.d - b.d)[0];
+  const cards = [
+    { group: "데이터", key: "timetable", icon: <ClipboardList size={20} />, tone: "teal", title: "시간표·명단", value: classes.length ? `${linked}/${classes.length}` : "명단 없음", sub: classes.length ? "반 시간표 연결" : `${grade}학년 ${semLabel} 명단을 올려 주세요`, progress: classes.length ? linked / classes.length : 0, todo: !classes.length || linked < classes.length },
+    { group: "데이터", key: "grades", icon: <FileSpreadsheet size={20} />, tone: "blue", title: "성적 데이터", value: gradeStudents ? `${gradeStudents}명` : "없음", sub: `${semKey} 학기 성적`, todo: !gradeStudents },
+    { group: "데이터", key: "grades", icon: <GraduationCap size={20} />, tone: "violet", title: "대입 사례", value: cases ? cases.toLocaleString() : "없음", sub: "광덕고 대입 결과 사례 수", todo: !cases },
+    { group: "사람·권한", key: "accounts", icon: <Lock size={20} />, tone: pending ? "amber" : "green", title: "계정·권한", value: pending ? `승인 ${pending}` : "정상", sub: `선생님 계정 ${teachers}명`, todo: pending > 0 },
+    { group: "사람·권한", key: "classGrades", icon: <BarChart3 size={20} />, tone: "sky", title: "반별 성적", value: "보기", sub: "반마다 누적 내신·반 비교" },
+    { group: "소통·설정", key: "staffNotices", icon: <Megaphone size={20} />, tone: "orange", title: "교직원 공지", value: `${(db.staffNotices || []).length}건`, sub: "등록된 공지" },
+    { group: "소통·설정", key: "siteAnnouncements", icon: <BellRing size={20} />, tone: "pink", title: "전체 공지 팝업", value: `${(db.siteAnnouncements || []).length}건`, sub: "로그인 팝업" },
+    { group: "소통·설정", key: "academicCalendar", icon: <Calendar size={20} />, tone: "green", title: "학사일정", value: nextEvent ? (nextEvent.d === 0 ? "D-day" : `D-${nextEvent.d}`) : "일정 없음", sub: nextEvent ? `${nextEvent.label} · ${nextEvent.date}` : "중간·기말·수능 등을 넣어 주세요", todo: !nextEvent },
+    { group: "소통·설정", key: "feedback", icon: <Bug size={20} />, tone: openFeedback ? "red" : "green", title: "건의·버그", value: openFeedback ? `미처리 ${openFeedback}` : "모두 처리", sub: `전체 ${(db.feedback || []).length}건`, todo: openFeedback > 0 },
+  ];
+  const todos = cards.filter(card => card.todo);
+  return <div className="kdn-ah">
+    <section className="kdn-ah-hero"><div><small>통합 관리 · {grade}학년 {semLabel}</small><b>{todos.length ? `오늘 확인할 일이 ${todos.length}개 있어요` : "확인할 일이 없어요"}</b>{todos.length > 0 && <div className="todo">{todos.map(card => <button key={card.title} type="button" data-kdn-bare onClick={() => onOpen(card.key)}>{card.title} · {card.value} ›</button>)}</div>}</div></section>
+    {["데이터", "사람·권한", "소통·설정"].map(group => <section key={group} className="kdn-ah-group"><h3>{group}</h3><div className="kdn-ah-cards">{cards.filter(card => card.group === group).map(card => <button key={card.title} type="button" data-kdn-bare className={`kdn-ah-card is-${card.tone}${card.todo ? " is-todo" : ""}`} onClick={() => onOpen(card.key)}>
+      <span className="ic">{card.icon}</span><span className="tt">{card.title}</span>{card.todo && <span className="flag">확인 필요</span>}
+      <b className="v">{card.value}</b><small>{card.sub}</small>
+      {card.progress != null && <span className="bar"><i style={{ width: `${Math.round(card.progress * 100)}%` }} /></span>}
+    </button>)}</div></section>)}
+  </div>;
+}
 function AdminConsole(props) {
-  const [sub, setSub] = useState("timetable");
+  const [sub, setSub] = useState(() => (isNewUi() ? "home" : "timetable"));
   return (
     <div style={styles.body}>
       <h1 style={styles.h1}>통합 관리자</h1>
@@ -5172,6 +5207,7 @@ function AdminConsole(props) {
       </div>
       <div className="kdn-admin-layout">
       <div className="kdn-admin-nav" style={styles.adminTabs}>
+        {isNewUi() && <button onClick={() => setSub("home")} style={{ ...styles.adminTabBtn, ...(sub === "home" ? styles.adminTabBtnActive : {}) }}><LayoutGrid size={14} /> 관리 홈</button>}
         <button onClick={() => setSub("timetable")} style={{ ...styles.adminTabBtn, ...(sub === "timetable" ? styles.adminTabBtnActive : {}) }}><ClipboardList size={14} /> 시간표 관리</button>
         <button onClick={() => setSub("grades")} style={{ ...styles.adminTabBtn, ...(sub === "grades" ? styles.adminTabBtnActive : {}) }}><FileSpreadsheet size={14} /> 성적 데이터</button>
         <button onClick={() => setSub("classGrades")} style={{ ...styles.adminTabBtn, ...(sub === "classGrades" ? styles.adminTabBtnActive : {}) }}><BarChart3 size={14} /> 반별 성적</button>
@@ -5183,6 +5219,7 @@ function AdminConsole(props) {
         <button onClick={() => setSub("feedback")} style={{ ...styles.adminTabBtn, ...(sub === "feedback" ? styles.adminTabBtnActive : {}) }}><Bug size={14} /> 건의·버그</button>
       </div>
       <div className="kdn-admin-main">
+      {sub === "home" && <AdminHome db={props.db} gdb={props.gdb} grade={props.grade} semester={props.semester} roster={props.roster} timetables={props.timetables} accounts={props.accounts} onOpen={setSub} />}
       {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
       {sub === "grades" && (
         props.gdb ? <DeferredPanel label="성적 데이터 관리 화면을 불러오는 중입니다."><AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} roster={props.roster} currentGrade={props.grade} /></DeferredPanel>
