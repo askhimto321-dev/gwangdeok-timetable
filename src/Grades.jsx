@@ -1120,13 +1120,11 @@ const CLASS_GRADE_CSS = `
 .cg-ids em{font-style:normal;font-size:12px;font-weight:700;line-height:1;padding:3px 6px;border-radius:6px}
 .cg-ids .cg-no{background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-ink-soft,#3a4150)}
 .cg-ids .cg-sid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.02em;background:transparent;color:var(--kdn-muted,#5d6574);border:1px solid var(--kdn-line,#e3e6ec)}
-.cg-table .cg-step{border-left:0!important;margin:0 3px;padding:6px 8px!important;border-radius:10px;background:var(--sem-bg);box-shadow:inset 0 3px 0 var(--sem-c)}
-.cg-table .cg-step small{padding:1px 7px;border-radius:99px;background:var(--sem-c);color:#fff!important;font-weight:700}
-.cg-step.y1{--sem-c:#3b82f6;--sem-bg:#eff6ff}.cg-step.y1.t2{--sem-c:#1d4ed8;--sem-bg:#e6efff}
-.cg-step.y2{--sem-c:#10b981;--sem-bg:#ecfdf5}.cg-step.y2.t2{--sem-c:#047857;--sem-bg:#e1f8ee}
-.cg-step.y3{--sem-c:#8b5cf6;--sem-bg:#f5f3ff}.cg-step.y3.t2{--sem-c:#6d28d9;--sem-bg:#eee9ff}
-[data-kd-ui="dark"] .cg-step.y1{--sem-bg:rgba(59,130,246,.12)}[data-kd-ui="dark"] .cg-step.y2{--sem-bg:rgba(16,185,129,.12)}[data-kd-ui="dark"] .cg-step.y3{--sem-bg:rgba(139,92,246,.14)}
-.cg-table tbody tr:nth-child(even) td .cg-step{filter:none}
+.cg-table .cg-step small{display:inline-flex;align-items:center;gap:4px;color:var(--sem-c)!important;font-weight:700}
+.cg-table .cg-step small::before{content:"";width:7px;height:7px;border-radius:99px;background:var(--sem-c)}
+.cg-table .cg-step.t1:not(.y1){border-left:2px solid var(--kdn-line-strong,#cfd4dc)}
+.cg-step.y1{--sem-c:#2563eb}.cg-step.y2{--sem-c:#059669}.cg-step.y3{--sem-c:#7c3aed}
+[data-kd-ui="dark"] .cg-step.y1{--sem-c:#93c5fd}[data-kd-ui="dark"] .cg-step.y2{--sem-c:#6ee7b7}[data-kd-ui="dark"] .cg-step.y3{--sem-c:#c4b5fd}
 .cg-subhint{margin-left:8px;font-size:12.5px;font-weight:600;color:var(--kdn-muted,#5d6574)}
 .cg-subj td,.cg-subj th{padding:10px 10px!important}
 .cg-subj .sticky{position:sticky;left:0;z-index:1;background:var(--kdn-surface,#fff);min-width:150px;text-align:left}
