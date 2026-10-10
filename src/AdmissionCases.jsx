@@ -1396,19 +1396,22 @@ function VerticalBars({rows}){
 // 등급대별 결과 차트(새 UI): 등급대마다 지원 사례를 최초·충원·불합격으로 나눈 막대 + 합격률 + 합격자 50%컷.
 function GradeBandChart({grades=[]}){
   const max=Math.max(1,...grades.map(row=>row.total||0));
+  // 등급대로 묶은 행의 '합격자 50%컷'은 그 등급대 안의 중간값일 뿐이라 의미가 없어 표시하지 않습니다(전형·지역별에서만 표시).
+  const showCut=!grades.every(row=>/등급대$/.test(row.label));
   return <div className="kdn-gband">
     <div className="kdn-gband-legend"><span><i style={{background:"#16a34a"}}/>최초합격</span><span><i style={{background:"#60a5fa"}}/>충원합격</span><span><i style={{background:"#cbd5e1"}}/>불합격·기타</span><small>막대 길이 = 지원 사례 수</small></div>
-    {grades.map(row=>{const other=Math.max(0,row.total-row.first-row.waitlist);return <div key={row.label} className="kdn-gband-row">
+    {grades.map(row=>{const other=Math.max(0,row.total-row.first-row.waitlist);return <div key={row.label} className={`kdn-gband-row${showCut?"":" no-cut"}`}>
       <b className="lb">{row.label}</b>
       <div className="tr"><div className="fill" style={{width:`${row.total/max*100}%`}}><i style={{flex:row.first,background:"#16a34a"}}/><i style={{flex:row.waitlist,background:"#60a5fa"}}/><i style={{flex:other,background:"#cbd5e1"}}/></div><span>{row.total.toLocaleString()}건</span></div>
       <span className="rt"><b>{row.rate==null?"-":`${Math.round(row.rate*10)/10}%`}</b><small>합격률</small></span>
-      <span className="ct"><b>{fmt(row.median)}</b><small>합격자 50%컷</small></span>
+      {showCut&&<span className="ct"><b>{fmt(row.median)}</b><small>합격자 50%컷</small></span>}
     </div>})}
   </div>;
 }
 function GroupStatTable({rows=[],label="구분"}){
-  return <div className="kdn-case-table-wrap"><table className="kdn-case-table kdn-gst"><thead><tr><th>{label}</th><th className="n">지원</th><th className="n">최초합</th><th className="n">충원합</th><th className="n">합격</th><th className="n">불합격</th><th className="n">합격률</th><th className="n">합격자 50%컷</th></tr></thead>
-    <tbody>{rows.map(row=><tr key={row.label}><td><b>{row.label}</b></td><td className="n">{row.total.toLocaleString()}</td><td className="n ok">{row.first}</td><td className="n wl">{row.waitlist}</td><td className="n"><b>{row.accepted}</b></td><td className="n ng">{row.rejected}</td><td className="n"><span className={`kdn-rate ${row.rate>=50?"hi":row.rate>=30?"mid":"lo"}`}>{row.rate==null?"-":`${fmt(row.rate,1)}%`}</span></td><td className="n">{fmt(row.median)}</td></tr>)}</tbody></table></div>;
+  const showCut=label!=="등급대";
+  return <div className="kdn-case-table-wrap"><table className="kdn-case-table kdn-gst"><thead><tr><th>{label}</th><th className="n">지원</th><th className="n">최초합</th><th className="n">충원합</th><th className="n">합격</th><th className="n">불합격</th><th className="n">합격률</th>{showCut&&<th className="n">합격자 50%컷</th>}</tr></thead>
+    <tbody>{rows.map(row=><tr key={row.label}><td><b>{row.label}</b></td><td className="n">{row.total.toLocaleString()}</td><td className="n ok">{row.first}</td><td className="n wl">{row.waitlist}</td><td className="n"><b>{row.accepted}</b></td><td className="n ng">{row.rejected}</td><td className="n"><span className={`kdn-rate ${row.rate>=50?"hi":row.rate>=30?"mid":"lo"}`}>{row.rate==null?"-":`${fmt(row.rate,1)}%`}</span></td>{showCut&&<td className="n">{fmt(row.median)}</td>}</tr>)}</tbody></table></div>;
 }
 function Overview({rows}){
   const types=useMemo(()=>groupStats(rows,x=>x.admissionType).slice(0,10),[rows]);
@@ -1417,7 +1420,7 @@ function Overview({rows}){
   const[dim,setDim]=useState("grade");
   if(isNewUi()){
     const data=dim==="type"?types:dim==="region"?regions:grades;
-    return <Section className="kdn-ov" title="지원·합격 한눈에 보기" description="막대 = 지원 사례 수(최초·충원·불합격) · 오른쪽 = 합격률과 합격자 전교과 50%컷" aside={<div className="kdn-seg" role="group" aria-label="보기 기준">{[["grade","등급대별"],["type","전형별"],["region","지역별"]].map(([key,label])=><button key={key} type="button" data-kdn-bare aria-pressed={dim===key} onClick={()=>setDim(key)}>{label}</button>)}</div>}>
+    return <Section className="kdn-ov" title="지원·합격 한눈에 보기" description={dim==="grade"?"막대 = 지원 사례 수(최초·충원·불합격) · 오른쪽 = 합격률":"막대 = 지원 사례 수(최초·충원·불합격) · 오른쪽 = 합격률과 합격자 전교과 50%컷"} aside={<div className="kdn-seg" role="group" aria-label="보기 기준">{[["grade","등급대별"],["type","전형별"],["region","지역별"]].map(([key,label])=><button key={key} type="button" data-kdn-bare aria-pressed={dim===key} onClick={()=>setDim(key)}>{label}</button>)}</div>}>
       <GradeBandChart grades={data}/>
       <details className="kdn-case-table-toggle"><summary>표로 보기</summary><GroupStatTable rows={data} label={dim==="type"?"전형":dim==="region"?"지역":"등급대"}/></details>
     </Section>;
@@ -1542,7 +1545,7 @@ function DimensionAnalysis({rows}){
   const getter=mode==="지역별"?x=>x.region:mode==="계열별"?x=>x.field:mode==="전형별"?x=>x.admissionType:x=>x.gradeBand?`${x.gradeBand}등급대`:"등급 미입력";
   let stats=useMemo(()=>groupStats(rows,getter),[rows,mode]);
   if(mode==="등급별")stats=[...stats].sort((a,b)=>(parseFloat(a.label)||99)-(parseFloat(b.label)||99));
-  if(isNewUi())return <Section className="kdn-ov" title={`${mode.replace("별","")}별 지원·합격 결과`} description="막대 = 지원 사례 수(최초·충원·불합격) · 오른쪽 = 합격률과 합격자 전교과 50%컷" aside={<div className="kdn-seg" role="group" aria-label="분석 기준">{["등급별","지역별","계열별","전형별"].map(value=><button key={value} type="button" data-kdn-bare aria-pressed={mode===value} onClick={()=>setMode(value)}>{value}</button>)}</div>}>
+  if(isNewUi())return <Section className="kdn-ov" title={`${mode.replace("별","")}별 지원·합격 결과`} description={dim==="grade"?"막대 = 지원 사례 수(최초·충원·불합격) · 오른쪽 = 합격률":"막대 = 지원 사례 수(최초·충원·불합격) · 오른쪽 = 합격률과 합격자 전교과 50%컷"} aside={<div className="kdn-seg" role="group" aria-label="분석 기준">{["등급별","지역별","계열별","전형별"].map(value=><button key={value} type="button" data-kdn-bare aria-pressed={mode===value} onClick={()=>setMode(value)}>{value}</button>)}</div>}>
     <GradeBandChart grades={stats}/>
     <GroupStatTable rows={stats} label={mode.replace("별","")}/>
   </Section>;

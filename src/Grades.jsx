@@ -829,7 +829,7 @@ export default function GradesSection({
       </div>
 
       <div style={{ padding: 20, maxWidth: 1040, margin: "0 auto" }}>
-        {isNewUi() && activeStudentSid && <NewCounselHeader sid={activeStudentSid} gdb={gdb} student={susiNaviStudent} studentInfo={loggedInStudent || roster?.[activeStudentSid]} favoriteCount={activeFlowFavoriteCount} showPlan={tab === "consultation"} onOpenPlan={() => openSusiNaviWorkspace(tab === "consultation")} />}
+        {isNewUi() && activeStudentSid && !["gradeCompare", "mockAnalysis", "classGrades"].includes(tab) && <NewCounselHeader sid={activeStudentSid} gdb={gdb} student={susiNaviStudent} studentInfo={loggedInStudent || roster?.[activeStudentSid]} favoriteCount={activeFlowFavoriteCount} showPlan={tab === "consultation"} onOpenPlan={() => openSusiNaviWorkspace(tab === "consultation")} />}
         {activeStudentSid && <div className="kd-counsel-flow no-print" style={counselFlow.wrap}>
           {!isNewUi() && <div style={counselFlow.head}><div><b>학생 상담 흐름</b><span>{activeFlowStudentName ? `${activeFlowStudentName} 학생 · ` : ""}성적 확인부터 관심대학·NAVI 분석·상담 기록까지 같은 흐름에서 이어집니다.</span></div><div className="kd-support-plan-entry-actions"><span style={counselFlow.favoriteCount}><Star size={12} fill="currentColor"/> 관심 {activeFlowFavoriteCount}</span><SupportPlanButton onClick={() => openSusiNaviWorkspace(tab === "consultation")} count={activeSupportPlanCount}/></div></div>}
           <div style={counselFlow.steps}>{counselingFlowItems.map((item,index)=><button key={item.key} type="button" onClick={()=>navigateGradeTab(item.key)} style={{...counselFlow.step,...(tab===item.key?counselFlow.stepActive:{})}}><span style={{...counselFlow.stepNumber,...(tab===item.key?counselFlow.stepNumberActive:{})}}>{index+1}</span><span style={counselFlow.stepText}><b>{item.label}</b><small>{item.sub}</small></span>{index<counselingFlowItems.length-1&&<em style={counselFlow.arrow}>›</em>}</button>)}</div>
@@ -1703,29 +1703,29 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
   ];
 
   return (
-    <div>
-      <div style={{ ...card, marginTop: 0, padding: 18, background: "linear-gradient(135deg,#58739a 0%,#6f8fb5 52%,#9485b0 100%)", color: "#fff", overflow: "hidden" }}>
+    <div className="kdn-mock">
+      <div className="kdn-mock-hero" style={{ ...card, marginTop: 0, padding: 18, background: "linear-gradient(135deg,#58739a 0%,#6f8fb5 52%,#9485b0 100%)", color: "#fff", overflow: "hidden" }}>
         <div>
           <div style={{ fontWeight: 950, fontSize: 19 }}>모의고사 성적 분석</div>
           <div style={{ fontSize: 11.5, color: "#e8edf6", marginTop: 4 }}>{entryYear}년 입학생 · 1학년부터 {currentGrade}학년까지 누적 회차 분석</div>
         </div>
-        <div style={{ marginTop: 14, padding: 8, borderRadius: 12, background: "rgba(255,255,255,.13)", border: "1px solid rgba(255,255,255,.15)", display: "flex", gap: 7, flexWrap: "wrap" }}>
+        <div className="kdn-mock-months" style={{ marginTop: 14, padding: 8, borderRadius: 12, background: "rgba(255,255,255,.13)", border: "1px solid rgba(255,255,255,.15)", display: "flex", gap: 7, flexWrap: "wrap" }}>
           {available.map(key => (
-            <button key={key} style={{ ...btn.chip, minHeight: 32, background: mockKey === key ? "#ffd978" : "rgba(255,255,255,.13)", color: mockKey === key ? "#2e3445" : "#f7f8fc", borderColor: mockKey === key ? "#ffe7a5" : "rgba(255,255,255,.34)", boxShadow: mockKey === key ? "0 3px 10px rgba(0,0,0,.18)" : "none", fontWeight: 900 }} onClick={() => setMockKey(key)}>
+            <button key={key} aria-pressed={mockKey === key} style={{ ...btn.chip, minHeight: 32, background: mockKey === key ? "#ffd978" : "rgba(255,255,255,.13)", color: mockKey === key ? "#2e3445" : "#f7f8fc", borderColor: mockKey === key ? "#ffe7a5" : "rgba(255,255,255,.34)", boxShadow: mockKey === key ? "0 3px 10px rgba(0,0,0,.18)" : "none", fontWeight: 900 }} onClick={() => setMockKey(key)}>
               {MOCK_MONTH_LABELS[key]}
             </button>
           ))}
         </div>
       </div>
 
-      <div style={{ ...card, padding: 8, marginTop: 12, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 7, background: "#f6f8fb", border: "1px solid #dbe3ed" }}>
+      <div className="kdn-mock-tabs" style={{ ...card, padding: 8, marginTop: 12, display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 7, background: "#f6f8fb", border: "1px solid #dbe3ed" }}>
         {viewTabs.map(item => {
           const active = analysisView === item.key;
-          return <button key={item.key} type="button" onClick={() => setAnalysisView(item.key)} style={{ border: `1px solid ${active ? "#5279a7" : "#d9e0e8"}`, borderRadius: 10, padding: "10px 12px", background: active ? "#fff" : "transparent", boxShadow: active ? "0 3px 10px rgba(48,78,112,.10)" : "none", cursor: "pointer", textAlign: "left", minWidth: 0 }}><b style={{ display: "block", fontSize: 12.5, color: active ? "#284f7d" : "#4d5d6f" }}>{item.label}</b><small style={{ display: "block", marginTop: 3, fontSize: 9.8, color: "#7f8b98", whiteSpace: "normal", lineHeight: 1.3 }}>{item.desc}</small></button>;
+          return <button key={item.key} type="button" aria-pressed={active} onClick={() => setAnalysisView(item.key)} style={{ border: `1px solid ${active ? "#5279a7" : "#d9e0e8"}`, borderRadius: 10, padding: "10px 12px", background: active ? "#fff" : "transparent", boxShadow: active ? "0 3px 10px rgba(48,78,112,.10)" : "none", cursor: "pointer", textAlign: "left", minWidth: 0 }}><b style={{ display: "block", fontSize: 12.5, color: active ? "#284f7d" : "#4d5d6f" }}>{item.label}</b><small style={{ display: "block", marginTop: 3, fontSize: 9.8, color: "#7f8b98", whiteSpace: "normal", lineHeight: 1.3 }}>{item.desc}</small></button>;
         })}
       </div>
 
-      {analysisView !== "classes" && <div style={{ ...card, padding: 12, marginTop: 12, borderLeft: "4px solid #496d9b" }}>
+      {analysisView !== "classes" && <div className="kdn-mock-filter" style={{ ...card, padding: 12, marginTop: 12, borderLeft: "4px solid #496d9b" }}>
         <div style={{ display: "flex", gap: 9, flexWrap: "wrap", alignItems: "center" }}>
           <div style={{ fontSize: 10, fontWeight: 950, color: "#5f594d", marginRight: 2 }}>조회 조건</div>
           <select value={classFilter} onChange={event => setClassFilter(event.target.value)} style={{ ...btn.input, width: 132 }}><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>
@@ -1736,42 +1736,42 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
       </div>}
 
       {analysisView === "students" && <>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginTop: 12, marginBottom: 16 }}>
+        <div className="kdn-mock-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, marginTop: 12, marginBottom: 16 }}>
           {summaryItems.map(item => (
-            <div key={item.label} style={{ background: item.bg, border: `1px solid ${item.tone}22`, borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <div key={item.label} className="kdn-mock-kpi" style={{ background: item.bg, border: `1px solid ${item.tone}22`, borderRadius: 14, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
               <span style={{ width: 36, height: 36, borderRadius: 11, display: "grid", placeItems: "center", color: item.tone, background: "rgba(255,255,255,.72)", flex: "0 0 auto" }}>{item.icon}</span>
               <div style={{ minWidth: 0 }}><div style={{ fontWeight: 950, fontSize: 18, color: item.tone, lineHeight: 1.1 }}>{item.value}</div><div style={{ color: "#746d61", fontSize: 11.5, marginTop: 4, whiteSpace: "normal" }}>{item.label}</div></div>
             </div>
           ))}
         </div>
 
-        <div style={{ ...card, borderTop: "4px solid #2b2620", marginTop: 0 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>학생별 총점 순위</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>1·2등급은 강조색, 3~9등급은 동일한 중립색으로 표시해 상위 등급을 빠르게 확인할 수 있습니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{filtered.length}명</span></div><div style={{ maxHeight: 620, overflow: "auto" }}><table style={{ ...table.base, minWidth: 880, tableLayout: "fixed" }}><colgroup><col style={{ width: 58 }} /><col style={{ width: 72 }} /><col style={{ width: 105 }} /><col style={{ width: 72 }} /><col style={{ width: 66 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} style={{ width: 72 }} />)}</colgroup><thead><tr><th style={table.th}>등수</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{filtered.map(row => {
+        <div className="kdn-mock-card" style={{ ...card, borderTop: "4px solid #2b2620", marginTop: 0 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>학생별 총점 순위</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>1·2등급은 강조색, 3~9등급은 동일한 중립색으로 표시해 상위 등급을 빠르게 확인할 수 있습니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{filtered.length}명</span></div><div style={{ maxHeight: 620, overflow: "auto" }}><table className="kdn-mock-table" style={{ ...table.base, minWidth: 880, tableLayout: "fixed" }}><colgroup><col style={{ width: 58 }} /><col style={{ width: 72 }} /><col style={{ width: 105 }} /><col style={{ width: 72 }} /><col style={{ width: 66 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} style={{ width: 72 }} />)}</colgroup><thead><tr><th style={table.th}>등수</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{filtered.map(row => {
           const isTop24 = row.rank != null && row.rank <= 24;
-          return <tr key={row.sid} style={{ background: isTop24 ? "#fffdf5" : "#fff" }}><td style={{ ...table.td, fontWeight: 900 }}><span style={isTop24 ? { display: "inline-grid", placeItems: "center", minWidth: 31, height: 25, padding: "0 5px", borderRadius: 7, background: "#171714", color: "#f2d56b", boxShadow: "0 0 0 2px #f3e6a5" } : {}}>{row.rank ?? "-"}</span></td><td style={table.td}>{row.sid}</td><td style={{ ...table.td, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.name}>{row.name}</td><td style={table.td}>{row.classNumber ? `${row.classNumber}반` : "-"}</td><td style={{ ...table.td, fontWeight: 950, color: isTop24 ? "#6d5311" : "#2b2620" }}>{row.isAbsent ? "결시" : (row.total ?? "-")}</td>{MOCK_SUBJECTS.map(subject => {
+          return <tr key={row.sid} style={{ background: isTop24 ? "#fffdf5" : "#fff" }}><td style={{ ...table.td, fontWeight: 900 }}><span className={isTop24 ? "kdn-mock-rank is-top" : "kdn-mock-rank"} style={isTop24 ? { display: "inline-grid", placeItems: "center", minWidth: 31, height: 25, padding: "0 5px", borderRadius: 7, background: "#171714", color: "#f2d56b", boxShadow: "0 0 0 2px #f3e6a5" } : {}}>{row.rank ?? "-"}</span></td><td style={table.td}>{row.sid}</td><td style={{ ...table.td, fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={row.name}>{row.name}</td><td style={table.td}>{row.classNumber ? `${row.classNumber}반` : "-"}</td><td style={{ ...table.td, fontWeight: 950, color: isTop24 ? "#6d5311" : "#2b2620" }}>{row.isAbsent ? "결시" : (row.total ?? "-")}</td>{MOCK_SUBJECTS.map(subject => {
             const grade = Number(row.grades?.[subject]);
-            return <td key={subject} style={table.td}><div style={{ fontWeight: 800, color: "#2e3742" }}>{row.scores?.[subject] ?? "-"}</div>{grade ? <small style={{ marginTop: 3, ...subjectGradeBadge(grade) }}>{grade}등급</small> : null}</td>;
+            return <td key={subject} style={table.td}><div style={{ fontWeight: 800, color: "#2e3742" }}>{row.scores?.[subject] ?? "-"}</div>{grade ? <small className={`kdn-mock-g g${grade}`} style={{ marginTop: 3, ...subjectGradeBadge(grade) }}>{grade}등급</small> : null}</td>;
           })}</tr>;
         })}</tbody></table></div></div>
       </>}
 
       {analysisView === "subjects" && <>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10, marginTop: 12, marginBottom: 14 }}>
-          <div style={{ ...card, padding: "13px 14px", borderTop: "3px solid #315a9b" }}><small style={{ color: "#788596", fontWeight: 800 }}>선택 과목</small><b style={{ display: "block", marginTop: 4, fontSize: 17, color: "#284f7d" }}>{subjectView}</b></div>
-          <div style={{ ...card, padding: "13px 14px", borderTop: "3px solid #2f7770" }}><small style={{ color: "#788596", fontWeight: 800 }}>평균 원점수</small><b style={{ display: "block", marginTop: 4, fontSize: 17, color: "#2f6e69" }}>{selectedSubjectAverage ?? "-"}</b></div>
-          <div style={{ ...card, padding: "13px 14px", borderTop: "3px solid #6c4f8c" }}><small style={{ color: "#788596", fontWeight: 800 }}>최고 원점수</small><b style={{ display: "block", marginTop: 4, fontSize: 17, color: "#664b83" }}>{selectedSubjectBest?.subjectScore ?? "-"}</b></div>
-          <div style={{ ...card, padding: "13px 14px", borderTop: "3px solid #76551b" }}><small style={{ color: "#788596", fontWeight: 800 }}>1·2등급 인원</small><b style={{ display: "block", marginTop: 4, fontSize: 17, color: "#76551b" }}>{(selectedSubjectGradeCounts[0] || 0) + (selectedSubjectGradeCounts[1] || 0)}명</b></div>
+        <div className="kdn-mock-kpis is-subject" style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 10, marginTop: 12, marginBottom: 14 }}>
+          <div className="kdn-mock-kpi" style={{ ...card, padding: "13px 14px", borderTop: "3px solid #315a9b" }}><small style={{ color: "#788596", fontWeight: 800 }}>선택 과목</small><b style={{ display: "block", marginTop: 4, fontSize: 17, color: "#284f7d" }}>{subjectView}</b></div>
+          <div className="kdn-mock-kpi" style={{ ...card, padding: "13px 14px", borderTop: "3px solid #2f7770" }}><small style={{ color: "#788596", fontWeight: 800 }}>평균 원점수</small><b style={{ display: "block", marginTop: 4, fontSize: 17, color: "#2f6e69" }}>{selectedSubjectAverage ?? "-"}</b></div>
+          <div className="kdn-mock-kpi" style={{ ...card, padding: "13px 14px", borderTop: "3px solid #6c4f8c" }}><small style={{ color: "#788596", fontWeight: 800 }}>최고 원점수</small><b style={{ display: "block", marginTop: 4, fontSize: 17, color: "#664b83" }}>{selectedSubjectBest?.subjectScore ?? "-"}</b></div>
+          <div className="kdn-mock-kpi" style={{ ...card, padding: "13px 14px", borderTop: "3px solid #76551b" }}><small style={{ color: "#788596", fontWeight: 800 }}>1·2등급 인원</small><b style={{ display: "block", marginTop: 4, fontSize: 17, color: "#76551b" }}>{(selectedSubjectGradeCounts[0] || 0) + (selectedSubjectGradeCounts[1] || 0)}명</b></div>
         </div>
 
-        <div style={{ ...card, borderTop: "4px solid #5969a5", marginTop: 0 }}>
+        <div className="kdn-mock-card" style={{ ...card, borderTop: "4px solid #5969a5", marginTop: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11, flexWrap: "wrap" }}><div><div style={{ fontWeight: 950 }}>{subjectView} 등급 분포</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>1등급·2등급만 강조색으로 구분하고 3~9등급은 동일한 중립색으로 정리했습니다.</div></div><span style={{fontSize:10.5,fontWeight:900,color:"#647184"}}>평균 {selectedSubjectAverage ?? "-"}점</span></div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(9,minmax(62px,1fr))", gap: 6, overflowX: "auto", paddingBottom: 2 }}>{selectedSubjectGradeCounts.map((count,index)=><div key={index} style={{...gradeCellStyle(index+1),border:`1px solid ${gradePalette[index+1].border}`,borderRadius:9,padding:"8px 5px",textAlign:"center",minWidth:62}}><b style={{display:"block",fontSize:11}}>{index+1}등급</b><strong style={{display:"block",fontSize:16,marginTop:4}}>{count}</strong><small style={{display:"block",fontSize:8.8,marginTop:2}}>명</small></div>)}</div>
         </div>
 
-        <div style={{ ...card, borderTop: "4px solid #2b2620", marginTop: 14 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>{subjectView} 학생별 성적</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>원점수 기준으로 정렬하며 동점자는 같은 과목 순위를 부여합니다. 전체 총점 순위도 함께 확인할 수 있습니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{selectedSubjectRows.length}명</span></div>
-          <div style={{ maxHeight: 560, overflow: "auto" }}><table style={{ ...table.base, minWidth: 720, tableLayout: "fixed" }}><colgroup><col style={{width:78}}/><col style={{width:82}}/><col style={{width:120}}/><col style={{width:72}}/><col style={{width:96}}/><col style={{width:88}}/><col style={{width:86}}/><col/></colgroup><thead><tr><th style={table.th}>과목 순위</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>원점수</th><th style={table.th}>등급</th><th style={table.th}>총점</th><th style={table.th}>전체 순위</th></tr></thead><tbody>{selectedSubjectRows.map(row=>{const grade=Number(row.grades?.[subjectView]);return <tr key={row.sid}><td style={{...table.td,fontWeight:950,color:"#34597f"}}>{row.subjectRank??"-"}</td><td style={table.td}>{row.sid}</td><td style={{...table.td,fontWeight:850,textAlign:"left",paddingLeft:15}}>{row.name}</td><td style={table.td}>{row.classNumber?`${row.classNumber}반`:"-"}</td><td style={{...table.td,fontWeight:950,fontSize:13}}>{Number.isFinite(row.subjectScore)?row.subjectScore:"-"}</td><td style={table.td}>{grade?<span style={subjectGradeBadge(grade)}>{grade}등급</span>:"-"}</td><td style={{...table.td,fontWeight:850}}>{row.total??"-"}</td><td style={table.td}>{row.rank??"-"}</td></tr>})}</tbody></table></div>
+        <div className="kdn-mock-card" style={{ ...card, borderTop: "4px solid #2b2620", marginTop: 14 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>{subjectView} 학생별 성적</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>원점수 기준으로 정렬하며 동점자는 같은 과목 순위를 부여합니다. 전체 총점 순위도 함께 확인할 수 있습니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{selectedSubjectRows.length}명</span></div>
+          <div style={{ maxHeight: 560, overflow: "auto" }}><table className="kdn-mock-table" style={{ ...table.base, minWidth: 720, tableLayout: "fixed" }}><colgroup><col style={{width:78}}/><col style={{width:82}}/><col style={{width:120}}/><col style={{width:72}}/><col style={{width:96}}/><col style={{width:88}}/><col style={{width:86}}/><col/></colgroup><thead><tr><th style={table.th}>과목 순위</th><th style={table.th}>학번</th><th style={table.th}>이름</th><th style={table.th}>반</th><th style={table.th}>원점수</th><th style={table.th}>등급</th><th style={table.th}>총점</th><th style={table.th}>전체 순위</th></tr></thead><tbody>{selectedSubjectRows.map(row=>{const grade=Number(row.grades?.[subjectView]);return <tr key={row.sid}><td style={{...table.td,fontWeight:950,color:"#34597f"}}>{row.subjectRank??"-"}</td><td style={table.td}>{row.sid}</td><td style={{...table.td,fontWeight:850,textAlign:"left",paddingLeft:15}}>{row.name}</td><td style={table.td}>{row.classNumber?`${row.classNumber}반`:"-"}</td><td style={{...table.td,fontWeight:950,fontSize:13}}>{Number.isFinite(row.subjectScore)?row.subjectScore:"-"}</td><td style={table.td}>{grade?<span style={subjectGradeBadge(grade)}>{grade}등급</span>:"-"}</td><td style={{...table.td,fontWeight:850}}>{row.total??"-"}</td><td style={table.td}>{row.rank??"-"}</td></tr>})}</tbody></table></div>
         </div>
 
-        <div style={{ ...card, borderTop: "4px solid #8a641d", padding: 0, overflow: "hidden", marginTop: 14 }}>
+        <div className="kdn-mock-card" style={{ ...card, borderTop: "4px solid #8a641d", padding: 0, overflow: "hidden", marginTop: 14 }}>
           <button type="button" onClick={() => setShowCutoffs(value => !value)} style={{ width: "100%", border: 0, background: "#fffaf0", padding: "13px 15px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, cursor: "pointer", color: "#4f493f", textAlign: "left" }}>
             <span><b style={{ display: "block", fontSize: 13 }}>{subjectView} 등급컷 상세</b><small style={{ display: "block", marginTop: 3, color: "#8a8578", fontSize: 10.5 }}>현재 조회 범위에서 각 등급의 최저 원점수를 표시합니다.</small></span>
             <span style={{ borderRadius: 999, background: showCutoffs ? "#8a641d" : "#fff", color: showCutoffs ? "#fff" : "#76551b", border: "1px solid #d9c38d", padding: "5px 9px", fontSize: 10, fontWeight: 900 }}>{showCutoffs ? "접기" : "펼치기"}</span>
@@ -1781,12 +1781,12 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
       </>}
 
       {analysisView === "classes" && <>
-        <div style={{ ...card, padding: 12, marginTop: 12, borderLeft: "4px solid #4a7297", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div className="kdn-mock-filter" style={{ ...card, padding: 12, marginTop: 12, borderLeft: "4px solid #4a7297", display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <div><b style={{fontSize:12.5,color:"#344e6b"}}>반별 평균 비교 기준</b><div style={{fontSize:10.5,color:"#7f8995",marginTop:3}}>개별 반 조회 필터와 분리하여 전체 반을 항상 같은 기준으로 비교합니다.</div></div>
           <select value={classMetric} onChange={event => setClassMetric(event.target.value)} style={{ ...btn.input, width: 148 }}><option>총점</option>{MOCK_SUBJECTS.map(subject => <option key={subject}>{subject}</option>)}</select>
         </div>
 
-        <div style={{ ...card, borderTop: "4px solid #4a7297", overflow: "hidden", marginTop: 12 }}>
+        <div className="kdn-mock-card" style={{ ...card, borderTop: "4px solid #4a7297", overflow: "hidden", marginTop: 12 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 11 }}>
             <div><div style={{ fontWeight: 950 }}>반별 성적 평균</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>결시자는 평균에서 제외하며, 응시·결시 인원을 함께 표시합니다.</div></div>
             <span style={{fontSize:10.5,fontWeight:900,color:"#53677f"}}>현재 기준 · {classMetric}</span>
@@ -1796,7 +1796,7 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
               {classSummaries.map(summary => {
                 const value = classMetricValue(summary);
                 const width = value == null ? 0 : Math.max(3, Number(value) / classMetricMax * 100);
-                return <div key={summary.classNumber} style={{ display: "grid", gridTemplateColumns: "34px minmax(0,1fr) 45px", alignItems: "center", gap: 6, fontSize: 10.7 }}>
+                return <div key={summary.classNumber} className="kdn-mock-bar" style={{ display: "grid", gridTemplateColumns: "34px minmax(0,1fr) 45px", alignItems: "center", gap: 6, fontSize: 10.7 }}>
                   <strong>{summary.classNumber}반</strong>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ height: 10, background: "#eeeae1", borderRadius: 99, overflow: "hidden" }}><div style={{ width: `${width}%`, height: "100%", background: "linear-gradient(90deg,#456b94,#7aa6c7)", borderRadius: 99 }} /></div>
@@ -1807,7 +1807,7 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
               })}
             </div>
             <div style={{ minWidth: 0, minHeight: 292, overflow: "hidden", border: "1px solid #e4dfd4", borderRadius: 9, display: "flex", alignItems: "stretch" }}>
-              <table style={{ ...table.base, width: "100%", minWidth: 0, tableLayout: "fixed", fontSize: 9.8, height: "100%" }}><colgroup><col style={{ width: 38 }} /><col style={{ width: 42 }} /><col style={{ width: 42 }} /><col style={{ width: 58 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} />)}</colgroup>
+              <table className="kdn-mock-table" style={{ ...table.base, width: "100%", minWidth: 0, tableLayout: "fixed", fontSize: 9.8, height: "100%" }}><colgroup><col style={{ width: 38 }} /><col style={{ width: 42 }} /><col style={{ width: 42 }} /><col style={{ width: 58 }} />{MOCK_SUBJECTS.map(subject => <col key={subject} />)}</colgroup>
                 <thead><tr><th style={{ ...table.th, padding: "6px 2px" }}>반</th><th style={{ ...table.th, padding: "6px 2px" }}>응시</th><th style={{ ...table.th, padding: "6px 2px" }}>결시</th><th style={{ ...table.th, padding: "6px 2px" }}>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} style={{ ...table.th, padding: "6px 2px", lineHeight: 1.15, wordBreak: "keep-all" }}>{subject === "통합사회" ? <>통합<br />사회</> : subject === "통합과학" ? <>통합<br />과학</> : subject}</th>)}</tr></thead>
                 <tbody>{classSummaries.map(summary => <tr key={summary.classNumber}><td style={{ ...table.td, padding: "6px 2px", fontWeight: 900 }}>{summary.classNumber}반</td><td style={{ ...table.td, padding: "6px 2px" }}>{summary.presentCount}</td><td style={{ ...table.td, padding: "6px 2px", color: summary.absentCount ? "#a14c40" : "#8a8578", fontWeight: summary.absentCount ? 900 : 600 }}>{summary.absentCount}</td><td style={{ ...table.td, padding: "6px 2px", fontWeight: 900 }}>{summary.total ?? "-"}</td>{MOCK_SUBJECTS.map(subject => <td key={subject} style={{ ...table.td, padding: "6px 2px" }}>{summary.subjects[subject] ?? "-"}</td>)}</tr>)}</tbody>
               </table>
@@ -1815,9 +1815,9 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
           </div>
         </div>
 
-        <div style={{ ...card, borderTop: "4px solid #5969a5", marginTop: 14 }}>
+        <div className="kdn-mock-card" style={{ ...card, borderTop: "4px solid #5969a5", marginTop: 14 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11 }}><div><div style={{ fontWeight: 950 }}>전체 반 과목별 평균</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>각 반의 과목별 평균을 한 표에서 비교합니다.</div></div></div>
-          <div style={{ overflowX: "auto" }}><table style={{ ...table.base, minWidth: 760, tableLayout: "fixed" }}><thead><tr><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject=><th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{classSummaries.map(summary=><tr key={summary.classNumber}><td style={{...table.td,fontWeight:950}}>{summary.classNumber}반</td><td style={{...table.td,fontWeight:900}}>{summary.total??"-"}</td>{MOCK_SUBJECTS.map(subject=><td key={subject} style={table.td}>{summary.subjects[subject]??"-"}</td>)}</tr>)}</tbody></table></div>
+          <div style={{ overflowX: "auto" }}><table className="kdn-mock-table" style={{ ...table.base, minWidth: 760, tableLayout: "fixed" }}><thead><tr><th style={table.th}>반</th><th style={table.th}>총점</th>{MOCK_SUBJECTS.map(subject=><th key={subject} style={table.th}>{subject}</th>)}</tr></thead><tbody>{classSummaries.map(summary=><tr key={summary.classNumber}><td style={{...table.td,fontWeight:950}}>{summary.classNumber}반</td><td style={{...table.td,fontWeight:900}}>{summary.total??"-"}</td>{MOCK_SUBJECTS.map(subject=><td key={subject} style={table.td}>{summary.subjects[subject]??"-"}</td>)}</tr>)}</tbody></table></div>
         </div>
       </>}
     </div>
