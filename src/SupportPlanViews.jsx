@@ -56,26 +56,39 @@ function MinChip({ facts }) {
 }
 function Actions({ item, busy, onRemove, onOpenCases, extra = null }) {
   return <span className="kdn-pv-acts">{extra}
-    {onOpenCases && item.stored.source === '광덕고 별도 사례' && <button type="button" data-kdn-bare onClick={() => onOpenCases(item.stored.university, item.stored.department, item.stored.track)}>광덕고 사례</button>}
+    {onOpenCases && (item.stored.source === '광덕고 별도 사례' || item.schoolMatch?.total > 0) && <button type="button" data-kdn-bare onClick={() => onOpenCases(item.stored.university, item.stored.department, item.stored.track)}>광덕고 사례</button>}
     <button type="button" data-kdn-bare disabled={busy} onClick={() => onRemove(item.stored)} aria-label={`${item.stored.university} ${item.stored.track || ''} 지원 구성에서 삭제`}>삭제</button>
   </span>;
 }
 
-// 세 보기가 함께 쓰는 상세: 수능최저(판정 근거) · 권장과목 · 출처·사례 근거.
-export function PlanDetail({ item, facts, student }) {
+// 세 보기가 함께 쓰는 상세: 수능최저(판정 근거) · 권장과목(열 때 자동으로 펼침) · 출처·사례 근거.
+export function PlanDetail({ item, facts, student, studentGrade, cutoffBasis = '70' }) {
   const { ev, minimum } = facts;
+  const school = item.schoolMatch || (item.schoolTrend?.total ? { tier: null, label: '광덕고 별도 사례', total: item.schoolTrend.total, accepted: item.schoolTrend.accepted } : null);
   return <div className="kdn-pv-detail">
     <section className={`kdn-pv-dbox kd-decision-minimum is-${minimum.status}`}>
       <h5>수능최저 <span className="kdn-pv-year">{minimumYearLabel(ev, student)}</span></h5>
       <MinimumFacts minimum={minimum} ev={ev} student={student} />
     </section>
-    <section className="kdn-pv-dbox"><RecommendedCourseDetails progress={item.recommendationProgress} status={item.recommendationStatus} /></section>
+    <section className="kdn-pv-dbox"><RecommendedCourseDetails progress={item.recommendationProgress} status={item.recommendationStatus} defaultOpen /></section>
     <section className="kdn-pv-dbox kdn-pv-evidence">
-      <h5>출처·사례 근거</h5>
-      <p><b>담은 경로</b> {item.stored.source || '미제공'}</p>
-      <p><b>NAVI 통합 사례</b> {item.naviCaseCount != null ? `${item.naviCaseCount}건` : '미연결/미제공'}</p>
-      <p><b>광덕고 별도 사례</b> {item.schoolTrend?.total ? `지원 ${item.schoolTrend.total} · 합격 ${item.schoolTrend.accepted}` : '연결 없음'}</p>
-      <small>NAVI 사례는 대학·전형·계열 기준이며 학과 합격자 수가 아닙니다. 공개 컷 2026 · 최저 {ev?.year || '연도 확인'}. 실제 지원연도 모집요강을 우선 확인하세요.</small>
+      <h5>출처·사례 근거 <span className="kdn-pv-year">담은 경로 · {item.stored.source || '미제공'}</span></h5>
+      {/* 같은 전형을 기준으로 NAVI(전국 공개 결과)와 광덕고(우리 학교 지원 사례)를 나란히 놓습니다. */}
+      <div className="kdn-pv-ev2">
+        <div className="col is-navi"><b>NAVI · 2026 공개 결과</b>
+          <p><span>전형</span>{item.stored.admissionType || '-'} · {item.stored.track || '-'}</p>
+          <p><span>{cutoffBasis}%컷</span>{fmt(facts.cut)}<em>{facts.altLabel}%컷 {fmt(facts.altCut)}</em></p>
+          <p><span>통합 사례</span>{item.naviCaseCount != null ? `${item.naviCaseCount}건` : (item.comparisonEvidence?.naviReason || '미연결')}</p>
+        </div>
+        <div className={`col is-school${school?.tier ? ` tier-${school.tier}` : ' is-none'}`}><b>광덕고 대입결과 {school?.tier && <i className="tier">{school.tier}</i>}</b>
+          <p className="lv">{school?.label || '연결 자료 없음'}</p>
+          {school?.total > 0 && <p><span>지원·합격</span>지원 {school.total} · 합격 {school.accepted}{school.years ? <em>{school.years}</em> : null}</p>}
+          {school?.acceptedGrade && <p><span>합격자 전교과</span>평균 {fmt(school.acceptedGrade.avg)}<em>{fmt(school.acceptedGrade.min)}~{fmt(school.acceptedGrade.max)} · {school.acceptedGrade.n}명</em></p>}
+          {school?.acceptedGrade && validGrade(studentGrade) != null && <p className="me"><span>내 환산과 비교</span>{fmt(studentGrade)} vs {fmt(school.acceptedGrade.avg)} <em>{signed(Number(studentGrade) - school.acceptedGrade.avg)}</em></p>}
+          {school?.tier && school.tier !== 'A' && school.units?.length > 0 && <p><span>사례 모집단위</span>{school.units.join(', ')}</p>}
+        </div>
+      </div>
+      <small>NAVI 사례는 대학·전형·계열 기준이며 학과 합격자 수가 아닙니다. 광덕고 사례는 A(같은 모집단위·전형)에 가까울수록 직접 비교에 적합합니다. 최저 {ev?.year || '연도 확인'} · 실제 지원연도 모집요강을 우선 확인하세요.</small>
     </section>
     {item.trackMissing && <p className="kdn-pv-warn">NAVI 전형 미연결 · 다른 전형의 컷을 대신 사용하지 않습니다.</p>}
   </div>;
@@ -98,7 +111,7 @@ function CompactView({ entries, studentGrade, cutoffBasis, student, busy, onRemo
       </div>
       <div className="kdn-pv-line"><MinChip facts={facts} />{facts.studentMin && <small>{facts.studentMin}</small>}</div>
       <div className="kdn-pv-foot"><span>권장과목 <b>{facts.course}</b></span><Actions item={item} busy={busy} onRemove={onRemove} onOpenCases={onOpenCases} extra={<button type="button" data-kdn-bare aria-expanded={expanded} onClick={() => toggle(key)}>{expanded ? '접기 ▴' : '근거 ▾'}</button>} /></div>
-      {expanded && <PlanDetail item={item} facts={facts} student={student} />}
+      {expanded && <PlanDetail item={item} facts={facts} student={student} studentGrade={studentGrade} cutoffBasis={cutoffBasis} />}
     </article>;
   })}</div>;
 }
@@ -127,7 +140,7 @@ function TableView({ entries, studentGrade, cutoffBasis, student, busy, onRemove
           <td className="nw">{facts.course}</td>
           <td className="nw"><button type="button" data-kdn-bare className="kdn-pv-more" aria-expanded={open} onClick={() => setOpenKey(open ? '' : key)}>{open ? '접기 ▴' : '자세히 ▾'}</button></td>
         </tr>
-        {open && <tr className="kdn-pv-detailrow"><td colSpan={9}><PlanDetail item={item} facts={facts} student={student} /><div className="kdn-pv-rowacts"><Actions item={item} busy={busy} onRemove={onRemove} onOpenCases={onOpenCases} /></div></td></tr>}
+        {open && <tr className="kdn-pv-detailrow"><td colSpan={9}><PlanDetail item={item} facts={facts} student={student} studentGrade={studentGrade} cutoffBasis={cutoffBasis} /><div className="kdn-pv-rowacts"><Actions item={item} busy={busy} onRemove={onRemove} onOpenCases={onOpenCases} /></div></td></tr>}
       </React.Fragment>;
     })}</tbody>
   </table></div>;
@@ -155,7 +168,7 @@ function SplitView({ entries, studentGrade, cutoffBasis, student, busy, onRemove
         <span><small>{facts.altLabel}%컷</small><b>{fmt(facts.altCut)}</b></span>
         <span className={`band is-${facts.bandKey}`}><small>지원 구간</small><b>{facts.band || '판정 없음'}{facts.diff != null ? ` ${signed(facts.diff)}` : ''}</b></span>
       </div>
-      <PlanDetail item={active.item} facts={facts} student={student} />
+      <PlanDetail item={active.item} facts={facts} student={student} studentGrade={studentGrade} cutoffBasis={cutoffBasis} />
     </section>}
   </div>;
 }

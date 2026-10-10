@@ -78,17 +78,25 @@ export function ResultDistribution({ rows = [], scoreOf, maxScore = 100, cutoffs
   const dot = Math.max(7, Math.min(16, 220 / maxLevel));
   const ticks = Array.from({ length: Math.floor(span / 10) + 1 }, (_, index) => low + index * 10);
   const shown = hover || placed[placed.length - 1];
+  const ordered = cutoffs.filter(item => item.min != null).slice().sort((a, b) => a.grade - b.grade);
+  const zones = ordered.map((item, index) => {
+    const hi = index === 0 ? high : ordered[index - 1].min;
+    const lo = index === ordered.length - 1 ? low : item.min;
+    return { grade: item.grade, lo: Math.max(low, Math.min(high, lo)), hi: Math.max(low, Math.min(high, hi)) };
+  }).filter(zone => zone.hi - zone.lo > 0.01);
   return <section className="kdn-gr-dist">
     <div className="kdn-gr-dist-head">
-      <div><span>{combined ? "학기말 환산 점수" : "지필 점수"} 분포</span><b>학생 {points.length}명은 어디에 있을까요?</b><small>점 하나 = 학생 한 명 · 색 = 등급 · 점선 = 등급컷</small></div>
+      <div><span>{combined ? "학기말 환산 점수" : "지필 점수"} 분포</span><b>학생 {points.length}명은 어디에 있을까요?</b><small>점 하나 = 학생 한 명 · 색 띠 = 등급 구간 · 흰 선 = 등급컷</small></div>
       <div className="kdn-gr-legend">{cutoffs.filter(item => item.count > 0).map(item => <span key={item.grade}><i style={{ background: gradeColor(item.grade) }} />{item.grade}등급 {item.count}</span>)}</div>
     </div>
-    <div className="kdn-gr-plot" style={{ height: Math.max(200, maxLevel * (dot + 2) + 64) }}>
-      {cutoffs.filter(item => item.grade < cutoffs.length && item.min != null && item.min > low && item.min < high).map(item => <div key={item.grade} className="cut" style={{ left: x(item.min) }}><span>{item.grade}/{item.grade + 1}등급 {fmt(item.min, 1)}</span></div>)}
+    <div className="kdn-gr-plot" style={{ height: Math.max(230, maxLevel * (dot + 2) + 96) }}>
+      {/* 등급 구간을 옅은 등급색 띠로 깔고, 띠 아래에 등급 이름을 붙여 경계가 한눈에 보이게 합니다. */}
+      {zones.map(zone => <div key={`z${zone.grade}`} className="zone" style={{ left: x(zone.lo), width: `${((zone.hi - zone.lo) / span) * 100}%`, "--zc": gradeColor(zone.grade) }}><em>{zone.grade}등급</em></div>)}
+      {cutoffs.filter(item => item.grade < cutoffs.length && item.min != null && item.min > low && item.min < high).map((item, index) => <div key={item.grade} className={`cut${index % 2 ? " alt" : ""}`} style={{ left: x(item.min) }}><span>{item.grade}|{item.grade + 1}등급 <b>{fmt(item.min, 1)}</b></span></div>)}
       {Number.isFinite(stats.average) && <div className="avg" style={{ left: x(stats.average) }}><span>평균 {fmt(stats.average, 1)}</span></div>}
       {placed.map(point => <button key={point.row.sid} type="button" data-kdn-bare aria-label={`${point.row.name || point.row.sid} ${fmt(point.score, 1)}점 ${point.row.grade || "-"}등급`}
         onMouseEnter={() => setHover(point)} onFocus={() => setHover(point)} onClick={() => setHover(point)} className={shown === point ? "is-on" : ""}
-        style={{ left: x(point.score), bottom: 30 + (point.level - 1) * (dot + 2), width: dot, height: dot, background: gradeColor(point.row.grade) }} />)}
+        style={{ left: x(point.score), bottom: 52 + (point.level - 1) * (dot + 2), width: dot, height: dot, background: gradeColor(point.row.grade) }} />)}
       <div className="axis">{ticks.map(tick => <span key={tick} style={{ left: x(tick) }}>{tick}</span>)}</div>
     </div>
     <div className="kdn-gr-dist-foot">

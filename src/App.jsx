@@ -2701,7 +2701,6 @@ const newUiNavStyles = {
 
 function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, primaryAction, semester }) {
   const items = [
-    { key: "home", label: "대시보드" },
     { key: "grades", label: "성적 · 진학" },
     { key: "timetable", label: "시간표" },
     ...(showTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE" }] : []),
@@ -2711,13 +2710,14 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
   return (
     <nav className="no-print kdn-top-nav" aria-label="주 메뉴" style={newUiNavStyles.wrap}>
       <div className="kdn-nav-inner" style={newUiNavStyles.inner}>
-        <div style={newUiNavStyles.brand} title={SITE_TITLE}>
+        {/* 로고(KDTIME)를 누르면 대시보드로 갑니다. 별도 '대시보드' 메뉴는 없앴습니다. */}
+        <button type="button" data-kdn-bare className="kdn-brand-home" onClick={() => onSwitch("home")} aria-label="KDTIME 대시보드로 이동" aria-current={active === "home" ? "page" : undefined} style={{ ...newUiNavStyles.brand, border: 0, background: "transparent", padding: 0, font: "inherit", color: "inherit", textAlign: "left", cursor: "pointer" }} title={`${SITE_TITLE} · 대시보드`}>
           <span style={newUiNavStyles.logo}>KD</span>
           <span style={{ display: "flex", flexDirection: "column", lineHeight: 1.15 }}>
             <span style={{ fontWeight: 900, fontSize: 19, letterSpacing: ".02em" }}>KDTIME</span>
             {semester ? <NavClock semester={semester} /> : <span className="kdn-brand-sub" style={{ fontSize: 11.5, color: "var(--kdn-muted)", fontWeight: 700 }}>{SITE_TITLE}</span>}
           </span>
-        </div>
+        </button>
         <div className="kdn-nav-tabs" style={newUiNavStyles.tabs}>
           {items.map(it => (
             <button key={it.key} type="button" aria-current={active === it.key ? "page" : undefined} onClick={() => onSwitch(it.key)} style={{ ...newUiNavStyles.tab, ...(active === it.key ? newUiNavStyles.tabActive : {}) }}>{it.label}</button>
