@@ -1764,7 +1764,7 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
 
         <div className="kdn-mock-card" style={{ ...card, borderTop: "4px solid #5969a5", marginTop: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11, flexWrap: "wrap" }}><div><div style={{ fontWeight: 950 }}>{subjectView} 등급 분포</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>1등급·2등급만 강조색으로 구분하고 3~9등급은 동일한 중립색으로 정리했습니다.</div></div><span style={{fontSize:10.5,fontWeight:900,color:"#647184"}}>평균 {selectedSubjectAverage ?? "-"}점</span></div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(9,minmax(62px,1fr))", gap: 6, overflowX: "auto", paddingBottom: 2 }}>{selectedSubjectGradeCounts.map((count,index)=><div key={index} style={{...gradeCellStyle(index+1),border:`1px solid ${gradePalette[index+1].border}`,borderRadius:9,padding:"8px 5px",textAlign:"center",minWidth:62}}><b style={{display:"block",fontSize:11}}>{index+1}등급</b><strong style={{display:"block",fontSize:16,marginTop:4}}>{count}</strong><small style={{display:"block",fontSize:8.8,marginTop:2}}>명</small></div>)}</div>
+          <div className="kdn-mock-gdist" style={{ display: "grid", gridTemplateColumns: "repeat(9,minmax(62px,1fr))", gap: 6, overflowX: "auto", paddingBottom: 2 }}>{selectedSubjectGradeCounts.map((count,index)=><div key={index} className={`gcell g${index+1}`} data-h={Math.round((count / Math.max(1, ...selectedSubjectGradeCounts)) * 100)} style={{"--h":`${(count / Math.max(1, ...selectedSubjectGradeCounts)) * 100}%`,...gradeCellStyle(index+1),border:`1px solid ${gradePalette[index+1].border}`,borderRadius:9,padding:"8px 5px",textAlign:"center",minWidth:62}}><b style={{display:"block",fontSize:11}}>{index+1}등급</b><strong style={{display:"block",fontSize:16,marginTop:4}}>{count}</strong><small style={{display:"block",fontSize:8.8,marginTop:2}}>명</small></div>)}</div>
         </div>
 
         <div className="kdn-mock-card" style={{ ...card, borderTop: "4px solid #2b2620", marginTop: 14 }}><div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 10 }}><div><div style={{ fontWeight: 950 }}>{subjectView} 학생별 성적</div><div style={{ fontSize: 11, color: "#8a8578", marginTop: 3 }}>원점수 기준으로 정렬하며 동점자는 같은 과목 순위를 부여합니다. 전체 총점 순위도 함께 확인할 수 있습니다.</div></div><span style={{ fontSize: 11, fontWeight: 850, color: "#746d61" }}>{selectedSubjectRows.length}명</span></div>
@@ -3904,7 +3904,11 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
       {extraDocumentGroups.length > 0 && (
         <div style={card}>
           <SectionHeading title={`추가 대학 자료 · ${inferredGrade}학년`} description="현재 학년 전형표에는 없지만 관리자가 별도로 등록한 자료입니다. 광덕고 과거 사례가 있으면 같은 캠퍼스 기준으로 연결합니다." />
-          <div style={admissionDocs.tableWrap}>
+          {isNewUi() ? <div className="kdn-xdocs">{extraDocumentGroups.map(group => { const campus = admissionCampusLabel(group.university, group.region); const openCases = () => onOpenCases?.(admissionCaseFocusUniversity({ university: group.university, region: group.region }), "", ""); return <article key={universityDocumentKey(group.university, group.region)} className="kdn-xdoc">
+            <header><b>{group.university}</b><span className="rg">{group.region || "미지정"}{campus ? ` · ${campus}캠퍼스` : ""}</span></header>
+            <div className="docs"><small>등록 자료</small><div>{group.docs.map(docItem => <PdfLink key={docItem.id || docItem.url || docItem.dataKey} docItem={docItem} compact />)}</div></div>
+            <footer>{group.cases.length ? <button type="button" data-kdn-bare onClick={openCases}>광덕고 사례 <b>{group.cases.length}건</b> ›</button> : <span>광덕고 사례 없음 · 자료만 등록</span>}</footer>
+          </article>; })}</div> : <div style={admissionDocs.tableWrap}>
             <table className="admission-extra-docs-table" style={{...admissionDocs.table,minWidth:0}}>
               <colgroup><col style={{width:"22%"}}/><col style={{width:"12%"}}/><col style={{width:"28%"}}/><col style={{width:"18%"}}/><col style={{width:"20%"}}/></colgroup>
               <thead><tr>{["대학교","지역·캠퍼스","등록 자료","광덕고 사례","바로가기"].map(label=><th key={label} style={admissionTable.th}>{label}</th>)}</tr></thead>
@@ -3916,7 +3920,7 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
                 <td style={admissionTable.td}>{group.cases.length ? <button type="button" onClick={()=>onOpenCases?.(admissionCaseFocusUniversity({university:group.university,region:group.region}),"","")} style={{...btn.link,fontSize:10.5}}>광덕고 사례 연결</button> : <span style={admissionTable.empty}>자료만 등록</span>}</td>
               </tr>)}</tbody>
             </table>
-          </div>
+          </div>}
         </div>
       )}
     </div>
@@ -3925,30 +3929,40 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
 
 // 새 UI 지원 가능성 진단: 대학별로 묶고, 전형마다 "대학 기준 ↔ 내 최저"를 한 줄로 비교합니다.
 // 판정 근거·최근 충족 이력·지원자격은 줄을 펼쳐서 봅니다.
-const MIN_BOARD_PAGE = 12;
 function minimumMargin(result) {
   if (result?.ruleType === "each" || result?.studentSum == null || result?.threshold == null) return null;
   return Number(result.threshold) - Number(result.studentSum);
 }
 function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, statusFilter, onStatusFilter, onToggleFavorite, favoriteActive, caseLinkForRow, onOpenCases }) {
-  const [page, setPage] = useState(1);
+  // 상담 D안처럼: 왼쪽 대학 목록에서 고르면 오른쪽에 그 대학의 전형 행만 크게 보여 줍니다(페이지 나눔 없음).
+  const [picked, setPicked] = useState("");
   const [open, setOpen] = useState(() => new Set());
   const groups = useMemo(() => {
     const map = new Map();
     rows.forEach(row => { const key = row.university || "대학 미지정"; if (!map.has(key)) map.set(key, []); map.get(key).push(row); });
     return Array.from(map, ([university, items]) => ({ university, items }));
   }, [rows]);
-  useEffect(() => setPage(1), [rows]);
-  const pageCount = Math.max(1, Math.ceil(groups.length / MIN_BOARD_PAGE));
-  const visible = groups.slice((page - 1) * MIN_BOARD_PAGE, page * MIN_BOARD_PAGE);
+  const active = groups.find(group => group.university === picked) || groups[0] || null;
+  const okCount = group => group.items.filter(row => ["satisfied", "no-minimum"].includes(row.evaluation.status)).length;
+  const badCount = group => group.items.filter(row => row.evaluation.status === "unsatisfied").length;
+  // 전형이 3개 이하인 대학은 고르자마자 근거를 펼쳐 오른쪽 상세를 채웁니다.
+  useEffect(() => { if (active && active.items.length <= 3) setOpen(new Set(active.items.map(row => `${row.university}-${row._index}`))); }, [active?.university]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggle = key => setOpen(current => { const next = new Set(current); next.has(key) ? next.delete(key) : next.add(key); return next; });
   const summary = [["all", "전체", total, ""], ["satisfied", "충족", statusCounts.satisfied, "ok"], ["unsatisfied", "미충족", statusCounts.unsatisfied, "no"], ["review", "별도 확인", statusCounts.review, "rv"]];
-  const pager = pageCount > 1 && <div className="kdn-minb-pager"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>이전</button><span><b>{page}</b> / {pageCount} · 대학 {groups.length}곳</span><button type="button" disabled={page >= pageCount} onClick={() => setPage(page + 1)}>다음</button></div>;
   return <div className="kdn-minb">
     <div className="kdn-minb-sum">{summary.map(([key, label, count, tone]) => <button key={key} type="button" data-kdn-bare className={`${tone} ${statusFilter === key ? "is-on" : ""}`} onClick={() => onStatusFilter(key)}><small>{label}</small><b>{Number(count || 0).toLocaleString()}</b></button>)}<span className="hint">충족에는 최저 없음 전형이 포함됩니다.</span></div>
-    {pager}
-    <div className="kdn-minb-grid">
-    {visible.map(group => {
+    {!groups.length ? <div className="kdn-minb-empty">조건에 맞는 대학이 없습니다.</div> : <div className="kdn-minb-ex">
+    <aside className="kdn-minb-list" aria-label="대학 목록">
+      <div className="hd"><b>대학 {groups.length}곳</b><small>전형 {rows.length}개</small></div>
+      {groups.map(group => { const ok = okCount(group), bad = badCount(group), n = group.items.length, region = group.items[0]?.region; return <button key={group.university} type="button" data-kdn-bare className={`it${group === active ? " is-on" : ""}`} onClick={() => setPicked(group.university)}>
+        <b>{group.university}</b>
+        <small>{region && region !== "미지정" ? `${region} · ` : ""}전형 {n}개</small>
+        <span className="st">{bad > 0 && <em className="bad">미충족 {bad}</em>}<em className={ok === n ? "ok all" : "ok"}>{ok}/{n}</em></span>
+        <i className="mt"><i style={{ width: `${(ok / Math.max(1, n)) * 100}%` }} /></i>
+      </button>; })}
+    </aside>
+    <div className="kdn-minb-detail">
+    {[active].filter(Boolean).map(group => {
       const first = group.items[0];
       const caseLink = caseLinkForRow({ ...first, department: "", track: "" });
       const ok = group.items.filter(row => ["satisfied", "no-minimum"].includes(row.evaluation.status)).length;
@@ -3959,6 +3973,7 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
           <span className="ct">충족 {ok}/{group.items.length}<i className="mt"><em style={{ width: `${(ok / Math.max(1, group.items.length)) * 100}%` }} /></i></span>
           {caseLink.count > 0 && onOpenCases && <button type="button" data-kdn-bare className="cs" onClick={() => onOpenCases(caseLink.university, "", "")}>광덕고 사례 {caseLink.count}건 ›</button>}
         </header>
+        <div className="kdn-minb-dsum">{[["전형", group.items.length, ""], ["충족·최저 없음", ok, "ok"], ["미충족", badCount(group), "no"], ["별도 확인", group.items.length - ok - badCount(group), "rv"]].map(([label, value, tone]) => <span key={label} className={tone}><small>{label}</small><b>{value}</b></span>)}{caseLink.count > 0 && <span className="cs"><small>광덕고 사례</small><b>{caseLink.count}건</b></span>}</div>
         {group.items.map(row => {
           const result = row.evaluation;
           const meta = admissionStatusMeta(result.status);
@@ -3992,7 +4007,7 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
       </section>;
     })}
     </div>
-    {pager}
+    </div>}
   </div>;
 }
 

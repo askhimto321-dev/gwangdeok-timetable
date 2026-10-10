@@ -2338,6 +2338,22 @@ const SHARED_NEW_CSS = `
   .kdn-mock-rank.is-top{background:#fff0e6!important;color:#c2410c!important;box-shadow:inset 0 0 0 1.5px #f6b48f!important}
   [data-kd-ui="dark"] .kdn-mock-rank.is-top{background:rgba(249,115,22,.16)!important;color:#fdba74!important;box-shadow:inset 0 0 0 1.5px rgba(249,115,22,.4)!important}
   .kdn-mock-g{font-size:11.5px!important;padding:1px 8px!important}
+  .kdn-mock-tabs button[aria-pressed="true"]{background:var(--kdn-ink)!important;box-shadow:0 4px 12px rgba(15,23,42,.18)!important}
+  .kdn-mock-tabs button[aria-pressed="true"] b,.kdn-mock-tabs button[aria-pressed="true"] small,.kdn-mock-tabs button[aria-pressed="true"] span,.kdn-mock-tabs button[aria-pressed="true"] div{color:var(--kdn-surface)!important}
+  [data-kd-ui="dark"] .kdn-mock-tabs button[aria-pressed="true"]{background:var(--kdn-accent)!important}[data-kd-ui="dark"] .kdn-mock-tabs button[aria-pressed="true"] *{color:#fff!important}
+  .kdn-mock-tabs button:not([aria-pressed="true"]):hover{background:var(--kdn-surface)!important}
+  .kdn-mock-table{table-layout:auto!important;width:100%}
+  .kdn-mock-table col{width:auto!important}
+  .kdn-mock-table th,.kdn-mock-table td{white-space:nowrap;text-align:center!important}
+  .kdn-mock-kpi{position:relative;overflow:hidden}
+  .kdn-mock-kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--kdn-accent)}
+  .kdn-mock-kpis>.kdn-mock-kpi:nth-child(2)::before{background:#2563eb}.kdn-mock-kpis>.kdn-mock-kpi:nth-child(3)::before{background:#16a34a}.kdn-mock-kpis>.kdn-mock-kpi:nth-child(4)::before{background:#7c3aed}
+  .kdn-mock-kpi>span{color:var(--kdn-accent-text)!important}
+  .kdn-mock-gdist{gap:8px!important;align-items:end}
+  .kdn-mock-gdist .gcell{position:relative;display:flex;flex-direction:column;justify-content:flex-end;min-height:120px;padding:8px 5px!important;border-radius:12px!important;border:1px solid var(--kdn-line)!important;background:linear-gradient(to top,var(--bar,#cbd5e1) var(--h),var(--kdn-surface-2) var(--h))!important;color:var(--kdn-ink)!important}
+  .kdn-mock-gdist .gcell.g1{--bar:#86efac}.kdn-mock-gdist .gcell.g2{--bar:#93c5fd}
+  [data-kd-ui="dark"] .kdn-mock-gdist .gcell{--bar:rgba(148,163,184,.35)}[data-kd-ui="dark"] .kdn-mock-gdist .gcell.g1{--bar:rgba(34,197,94,.45)}[data-kd-ui="dark"] .kdn-mock-gdist .gcell.g2{--bar:rgba(59,130,246,.45)}
+  .kdn-mock-gdist .gcell b{font-size:12.5px!important}.kdn-mock-gdist .gcell strong{font-size:20px!important}.kdn-mock-gdist .gcell small{font-size:11px!important}
   .kdn-mock-bar{grid-template-columns:44px minmax(0,1fr) 54px!important;font-size:13.5px!important;color:var(--kdn-ink)}
   .kdn-mock-bar>div>div:first-child{height:12px!important;background:var(--kdn-surface-2)!important}
   .kdn-mock-bar>div>div:first-child>div{background:linear-gradient(90deg,#e2531a,#f6b26b)!important}
@@ -2350,6 +2366,44 @@ const SHARED_NEW_CSS = `
     .student-identity-banner .student-identity-eyebrow{margin:0!important;font-size:16px!important;font-weight:800!important;letter-spacing:0!important;color:#fff!important;opacity:1!important;text-transform:none!important}
     .student-identity-banner .student-identity-top{align-items:center!important}
   }
+  /* 대학별 지원 가능성 진단: 왼쪽 대학 목록 + 오른쪽 선택 대학 상세(상담 D안과 같은 구조) */
+  .kdn-minb-ex{display:grid;grid-template-columns:260px minmax(0,1fr);gap:14px;align-items:start}
+  .kdn-minb-empty{padding:24px;border-radius:14px;border:1.5px dashed var(--kdn-line);text-align:center;color:var(--kdn-muted)}
+  .kdn-minb-list{position:sticky;top:var(--cg-sticky-top,80px);display:flex;flex-direction:column;gap:2px;max-height:calc(100vh - 120px);overflow:auto;padding:10px 8px;border-radius:16px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
+  .kdn-minb-list .hd{display:flex;align-items:baseline;justify-content:space-between;padding:2px 8px 8px}.kdn-minb-list .hd b{font-size:15px;color:var(--kdn-ink)}.kdn-minb-list .hd small{font-size:12px;color:var(--kdn-muted)}
+  .kdn-minb-list .it{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;align-items:center;padding:9px 10px;border:0;border-radius:11px;background:transparent;text-align:left;font:inherit;cursor:pointer}
+  .kdn-minb-list .it:hover{background:var(--kdn-surface-2)}
+  .kdn-minb-list .it b{font-size:14px;color:var(--kdn-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kdn-minb-list .it small{grid-column:1;font-size:12px;color:var(--kdn-muted)}
+  .kdn-minb-list .it .st{grid-row:1/span 2;grid-column:2;display:grid;justify-items:end;gap:3px}
+  .kdn-minb-list .it em{font-style:normal;font-size:11.5px;font-weight:800;padding:1px 7px;border-radius:7px;white-space:nowrap}
+  .kdn-minb-list .it em.ok{background:var(--kdn-surface-2);color:var(--kdn-ink-soft)}.kdn-minb-list .it em.ok.all{background:#dcfce7;color:#166534}.kdn-minb-list .it em.bad{background:#fee2e2;color:#991b1b}
+  [data-kd-ui="dark"] .kdn-minb-list .it em.ok.all{background:rgba(34,197,94,.16);color:#86efac}[data-kd-ui="dark"] .kdn-minb-list .it em.bad{background:rgba(239,68,68,.18);color:#fca5a5}
+  .kdn-minb-list .it .mt{grid-column:1/-1;display:block;height:4px;border-radius:99px;background:var(--kdn-line);overflow:hidden;margin-top:3px}.kdn-minb-list .it .mt i{display:block;height:100%;background:#16a34a}
+  .kdn-minb-list .it.is-on{background:var(--kdn-accent-soft);box-shadow:inset 3px 0 0 var(--kdn-accent)}
+  .kdn-minb-detail{min-width:0}
+  .kdn-minb-dsum{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px;border-bottom:1px solid var(--kdn-line)}
+  .kdn-minb-dsum span{display:grid;gap:1px;min-width:92px;padding:8px 12px;border-radius:11px;background:var(--kdn-surface-2)}
+  .kdn-minb-dsum small{font-size:11.5px;font-weight:700;color:var(--kdn-muted)}.kdn-minb-dsum b{font-size:19px;font-weight:800;color:var(--kdn-ink);font-variant-numeric:tabular-nums}
+  .kdn-minb-dsum .ok b{color:#15803d}.kdn-minb-dsum .no b{color:#b91c1c}.kdn-minb-dsum .rv b{color:#a16207}.kdn-minb-dsum .cs b{color:var(--kdn-accent-text)}
+  [data-kd-ui="dark"] .kdn-minb-dsum .ok b{color:#86efac}[data-kd-ui="dark"] .kdn-minb-dsum .no b{color:#fca5a5}[data-kd-ui="dark"] .kdn-minb-dsum .rv b{color:#fcd34d}
+  .kdn-minb-detail .kdn-minb-uni>header{padding:14px 18px}
+  .kdn-minb-detail .kdn-minb-uni>header>b{font-size:19px}
+  .kdn-minb-detail .kdn-minb-row .line{grid-template-columns:32px minmax(0,1.2fr) minmax(170px,1fr) 70px 150px!important;gap:14px!important;padding:12px 18px!important}
+  .kdn-minb-detail .kdn-minb-row .dep b{font-size:15.5px}
+  .kdn-minb-detail .kdn-minb-row .rule>b{font-size:16px}
+  .kdn-minb-detail .kdn-minb-row .mine b{font-size:22px}
+  .kdn-minb-detail .kdn-minb-row .line>.st{grid-template-columns:auto auto;align-items:center;justify-content:end;column-gap:8px}
+  .kdn-minb-detail .kdn-minb-row .line>.st .act{grid-column:1/-1}
+  @media (max-width:900px){.kdn-minb-ex{grid-template-columns:minmax(0,1fr)}.kdn-minb-list{position:static;max-height:280px}}
+  @media (max-width:760px){.kdn-minb-detail .kdn-minb-row .line{grid-template-columns:26px minmax(0,1fr) auto!important;padding:10px 12px!important}}
+  /* 대학 탐색 · 추가 대학 자료(새 UI 카드) */
+  .kdn-xdocs{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+  .kdn-xdoc{display:grid;gap:10px;padding:14px 16px;border-radius:14px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
+  .kdn-xdoc header{display:grid;gap:3px}.kdn-xdoc header b{font-size:16px;color:var(--kdn-ink)}.kdn-xdoc header .rg{font-size:12.5px;color:var(--kdn-muted)}
+  .kdn-xdoc .docs{display:grid;gap:5px}.kdn-xdoc .docs small{font-size:11.5px;font-weight:700;color:var(--kdn-muted)}.kdn-xdoc .docs>div{display:flex;flex-wrap:wrap;gap:6px}
+  .kdn-xdoc footer{padding-top:10px;border-top:1px solid var(--kdn-line);font-size:12.5px;color:var(--kdn-muted)}
+  .kdn-xdoc footer button{border:0;background:transparent;padding:0;font:inherit;font-size:13px;font-weight:700;color:var(--kdn-accent-text);cursor:pointer}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
