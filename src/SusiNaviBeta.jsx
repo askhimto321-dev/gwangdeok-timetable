@@ -3487,7 +3487,7 @@ function SupportConnectionExplorer({
         </div>
       </div>}
       {!results.length ? <div className="kdn-conn-empty">{emptyText}</div> : tableView ? <div className="kdn-case-table-wrap"><table className="kdn-case-table kdn-conn-table">
-        <thead><tr><th/><th>대학 · 모집단위</th><th>전형</th><th className="n">기준 컷</th><th className="n">{mode === "grade" ? "학생과 차이" : "기준대와 차이"}</th><th>판정</th><th>NAVI 사례</th><th>광덕고 지원 → 합격</th><th/></tr></thead>
+        <thead><tr><th/><th>대학 · 모집단위</th><th>전형</th><th className="n">기준 컷</th><th className="n">{mode === "grade" ? "학생과 차이" : "기준대와 차이"}</th><th className="c">판정</th><th className="n">NAVI 사례</th><th>광덕고 지원 → 합격</th><th/></tr></thead>
         <tbody>{renderedResults.map(({ item, trend }) => {
           const diff = Number(mode === "grade" ? item.difference : item.linkDifference);
           const support = mode === "grade" ? supportBand(convertedGrade, item.referenceCut) : null;
@@ -3499,7 +3499,7 @@ function SupportConnectionExplorer({
             <td><span className="t">{item.admissionType}</span><small className={item.integratedScope ? "src int" : "src off"}>{item.integratedScope ? "계열 통합컷" : "학과 공개컷"}</small></td>
             <td className="n"><b>{Number(item.referenceCut).toFixed(2)}</b></td>
             <td className="n">{mode === "grade" && margin != null ? <b style={{ color: margin >= 0 ? "#15803d" : "#b91c1c" }}>{Math.abs(margin).toFixed(2)} {margin >= 0 ? "여유" : "부족"}</b> : <b>{Number.isFinite(diff) ? Math.abs(diff).toFixed(2) : "-"}</b>}</td>
-            <td>{support ? <span className="admission-band-badge kdn-conn-band" style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <small className="m">{item.linkedTarget ? `${item.linkedTarget.university} 기준` : "유사"}</small>}</td>
+            <td className="c">{support ? <span className="admission-band-badge kdn-conn-band" style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <small className="m">{item.linkedTarget ? `${item.linkedTarget.university} 기준` : "유사"}</small>}</td>
             <td className="n">{item.caseCount ? `${item.caseCount.toLocaleString()}건` : "-"}</td>
             <td>{trend.total ? <button type="button" data-kdn-bare className="kdn-conn-school" onClick={event => { event.stopPropagation(); openCases(item); }} title="광덕고 대입 결과에서 사례 보기"><b>{trend.total}</b>→<b className="ok">{trend.accepted}</b><span className="rate"><i><em style={{ width: `${Math.min(100, Number(trend.rate || 0))}%` }}/></i></span><small>{trend.rate == null ? "-" : `${trend.rate}%`}</small></button> : <small className="m">사례 없음</small>}</td>
             <td className="go"><ChevronRight size={17}/></td>

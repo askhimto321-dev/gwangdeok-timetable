@@ -56,7 +56,7 @@ function MinChip({ facts }) {
 }
 function Actions({ item, busy, onRemove, onOpenCases, extra = null }) {
   return <span className="kdn-pv-acts">{extra}
-    {onOpenCases && (item.stored.source === '광덕고 별도 사례' || item.schoolMatch?.total > 0) && <button type="button" data-kdn-bare onClick={() => onOpenCases(item.stored.university, item.stored.department, item.stored.track)}>광덕고 사례</button>}
+    {onOpenCases && (item.stored.source === '광덕고 별도 사례' || item.schoolMatch?.total > 0) && <button type="button" data-kdn-bare className="case" onClick={() => onOpenCases(item.stored.university, item.stored.department, item.stored.track)}>광덕고 사례 ›</button>}
     <button type="button" data-kdn-bare disabled={busy} onClick={() => onRemove(item.stored)} aria-label={`${item.stored.university} ${item.stored.track || ''} 지원 구성에서 삭제`}>삭제</button>
   </span>;
 }
@@ -154,7 +154,7 @@ function TableView({ entries, studentGrade, cutoffBasis, student, busy, onRemove
           <td className="nw">{facts.course}</td>
           <td className="nw"><button type="button" data-kdn-bare className="kdn-pv-more" aria-expanded={open} onClick={() => setOpenKey(open ? '' : key)}>{open ? '접기 ▴' : '자세히 ▾'}</button></td>
         </tr>
-        {open && <tr className="kdn-pv-detailrow"><td colSpan={9}><PlanDetail item={item} facts={facts} student={student} studentGrade={studentGrade} cutoffBasis={cutoffBasis} /><div className="kdn-pv-rowacts"><Actions item={item} busy={busy} onRemove={onRemove} onOpenCases={onOpenCases} /></div></td></tr>}
+        {open && <tr className="kdn-pv-detailrow"><td colSpan={9}><div className="kdn-pv-rowacts"><b>{item.stored.university} {item.stored.department} · 상세</b><Actions item={item} busy={busy} onRemove={onRemove} onOpenCases={onOpenCases} /></div><PlanDetail item={item} facts={facts} student={student} studentGrade={studentGrade} cutoffBasis={cutoffBasis} /></td></tr>}
       </React.Fragment>;
     })}</tbody>
   </table></div>;
