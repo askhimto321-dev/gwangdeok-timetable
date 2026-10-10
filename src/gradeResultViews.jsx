@@ -181,3 +181,88 @@ export function ResultClassCompare({ rows = [], scoreOf, maxScore = 100, gradeSy
     </table></div>}
   </section>;
 }
+
+// 시안 분포 C: 학번·이름으로 한 학생의 점수·석차·등급과 다음 등급까지 남은 점수를 바로 확인하고,
+// 오른쪽에는 등급컷 ±1점 안의 경계 학생(동점·근소 차이)을 모아 재확인할 수 있게 합니다.
+const NINE_CUMULATIVE = [0.04, 0.11, 0.23, 0.4, 0.6, 0.77, 0.89, 0.96, 1];
+export function ResultStudentLookup({ rows = [], scoreOf, maxScore = 100, cutoffs = [], written = [], areas = [], combined = false, total = 0, gradeSystem = 5, onEdit }) {
+  const points = React.useMemo(() => rows.map(row => ({ row, score: scoreOf(row) })).filter(point => Number.isFinite(point.score) && point.row.rank), [rows, scoreOf]);
+  const [query, setQuery] = React.useState("");
+  const [selectedSid, setSelectedSid] = React.useState("");
+  const [open, setOpen] = React.useState(false);
+  const digits = combined ? 2 : 1;
+  // 5등급제 과목은 같은 석차를 9등급 비율(4·11·23·40·60·77·89·96%)에 대 본 참고 등급을 함께 보여줍니다.
+  const nine = React.useMemo(() => {
+    if (Number(gradeSystem) === 9 || !points.length) return null;
+    const count = points.length;
+    const gradeOf = rank => NINE_CUMULATIVE.findIndex(ratio => rank <= Math.max(1, Math.round(count * ratio))) + 1;
+    const mins = {};
+    for (const point of points) { const g = gradeOf(point.row.rank); mins[g] = Math.min(mins[g] ?? Infinity, point.score); }
+    return { gradeOf, mins };
+  }, [points, gradeSystem]);
+  const matches = React.useMemo(() => {
+    const q = query.trim();
+    if (!q) return [];
+    return points.filter(({ row }) => String(row.sid).includes(q) || String(row.name || "").includes(q)).slice(0, 8);
+  }, [points, query]);
+  const selected = points.find(point => point.row.sid === selectedSid) || null;
+  const pick = sid => { setSelectedSid(sid); setOpen(false); const hit = points.find(point => point.row.sid === sid); if (hit) setQuery(`${hit.row.sid} ${hit.row.name || ""}`.trim()); };
+  const cutOf = grade => cutoffs.find(item => Number(item.grade) === Number(grade))?.min ?? null;
+  const boundary = React.useMemo(() => {
+    const list = [];
+    cutoffs.slice(0, -1).forEach(item => {
+      if (item.min == null) return;
+      const atCut = points.filter(point => point.score === item.min).length;
+      points.forEach(point => {
+        const diff = point.score - item.min;
+        if (Math.abs(diff) > 1) return;
+        const tag = diff === 0 ? (atCut > 1 ? { text: `컷 동점 ${atCut}명`, tone: "tie" } : { text: "컷 학생", tone: "cut" }) : diff > 0 ? { text: `${fmt(diff, digits)} 여유`, tone: "up" } : { text: `${fmt(-diff, digits)} 부족`, tone: "down" };
+        list.push({ ...point, label: `${item.grade}/${Number(item.grade) + 1} 컷`, tag, diff });
+      });
+    });
+    return list.sort((a, b) => b.score - a.score);
+  }, [points, cutoffs, digits]);
+  const row = selected?.row;
+  const score = selected?.score;
+  const percent = row?.rank && total ? ((row.rank / total) * 100) : null;
+  const band = (current, next, value) => current == null || next == null || next <= current ? null : Math.max(0, Math.min(100, ((value - current) / (next - current)) * 100));
+  const g5 = row?.grade || null;
+  const cur5 = g5 ? cutOf(g5) : null, next5 = g5 > 1 ? cutOf(g5 - 1) : null;
+  const g9 = nine && row ? nine.gradeOf(row.rank) : null;
+  const cur9 = g9 ? nine.mins[g9] : null, next9 = g9 > 1 ? nine.mins[g9 - 1] : null;
+  const bars = [
+    g5 && { key: "5", title: `${gradeSystem}등급제`, head: g5 === 1 ? "최상위 등급" : next5 == null ? "상위 컷 없음" : `${g5 - 1}등급까지 ${fmt(Math.max(0, next5 - score), digits)}점 · 컷 ${fmt(next5, digits)}`, foot: g5 === 1 ? `1등급 컷 ${fmt(cur5, digits)}보다 ${fmt(score - cur5, digits)}점 위` : `${g5}등급 컷 ${fmt(cur5, digits)} ↔ ${g5 - 1}등급 컷 ${fmt(next5, digits)}`, pos: g5 === 1 ? 100 : band(cur5, next5, score) },
+    g9 && { key: "9", title: "9등급제 (참고)", head: g9 === 1 ? "최상위 등급" : `${g9 - 1}등급까지 ${fmt(Math.max(0, next9 - score), digits)}점 · 컷 ${fmt(next9, digits)}`, foot: g9 === 1 ? "같은 석차를 9등급 비율로 환산" : `${g9}등급 컷 ${fmt(cur9, digits)} ↔ ${g9 - 1}등급 컷 ${fmt(next9, digits)}`, pos: g9 === 1 ? 100 : band(cur9, next9, score) },
+  ].filter(Boolean);
+  const parts = combined && row ? [
+    ...written.map(item => ({ label: item.title, value: row.writtenScores?.[item.id], max: Number(item.maxScore) || 100 })),
+    ...areas.map(area => ({ label: area.name, value: row.areaScores?.[area.id], max: Number(area.maxScore) || 100 })),
+  ] : [];
+  return <div className="kdn-lk">
+    <section className="kdn-lk-main">
+      <div className="kdn-lk-search">
+        <span className="ic" aria-hidden="true">⌕</span>
+        <input value={query} placeholder="학번 또는 이름으로 등급 확인" onFocus={() => setOpen(true)} onChange={event => { setQuery(event.target.value); setOpen(true); }}
+          onKeyDown={event => { if (event.key === "Enter" && matches[0]) pick(matches[0].row.sid); }} aria-label="학생 학번 또는 이름" />
+        {open && matches.length > 0 && <div className="kdn-lk-suggest" role="listbox">{matches.map(({ row: item, score: value }) => <button key={item.sid} type="button" data-kdn-bare role="option" onMouseDown={event => event.preventDefault()} onClick={() => pick(item.sid)}><b>{item.sid}</b><span>{item.name || ""}</span><small>{item.classNumber ? `${item.classNumber}반 ${item.number || ""}번` : ""}</small><em>{fmt(value, digits)}점 · {item.grade || "-"}등급</em></button>)}</div>}
+      </div>
+      {!row ? <div className="kdn-lk-empty"><b>학생을 검색하세요</b><span>학번이나 이름을 입력하면 점수·석차·등급과 다음 등급까지 남은 점수를 보여줍니다. 오른쪽 경계 학생을 눌러도 됩니다.</span></div> : <>
+        <div className="kdn-lk-who"><span className="av">{String(row.name || "?").charAt(0)}</span><div><b>{row.name || row.sid}</b><small>{row.sid} · {row.classNumber || "-"}반 {row.number || "-"}번 · {combined ? "학기말 환산 점수 기준" : "정기시험 점수 기준"}</small></div>{onEdit && <button type="button" onClick={() => onEdit(row)}>성적 수정</button>}</div>
+        <div className="kdn-lk-big">
+          <div><span>{combined ? "환산 점수" : "점수"}</span><b>{fmt(score, digits)}</b><small>{combined && row.officialScore != null ? `원점수 ${row.officialScore}` : `${maxScore}점 만점`}</small></div>
+          <div><span>석차</span><b>{row.rank}<em> / {total}</em></b><small>{row.tieCount > 1 ? `동석차 ${row.tieCount}명` : percent != null ? `상위 ${percent.toFixed(1)}%` : ""}</small></div>
+          <div className="is-accent"><span>{gradeSystem}등급제</span><b>{g5 || "-"}<em>등급</em></b><small>{combined && row.achievement ? `성취도 ${row.achievement}` : ""}</small></div>
+          {g9 && <div><span>9등급제 (참고)</span><b>{g9}<em>등급</em></b><small>같은 석차 기준</small></div>}
+        </div>
+        <div className="kdn-lk-next">{bars.map(bar => <div key={bar.key}><div className="t"><b>{bar.title}</b><span>{bar.head}</span></div><div className="prog">{bar.pos != null && <i style={{ width: `${bar.pos}%` }} />}</div><small>{bar.foot}{bar.pos != null && g5 !== 1 && bar.key === "5" ? ` 사이 ${Math.round(bar.pos)}% 지점` : ""}{bar.pos != null && g9 !== 1 && bar.key === "9" ? ` 사이 ${Math.round(bar.pos)}% 지점` : ""}</small></div>)}</div>
+        {parts.length > 0 && <div className="kdn-lk-parts">{parts.map(part => <span key={part.label}><small>{part.label}</small><b>{fmt(part.value, 1)}<em> / {part.max}</em></b></span>)}<span><small>동석차</small><b>{row.tieCount > 1 ? `${row.tieCount}명` : "없음"}</b></span></div>}
+      </>}
+    </section>
+    <aside className="kdn-lk-side">
+      <div className="h"><b>등급 경계 학생</b><span>컷 ±1점 안 · 동점자·재확인 대상</span></div>
+      {!boundary.length ? <p className="none">컷 ±1점 안에 있는 학생이 없습니다.</p> : <div className="list">{boundary.map(item => <button key={`${item.label}-${item.row.sid}`} type="button" data-kdn-bare className={item.row.sid === selectedSid ? "is-on" : ""} onClick={() => pick(item.row.sid)}>
+        <b className="sc">{fmt(item.score, digits)}</b><span className="nm">{item.row.name || item.row.sid}<small>{item.row.classNumber ? `${item.row.classNumber}반 · ` : ""}{item.label}</small></span><em className={`tg ${item.tag.tone}`}>{item.tag.text}</em>
+      </button>)}</div>}
+    </aside>
+  </div>;
+}

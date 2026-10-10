@@ -116,6 +116,20 @@ function CompactView({ entries, studentGrade, cutoffBasis, student, busy, onRemo
   })}</div>;
 }
 
+// 컷 위치 막대: 내 환산(●, 위 라벨)과 컷(|, 아래 라벨) 사이를 색 띠로 이어 차이를 한눈에 보이게 합니다.
+// 등급은 낮을수록 좋으므로 내 값이 컷보다 왼쪽이면 초록(여유), 오른쪽이면 빨강(부족)입니다.
+function CutScale({ me, cut, pos, label }) {
+  const hasMe = validGrade(me) != null, hasCut = validGrade(cut) != null;
+  const pm = hasMe ? parseFloat(pos(me)) : null, pc = hasCut ? parseFloat(pos(cut)) : null;
+  const ok = hasMe && hasCut && Number(me) <= Number(cut);
+  return <div className="kdn-pv-scale" title={label}>
+    <span className="ln" />
+    {hasMe && hasCut && <span className={`gap ${ok ? 'ok' : 'bad'}`} style={{ left: `${Math.min(pm, pc)}%`, width: `${Math.abs(pm - pc)}%` }} />}
+    {hasCut && <span className="cut" style={{ left: `${pc}%` }}><em>컷 {fmt(cut)}</em></span>}
+    {hasMe && <span className={`me ${hasCut ? (ok ? 'ok' : 'bad') : ''}`} style={{ left: `${pm}%` }}><em>나 {fmt(me)}</em></span>}
+  </div>;
+}
+
 // B · 한 줄 표: 컷 위치 막대(● 내 환산 · | 컷)로 6개 전형을 한 번에 비교, 행을 펼치면 상세.
 function TableView({ entries, studentGrade, cutoffBasis, student, busy, onRemove, onOpenCases }) {
   const [openKey, setOpenKey] = useState('');
@@ -134,7 +148,7 @@ function TableView({ entries, studentGrade, cutoffBasis, student, busy, onRemove
           <td><b className="u">{item.stored.university}</b><small className="d">{item.stored.department}</small></td>
           <td><Track stored={item.stored} /></td>
           <td className="n"><b className="me">{fmt(studentGrade)}</b> <span className="sl">/</span> <b>{fmt(facts.cut)}</b><small className="d">{facts.altLabel}%컷 {fmt(facts.altCut)}</small></td>
-          <td><div className="kdn-pv-scale" title={`내 환산 ${fmt(studentGrade)} · ${cutoffBasis}%컷 ${fmt(facts.cut)}`}><span className="ln" />{validGrade(facts.cut) != null && <span className="cut" style={{ left: pos(facts.cut) }} />}{validGrade(studentGrade) != null && <span className="me" style={{ left: pos(studentGrade) }} />}</div></td>
+          <td><CutScale me={studentGrade} cut={facts.cut} pos={pos} label={`내 환산 ${fmt(studentGrade)} · ${cutoffBasis}%컷 ${fmt(facts.cut)}`} /></td>
           <td className="nw"><Band facts={facts} withDiff={false} />{facts.diff != null && <small className="df">{signed(facts.diff)}</small>}</td>
           <td><MinChip facts={facts} /></td>
           <td className="nw">{facts.course}</td>
