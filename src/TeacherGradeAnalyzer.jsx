@@ -1410,15 +1410,30 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       <div style={{display: !newUi || calcStep === 3 ? "contents" : "none"}}>
       <section className={activeView === "minimum" ? "minimum-print-area" : ""} style={ui.section}>
         <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>3</span><strong style={ui.sectionTitle}>결과 확인</strong><p style={ui.sectionHint}>지필평가, 학기말 성적과 최소성취수준 예방지도를 한 화면에서 전환합니다.</p></div>{activeView === "minimum"&&<button type="button" className="no-minimum-print" style={ui.printButton} onClick={printMinimum}><Printer size={14}/> 인쇄·PDF</button>}</div>
-        <div style={ui.resultTabs}>
+        {newUi ? <div className="kdn-rs-tabs" role="tablist" aria-label="결과 종류">
+          {sortedWritten.map(item => <button key={item.id} type="button" data-kdn-bare role="tab" aria-selected={activeView === item.id} onClick={() => setActiveView(item.id)}>{item.title}</button>)}
+          <button type="button" data-kdn-bare role="tab" aria-selected={activeView === "combined"} onClick={() => setActiveView("combined")}>학기말 성적</button>
+          <button type="button" data-kdn-bare role="tab" aria-selected={activeView === "minimum"} className="is-min" onClick={() => setActiveView("minimum")}><ShieldCheck size={14}/> 최성보</button>
+        </div> : <div style={ui.resultTabs}>
           {sortedWritten.map(item => <button key={item.id} type="button" onClick={() => setActiveView(item.id)} style={{ ...ui.resultTab, ...(activeView === item.id ? ui.resultTabActive : {}) }}>{item.title}</button>)}
           <button type="button" onClick={() => setActiveView("combined")} style={{ ...ui.resultTab, ...(activeView === "combined" ? ui.resultTabActive : {}) }}>학기말 성적</button>
           <button type="button" onClick={() => setActiveView("minimum")} style={{ ...ui.resultTab, ...ui.minimumResultTab, ...(activeView === "minimum" ? ui.resultTabActive : {}) }}><ShieldCheck size={14}/> 최성보</button>
-        </div>
+        </div>}
         {!activeRows.length ? <div style={ui.emptyState}><FileSpreadsheet size={30} /><b>분석할 파일을 업로드해주세요.</b><span>지필평가 파일부터 올리면 전 학급 학생 구조가 자동으로 만들어집니다.</span></div> : <>
           {activeView === "combined" && Math.abs(weightTotal.total - 100) > 1e-9 && <div style={ui.warningBanner}><AlertTriangle size={16} /><span>반영비율 합계가 {weightTotal.total}%입니다. 100%로 맞추기 전 결과는 검토용입니다.</span></div>}
           {activeView === "combined" && (plannedWritten.length > 0 || plannedPerformance.length > 0) && <div style={ui.warningBanner}><AlertTriangle size={16}/><span>{[...plannedWritten.map(item=>item.title),...plannedPerformance.map(item=>item.name)].filter(Boolean).join(", ")} 성적 파일이 아직 등록되지 않았습니다. 예정 반영비율은 최성보 계산과 사전 점검에 먼저 적용됩니다.</span></div>}
-          <div style={ui.metricGrid}>
+          {newUi && activeView !== "minimum" ? <div className="kdn-rs-bar">
+            <div className="kdn-rs-stats">
+              <span>산출 <b>{activeStats.count}</b>명<small> / 대상 {eligibleActiveRows.length}{activeRows.length > eligibleActiveRows.length ? ` · 자퇴·전출 ${activeRows.length - eligibleActiveRows.length} 제외` : ""}</small></span>
+              <span>평균 <b>{formatScore(activeStats.average, 1)}</b></span>
+              <span>최고 <b>{formatScore(activeStats.max, activeView === "combined" ? 2 : 1)}</b></span>
+              <span>최저 <b>{formatScore(activeStats.min, activeView === "combined" ? 2 : 1)}</b></span>
+              {activeView === "combined" && eligibleActiveRows.some(row => !row.complete) && <span className="is-warn">미처리 <b>{eligibleActiveRows.filter(row => !row.complete).length}</b>명</span>}
+            </div>
+            <div className="kdn-view-switch is-left" role="group" aria-label="결과 보기 방식">
+              {[["dashboard", "대시보드"], ["list", "학생 목록 + 상세"], ["chart", "분포 차트"], ["classes", "반별 비교"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={resultLook === key} className={resultLook === key ? "is-on" : ""} onClick={() => setResultLook(key)}>{label}</button>)}
+            </div>
+          </div> : <div style={ui.metricGrid}>
             {activeView === "minimum" ? <>
               <MetricCard label="조회 학생" value={`${activeRows.length}명`} caption={settings.courseType === "common" ? "공통과목 기준" : "선택과목 기준"} />
               <MetricCard label="주의 대상자" value={`${minimumSummary.risk}명`} caption="예방지도·다음 시험 점수 확인" danger={minimumSummary.risk > 0} />
@@ -1431,17 +1446,13 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
               <MetricCard label="최저점" value={formatScore(activeStats.min, 2)} caption="정상 산출 학생" />
               {activeView === "combined" && <MetricCard label="미처리" value={`${eligibleActiveRows.filter(row => !row.complete).length}명`} caption="공란·결시 확인 필요" danger={eligibleActiveRows.some(row => !row.complete)} />}
             </>}
-          </div>
-          {newUi && activeView !== "minimum" && <div className="kdn-view-switch is-left" role="group" aria-label="결과 보기 방식">
-            <span>보기</span>
-            {[["dashboard", "대시보드"], ["list", "학생 목록 + 상세"], ["chart", "분포 차트"], ["classes", "반별 비교"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={resultLook === key} className={resultLook === key ? "is-on" : ""} onClick={() => setResultLook(key)}>{label}</button>)}
           </div>}
           {newUi && activeView !== "minimum" && resultLook === "chart" && <ResultDistribution rows={eligibleActiveRows} scoreOf={activeView === "combined" ? row => (row.complete ? row.convertedScore : null) : row => row.score}
             maxScore={activeView === "combined" ? 100 : (Number(selectedWritten?.maxScore) || 100)} cutoffs={gradeDistribution} stats={activeStats} combined={activeView === "combined"} total={completeActiveRows.length} />}
           {newUi && activeView !== "minimum" && resultLook === "classes" && <ResultClassCompare rows={eligibleActiveRows} scoreOf={activeView === "combined" ? row => (row.complete ? row.convertedScore : null) : row => row.score}
             maxScore={activeView === "combined" ? 100 : (Number(selectedWritten?.maxScore) || 100)} gradeSystem={settings.gradeSystem} written={sortedWritten} combined={activeView === "combined"} title={activeView === "combined" ? "학기말 환산 점수" : `${selectedWritten?.title || "지필"} 점수`} />}
           {activeView !== "minimum" && (!newUi || resultLook === "dashboard") && <div style={ui.summaryGrid}>
-            <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 등급컷</div><GradeCutoffTable rows={gradeDistribution} total={completeActiveRows.length}/><p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
+            <div style={ui.summaryPanel}><div style={ui.summaryTitle}><BarChart3 size={16} /> {settings.gradeSystem}등급제 등급컷{newUi && <small className="kdn-cutcards-hint">막대 = 실제 인원 · 검은 선 = 기준 인원(수강자 × 비율, 반올림)</small>}</div>{newUi ? <GradeCutCards rows={gradeDistribution} total={completeActiveRows.length}/> : <GradeCutoffTable rows={gradeDistribution} total={completeActiveRows.length}/>}<p style={ui.quotaNote}>누적 인원은 수강자수×등급 비율을 반올림하며, 경계에 동점자가 걸리면 해당 동점자 전체를 다음 등급으로 넘깁니다.</p></div>
             {activeView === "combined" && <div style={ui.summaryPanel}><div style={ui.summaryTitle}><PieChart size={16} /> 성취도 분포</div><AchievementDonut rows={achievementDistribution} total={completeActiveRows.length} mode={settings.achievementMode} settings={settings}/></div>}
           </div>}
 
@@ -1517,6 +1528,18 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   );
 }
 
+// 새 UI 등급컷 카드: 등급마다 컷 점수를 크게, 실제 인원 막대와 기준 인원 눈금을 함께 보여줍니다.
+const CUT_CARD_COLORS = ["#e2531a", "#f08a4b", "#f6b26b", "#94a3b8", "#64748b", "#475569", "#334155", "#1e293b", "#0f172a"];
+function GradeCutCards({ rows, total }) {
+  const scale = Math.max(1, ...rows.map(item => Math.max(item.count || 0, item.target || 0)));
+  return <div className={`kdn-cutcards${rows.length > 5 ? " is-9" : ""}`}>{rows.map((item, index) => <div key={item.grade} className="kdn-cutcard" style={{ "--c": CUT_CARD_COLORS[Math.min(index, CUT_CARD_COLORS.length - 1)] }}>
+    <span className="g">{item.grade}등급</span>
+    <small>{index === rows.length - 1 ? "최저점" : "등급컷"}</small>
+    <b className="v">{item.min == null ? "-" : formatScore(item.min, 2)}</b>
+    <div className="meter" title={`실제 ${item.count}명 · 기준 ${item.target}명`}><i style={{ width: `${((item.count || 0) / scale) * 100}%` }} /><em style={{ left: `${((item.target || 0) / scale) * 100}%` }} /></div>
+    <div className="cnt"><span>실제 <b>{item.count}</b>명</span><span>기준 {item.target} · {total ? ((item.count / total) * 100).toFixed(1) : "0.0"}%</span></div>
+  </div>)}</div>;
+}
 function GradeCutoffTable({ rows, total }) {
   return <div className="grade-cutoff-table-wrap"><table className="grade-cutoff-table"><thead><tr><th>등급</th><th>기준 인원</th><th>실제 인원</th><th>비율</th><th>등급컷</th></tr></thead><tbody>{rows.map(item=><tr key={item.grade}><td><span style={{...ui.gradePill,...(item.grade===1?ui.gradePillFirst:{})}}>{item.grade}등급</span></td><td>{item.target}명</td><td><b>{item.count}명</b></td><td>{total?((item.count/total)*100).toFixed(1):"0.0"}%</td><td><strong className="grade-cutoff-text">{item.min==null?"-":formatScore(item.min,2)}</strong></td></tr>)}</tbody></table></div>;
 }

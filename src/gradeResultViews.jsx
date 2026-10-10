@@ -111,7 +111,7 @@ export function ResultDistribution({ rows = [], scoreOf, maxScore = 100, cutoffs
 }
 
 // D: 반별 비교. 같은 시험(또는 학기말 환산)을 반끼리 비교합니다.
-// - 범위 막대: 최저~최고 선, 25~75% 상자, 평균 점(●), 중앙값 세로선
+// - 평균 막대(0점 기준)와 전체 평균 점선
 // - 등급 띠: 반 안의 등급 인원
 // - 학기말 보기에서는 정기시험(1차·2차 …)별 반 평균과 변화를 표로 함께 보여줍니다.
 const quantile = (sorted, q) => {
@@ -146,10 +146,7 @@ export function ResultClassCompare({ rows = [], scoreOf, maxScore = 100, gradeSy
   const sorters = { mean: (a, b) => b.mean - a.mean, median: (a, b) => b.median - a.median, top: (a, b) => (b.grades[0] / b.n) - (a.grades[0] / a.n), sd: (a, b) => a.sd - b.sd, classNo: (a, b) => Number(a.classNo) - Number(b.classNo) };
   const ordered = stats.slice().sort(sorters[sortKey] || sorters.mean);
   const rankOf = new Map(stats.map((stat, index) => [stat.classNo, index + 1]));
-  const lo = Math.max(0, Math.floor(Math.min(...stats.map(stat => stat.min)) / 10) * 10);
-  const hi = Math.min(Number(maxScore) || 100, Math.ceil(Math.max(...stats.map(stat => stat.max)) / 10) * 10) || 100;
-  const x = value => `${((value - lo) / Math.max(1, hi - lo)) * 100}%`;
-  const ticks = Array.from({ length: Math.floor((hi - lo) / 10) + 1 }, (_, index) => lo + index * 10);
+  const barMax = Math.min(Number(maxScore) || 100, Math.ceil((Math.max(...stats.map(stat => stat.mean)) + 8) / 10) * 10) || 100;
   // 학기말 보기: 정기시험별 반 평균(득점) 표
   const examRows = combined ? stats.slice().sort((a, b) => Number(a.classNo) - Number(b.classNo)).map(stat => ({
     classNo: stat.classNo,
@@ -158,24 +155,19 @@ export function ResultClassCompare({ rows = [], scoreOf, maxScore = 100, gradeSy
   const examOverall = written.map(item => { const values = stats.flatMap(stat => stat.rows.map(row => Number(row.writtenScores?.[item.id]))).filter(Number.isFinite); return values.length ? values.reduce((s, v) => s + v, 0) / values.length : null; });
   return <section className="kdn-gr-cls">
     <div className="kdn-gr-cls-head">
-      <div><span>{title || (combined ? "학기말 환산 점수" : "지필 점수")} · 반별 비교</span><b>{stats.length}개 반 · 전체 평균 {fmt(overall, 1)}점</b><small>● 평균 · 상자 = 가운데 50% 학생 · 선 = 최저~최고 · 세로선 = 중앙값</small></div>
+      <div><span>{title || (combined ? "학기말 환산 점수" : "지필 점수")} · 반별 비교</span><b>{stats.length}개 반 · 전체 평균 {fmt(overall, 1)}점</b><small>막대 = 반 평균 · 점선 = 전체 평균 · 오른쪽 = 반 안의 등급 인원. 중앙값·최고·최저는 아래 표에 있습니다.</small></div>
       <div className="kdn-gr-cls-sort" role="group" aria-label="반 정렬 기준"><span>정렬</span>{[["mean", "평균"], ["median", "중앙값"], ["top", "1등급 비율"], ["sd", "고른 정도"], ["classNo", "반 순서"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={sortKey === key} onClick={() => setSortKey(key)}>{label}</button>)}</div>
     </div>
+    {/* 반별 평균 막대(0점 기준, 값은 막대 끝에) + 등급 구성 100% 막대. 세부 통계는 아래 표에서 봅니다. */}
     <div className="kdn-gr-cls-chart">
-      <div className="axis-top"><span className="lbl" />{ticks.map(tick => <span key={tick} style={{ left: x(tick) }}>{tick}</span>)}</div>
-      {ordered.map(stat => <div key={stat.classNo} className="kdn-gr-cls-row">
-        <div className="lbl"><span className={`rk${rankOf.get(stat.classNo) <= 3 ? " top" : ""}`}>{rankOf.get(stat.classNo)}</span><b>{stat.classNo}반</b><small>{stat.n}명</small></div>
-        <div className="track">
-          <i className="avgline" style={{ left: x(overall) }} />
-          <i className="range" style={{ left: x(stat.min), width: `calc(${x(stat.max)} - ${x(stat.min)})` }} />
-          <i className="box" style={{ left: x(stat.q1), width: `calc(${x(stat.q3)} - ${x(stat.q1)})` }} />
-          <i className="med" style={{ left: x(stat.median) }} />
-          <i className="mean" style={{ left: x(stat.mean) }} title={`평균 ${fmt(stat.mean, 1)}`} />
-        </div>
-        <div className="num"><b>{fmt(stat.mean, 1)}</b><span className={stat.mean - overall >= 0 ? "up" : "down"}>{stat.mean - overall >= 0 ? "▲" : "▼"}{fmt(Math.abs(stat.mean - overall), 1)}</span></div>
-        <div className="grades" title={stat.grades.map((count, index) => `${index + 1}등급 ${count}명`).join(" · ")}>{rawColors(() => stat.grades.map((count, index) => count ? <span key={index} style={{ flex: count, background: gradeColor(index + 1), color: "#ffffff" }}>{count >= 2 ? count : ""}</span> : null))}</div>
-      </div>)}
-      <div className="legend"><span><i className="mean" />평균</span><span><i className="box" />가운데 50%</span><span><i className="avgline" />전체 평균</span>{rawColors(() => Array.from({ length: Math.min(gradeSystem, 5) }, (_, index) => <span key={index}><i style={{ background: gradeColor(index + 1) }} />{index + 1}등급</span>))}{gradeSystem > 5 && <span>…</span>}</div>
+      <div className="kdn-gr-cls-colhead"><span /><span>평균 점수 <small>(점선 = 전체 평균 {fmt(overall, 1)})</small></span><span>전체 대비</span><span>등급 구성 <small>(명)</small></span></div>
+      {ordered.map(stat => { const rank = rankOf.get(stat.classNo); const gap = stat.mean - overall; return <div key={stat.classNo} className={`kdn-gr-cls-row${rank <= 3 ? " is-top" : ""}`}>
+        <div className="lbl"><span className={`rk${rank <= 3 ? " top" : ""}`}>{rank}</span><b>{stat.classNo}반</b><small>{stat.n}명</small></div>
+        <div className="bartrack"><i className="avgline" style={{ left: `${(overall / barMax) * 100}%` }} /><span className="bar" style={{ width: `${Math.max(2, (stat.mean / barMax) * 100)}%` }}><b>{fmt(stat.mean, 1)}</b></span></div>
+        <div className={`gap ${gap >= 0 ? "up" : "down"}`}>{gap >= 0 ? "▲" : "▼"} {fmt(Math.abs(gap), 1)}</div>
+        <div className="grades" title={stat.grades.map((count, index) => `${index + 1}등급 ${count}명`).join(" · ")}>{rawColors(() => stat.grades.map((count, index) => count ? <span key={index} style={{ flex: count, background: gradeColor(index + 1), color: "#ffffff" }}>{count / stat.n >= 0.08 ? count : ""}</span> : null))}</div>
+      </div>; })}
+      <div className="legend"><span><i className="bar" />반 평균</span><span><i className="avgline" />전체 평균</span>{rawColors(() => Array.from({ length: Math.min(gradeSystem, 5) }, (_, index) => <span key={index}><i style={{ background: gradeColor(index + 1) }} />{index + 1}등급</span>))}{gradeSystem > 5 && <span>…</span>}</div>
     </div>
     <div className="kdn-gr-cls-tablewrap"><table className="kdn-gr-cls-table">
       <thead><tr><th>순위</th><th>반</th><th>인원</th><th>평균</th><th>전체 대비</th><th>중앙값</th><th>최고</th><th>최저</th><th>표준편차</th><th>1등급</th></tr></thead>
