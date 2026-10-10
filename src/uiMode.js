@@ -1181,7 +1181,7 @@ const SHARED_NEW_CSS = `
   .kdn-uni-sort button.is-on{background:var(--kdn-surface);color:var(--kdn-ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
   .kdn-uni-clear{margin-left:auto;min-height:34px;padding:0 12px;border-radius:9px;font:inherit;font-size:13px;font-weight:700;color:var(--kdn-accent);background:var(--kdn-accent-soft);cursor:pointer}
   .kdn-uni-table{min-width:760px}
-  .kdn-uni-table td:first-child,.kdn-uni-table th:first-child{text-align:left!important}
+  .kdn-uni-table td:first-child,.kdn-uni-table th:first-child{text-align:center!important}
   .kdn-uni-table tbody tr.is-selected{background:var(--kdn-accent-soft)!important}
   .kdn-uni-chip{padding:2px 8px;border-radius:999px;background:var(--kdn-accent);color:var(--kdn-accent-ink);font-size:11.5px;font-weight:800}
   .kdn-uni-pager{display:flex;align-items:center;justify-content:center;gap:10px;font-size:14px;color:var(--kdn-muted)}
@@ -1431,8 +1431,8 @@ const SHARED_NEW_CSS = `
   @media (max-width:1000px){.kd-consult-board .slots{grid-template-columns:repeat(3,minmax(0,1fr))}}
   @media (max-width:560px){.kd-consult-board .slots{grid-template-columns:repeat(2,minmax(0,1fr))}}
   .kdn-cs-table{min-width:900px}
-  .admission-case-ui .kdn-cs-table th,.admission-case-ui .kdn-cs-table td{text-align:left!important;border-left:0!important;border-right:0!important;vertical-align:middle}
-  .admission-case-ui .kdn-cs-table th.n,.admission-case-ui .kdn-cs-table td.n{text-align:right!important}
+  .admission-case-ui .kdn-cs-table th,.admission-case-ui .kdn-cs-table td{text-align:center!important;border-left:0!important;border-right:0!important;vertical-align:middle}
+  .admission-case-ui .kdn-cs-table th.n,.admission-case-ui .kdn-cs-table td.n{text-align:center!important}
   .kdn-cs-table tbody tr{cursor:default}
   .kdn-cs-table td{padding:9px 12px}
   .kdn-cs-table td.fv{width:44px}
@@ -1570,8 +1570,8 @@ const SHARED_NEW_CSS = `
   }
   @media (max-width:1000px){.kdn-ttb-layout{grid-template-columns:minmax(0,1fr)}.kdn-ttb-side{position:static}}
   @media (max-width:640px){.kdn-ttb{padding:8px}.kdn-ttb-grid{grid-template-columns:34px repeat(5,minmax(0,1fr));gap:3px}.kdn-ttb-cell{min-height:52px;padding:4px 4px 4px 6px;border-left-width:3px}.kdn-ttb-cell b{font-size:11.5px;word-break:break-all;letter-spacing:-.03em}.kdn-ttb-cell small,.kdn-ttb-cell em,.kdn-ttb-cell i,.kdn-ttb-dh span,.kdn-ttb-cell .mv .g{display:none}.kdn-ttb-cell .mv .rm{font-size:10px;padding:0 4px}.kdn-ttb-pt small{display:none}.kdn-ttb-legend .r{margin-left:0}}
-  .admission-case-ui .kdn-case-table th,.admission-case-ui .kdn-case-table td{text-align:left!important;border-left:0!important;border-right:0!important}
-  .admission-case-ui .kdn-case-table th.n,.admission-case-ui .kdn-case-table td.n{text-align:right!important}
+  .admission-case-ui .kdn-case-table th,.admission-case-ui .kdn-case-table td{text-align:center!important;border-left:0!important;border-right:0!important}
+  .admission-case-ui .kdn-case-table th.n,.admission-case-ui .kdn-case-table td.n{text-align:center!important}
   .admission-case-ui .kdn-case-table td.go,.admission-case-ui .kdn-case-table th:last-child:empty{text-align:center!important;width:40px}
   .kdn-case-table th{font-size:12.5px!important}
   /* 대입결과 · 학생 연동 + 비교 기준 한 장 (CaseStudentBar) */
@@ -2004,7 +2004,7 @@ const SHARED_NEW_CSS = `
   .kdn-cs-table.is-compact td.sub2{font-size:13.5px;font-weight:700;color:var(--kdn-ink-soft);font-variant-numeric:tabular-nums}
   .kdn-cs-table.is-compact td.sub2 .sl{margin:0 4px;color:var(--kdn-muted);font-weight:400}
   .kdn-cs-table.is-compact td.rs .reg{display:inline!important;margin-left:6px;font-size:12px;font-weight:700}
-  .kdn-cs-table.is-compact td.act{text-align:right!important}
+  .kdn-cs-table.is-compact td.act{text-align:center!important}
   .kdn-cs-table.is-compact .kdn-cs-btn{min-height:28px;padding:0 9px;font-size:12.5px}
   .kdn-cs-table.is-compact tbody tr:hover td{background:color-mix(in srgb,var(--kdn-accent) 5%,var(--kdn-surface))}
   /* 대입결과 시안 A 홈 · B 마법사 · C 검색 상세 */
@@ -2338,6 +2338,31 @@ const SHARED_NEW_CSS = `
   .kdn-mock-rank.is-top{background:#fff0e6!important;color:#c2410c!important;box-shadow:inset 0 0 0 1.5px #f6b48f!important}
   [data-kd-ui="dark"] .kdn-mock-rank.is-top{background:rgba(249,115,22,.16)!important;color:#fdba74!important;box-shadow:inset 0 0 0 1.5px rgba(249,115,22,.4)!important}
   .kdn-mock-g{font-size:11.5px!important;padding:1px 8px!important}
+  .kdn-mock-table .kdn-mock-rank{background:var(--kdn-surface)!important;border:1px solid var(--kdn-line)}
+  .kdn-mock-table tbody tr.kdn-mock-top td{background:#fffbeb!important}
+  [data-kd-ui="dark"] .kdn-mock-table tbody tr.kdn-mock-top td{background:rgba(245,158,11,.08)!important}
+  .kdn-mock-table tr.kdn-mock-top .kdn-mock-rank{border-color:transparent}
+  .kdn-mock-table th{background:#fff3ea!important;color:#9a3412!important;border-bottom:2px solid #fdba74!important}
+  [data-kd-ui="dark"] .kdn-mock-table th{background:rgba(249,115,22,.14)!important;color:#fdba74!important;border-bottom-color:rgba(249,115,22,.45)!important}
+  .kdn-mock-table td.is-name{color:var(--kdn-ink)!important;font-weight:800!important}
+  .kdn-mock-table td.is-total{color:var(--kdn-accent-text)!important;font-weight:800!important;font-size:15px!important}
+  .kdn-mock-table td.is-absent{color:#b91c1c!important;font-weight:800!important}
+  .kdn-mock-table tr.kdn-mock-top td{background:#fffbeb!important}
+  [data-kd-ui="dark"] .kdn-mock-table tr.kdn-mock-top td{background:rgba(245,158,11,.08)!important}
+  .kdn-mock-table tr.kdn-mock-top .kdn-mock-rank{background:#f59e0b!important;color:#fff!important;box-shadow:none!important}
+  .kdn-mock-table tr.kdn-mock-top.r2 .kdn-mock-rank{background:#94a3b8!important}.kdn-mock-table tr.kdn-mock-top.r3 .kdn-mock-rank{background:#c2773a!important}
+  .kdn-mock-table td.kdn-mock-heat{background-image:linear-gradient(rgba(34,197,94,calc(var(--t,0) * .22)),rgba(34,197,94,calc(var(--t,0) * .22)))!important}
+  .kdn-mock-table td.kdn-mock-heat.is-max{color:#15803d!important;font-weight:800!important}
+  .kdn-mock-table td.kdn-mock-heat.is-min{color:#b91c1c!important;font-weight:800!important}
+  [data-kd-ui="dark"] .kdn-mock-table td.kdn-mock-heat.is-max{color:#86efac!important}[data-kd-ui="dark"] .kdn-mock-table td.kdn-mock-heat.is-min{color:#fca5a5!important}
+  .kdn-mock-table td:first-child{font-weight:800}
+  .kdn-mock-kpi b,.kdn-mock-kpi div>div:first-child{color:var(--kdn-accent-text)!important}
+  .kdn-mock-kpis>.kdn-mock-kpi:nth-child(2) b,.kdn-mock-kpis>.kdn-mock-kpi:nth-child(2) div>div:first-child{color:#1d4ed8!important}
+  .kdn-mock-kpis>.kdn-mock-kpi:nth-child(3) b,.kdn-mock-kpis>.kdn-mock-kpi:nth-child(3) div>div:first-child{color:#15803d!important}
+  .kdn-mock-kpis>.kdn-mock-kpi:nth-child(4) b,.kdn-mock-kpis>.kdn-mock-kpi:nth-child(4) div>div:first-child{color:#6d28d9!important}
+  [data-kd-ui="dark"] .kdn-mock-kpis>.kdn-mock-kpi:nth-child(2) b,[data-kd-ui="dark"] .kdn-mock-kpis>.kdn-mock-kpi:nth-child(2) div>div:first-child{color:#93c5fd!important}
+  [data-kd-ui="dark"] .kdn-mock-kpis>.kdn-mock-kpi:nth-child(3) b,[data-kd-ui="dark"] .kdn-mock-kpis>.kdn-mock-kpi:nth-child(3) div>div:first-child{color:#86efac!important}
+  [data-kd-ui="dark"] .kdn-mock-kpis>.kdn-mock-kpi:nth-child(4) b,[data-kd-ui="dark"] .kdn-mock-kpis>.kdn-mock-kpi:nth-child(4) div>div:first-child{color:#c4b5fd!important}
   .kdn-mock-tabs button[aria-pressed="true"]{background:var(--kdn-ink)!important;box-shadow:0 4px 12px rgba(15,23,42,.18)!important}
   .kdn-mock-tabs button[aria-pressed="true"] b,.kdn-mock-tabs button[aria-pressed="true"] small,.kdn-mock-tabs button[aria-pressed="true"] span,.kdn-mock-tabs button[aria-pressed="true"] div{color:var(--kdn-surface)!important}
   [data-kd-ui="dark"] .kdn-mock-tabs button[aria-pressed="true"]{background:var(--kdn-accent)!important}[data-kd-ui="dark"] .kdn-mock-tabs button[aria-pressed="true"] *{color:#fff!important}
@@ -2404,6 +2429,14 @@ const SHARED_NEW_CSS = `
   .kdn-xdoc .docs{display:grid;gap:5px}.kdn-xdoc .docs small{font-size:11.5px;font-weight:700;color:var(--kdn-muted)}.kdn-xdoc .docs>div{display:flex;flex-wrap:wrap;gap:6px}
   .kdn-xdoc footer{padding-top:10px;border-top:1px solid var(--kdn-line);font-size:12.5px;color:var(--kdn-muted)}
   .kdn-xdoc footer button{border:0;background:transparent;padding:0;font:inherit;font-size:13px;font-weight:700;color:var(--kdn-accent-text);cursor:pointer}
+  /* 표 정렬 통일(새 UI): 모든 표의 머리글·칸을 가운데로. 긴 문장을 쓰는 교사용 기록 표(gdt-table)만 제외 */
+  table:not(.gdt-table) th,table:not(.gdt-table) td{text-align:center!important;vertical-align:middle}
+  table:not(.gdt-table) td>.kdx-scale,table:not(.gdt-table) td>.kdn-pv-scale{margin-left:auto!important;margin-right:auto!important}
+  table:not(.gdt-table) td .cg-name{justify-items:center;text-align:center;margin:0 auto}
+  table:not(.gdt-table) td .kdn-conn-school{justify-content:center;margin:0 auto}
+  table:not(.gdt-table) td .cg-chg,table:not(.gdt-table) td .cg-ids{justify-content:center}
+  .kdx-table .nm{max-width:160px}
+  .kdn-cutstrip-head>*,.kdn-cutstrip-row>*{text-align:center!important;justify-self:center;justify-content:center}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
