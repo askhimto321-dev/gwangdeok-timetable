@@ -1812,17 +1812,67 @@ const SHARED_NEW_CSS = `
   .teacher-grade-analyzer .teacher-grade-result-table td{padding:12px 12px!important;font-size:14px!important;line-height:1.35!important;color:var(--kdn-ink-soft)!important;border-right:1px solid var(--kdn-line)!important;border-bottom:1px solid var(--kdn-line)!important;text-align:center!important;font-variant-numeric:tabular-nums}
   .teacher-grade-analyzer .teacher-grade-result-table tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--kdn-surface-2) 55%,var(--kdn-surface))!important}
   .teacher-grade-analyzer .teacher-grade-result-table tbody tr:hover td{background:color-mix(in srgb,var(--kdn-accent) 6%,var(--kdn-surface))!important}
-  .teacher-grade-analyzer .teacher-grade-result-table th.student-id-head,.teacher-grade-analyzer .teacher-grade-result-table th.student-name-head,.teacher-grade-analyzer .teacher-grade-result-table td.student-id-cell,.teacher-grade-analyzer .teacher-grade-result-table td.student-name-cell{text-align:left!important;padding-left:16px!important}
+  .teacher-grade-analyzer .teacher-grade-result-table th.student-id-head,.teacher-grade-analyzer .teacher-grade-result-table th.student-name-head,.teacher-grade-analyzer .teacher-grade-result-table td.student-id-cell,.teacher-grade-analyzer .teacher-grade-result-table td.student-name-cell{text-align:center!important}
   .teacher-grade-analyzer .teacher-grade-result-table td.student-id-cell b{font-size:14px!important;font-weight:600!important;color:var(--kdn-muted)!important;letter-spacing:.02em}
   .teacher-grade-analyzer .teacher-grade-result-table td.student-name-cell b{font-size:15px!important;font-weight:700!important;color:var(--kdn-ink)!important}
   .teacher-grade-analyzer .teacher-grade-result-table td.student-class-cell b,.teacher-grade-analyzer .teacher-grade-result-table td.student-number-cell b{font-weight:600!important;color:var(--kdn-ink-soft)!important}
   .teacher-grade-analyzer .teacher-grade-result-table td.score-cell b{font-size:16px!important;font-weight:800!important;color:var(--kdn-ink)!important;letter-spacing:.01em}
   .teacher-grade-analyzer .teacher-grade-result-table td.rank-cell{font-size:15px!important;font-weight:700!important;color:var(--kdn-ink)!important}
-  .teacher-grade-analyzer .teacher-grade-result-table td.rank-cell small{display:block;margin-top:3px;font-size:11.5px!important;font-weight:600!important;color:var(--kdn-muted)!important}
+  .teacher-grade-analyzer .teacher-grade-result-table td.rank-cell small{display:table;margin:4px auto 0;padding:1px 7px;border-radius:6px;background:#ede9fe;font-size:11.5px!important;font-weight:700!important;color:#5b21b6!important;white-space:nowrap}
+  [data-kd-ui="dark"] .teacher-grade-analyzer .teacher-grade-result-table td.rank-cell small{background:#2e2547;color:#cdb4f2!important}
+  .teacher-grade-analyzer .teacher-grade-result-table td.rank-cell.is-tied{color:#5b21b6!important}
+  [data-kd-ui="dark"] .teacher-grade-analyzer .teacher-grade-result-table td.rank-cell.is-tied{color:#cdb4f2!important}
   .teacher-grade-analyzer .teacher-grade-result-table .student-row-edit{min-height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--kdn-control-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);font-size:13px;font-weight:700}
   .kdn-gbadge{display:inline-flex;align-items:center;justify-content:center;min-width:54px;padding:4px 10px;border-radius:999px;font-size:13px;font-weight:800;white-space:nowrap}
   .kdn-gbadge.g1{background:#e2531a;color:#fff}.kdn-gbadge.g2{background:#fde4d6;color:#b23e0c}.kdn-gbadge.g3{background:#fef3c7;color:#8a5a0b}.kdn-gbadge.g4{background:#e5e9f0;color:#3a4150}.kdn-gbadge.g5{background:#d4d9e2;color:#2a3040}
   [data-kd-ui="dark"] .kdn-gbadge.g2{background:#4a2617;color:#ffb089}[data-kd-ui="dark"] .kdn-gbadge.g3{background:#3a2f17;color:#f2d38a}[data-kd-ui="dark"] .kdn-gbadge.g4{background:#2e3240;color:#d6dae3}[data-kd-ui="dark"] .kdn-gbadge.g5{background:#3a3f4e;color:#e8ebf0}
+  .kdn-top-nav .kdn-brand-home{color:var(--kdn-ink)!important;border:0!important;box-shadow:none!important;outline:none}
+  .kdn-top-nav .kdn-brand-home:focus-visible{outline:2px solid var(--kdn-accent);outline-offset:4px;border-radius:12px}
+  .kdn-top-nav .kdn-brand-home:hover>span:first-child{filter:brightness(1.08)}
+  [data-kd-ui="dark"] .kdn-recog{background:#2e2547;color:#cdb4f2}[data-kd-ui="dark"] .kdn-recog-btn,[data-kd-ui="dark"] .student-score-recog-helper button{background:#1d1b26;border-color:#4c3d7a;color:#cdb4f2}
+  [data-kd-ui="dark"] .student-score-recog-wrap.is-on{background:#221d33;border-color:#3b2f5c}[data-kd-ui="dark"] .student-score-editor label.student-score-recog{color:#cdb4f2}[data-kd-ui="dark"] .student-score-recog-helper{color:#d6d3e6}
+  /* 성적 산출 결과 · 반별 비교 */
+  .kdn-gr-cls{display:grid;gap:14px;margin-bottom:14px}
+  .kdn-gr-cls-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;align-items:flex-end}
+  .kdn-gr-cls-head>div:first-child{display:grid;gap:4px}
+  .kdn-gr-cls-head>div:first-child>span{font-size:13px;font-weight:700;color:var(--kdn-accent-text)}
+  .kdn-gr-cls-head>div:first-child>b{font-size:22px;color:var(--kdn-ink)}
+  .kdn-gr-cls-head>div:first-child>small{font-size:13px;color:var(--kdn-muted)}
+  .kdn-gr-cls-sort{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.kdn-gr-cls-sort>span{font-size:13px;font-weight:700;color:var(--kdn-muted)}
+  .kdn-gr-cls-sort button{min-height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--kdn-line);background:var(--kdn-surface);color:var(--kdn-ink-soft);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+  .kdn-gr-cls-sort button[aria-pressed="true"]{background:var(--kdn-panel);border-color:var(--kdn-panel);color:#fff}
+  .kdn-gr-cls-chart{display:grid;gap:4px;padding:14px 16px;border-radius:16px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
+  .kdn-gr-cls-row,.kdn-gr-cls-chart .axis-top{display:grid;grid-template-columns:120px minmax(0,1fr) 92px minmax(120px,200px);gap:14px;align-items:center}
+  .kdn-gr-cls-chart .axis-top{position:relative;height:20px;display:block;margin:0 306px 0 134px}
+  .kdn-gr-cls-chart .axis-top span{position:absolute;transform:translateX(-50%);font-size:12px;color:var(--kdn-muted);font-variant-numeric:tabular-nums}
+  .kdn-gr-cls-row{padding:8px 0;border-top:1px solid var(--kdn-line)}
+  .kdn-gr-cls-row .lbl{display:flex;align-items:center;gap:8px}.kdn-gr-cls-row .lbl b{font-size:15px;color:var(--kdn-ink)}.kdn-gr-cls-row .lbl small{font-size:12px;color:var(--kdn-muted)}
+  .kdn-gr-cls .rk{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:999px;background:var(--kdn-surface-2);color:var(--kdn-ink-soft);font-size:12.5px;font-weight:800}
+  .kdn-gr-cls .rk.top{background:var(--kdn-accent-soft);color:var(--kdn-accent-text);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--kdn-accent) 45%,transparent)}
+  .kdn-gr-cls-row .track{position:relative;height:28px}
+  .kdn-gr-cls-row .track i{position:absolute;display:block}
+  .kdn-gr-cls-row .range{top:13px;height:2px;background:var(--kdn-control-line)}
+  .kdn-gr-cls-row .box{top:6px;height:16px;border-radius:5px;background:color-mix(in srgb,var(--kdn-accent) 22%,var(--kdn-surface));border:1px solid color-mix(in srgb,var(--kdn-accent) 45%,transparent)}
+  .kdn-gr-cls-row .med{top:4px;width:2px;height:20px;margin-left:-1px;background:var(--kdn-ink)}
+  .kdn-gr-cls-row .mean{top:7px;width:14px;height:14px;margin-left:-7px;border-radius:999px;background:var(--kdn-accent);border:2px solid var(--kdn-surface);box-shadow:0 0 0 1px var(--kdn-accent)}
+  .kdn-gr-cls-row .avgline{top:0;bottom:0;width:0;border-left:1.5px dashed var(--kdn-muted);opacity:.6}
+  .kdn-gr-cls-row .num{display:grid;justify-items:end;line-height:1.2}.kdn-gr-cls-row .num b{font-size:17px;color:var(--kdn-ink);font-variant-numeric:tabular-nums}.kdn-gr-cls-row .num span{font-size:12px;font-weight:700}
+  .kdn-gr-cls .up{color:#15803d}.kdn-gr-cls .down{color:#c0262d}
+  [data-kd-ui="dark"] .kdn-gr-cls .up{color:#6ee7a0}[data-kd-ui="dark"] .kdn-gr-cls .down{color:#ff9b8f}
+  .kdn-gr-cls-row .grades{display:flex;gap:2px;height:20px;border-radius:6px;overflow:hidden}
+  .kdn-gr-cls-row .grades span{display:grid;place-items:center;min-width:0;font-size:11px;font-weight:800;color:#fff}
+  .kdn-gr-cls-chart .legend{display:flex;flex-wrap:wrap;gap:6px 14px;padding-top:8px;border-top:1px solid var(--kdn-line);font-size:12px;color:var(--kdn-muted)}
+  .kdn-gr-cls-chart .legend span{display:inline-flex;align-items:center;gap:5px}.kdn-gr-cls-chart .legend i{display:inline-block;width:10px;height:10px;border-radius:3px}
+  .kdn-gr-cls-chart .legend i.mean{border-radius:99px;background:var(--kdn-accent)}.kdn-gr-cls-chart .legend i.box{background:color-mix(in srgb,var(--kdn-accent) 22%,var(--kdn-surface));border:1px solid color-mix(in srgb,var(--kdn-accent) 45%,transparent)}.kdn-gr-cls-chart .legend i.avgline{width:0;height:12px;border-left:1.5px dashed var(--kdn-muted);border-radius:0}
+  .kdn-gr-cls-tablewrap{overflow-x:auto;border-radius:16px;border:1px solid var(--kdn-line);background:var(--kdn-surface)}
+  .kdn-gr-cls-table{width:100%;min-width:720px;border-collapse:collapse;font-size:14px;color:var(--kdn-ink-soft)}
+  .kdn-gr-cls-table caption{caption-side:top;text-align:left;padding:12px 14px 4px;font-size:14px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-gr-cls-table th{padding:10px 12px;font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft);background:var(--kdn-surface-2);border-bottom:1.5px solid var(--kdn-control-line);border-right:1px solid var(--kdn-line);text-align:center;white-space:nowrap}
+  .kdn-gr-cls-table td{padding:10px 12px;border-bottom:1px solid var(--kdn-line);border-right:1px solid var(--kdn-line);text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .kdn-gr-cls-table th:last-child,.kdn-gr-cls-table td:last-child{border-right:0}
+  .kdn-gr-cls-table td b{color:var(--kdn-ink)}.kdn-gr-cls-table td small{font-size:11.5px}
+  .kdn-gr-cls-table tr.total td{background:var(--kdn-surface-2)}
+  @media (max-width:900px){.kdn-gr-cls-row{grid-template-columns:96px minmax(0,1fr) 64px}.kdn-gr-cls-row .grades{grid-column:1/-1}.kdn-gr-cls-chart .axis-top{margin:0 92px 0 110px}}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}

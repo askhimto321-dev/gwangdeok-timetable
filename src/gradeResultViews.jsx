@@ -1,6 +1,7 @@
 // 성적 산출 결과(새 UI) 보기 B·C. A(대시보드)는 TeacherGradeAnalyzer.jsx의 기존 지표·등급컷·표를 그대로 씁니다.
 // B: 학생 목록 + 오른쪽 상세 / C: 점수 분포 차트(점 하나 = 학생, 세로선 = 등급컷).
 import React from "react";
+import { rawColors } from "./uiMode.js";
 
 const fmt = (value, digits = 1) => (value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(digits));
 const GRADE_COLORS = ["#e2531a", "#f08a4b", "#f6b26b", "#94a3b8", "#64748b", "#475569", "#334155", "#1e293b", "#0f172a"];
@@ -106,5 +107,85 @@ export function ResultDistribution({ rows = [], scoreOf, maxScore = 100, cutoffs
       <div className="stat"><span>최저</span><b>{fmt(stats.min, 1)}</b></div>
       <div className="stat"><span>산출 인원</span><b>{total}</b></div>
     </div>
+  </section>;
+}
+
+// D: 반별 비교. 같은 시험(또는 학기말 환산)을 반끼리 비교합니다.
+// - 범위 막대: 최저~최고 선, 25~75% 상자, 평균 점(●), 중앙값 세로선
+// - 등급 띠: 반 안의 등급 인원
+// - 학기말 보기에서는 정기시험(1차·2차 …)별 반 평균과 변화를 표로 함께 보여줍니다.
+const quantile = (sorted, q) => {
+  if (!sorted.length) return null;
+  const pos = (sorted.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+};
+function classStatsOf(rows, scoreOf, gradeSystem) {
+  const groups = new Map();
+  rows.forEach(row => {
+    if (row.excluded) return;
+    const score = scoreOf(row);
+    if (!Number.isFinite(score)) return;
+    const key = String(row.classNumber || "?");
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+  return Array.from(groups.entries()).map(([classNo, list]) => {
+    const scores = list.map(scoreOf).sort((a, b) => a - b);
+    const mean = scores.reduce((sum, value) => sum + value, 0) / scores.length;
+    const sd = Math.sqrt(scores.reduce((sum, value) => sum + (value - mean) ** 2, 0) / scores.length);
+    const grades = Array.from({ length: gradeSystem }, (_, index) => list.filter(row => Number(row.grade) === index + 1).length);
+    return { classNo, rows: list, n: scores.length, mean, sd, min: scores[0], max: scores[scores.length - 1], median: quantile(scores, 0.5), q1: quantile(scores, 0.25), q3: quantile(scores, 0.75), grades };
+  }).sort((a, b) => b.mean - a.mean);
+}
+export function ResultClassCompare({ rows = [], scoreOf, maxScore = 100, gradeSystem = 5, written = [], combined = false, title = "" }) {
+  const [sortKey, setSortKey] = React.useState("mean");
+  const stats = React.useMemo(() => classStatsOf(rows, scoreOf, gradeSystem), [rows, scoreOf, gradeSystem]);
+  if (stats.length < 2) return <div className="kdn-gr-empty">반이 2개 이상일 때 반별 비교를 볼 수 있습니다.</div>;
+  const all = stats.flatMap(stat => stat.rows.map(scoreOf));
+  const overall = all.reduce((sum, value) => sum + value, 0) / all.length;
+  const sorters = { mean: (a, b) => b.mean - a.mean, median: (a, b) => b.median - a.median, top: (a, b) => (b.grades[0] / b.n) - (a.grades[0] / a.n), sd: (a, b) => a.sd - b.sd, classNo: (a, b) => Number(a.classNo) - Number(b.classNo) };
+  const ordered = stats.slice().sort(sorters[sortKey] || sorters.mean);
+  const rankOf = new Map(stats.map((stat, index) => [stat.classNo, index + 1]));
+  const lo = Math.max(0, Math.floor(Math.min(...stats.map(stat => stat.min)) / 10) * 10);
+  const hi = Math.min(Number(maxScore) || 100, Math.ceil(Math.max(...stats.map(stat => stat.max)) / 10) * 10) || 100;
+  const x = value => `${((value - lo) / Math.max(1, hi - lo)) * 100}%`;
+  const ticks = Array.from({ length: Math.floor((hi - lo) / 10) + 1 }, (_, index) => lo + index * 10);
+  // 학기말 보기: 정기시험별 반 평균(득점) 표
+  const examRows = combined ? stats.slice().sort((a, b) => Number(a.classNo) - Number(b.classNo)).map(stat => ({
+    classNo: stat.classNo,
+    exams: written.map(item => { const values = stat.rows.map(row => Number(row.writtenScores?.[item.id])).filter(Number.isFinite); return values.length ? values.reduce((s, v) => s + v, 0) / values.length : null; }),
+  })) : [];
+  const examOverall = written.map(item => { const values = stats.flatMap(stat => stat.rows.map(row => Number(row.writtenScores?.[item.id]))).filter(Number.isFinite); return values.length ? values.reduce((s, v) => s + v, 0) / values.length : null; });
+  return <section className="kdn-gr-cls">
+    <div className="kdn-gr-cls-head">
+      <div><span>{title || (combined ? "학기말 환산 점수" : "지필 점수")} · 반별 비교</span><b>{stats.length}개 반 · 전체 평균 {fmt(overall, 1)}점</b><small>● 평균 · 상자 = 가운데 50% 학생 · 선 = 최저~최고 · 세로선 = 중앙값</small></div>
+      <div className="kdn-gr-cls-sort" role="group" aria-label="반 정렬 기준"><span>정렬</span>{[["mean", "평균"], ["median", "중앙값"], ["top", "1등급 비율"], ["sd", "고른 정도"], ["classNo", "반 순서"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={sortKey === key} onClick={() => setSortKey(key)}>{label}</button>)}</div>
+    </div>
+    <div className="kdn-gr-cls-chart">
+      <div className="axis-top"><span className="lbl" />{ticks.map(tick => <span key={tick} style={{ left: x(tick) }}>{tick}</span>)}</div>
+      {ordered.map(stat => <div key={stat.classNo} className="kdn-gr-cls-row">
+        <div className="lbl"><span className={`rk${rankOf.get(stat.classNo) <= 3 ? " top" : ""}`}>{rankOf.get(stat.classNo)}</span><b>{stat.classNo}반</b><small>{stat.n}명</small></div>
+        <div className="track">
+          <i className="avgline" style={{ left: x(overall) }} />
+          <i className="range" style={{ left: x(stat.min), width: `calc(${x(stat.max)} - ${x(stat.min)})` }} />
+          <i className="box" style={{ left: x(stat.q1), width: `calc(${x(stat.q3)} - ${x(stat.q1)})` }} />
+          <i className="med" style={{ left: x(stat.median) }} />
+          <i className="mean" style={{ left: x(stat.mean) }} title={`평균 ${fmt(stat.mean, 1)}`} />
+        </div>
+        <div className="num"><b>{fmt(stat.mean, 1)}</b><span className={stat.mean - overall >= 0 ? "up" : "down"}>{stat.mean - overall >= 0 ? "▲" : "▼"}{fmt(Math.abs(stat.mean - overall), 1)}</span></div>
+        <div className="grades" title={stat.grades.map((count, index) => `${index + 1}등급 ${count}명`).join(" · ")}>{rawColors(() => stat.grades.map((count, index) => count ? <span key={index} style={{ flex: count, background: gradeColor(index + 1), color: "#ffffff" }}>{count >= 2 ? count : ""}</span> : null))}</div>
+      </div>)}
+      <div className="legend"><span><i className="mean" />평균</span><span><i className="box" />가운데 50%</span><span><i className="avgline" />전체 평균</span>{rawColors(() => Array.from({ length: Math.min(gradeSystem, 5) }, (_, index) => <span key={index}><i style={{ background: gradeColor(index + 1) }} />{index + 1}등급</span>))}{gradeSystem > 5 && <span>…</span>}</div>
+    </div>
+    <div className="kdn-gr-cls-tablewrap"><table className="kdn-gr-cls-table">
+      <thead><tr><th>순위</th><th>반</th><th>인원</th><th>평균</th><th>전체 대비</th><th>중앙값</th><th>최고</th><th>최저</th><th>표준편차</th><th>1등급</th></tr></thead>
+      <tbody>{ordered.map(stat => <tr key={stat.classNo}><td><span className={`rk${rankOf.get(stat.classNo) <= 3 ? " top" : ""}`}>{rankOf.get(stat.classNo)}</span></td><td><b>{stat.classNo}반</b></td><td>{stat.n}명</td><td><b>{fmt(stat.mean, 1)}</b></td><td><span className={stat.mean - overall >= 0 ? "up" : "down"}>{stat.mean - overall >= 0 ? "▲" : "▼"} {fmt(Math.abs(stat.mean - overall), 1)}</span></td><td>{fmt(stat.median, 1)}</td><td>{fmt(stat.max, 1)}</td><td>{fmt(stat.min, 1)}</td><td>{fmt(stat.sd, 1)}</td><td>{stat.grades[0]}명 <small>({fmt(stat.grades[0] / stat.n * 100, 0)}%)</small></td></tr>)}</tbody>
+    </table></div>
+    {combined && written.length > 0 && <div className="kdn-gr-cls-tablewrap"><table className="kdn-gr-cls-table">
+      <caption>정기시험별 반 평균 (원점수)</caption>
+      <thead><tr><th>반</th>{written.map(item => <th key={item.id}>{item.title}<small> / {item.maxScore || 100}</small></th>)}{written.length >= 2 && <th>{written[0].title} → {written[written.length - 1].title}</th>}</tr></thead>
+      <tbody>{examRows.map(row => { const first = row.exams[0], last = row.exams[row.exams.length - 1]; const d = first != null && last != null ? last - first : null; return <tr key={row.classNo}><td><b>{row.classNo}반</b></td>{row.exams.map((value, index) => <td key={written[index].id}>{fmt(value, 1)}{value != null && examOverall[index] != null && <small className={value - examOverall[index] >= 0 ? "up" : "down"}> {value - examOverall[index] >= 0 ? "+" : "−"}{fmt(Math.abs(value - examOverall[index]), 1)}</small>}</td>)}{written.length >= 2 && <td>{d == null ? "-" : <span className={d >= 0 ? "up" : "down"}>{d >= 0 ? "▲" : "▼"} {fmt(Math.abs(d), 1)}</span>}</td>}</tr>; })}
+        <tr className="total"><td><b>전체</b></td>{examOverall.map((value, index) => <td key={written[index].id}><b>{fmt(value, 1)}</b></td>)}{written.length >= 2 && <td>{examOverall[0] != null && examOverall[examOverall.length - 1] != null ? fmt(examOverall[examOverall.length - 1] - examOverall[0], 1) : "-"}</td>}</tr></tbody>
+    </table></div>}
   </section>;
 }
