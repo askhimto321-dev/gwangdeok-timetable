@@ -22,6 +22,8 @@ import {
 } from "lucide-react";
 import { isNewUi } from "./uiMode.js";
 import CriteriaPresets from "./CriteriaPresets.jsx";
+import { readStorage, updateStorage } from "./storage.js";
+import { mergeWorkspacePayload, workspacePayload, samePayload, activeEditors } from "./gradeWorkspaceMerge.js";
 import { isSplitWritten, defaultWrittenSplit, splitWritten, unsplitWritten, setWrittenPart, removeWrittenPart, recombineWritten, pickWrittenPart, partLabel, countOverMax } from "./writtenParts.js";
 import { gradeQuotaCumulative, compareVectors, vectorKey, rankAndGrade } from "./gradeQuota.js";
 import { ResultListDetail, ResultDistribution, ResultClassCompare, ResultStudentLookup } from "./gradeResultViews.jsx";
@@ -539,23 +541,102 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   useEffect(() => {
     if (hasGradeData && selectedLocalId) setAutoSave(current => ({ ...current, local: new Date().toISOString() }));
   }, [written, performance, settings, tieScores, studentOverrides, selectedLocalId, hasGradeData]);
-  const sharedPayloadKey = item => { try { return JSON.stringify([item?.written || [], item?.performance || [], item?.settings || {}, item?.tieScores || {}, item?.studentOverrides || {}]); } catch { return ""; } };
-  // 내가 이 화면에서 실제로 고친 경우에만 반영합니다(불러온/마지막으로 반영한 내용과 비교). 다른 선생님이 먼저 바꾼 학교 공동본을 옛 화면으로 덮어쓰지 않게 합니다.
-  const syncBaselineRef = useRef({ id: "", key: null });
+  // 동시 작업(같은 과목 선생님 2~3명): 학교 공동본은 저장 직전에 최신본을 다시 읽어 항목별로 합치고(gradeWorkspaceMerge),
+  // 30초마다 다른 선생님 변경을 가져오며, 같은 과목을 열어 둔 선생님을 '함께 작업 중'으로 보여 줍니다.
+  const ancestorRef = useRef({ id: "", payload: null });
+  const mineRef = useRef(null);
+  const syncingRef = useRef(false);
+  const [remoteNote, setRemoteNote] = useState("");
+  const [coEditors, setCoEditors] = useState([]);
+  const selfId = String(teacher?.id || accessRole || "me");
+  const minePayload = () => workspacePayload({ written, performance, settings, tieScores, studentOverrides });
+  mineRef.current = minePayload();
+  const applyPayload = payload => {
+    setWritten(payload.written);
+    setPerformance(payload.performance);
+    setSettings(normalizeWorkspaceSnapshot({ settings: payload.settings }).settings);
+    setTieScores(payload.tieScores);
+    setStudentOverrides(payload.studentOverrides);
+  };
+  const ancestorFor = id => (ancestorRef.current.id === id ? ancestorRef.current.payload : null);
+  const syncShared = async () => {
+    if (!context || !workspaceId || !persist || syncingRef.current) return false;
+    syncingRef.current = true;
+    setAutoSave(current => ({ ...current, syncing: true }));
+    try {
+      // 최신 학교 공동본을 못 읽었으면(네트워크 등) 옛 내용으로 덮어쓰지 않도록 이번 저장은 미룹니다.
+      const unread = {};
+      const fresh = await readStorage("kd_teacher_grade_workspaces", unread);
+      if (fresh === unread && Object.keys(db?.teacherGradeWorkspaces || {}).length) { showToast?.("학교 공동본을 읽지 못해 저장을 잠시 미뤘어요. 잠시 뒤 다시 시도합니다.", "error"); return false; }
+      const map = fresh && typeof fresh === "object" && fresh !== unread ? fresh : {};
+      const theirs = map[workspaceId];
+      const mine = mineRef.current;
+      const { merged, conflicts } = theirs ? mergeWorkspacePayload(ancestorFor(workspaceId), mine, theirs) : { merged: mine, conflicts: [] };
+      const snapshot = { ...currentSnapshot(), ...merged };
+      const ok = await persist({ teacherGradeWorkspaces: { ...map, [workspaceId]: snapshot } });
+      if (ok === false) return false;
+      ancestorRef.current = { id: workspaceId, payload: workspacePayload(snapshot) };
+      if (!samePayload(merged, mine)) { applyPayload(merged); setRemoteNote(`${theirs?.lastEditedName || "다른"} 선생님 변경 내용을 합쳤어요`); }
+      if (conflicts.length) showToast?.(`같은 항목을 함께 고친 ${conflicts.length}곳은 더 최근에 고친 내용으로 저장했어요.`, "info");
+      setAutoSave(current => ({ ...current, shared: new Date().toISOString() }));
+      return true;
+    } finally {
+      syncingRef.current = false;
+      setAutoSave(current => ({ ...current, syncing: false }));
+    }
+  };
+  // 내가 이 화면에서 고친 내용이 있으면(마지막으로 받은 학교 공동본과 다르면) 잠시 뒤 합쳐서 반영합니다.
   useEffect(() => {
     if (!sharedHere || !canEditCurrentSubject || !persist || !hasGradeData) return undefined;
-    const mine = sharedPayloadKey({ written, performance, settings, tieScores, studentOverrides });
-    if (syncBaselineRef.current.id !== workspaceId || syncBaselineRef.current.key == null) { syncBaselineRef.current = { id: workspaceId, key: mine }; return undefined; }
-    if (mine === syncBaselineRef.current.key || mine === sharedPayloadKey(db.teacherGradeWorkspaces[workspaceId])) return undefined;
-    const timer = window.setTimeout(async () => {
-      syncBaselineRef.current = { id: workspaceId, key: mine };
-      setAutoSave(current => ({ ...current, syncing: true }));
-      const snapshot = currentSnapshot();
-      const ok = await persist({ teacherGradeWorkspaces: { ...(db?.teacherGradeWorkspaces || {}), [workspaceId]: snapshot } });
-      setAutoSave(current => ({ ...current, syncing: false, shared: ok === false ? current.shared : new Date().toISOString() }));
-    }, 2500);
+    if (ancestorRef.current.id !== workspaceId) ancestorRef.current = { id: workspaceId, payload: workspacePayload(db.teacherGradeWorkspaces[workspaceId]) };
+    if (samePayload(mineRef.current, ancestorRef.current.payload)) return undefined;
+    const timer = window.setTimeout(() => { syncShared(); }, 2500);
     return () => window.clearTimeout(timer);
   }, [sharedHere, canEditCurrentSubject, hasGradeData, workspaceId, written, performance, settings, tieScores, studentOverrides]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 30초마다 학교 공동본을 다시 읽어 다른 선생님 변경을 내 화면에 합칩니다.
+  useEffect(() => {
+    if (!sharedHere || !workspaceId) return undefined;
+    let stopped = false;
+    const pull = async () => {
+      if (stopped || syncingRef.current || document.hidden) return;
+      const fresh = await readStorage("kd_teacher_grade_workspaces", null);
+      const theirs = fresh?.[workspaceId];
+      if (stopped || !theirs || syncingRef.current) return;
+      const ancestor = ancestorFor(workspaceId);
+      if (ancestor && samePayload(theirs, ancestor)) return;
+      const { merged } = mergeWorkspacePayload(ancestor, mineRef.current, theirs);
+      ancestorRef.current = { id: workspaceId, payload: workspacePayload(theirs) };
+      if (!samePayload(merged, mineRef.current)) {
+        applyPayload(merged);
+        setRemoteNote(`${theirs.lastEditedName || "다른"} 선생님 변경 내용을 가져왔어요 · ${clockOf(theirs.updatedAt)}`);
+      }
+    };
+    const timer = window.setInterval(pull, 30000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [sharedHere, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 함께 작업 중: 같은 과목 화면을 연 선생님 표시(30초마다 접속 기록, 2분 안 활동만).
+  useEffect(() => {
+    if (!workspaceId || !context || !canEditCurrentSubject) { setCoEditors([]); return undefined; }
+    let stopped = false;
+    const beat = async () => {
+      if (document.hidden) return;
+      const now = new Date().toISOString();
+      const result = await updateStorage("kd_tgw_presence", {}, current => {
+        const next = {};
+        Object.entries(current || {}).forEach(([id, editors]) => {
+          const kept = Object.fromEntries(Object.entries(editors || {}).filter(([, info]) => Date.now() - Date.parse(info?.at || 0) < 6 * 3600000));
+          if (Object.keys(kept).length) next[id] = kept;
+        });
+        next[workspaceId] = { ...(next[workspaceId] || {}), [selfId]: { name: teacher?.name || (accessRole === "admin" ? "관리자" : "선생님"), at: now } };
+        return next;
+      });
+      if (!stopped && result?.ok) setCoEditors(activeEditors(result.value, workspaceId, selfId));
+    };
+    beat();
+    const timer = window.setInterval(beat, 30000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [workspaceId, context?.subject, canEditCurrentSubject, selfId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!remoteNote) return undefined; const timer = window.setTimeout(() => setRemoteNote(""), 12000); return () => window.clearTimeout(timer); }, [remoteNote]);
   const clockOf = iso => { if (!iso) return ""; const d = new Date(iso); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
   const saveLocalWorkspace = () => {
     if (!context || !workspaceId) { showToast?.("담당 과목을 먼저 선택해주세요.", "error"); return; }
@@ -569,12 +650,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const publishWorkspace = async () => {
     if (!context || !workspaceId) { showToast?.("담당 과목을 먼저 선택해주세요.", "error"); return; }
     if (!canEditCurrentSubject) { showToast?.("해당 과목 담당 교사만 학교 공동 작업 화면을 수정·반영할 수 있습니다.", "error"); return; }
-    const snapshot = currentSnapshot();
-    setLocalWorkspaces(current => ({ ...current, [workspaceId]: snapshot }));
-    setSelectedLocalId(workspaceId);
-    const next = { ...(db?.teacherGradeWorkspaces || {}), [workspaceId]: snapshot };
-    const ok = await persist?.({ teacherGradeWorkspaces: next });
-    if (ok !== false) { setSelectedSharedId(workspaceId); setSelectedLocalId(""); showToast?.(`${context.subject} 자료를 학교 공동 저장본으로 반영했습니다.`, "success"); }
+    setLocalWorkspaces(current => ({ ...current, [workspaceId]: currentSnapshot() }));
+    const ok = await syncShared();
+    if (ok !== false) { setSelectedSharedId(workspaceId); setSelectedLocalId(""); showToast?.(`${context.subject} 자료를 학교 공동 저장본으로 반영했습니다. 같은 과목 선생님 작업과 자동으로 합쳐져요.`, "success"); }
   };
   const saveCriteriaSettings = async () => {
     if (!context || !workspaceId) { showToast?.("담당 과목을 먼저 선택해주세요.", "error"); return; }
@@ -586,8 +664,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       setSelectedLocalId(workspaceId);
       const alreadyShared = !!(db?.teacherGradeWorkspaces?.[workspaceId] || selectedSharedId);
       if (alreadyShared && persist) {
-        const next = { ...(db?.teacherGradeWorkspaces || {}), [workspaceId]: snapshot };
-        const ok = await persist({ teacherGradeWorkspaces: next });
+        const ok = await syncShared();
         if (ok === false) return;
       }
       showToast?.(`${context.subject} 산출 기준을 저장했습니다.`, "success");
@@ -597,7 +674,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   };
   const applyWorkspace = item => {
     const normalized = normalizeWorkspaceSnapshot(item);
-    syncBaselineRef.current = { id: "", key: null };
+    ancestorRef.current = { id: "", payload: null };
     if (item?.subject) setDraftSubject(item.subject);
     setWritten(normalized.written);
     setPerformance(normalized.performance);
@@ -1398,8 +1475,10 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         <span className="dot" aria-hidden="true" />
         <b>{context.subject} · {hasGradeData ? `개인 임시본 자동 저장${autoSave.local ? ` ${clockOf(autoSave.local)}` : ""}` : "성적 파일을 올리면 개인 임시본에 자동 저장돼요"}</b>
         {sharedHere
-          ? <span>학교 공동본 {autoSave.syncing ? "반영 중…" : `자동 반영${autoSave.shared ? ` ${clockOf(autoSave.shared)}` : " 켜짐"}`} · 같은 과목 선생님·반별 성적에 바로 보여요</span>
+          ? <span>학교 공동본 {autoSave.syncing ? "반영 중…" : `자동 반영${autoSave.shared ? ` ${clockOf(autoSave.shared)}` : " 켜짐"}`} · 같은 과목 선생님과 동시에 작업해도 항목별로 합쳐져요</span>
           : <span>아직 나만 볼 수 있어요. <strong>학교 공동 저장</strong>을 한 번 누르면 같은 과목 선생님과 공유되고, 이후 수정은 자동으로 반영돼요.</span>}
+        {coEditors.length > 0 && <span className="kdn-save-co">👥 함께 작업 중: {coEditors.map(item => `${item.name}${/선생님$/.test(item.name) ? "" : " 선생님"}`).join(", ")}</span>}
+        {remoteNote && <span className="kdn-save-note">↻ {remoteNote}</span>}
         {!sharedHere && <button type="button" onClick={publishWorkspace}>학교 공동 저장</button>}
       </div>}
 

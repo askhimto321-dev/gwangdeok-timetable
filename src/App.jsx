@@ -1035,37 +1035,83 @@ function AppHistoryEdgeControls({ depth = 0, maxDepth = 0 }) {
   );
 }
 
-function QuickLinksDock() {
+// 업무 바로가기: '학교 공용'(관리자가 편집)과 '내 바로가기'(이용자 계정마다 저장)를 함께 보여 줍니다.
+// 저장 위치: kd_quick_links_default(학교 공용), kd_quick_links_u_<계정>(개인). 어느 기기에서 로그인해도 같습니다.
+const QUICK_LINK_SEED = [
+  { id: "seed-1", title: "2학년부 업무시트", description: "학년부 공용 업무 자료", href: "https://docs.google.com/spreadsheets/d/1cY_hmwPuFlFgsuAOr9MJnLSTvpR5vGnAv2t4XTKZUYw/edit?gid=0#gid=0" },
+  { id: "seed-2", title: "학생부 종합 전형 사례집", description: "학교 공용 계정으로 로그인", href: "https://goejinhak.kr/jinhak_login1.php" },
+  { id: "seed-3", title: "경기도교육청 클라우드서비스", description: "교육청 업무용 클라우드", href: "https://www.goedu.kr/" },
+];
+const quickLinkKey = userKey => `kd_quick_links_u_${String(userKey || "shared").replace(/[^0-9A-Za-z가-힣_-]+/g, "_").slice(0, 80)}`;
+function normalizeQuickHref(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const withScheme = /^[a-z][a-z0-9+.-]*:/i.test(raw) ? raw : `https://${raw}`;
+  try { const url = new URL(withScheme); return ["http:", "https:"].includes(url.protocol) ? url.href : ""; } catch { return ""; }
+}
+function QuickLinksDock({ userKey = "", isAdmin = false, showToast }) {
   const [open, setOpen] = useState(false);
-  const links = [
-    {
-      title: "2학년부 업무시트",
-      description: "학년부 공용 업무 자료",
-      href: "https://docs.google.com/spreadsheets/d/1cY_hmwPuFlFgsuAOr9MJnLSTvpR5vGnAv2t4XTKZUYw/edit?gid=0#gid=0",
-      icon: <FileSpreadsheet size={17} />,
-    },
-    {
-      title: "학생부 종합 전형 사례집",
-      description: "ID goejinhak_17160 · PW kd2026",
-      href: "https://goejinhak.kr/jinhak_login1.php",
-      icon: <BookOpen size={17} />,
-    },
-    {
-      title: "경기도교육청 클라우드서비스",
-      description: "교육청 업무용 클라우드",
-      href: "https://www.goedu.kr/",
-      icon: <Database size={17} />,
-    },
-  ];
+  const [editing, setEditing] = useState(false);
+  const [shared, setShared] = useState(null);
+  const [mine, setMine] = useState(null);
+  const [draft, setDraft] = useState({ title: "", href: "", target: "mine" });
+  useEffect(() => {
+    if (!open || (shared && mine)) return;
+    let alive = true;
+    Promise.all([readStorage("kd_quick_links_default", null), readStorage(quickLinkKey(userKey), [])]).then(([defaults, own]) => {
+      if (!alive) return;
+      setShared(Array.isArray(defaults) ? defaults : QUICK_LINK_SEED);
+      setMine(Array.isArray(own) ? own : []);
+    });
+    return () => { alive = false; };
+  }, [open, userKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = async (which, list) => {
+    const before = which === "shared" ? shared : mine;
+    (which === "shared" ? setShared : setMine)(list);
+    const result = await writeStorage(which === "shared" ? "kd_quick_links_default" : quickLinkKey(userKey), list);
+    if (result && result.ok === false) { (which === "shared" ? setShared : setMine)(before); showToast?.(`바로가기를 저장하지 못했습니다. (${result.error})`, "error"); }
+  };
+  const move = (which, index, step) => { const list = [...(which === "shared" ? shared : mine)]; const to = index + step; if (to < 0 || to >= list.length) return; [list[index], list[to]] = [list[to], list[index]]; save(which, list); };
+  const remove = (which, id) => save(which, (which === "shared" ? shared : mine).filter(item => item.id !== id));
+  const add = event => {
+    event.preventDefault();
+    const href = normalizeQuickHref(draft.href);
+    if (!href) { showToast?.("주소를 확인해 주세요. (예: https://www.neis.go.kr)", "error"); return; }
+    const title = draft.title.trim() || new URL(href).hostname.replace(/^www\./, "");
+    const which = isAdmin && draft.target === "shared" ? "shared" : "mine";
+    save(which, [...((which === "shared" ? shared : mine) || []), { id: `ql-${Date.now()}`, title: title.slice(0, 40), href, description: "" }]);
+    setDraft({ title: "", href: "", target: draft.target });
+  };
+  const section = (which, label, list) => {
+    const canEdit = editing && (which === "mine" || isAdmin);
+    return <div className="kd-ql-sec">
+      <div className="kd-ql-sec-h"><b>{label}</b>{which === "shared" && <small>{isAdmin ? "관리자가 모두에게 보여 줄 링크" : "관리자가 정한 링크"}</small>}</div>
+      {!list?.length ? <p className="kd-ql-empty">{which === "mine" ? "자주 가는 사이트를 '편집'에서 추가해 보세요." : "아직 없어요."}</p> :
+        <div className="kd-quick-links-list">{list.map((item, index) => <div key={item.id} className={`kd-ql-row${canEdit ? " is-edit" : ""}`}>
+          <a href={item.href} target="_blank" rel="noreferrer">
+            <span className="kd-quick-links-icon"><Link2 size={16}/></span>
+            <span className="kd-quick-links-copy"><b>{item.title}</b><small>{item.description || (() => { try { return new URL(item.href).hostname; } catch { return item.href; } })()}</small></span>
+            {!canEdit && <ArrowRight size={14}/>}
+          </a>
+          {canEdit && <span className="kd-ql-tools"><button type="button" onClick={() => move(which, index, -1)} disabled={!index} aria-label="위로">↑</button><button type="button" onClick={() => move(which, index, 1)} disabled={index === list.length - 1} aria-label="아래로">↓</button><button type="button" className="del" onClick={() => remove(which, item.id)} aria-label={`${item.title} 삭제`}>✕</button></span>}
+        </div>)}</div>}
+    </div>;
+  };
   return (
     <aside className={`kd-quick-links no-print ${open ? "is-open" : ""}`} aria-label="업무 바로가기">
       {open && <div className="kd-quick-links-panel">
-        <div className="kd-quick-links-head"><div><b>업무 바로가기</b><span>새 창에서 열립니다.</span></div><button type="button" onClick={() => setOpen(false)} aria-label="바로가기 닫기"><X size={15}/></button></div>
-        <div className="kd-quick-links-list">{links.map(item => <a key={item.href} href={item.href} target="_blank" rel="noreferrer">
-          <span className="kd-quick-links-icon">{item.icon}</span>
-          <span className="kd-quick-links-copy"><b>{item.title}</b><small>{item.description}</small></span>
-          <ArrowRight size={14}/>
-        </a>)}</div>
+        <div className="kd-quick-links-head"><div><b>업무 바로가기</b><span>내 계정에 저장돼 어느 기기에서나 같아요.</span></div>
+          <span style={{ display: "flex", gap: 6 }}><button type="button" className="kd-ql-edit" onClick={() => setEditing(value => !value)}>{editing ? "완료" : "편집"}</button><button type="button" onClick={() => { setOpen(false); setEditing(false); }} aria-label="바로가기 닫기"><X size={15}/></button></span></div>
+        {shared == null || mine == null ? <p className="kd-ql-empty">불러오는 중…</p> : <>
+          {section("mine", "내 바로가기", mine)}
+          {section("shared", "학교 공용", shared)}
+          {editing && <form className="kd-ql-add" onSubmit={add}>
+            <input value={draft.title} onChange={event => setDraft(current => ({ ...current, title: event.target.value }))} placeholder="이름 (예: 나이스)" maxLength={40} aria-label="바로가기 이름" />
+            <input value={draft.href} onChange={event => setDraft(current => ({ ...current, href: event.target.value }))} placeholder="주소 (예: neis.go.kr)" aria-label="바로가기 주소" required />
+            {isAdmin && <select value={draft.target} onChange={event => setDraft(current => ({ ...current, target: event.target.value }))} aria-label="추가할 곳"><option value="mine">내 바로가기</option><option value="shared">학교 공용</option></select>}
+            <button type="submit">추가</button>
+          </form>}
+        </>}
       </div>}
       <button type="button" className="kd-quick-links-trigger" onClick={() => setOpen(value => !value)} aria-expanded={open} title="업무 바로가기">
         <Link2 size={19}/><span>바로가기</span>
@@ -1820,9 +1866,11 @@ export default function App() {
     ],
   };
 
+  const renderSignup = () => <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} attemptLogin={attemptLogin} initialMode="signup" />;
+
   if (!anyLoggedIn) {
     return (
-      isNewUi() ? <NewUiLanding attemptLogin={attemptLogin} showToast={showToast} /> :
+      isNewUi() ? <NewUiLanding attemptLogin={attemptLogin} showToast={showToast} renderSignup={renderSignup} /> :
       <div className="kdn-app" style={styles.app}>
         <style>{globalCss}</style>
         <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 20px 0" }}><UiModeSwitch compact /></div>
@@ -1831,7 +1879,7 @@ export default function App() {
             <div style={{ fontWeight: 900, fontSize: 24, letterSpacing: "-.035em" }}>{SITE_TITLE}</div>
             <div style={{ fontSize: 13, color: "#8a8578", marginTop: 6 }}>먼저 로그인해주세요. (학생 / 선생님 / 관리자 계정 모두 아래에서 로그인합니다)</div>
           </div>
-          <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+          <LoginOrSignup attemptLogin={attemptLogin} showToast={showToast} renderSignup={renderSignup} />
         </div>
       </div>
     );
@@ -1841,7 +1889,7 @@ export default function App() {
     <div className="kdn-app" style={styles.app}>
       <style>{globalCss}</style>
       <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
-      {!loggedInStudent && <QuickLinksDock />}
+      {!loggedInStudent && <QuickLinksDock isAdmin={!!loggedInAdmin} showToast={showToast} userKey={loggedInAdmin ? `admin_${loggedInAdmin.id || "admin"}` : loggedInTeacher ? `teacher_${loggedInTeacher.id}` : loggedInDepartment ? `dept_${loggedInDepartment.id}` : loggedInMonitor ? `monitor_${loggedInMonitor.id}` : "shared"} />}
       <MegaNav semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
       {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
       <SiteAnnouncementModal announcements={db.siteAnnouncements || []} viewer={loggedInAdmin?{...loggedInAdmin,role:"admin"}:loggedInTeacher?{...loggedInTeacher,role:"teacher"}:loggedInDepartment?{...loggedInDepartment,role:"department"}:loggedInMonitor?{...loggedInMonitor,role:"monitor"}:loggedInStudent?{...loggedInStudent,role:"student"}:null} />
@@ -1891,6 +1939,7 @@ export default function App() {
       ) : activeSection === "teacherZone" ? (
         <TeacherZoneWorkspace
           modeRequest={teacherZoneRequest}
+          onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : undefined}
           onOpenMinimum={canSeeMinimum ? () => switchSection("minimumAchievement") : undefined}
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInDepartment={loggedInDepartment} loggedInMonitor={loggedInMonitor}
           viewedTeacher={viewedTeacher} setViewedTeacher={setViewedTeacher}
@@ -2023,6 +2072,9 @@ function ClassMultiSelect({ value, onChange, classOptions, light, suffix = "반"
 // 담당 과목 편집: 1학기·2학기 과목 목록을 골라 볼 수 있습니다. 담당 과목은 과목명으로만 연결되므로
 // 2학기 과목도 그대로 공지·성적 산출 대상에 쓰입니다. 2학기 시간표가 아직 없으면 과목명을 직접 입력합니다.
 const SEMESTER_OPTIONS = [["sem1", "1학기"], ["sem2", "2학기"]];
+function SubjectSectionTitle({ note }) {
+  return <div className="kd-subj-title"><b><BookOpen size={15} /> 담당 과목</b>{note && <span>{note}</span>}</div>;
+}
 function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semesterLabel }) {
   const [scopeGrade, scopeSemester = "sem1"] = String(scopeKey || "").split("-");
   const [semesterView, setSemesterView] = useState(scopeSemester === "sem2" ? "sem2" : "sem1");
@@ -2053,6 +2105,22 @@ function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semester
         ))}
         {semesterLabel && <span style={{ fontSize: 11.5, color: "#a39d8c" }}>현재 화면: {semesterLabel}</span>}
       </div>
+      {(() => {
+        // 과목 칩: 눌러서 담당 과목으로 추가, 다시 누르면 빼기(대상 반은 아래 칸에서 고릅니다).
+        const lists = listsFor(semesterView);
+        const picked = new Set(assignments.filter(item => (item.semester || semesterView) === semesterView).map(item => `${item.kind}::${item.subject}`));
+        const toggle = (kind, subject) => {
+          const key = `${kind}::${subject}`;
+          if (picked.has(key)) setAssignments(assignments.filter(item => !((item.semester || semesterView) === semesterView && `${item.kind}::${item.subject}` === key)));
+          else setAssignments([...assignments.filter(item => item.subject), { kind, subject, targets: "", semester: semesterView }]);
+        };
+        if (!lists.elective.length && !lists.common.length) return null;
+        return <div className="kd-subj-pick">
+          <div className="kd-subj-pick-h"><b>{semesterName(semesterView)} 과목을 눌러 고르세요</b><span>선택 {picked.size}개 · 다시 누르면 빠져요</span></div>
+          {[["elective", "이동수업 과목", lists.elective], ["common", "공통과목", lists.common]].filter(([, , list]) => list.length).map(([kind, label, list]) => <div key={kind} className="kd-subj-pick-g"><small>{label}</small><div>{list.map(subject => <button key={subject} type="button" aria-pressed={picked.has(`${kind}::${subject}`)} className={picked.has(`${kind}::${subject}`) ? "is-on" : ""} onClick={() => toggle(kind, subject)}>{picked.has(`${kind}::${subject}`) ? "✓ " : ""}{subject}</button>)}</div></div>)}
+        </div>;
+      })()}
+      {assignments.some(item => item.subject) && <div style={{ fontSize: 12, color: "#6f6a5e", fontWeight: 600 }}>고른 과목의 대상 반·그룹</div>}
       {assignments.map((a, i) => {
         const sem = a.semester === "sem2" ? "sem2" : a.semester === "sem1" ? "sem1" : semesterView;
         const lists = listsFor(sem);
@@ -2093,7 +2161,7 @@ function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semester
           </div>
         );
       })}
-      <button style={styles.secondaryBtn} onClick={addBlock}>+ {semesterName(semesterView)} 과목 추가</button>
+      <button style={styles.secondaryBtn} onClick={addBlock}>+ {semesterName(semesterView)} 과목 직접 추가</button>
     </div>
   );
 }
@@ -2228,8 +2296,8 @@ function AdminTeacherPicker({ accounts, onSelect }) {
 }
 
 
-function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scopeKey, semester, attemptLogin }) {
-  const [mode, setMode] = useState("login"); // login | signup
+function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scopeKey, semester, attemptLogin, initialMode = "login" }) {
+  const [mode, setMode] = useState(initialMode); // login | signup
   const [id, setId] = useState(""), [pw, setPw] = useState(""), [err, setErr] = useState("");
   const [name, setName] = useState("");
   const [assignments, setAssignments] = useState([{ kind: "elective", subject: "", targets: "" }]);
@@ -2304,7 +2372,7 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
                 <button key={c} type="button" onClick={() => setHomeroomClass(c)} style={{ ...styles.classChip, padding: "5px 10px", fontSize: 12, ...(homeroomClass === c ? styles.classChipActive : {}) }}>{c}반</button>
               ))}
             </div>
-            <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (해당 시에만 추가)</div>
+            <SubjectSectionTitle note="수업하는 과목을 고르면 성적 산출·공지 대상이 자동으로 정해져요. 담임만 하시면 건너뛰어도 돼요." />
             <AssignmentsEditor assignments={assignments} setAssignments={setAssignments} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
           </div>
           <button style={{ ...styles.primaryBtn, marginTop: 12 }} onClick={submitSignup}>가입 신청</button>
@@ -2567,7 +2635,7 @@ const newBar = {
 };
 
 function TeacherZoneWorkspace({
-  modeRequest, onOpenMinimum,
+  modeRequest, onOpenMinimum, onEditProfile,
   loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor,
   viewedTeacher, setViewedTeacher, db, persist, showToast, accounts, persistAccounts,
   grade, setGrade, semester, scopeKey, roster, allRosters, enrollments, allowedGrades,
@@ -2634,7 +2702,7 @@ function TeacherZoneWorkspace({
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
-    {workspaceMode === "home" && <TeacherZoneHome calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum} />}
+    {workspaceMode === "home" && <TeacherZoneHome calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum}  onEditProfile={onEditProfile} />}
     {visitedWorkspaceModes.includes("grades") && <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
       <DeferredPanel label="성적 산출 도구를 불러오는 중입니다."><TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={activeAccessRole}
@@ -2649,7 +2717,7 @@ function TeacherZoneWorkspace({
 }
 
 // 새 UI 선생님 ZONE 홈: 쓸 수 있는 업무를 카드로 모으고, 마지막으로 하던 업무를 '이어서 하기'로 강조합니다.
-function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum }) {
+function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum, onEditProfile }) {
   const exam = examPeriodFromCalendar(calendar);
   const rawName = String(activeTeacher?.name || actor?.name || "").trim();
   const callName = !rawName || /선생님$/.test(rawName) ? "선생님" : `${rawName} 선생님`;
@@ -2678,6 +2746,10 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
       <span className="chips"><em>{todayLabel}</em><em>{grade}학년 작업</em>{exam && <em className="ex">{exam.label} {exam.dLabel}</em>}</span>
       {!exam && last && <button type="button" onClick={() => onOpen(last.key)}>{last.title} 이어서 하기 →</button>}
     </section>
+    {onEditProfile && activeTeacher && !(activeTeacher.assignments || []).some(item => item?.subject) && <section className="kdn-tz2-nosubj">
+      <div><b>담당 과목이 아직 없어요</b><span>수업하는 과목을 고르면 성적 산출·공지 대상이 자동으로 정해지고, 같은 과목 선생님과 성적을 함께 작업할 수 있어요.</span></div>
+      <button type="button" onClick={onEditProfile}>담당 과목 고르기 →</button>
+    </section>}
     <div className="kdn-tz2-grid">{cards.map(card => {
       const [short, illo, palette] = SHORT[card.key] || [card.text, "grades", "il-admin"];
       const isLast = card.key === lastMode;
@@ -2775,7 +2847,7 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
         </div>
         <div className="kdn-nav-actions" style={newUiNavStyles.actions}>
           <UiModeMenu />
-          {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile}>내 정보</button>}
+          {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile} title="내 정보 · 담당 과목 · 비밀번호">내 정보·과목</button>}
           <button type="button" style={newUiNavStyles.ghost} onClick={onLogout}>로그아웃</button>
           {primaryAction && <button type="button" onClick={primaryAction.onClick} style={{ ...newUiNavStyles.ghost, border: 0, background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", padding: "0 18px", fontSize: 14 }}><Search size={15} />{primaryAction.label}</button>}
         </div>
@@ -3025,7 +3097,7 @@ const dash = {
   cardLink: { display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 42, padding: "0 12px", borderRadius: 11, border: 0, background: "var(--kdn-surface-2)", color: "var(--kdn-ink)", fontSize: 15, fontWeight: 800, cursor: "pointer" },
   shortcuts: { marginTop: 64, display: "grid", gap: 18 },
   h2: { margin: 0, fontSize: 24, fontWeight: 900 },
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16 },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 16 },
   shortcut: { display: "grid", gap: 10, alignContent: "start", textAlign: "left", padding: 22, borderRadius: 22, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", color: "var(--kdn-ink)", cursor: "pointer", font: "inherit" },
   shortcutIcon: { width: 46, height: 46, borderRadius: 15, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "var(--kdn-accent-soft)", color: "var(--kdn-accent-text)" },
   shortcutTitle: { fontSize: 18.5, fontWeight: 900 },
@@ -3033,7 +3105,26 @@ const dash = {
   shortcutGo: { display: "inline-flex", alignItems: "center", gap: 4, marginTop: 4, fontSize: 14, fontWeight: 900, color: "var(--kdn-accent-text)" },
 };
 
-function NewUiLanding({ attemptLogin, showToast }) {
+// 로그인 전 화면: 로그인 창 아래 '선생님 가입 신청'으로 가입(담당 과목 선택 포함) 화면을 바로 엽니다.
+function LoginOrSignup({ attemptLogin, showToast, renderSignup }) {
+  const [signup, setSignup] = useState(false);
+  if (signup && renderSignup) {
+    return (
+      <div>
+        {renderSignup()}
+        <button type="button" className="kd-signup-link" onClick={() => setSignup(false)}>← 로그인으로 돌아가기</button>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+      {renderSignup && <button type="button" className="kd-signup-link" onClick={() => setSignup(true)}>선생님 계정이 없나요? <b>가입 신청 →</b></button>}
+    </div>
+  );
+}
+
+function NewUiLanding({ attemptLogin, showToast, renderSignup }) {
   return (
     <div style={{ minHeight: "100vh", background: "var(--kdn-bg)", color: "var(--kdn-ink)", fontFamily: "'Pretendard','KDRound','Apple SD Gothic Neo',sans-serif" }}>
       <style>{globalCss}</style>
@@ -3062,7 +3153,7 @@ function NewUiLanding({ attemptLogin, showToast }) {
         <section aria-label="로그인" style={{ flex: "1 1 360px", maxWidth: 460, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <LandingHeroArt />
           <div style={{ marginTop: -70, position: "relative", padding: "0 14px" }}>
-            <UnifiedLoginGate label={SITE_TITLE} attemptLogin={attemptLogin} showToast={showToast} satisfies={() => true} hint={null} />
+            <LoginOrSignup attemptLogin={attemptLogin} showToast={showToast} renderSignup={renderSignup} />
           </div>
         </section>
         <section aria-labelledby="kdn-features" style={{ flex: "1 1 100%", display: "grid", gap: 16, marginTop: 12 }}>
@@ -4166,7 +4257,7 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
             </div>
           </>
         )}
-        <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목</div>
+        <SubjectSectionTitle note="과목을 바꾸면 성적 산출·공지 대상도 바로 바뀌어요." />
         <AssignmentsEditor assignments={assignments} setAssignments={setAssignments} db={db} scopeKey={scopeKey} semesterLabel={null} />
         <div className="teacher-profile-password-card">
           <div><b>비밀번호 변경</b><span>현재 비밀번호를 확인한 뒤 새 비밀번호를 입력하세요.</span></div>
@@ -6464,7 +6555,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                 )}
 
                 <div>
-                  <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>교과담당 과목 (선택사항, 여러 개 가능)</div>
+                  <SubjectSectionTitle note="여러 개 고를 수 있어요. 같은 과목 선생님들은 성적 산출을 함께 작업해요." />
                   <AssignmentsEditor assignments={teacher.assignments || []} setAssignments={assignments => updateTeacherField(index, "assignments", assignments)} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
                 </div>
                 </div>
@@ -6728,6 +6819,22 @@ const globalCss = `
   .kd-quick-links-head>div{display:grid;gap:1px}.kd-quick-links-head b{font-size:13px;color:#243a55}.kd-quick-links-head span{font-size:9.5px;color:#7a8797}
   .kd-quick-links-head button{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:8px;background:#f1f4f8;color:#617087;cursor:pointer}
   .kd-quick-links-list{display:grid;gap:7px;margin-top:9px}
+  .kd-subj-title{display:grid;gap:3px;margin:6px 0 8px}.kd-subj-title b{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:800;color:#2d3a4c}.kd-subj-title span{font-size:12px;color:#7a7568;line-height:1.5}
+  .kd-signup-link{display:block;margin:10px auto 0;padding:8px 12px;border:0;background:none;color:#6f6a61;font-size:13px;cursor:pointer;font-family:inherit}.kd-signup-link b{color:#c2410c}.kd-signup-link:hover{text-decoration:underline}
+  .kd-subj-pick{display:grid;gap:8px;padding:12px;border:1px solid #e3ddd0;border-radius:12px;background:#fffdf9}
+  .kd-subj-pick-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}.kd-subj-pick-h b{font-size:13px;color:#2d3a4c}.kd-subj-pick-h span{font-size:11.5px;color:#8a8578}
+  .kd-subj-pick-g{display:grid;gap:5px}.kd-subj-pick-g small{font-size:11px;font-weight:700;color:#8a8578}.kd-subj-pick-g>div{display:flex;flex-wrap:wrap;gap:6px}
+  .kd-subj-pick-g button{min-height:34px;padding:0 12px;border:1px solid #d9d2c3;border-radius:99px;background:#fff;color:#3b3a36;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+  .kd-subj-pick-g button.is-on{background:#e2531a;border-color:#e2531a;color:#fff}
+  .kd-ql-sec{margin-top:10px}.kd-ql-sec-h{display:flex;align-items:baseline;gap:6px}.kd-ql-sec-h b{font-size:12px;color:#243a55}.kd-ql-sec-h small{font-size:10.5px;color:#8a95a5}
+  .kd-ql-sec .kd-quick-links-list{margin-top:6px}
+  .kd-ql-empty{margin:6px 0 0;padding:9px;border-radius:10px;background:#f6f8fb;font-size:11.5px;color:#7a8797}
+  .kd-ql-row{display:flex;align-items:center;gap:6px}.kd-ql-row>a{flex:1;min-width:0}
+  .kd-ql-tools{display:flex;gap:3px}.kd-ql-tools button{width:26px;height:26px;border:1px solid #dfe5ee;border-radius:7px;background:#fff;color:#5d6b7e;font-size:12px;cursor:pointer}.kd-ql-tools button:disabled{opacity:.35;cursor:default}.kd-ql-tools button.del{color:#c0262d}
+  .kd-ql-edit{width:auto!important;padding:0 10px!important;font-size:11.5px;font-weight:800}
+  .kd-ql-add{display:grid;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid #e5eaf0}
+  .kd-ql-add input,.kd-ql-add select{min-height:34px;padding:0 10px;border:1px solid #d5deea;border-radius:9px;font:inherit;font-size:12.5px;background:#fff;color:#243a55}
+  .kd-ql-add button{min-height:34px;border:0;border-radius:9px;background:#e2531a;color:#fff;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
   .kd-quick-links-list a{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:9px;min-width:0;padding:9px;border:1px solid #e0e6ee;border-radius:11px;background:#fbfcfe;color:#2d4058;text-decoration:none;transition:.15s}
   .kd-quick-links-list a:hover{border-color:#aebfd4;background:#f1f6fc;transform:translateX(-2px)}
   .kd-quick-links-icon{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:#eaf1fb;color:#315f95}
