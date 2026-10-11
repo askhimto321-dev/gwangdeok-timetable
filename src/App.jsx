@@ -1801,6 +1801,13 @@ export default function App() {
     openStudent: dashboardOpenStudent,
     onNavigate: dashboardNavigate,
     onOpenStudentView: view => (staffWorkspaceEnabled ? changeStudentWorkspaceView(view) : switchSection(view === "timetable" ? "timetable" : "grades")),
+    // 정기시험 기간에 바로가기 맨 앞에 묶어 보여 줄 성적 메뉴(교직원만).
+    examZone: canSeeTeacherZone ? [
+      { key: "calc", title: "성적 산출", text: "업로드 → 등급 산출", onClick: openGradeCalc },
+      ...((loggedInAdmin || loggedInTeacher?.homeroomClass) ? [{ key: "classGrades", title: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적", text: "누적 내신·분포·반 비교", onClick: () => openTeacherTool("classGrades") }] : []),
+      ...(canSeeMinimum ? [{ key: "minimum", title: "최성보 대상", text: "성취율 40% 미만·출결", onClick: () => switchSection("minimumAchievement") }] : []),
+      { key: "report", title: "성적 리포트", text: "학생별 내신·모의고사", onClick: () => switchSection("grades") },
+    ] : [],
     shortcuts: [
       { key: "grades", tone: "blue", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
       (loggedInAdmin || loggedInTeacher?.homeroomClass)
@@ -2807,9 +2814,13 @@ function UiModeMenu() {
 
 // 새 UI 로그인 후 첫 화면(대시보드). 참고 사이트 구성: 큰 3줄 제목 + 버튼 2개 + 안내 한 줄,
 // 오른쪽 그림 위에 떠 있는 핵심 카드 1장, 아래 큰 바로가기 카드 줄.
-function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], semester, academicCalendar }) {
+function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], examZone = [], semester, academicCalendar }) {
   const now = useNow(1000);
   const student = kind === "student";
+  // 정기시험 7일 전 ~ 끝난 뒤 3주: 상단 D-day 띠 + 바로가기 맨 앞에 성적 ZONE 묶음.
+  const exam = !student && examZone.length ? examPeriodFromCalendar(academicCalendar, now) : null;
+  const zoneKeys = new Set(["classGrades", "gradeLookup"]);
+  const listedShortcuts = exam ? shortcuts.filter(item => !zoneKeys.has(item.key)) : shortcuts;
   const headline = student
     ? [`${name || ""} 학생,`, "오늘 수업과 공지를", "한 번에 확인해요."]
     : ["성적 확인부터", "지원 전략까지,", "한 흐름으로."];
@@ -2818,6 +2829,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
     : "학생을 검색하면 성적 리포트 · 대학 탐색 · 관심대학·상담 · NAVI 분석이 같은 작업 탭으로 이어집니다.";
   return (
     <main style={dash.page}>
+      {exam && <DashboardExamStrip exam={exam} now={now} onStart={examZone[0].onClick} />}
       <section style={dash.hero}>
         <div style={dash.heroText}>
           <h1 style={dash.h1}>
@@ -2847,9 +2859,20 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
         </div>
       </section>
       {shortcuts.length > 0 && <section aria-labelledby="kdn-dash-shortcuts" style={dash.shortcuts}>
-        <h2 id="kdn-dash-shortcuts" style={dash.h2}>바로가기</h2>
-        <div style={dash.grid}>
-          {shortcuts.map(item => (
+        <h2 id="kdn-dash-shortcuts" style={dash.h2}>바로가기{exam && <small className="kdn-dash-zone-note">시험 기간이라 성적 메뉴를 앞으로 꺼냈어요</small>}</h2>
+        <div style={exam ? { ...dash.grid, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" } : dash.grid}>
+          {exam && <div className="kdn-dash-zone">
+            <div className="kdn-dash-zone-head">
+              <span style={{ ...dash.shortcutIcon, background: "#c2410c", color: "#fff" }}><BarChart3 size={22} /></span>
+              <b style={dash.shortcutTitle}>성적 ZONE</b>
+              <span style={dash.shortcutText}>시험 기간 동안 맨 앞에 고정돼요</span>
+              <em className="kdn-dash-zone-badge">{exam.phase === "after" ? "성적 처리" : "시험 기간"}</em>
+            </div>
+            <div className="kdn-dash-zone-items">
+              {examZone.map(item => <button key={item.key} type="button" onClick={item.onClick}><b>{item.title}</b><span>{item.text}</span></button>)}
+            </div>
+          </div>}
+          {listedShortcuts.map(item => (
             <button key={item.key} type="button" onClick={item.onClick} style={dash.shortcut}>
               <span style={{ ...dash.shortcutIcon, ...(TILE_TONES[item.tone] ? { background: TILE_TONES[item.tone].bg, color: TILE_TONES[item.tone].label } : {}) }}>{item.icon}</span>
               <b style={dash.shortcutTitle}>{item.title}</b>
@@ -2861,6 +2884,40 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
       </section>}
     </main>
   );
+}
+
+// 대시보드 상단 정기시험 띠: D-day, 시험 날짜별 진행(완료·오늘·예정), 끝난 뒤엔 성적 처리 단계.
+function DashboardExamStrip({ exam, now, onStart }) {
+  const dayMs = 86400000;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const start = new Date(`${exam.date}T00:00:00`).getTime();
+  const end = exam.endDate ? new Date(`${exam.endDate}T00:00:00`).getTime() : start;
+  const days = [];
+  for (let t = start; t <= end && days.length < 10; t += dayMs) {
+    const d = new Date(t);
+    if (d.getDay() === 0 || d.getDay() === 6) continue;
+    days.push({ t, label: `${d.getMonth() + 1}.${d.getDate()}(${WEEKDAY_KO[d.getDay()]})`, state: t < today ? "done" : t === today ? "today" : "next" });
+  }
+  const dayIndex = days.findIndex(day => day.state === "today");
+  const fmt = t => { const d = new Date(t); return `${d.getMonth() + 1}.${d.getDate()}(${WEEKDAY_KO[d.getDay()]})`; };
+  const title = exam.phase === "before" ? (exam.d === 1 ? "내일부터 시험 기간이에요" : `시험까지 ${exam.d}일 남았어요`)
+    : exam.phase === "today" ? (dayIndex >= 0 ? `오늘은 시험 ${dayIndex + 1}일차예요` : "시험 기간이에요")
+    : "시험이 끝났어요 · 성적 처리 기간";
+  const sub = exam.phase === "after" ? "성적 산출과 결과 확인을 이어서 하세요" : "시험 후 3주간 성적 메뉴를 먼저 보여줘요";
+  return <section className="kdn-dash-exam" aria-label="정기시험 일정">
+    <div className="kdn-dash-exam-dd"><small>정기시험</small><b>{exam.dLabel === "D-day" ? "D-DAY" : exam.dLabel}</b></div>
+    <div className="kdn-dash-exam-text">
+      <small>{exam.label} · {fmt(start)}{end !== start ? ` ~ ${fmt(end)}` : ""}</small>
+      <b>{title}</b>
+      <span>{sub}</span>
+    </div>
+    <ol className="kdn-dash-exam-days">
+      {days.map((day, index) => <li key={day.t} className={`is-${day.state}`}><i />{day.state === "today" ? `오늘 · ${index + 1}일차` : day.label}</li>)}
+      <li className={exam.phase === "after" ? "is-today" : "is-step"}><i />성적 산출</li>
+      <li className="is-step"><i />결과 확인</li>
+    </ol>
+    <button type="button" className="kdn-dash-exam-go" onClick={onStart}>성적 산출 바로가기 <ArrowRight size={16} /></button>
+  </section>;
 }
 
 // 수업 카운트다운: 지금 수업이면 끝나기까지, 다음 수업이면 시작까지 남은 시간을 큰 고정폭 숫자로(1초마다 갱신).
