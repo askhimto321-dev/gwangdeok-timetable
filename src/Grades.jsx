@@ -3819,7 +3819,7 @@ export function StudentAdmissionView({ sid, gdb, studentInfo = null, favorites =
         ) : !displayRows.length ? (
           <div style={chartEmpty}>검색 조건에 맞는 전형이 없습니다.</div>
         ) : admissionViewMode === "mock" && isNewUi() ? (
-          <AdmissionMinimumBoard rows={displayRows} statusCounts={statusCounts} total={evaluatedRows.length} statusFilter={statusFilter} onStatusFilter={setStatusFilter} onToggleFavorite={onToggleFavorite} favoriteActive={favoriteActive} caseLinkForRow={caseLinkForRow} onOpenCases={onOpenCases} />
+          <AdmissionMinimumBoard mockGrades={latestMockGrades} rows={displayRows} statusCounts={statusCounts} total={evaluatedRows.length} statusFilter={statusFilter} onStatusFilter={setStatusFilter} onToggleFavorite={onToggleFavorite} favoriteActive={favoriteActive} caseLinkForRow={caseLinkForRow} onOpenCases={onOpenCases} />
         ) : admissionViewMode === "mock" ? (
           <div style={{ ...table.scroll, overflowX: "visible" }}>
             <table style={{ ...admissionTable.base, width:"100%", tableLayout:"fixed", fontSize: admissionTableView === "full" ? 8.9 : 9.8, minWidth:0 }}>
@@ -4013,7 +4013,19 @@ function minimumMargin(result) {
   if (result?.ruleType === "each" || result?.studentSum == null || result?.threshold == null) return null;
   return Number(result.threshold) - Number(result.studentSum);
 }
-function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, statusFilter, onStatusFilter, onToggleFavorite, favoriteActive, caseLinkForRow, onOpenCases }) {
+// 판정 문장(reason) 중 계산식 뒤에 붙은 추가 조건만 짧은 태그로 바꿉니다.
+function minimumExtraTags(reason) {
+  return String(reason || "").split(" · ").slice(1).map(text => text.trim()).filter(Boolean).map(text => {
+    if (/통합사회·통합과학/.test(text)) return "탐구 → 통합사회·과학으로 환산";
+    if (/영어 2등급까지 1등급/.test(text)) return "영어 2등급 → 1등급 환산";
+    if (/학생 지원연도/.test(text)) return null;
+    const cap = text.match(/^(영어|한국사)\s*\S+\s*\/\s*(\d+)\s*이내/);
+    if (cap) return `${cap[1]} ${cap[2]}등급 이내`;
+    return text.length > 30 ? `${text.slice(0, 28)}…` : text;
+  }).filter(Boolean);
+}
+
+function AdmissionMinimumBoard({ mockGrades = null, rows = [], statusCounts = {}, total = 0, statusFilter, onStatusFilter, onToggleFavorite, favoriteActive, caseLinkForRow, onOpenCases }) {
   // 상담 D안처럼: 왼쪽 대학 목록에서 고르면 오른쪽에 그 대학의 전형 행만 크게 보여 줍니다(페이지 나눔 없음).
   const [picked, setPicked] = useState("");
   const [open, setOpen] = useState(() => new Set());
@@ -4072,12 +4084,20 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
               <div className="rule">{result.status === "no-minimum" ? <b className="none">최저 없음</b> : hasMinimum ? <><b>{admissionMinimumText(result)}</b>{(result.subjectsText || row.requiredSubjects) && <AdmissionSubjectRule value={result.subjectsText || row.requiredSubjects} />}</> : <><b className="none">요강 확인</b><small>원문 조건</small></>}</div>
               <div className="mine">{showCalc ? null : hasMinimum && studentText ? <><small>내 {result.ruleType === "each" ? "등급" : `${result.count}합`}</small>{result.ruleType === "each" ? <b className="each" title={studentText}>{(result.selectedSubjects || []).length ? result.selectedSubjects.map(x => x.grade).join("·") : studentText}</b> : <b>{studentText.replace(/^\d합\s*/, "")}</b>}</> : <b className="dash">–</b>}</div>
               <div className="st"><span style={meta.style}>{meta.label}</span>{margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? (margin === 0 ? "딱 맞음" : `${margin} 여유`) : `${-margin} 부족`}</em>}
-                <span className="act">{detail && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}{row.guideDocs.length ? row.guideDocs.slice(0, 1).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}</span></div>
+                <span className="act">{detail && !showCalc && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}{row.guideDocs.length ? row.guideDocs.slice(0, 1).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}</span></div>
             </div>
-            {showCalc && <MinimumCalcStrip className="in-row" result={result} advice={result.status === "unsatisfied" ? row.improvementAdvice : null} />}
-            {isOpen && <div className="detail">
+            {showCalc && <MinimumCalcStrip className="in-row" result={result} grades={mockGrades} advice={result.status === "unsatisfied" ? row.improvementAdvice : null} />}
+            {showCalc && <div className="detail is-tags">
+              {result.year && <span className="tag">{result.year}학년도 {result.yearMismatch ? "참고" : "기준"}</span>}
+              {result.ruleText && <span className="tag" title="모집요강 원문">원문 · {result.ruleText}</span>}
+              {minimumExtraTags(result.reason).map(text => <span key={text} className="tag">{text}</span>)}
+              {result.source && <span className="tag" title={result.source}>{String(result.source).match(/\d+쪽/)?.[0] ? `요강 ${String(result.source).match(/\d+쪽/)[0]}` : "출처"}</span>}
+              {row.historySummary?.decidedCount > 0 && <span className="tag">최근 {row.historySummary.decidedCount}회 중 {row.historySummary.satisfiedCount}회 충족</span>}
+              {row.eligibility && row.eligibility.status !== "none" && <span className="tag warn">지원자격 · {row.eligibility.label}</span>}
+            </div>}
+            {!showCalc && isOpen && <div className="detail">
               {result.year && <span><b>{result.year}학년도</b> {result.yearMismatch ? "참고 기준" : "기준"}</span>}
-              {(showCalc ? result.ruleText?.split(" · ").slice(1).join(" · ") : result.ruleText) && <span>{showCalc ? result.ruleText.split(" · ").slice(1).join(" · ") : result.ruleText}</span>}
+              {result.ruleText && <span>{result.ruleText}</span>}
               {result.reason && <span>{result.reason}</span>}
               {result.source && <span className="src">{result.source}</span>}
               {row.historySummary?.decidedCount > 0 && <span>최근 {row.historySummary.decidedCount}회 중 <b>{row.historySummary.satisfiedCount}회</b> 충족</span>}
