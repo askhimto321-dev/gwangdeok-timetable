@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { examPeriodFromCalendar } from "./examPeriod.js";
 import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
@@ -2625,7 +2626,7 @@ function TeacherZoneWorkspace({
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
-    {workspaceMode === "home" && <TeacherZoneHome actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum} />}
+    {workspaceMode === "home" && <TeacherZoneHome calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum} />}
     {visitedWorkspaceModes.includes("grades") && <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
       <DeferredPanel label="성적 산출 도구를 불러오는 중입니다."><TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={activeAccessRole}
@@ -2640,7 +2641,8 @@ function TeacherZoneWorkspace({
 }
 
 // 새 UI 선생님 ZONE 홈: 쓸 수 있는 업무를 카드로 모으고, 마지막으로 하던 업무를 '이어서 하기'로 강조합니다.
-function TeacherZoneHome({ actor, activeTeacher, grade, lastMode, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum }) {
+function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum }) {
+  const exam = examPeriodFromCalendar(calendar);
   const rawName = String(activeTeacher?.name || actor?.name || "").trim();
   const callName = !rawName || /선생님$/.test(rawName) ? "선생님" : `${rawName} 선생님`;
   const homeroom = activeTeacher?.homeroomClass ? `${grade}학년 ${activeTeacher.homeroomClass}반 담임` : isAdmin ? "관리자" : `${grade}학년`;
@@ -2652,21 +2654,33 @@ function TeacherZoneHome({ actor, activeTeacher, grade, lastMode, canUseNotice, 
     { key: "gradeData", icon: <Database size={20} />, tone: "#92400e", soft: "#fff1d6", title: "자료 관리", tag: "학교 반영", text: "2학년부 업무 파일과 소감문 파일을 올리고 학교 자료로 반영합니다.", points: ["임시 저장 → 학교 자료로 반영", "같은 이름 파일은 교체"], primary: "자료 관리 열기", show: canUseDept },
     { key: "minimum", icon: <ShieldCheck size={20} />, tone: "#b42318", soft: "#fdecea", title: "최성보 현황", tag: "다른 메뉴", text: "학급·과목별 최소성취수준 주의 대상과 미도달 학생을 확인합니다.", points: ["공통과목: 출석 2/3 + 성취율 40%", "선택과목: 출석 2/3"], primary: "현황 보기 ↗", show: !!onOpenMinimum },
   ].filter(card => card.show);
+  // 정기시험 기간: 성적 산출을 맨 앞(크게), 최성보 현황을 바로 옆에 둡니다.
+  if (exam) { const rank = key => key === "grades" ? 0 : key === "minimum" ? 1 : 2; cards.sort((a, b) => rank(a.key) - rank(b.key)); }
   const last = cards.find(card => card.key === lastMode);
-  return <div className="kdn-tz">
+  const today = new Date();
+  const todayLabel = `${today.getMonth() + 1}월 ${today.getDate()}일 ${"일월화수목금토"[today.getDay()]}요일`;
+  return <div className={`kdn-tz${exam ? " is-exam" : ""}`}>
     <section className="kdn-tz-hero">
       <span className="av"><Users size={22} /></span>
-      <div><small>선생님 ZONE · {homeroom}</small><b>{callName}, {last ? `지난번 하던 '${last.title}'부터 이어서 할까요?` : "오늘 어떤 업무를 할까요?"}</b></div>
-      {last && <button type="button" onClick={() => onOpen(last.key)}>{last.title} 이어서 하기 ›</button>}
+      <div className="tx"><small>선생님 ZONE · {homeroom}</small><b>{callName}, {exam ? `${exam.label} ${exam.phase === "after" ? "성적 처리 기간이에요." : "기간이 다가와요."}` : last ? `지난번 하던 '${last.title}'부터 이어서 할까요?` : "오늘 어떤 업무를 할까요?"}</b>
+        <span className="chips"><em>{todayLabel}</em><em>{grade}학년 작업</em>{exam && <em className="ex">{exam.label} {exam.dLabel}</em>}</span></div>
+      {exam ? <button type="button" onClick={() => onOpen("grades")}>성적 산출 바로 가기 ›</button> : last && <button type="button" onClick={() => onOpen(last.key)}>{last.title} 이어서 하기 ›</button>}
     </section>
+    {exam && cards.some(card => card.key === "grades") && <section className="kdn-tz-exam" role="note">
+      <span className="dd"><small>{exam.label}</small><b>{exam.dLabel}</b></span>
+      <div><b>{exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요" : exam.phase === "today" ? "시험 당일 · 결시자 인정점 입력을 준비하세요" : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요"}</b>
+        <small className="sub">{exam.phase === "after" ? "등급컷·동점자·결시 인정점을 확인한 뒤 최성보 미도달 학생도 함께 점검하세요." : "시험이 끝나면 이 카드에서 바로 성적 산출로 이어집니다."}</small></div>
+      <button type="button" onClick={() => onOpen("grades")}>성적 산출 열기 ›</button>
+    </section>}
     <div className="kdn-tz-grid">{cards.map(card => {
       const isLast = card.key === lastMode;
       const open = () => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));
-      return <section key={card.key} className={`kdn-tz-card${isLast ? " is-last" : ""}`} style={{ "--a": card.tone, "--s": card.soft }}>
-        <div className="top"><span className="ic">{card.icon}</span><h4>{card.title}</h4><span className="tag">{isLast ? "최근 작업" : card.tag}</span></div>
+      const featured = exam && card.key === "grades";
+      return <section key={card.key} className={`kdn-tz-card${isLast ? " is-last" : ""}${featured ? " is-featured" : ""}`} style={{ "--a": card.tone, "--s": card.soft }}>
+        <div className="top"><span className="ic">{card.icon}</span><h4>{card.title}</h4><span className="tag">{featured ? `정기시험 ${exam.dLabel}` : isLast ? "최근 작업" : card.tag}</span></div>
         <p>{card.text}</p>
-        <ul>{card.points.map(point => <li key={point}>{point}</li>)}</ul>
-        <div className="acts"><button type="button" className="p" onClick={open}>{isLast ? "이어서 하기 ›" : card.primary}</button></div>
+        {featured ? <div className="kdn-tz-steps">{[["산출 기준", "반영비율·만점·성취도 기준 확인", "before"], ["파일 업로드", "NEIS 지필·수행 파일 올리기", "today"], ["등급·결과", "등급컷·동점자·결시 인정점 확인", "after"], ["최성보 점검", "미도달·주의 학생 확인", ""]].map(([title, desc, phase], index) => <div key={title} className={phase && phase === exam.phase ? "on" : ""}><em>{index + 1}</em><b>{title}</b><small>{desc}</small></div>)}</div> : <ul>{card.points.map(point => <li key={point}>{point}</li>)}</ul>}
+        <div className="acts"><button type="button" className="p" onClick={open}>{featured ? "성적 산출 열기 ›" : isLast ? "이어서 하기 ›" : card.primary}</button></div>
       </section>;
     })}</div>
   </div>;
