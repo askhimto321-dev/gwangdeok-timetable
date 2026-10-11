@@ -1373,17 +1373,17 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       <div style={{display: !newUi || calcStep === 1 ? "contents" : "none"}}>
       <section style={ui.section}>
         <div style={ui.sectionHeader}>
-          <div><span style={ui.stepBadge}>1</span><strong style={ui.sectionTitle}>NEIS 파일 업로드</strong><p style={ui.sectionHint}>아래 경로에서 내려받은 XLSX Data 파일을 그대로 올려주세요.</p></div>
-          {context && <span style={ui.contextBadge}>{context.year}학년도 {context.semester}학기 · {context.grade}학년 · {context.subject}</span>}
+          <div><span style={ui.stepBadge}>1</span><strong style={ui.sectionTitle}>NEIS 파일 업로드</strong>{!newUi && <p style={ui.sectionHint}>아래 경로에서 내려받은 XLSX Data 파일을 그대로 올려주세요.</p>}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>{context && <span style={ui.contextBadge}>{context.year}학년도 {context.semester}학기 · {context.grade}학년 · {context.subject}</span>}{newUi && <span className="kdn-step-next" style={{ margin: 0, padding: 0, border: 0 }}><button type="button" onClick={() => setCalcStep(2)}>다음: 산출 기준 설정 ›</button></span>}</div>
         </div>
-        <div className="neis-download-guide" aria-label="NEIS 성적 파일 다운로드 경로">
+        {!newUi && <div className="neis-download-guide" aria-label="NEIS 성적 파일 다운로드 경로">
           <article><span>정기시험</span><div><b>교과담임 → 지필평가조회</b><p>교과목별일람표조회(전체 학급) → XLSX Data 다운로드</p></div></article>
           <article><span>수행평가</span><div><b>교과담임 → 수행평가조회</b><p>강의실별일람표조회(전체 영역) → XLSX Data 다운로드</p></div></article>
-        </div>
+        </div>}
         <div style={ui.uploadGrid}>
           <UploadCard
             title="지필평가"
-            description="1차·2차 정기시험 전 학급 일람표"
+            description={newUi ? "NEIS 지필평가조회 → 교과목별일람표(전체 학급) → XLSX Data" : "1차·2차 정기시험 전 학급 일람표"}
             count={written.length}
             detail={sortedWritten.length ? `${sortedWritten.length}개 시험 등록 · ${sortedWritten.map(item => item.title).join(" · ")}` : "등록된 시험 없음"}
             inputRef={writtenInputRef}
@@ -1393,7 +1393,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           />
           <UploadCard
             title="수행평가"
-            description="반별 수행평가 강의실 일람표"
+            description={newUi ? "NEIS 수행평가조회 → 강의실별일람표(전체 영역) → XLSX Data" : "반별 수행평가 강의실 일람표"}
             count={performance.reduce((sum, item) => sum + item.classes.length, 0)}
             detail={performance.length ? `${performance.flatMap(item => item.classes).sort((a, b) => a - b).join(", ")}반 등록` : "등록된 반 없음"}
             inputRef={performanceInputRef}
@@ -1405,24 +1405,22 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         <input ref={writtenPartInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={event => parseFiles(event.target.files, "written", writtenPartTargetRef.current)} />
         {newUi && <div className="kdn-up-guide">
           <div className="kdn-up-guide-head">
-            <span className="kdn-up-guide-ic" aria-hidden="true">💡</span>
-            <div><b>지금 있는 파일만 올려도 돼요</b><p>성적은 시험이 끝날 때마다 하나씩 더해 가면 됩니다. 올린 만큼 바로 계산하고, 나머지는 나중에 추가해요.</p></div>
+            <b>💡 지금 있는 파일만 올려도 돼요</b>
+            <div className="kdn-up-guide-now" aria-label="지금 등록 상태">
+              {sortedWritten.map(item => <span key={item.id} className={isSplitWritten(item) && item.essayPending ? "is-wait" : "is-ok"}>{isSplitWritten(item) && item.essayPending ? "◐" : "✓"} {item.title}{isSplitWritten(item) && item.essayPending ? " · 논술형 대기" : ""}</span>)}
+              {plannedWritten.map(item => <span key={item.id} className="is-plan">○ {item.title || "예정 시험"}</span>)}
+              {!sortedWritten.length && !plannedWritten.length && <span className="is-plan">○ 지필 없음</span>}
+              {performance.length ? <span className="is-ok">✓ 수행 {performance.flatMap(item => item.classes).sort((a, b) => a - b).join(", ")}반</span> : <span className="is-plan">○ 수행 없음</span>}
+            </div>
           </div>
-          <div className="kdn-up-guide-now" aria-label="지금 등록 상태">
-            {sortedWritten.map(item => <span key={item.id} className={isSplitWritten(item) && item.essayPending ? "is-wait" : "is-ok"}>{isSplitWritten(item) && item.essayPending ? "◐" : "✓"} {item.title}{isSplitWritten(item) && item.essayPending ? " · 논술형 대기" : ""}</span>)}
-            {plannedWritten.map(item => <span key={item.id} className="is-plan">○ {item.title || "예정 시험"} · 예정</span>)}
-            {!sortedWritten.length && !plannedWritten.length && <span className="is-plan">○ 지필평가 · 아직 없음</span>}
-            {performance.length ? <span className="is-ok">✓ 수행 {performance.flatMap(item => item.classes).sort((a, b) => a - b).join(", ")}반</span> : <span className="is-plan">○ 수행평가 · 아직 없음</span>}
-          </div>
-          <ol className="kdn-up-guide-cards">
-            <li><em>1</em><div><b>1차만 봤다면 1차만</b><p>2차 시험은 2단계에서 <strong>‘예정 시험’</strong>으로 반영비율만 정해 두세요. 최성보 필요 점수도 함께 계산돼요.</p></div></li>
-            <li><em>2</em><div><b>논술형 채점이 늦어도 괜찮아요</b><p>객관식 파일을 먼저 올리고, 2단계에서 <strong>‘객관식·논술형 나누기’</strong>로 배점(예: 90+10, 80+20)을 정한 뒤 논술형 파일을 나중에 올리세요.</p></div></li>
-            <li><em>3</em><div><b>수행평가는 끝난 반부터</b><p>반별 파일을 하나씩 올려도 돼요. 아직 안 올린 반 학생은 결과에서 ‘미입력’으로 표시돼요.</p></div></li>
-            <li><em>4</em><div><b>잘못 올렸으면 바꾸기</b><p>2단계 산출 기준에서 시험별 <strong>‘파일 바꾸기’</strong>로 교체하거나 ✕로 지울 수 있어요.</p></div></li>
-          </ol>
+          <ul className="kdn-up-guide-tips">
+            <li><b>1차만 봤으면 1차만</b><span>2차는 2단계 ‘예정 시험’</span></li>
+            <li><b>논술형은 나중에</b><span>2단계 ‘객관식·논술형 나누기’</span></li>
+            <li><b>수행은 끝난 반부터</b><span>반별로 하나씩</span></li>
+            <li><b>잘못 올렸으면</b><span>2단계 ‘파일 바꾸기’</span></li>
+          </ul>
         </div>}
         {!!uploadMessages.length && <div style={ui.messageList}>{uploadMessages.map((message, index) => <div key={`${message.text}-${index}`} style={{ ...ui.message, ...(message.type === "error" ? ui.messageError : message.type === "warn" ? ui.messageWarn : ui.messageOk) }}>{message.type === "ok" ? <Check size={13} /> : <AlertTriangle size={13} />}{message.text}</div>)}</div>}
-        {newUi && <div className="kdn-step-next"><span style={{flex:1}} /><button type="button" onClick={() => setCalcStep(2)}>다음: 산출 기준 설정 ›</button></div>}
       </section>
       </div>
 
