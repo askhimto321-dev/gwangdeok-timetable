@@ -3970,6 +3970,83 @@ function ResultKeyFigure({ tracks = [], convertedGrade, cutoffBasis = "70" }) {
   </div>;
 }
 
+// 새 UI 상세 카드(펼침): 상담 D안처럼 왼쪽에 전형 목록(판정·최저 배지), 오른쪽에 고른 전형 하나의
+// 컷·차이·수능최저·NAVI 사례·수시지원 추가. 세로로 길게 늘어놓지 않고 한 화면 안에서 고릅니다.
+function NaviCardDetail({ row, minimums = [], minimumEvaluations = [], minimumImprovements = [], convertedGrade, cutoffBasis = "70", caseStats = [], conversionGroup, mockGrades = null, supportPlan = [], onAddSupportPlan, onOpenWorkspace, recommendation, recommendationStatus, recommendationProgress, studentSubjects = [], courseRules = [], changes2028 = [], schedules = [] }) {
+  const [, region, , university, unit2026, unit2027, field, teaching = [], holistic = [], regular] = row;
+  const minimumFor = name => {
+    const key = trackMatchKey(name);
+    const index = minimums.findIndex(item => { const other = trackMatchKey(item?.[3] || item?.[2]); return other && key && (other === key || other.includes(key) || key.includes(other)); });
+    return index >= 0 ? { index, evaluation: minimumEvaluations[index], improvement: minimumImprovements[index] } : null;
+  };
+  const entries = [];
+  const usedMinimum = new Set();
+  [["교과", teaching], ["종합", holistic]].forEach(([kind, list]) => (list || []).forEach((item, index) => {
+    const minimum = minimumFor(item[0]);
+    if (minimum) usedMinimum.add(minimum.index);
+    const cut = cutoffValue(item, cutoffBasis);
+    entries.push({ key: `${kind}-${index}`, kind, name: item[0] || kind, item, minimum, band: supportBandFor(convertedGrade, cut), cut });
+  }));
+  minimums.forEach((item, index) => { if (!usedMinimum.has(index) && minimumEvaluations[index]) entries.push({ key: `min-${index}`, kind: item?.[2] || "최저", name: item?.[3] || item?.[2] || "전형", minimumOnly: true, minimum: { evaluation: minimumEvaluations[index], improvement: minimumImprovements[index] } }); });
+  if (regular) entries.push({ key: "regular", kind: "정시", name: regular[0] || "일반전형", regular });
+  const defaultKey = (() => { const graded = entries.filter(entry => entry.band); if (!graded.length) return entries[0]?.key || ""; return graded.sort((a, b) => Math.abs(a.band.diff) - Math.abs(b.band.diff))[0].key; })();
+  const [pickedKey, setPickedKey] = useState("");
+  const active = entries.find(entry => entry.key === pickedKey) || entries.find(entry => entry.key === defaultKey) || null;
+  const minBadge = evaluation => {
+    if (!evaluation) return null;
+    const map = { satisfied: ["ok", "최저 충족"], unsatisfied: ["no", "최저 미충족"], "no-minimum": ["none", "최저 없음"], manual: ["rv", "원문 확인"], unavailable: ["rv", "성적 필요"] };
+    const [tone, label] = map[evaluation.status] || ["rv", "확인 필요"];
+    return <span className={`mb ${tone}`}>{label}</span>;
+  };
+  const planItem = active && !active.minimumOnly && !active.regular ? { university, region, department: unit2027, field, admissionType: active.kind, track: active.name, trackYear: 2026, source: "NAVI 통합 기준" } : null;
+  const inPlan = planItem && supportPlan.some(value => supportPlanItemKey(value) === supportPlanItemKey(planItem));
+  const stat = active?.item ? bestCaseStat(caseStats, university, region, active.item[0], active.kind, conversionGroup) : null;
+  const cuts = stat ? caseCutForGroup(stat, conversionGroup) : null;
+  const hasGrade = validGrade(convertedGrade) != null;
+  const margin = active?.band ? -active.band.diff : null;
+  const evaluation = active?.minimum?.evaluation;
+  const calc = evaluation && ["satisfied", "unsatisfied"].includes(evaluation.status) && (evaluation.selectedSubjects || []).length > 0 && evaluation.threshold != null;
+  return <div className="kdn-ncd">
+    <div className="kdn-ncd-meta">
+      <span>{unit2026 && unit2026 !== unit2027 ? <>2026 <b>{unit2026}</b> → 2027 <b>{unit2027}</b></> : <>2026·2027 모집단위 같음</>}</span>
+      <span>전형을 고르면 오른쪽에 컷·수능최저·사례가 보여요</span>
+    </div>
+    {!entries.length ? <div className="kdn-ncd-empty">이 모집단위에 연결된 전형 자료가 없습니다.</div> : <div className="kdn-ncd-split">
+      <ul className="kdn-ncd-list" aria-label="전형 목록">{entries.map(entry => <li key={entry.key}>
+        <button type="button" data-kdn-bare className={entry.key === active?.key ? "is-on" : ""} onClick={() => setPickedKey(entry.key)}>
+          <span className="top"><i className={`k ${entry.kind === "종합" ? "hol" : entry.kind === "교과" ? "tea" : "etc"}`}>{entry.kind}</i><b>{entry.name}</b></span>
+          <span className="bot">{entry.regular ? <small>70% 백분위 {entry.regular[2] ?? "-"}</small> : entry.minimumOnly ? <small>컷 자료 없음</small> : <small>{cutoffBasis}%컷 {validGrade(entry.cut) == null ? "-" : Number(entry.cut).toFixed(2)}</small>}{entry.band && <BandPill band={entry.band} size="sm" />}{minBadge(entry.minimum?.evaluation)}</span>
+        </button>
+      </li>)}</ul>
+      {active && <div className="kdn-ncd-pane">
+        <header><i className={`k ${active.kind === "종합" ? "hol" : active.kind === "교과" ? "tea" : "etc"}`}>{active.kind}</i><b>{active.name}</b>{active.band && <BandPill band={active.band} />}</header>
+        {active.regular ? <div className="kdn-ncd-grid">
+          <span className="box"><small>70% 백분위</small><b>{active.regular[2] ?? "-"}</b></span>
+          <span className="box wide"><small>영어·한국사</small><b className="sm">{active.regular[3] || "확인 필요"}</b></span>
+          <p className="note">{active.regular[4] || active.regular[1] || "대학별 반영영역 확인 필요"} · 2026 참고</p>
+        </div> : !active.minimumOnly && <>
+          <div className="kdn-ncd-grid">
+            <span className={`box${hasGrade ? " me" : ""}`}><small>내 환산</small><b>{hasGrade ? Number(convertedGrade).toFixed(2) : "-"}</b></span>
+            <span className={`box${cutoffBasis === "50" ? " on" : ""}`}><small>50%컷</small><b>{active.item[1] ?? "-"}</b></span>
+            <span className={`box${cutoffBasis !== "50" ? " on" : ""}`}><small>70%컷</small><b>{active.item[2] ?? "-"}</b></span>
+            <span className={`box gap${margin == null ? "" : margin >= 0 ? " up" : " down"}`}><small>{cutoffBasis}%컷과 차이</small><b>{margin == null ? "-" : `${Math.abs(margin).toFixed(2)} ${margin >= 0 ? "여유" : "부족"}`}</b></span>
+          </div>
+          <small className="src">대학 공개 2026 입시결과 · {cutoffBasis}%컷 기준 판정</small>
+        </>}
+        {!active.regular && <section className="sub"><h6>수능최저 {evaluation?.year ? <small>{evaluation.year}학년도</small> : null}{minBadge(evaluation)}</h6>
+          {calc ? <MinimumCalcStrip className="is-compact" grades={mockGrades} result={evaluation} advice={evaluation.status === "unsatisfied" ? active.minimum.improvement : null} />
+            : <p className="why">{!evaluation ? "연결된 수능최저 자료가 없습니다." : evaluation.status === "no-minimum" ? "이 전형은 수능최저가 없습니다." : evaluation.status === "manual" ? (evaluation.ruleText || "요강 원문 확인 필요") : (evaluation.reason || "판정할 수 없습니다.")}</p>}
+        </section>}
+        {cuts?.[0] ? <CaseDistribution cuts={cuts} cutoffBasis={cutoffBasis} /> : null}
+        {planItem && onAddSupportPlan && <div className="act"><SupportPlanButton compact active={inPlan} onClick={() => inPlan ? onOpenWorkspace?.() : onAddSupportPlan(planItem)}>{inPlan ? "저장됨 · 지원 구성 보기" : "수시지원 추가"}</SupportPlanButton></div>}
+      </div>}
+    </div>}
+    <details className="kdn-ncd-more"><summary>권장과목 · 전형 상세자료</summary>
+      <div className="body"><RecommendedSubjectPanel recommendation={recommendation} status={recommendationStatus} progress={recommendationProgress} studentSubjects={studentSubjects} /><RelatedInfo courseRules={courseRules} changes2028={changes2028} schedules={schedules} /></div>
+    </details>
+  </div>;
+}
+
 function ResultCard({ focused = false, mockGrades = null, row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationStatus = "ready", recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
   const [open, setOpen] = useState(focused);
   const [detailTab, setDetailTab] = useState("all");
@@ -4025,7 +4102,8 @@ function ResultCard({ focused = false, mockGrades = null, row, minimums, minimum
         items={groupCutItems([...(teaching || []).map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...(holistic || []).map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))], cutoffBasis)}
         studentGrade={convertedGrade} cutoffBasis={cutoffBasis} onMore={() => setOpen(true)} />{!(teaching?.length || holistic?.length) && <div className="kdn-rc-nocut">이 모집단위는 공개된 교과·종합 컷이 없습니다. 상세를 펼쳐 정시·수능최저를 확인하세요.</div>}</div>}
       </div>
-      {open && <div className="kdn-result-body" style={ui.resultCardBody}>
+      {open && isNewUi() && <NaviCardDetail row={row} minimums={minimums} minimumEvaluations={minimumEvaluations} minimumImprovements={minimumImprovements} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} caseStats={caseStats} conversionGroup={conversionGroup} mockGrades={mockGrades} supportPlan={supportPlan} onAddSupportPlan={onAddSupportPlan} onOpenWorkspace={onOpenWorkspace} recommendation={recommendation} recommendationStatus={recommendationStatus} recommendationProgress={recommendationProgressData} studentSubjects={studentSubjects} courseRules={courseRules} changes2028={changes2028} schedules={schedules} />}
+      {open && !isNewUi() && <div className="kdn-result-body" style={ui.resultCardBody}>
         <div className="susi-beta-result-identity" style={ui.resultIdentity}>
           <b style={ui.identityLabel}>NAVI 모집단위 연결 정보</b>
           <span style={ui.identitySourceNote}>경기도교육청 제공 2027 모집단위와<br/>대학 공개 2026 입시결과를 연결한 정보입니다.</span>

@@ -1913,7 +1913,7 @@ export default function App() {
         <DeferredPanel label="성적·진학 화면을 불러오는 중입니다."><GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
           roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
-          gdb={gdb} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
+          gdb={gdb} examWorkspaces={db.teacherGradeWorkspaces} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
           selectedStudentSid={selectedStudentSid}
           onSelectedStudentSidChange={updateSelectedStudentSid}
           selectedStudentQuery={selectedStudentQuery}
@@ -1967,7 +1967,7 @@ export default function App() {
         staffWorkspaceEnabled ? null : <DeferredPanel label="성적·진학 화면을 불러오는 중입니다."><GradesSection
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null)} loggedInStudent={loggedInStudent}
           roster={roster} accounts={accounts} showToast={showToast} onLogout={globalLogout}
-          gdb={gdb} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
+          gdb={gdb} examWorkspaces={db.teacherGradeWorkspaces} currentGrade={grade} teacherGradeAccess={staffGradeAccessList}
           selectedStudentSid={undefined}
           onSelectedStudentSidChange={undefined}
           selectedStudentQuery={undefined}
@@ -2930,7 +2930,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
               : <><button type="button" style={dash.cta} onClick={() => onNavigate("grades", { focusSearch: true })}>학생 찾아 상담 시작 <ArrowRight size={18} /></button>
                   <button type="button" style={dash.ctaGhost} onClick={() => onOpenStudentView("susiNaviBeta")}><BookOpen size={18} /> 2027 수시 NAVI</button></>}
           </div>
-          <p style={dash.note}><Users size={16} /> {roleLabel}</p>
+          {upcomingAcademicEvents(academicCalendar, now).length ? <DashboardUpcoming calendar={academicCalendar} now={now} /> : <p style={dash.note}><Users size={16} /> {roleLabel}</p>}
         </div>
         <div style={dash.heroSide}>
           <div style={{ position: "relative" }}>
@@ -3259,6 +3259,30 @@ function nextAcademicEvent(calendar, now = new Date()) {
     .sort((a, b) => a.time - b.time)
     .map(event => ({ ...event, days: Math.round((event.time - today) / 86400000) }))[0] || null;
 }
+// 대시보드 '다가오는 일정': 진행 중이거나 45일 안의 학사일정 최대 3개(작게, 한 줄씩).
+function upcomingAcademicEvents(calendar, now = new Date(), limit = 3) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return (calendar?.events || []).map(event => {
+    const start = new Date(`${event.date}T00:00:00`).getTime();
+    const end = event.endDate ? new Date(`${event.endDate}T00:00:00`).getTime() : start;
+    return { ...event, start, end, ongoing: start <= today && today <= end, days: Math.round((start - today) / 86400000) };
+  }).filter(event => event.label && Number.isFinite(event.start) && event.end >= today && event.start - today <= 45 * 86400000)
+    .sort((a, b) => a.start - b.start).slice(0, limit);
+}
+function DashboardUpcoming({ calendar, now }) {
+  const events = upcomingAcademicEvents(calendar, now, 2);
+  if (!events.length) return null;
+  const md = time => { const d = new Date(time); return `${d.getMonth() + 1}.${d.getDate()}(${WEEKDAY_KO[d.getDay()]})`; };
+  return <div className="kdn-dash-upcoming" aria-label="다가오는 학사일정">
+    <span className="hd"><Calendar size={14} /> 다가오는 일정</span>
+    <ul>{events.map(event => <li key={`${event.date}-${event.label}`} title={`${md(event.start)}${event.end > event.start ? `~${md(event.end)}` : ""} ${event.label}`}>
+      <span className="dt">{md(event.start)}</span>
+      <b>{event.label}</b>
+      <em className={event.ongoing ? "is-now" : event.days <= 7 ? "is-soon" : ""}>{event.ongoing ? "진행 중" : event.days === 0 ? "D-DAY" : `D-${event.days}`}</em>
+    </li>)}</ul>
+  </div>;
+}
+
 function HeroClockBadge({ now, semester, calendar }) {
   const slot = lessonSlotAt(now);
   const upcoming = nextAcademicEvent(calendar, now);
@@ -5418,7 +5442,7 @@ function AdminConsole(props) {
           : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>
       )}
       {sub === "classGrades" && (props.gdb
-        ? <DeferredPanel label="반별 성적 화면을 불러오는 중입니다."><ClassGradeOverviewPanel gdb={props.gdb} roster={props.roster} currentGrade={props.grade} isAdmin /></DeferredPanel>
+        ? <DeferredPanel label="반별 성적 화면을 불러오는 중입니다."><ClassGradeOverviewPanel gdb={props.gdb} examWorkspaces={props.db?.teacherGradeWorkspaces} roster={props.roster} currentGrade={props.grade} isAdmin /></DeferredPanel>
         : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>)}
       {sub === "accounts" && <AdminAccountConsole {...props} />}
       {sub === "staffNotices" && <AdminStaffNoticePanel accounts={props.accounts} notices={props.db.staffNotices || []} persist={props.persist} showToast={props.showToast} />}
