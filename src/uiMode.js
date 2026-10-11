@@ -2561,20 +2561,40 @@ const SHARED_NEW_CSS = `
     .kdn-dash-tight.is-exam .kdn-sc-illo{width:80px;height:66px}
     .kdn-dash-tight.is-exam .kdn-dash-float{margin-top:-122px!important;padding:16px 20px 14px!important;gap:6px!important}
   }
-  /* 선생님 ZONE 홈 시험 기간: 4열 · 성적 산출 2칸(1줄) · 단계는 한 줄 4칸 → 한 화면에 */
-  .kdn-tz.is-exam .kdn-tz-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
-  .kdn-tz.is-exam .kdn-tz-card.is-featured{grid-row:auto}
-  .kdn-tz.is-exam .kdn-tz-steps{flex:none;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:auto;gap:8px}
-  .kdn-tz.is-exam .kdn-tz-steps>div{padding:10px 12px;gap:2px 10px}
-  .kdn-tz.is-exam .kdn-tz-steps em{width:28px;height:28px;font-size:13.5px}
-  .kdn-tz.is-exam .kdn-tz-steps b{font-size:14.5px}
-  .kdn-tz.is-exam .kdn-tz-steps small{font-size:12px;line-height:1.4}
-  .kdn-tz.is-exam .kdn-tz-card:not(.is-featured) ul{display:none}
-  .kdn-tz.is-exam .kdn-tz-card{gap:10px}
-  @media (max-width:1200px){.kdn-tz.is-exam .kdn-tz-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-  @media (max-width:1000px){.kdn-tz.is-exam .kdn-tz-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kdn-tz.is-exam .kdn-tz-steps{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  @media (max-width:640px){.kdn-tz.is-exam .kdn-tz-grid{grid-template-columns:minmax(0,1fr)}}
-  @media (max-height:860px){.kdn-tz{gap:10px}.kdn-tz-hero{padding:14px 22px!important}.kdn-tz-grid{gap:10px!important}.kdn-tz.is-exam .kdn-tz-card{padding-top:16px;padding-bottom:14px}}
+  /* 선생님 ZONE 홈(새 디자인): 대시보드 바로가기와 같은 흰 카드. 평소 3열 2줄, 시험 기간 4열(성적 산출 3칸 + 최성보) 2줄. */
+  .kdn-tz2{display:grid;gap:16px}
+  .kdn-tz2-hero{display:flex;align-items:center;gap:12px 18px;flex-wrap:wrap;padding:20px 24px;border-radius:22px;background:radial-gradient(420px 160px at 100% 0%,rgba(226,83,26,.32),transparent),linear-gradient(160deg,#17181d,#2a221c);color:#f4f1ea}
+  .kdn-tz2-hero .tx{display:grid;gap:4px;min-width:0;flex:1 1 360px}
+  .kdn-tz2-hero small{font-size:13px;font-weight:700;color:#ffb089}
+  .kdn-tz2-hero b{font-size:21px;font-weight:800;color:#fff;line-height:1.35;word-break:keep-all}
+  .kdn-tz2-hero .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .kdn-tz2-hero .chips em{font-style:normal;padding:4px 11px;border-radius:99px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);font-size:13px;font-weight:700;color:#e7e2d8}
+  .kdn-tz2-hero .chips em.ex{background:#e2531a;border-color:#e2531a;color:#fff}
+  .kdn-tz2-hero button{min-height:42px;padding:0 18px;border-radius:12px;border:0!important;background:#e2531a!important;color:#fff!important;font:inherit;font-size:14.5px;font-weight:800;cursor:pointer}
+  .kdn-tz2-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(176px,auto);gap:14px}
+  .kdn-tz2.is-exam .kdn-tz2-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .kdn-tz2-card{min-height:176px}
+  .kdn-tz2-card.is-last{border-color:color-mix(in srgb,var(--kdn-accent) 45%,var(--kdn-line))}
+  .kdn-tz2-tag{flex:none;padding:3px 10px;border-radius:99px;background:var(--kdn-surface-2);color:var(--kdn-ink-soft);font-size:12px;font-weight:700;white-space:nowrap}
+  .kdn-tz2-card.is-last .kdn-tz2-tag{background:color-mix(in srgb,var(--kdn-accent) 14%,var(--kdn-surface));color:var(--kdn-accent-text)}
+  .kdn-tz2-go{position:relative;z-index:1;margin-top:auto;display:inline-flex;align-items:center;gap:5px;font-size:14px;font-weight:800;color:var(--kdn-accent-text)}
+  .kdn-tz2-card:hover .kdn-tz2-go svg{transform:translateX(3px)}.kdn-tz2-go svg{transition:transform .16s ease}
+  .kdn-tz2-feature{grid-column:span 3;position:relative;overflow:hidden;display:flex;flex-direction:column;gap:12px;padding:20px 22px;border-radius:24px;border:1.5px solid #f8c7a7;background:linear-gradient(160deg,#fff3ea,var(--kdn-surface) 55%)}
+  [data-kd-ui="dark"] .kdn-tz2-feature{border-color:rgba(249,115,22,.5);background:linear-gradient(160deg,rgba(249,115,22,.16),var(--kdn-surface) 55%)}
+  .kdn-tz2-feature .hd{position:relative;z-index:1;display:flex;align-items:center;gap:10px}
+  .kdn-tz2-feature .hd b{font-size:21px;font-weight:900;color:var(--kdn-ink)}
+  .kdn-tz2-feature .badge{font-style:normal;padding:4px 11px;border-radius:99px;background:#ea580c;color:#fff;font-size:12.5px;font-weight:800}
+  .kdn-tz2-feature>p{position:relative;z-index:1;margin:0;font-size:14.5px;color:var(--kdn-ink-soft)}
+  .kdn-tz2-steps{position:relative;z-index:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0;padding:0 100px 0 0;list-style:none}
+  .kdn-tz2-steps li{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:13px;background:var(--kdn-surface);border:1px solid var(--kdn-line);font-size:14px;font-weight:800;color:var(--kdn-ink);white-space:nowrap}
+  .kdn-tz2-steps i{flex:none;width:24px;height:24px;border-radius:99px;display:grid;place-items:center;font-style:normal;font-size:12.5px;font-weight:900;background:var(--kdn-surface-2);color:var(--kdn-ink-soft)}
+  .kdn-tz2-steps li.is-on{border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.15)}.kdn-tz2-steps li.is-on i{background:#ea580c;color:#fff}
+  .kdn-tz2-steps li.is-done{color:var(--kdn-muted)}.kdn-tz2-steps li.is-done i{background:#fed7aa;color:#9a3412}
+  .kdn-tz2-feature .go{position:relative;z-index:1;align-self:flex-start;margin-top:auto;display:inline-flex;align-items:center;gap:6px;min-height:42px;padding:0 18px;border-radius:12px;border:0!important;background:#ea580c!important;color:#fff!important;font:inherit;font-size:14.5px;font-weight:800;cursor:pointer}
+  .kdn-sc-illo.is-feature{right:16px;bottom:12px;width:110px;height:92px}
+  @media (max-width:1100px){.kdn-tz2.is-exam .kdn-tz2-grid,.kdn-tz2-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kdn-tz2-feature{grid-column:span 2}.kdn-tz2-steps{grid-template-columns:repeat(2,minmax(0,1fr));padding-right:0}}
+  @media (max-width:640px){.kdn-tz2.is-exam .kdn-tz2-grid,.kdn-tz2-grid{grid-template-columns:minmax(0,1fr)}.kdn-tz2-feature{grid-column:auto}.kdn-sc-illo.is-feature{display:none}}
+  @media (max-height:860px){.kdn-tz2{gap:12px}.kdn-tz2-hero{padding:14px 22px}.kdn-tz2-grid{gap:12px;grid-auto-rows:minmax(160px,auto)}.kdn-tz2-card{min-height:160px}}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
