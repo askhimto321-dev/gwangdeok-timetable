@@ -23,7 +23,7 @@ import {
 import { readStorage, writeStorage } from "./storage.js";
 import { evaluateAdmissionRequirement } from "./gradeEngine.js";
 import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAccentKey } from "./admissionMetrics.js";
-import { CutStrip, SupportBandTiles } from "./naviVisuals.jsx";
+import { CutStrip, SupportBandTiles, groupCutItems } from "./naviVisuals.jsx";
 import { GradeSimPresetChips } from "./GradeSimulator.jsx";
 import { isNewUi } from "./uiMode.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
@@ -3164,6 +3164,7 @@ export default function SusiNaviBetaView({
             </div>
             <div style={ui.resultContextActions}>
               <button type="button" style={ui.backToSearchButton} onClick={() => goBackWithinNavi("search")}>‹ 기준 설정 수정</button>
+              {onOpenCases && <button type="button" style={ui.backToSearchButton} onClick={() => onOpenCases("", "", "")}>광덕고 대입결과 ›</button>}
               <button type="button" style={ui.resultConnectPrimary} onClick={() => { setConnectionMode("grade"); setConnectionUniversity(""); navigateViewTab("connection"); }}>현재 성적으로 지원 연결 찾기 ›</button>
             </div>
           </div>
@@ -3236,7 +3237,7 @@ export default function SusiNaviBetaView({
               isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
               : isNewUi() && resultLayout === "grid" && visibleResultRows.length ? <NaviResultGrid rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
               isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
-              : isNewUi() && resultLayout === "list" && visibleResultRows.length ? <NaviResultTable rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
+              : isNewUi() && resultLayout === "list" && visibleResultRows.length ? <NaviResultTable rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis} onOpenCases={onOpenCases} mockGrades={effectiveStudent?.latestMockGrades || null}
               isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
               : (visibleResultRows.length ? visibleResultRows.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress, schoolTrend }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
@@ -3685,7 +3686,42 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
 
 // 새 UI 목록 보기: 모집단위 한 줄씩 핵심만(전형 수 · 지원 구간 분포 · 수능최저) 보여주고,
 // 줄을 누르면 그 자리에서 전형별 '학생 ↔ 컷' 막대가 펼쳐집니다.
-export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite }) {
+// 목록 보기에서 줄을 펼쳤을 때: 전형별 컷은 같은 전형끼리 묶어 요약하고(전체는 버튼으로),
+// 수능최저는 계산 줄로, 마지막에 광덕고 대입결과로 바로 가는 버튼을 둡니다.
+function NaviRowDetail({ row, minimums = [], minimumEvaluations = [], minimumImprovements = [], convertedGrade, cutoffBasis = "70", mockGrades = null, onOpenCases }) {
+  const [showAll, setShowAll] = useState(false);
+  const [, , , university, , unit2027, , teaching = [], holistic = []] = row;
+  const items = [...teaching.map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...holistic.map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))];
+  const grouped = groupCutItems(items, cutoffBasis);
+  const merged = grouped.length < items.filter(item => validGrade(item.cut50) != null || validGrade(item.cut70) != null).length;
+  const seen = new Set();
+  const judged = minimums.map((item, index) => ({ item, evaluation: minimumEvaluations[index], improvement: minimumImprovements[index] }))
+    .filter(({ item, evaluation }) => {
+      if (!evaluation) return false;
+      const key = `${item?.[3] || item?.[2]}|${evaluation.ruleText}|${evaluation.status}`;
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    }).slice(0, 4);
+  return <div className="kdn-nrd">
+    <CutStrip limit={20} items={showAll ? items : grouped} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} title={showAll ? "전형별 컷 전체" : "전형별 컷 요약"} />
+    {merged && <button type="button" className="kdn-nrd-more" onClick={() => setShowAll(value => !value)}>{showAll ? "‹ 전형별 요약으로" : `모집단위별 컷 전체 보기 (${items.length}개) ›`}</button>}
+    {judged.length > 0 && <section className="kdn-nrd-min">
+      <b className="hd">수능최저</b>
+      <div className="list">{judged.map(({ item, evaluation, improvement }, index) => {
+        const meta = naviMinimumStatusMeta(evaluation.status);
+        const calc = ["satisfied", "unsatisfied"].includes(evaluation.status) && (evaluation.selectedSubjects || []).length > 0 && evaluation.threshold != null;
+        return <div key={index} className="it">
+          <div className="top"><b>{item?.[3] || item?.[2] || "전형"}</b>{evaluation.year && <small>{evaluation.year}학년도</small>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
+          {calc ? <MinimumCalcStrip className="is-compact" grades={mockGrades} result={evaluation} advice={evaluation.status === "unsatisfied" ? improvement : null} />
+            : <small className="why">{evaluation.status === "no-minimum" ? "수능최저 없음" : evaluation.status === "manual" ? "요강 원문 확인 필요" : (evaluation.reason || "판정 불가")}</small>}
+        </div>;
+      })}</div>
+    </section>}
+    {onOpenCases && <div className="kdn-nrd-foot"><button type="button" onClick={() => onOpenCases(university, unit2027, "")}>광덕고 대입결과에서 {university} 보기 ›</button></div>}
+  </div>;
+}
+
+export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite, onOpenCases, mockGrades = null }) {
   const [openKey, setOpenKey] = useState("");
   const order = ["상향", "소신", "적정", "안정", "하향"];
   return <div style={{ overflowX: "auto", borderRadius: 18, border: "1px solid var(--kdn-line)", background: "var(--kdn-surface)" }}>
@@ -3700,7 +3736,7 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
         <th style={{ padding: "12px 10px", fontWeight: 700 }}>수능최저</th>
         <th style={{ padding: "12px 16px 12px 10px", width: 104 }} />
       </tr></thead>
-      <tbody>{rows.map(({ row, minimumEvaluations }, rowIndex) => {
+      <tbody>{rows.map(({ row, minimums, minimumEvaluations, minimumImprovements }, rowIndex) => {
         const [, region, , university, , unit2027, field, teaching = [], holistic = []] = row;
         // 같은 대학이 이어지면 대학명은 첫 줄에만 쓰고, 대학이 바뀌는 줄 위에 굵은 선을 그어 묶음을 구분합니다.
         const prevUniversity = rowIndex > 0 ? rows[rowIndex - 1]?.row?.[3] : null;
@@ -3724,9 +3760,7 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
             <td style={{ padding: "10px", color: "var(--kdn-ink-soft)", fontWeight: 600 }}>{!minimum.total ? "없음" : <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{minimum.satisfied > 0 && <span style={{ color: "#287348", fontWeight: 800 }}>충족 {minimum.satisfied}</span>}{minimum.unsatisfied > 0 && <span style={{ color: "#b05244", fontWeight: 800 }}>미충족 {minimum.unsatisfied}</span>}{minimum.total - minimum.satisfied - minimum.unsatisfied > 0 && <span>확인 {minimum.total - minimum.satisfied - minimum.unsatisfied}</span>}</span>}</td>
             <td style={{ padding: "10px 16px 10px 10px", textAlign: "right" }}><button type="button" aria-expanded={open} onClick={() => setOpenKey(open ? "" : key)} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 36, padding: "0 10px", whiteSpace: "nowrap", borderRadius: 10, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>{open ? "접기" : "컷 보기"}{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></td>
           </tr>
-          {open && <tr style={{ background: "var(--kdn-accent-soft)" }}><td colSpan={8} style={{ padding: "0 16px 16px" }}><CutStrip limit={12}
-            items={[...teaching.map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...holistic.map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))]}
-            studentGrade={convertedGrade} cutoffBasis={cutoffBasis} /></td></tr>}
+          {open && <tr style={{ background: "var(--kdn-accent-soft)" }}><td colSpan={8} style={{ padding: "0 16px 16px" }}><NaviRowDetail row={row} minimums={minimums} minimumEvaluations={minimumEvaluations} minimumImprovements={minimumImprovements} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} mockGrades={mockGrades} onOpenCases={onOpenCases} /></td></tr>}
         </React.Fragment>;
       })}</tbody>
     </table>
@@ -3898,8 +3932,8 @@ function ResultCard({ mockGrades = null, row, minimums, minimumEvaluations = [],
           <button type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={ui.resultToggle}>{open ? <ChevronUp size={16}/> : <ChevronDown size={16}/>} {open ? "상세 접기" : "상세 펼치기"}</button>
         </div>
       </div>
-      {isNewUi() && !open && <div className="kdn-rc-cuts"><CutStrip compact
-        items={[...(teaching || []).map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...(holistic || []).map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))]}
+      {isNewUi() && !open && <div className="kdn-rc-cuts"><CutStrip compact title="전형별 컷 요약"
+        items={groupCutItems([...(teaching || []).map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...(holistic || []).map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))], cutoffBasis)}
         studentGrade={convertedGrade} cutoffBasis={cutoffBasis} onMore={() => setOpen(true)} />{!(teaching?.length || holistic?.length) && <div className="kdn-rc-nocut">이 모집단위는 공개된 교과·종합 컷이 없습니다. 상세를 펼쳐 정시·수능최저를 확인하세요.</div>}</div>}
       </div>
       {open && <div className="kdn-result-body" style={ui.resultCardBody}>

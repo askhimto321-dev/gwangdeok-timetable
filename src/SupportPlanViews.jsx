@@ -88,7 +88,7 @@ export function PlanDetail({ item, facts, student, studentGrade, cutoffBasis = '
           {school?.tier && school.tier !== 'A' && school.units?.length > 0 && <p><span>사례 모집단위</span>{school.units.join(', ')}</p>}
         </div>
       </div>
-      <small>NAVI 사례는 대학·전형·계열 기준이며 학과 합격자 수가 아닙니다. 광덕고 사례는 A(같은 모집단위·전형)에 가까울수록 직접 비교에 적합합니다. 최저 {ev?.year || '연도 확인'} · 실제 지원연도 모집요강을 우선 확인하세요.</small>
+      <small>NAVI: 대학·전형·계열 기준(학과 합격자 수 아님) · 광덕고: A에 가까울수록 직접 비교 적합 · 실제 지원연도 요강 우선</small>
     </section>
     {item.trackMissing && <p className="kdn-pv-warn">NAVI 전형 미연결 · 다른 전형의 컷을 대신 사용하지 않습니다.</p>}
   </div>;

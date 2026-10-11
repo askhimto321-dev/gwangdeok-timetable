@@ -4,7 +4,7 @@
 // 색은 admissionMetrics.js의 SUPPORT_BAND_META(라이트 기준 값)를 그대로 쓰고,
 // 다크 모드 변환은 uiMode.js가 렌더 시점에 일괄 처리합니다.
 import React from "react";
-import { SUPPORT_BAND_META, supportBandValue, validGrade } from "./admissionMetrics.js";
+import { SUPPORT_BAND_META, supportBandValue, validGrade, median } from "./admissionMetrics.js";
 
 // 위치 막대 눈금 범위(9등급 환산 기준). 대부분의 수시 컷이 1~6 사이라 이 범위로 고정해
 // 카드끼리 막대 위치를 바로 비교할 수 있게 합니다. 범위를 벗어난 값은 양 끝에 붙습니다.
@@ -56,9 +56,28 @@ function MarginBar({ margin }) {
   </span>;
 }
 
-// items: [{ kind: "교과"|"종합", name, cut50, cut70 }]
+// 같은 이름의 전형(2027 모집단위 하나에 2026 모집단위 여러 개가 합쳐진 경우)을 한 줄로 묶습니다.
+// 컷은 가운데값(중앙값), range는 기준 컷의 최저~최고, count는 묶인 자료 수입니다.
+export function groupCutItems(items = [], cutoffBasis = "70") {
+  const map = new Map();
+  items.filter(item => validGrade(item.cut50) != null || validGrade(item.cut70) != null).forEach(item => {
+    const key = `${item.kind}|${item.name}`;
+    if (!map.has(key)) map.set(key, { kind: item.kind, name: item.name, list: [] });
+    map.get(key).list.push(item);
+  });
+  return Array.from(map.values()).map(group => {
+    const basis = group.list.map(item => validGrade(cutoffBasis === "50" ? item.cut50 : item.cut70)).filter(value => value != null);
+    return {
+      kind: group.kind, name: group.name, count: group.list.length,
+      cut50: median(group.list.map(item => item.cut50)), cut70: median(group.list.map(item => item.cut70)),
+      range: basis.length > 1 ? [Math.min(...basis), Math.max(...basis)] : null,
+    };
+  });
+}
+
+// items: [{ kind: "교과"|"종합", name, cut50, cut70, count?, range? }]
 // 전형별 컷 비교 표: 수직선 대신 숫자(50%·70% 컷)와 "컷보다 얼마나 여유/부족한지"를 크게 보여줍니다.
-export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit = 4, onMore, compact = false }) {
+export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit = 4, onMore, compact = false, title = "전형별 컷 비교" }) {
   const rows = items.filter(item => validGrade(item.cut50) != null || validGrade(item.cut70) != null);
   if (!rows.length) return null;
   const shown = rows.slice(0, limit);
@@ -66,7 +85,7 @@ export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit =
   return (
     <div style={{ ...strip.wrap, ...(compact ? strip.wrapCompact : {}) }}>
       <div style={strip.head}>
-        <span>전형별 컷 비교 <small style={strip.headHint}>{hasStudent ? `학생 9등급 ${fmt(studentGrade)} · ${cutoffBasis}% 컷 기준 판정` : `${cutoffBasis}% 컷 기준`}</small></span>
+        <span>{title} <small style={strip.headHint}>{hasStudent ? `학생 9등급 ${fmt(studentGrade)} · ${cutoffBasis}% 컷 기준 판정` : `${cutoffBasis}% 컷 기준`}</small></span>
         {hasStudent && <span style={strip.legend}><span style={strip.legendItem}><i style={{ ...cut.legendDot, background: "#16a34a" }} />컷보다 여유</span><span style={strip.legendItem}><i style={{ ...cut.legendDot, background: "#dc2626" }} />컷보다 부족</span></span>}
       </div>
       <div className="kdn-cutstrip-head" style={cut.headRow}><span>전형</span><span style={cut.num}>50% 컷</span><span style={cut.num}>70% 컷</span>{hasStudent && <span style={{ textAlign: "center" }}>내 성적과 차이</span>}<span style={{ textAlign: "right" }}>판정</span></div>
@@ -76,7 +95,7 @@ export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit =
         const margin = band ? -band.diff : null;
         return (
           <div key={`${item.kind}-${item.name}-${index}`} className="kdn-cutstrip-row" style={{ ...cut.row, ...(index % 2 ? cut.rowAlt : {}) }}>
-            <span style={strip.name}><TrackChip kind={item.kind} /><b style={strip.nameText} title={item.name}>{item.name || item.kind}</b></span>
+            <span style={strip.name}><TrackChip kind={item.kind} /><span style={{ display: "grid", minWidth: 0 }}><b style={strip.nameText} title={item.name}>{item.name || item.kind}</b>{item.count > 1 && <small style={strip.groupHint}>모집단위 {item.count}곳{item.range ? ` · ${cutoffBasis}%컷 ${fmt(item.range[0])}~${fmt(item.range[1])}` : ""} · 가운데값</small>}</span></span>
             <span style={{ ...cut.num, ...(cutoffBasis === "50" ? cut.numOn : {}) }}>{fmt(item.cut50)}</span>
             <span style={{ ...cut.num, ...(cutoffBasis !== "50" ? cut.numOn : {}) }}>{fmt(item.cut70)}</span>
             {hasStudent && <span style={cut.diffCell}>
@@ -156,6 +175,7 @@ const strip = {
   row: { display: "grid", gridTemplateColumns: "minmax(120px, 1.1fr) minmax(150px, 2fr) auto", alignItems: "center", gap: 12 },
   name: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 },
   nameText: { fontSize: 13.5, fontWeight: 900, color: "#1f2430", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  groupHint: { fontSize: 11.5, fontWeight: 600, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   barCell: { display: "grid", gap: 2, minWidth: 0 },
   numbers: { fontSize: 11.5, fontWeight: 700, color: "#4a5262" },
   band: { display: "flex", justifyContent: "flex-end" },
