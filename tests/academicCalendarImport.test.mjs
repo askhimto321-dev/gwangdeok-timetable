@@ -18,3 +18,10 @@ test('개학일 추정', () => {
   assert.deepEqual(semesterStartsFromEvents([{ date: '2026-03-03', label: '입학식/개학식' }, { date: '2026-08-13', label: '2학기 개학식' }]), { sem1Start: '2026-03-03', sem2Start: '2026-08-13' });
 });
 test('머리글 없으면 오류', () => { assert.equal(parseCalendarRows([['a', 'b']]).errors.length, 1); });
+test('한국 시간대 엑셀 날짜 하루 당김 보정', () => {
+  // 2026-10-12 자정이 옛 표준시 보정으로 전날 23:59:08이 된 값
+  const shifted = new Date(new Date(2026, 9, 12).getTime() - 52 * 1000);
+  assert.equal(normalizeCalendarDate(shifted), '2026-10-12');
+  assert.equal(normalizeCalendarDate(new Date(2026, 9, 12)), '2026-10-12');
+  assert.equal(normalizeCalendarDate(46307), '2026-10-12');
+});

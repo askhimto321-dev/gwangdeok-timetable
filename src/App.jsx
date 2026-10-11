@@ -5278,7 +5278,7 @@ function AdminAcademicCalendar({ calendar, persist, showToast }) {
     if (!file) return;
     try {
       const XLSX = await loadXLSX();
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
       const { events: loaded, errors } = parseCalendarRows(rows);
