@@ -27,6 +27,7 @@ import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { buildClassExamCompare } from "./classExamCompare.js";
+import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
   parseSemesterSheet,
@@ -4079,7 +4080,8 @@ function AdmissionMinimumBoard({ mockGrades = null, rows = [], statusCounts = {}
       seen.add(dup);
       const key = row.university || "대학 미지정"; if (!map.has(key)) map.set(key, []); map.get(key).push(row);
     });
-    return Array.from(map, ([university, items]) => ({ university, items }));
+    // 이름만 다른 같은 전형(같은 모집단위 · 같은 판정·조건)도 하나로 합칩니다.
+    return Array.from(map, ([university, items]) => ({ university, items: mergeDuplicateTracks(items.map(row => ({ ...row, admissionType: `${row.university}|${row.department || ""}` }))).map(({ __index, aliases, ...row }) => ({ ...row, mergedAliases: aliases })) }));
   }, [rows]);
   const active = groups.find(group => group.university === picked) || groups[0] || null;
   const okCount = group => group.items.filter(row => ["satisfied", "no-minimum"].includes(row.evaluation.status)).length;

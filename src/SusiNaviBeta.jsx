@@ -27,6 +27,7 @@ import { CutStrip, SupportBandTiles, groupCutItems, BandPill, MarginBar, support
 import { GradeSimPresetChips } from "./GradeSimulator.jsx";
 import { isNewUi } from "./uiMode.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
+import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 import SupportPlanPresets from "./SupportPlanPresets.jsx";
 import SupportPlanButton from "./SupportPlanButton.jsx";
@@ -1591,8 +1592,9 @@ export function counselingFactsForFavorite({favorite,data={},student={},recommen
     const key=`${admissionType}|${favoriteTrackKey(row.track)}`;
     if(!row.track || !knownTypes.has(admissionType) || (type&&admissionType!==type) || seen.has(key))return false;
     seen.add(key);return true;
-  }).map(row=>({...row,evaluation:resolveMinimumLink({target:{...target,...row},data,student,identity:universityIdentityKey,evaluateMinimum:r=>evaluateNaviMinimumSafe(r,student),ambiguousType:true}).evaluation}));
-  return {minimums,progress:recommendationProgress(recommendation,student.subjects||[])};
+  }).map(row=>({...row,admissionType:comparisonType(row.admissionType),evaluation:resolveMinimumLink({target:{...target,...row},data,student,identity:universityIdentityKey,evaluateMinimum:r=>evaluateNaviMinimumSafe(r,student),ambiguousType:true}).evaluation}));
+  // 이름만 다른 같은 전형(NAVI·최저 자료집·학교 자료) 하나로
+  return {minimums:mergeDuplicateTracks(minimums),progress:recommendationProgress(recommendation,student.subjects||[])};
 }
 
 function supportPlanItemKey(item = {}) {
@@ -2718,15 +2720,11 @@ export default function SusiNaviBetaView({
     // 같은 전형의 같은 최저가 NAVI 원본·카탈로그·다른 2026 모집단위에서 여러 번 들어오는 경우가 있어
     // (전형유형 · 전형명 · 학년도 · 조건 · 판정)이 같으면 한 줄만 남깁니다.
     const minimumEvaluationsRaw = minimums.map(item => evaluateNaviMinimumSafe(item, effectiveStudent));
-    const minimumSeen = new Set();
-    const minimumKeep = minimums.map((item, index) => {
-      const ev = minimumEvaluationsRaw[index] || {};
-      const key = [item?.[2], minimumTrackKey(item?.[3] || ""), ev.year || "", compactText(ev.ruleText || item?.[8] || ""), ev.status, ev.studentSum ?? ""].join("|");
-      if (minimumSeen.has(key)) return false;
-      minimumSeen.add(key); return true;
-    });
-    minimums.splice(0, minimums.length, ...minimums.filter((_, index) => minimumKeep[index]));
-    const minimumEvaluations = minimumEvaluationsRaw.filter((_, index) => minimumKeep[index]);
+    // 같은 전형이 NAVI·최저 자료집·여러 2026 모집단위에서 다른 이름으로 겹쳐 들어오면 하나로 합칩니다
+    // (같은 유형 · 같은 판정·조건 · 이름이 이어질 때만). 대표 이름은 더 자세한 쪽.
+    const mergedMinimums = mergeDuplicateTracks(minimums.map((item, index) => ({ admissionType: comparisonType(item?.[2]), track: item?.[3] || item?.[2] || "", evaluation: minimumEvaluationsRaw[index], source: item })));
+    const minimumEvaluations = mergedMinimums.map(entry => entry.evaluation);
+    minimums.splice(0, minimums.length, ...mergedMinimums.map(entry => { if (entry.track === entry.source?.[3]) return entry.source; const renamed = [...entry.source]; Object.assign(renamed, entry.source); renamed[3] = entry.track; return renamed; }));
     // 성능 개선: 회차별 이력(minimumHistories)·등급개선 시뮬레이션(minimumImprovements)은 계산 비용이
     // 커서(회차 수·과목 수만큼 반복 재판정), 전체 모집단위(수천 건)가 아니라 실제로 화면에 보이는
     // 12건(visible)에 대해서만 아래에서 따로 계산합니다. 예전에는 여기서 전체에 대해 계산해
