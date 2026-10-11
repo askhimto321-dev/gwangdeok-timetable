@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { isNewUi } from "./uiMode.js";
 import CriteriaPresets from "./CriteriaPresets.jsx";
+import { isSplitWritten, defaultWrittenSplit, splitWritten, unsplitWritten, setWrittenPart, removeWrittenPart, recombineWritten, pickWrittenPart, partLabel, countOverMax } from "./writtenParts.js";
 import { gradeQuotaCumulative, compareVectors, vectorKey, rankAndGrade } from "./gradeQuota.js";
 import { ResultListDetail, ResultDistribution, ResultClassCompare, ResultStudentLookup } from "./gradeResultViews.jsx";
 
@@ -382,6 +383,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const [dataClassFilter, setDataClassFilter] = useState("all");
   const writtenInputRef = useRef(null);
   const performanceInputRef = useRef(null);
+  // 2단계에서 특정 시험의 객관식/논술형(또는 전체) 파일을 올리거나 바꿀 때 쓰는 숨은 파일 입력.
+  const writtenPartInputRef = useRef(null);
+  const writtenPartTargetRef = useRef(null);
   const workspaceStorageSnapshotRef = useRef(null);
   workspaceStorageSnapshotRef.current = { storageKey, selectedLocalId, localWorkspaces };
 
@@ -722,6 +726,22 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     return { ...current, plannedWritten: planned, minimumAchievement: nextMinimum };
   });
   const removeWritten = id => { setWritten(current => current.filter(item => item.id !== id)); if (activeView === id) setActiveView("combined"); };
+  // 객관식 + 논술형 나누기: 올린 파일은 객관식으로 두고, 논술형 파일은 나중에 올리거나 바꿀 수 있습니다.
+  const toggleWrittenSplit = id => setWritten(current => current.map(item => item.id !== id ? item : isSplitWritten(item) ? unsplitWritten(item) : splitWritten(item)));
+  const updateWrittenSplit = (id, patch) => setWritten(current => current.map(item => {
+    if (item.id !== id || !isSplitWritten(item)) return item;
+    const next = { ...item.split, ...patch };
+    return recombineWritten({ ...item, split: { mcMax: Math.max(1, asNumber(next.mcMax) ?? 1), essayMax: Math.max(1, asNumber(next.essayMax) ?? 1) } });
+  }));
+  const clearWrittenPart = (id, part) => setWritten(current => current.map(item => item.id === id ? removeWrittenPart(item, part) : item));
+  const pickWrittenFile = (id, part = "") => { writtenPartTargetRef.current = { id, part }; writtenPartInputRef.current?.click(); };
+  const writtenPartsEditor = item => <WrittenPartsEditor item={item} readOnly={readOnlyWorkspace} onToggle={() => toggleWrittenSplit(item.id)} onSplit={patch => updateWrittenSplit(item.id, patch)} onPick={part => pickWrittenFile(item.id, part)} onClear={part => clearWrittenPart(item.id, part)} />;
+  const togglePlannedSplit = item => updatePlannedWritten(item.id, item.split ? { split: null, maxScore: item.split.mcMax + item.split.essayMax } : { split: defaultWrittenSplit(item.maxScore), maxScore: 100 });
+  const updatePlannedSplit = (item, patch) => {
+    const next = { ...item.split, ...patch };
+    const split = { mcMax: Math.max(1, asNumber(next.mcMax) ?? 1), essayMax: Math.max(1, asNumber(next.essayMax) ?? 1) };
+    updatePlannedWritten(item.id, { split, maxScore: split.mcMax + split.essayMax });
+  };
   const removePerformance = id => setPerformance(current => current.filter(item => item.id !== id));
   const addPlannedPerformance = () => setSettings(current => {
     const list = Array.isArray(current.plannedPerformance) ? current.plannedPerformance : [];
@@ -743,14 +763,21 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   // 불러올 때는 이름이 같은 시험·영역에 비율을 채우고, 아직 성적 파일이 없는 항목은 '예정' 항목으로 만듭니다.
   const captureCriteriaPreset = () => ({
     settings: { gradeSystem: settings.gradeSystem, courseType: settings.courseType, achievementMode: settings.achievementMode, manualCuts: settings.manualCuts, tieItemCount: settings.tieItemCount },
-    written: [...sortedWritten.map(item => ({ title: text(item.title), order: writtenOrder(item), maxScore: item.maxScore, weight: asNumber(item.weight) ?? 0 })), ...plannedWritten.map(item => ({ title: text(item.title), order: Number(item.order) || 99, maxScore: item.maxScore, weight: asNumber(item.weight) ?? 0 }))],
+    written: [...sortedWritten.map(item => ({ title: text(item.title), order: writtenOrder(item), maxScore: item.maxScore, weight: asNumber(item.weight) ?? 0, ...(isSplitWritten(item) ? { split: item.split } : {}) })), ...plannedWritten.map(item => ({ title: text(item.title), order: Number(item.order) || 99, maxScore: item.maxScore, weight: asNumber(item.weight) ?? 0, ...(item.split ? { split: item.split } : {}) }))],
     areas: canonicalAreas.map(area => ({ name: text(area.name), maxScore: area.maxScore, weight: asNumber(area.weight) ?? 0 })),
   });
   const applyCriteriaPreset = preset => {
     const writtenByTitle = new Map((preset.written || []).map(item => [item.title, item]));
     const uploadedTitles = new Set(sortedWritten.map(item => text(item.title)));
-    setWritten(current => current.map(item => writtenByTitle.has(text(item.title)) ? { ...item, weight: writtenByTitle.get(text(item.title)).weight } : item));
-    const nextPlannedWritten = (preset.written || []).filter(item => !uploadedTitles.has(item.title)).map((item, index) => ({ id: `planned-${Date.now()}-${index}`, title: item.title, order: item.order, maxScore: item.maxScore ?? 100, weight: item.weight }));
+    setWritten(current => current.map(item => {
+      const saved = writtenByTitle.get(text(item.title));
+      if (!saved) return item;
+      const weighted = { ...item, weight: saved.weight };
+      if (saved.split && !isSplitWritten(weighted)) return splitWritten(weighted, saved.split);
+      if (saved.split) return recombineWritten({ ...weighted, split: saved.split });
+      return weighted;
+    }));
+    const nextPlannedWritten = (preset.written || []).filter(item => !uploadedTitles.has(item.title)).map((item, index) => ({ id: `planned-${Date.now()}-${index}`, title: item.title, order: item.order, maxScore: item.maxScore ?? 100, weight: item.weight, ...(item.split ? { split: item.split } : {}) }));
     const areaByName = new Map((preset.areas || []).map(area => [area.name, area]));
     if (uploadedAreas.length) setPerformance(current => current.map(file => ({ ...file, areas: (file.areas || []).map(area => areaByName.has(text(area.name)) ? { ...area, weight: areaByName.get(text(area.name)).weight } : area) })));
     setSettings(current => ({
@@ -771,7 +798,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   };
 
   const addUploadMessage = message => setUploadMessages(current => [message, ...current].slice(0, 10));
-  const parseFiles = async (files, kind) => {
+  const parseFiles = async (files, kind, target = null) => {
     if (!files?.length) return;
     setBusy(true);
     try {
@@ -808,20 +835,57 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         }
         return true;
       });
-      if (kind === "written") {
+      if (kind === "written" && target?.id) {
+        // 2단계 버튼으로 고른 시험의 파일 바꾸기(나뉜 시험이면 객관식/논술형 한쪽만).
+        const file = accepted[0];
+        const existing = written.find(item => item.id === target.id);
+        if (!file || !existing) return;
+        const messages = [];
+        if (accepted.length > 1) messages.push({ type: "warn", text: `파일을 여러 개 골라 첫 파일(${file.fileName})만 반영했습니다.` });
+        if (normalizeToken(file.title) !== normalizeToken(existing.title)) messages.push({ type: "warn", text: `${file.fileName}: 시험명(${file.title})이 ${existing.title}과 달라요. 맞는 파일인지 확인해 주세요.` });
+        let updated;
+        if (target.part && isSplitWritten(existing)) {
+          const limit = existing.split[target.part === "essay" ? "essayMax" : "mcMax"];
+          const over = countOverMax(file, limit);
+          if (over) messages.push({ type: "warn", text: `${file.fileName}: ${over}명의 점수가 ${partLabel(target.part)} 배점(${limit}점)보다 커요. 배점이나 파일을 확인해 주세요.` });
+          updated = setWrittenPart(existing, target.part, file);
+          messages.push({ type: "ok", text: `${existing.title} ${partLabel(target.part)} · ${Object.values(file.students).filter(student => student.score != null).length}명 점수를 ${existing.parts?.[target.part] ? "바꿨습니다" : "불러왔습니다"}.` });
+        } else {
+          updated = { ...existing, students: file.students, fileName: file.fileName, maxScore: file.maxScore, uploadedAt: file.uploadedAt };
+          messages.push({ type: "ok", text: `${existing.title} · 파일을 바꿨습니다(${Object.values(file.students).filter(student => student.score != null).length}명).` });
+        }
+        setWritten(current => current.map(item => item.id === existing.id ? updated : item));
+        setUploadMessages(current => [...messages.reverse(), ...current].slice(0, 10));
+      } else if (kind === "written") {
         const ids = new Set(written.map(item => item.id));
         const next = [...written];
         const messages = [];
         const matchedPlannedIds = new Set();
         accepted.forEach(item => {
           if (ids.has(item.id)) {
-            messages.push({ type: "warn", text: `${item.fileName}: 같은 지필평가가 이미 등록되어 중복 저장하지 않았습니다.` });
+            // 같은 시험이 이미 있으면: 객관식/논술형으로 나뉜 시험은 파일 만점으로 파트를 골라 넣고, 아니면 2단계에서 바꾸도록 안내합니다.
+            const index = next.findIndex(existing => existing.id === item.id);
+            const existing = next[index];
+            const part = pickWrittenPart(existing, item.maxScore);
+            if (part) {
+              next[index] = setWrittenPart(existing, part, item);
+              messages.push({ type: "ok", text: `${item.title} ${partLabel(part)}(${item.maxScore}점) · ${Object.values(item.students).filter(student => student.score != null).length}명 점수를 ${existing.parts?.[part] ? "바꿨습니다" : "불러왔습니다"}.` });
+              return;
+            }
+            messages.push({ type: "warn", text: isSplitWritten(existing)
+              ? `${item.fileName}: 객관식인지 논술형인지 알 수 없어요(파일 만점 ${item.maxScore}점). 2단계 산출 기준에서 ‘${existing.title}’의 객관식/논술형 버튼으로 올려 주세요.`
+              : `${item.fileName}: 같은 지필평가가 이미 있어요. 바꾸려면 2단계 산출 기준에서 ‘파일 바꾸기’를, 논술형을 따로 넣으려면 ‘객관식·논술형 나누기’를 눌러 주세요.` });
             return;
           }
           const order = writtenOrder(item);
           const plannedMatch = plannedWritten.find(plan => !matchedPlannedIds.has(plan.id) && ((Number(plan.order) || 99) === order || normalizeToken(plan.title) === normalizeToken(item.title)));
           const existingCount = next.length;
-          next.push({ ...item, weight: asNumber(plannedMatch?.weight) ?? (existingCount < 2 ? 25 : 0) });
+          const withWeight = { ...item, weight: asNumber(plannedMatch?.weight) ?? (existingCount < 2 ? 25 : 0) };
+          // 예정 시험에 객관식·논술형 배점을 정해 두었으면 처음 올린 파일을 그 배점에 맞는 파트로 넣습니다(모르면 객관식).
+          if (plannedMatch?.split) {
+            const shell = { ...withWeight, split: plannedMatch.split, parts: {}, wholeMax: item.maxScore };
+            next.push(setWrittenPart(shell, pickWrittenPart(shell, item.maxScore) || "mc", item));
+          } else next.push(withWeight);
           if (plannedMatch) matchedPlannedIds.add(plannedMatch.id);
           ids.add(item.id);
           messages.push({ type: "ok", text: `${item.title} · ${Object.values(item.students).filter(student => student.score != null).length}명 점수를 불러왔습니다.` });
@@ -876,6 +940,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     } finally {
       setBusy(false);
       if (kind === "written" && writtenInputRef.current) writtenInputRef.current.value = "";
+      if (kind === "written" && writtenPartInputRef.current) writtenPartInputRef.current.value = "";
+      if (target) writtenPartTargetRef.current = null;
       if (kind === "performance" && performanceInputRef.current) performanceInputRef.current.value = "";
     }
   };
@@ -1336,6 +1402,25 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             readOnly={readOnlyWorkspace}
           />
         </div>
+        <input ref={writtenPartInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={event => parseFiles(event.target.files, "written", writtenPartTargetRef.current)} />
+        {newUi && <div className="kdn-up-guide">
+          <div className="kdn-up-guide-head">
+            <span className="kdn-up-guide-ic" aria-hidden="true">💡</span>
+            <div><b>지금 있는 파일만 올려도 돼요</b><p>성적은 시험이 끝날 때마다 하나씩 더해 가면 됩니다. 올린 만큼 바로 계산하고, 나머지는 나중에 추가해요.</p></div>
+          </div>
+          <div className="kdn-up-guide-now" aria-label="지금 등록 상태">
+            {sortedWritten.map(item => <span key={item.id} className={isSplitWritten(item) && item.essayPending ? "is-wait" : "is-ok"}>{isSplitWritten(item) && item.essayPending ? "◐" : "✓"} {item.title}{isSplitWritten(item) && item.essayPending ? " · 논술형 대기" : ""}</span>)}
+            {plannedWritten.map(item => <span key={item.id} className="is-plan">○ {item.title || "예정 시험"} · 예정</span>)}
+            {!sortedWritten.length && !plannedWritten.length && <span className="is-plan">○ 지필평가 · 아직 없음</span>}
+            {performance.length ? <span className="is-ok">✓ 수행 {performance.flatMap(item => item.classes).sort((a, b) => a - b).join(", ")}반</span> : <span className="is-plan">○ 수행평가 · 아직 없음</span>}
+          </div>
+          <ol className="kdn-up-guide-cards">
+            <li><em>1</em><div><b>1차만 봤다면 1차만</b><p>2차 시험은 2단계에서 <strong>‘예정 시험’</strong>으로 반영비율만 정해 두세요. 최성보 필요 점수도 함께 계산돼요.</p></div></li>
+            <li><em>2</em><div><b>논술형 채점이 늦어도 괜찮아요</b><p>객관식 파일을 먼저 올리고, 2단계에서 <strong>‘객관식·논술형 나누기’</strong>로 배점(예: 90+10, 80+20)을 정한 뒤 논술형 파일을 나중에 올리세요.</p></div></li>
+            <li><em>3</em><div><b>수행평가는 끝난 반부터</b><p>반별 파일을 하나씩 올려도 돼요. 아직 안 올린 반 학생은 결과에서 ‘미입력’으로 표시돼요.</p></div></li>
+            <li><em>4</em><div><b>잘못 올렸으면 바꾸기</b><p>2단계 산출 기준에서 시험별 <strong>‘파일 바꾸기’</strong>로 교체하거나 ✕로 지울 수 있어요.</p></div></li>
+          </ol>
+        </div>}
         {!!uploadMessages.length && <div style={ui.messageList}>{uploadMessages.map((message, index) => <div key={`${message.text}-${index}`} style={{ ...ui.message, ...(message.type === "error" ? ui.messageError : message.type === "warn" ? ui.messageWarn : ui.messageOk) }}>{message.type === "ok" ? <Check size={13} /> : <AlertTriangle size={13} />}{message.text}</div>)}</div>}
         {newUi && <div className="kdn-step-next"><span style={{flex:1}} /><button type="button" onClick={() => setCalcStep(2)}>다음: 산출 기준 설정 ›</button></div>}
       </section>
@@ -1353,8 +1438,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           </div>
           <div className="kdn-cc-cols">
             <section className="kdn-cc-sec is-w"><h4><span className="dot" />지필평가<span className="sum">{weightTotal.written}%</span></h4>
-              {sortedWritten.map(item => <div key={item.id} className="kdn-cc-row"><div><b>{item.title}</b><small>{item.maxScore}점 만점 <span className="tag is-ok">성적 등록</span></small></div><label className="kdn-cc-inp"><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateWrittenWeight(item.id, event.target.value)} aria-label={`${item.title} 반영비율`} />%</label><button type="button" className="kdn-cc-x" title="이 시험 제거" disabled={readOnlyWorkspace} onClick={() => removeWritten(item.id)}>✕</button></div>)}
-              {plannedWritten.map(item => <div key={item.id} className="kdn-cc-row is-planned"><div><input className="kdn-cc-name" type="text" value={item.title || ""} disabled={readOnlyWorkspace} onChange={event => updatePlannedWritten(item.id, { title: event.target.value })} aria-label="예정 시험 이름" /><small><label className="kdn-cc-max"><input type="number" min="1" step="1" value={item.maxScore ?? 100} disabled={readOnlyWorkspace} onChange={event => updatePlannedWritten(item.id, { maxScore: asNumber(event.target.value) ?? 100 })} aria-label="만점" />점 만점</label> <span className="tag is-plan">예정</span></small></div><label className="kdn-cc-inp"><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updatePlannedWritten(item.id, { weight: asNumber(event.target.value) ?? 0 })} aria-label="예정 시험 반영비율" />%</label><button type="button" className="kdn-cc-x" title="예정 시험 제거" disabled={readOnlyWorkspace} onClick={() => removePlannedWritten(item.id)}>✕</button></div>)}
+              {sortedWritten.map(item => <React.Fragment key={item.id}><div className="kdn-cc-row"><div><b>{item.title}</b><small>{isSplitWritten(item) ? `객관식 ${item.split.mcMax} + 논술형 ${item.split.essayMax} = ${item.maxScore}점` : `${item.maxScore}점 만점`} {isSplitWritten(item) && item.essayPending ? <span className="tag is-plan">논술형 미입력</span> : <span className="tag is-ok">성적 등록</span>}</small></div><label className="kdn-cc-inp"><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updateWrittenWeight(item.id, event.target.value)} aria-label={`${item.title} 반영비율`} />%</label><button type="button" className="kdn-cc-x" title="이 시험 제거" disabled={readOnlyWorkspace} onClick={() => removeWritten(item.id)}>✕</button></div>{writtenPartsEditor(item)}</React.Fragment>)}
+              {plannedWritten.map(item => <React.Fragment key={item.id}><div className="kdn-cc-row is-planned"><div><input className="kdn-cc-name" type="text" value={item.title || ""} disabled={readOnlyWorkspace} onChange={event => updatePlannedWritten(item.id, { title: event.target.value })} aria-label="예정 시험 이름" /><small><label className="kdn-cc-max"><input type="number" min="1" step="1" value={item.maxScore ?? 100} disabled={readOnlyWorkspace || !!item.split} onChange={event => updatePlannedWritten(item.id, { maxScore: asNumber(event.target.value) ?? 100 })} aria-label="만점" />점 만점</label> <span className="tag is-plan">예정</span></small></div><label className="kdn-cc-inp"><input type="number" min="0" max="100" step="0.01" value={item.weight ?? 0} disabled={readOnlyWorkspace} onChange={event => updatePlannedWritten(item.id, { weight: asNumber(event.target.value) ?? 0 })} aria-label="예정 시험 반영비율" />%</label><button type="button" className="kdn-cc-x" title="예정 시험 제거" disabled={readOnlyWorkspace} onClick={() => removePlannedWritten(item.id)}>✕</button></div><PlannedSplitEditor item={item} readOnly={readOnlyWorkspace} onToggle={() => togglePlannedSplit(item)} onSplit={patch => updatePlannedSplit(item, patch)} /></React.Fragment>)}
               {!sortedWritten.length && !plannedWritten.length && <p className="kdn-cc-empty">지필평가 파일을 올리거나 예정 시험을 추가하세요.</p>}
               {!readOnlyWorkspace && <button type="button" className="kdn-cc-add" onClick={addPlannedWritten}>＋ 예정 시험 추가</button>}
             </section>
@@ -1413,6 +1498,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       <div style={{display: !newUi || calcStep === 3 ? "contents" : "none"}}>
       <section className={activeView === "minimum" ? "minimum-print-area" : ""} style={ui.section}>
         <div style={ui.sectionHeader}><div><span style={ui.stepBadge}>3</span><strong style={ui.sectionTitle}>결과 확인</strong><p style={ui.sectionHint}>지필평가, 학기말 성적과 최소성취수준 예방지도를 한 화면에서 전환합니다.</p></div>{activeView === "minimum"&&<button type="button" className="no-minimum-print" style={ui.printButton} onClick={printMinimum}><Printer size={14}/> 인쇄·PDF</button>}</div>
+        {sortedWritten.some(item => isSplitWritten(item) && item.essayPending) && <div style={{ ...ui.message, ...ui.messageWarn, margin: "0 0 12px" }}><AlertTriangle size={13} />논술형 점수가 아직 없어 객관식만으로 계산한 임시 결과예요: {sortedWritten.filter(item => isSplitWritten(item) && item.essayPending).map(item => item.title).join(", ")} · 논술형 파일은 2단계에서 올려 주세요.</div>}
         {newUi ? <div className="kdn-rs-tabs" role="tablist" aria-label="결과 종류">
           {sortedWritten.map(item => <button key={item.id} type="button" data-kdn-bare role="tab" aria-selected={activeView === item.id} onClick={() => setActiveView(item.id)}>{item.title}</button>)}
           <button type="button" data-kdn-bare role="tab" aria-selected={activeView === "combined"} onClick={() => setActiveView("combined")}>학기말 성적</button>
@@ -1567,6 +1653,55 @@ function AchievementDonut({ rows, total, mode, settings }) {
 
 function TieItemInputs({ label, values, onChange, disabled = false }) {
   return <div style={ui.tieItemSet}><b>{label}</b><div>{[0, 1, 2].map(index => <label key={index}><span>{index + 1}</span><input type="number" min="0" step="0.1" value={values[index] ?? ""} disabled={disabled} onChange={event => onChange(index, event.target.value)} /></label>)}</div></div>;
+}
+// 지필 한 시험의 객관식/논술형 파일·배점 편집(2단계). 기존 UI에서도 보이도록 인라인 스타일만 씁니다.
+const wp = {
+  box: { display: "grid", gap: 6, margin: "-2px 0 4px", padding: "8px 10px", borderRadius: 12, border: "1px dashed var(--kdn-control-line, #cfd5df)", background: "var(--kdn-surface, #fff)" },
+  row: { display: "grid", gridTemplateColumns: "56px auto minmax(0,1fr) auto auto", alignItems: "center", gap: 8, fontSize: 13 },
+  label: { fontWeight: 800, color: "var(--kdn-ink, #1f2430)" },
+  max: { display: "inline-flex", alignItems: "center", gap: 3, color: "var(--kdn-muted, #5d6574)", fontWeight: 700 },
+  maxInput: { width: 52, height: 26, padding: "0 6px", border: "1px solid var(--kdn-control-line, #cfd5df)", borderRadius: 7, background: "var(--kdn-surface, #fff)", color: "var(--kdn-ink, #1f2430)", font: "inherit", fontSize: 13 },
+  file: { minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", color: "var(--kdn-ink-soft, #3a4150)" },
+  empty: { minWidth: 0, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", color: "#b45309", fontWeight: 700 },
+  btn: { height: 28, padding: "0 10px", borderRadius: 8, border: "1px solid var(--kdn-control-line, #cfd5df)", background: "var(--kdn-surface-2, #f4f6f9)", color: "var(--kdn-ink, #1f2430)", font: "inherit", fontSize: 12.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" },
+  primary: { height: 28, padding: "0 10px", borderRadius: 8, border: 0, background: "var(--kdn-accent, #2563eb)", color: "var(--kdn-accent-ink, #fff)", font: "inherit", fontSize: 12.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" },
+  links: { display: "flex", flexWrap: "wrap", gap: 6, margin: "-2px 0 4px" },
+  link: { height: 28, padding: "0 10px", borderRadius: 8, border: "1px dashed var(--kdn-control-line, #cfd5df)", background: "transparent", color: "var(--kdn-ink-soft, #3a4150)", font: "inherit", fontSize: 12.5, fontWeight: 800, cursor: "pointer" },
+  foot: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, fontSize: 12, color: "var(--kdn-muted, #5d6574)" },
+};
+function SplitMaxInput({ value, onCommit, disabled, label }) {
+  return <input key={value} type="number" min="1" step="1" defaultValue={value} disabled={disabled} aria-label={label} style={wp.maxInput}
+    onBlur={event => { if (Number(event.target.value) !== Number(value)) onCommit(event.target.value); }}
+    onKeyDown={event => { if (event.key === "Enter") event.currentTarget.blur(); }} />;
+}
+function WrittenPartsEditor({ item, readOnly, onToggle, onSplit, onPick, onClear }) {
+  if (!isSplitWritten(item)) return <div style={wp.links}>
+    <button type="button" style={wp.link} disabled={readOnly} onClick={onToggle} title="객관식 파일을 먼저 반영하고 논술형(서술형) 파일은 나중에 올립니다">＋ 객관식·논술형 나누기</button>
+    <button type="button" style={wp.link} disabled={readOnly} onClick={() => onPick("")}>파일 바꾸기</button>
+  </div>;
+  return <div style={wp.box}>
+    {["mc", "essay"].map(part => {
+      const file = item.parts?.[part];
+      const key = part === "mc" ? "mcMax" : "essayMax";
+      return <div key={part} style={wp.row}>
+        <span style={wp.label}>{partLabel(part)}</span>
+        <label style={wp.max}><SplitMaxInput value={item.split[key]} disabled={readOnly} label={`${partLabel(part)} 배점`} onCommit={value => onSplit({ [key]: value })} />점</label>
+        {file ? <span style={wp.file} title={file.fileName}>{file.fileName}</span> : <span style={wp.empty}>{part === "essay" ? "아직 없음 · 객관식만으로 임시 계산" : "아직 없음"}</span>}
+        <button type="button" style={file ? wp.btn : wp.primary} disabled={readOnly} onClick={() => onPick(part)}>{file ? "바꾸기" : "파일 올리기"}</button>
+        {file && part === "essay" ? <button type="button" style={wp.btn} disabled={readOnly} onClick={() => onClear(part)} title="논술형 점수를 빼고 객관식만으로 계산">빼기</button> : <span />}
+      </div>;
+    })}
+    <div style={wp.foot}><span>만점 {item.maxScore}점 = 객관식 {item.split.mcMax} + 논술형 {item.split.essayMax}</span><span style={{ flex: 1 }} /><button type="button" style={wp.link} disabled={readOnly} onClick={() => { if (!item.parts?.essay || window.confirm("논술형 점수를 빼고 객관식 파일 점수만 시험 점수로 쓸까요?")) onToggle(); }}>나누기 해제</button></div>
+  </div>;
+}
+function PlannedSplitEditor({ item, readOnly, onToggle, onSplit }) {
+  if (!item.split) return <div style={wp.links}><button type="button" style={wp.link} disabled={readOnly} onClick={onToggle}>＋ 객관식·논술형 배점 나누기</button></div>;
+  return <div style={wp.box}><div style={wp.foot}>
+    <label style={wp.max}>객관식 <SplitMaxInput value={item.split.mcMax} disabled={readOnly} label="객관식 배점" onCommit={value => onSplit({ mcMax: value })} />점</label>
+    <label style={wp.max}>+ 논술형 <SplitMaxInput value={item.split.essayMax} disabled={readOnly} label="논술형 배점" onCommit={value => onSplit({ essayMax: value })} />점</label>
+    <span>· 파일을 올리면 배점에 맞춰 나눠 담고, 논술형은 나중에 올려도 돼요.</span><span style={{ flex: 1 }} />
+    <button type="button" style={wp.link} disabled={readOnly} onClick={onToggle}>나누기 해제</button>
+  </div></div>;
 }
 function UploadCard({ title, description, count, detail, inputRef, onFiles, busy, readOnly }) {
   return <div className="teacher-grade-analyzer-upload" style={ui.uploadCard}><div style={ui.uploadIcon}><Upload size={19} /></div><div style={{ minWidth: 0, flex: 1 }}><div style={ui.uploadTitle}>{title}<span>{count}개</span></div><p>{description}</p><small title={detail}>{detail}</small></div><input ref={inputRef} type="file" accept=".xlsx,.xls" multiple style={{ display: "none" }} onChange={event => onFiles(event.target.files)} /><button type="button" disabled={busy || readOnly} style={ui.primaryButton} onClick={() => inputRef.current?.click()}><Upload size={14} /> 파일 선택</button></div>;
