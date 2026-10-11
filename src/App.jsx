@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { examPeriodFromCalendar } from "./examPeriod.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
+import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay } from "./AppOverlays.jsx";
 import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
@@ -1051,6 +1052,7 @@ function normalizeQuickHref(value) {
 }
 function QuickLinksDock({ userKey = "", isAdmin = false, showToast }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { const toggle = () => setOpen(value => !value); window.addEventListener("kd:quicklinks", toggle); return () => window.removeEventListener("kd:quicklinks", toggle); }, []);
   const [editing, setEditing] = useState(false);
   const [shared, setShared] = useState(null);
   const [mine, setMine] = useState(null);
@@ -1832,6 +1834,22 @@ export default function App() {
       window.setTimeout(focusSearch, 60);
     }
   };
+  // 새 UI 빠른 메뉴·검색·학사일정에서 쓰는 값
+  const overlayUserKey = loggedInStudent ? `student_${loggedInStudent.sid || loggedInStudent.id || ""}` : (loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor) ? (loggedInAdmin ? `admin_${loggedInAdmin.id || "admin"}` : loggedInTeacher ? `teacher_${loggedInTeacher.id}` : loggedInDepartment ? `dept_${loggedInDepartment.id}` : loggedInMonitor ? `monitor_${loggedInMonitor.id}` : "shared") : "";
+  const paletteStudents = staffWorkspaceEnabled ? Object.entries(roster || {}).map(([sid, info]) => ({ sid, name: info?.name, class: info?.class, number: info?.number })).filter(student => student.name) : [];
+  const paletteMenus = [
+    { key: "home", label: "대시보드", sub: "처음 화면", run: () => switchSection("home") },
+    { key: "grades", label: "성적 · 진학", sub: "학생 성적 리포트 · 진학 상담", run: () => switchSection("grades") },
+    { key: "timetable", label: "시간표", sub: "학생별 · 학급별 · 이동수업", run: () => switchSection("timetable") },
+    ...(canSeeTeacherZone ? [{ key: "teacherZone", label: "선생님 ZONE", sub: "성적 산출 · 공지·자료 · 생기부", run: () => switchSection("teacherZone") }] : []),
+    ...(canSeeMinimum ? [{ key: "minimum", label: "최소성취수준", sub: "최성보 판정 · 출결", run: () => switchSection("minimumAchievement") }] : []),
+    ...(loggedInAdmin ? [{ key: "admin", label: "관리자", sub: "데이터 · 계정·권한 · 학사일정", run: () => switchSection("admin") }] : []),
+    ...teacherTools.filter(tool => tool.key !== "class").map(tool => ({ key: `tool-${tool.key}`, label: tool.label, sub: "성적 · 진학", run: () => openTeacherTool(tool.key) })),
+    ...STUDENT_WORKSPACE_VIEWS.filter(([view]) => view !== "grades" && view !== "timetable").map(([view, label]) => ({ key: `view-${view}`, label, sub: "학생 작업 탭", run: () => changeStudentWorkspaceView(view) })),
+    { key: "calendar", label: "학사일정", sub: "달력 · 내 일정", run: () => fireOverlay("kd:calendar") },
+    ...(!loggedInStudent ? [{ key: "links", label: "업무 바로가기", sub: "나이스 · 에듀파인", run: () => fireOverlay("kd:quicklinks") }] : []),
+    { key: "feedback", label: "건의 · 버그 보내기", sub: "관리자에게", run: () => fireOverlay("kd:feedback") },
+  ];
   const dashboardProps = {
     semester,
     academicCalendar: db.academicCalendar,
@@ -1888,7 +1906,11 @@ export default function App() {
   return (
     <div className="kdn-app" style={styles.app}>
       <style>{globalCss}</style>
-      <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />
+      {isNewUi() ? <>
+        <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
+        {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }} />}
+        <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
+      </> : <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />}
       {!loggedInStudent && <QuickLinksDock isAdmin={!!loggedInAdmin} showToast={showToast} userKey={loggedInAdmin ? `admin_${loggedInAdmin.id || "admin"}` : loggedInTeacher ? `teacher_${loggedInTeacher.id}` : loggedInDepartment ? `dept_${loggedInDepartment.id}` : loggedInMonitor ? `monitor_${loggedInMonitor.id}` : "shared"} />}
       <MegaNav semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
       {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
@@ -3274,7 +3296,7 @@ function DashboardUpcoming({ calendar, now }) {
   if (!events.length) return null;
   const md = time => { const d = new Date(time); return `${d.getMonth() + 1}.${d.getDate()}(${WEEKDAY_KO[d.getDay()]})`; };
   return <div className="kdn-dash-upcoming" aria-label="다가오는 학사일정">
-    <span className="hd"><Calendar size={14} /> 다가오는 일정</span>
+    <button type="button" data-kdn-bare className="hd" onClick={() => fireOverlay("kd:calendar")} title="학사일정 달력 열기"><Calendar size={14} /> 다가오는 일정 ›</button>
     <ul>{events.map(event => <li key={`${event.date}-${event.label}`} title={`${md(event.start)}${event.end > event.start ? `~${md(event.end)}` : ""} ${event.label}`}>
       <span className="dt">{md(event.start)}</span>
       <b>{event.label}</b>
@@ -4887,6 +4909,7 @@ function renderCell(c) {
 
 function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { const show = () => setOpen(true); window.addEventListener("kd:feedback", show); return () => window.removeEventListener("kd:feedback", show); }, []);
   const [type, setType] = useState("버그 신고");
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
@@ -4980,7 +5003,7 @@ function FeedbackLauncher({ feedback, persist, showToast, reporter, context }) {
 
   return (
     <>
-      <button type="button" className="no-print" onClick={() => setOpen(true)} style={styles.feedbackFloatingButton}>
+      <button type="button" className="no-print kd-feedback-fab" onClick={() => setOpen(true)} style={styles.feedbackFloatingButton}>
         <MessageSquare size={16} />
         <span>건의·버그</span>
       </button>

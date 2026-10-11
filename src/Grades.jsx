@@ -4071,7 +4071,14 @@ function AdmissionMinimumBoard({ mockGrades = null, rows = [], statusCounts = {}
   const [open, setOpen] = useState(() => new Set());
   const groups = useMemo(() => {
     const map = new Map();
-    rows.forEach(row => { const key = row.university || "대학 미지정"; if (!map.has(key)) map.set(key, []); map.get(key).push(row); });
+    // 같은 대학의 같은 전형·모집단위·판정·조건이 여러 자료에서 겹쳐 들어오면 한 줄만 보여 줍니다.
+    const seen = new Set();
+    rows.forEach(row => {
+      const dup = [row.university, row.track, row.department, row.evaluation?.status, row.evaluation?.ruleText, row.evaluation?.studentSum ?? "", row.evaluation?.year ?? ""].join("|");
+      if (seen.has(dup)) return;
+      seen.add(dup);
+      const key = row.university || "대학 미지정"; if (!map.has(key)) map.set(key, []); map.get(key).push(row);
+    });
     return Array.from(map, ([university, items]) => ({ university, items }));
   }, [rows]);
   const active = groups.find(group => group.university === picked) || groups[0] || null;

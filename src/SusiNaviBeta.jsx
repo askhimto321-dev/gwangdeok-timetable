@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
 import { evaluateAdmissionRequirement } from "./gradeEngine.js";
-import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAccentKey } from "./admissionMetrics.js";
+import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAccentKey, median } from "./admissionMetrics.js";
 import { CutStrip, SupportBandTiles, groupCutItems, BandPill, MarginBar, supportBandFor } from "./naviVisuals.jsx";
 import { GradeSimPresetChips } from "./GradeSimulator.jsx";
 import { isNewUi } from "./uiMode.js";
@@ -2715,7 +2715,18 @@ export default function SusiNaviBetaView({
     const schedules = indexedUniversityRows(scheduleIndex, row[3], row[1]).filter(item => !item[5] || matchesUnit(item[5], row[5]) || unitSimilar(item[5], row[5])).slice(0, 5);
     const caseStats = indexedUniversityRows(caseStatIndex, row[3], row[1]);
     const unit = { university: row[3], region: row[1], department: row[5], field: row[6] };
-    const minimumEvaluations = minimums.map(item => evaluateNaviMinimumSafe(item, effectiveStudent));
+    // 같은 전형의 같은 최저가 NAVI 원본·카탈로그·다른 2026 모집단위에서 여러 번 들어오는 경우가 있어
+    // (전형유형 · 전형명 · 학년도 · 조건 · 판정)이 같으면 한 줄만 남깁니다.
+    const minimumEvaluationsRaw = minimums.map(item => evaluateNaviMinimumSafe(item, effectiveStudent));
+    const minimumSeen = new Set();
+    const minimumKeep = minimums.map((item, index) => {
+      const ev = minimumEvaluationsRaw[index] || {};
+      const key = [item?.[2], minimumTrackKey(item?.[3] || ""), ev.year || "", compactText(ev.ruleText || item?.[8] || ""), ev.status, ev.studentSum ?? ""].join("|");
+      if (minimumSeen.has(key)) return false;
+      minimumSeen.add(key); return true;
+    });
+    minimums.splice(0, minimums.length, ...minimums.filter((_, index) => minimumKeep[index]));
+    const minimumEvaluations = minimumEvaluationsRaw.filter((_, index) => minimumKeep[index]);
     // 성능 개선: 회차별 이력(minimumHistories)·등급개선 시뮬레이션(minimumImprovements)은 계산 비용이
     // 커서(회차 수·과목 수만큼 반복 재판정), 전체 모집단위(수천 건)가 아니라 실제로 화면에 보이는
     // 12건(visible)에 대해서만 아래에서 따로 계산합니다. 예전에는 여기서 전체에 대해 계산해
@@ -3981,13 +3992,23 @@ function NaviCardDetail({ row, minimums = [], minimumEvaluations = [], minimumIm
   };
   const entries = [];
   const usedMinimum = new Set();
-  [["교과", teaching], ["종합", holistic]].forEach(([kind, list]) => (list || []).forEach((item, index) => {
-    const minimum = minimumFor(item[0]);
-    if (minimum) usedMinimum.add(minimum.index);
-    const cut = cutoffValue(item, cutoffBasis);
-    entries.push({ key: `${kind}-${index}`, kind, name: item[0] || kind, item, minimum, band: supportBandFor(convertedGrade, cut), cut });
-  }));
-  minimums.forEach((item, index) => { if (!usedMinimum.has(index) && minimumEvaluations[index]) entries.push({ key: `min-${index}`, kind: item?.[2] || "최저", name: item?.[3] || item?.[2] || "전형", minimumOnly: true, minimum: { evaluation: minimumEvaluations[index], improvement: minimumImprovements[index] } }); });
+  // 같은 이름의 전형(2026 모집단위 여러 곳이 합쳐진 경우)은 한 줄로 묶고 컷은 가운데값을 씁니다.
+  [["교과", teaching], ["종합", holistic]].forEach(([kind, list]) => {
+    const groups = new Map();
+    (list || []).forEach(item => { const name = item[0] || kind; if (!groups.has(name)) groups.set(name, []); groups.get(name).push(item); });
+    Array.from(groups.entries()).forEach(([name, items], index) => {
+      const minimum = minimumFor(name);
+      if (minimum) usedMinimum.add(minimum.index);
+      const item = items.length > 1 ? [name, median(items.map(value => value[1])), median(items.map(value => value[2]))] : items[0];
+      const cut = cutoffValue(item, cutoffBasis);
+      entries.push({ key: `${kind}-${index}`, kind, name, item, count: items.length, minimum, band: supportBandFor(convertedGrade, cut), cut });
+    });
+  });
+  const ruleShort = ev => ev?.threshold != null && ev?.count ? (ev.ruleType === "each" ? `${ev.count}개 각 ${ev.threshold}` : `${ev.count}합 ${ev.threshold}`) : (ev?.year ? `${ev.year}` : "");
+  const minimumOnly = minimums.map((item, index) => ({ item, index })).filter(({ index }) => !usedMinimum.has(index) && minimumEvaluations[index]);
+  const nameCount = {};
+  minimumOnly.forEach(({ item }) => { const name = item?.[3] || item?.[2] || "전형"; nameCount[name] = (nameCount[name] || 0) + 1; });
+  minimumOnly.forEach(({ item, index }) => { const name = item?.[3] || item?.[2] || "전형"; const ev = minimumEvaluations[index]; entries.push({ key: `min-${index}`, kind: item?.[2] || "최저", name: nameCount[name] > 1 && ruleShort(ev) ? `${name} · ${ruleShort(ev)}` : name, minimumOnly: true, minimum: { evaluation: ev, improvement: minimumImprovements[index] } }); });
   if (regular) entries.push({ key: "regular", kind: "정시", name: regular[0] || "일반전형", regular });
   const defaultKey = (() => { const graded = entries.filter(entry => entry.band); if (!graded.length) return entries[0]?.key || ""; return graded.sort((a, b) => Math.abs(a.band.diff) - Math.abs(b.band.diff))[0].key; })();
   const [pickedKey, setPickedKey] = useState("");
@@ -4015,7 +4036,7 @@ function NaviCardDetail({ row, minimums = [], minimumEvaluations = [], minimumIm
       <ul className="kdn-ncd-list" aria-label="전형 목록">{entries.map(entry => <li key={entry.key}>
         <button type="button" data-kdn-bare className={entry.key === active?.key ? "is-on" : ""} onClick={() => setPickedKey(entry.key)}>
           <span className="top"><i className={`k ${entry.kind === "종합" ? "hol" : entry.kind === "교과" ? "tea" : "etc"}`}>{entry.kind}</i><b>{entry.name}</b></span>
-          <span className="bot">{entry.regular ? <small>70% 백분위 {entry.regular[2] ?? "-"}</small> : entry.minimumOnly ? <small>컷 자료 없음</small> : <small>{cutoffBasis}%컷 {validGrade(entry.cut) == null ? "-" : Number(entry.cut).toFixed(2)}</small>}{entry.band && <BandPill band={entry.band} size="sm" />}{minBadge(entry.minimum?.evaluation)}</span>
+          <span className="bot">{entry.regular ? <small>70% 백분위 {entry.regular[2] ?? "-"}</small> : entry.minimumOnly ? <small>컷 자료 없음</small> : <small>{cutoffBasis}%컷 {validGrade(entry.cut) == null ? "-" : Number(entry.cut).toFixed(2)}{entry.count > 1 ? ` · ${entry.count}곳 가운데값` : ""}</small>}{entry.band && <BandPill band={entry.band} size="sm" />}{minBadge(entry.minimum?.evaluation)}</span>
         </button>
       </li>)}</ul>
       {active && <div className="kdn-ncd-pane">
