@@ -26,6 +26,7 @@ import { LayoutGrid } from 'lucide-react';
 import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore.js';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
+import { buildClassExamCompare } from "./classExamCompare.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
   parseSemesterSheet,
@@ -565,6 +566,7 @@ export default function GradesSection({
   showToast,
   onLogout,
   gdb,
+  examWorkspaces = null,
   currentGrade = "2",
   teacherGradeAccess = [],
   selectedStudentSid,
@@ -940,7 +942,7 @@ export default function GradesSection({
           /></React.Suspense>
         </div>}
         {tab === "classGrades" && (loggedInAdmin || (loggedInTeacher && loggedInTeacher.homeroomClass)) && (
-          <ClassGradeOverview gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin={!!loggedInAdmin} onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
+          <ClassGradeOverview examWorkspaces={examWorkspaces} gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin={!!loggedInAdmin} onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
@@ -1293,7 +1295,7 @@ function ClassBandCompare({ metricLabel = "전교과",  classStats = [], scale, 
   </div>;
 }
 
-export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent }) {
+export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent, examWorkspaces = null }) {
   const classes = useMemo(() => Array.from(new Set(Object.values(roster || {}).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
   const [pickedClass, setPickedClass] = useState(String(homeroomClass || ""));
   const [view, setView] = useState("class");
@@ -1436,6 +1438,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
     return () => { cancelAnimationFrame(frame); window.removeEventListener("scroll", schedule); window.removeEventListener("resize", schedule); };
   }, []);
   if (!classNo && !isAdmin) return <EmptyBox text="담당 학급이 지정되어 있지 않습니다. 관리자에게 담임 학급 등록을 요청해주세요." />;
+  const hasSemesterStats = sortedStats.some(stat => stat.n > 0);
   return <div className="cg" ref={cgRootRef}>
     <style>{CLASS_GRADE_CSS}</style>
     <section className="cg-card">
@@ -1453,7 +1456,8 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
         <ClassGradeKpis metricLabel={metricLabel} rows={rows} graded={graded} avg={avg} gradeMean={gradeMean} scale={scale} up={up} down={down} />
         {graded.length > 0 && <ClassGradeHistogram metricLabel={metricLabel} bins={bins} counts={counts} total={graded.length} scale={scale} avg={avg} />}
       </>}
-      {view === "compare" && <ClassBandCompare metricLabel={metricLabel} classStats={sortedStats} sortKey={cmpSort} onSort={setCmpSort} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
+      {view === "compare" && !hasSemesterStats && <div className="cg-foot">아직 올라온 학기 성적이 없어요. 아래 정기시험 반 비교는 선생님 ZONE에 저장한 점수로 바로 보여요.</div>}
+      {view === "compare" && hasSemesterStats && <ClassBandCompare metricLabel={metricLabel} classStats={sortedStats} sortKey={cmpSort} onSort={setCmpSort} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
     </section>
     {view === "class" && (!rows.length ? <EmptyBox text={isSubject && takersOnly && rosterRows.length ? `${allClasses ? "전체 반" : `${classNo}반`}에 ${subjectName} 수강자가 없습니다.` : `${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
       <div className="cg-tablebar"><b>{metricLabel} 기준</b>{isSubject && <button type="button" data-kdn-bare className={`cg-takers${takersOnly ? " is-on" : ""}`} aria-pressed={takersOnly} onClick={() => setTakersOnly(value => !value)}>{takersOnly ? "✓ " : ""}수강자만 <small>{rosterRows.filter(row => val(row) != null).length}/{rosterRows.length}명</small></button>}<span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"]].map(([key, label]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => setTableSort(key)}>{label}</button>)}</div></div>
@@ -1484,7 +1488,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
       </tr>; })}</tbody></table></div>}
       <div className="cg-foot">{isSubject ? "순위 = 이 표 안에서 등급 순(같은 등급은 원점수 높은 순) · 석차 = NEIS 석차(동석차수)/수강자수" : "숫자가 낮을수록 좋은 성적 · ▲ 초록 = 앞 학기보다 좋아짐, ▼ 빨강 = 낮아짐 · 진한 숫자 = 가장 최근 학기"}</div>
     </section>)}
-    {view === "compare" && <section className="cg-card">
+    {view === "compare" && hasSemesterStats && <section className="cg-card">
       <div className="cg-table-wrap"><table className="cg-table" style={{ minWidth: 700 }}><thead><tr><th className="c" style={{ width: 64 }}>순위</th><th>반</th><th className="c">학생</th><th className="c">평균</th><th className="c">학년 평균 대비</th><th className="c">중앙값</th><th className="c">최고</th><th className="c">{scale === 5 ? "1등급대" : "1~2등급"}</th><th className="c">직전 학기 평균 변화</th></tr></thead>
         <tbody>{sortedStats.map(stat => { const gap = stat.mean != null && gradeMean != null ? gradeMean - stat.mean : null; return <tr key={stat.no}>
           <td className="c"><span className={`cg-rk${stat.rank <= 3 ? " top" : ""}`}>{stat.rank}</span></td>
@@ -1495,8 +1499,44 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
           <td className="c">{stat.change == null ? "-" : <span className={`cg-pill ${changeTone(stat.change)}`}>{changeMark(stat.change)} {Math.abs(stat.change).toFixed(2)}</span>}</td>
         </tr>; })}</tbody></table></div>
     </section>}
-    {view === "compare" && <ClassSubjectCompare matrix={subjectMatrix} classes={classes} semesters={subjectSemesters} semester={activeSubjectSem} onSemester={setSubjectSem} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} />}
+    {view === "compare" && <ClassExamCompare workspaces={examWorkspaces} grade={currentGrade} roster={roster} classes={classes} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} />}
+    {view === "compare" && (hasSemesterStats || subjectMatrix.length > 0) && <ClassSubjectCompare matrix={subjectMatrix} classes={classes} semesters={subjectSemesters} semester={activeSubjectSem} onSemester={setSubjectSem} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} />}
   </div>;
+}
+
+// 정기시험 반 비교: 선생님 ZONE에 저장된 지필 점수(학교 공동본)로 과목 × 반 평균 원점수를 봅니다.
+// 학기 성적 파일이 올라오기 전, 1차 정기시험만 저장해도 바로 보입니다.
+function ClassExamCompare({ workspaces, grade, roster, classes = [], highlight = "" }) {
+  const exams = useMemo(() => buildClassExamCompare(workspaces || {}, grade, roster || {}), [workspaces, grade, roster]);
+  const [picked, setPicked] = useState("");
+  const exam = exams.find(item => item.key === picked) || exams[0] || null;
+  if (!exam) return <section className="cg-card"><div className="cg-tablebar"><b>정기시험 반 비교 <small className="cg-subhint">선생님 ZONE 입력 기준</small></b></div><div className="cg-foot">아직 저장된 정기시험 점수가 없어요. 선생님 ZONE › 성적 산출에서 지필 점수를 올리면 여기 바로 보여요.</div></section>;
+  const cols = classes.length ? classes : Array.from(new Set(exam.subjects.flatMap(item => Object.keys(item.classes)))).sort((a, b) => Number(a) - Number(b));
+  const fmt1 = value => (value == null ? "-" : Number(value).toFixed(1));
+  return <section className="cg-card">
+    <div className="cg-tablebar"><b>정기시험 반 비교 <small className="cg-subhint">{exam.year ? `${exam.year} · ` : ""}{exam.label} · 반 평균 원점수 · 선생님 ZONE 입력 기준</small></b>
+      {exams.length > 1 && <><span>시험</span><div className="cg-seg">{exams.slice(0, 6).map(item => <button key={item.key} type="button" className={item.key === exam.key ? "is-on" : ""} onClick={() => setPicked(item.key)}>{item.label}</button>)}</div></>}
+    </div>
+    <div className="cg-table-wrap"><table className="cg-table cg-subj" style={{ minWidth: 200 + cols.length * 82 }}>
+      <thead><tr><th className="sticky">과목</th><th className="c">학년 평균</th>{cols.map(no => <th key={no} className={`c${no === highlight ? " is-mine" : ""}`}>{no}반</th>)}</tr></thead>
+      <tbody>{exam.subjects.map(item => {
+        const values = cols.map(no => item.classes[no]?.mean).filter(v => v != null);
+        const best = values.length ? Math.max(...values) : null;
+        const worst = values.length ? Math.min(...values) : null;
+        const spread = values.length > 1 && best - worst > 1e-9;
+        return <tr key={item.subject}>
+          <td className="sticky"><b>{item.subject}</b><small>{item.n}명 · {item.maxScore}점 만점{item.pending ? " · 논술형 전" : ""}</small></td>
+          <td className="c"><b className="cg-mean">{fmt1(item.mean)}</b></td>
+          {cols.map(no => { const cell = item.classes[no]; if (!cell) return <td key={no} className="c"><span className="cg-sub">-</span></td>;
+            const gap = cell.mean - item.mean;
+            return <td key={no} className={`c cg-mx${no === highlight ? " is-mine" : ""}`} title={`${no}반 ${item.subject} · ${cell.n}명 · 학년 평균 대비 ${gap >= 0 ? "+" : ""}${gap.toFixed(1)}점`}>
+              <b className={spread && cell.mean === best ? "is-best" : spread && cell.mean === worst ? "is-worst" : ""}>{fmt1(cell.mean)}</b>
+              <small className={Math.abs(gap) < 0.05 ? "eq" : gap > 0 ? "up" : "down"}>{Math.abs(gap) < 0.05 ? "평균" : `${gap > 0 ? "▲" : "▼"} ${Math.abs(gap).toFixed(1)}`}</small>
+            </td>; })}
+        </tr>; })}</tbody>
+    </table></div>
+    <div className="cg-foot">점수가 높을수록 좋음 · ▲/▼ = 학년 평균 점수와의 차이 · 선생님이 성적 산출에 저장한 시험만 보여요</div>
+  </section>;
 }
 
 function ClassSubjectCompare({ matrix = [], classes = [], semesters = [], semester = "", onSemester, highlight = "" }) {
@@ -4074,6 +4114,8 @@ function AdmissionMinimumBoard({ mockGrades = null, rows = [], statusCounts = {}
           const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
           const margin = minimumMargin(result);
           const showCalc = hasMinimum && ["satisfied", "unsatisfied"].includes(result.status) && (result.selectedSubjects || []).length > 0;
+          // 계산 줄이 있거나 '최저 없음'이면 근거를 펼치지 않고 한 줄(학년도·요강 쪽·조건)로만 보여 줍니다.
+          const metaLine = showCalc || result.status === "no-minimum";
           const studentText = admissionStudentResultText(result);
           const fav = favoriteActive({ source: "admission", university: row.university, region: row.region, department: row.department, admissionType: row.track });
           const detail = result.ruleText || row.historySummary?.decidedCount > 0 || (row.eligibility && row.eligibility.status !== "none") || ["manual", "unlinked"].includes(result.status);
@@ -4082,20 +4124,18 @@ function AdmissionMinimumBoard({ mockGrades = null, rows = [], statusCounts = {}
               {onToggleFavorite ? <button type="button" data-kdn-bare className={fav ? "fav is-on" : "fav"} title="상담·관심 대학에 저장" onClick={() => onToggleFavorite({ source: "admission", favoriteKind: "전형", university: row.university, department: row.department, admissionType: row.track, region: row.region, field: (row._fieldTags || []).join(", "), label: `${row.university} ${row.department || row.track || ""}` })}><Star size={14} fill={fav ? "currentColor" : "none"} /></button> : <span />}
               <div className="dep"><b>{row.track || "전형"}</b><span>{row.department || "전 모집단위"}{(row._fieldTags || []).length ? ` · ${row._fieldTags.join("·")}` : ""}</span></div>
               <div className="rule">{result.status === "no-minimum" ? <b className="none">최저 없음</b> : hasMinimum ? <><b>{admissionMinimumText(result)}</b>{(result.subjectsText || row.requiredSubjects) && <AdmissionSubjectRule value={result.subjectsText || row.requiredSubjects} />}</> : <><b className="none">요강 확인</b><small>원문 조건</small></>}</div>
-              <div className="mine">{showCalc ? null : hasMinimum && studentText ? <><small>내 {result.ruleType === "each" ? "등급" : `${result.count}합`}</small>{result.ruleType === "each" ? <b className="each" title={studentText}>{(result.selectedSubjects || []).length ? result.selectedSubjects.map(x => x.grade).join("·") : studentText}</b> : <b>{studentText.replace(/^\d합\s*/, "")}</b>}</> : <b className="dash">–</b>}</div>
+              <div className="mine">{metaLine ? null : hasMinimum && studentText ? <><small>내 {result.ruleType === "each" ? "등급" : `${result.count}합`}</small>{result.ruleType === "each" ? <b className="each" title={studentText}>{(result.selectedSubjects || []).length ? result.selectedSubjects.map(x => x.grade).join("·") : studentText}</b> : <b>{studentText.replace(/^\d합\s*/, "")}</b>}</> : <b className="dash">–</b>}</div>
               <div className="st"><span style={meta.style}>{meta.label}</span>{margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? (margin === 0 ? "딱 맞음" : `${margin} 여유`) : `${-margin} 부족`}</em>}
-                <span className="act">{detail && !showCalc && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}{row.guideDocs.length ? row.guideDocs.slice(0, 1).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}</span></div>
+                <span className="act">{detail && !metaLine && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}{row.guideDocs.length ? row.guideDocs.slice(0, 1).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}</span></div>
             </div>
             {showCalc && <MinimumCalcStrip className="in-row" result={result} grades={mockGrades} advice={result.status === "unsatisfied" ? row.improvementAdvice : null} />}
-            {showCalc && <div className="detail is-tags">
-              {result.year && <span className="tag">{result.year}학년도 {result.yearMismatch ? "참고" : "기준"}</span>}
-              {result.ruleText && <span className="tag" title="모집요강 원문">원문 · {result.ruleText}</span>}
-              {minimumExtraTags(result.reason).map(text => <span key={text} className="tag">{text}</span>)}
-              {result.source && <span className="tag" title={result.source}>{String(result.source).match(/\d+쪽/)?.[0] ? `요강 ${String(result.source).match(/\d+쪽/)[0]}` : "출처"}</span>}
-              {row.historySummary?.decidedCount > 0 && <span className="tag">최근 {row.historySummary.decidedCount}회 중 {row.historySummary.satisfiedCount}회 충족</span>}
-              {row.eligibility && row.eligibility.status !== "none" && <span className="tag warn">지원자격 · {row.eligibility.label}</span>}
+            {metaLine && <div className="kdn-minb-meta">
+              <span className="m">{[result.year ? `${result.year}학년도 ${result.yearMismatch ? "참고" : "기준"}` : "", result.source ? (String(result.source).match(/\d+쪽/)?.[0] ? `요강 ${String(result.source).match(/\d+쪽/)[0]}` : "요강") : "", row.historySummary?.decidedCount > 0 ? `최근 ${row.historySummary.decidedCount}회 중 ${row.historySummary.satisfiedCount}회 충족` : ""].filter(Boolean).join(" · ")}</span>
+              {showCalc && minimumExtraTags(result.reason).map(text => <span key={text} className="c">{text}</span>)}
+              {row.eligibility && row.eligibility.status !== "none" && <span className="c warn">지원자격 · {row.eligibility.label}</span>}
+              {showCalc && result.ruleText && <span className="o" title={result.ruleText}>원문 {result.ruleText}</span>}
             </div>}
-            {!showCalc && isOpen && <div className="detail">
+            {!metaLine && isOpen && <div className="detail">
               {result.year && <span><b>{result.year}학년도</b> {result.yearMismatch ? "참고 기준" : "기준"}</span>}
               {result.ruleText && <span>{result.ruleText}</span>}
               {result.reason && <span>{result.reason}</span>}
