@@ -1070,9 +1070,23 @@ const CLASS_GRADE_CSS = `
 .cg-step em{font-style:normal;font-size:11.5px;font-weight:700}
 .cg-takers{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;border-radius:99px;border:1px solid var(--kdn-control-line,#d6dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#3a4150);font:inherit;font-size:13px;font-weight:800;cursor:pointer}.cg-takers small{font-weight:600;color:var(--kdn-muted,#6b7280)}
 .cg-takers.is-on{background:var(--kdn-ink,#1f2430);border-color:var(--kdn-ink,#1f2430);color:var(--kdn-bg,#fff)}.cg-takers.is-on small{color:inherit;opacity:.75}
-.cg-subjtable th.cg-subcol{font-size:12px;font-weight:700;color:var(--kdn-muted,#6b7280);background:var(--sem-tint,var(--kdn-surface-2,#f6f7fa))}
-.cg-subjtable td .cg-num{font-size:15.5px!important;font-weight:700!important;font-variant-numeric:tabular-nums}.cg-subjtable .cg-of{font-size:11.5px;color:var(--kdn-muted,#8a92a0);margin-left:1px}
-.cg-subjtable td.cg-semcell b.cg-gr{font-size:17.5px;font-weight:800;color:var(--kdn-ink,#1f2430)}
+.cg-name b{overflow-wrap:anywhere;word-break:keep-all}.cg-ids{flex-wrap:nowrap}.cg-ids em{white-space:nowrap}
+.cg-sjt{border-collapse:separate;border-spacing:0}
+.cg-sjt th,.cg-sjt td{border-right:0!important;text-align:center!important}
+.cg-sjt thead th{padding:9px 8px!important;font-size:12.5px!important;font-weight:700;color:var(--kdn-muted,#6b7280)!important;background:var(--kdn-surface-2,#f6f7fa)!important;border-bottom:1px solid var(--kdn-line,#e3e6ec)}
+.cg-sjt thead th.sem{padding:10px 8px 6px!important}.cg-sjt thead th.sem span{display:block;font-size:12px;font-weight:600}.cg-sjt thead th.sem b{display:block;margin-top:1px;font-size:14px;font-weight:800;color:var(--kdn-ink,#1f2430)}
+.cg-sjt .gstart{border-left:1px solid var(--kdn-line,#e3e6ec)!important}
+.cg-sjt tbody td{padding:10px 8px!important;background:var(--kdn-surface,#fff)!important;border-bottom:1px solid var(--kdn-line,#eef0f4);font-size:14.5px;color:var(--kdn-ink,#1f2430)}
+.cg-sjt tbody tr:hover td{background:color-mix(in srgb,var(--kdn-accent,#ea580c) 5%,var(--kdn-surface,#fff))!important}
+.cg-sj-rank{display:inline-grid;place-items:center;min-width:28px;height:26px;padding:0 6px;border-radius:8px;font-size:14px;font-weight:800;color:var(--kdn-ink-soft,#3a4150)}
+.cg-sj-rank.top{background:color-mix(in srgb,var(--kdn-accent,#ea580c) 13%,var(--kdn-surface,#fff));color:var(--kdn-accent-text,#c2410c)}
+.cg-sjt td.cg-sj-dim{color:var(--kdn-ink-soft,#5d6574);font-variant-numeric:tabular-nums}
+.cg-sjt td.cg-sj-name{font-weight:700;line-height:1.35;overflow-wrap:anywhere;word-break:keep-all}
+.cg-sj-name button{all:unset;cursor:pointer;overflow-wrap:anywhere}.cg-sj-name button:hover{color:var(--kdn-accent-text,#c2410c);text-decoration:underline}
+.cg-sjt td.cg-sj-num{font-size:15.5px;font-weight:800;font-variant-numeric:tabular-nums}
+.cg-sjt td.cg-sj-rk b{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}.cg-sjt td.cg-sj-rk small{font-size:12px;color:var(--kdn-muted,#8a92a0)}
+.cg-sjt td.cg-sj-gr{font-size:16px;font-weight:800;font-variant-numeric:tabular-nums}
+.cg-sjt td.cg-sj-miss{color:var(--kdn-muted,#8a92a0);font-size:13px}
 .cg-ach{display:inline-grid;place-items:center;min-width:28px;height:24px;padding:0 6px;border-radius:7px;font-size:13px;font-weight:800;background:var(--kdn-surface-2,#eef0f4);color:var(--kdn-ink,#1f2430)}
 .cg-ach.a-A{background:#dcfce7;color:#15803d}.cg-ach.a-B{background:#e0ecff;color:#1d4ed8}.cg-ach.a-C{background:#fef3c7;color:#92400e}.cg-ach.a-D{background:#ffedd5;color:#c2410c}.cg-ach.a-E{background:#fee2e2;color:#b91c1c}
 .cg-foot{padding:11px 16px;font-size:12.5px;color:var(--kdn-muted,#5d6574);border-top:1px solid var(--kdn-line,#eef0f4);background:var(--kdn-surface-2,#fafbfc)}
@@ -1150,6 +1164,9 @@ const CLASS_GRADE_CSS = `
   .cg-table-wrap.is-sticky{overflow:visible}
   .cg-semtable thead tr.h1 th{position:sticky;top:var(--cg-sticky-top,70px)}
   .cg-semtable thead tr.h2 th{position:sticky;top:calc(var(--cg-sticky-top,70px) + 42px)}
+  .cg-sjt thead th{z-index:3}
+  .cg-sjt thead tr.h1 th{position:sticky;top:var(--cg-sticky-top,70px);height:54px;box-sizing:border-box}
+  .cg-sjt thead tr.h2 th{position:sticky;top:calc(var(--cg-sticky-top,70px) + 54px)}
 }
 .cg-subject-pick{min-height:38px;max-width:210px;padding:0 10px;border-radius:11px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#f5f1ea;font:inherit;font-size:13.5px;font-weight:700}
 .cg-subject-pick option,.cg-subject-pick optgroup{color:#1f2430;background:#fff}
@@ -1420,17 +1437,19 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
     </section>
     {view === "class" && (!rows.length ? <EmptyBox text={isSubject && takersOnly && rosterRows.length ? `${allClasses ? "전체 반" : `${classNo}반`}에 ${subjectName} 수강자가 없습니다.` : `${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
       <div className="cg-tablebar"><b>{metricLabel} 기준</b>{isSubject && <button type="button" data-kdn-bare className={`cg-takers${takersOnly ? " is-on" : ""}`} aria-pressed={takersOnly} onClick={() => setTakersOnly(value => !value)}>{takersOnly ? "✓ " : ""}수강자만 <small>{rosterRows.filter(row => val(row) != null).length}/{rosterRows.length}명</small></button>}<span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"], ["number", "번호순"]].map(([key, label]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => setTableSort(key)}>{label}</button>)}</div></div>
-      {isSubject ? <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable cg-subjtable"><colgroup><col style={{ width: 64 }} /><col style={{ width: 150 }} />{semCols.map(key => <React.Fragment key={key}><col /><col /><col /><col /></React.Fragment>)}</colgroup>
-      <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th rowSpan={2}>학생</th>{semCols.map((key, index) => { const [y, t] = key.split("-"); return <th key={key} colSpan={4} className={`c cg-semhead y${y} t${t}${index && t === "1" ? " ybreak" : ""}`}><span>{y}학년 {t}학기 · {subjectName}</span></th>; })}</tr>
-      <tr className="h2">{semCols.map((key, index) => { const [y, t] = key.split("-"); return ["원점수", "석차", "등급", "성취도"].map((label, col) => <th key={`${key}-${label}`} className={`c cg-subcol y${y} t${t}${index && t === "1" && !col ? " ybreak" : ""}`}>{label}</th>); })}</tr></thead>
+      {isSubject ? <div className="cg-table-wrap is-sticky"><table className="cg-table cg-sjt"><colgroup><col style={{ width: 64 }} />{allClasses && <col style={{ width: 58 }} />}<col style={{ width: 58 }} /><col style={{ width: 170 }} />{semCols.map(key => <React.Fragment key={key}><col /><col /><col /><col /></React.Fragment>)}</colgroup>
+      <thead><tr className="h1"><th rowSpan={2}>순위</th>{allClasses && <th rowSpan={2}>반</th>}<th rowSpan={2}>번호</th><th rowSpan={2}>이름</th>{semCols.map(key => { const [y, t] = key.split("-"); return <th key={key} colSpan={4} className="sem"><span>{y}학년 {t}학기</span><b>{subjectName}</b></th>; })}</tr>
+      <tr className="h2">{semCols.map(key => ["원점수", "석차", "등급", "성취도"].map((label, col) => <th key={`${key}-${label}`} className={col ? "" : "gstart"}>{label}</th>))}</tr></thead>
       <tbody>{ordered.map(row => { const rank = ranked.get(row.sid); return <tr key={row.sid}>
-        <td className="c">{rank ? <span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}<small>위</small></span> : "-"}</td>
-        <td>{onOpenStudent ? <button type="button" data-kdn-bare className="cg-name" onClick={() => onOpenStudent(row.sid)}><b>{row.name}</b><span className="cg-ids"><em className="cg-no">{allClasses ? `${row.classNumber}반 ` : ""}{row.number}번</em><em className="cg-sid">{row.sid}</em></span></button> : <span className="cg-name"><b>{row.name}</b><span className="cg-ids"><em className="cg-no">{allClasses ? `${row.classNumber}반 ` : ""}{row.number}번</em><em className="cg-sid">{row.sid}</em></span></span>}</td>
-        {semCols.map((key, index) => { const [y, t] = key.split("-"); const rec = subjectRecordOf(row, subjectName, key); const cls = `c cg-semcell y${y} t${t}`; if (!rec) return <td key={key} colSpan={4} className={`${cls}${index && t === "1" ? " ybreak" : ""}`}><span className="cg-none sm">미수강</span></td>; const score = Number(rec.score); return <React.Fragment key={key}>
-          <td className={`${cls}${index && t === "1" ? " ybreak" : ""}`}><b className="cg-num">{Number.isFinite(score) && String(rec.score ?? "").trim() !== "" ? score : "-"}</b></td>
-          <td className={cls}><span className="cg-num">{String(rec.rank ?? "").trim() || "-"}</span>{rec.classSize ? <small className="cg-of">/{rec.classSize}</small> : null}</td>
-          <td className={cls}><b className="cg-gr">{getSubjectGrade(rec) ?? "-"}</b></td>
-          <td className={cls}>{rec.achievement ? <span className={`cg-ach a-${String(rec.achievement).trim().charAt(0)}`}>{String(rec.achievement).trim()}</span> : "-"}</td>
+        <td><span className={`cg-sj-rank${rank && rank <= 3 ? " top" : ""}`}>{rank || "-"}</span></td>
+        {allClasses && <td className="cg-sj-dim">{row.classNumber}</td>}
+        <td className="cg-sj-dim">{row.number}</td>
+        <td className="cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)} title={`${row.sid} ${row.name}`}>{row.name}</button> : <span title={row.sid}>{row.name}</span>}</td>
+        {semCols.map(key => { const rec = subjectRecordOf(row, subjectName, key); if (!rec) return <td key={key} colSpan={4} className="gstart cg-sj-miss">미수강</td>; const score = Number(rec.score); const ach = String(rec.achievement || "").trim(); return <React.Fragment key={key}>
+          <td className="gstart cg-sj-num">{Number.isFinite(score) && String(rec.score ?? "").trim() !== "" ? score : "-"}</td>
+          <td className="cg-sj-rk"><b>{String(rec.rank ?? "").trim() || "-"}</b>{rec.classSize ? <small> / {rec.classSize}</small> : null}</td>
+          <td className="cg-sj-gr">{getSubjectGrade(rec) ?? "-"}</td>
+          <td>{ach ? <span className={`cg-ach a-${ach.charAt(0)}`}>{ach}</span> : "-"}</td>
         </React.Fragment>; })}
       </tr>; })}</tbody></table></div> : <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 160 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} />{semCols.map(key => <col key={key} />)}</colgroup>
       <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th rowSpan={2}>학생</th><th className="c" rowSpan={2}>{metricLabel} {isSubject ? "등급" : "누적"}</th><th className="c" rowSpan={2}>직전 → 최근 학기</th><th className="c grp" colSpan={Math.max(1, semCols.length)}>학기별 {metricLabel} {isSubject ? "등급" : "평균"}</th></tr>
