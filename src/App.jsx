@@ -2667,29 +2667,33 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
   const last = cards.find(card => card.key === lastMode);
   const today = new Date();
   const todayLabel = `${today.getMonth() + 1}월 ${today.getDate()}일 ${"일월화수목금토"[today.getDay()]}요일`;
-  return <div className={`kdn-tz${exam ? " is-exam" : ""}`}>
-    <section className="kdn-tz-hero">
-      <span className="av"><Users size={22} /></span>
-      <div className="tx"><small>선생님 ZONE · {homeroom}</small><b>{callName}, {exam ? `${exam.label} ${exam.phase === "after" ? "성적 처리 기간이에요." : "기간이 다가와요."}` : last ? `지난번 하던 '${last.title}'부터 이어서 할까요?` : "오늘 어떤 업무를 할까요?"}</b>
-        <span className="chips"><em>{todayLabel}</em><em>{grade}학년 작업</em>{exam && <em className="ex">{exam.label} {exam.dLabel}</em>}</span></div>
-      {exam ? <button type="button" onClick={() => onOpen("grades")}>성적 산출 바로 가기 ›</button> : last && <button type="button" onClick={() => onOpen(last.key)}>{last.title} 이어서 하기 ›</button>}
+  // 카드: 대시보드 바로가기(F안)와 같은 흰 카드 + 제목·태그 한 줄 + 한 줄 설명 + 둥근 도형 그림. 카드 전체가 버튼입니다.
+  const SHORT = { grades: ["NEIS 파일로 학기말 성적 계산", "classGrades", "il-classGrades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
+  const stepIndex = exam ? (exam.phase === "before" ? 0 : exam.phase === "today" ? 1 : 2) : -1;
+  const tip = exam ? (exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요." : exam.phase === "today" ? "시험 기간 · 결시자 인정점 입력을 준비하세요." : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요.") : "";
+  const openCard = card => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));
+  return <div className={`kdn-tz2${exam ? " is-exam" : ""}`}>
+    <section className="kdn-tz2-hero">
+      <div className="tx"><small>선생님 ZONE · {homeroom}</small><b>{callName}, {exam ? `${exam.label} ${exam.phase === "after" ? "성적 처리 기간이에요." : "기간이 다가와요."}` : last ? `지난번 하던 '${last.title}'부터 이어서 할까요?` : "오늘 어떤 업무를 할까요?"}</b></div>
+      <span className="chips"><em>{todayLabel}</em><em>{grade}학년 작업</em>{exam && <em className="ex">{exam.label} {exam.dLabel}</em>}</span>
+      {!exam && last && <button type="button" onClick={() => onOpen(last.key)}>{last.title} 이어서 하기 →</button>}
     </section>
-    {exam && cards.some(card => card.key === "grades") && <section className="kdn-tz-exam" role="note">
-      <span className="dd"><small>{exam.label}</small><b>{exam.dLabel}</b></span>
-      <div><b>{exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요" : exam.phase === "today" ? "시험 당일 · 결시자 인정점 입력을 준비하세요" : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요"}</b>
-        <small className="sub">{exam.phase === "after" ? "등급컷·동점자·결시 인정점을 확인한 뒤 최성보 미도달 학생도 함께 점검하세요." : "시험이 끝나면 이 카드에서 바로 성적 산출로 이어집니다."}</small></div>
-      <button type="button" onClick={() => onOpen("grades")}>성적 산출 열기 ›</button>
-    </section>}
-    <div className="kdn-tz-grid">{cards.map(card => {
+    <div className="kdn-tz2-grid">{cards.map(card => {
+      const [short, illo, palette] = SHORT[card.key] || [card.text, "grades", "il-admin"];
       const isLast = card.key === lastMode;
-      const open = () => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));
-      const featured = exam && card.key === "grades";
-      return <section key={card.key} className={`kdn-tz-card${isLast ? " is-last" : ""}${featured ? " is-featured" : ""}`} style={{ "--a": card.tone, "--s": card.soft }}>
-        <div className="top"><span className="ic">{card.icon}</span><h4>{card.title}</h4><span className="tag">{featured ? `정기시험 ${exam.dLabel}` : isLast ? "최근 작업" : card.tag}</span></div>
-        <p>{card.text}</p>
-        {featured ? <div className="kdn-tz-steps">{[["산출 기준", "반영비율·만점·성취도 기준 확인", "before"], ["파일 업로드", "NEIS 지필·수행 파일 올리기", "today"], ["등급·결과", "등급컷·동점자·결시 인정점 확인", "after"], ["최성보 점검", "미도달·주의 학생 확인", ""]].map(([title, desc, phase], index) => <div key={title} className={phase && phase === exam.phase ? "on" : ""}><em>{index + 1}</em><b>{title}</b><small>{desc}</small></div>)}</div> : <ul>{card.points.map(point => <li key={point}>{point}</li>)}</ul>}
-        <div className="acts"><button type="button" className="p" onClick={open}>{featured ? "성적 산출 열기 ›" : isLast ? "이어서 하기 ›" : card.primary}</button></div>
+      if (exam && card.key === "grades") return <section key={card.key} className={`kdn-tz2-feature ${palette}`}>
+        <span className="kdn-sc-illo is-feature" aria-hidden="true" dangerouslySetInnerHTML={{ __html: SHORTCUT_ILLOS.zone }} />
+        <div className="hd"><em className="badge">{exam.label} {exam.dLabel}</em><b>성적 산출</b></div>
+        <p>{tip}</p>
+        <ol className="kdn-tz2-steps">{["산출 기준 확인", "파일 업로드", "등급·결과 확인", "최성보 점검"].map((label, index) => <li key={label} className={index === stepIndex ? "is-on" : index < stepIndex ? "is-done" : ""}><i>{index + 1}</i>{label}</li>)}</ol>
+        <button type="button" className="go" onClick={() => onOpen("grades")}>성적 산출 열기 <ArrowRight size={16} /></button>
       </section>;
+      return <button key={card.key} type="button" onClick={() => openCard(card)} className={`kdn-sc kdn-tz2-card ${palette}${isLast ? " is-last" : ""}`}>
+        <span className="kdn-sc-head"><b className="kdn-sc-title">{card.title}</b><span className="kdn-tz2-tag">{isLast ? "최근 작업" : card.tag}</span></span>
+        <span className="kdn-sc-desc">{short}</span>
+        <span className="kdn-tz2-go">{card.primary.replace(/ ?[↗›]$/, "")} <ArrowRight size={15} /></span>
+        <span className="kdn-sc-illo" aria-hidden="true" dangerouslySetInnerHTML={{ __html: SHORTCUT_ILLOS[illo] }} />
+      </button>;
     })}</div>
   </div>;
 }
@@ -2896,7 +2900,9 @@ const SHORTCUT_ILLOS = (() => {
   const users = svg(96, 80, `<circle cx="36" cy="30" r="13" ${f(1)}/><rect x="16" y="46" width="40" height="26" rx="13" ${f(1)}/><circle cx="62" cy="26" r="11" ${f(2)}/><rect x="46" y="40" width="34" height="24" rx="12" ${f(2)}/><circle cx="80" cy="14" r="7" ${f(3)}/>`);
   const shield = svg(96, 80, `<path d="M48 8 76 18v20c0 18-14 30-28 36C34 68 20 56 20 38V18z" ${f(1)}/><path d="m36 40 9 9 17-18" style="stroke:var(--i2);fill:none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>`);
   const sliders = svg(96, 80, `<rect x="12" y="20" width="72" height="12" rx="6" ${f(1)}/><circle cx="62" cy="26" r="10" ${f(2)}/><rect x="12" y="46" width="72" height="12" rx="6" ${f(1)}/><circle cx="34" cy="52" r="10" ${f(3)}/>`);
-  return { grades: book, classGrades: chart, gradeLookup: chart, timetable: cal, teacherZone: users, minimumAchievement: shield, admin: sliders, zone: chart };
+  const notice = svg(96, 80, `<rect x="12" y="16" width="62" height="42" rx="16" ${f(1)}/><path d="M28 56 22 70 40 58z" ${f(1)}/><rect x="24" y="30" width="30" height="6" rx="3" ${f(2)}/><rect x="24" y="41" width="20" height="6" rx="3" ${f(2)}/><circle cx="78" cy="18" r="8" ${f(3)}/>`);
+  const folder = svg(96, 80, `<rect x="14" y="22" width="66" height="48" rx="12" ${f(1)}/><path d="M14 30a10 10 0 0 1 10-10h16l8 8h22a10 10 0 0 1 10 10v2H14z" ${f(2)}/><circle cx="72" cy="56" r="8" ${f(3)}/>`);
+  return { grades: book, classGrades: chart, gradeLookup: chart, timetable: cal, teacherZone: users, minimumAchievement: shield, admin: sliders, zone: chart, notice, folder, contacts: users, records: book, minimum: shield };
 })();
 
 // 대시보드 상단 정기시험 띠: D-day, 시험 날짜별 진행(완료·오늘·예정), 끝난 뒤엔 성적 처리 단계.
