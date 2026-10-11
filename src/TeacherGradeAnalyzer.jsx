@@ -523,6 +523,40 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       updatedAt: new Date().toISOString(),
     };
   };
+  // 자동 저장: 성적 파일이 들어오면 개인 임시본을 바로 만들고(이후 변경은 위 effect가 이어서 저장),
+  // 이미 학교 공동 저장을 한 과목은 수정 내용을 잠시 뒤 학교 공동본에도 자동 반영합니다.
+  const [autoSave, setAutoSave] = useState({ local: "", shared: "", syncing: false });
+  const sharedHere = !!db?.teacherGradeWorkspaces?.[workspaceId];
+  const hasGradeData = written.length > 0 || performance.length > 0;
+  useEffect(() => {
+    if (selectedLocalId || !hasGradeData || !workspaceId || !canEditCurrentSubject) return undefined;
+    const timer = window.setTimeout(() => {
+      setLocalWorkspaces(current => ({ ...current, [workspaceId]: currentSnapshot() }));
+      setSelectedLocalId(workspaceId);
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [selectedLocalId, hasGradeData, workspaceId, canEditCurrentSubject, written, performance]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (hasGradeData && selectedLocalId) setAutoSave(current => ({ ...current, local: new Date().toISOString() }));
+  }, [written, performance, settings, tieScores, studentOverrides, selectedLocalId, hasGradeData]);
+  const sharedPayloadKey = item => { try { return JSON.stringify([item?.written || [], item?.performance || [], item?.settings || {}, item?.tieScores || {}, item?.studentOverrides || {}]); } catch { return ""; } };
+  // 내가 이 화면에서 실제로 고친 경우에만 반영합니다(불러온/마지막으로 반영한 내용과 비교). 다른 선생님이 먼저 바꾼 학교 공동본을 옛 화면으로 덮어쓰지 않게 합니다.
+  const syncBaselineRef = useRef({ id: "", key: null });
+  useEffect(() => {
+    if (!sharedHere || !canEditCurrentSubject || !persist || !hasGradeData) return undefined;
+    const mine = sharedPayloadKey({ written, performance, settings, tieScores, studentOverrides });
+    if (syncBaselineRef.current.id !== workspaceId || syncBaselineRef.current.key == null) { syncBaselineRef.current = { id: workspaceId, key: mine }; return undefined; }
+    if (mine === syncBaselineRef.current.key || mine === sharedPayloadKey(db.teacherGradeWorkspaces[workspaceId])) return undefined;
+    const timer = window.setTimeout(async () => {
+      syncBaselineRef.current = { id: workspaceId, key: mine };
+      setAutoSave(current => ({ ...current, syncing: true }));
+      const snapshot = currentSnapshot();
+      const ok = await persist({ teacherGradeWorkspaces: { ...(db?.teacherGradeWorkspaces || {}), [workspaceId]: snapshot } });
+      setAutoSave(current => ({ ...current, syncing: false, shared: ok === false ? current.shared : new Date().toISOString() }));
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [sharedHere, canEditCurrentSubject, hasGradeData, workspaceId, written, performance, settings, tieScores, studentOverrides]); // eslint-disable-line react-hooks/exhaustive-deps
+  const clockOf = iso => { if (!iso) return ""; const d = new Date(iso); return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
   const saveLocalWorkspace = () => {
     if (!context || !workspaceId) { showToast?.("담당 과목을 먼저 선택해주세요.", "error"); return; }
     if (!canEditCurrentSubject) { showToast?.("이 과목 담당 교사만 성적 산출 자료를 저장할 수 있습니다.", "error"); return; }
@@ -563,6 +597,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   };
   const applyWorkspace = item => {
     const normalized = normalizeWorkspaceSnapshot(item);
+    syncBaselineRef.current = { id: "", key: null };
     if (item?.subject) setDraftSubject(item.subject);
     setWritten(normalized.written);
     setPerformance(normalized.performance);
@@ -1359,6 +1394,14 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       </div>
 
       {!newUi && moduleTabs}
+      {newUi && context && canEditCurrentSubject && <div className={`kdn-save-bar${sharedHere ? " is-shared" : ""}`} role="status">
+        <span className="dot" aria-hidden="true" />
+        <b>{context.subject} · {hasGradeData ? `개인 임시본 자동 저장${autoSave.local ? ` ${clockOf(autoSave.local)}` : ""}` : "성적 파일을 올리면 개인 임시본에 자동 저장돼요"}</b>
+        {sharedHere
+          ? <span>학교 공동본 {autoSave.syncing ? "반영 중…" : `자동 반영${autoSave.shared ? ` ${clockOf(autoSave.shared)}` : " 켜짐"}`} · 같은 과목 선생님·반별 성적에 바로 보여요</span>
+          : <span>아직 나만 볼 수 있어요. <strong>학교 공동 저장</strong>을 한 번 누르면 같은 과목 선생님과 공유되고, 이후 수정은 자동으로 반영돼요.</span>}
+        {!sharedHere && <button type="button" onClick={publishWorkspace}>학교 공동 저장</button>}
+      </div>}
 
       <div style={{display:panelMode==="analysis"?"contents":"none"}}>
       <div className="teacher-grade-workspace-browser" style={ui.workspaceBrowser}>
