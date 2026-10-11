@@ -27,6 +27,7 @@ import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { buildClassExamCompare } from "./classExamCompare.js";
+import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
   parseSemesterSheet,
@@ -4079,7 +4080,8 @@ function AdmissionMinimumBoard({ mockGrades = null, rows = [], statusCounts = {}
       seen.add(dup);
       const key = row.university || "대학 미지정"; if (!map.has(key)) map.set(key, []); map.get(key).push(row);
     });
-    return Array.from(map, ([university, items]) => ({ university, items }));
+    // 이름만 다른 같은 전형(같은 모집단위 · 같은 판정·조건)도 하나로 합칩니다.
+    return Array.from(map, ([university, items]) => ({ university, items: mergeDuplicateTracks(items.map(row => ({ ...row, admissionType: `${row.university}|${row.department || ""}` }))).map(({ __index, aliases, ...row }) => ({ ...row, mergedAliases: aliases })) }));
   }, [rows]);
   const active = groups.find(group => group.university === picked) || groups[0] || null;
   const okCount = group => group.items.filter(row => ["satisfied", "no-minimum"].includes(row.evaluation.status)).length;
@@ -4951,7 +4953,7 @@ export function printCounselingHistory(options = {}) {
   try {
     printDocument.open();
     const counselingPrintCss = (themeCss + supportDecisionCss + COUNSELING_PRINT_CSS + counselingCss + COUNSELING_PRINT_SKIN).replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
-    printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${counselingPrintCss}</style></head><body class="print-counseling-history ${paper === "B4" ? "counseling-paper-b4" : ""}">${clone.outerHTML}</body></html>`);
+    printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${counselingPrintCss}</style></head><body class="print-counseling-history ${paper === "B4" ? "counseling-paper-b4" : ""}">${clone.outerHTML}</body></html>`);
     printDocument.close();
   } catch { cleanup(); return; }
 
@@ -4988,6 +4990,8 @@ const COUNSELING_PRINT_SKIN = `
 html body.print-counseling-history{--pk-ink:#1f2430;--pk-soft:#3d4555;--pk-muted:#6b7280;--pk-line:#e3e6ec;--pk-bg:#f6f7fa;--pk-acc:#d4521b;--pk-acc-soft:#fff3ec;color:var(--pk-ink)!important;background:#fff!important}
 html body.print-counseling-history .counseling-print-root-clone{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;font-size:10pt!important;line-height:1.55!important;color:var(--pk-ink)!important;letter-spacing:-.01em}
 html body.print-counseling-history .counseling-print-root-clone *{border-color:var(--pk-line)!important;text-shadow:none!important}
+/* 글씨체 하나로: 화면 일부 요소의 KDRound(지마켓)·숫자 전용 글꼴이 섞여 들어오지 않게 */
+html body.print-counseling-history .counseling-print-root-clone,html body.print-counseling-history .counseling-print-root-clone *,html body.print-counseling-history .counseling-print-root-clone *::before,html body.print-counseling-history .counseling-print-root-clone *::after{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important;font-style:normal!important;font-variant-numeric:tabular-nums;letter-spacing:-.01em!important}
 
 /* 학생 머리글 */
 html body.print-counseling-history .counseling-print-root-clone .student-identity-banner{padding:0 0 3mm!important;border:0!important;border-bottom:.6mm solid var(--pk-ink)!important;border-radius:0!important;background:none!important}
@@ -5118,7 +5122,7 @@ html body.print-counseling-history .counseling-print-root-clone .pc-head{margin-
 `;
 
 const COUNSELING_PRINT_CSS = `
-.kd-consultation-ui,.kd-consultation-ui button,.kd-consultation-ui input,.kd-consultation-ui textarea,.kd-consultation-ui select{font-family:KDRound,Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important}
+.kd-consultation-ui,.kd-consultation-ui button,.kd-consultation-ui input,.kd-consultation-ui textarea,.kd-consultation-ui select{font-family:Pretendard,"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif!important}
 .kd-consultation-ui{font-size:13px;line-height:1.45;color:#27364a;letter-spacing:-.012em}
 .kd-consultation-ui button{letter-spacing:-.012em}
 .kd-consultation-ui .section-heading-title{font-size:16px!important;line-height:1.3!important;font-weight:900!important}
