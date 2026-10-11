@@ -25,6 +25,7 @@ import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
 import { LayoutGrid } from 'lucide-react';
 import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore.js';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
+import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
   parseSemesterSheet,
@@ -4060,25 +4061,26 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
           const isOpen = open.has(key);
           const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
           const margin = minimumMargin(result);
+          const showCalc = hasMinimum && ["satisfied", "unsatisfied"].includes(result.status) && (result.selectedSubjects || []).length > 0;
           const studentText = admissionStudentResultText(result);
           const fav = favoriteActive({ source: "admission", university: row.university, region: row.region, department: row.department, admissionType: row.track });
-          const detail = result.ruleText || row.historySummary?.decidedCount > 0 || (result.status === "unsatisfied" && row.improvementAdvice) || (row.eligibility && row.eligibility.status !== "none") || ["manual", "unlinked"].includes(result.status);
+          const detail = result.ruleText || row.historySummary?.decidedCount > 0 || (row.eligibility && row.eligibility.status !== "none") || ["manual", "unlinked"].includes(result.status);
           return <div key={key} className={`kdn-minb-row s-${result.status}${isOpen ? " is-open" : ""}`}>
             <div className="line">
               {onToggleFavorite ? <button type="button" data-kdn-bare className={fav ? "fav is-on" : "fav"} title="상담·관심 대학에 저장" onClick={() => onToggleFavorite({ source: "admission", favoriteKind: "전형", university: row.university, department: row.department, admissionType: row.track, region: row.region, field: (row._fieldTags || []).join(", "), label: `${row.university} ${row.department || row.track || ""}` })}><Star size={14} fill={fav ? "currentColor" : "none"} /></button> : <span />}
               <div className="dep"><b>{row.track || "전형"}</b><span>{row.department || "전 모집단위"}{(row._fieldTags || []).length ? ` · ${row._fieldTags.join("·")}` : ""}</span></div>
               <div className="rule">{result.status === "no-minimum" ? <b className="none">최저 없음</b> : hasMinimum ? <><b>{admissionMinimumText(result)}</b>{(result.subjectsText || row.requiredSubjects) && <AdmissionSubjectRule value={result.subjectsText || row.requiredSubjects} />}</> : <><b className="none">요강 확인</b><small>원문 조건</small></>}</div>
-              <div className="mine">{hasMinimum && studentText ? <><small>내 {result.ruleType === "each" ? "등급" : `${result.count}합`}</small>{result.ruleType === "each" ? <b className="each" title={studentText}>{(result.selectedSubjects || []).length ? result.selectedSubjects.map(x => x.grade).join("·") : studentText}</b> : <b>{studentText.replace(/^\d합\s*/, "")}</b>}</> : <b className="dash">–</b>}</div>
-              <div className="st"><span style={meta.style}>{meta.label}</span>{margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? `${margin} 여유` : `${-margin} 부족`}</em>}
+              <div className="mine">{showCalc ? null : hasMinimum && studentText ? <><small>내 {result.ruleType === "each" ? "등급" : `${result.count}합`}</small>{result.ruleType === "each" ? <b className="each" title={studentText}>{(result.selectedSubjects || []).length ? result.selectedSubjects.map(x => x.grade).join("·") : studentText}</b> : <b>{studentText.replace(/^\d합\s*/, "")}</b>}</> : <b className="dash">–</b>}</div>
+              <div className="st"><span style={meta.style}>{meta.label}</span>{margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? (margin === 0 ? "딱 맞음" : `${margin} 여유`) : `${-margin} 부족`}</em>}
                 <span className="act">{detail && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}{row.guideDocs.length ? row.guideDocs.slice(0, 1).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}</span></div>
             </div>
+            {showCalc && <MinimumCalcStrip className="in-row" result={result} advice={result.status === "unsatisfied" ? row.improvementAdvice : null} />}
             {isOpen && <div className="detail">
               {result.year && <span><b>{result.year}학년도</b> {result.yearMismatch ? "참고 기준" : "기준"}</span>}
-              {result.ruleText && <span>{result.ruleText}</span>}
+              {(showCalc ? result.ruleText?.split(" · ").slice(1).join(" · ") : result.ruleText) && <span>{showCalc ? result.ruleText.split(" · ").slice(1).join(" · ") : result.ruleText}</span>}
               {result.reason && <span>{result.reason}</span>}
               {result.source && <span className="src">{result.source}</span>}
               {row.historySummary?.decidedCount > 0 && <span>최근 {row.historySummary.decidedCount}회 중 <b>{row.historySummary.satisfiedCount}회</b> 충족</span>}
-              {result.status === "unsatisfied" && row.improvementAdvice && <span className="adv">{improvementAdviceText(row.improvementAdvice)}</span>}
               {row.eligibility && row.eligibility.status !== "none" && <span className="elg">지원자격 · {row.eligibility.label}</span>}
             </div>}
           </div>;
