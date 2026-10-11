@@ -1576,6 +1576,17 @@ const SHARED_NEW_CSS = `
   [data-kd-ui="dark"] .kdn-cal .exam{background:rgba(249,115,22,.2);color:#fdba74}[data-kd-ui="dark"] .kdn-cal .off{background:rgba(239,68,68,.2);color:#fca5a5}[data-kd-ui="dark"] .kdn-cal .csat{background:rgba(139,92,246,.22);color:#c4b5fd}[data-kd-ui="dark"] .kdn-cal .etc{background:rgba(59,130,246,.2);color:#93c5fd}[data-kd-ui="dark"] .kdn-cal .mine{background:rgba(34,197,94,.18);color:#86efac}
   .kdn-dash-upcoming .hd{border:0;background:none;padding:0;font:inherit;cursor:pointer}.kdn-dash-upcoming .hd:hover{color:var(--kdn-ink)}
   @media (max-width:860px){.kdn-cal-body{grid-template-columns:minmax(0,1fr)}.kdn-cal-side{border-left:0;border-top:1px solid var(--kdn-line)}.kdn-cal-month .d{min-height:54px}.kdn-cal-month .d em{font-size:10.5px;padding:0 3px}}
+  /* 사이트 공통 표 규칙(제안③): 흰 바탕 + 얇은 가로선, 세로선·줄무늬 없음, 숫자 고정폭 가운데, 보조 숫자 회색, 마우스 올린 줄만 연한 강조, 긴 이름은 칸 안에서 줄바꿈 */
+  html:root :is(.teacher-grade-result-table,.grade-cutoff-table,.minimum-final-table,.kdn-mock-table,.kdn-case-table,.kdx-table,.pm-table){background:var(--kdn-surface);font-variant-numeric:tabular-nums}
+  html:root :is(.teacher-grade-result-table,.grade-cutoff-table,.minimum-final-table,.kdn-mock-table,.kdn-case-table,.kdx-table,.pm-table) th{background:var(--kdn-surface-2)!important;color:var(--kdn-muted)!important;font-size:12.5px;font-weight:700!important;border-left:0!important;border-right:0!important;border-bottom:1px solid var(--kdn-line)!important}
+  html:root :is(.teacher-grade-result-table,.grade-cutoff-table,.minimum-final-table,.kdn-mock-table,.kdn-case-table,.kdx-table,.pm-table) td{border-left:0!important;border-right:0!important;border-bottom:1px solid var(--kdn-line)!important}
+  html:root :is(.teacher-grade-result-table,.grade-cutoff-table,.minimum-final-table,.kdn-mock-table,.kdn-case-table,.kdx-table,.pm-table) tbody tr:nth-child(even){background:transparent}
+  html:root :is(.teacher-grade-result-table,.grade-cutoff-table,.minimum-final-table,.kdn-mock-table,.kdn-case-table,.kdx-table,.pm-table) tbody tr:nth-child(even):not(.is-excluded-student):not([class*="row-"]):not(.is-selected):not(.kdn-conn-grouprow) td{background:transparent!important}
+  html:root :is(.teacher-grade-result-table,.grade-cutoff-table,.minimum-final-table,.kdn-mock-table,.kdn-case-table,.kdx-table,.pm-table) tbody tr:not(.kdn-conn-grouprow):hover td{background:var(--kdn-accent-soft)!important}
+  html:root :is(.teacher-grade-result-table,.grade-cutoff-table,.minimum-final-table,.kdn-mock-table,.kdn-case-table,.kdx-table,.pm-table) td small{color:var(--kdn-muted)}
+  html:root :is(.teacher-grade-result-table,.minimum-final-table) :is(.student-id-cell,.minimum-class-cell) b{font-family:var(--kdn-num-font);font-weight:600;color:var(--kdn-ink-soft)}
+  html:root :is(.teacher-grade-result-table,.minimum-final-table) :is(.student-name-cell,.minimum-name-cell){min-width:120px}
+  html:root :is(.teacher-grade-result-table,.minimum-final-table) :is(.student-name-cell,.minimum-name-cell) b{white-space:normal;word-break:keep-all;overflow-wrap:normal}
   .kdn-minb-pager{display:flex;align-items:center;justify-content:center;gap:10px;font-size:13.5px;color:var(--kdn-muted)}.kdn-minb-pager b{color:var(--kdn-ink)}
   .kdn-minb-pager button{min-height:32px;padding:0 12px;border-radius:8px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.kdn-minb-pager button:disabled{opacity:.4}
   [data-kd-ui="dark"] .kdn-minb-row .cmp .need{background:rgba(245,158,11,.16);color:#fcd27a}
