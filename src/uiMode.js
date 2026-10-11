@@ -1587,6 +1587,22 @@ const SHARED_NEW_CSS = `
   html:root :is(.teacher-grade-result-table,.minimum-final-table) :is(.student-id-cell,.minimum-class-cell) b{font-family:var(--kdn-num-font);font-weight:600;color:var(--kdn-ink-soft)}
   html:root :is(.teacher-grade-result-table,.minimum-final-table) :is(.student-name-cell,.minimum-name-cell){min-width:120px}
   html:root :is(.teacher-grade-result-table,.minimum-final-table) :is(.student-name-cell,.minimum-name-cell) b{white-space:normal;word-break:keep-all;overflow-wrap:normal}
+  .counseling-print-option-overlay{background:rgba(15,23,42,.42)}
+  .counseling-print-option-modal{border-color:var(--kdn-line)!important;border-radius:20px!important;background:var(--kdn-surface)!important;box-shadow:0 28px 70px rgba(15,23,42,.3)!important;font-family:inherit!important}
+  .counseling-print-option-head{padding:18px 20px 14px!important;border-color:var(--kdn-line)!important}.counseling-print-option-head b{font-size:17px!important;font-weight:900;color:var(--kdn-ink)!important}.counseling-print-option-head span{font-size:13px!important;color:var(--kdn-muted)!important}
+  .counseling-print-option-head button{border-color:var(--kdn-line)!important;background:var(--kdn-surface-2)!important;color:var(--kdn-ink-soft)!important;border-radius:10px!important}
+  .counseling-print-option-body{gap:10px!important;padding:16px 20px!important}
+  .counseling-print-option-body label{padding:13px 14px!important;border-color:var(--kdn-line)!important;border-radius:14px!important;background:var(--kdn-surface)!important}
+  .counseling-print-option-body label:has(input:checked){border-color:var(--kdn-accent)!important;background:var(--kdn-accent-soft)!important}
+  .counseling-print-option-body input{accent-color:var(--kdn-accent);width:17px;height:17px}
+  .counseling-print-option-body b{font-size:14.5px!important;color:var(--kdn-ink)!important}.counseling-print-option-body span{font-size:12.5px!important;color:var(--kdn-muted)!important}
+  .counseling-print-paper-row{padding:12px 14px!important;border-color:var(--kdn-line)!important;border-radius:14px!important;background:var(--kdn-surface-2)!important}
+  .counseling-print-paper-row>span>b{font-size:14px!important;color:var(--kdn-ink)!important}.counseling-print-paper-row>span>small{font-size:12px!important;color:var(--kdn-muted)!important}
+  .counseling-print-paper-row button{min-width:56px!important;padding:8px 12px!important;border-color:var(--kdn-line)!important;border-radius:10px!important;background:var(--kdn-surface)!important;color:var(--kdn-ink-soft)!important;font-size:13px!important}
+  .counseling-print-paper-row button.is-active{background:var(--kdn-ink)!important;border-color:var(--kdn-ink)!important;color:var(--kdn-surface)!important}
+  .counseling-print-option-actions{padding:14px 20px 18px!important;border-color:var(--kdn-line)!important}
+  .counseling-print-option-actions button{display:inline-flex;align-items:center;gap:6px;padding:10px 16px!important;border-color:var(--kdn-line)!important;border-radius:11px!important;background:var(--kdn-surface)!important;color:var(--kdn-ink-soft)!important;font-size:13.5px!important}
+  .counseling-print-option-actions button.primary{background:var(--kdn-accent)!important;border-color:var(--kdn-accent)!important;color:#fff!important}
   .kdn-minb-pager{display:flex;align-items:center;justify-content:center;gap:10px;font-size:13.5px;color:var(--kdn-muted)}.kdn-minb-pager b{color:var(--kdn-ink)}
   .kdn-minb-pager button{min-height:32px;padding:0 12px;border-radius:8px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.kdn-minb-pager button:disabled{opacity:.4}
   [data-kd-ui="dark"] .kdn-minb-row .cmp .need{background:rgba(245,158,11,.16);color:#fcd27a}
