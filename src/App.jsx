@@ -2828,7 +2828,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
     ? "내 시간표, 이동수업 교실, 학급 공지와 성적 리포트를 이곳에서 바로 열 수 있어요."
     : "학생을 검색하면 성적 리포트 · 대학 탐색 · 관심대학·상담 · NAVI 분석이 같은 작업 탭으로 이어집니다.";
   return (
-    <main className={exam ? "kdn-dash-tight" : undefined} style={exam ? { ...dash.page, paddingTop: 24 } : dash.page}>
+    <main className={`kdn-dash-tight${exam ? " is-exam" : ""}`} style={{ ...dash.page, paddingTop: exam ? 22 : 36, paddingBottom: 28 }}>
       {exam && <DashboardExamStrip exam={exam} now={now} onStart={examZone[0].onClick} />}
       <section style={dash.hero}>
         <div style={dash.heroText}>
@@ -2852,32 +2852,31 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
             <div aria-hidden="true" style={dash.art} dangerouslySetInnerHTML={{ __html: heroSvgForHour(now.getHours()) }} />
             <HeroClockBadge now={now} semester={semester} calendar={academicCalendar} />
           </div>
-          <div style={dash.floatCard}>
+          <div className="kdn-dash-float" style={dash.floatCard}>
             {student ? <DashboardLessonCard lesson={lesson} onOpen={() => onNavigate("timetable")} />
               : <DashboardStudentCard student={openStudent} onSearch={() => onNavigate("grades", { focusSearch: true })} onOpenStudentView={onOpenStudentView} />}
           </div>
         </div>
       </section>
-      {shortcuts.length > 0 && <section aria-labelledby="kdn-dash-shortcuts" style={exam ? { ...dash.shortcuts, marginTop: 18, gap: 12 } : dash.shortcuts}>
+      {shortcuts.length > 0 && <section aria-labelledby="kdn-dash-shortcuts" style={{ ...dash.shortcuts, marginTop: exam ? 16 : 28, gap: 12 }}>
         <h2 id="kdn-dash-shortcuts" style={dash.h2}>바로가기{exam && <small className="kdn-dash-zone-note">시험 기간이라 성적 메뉴를 앞으로 꺼냈어요</small>}</h2>
         <div style={exam ? { ...dash.grid, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" } : dash.grid}>
-          {exam && <div className="kdn-dash-zone t-accent">
+          {exam && <div className="kdn-dash-zone">
+            <span className="kdn-sc-illo is-zone" aria-hidden="true" dangerouslySetInnerHTML={{ __html: SHORTCUT_ILLOS.zone }} />
             <div className="kdn-dash-zone-head">
-              <span className="kdn-sc-ic"><BarChart3 size={22} /></span>
+              <em className="kdn-dash-zone-badge">{exam.phase === "after" ? "성적 처리" : "시험 기간"}</em>
               <b className="kdn-sc-title">성적 ZONE</b>
               <span className="kdn-dash-zone-sub">시험 기간 동안 맨 앞에 고정돼요</span>
-              <em className="kdn-dash-zone-badge">{exam.phase === "after" ? "성적 처리" : "시험 기간"}</em>
             </div>
             <div className="kdn-dash-zone-items">
-              {examZone.map(item => <button key={item.key} type="button" onClick={item.onClick}><b>{item.title}</b><span>{item.text}</span><ArrowRight size={15} className="go" /></button>)}
+              {examZone.map(item => <button key={item.key} type="button" onClick={item.onClick}><b>{item.title}</b><span>{item.text}</span></button>)}
             </div>
           </div>}
           {listedShortcuts.map(item => (
-            <button key={item.key} type="button" onClick={item.onClick} className={`kdn-sc t-${item.tone || "accent"}`} title={item.text}>
-              <span className="kdn-sc-ic">{item.icon}</span>
-              <b className="kdn-sc-title">{item.title}</b>
-              <span className="kdn-sc-chips">{(item.chips || [item.text]).map(chip => <i key={chip}>{chip}</i>)}</span>
-              <span className="kdn-sc-go">열기<span className="arr"><ArrowRight size={15} /></span></span>
+            <button key={item.key} type="button" onClick={item.onClick} className={`kdn-sc il-${SHORTCUT_ILLOS[item.key] ? item.key : "grades"}`} title={item.text}>
+              <span className="kdn-sc-head"><b className="kdn-sc-title">{item.title}</b><ArrowRight size={17} className="kdn-sc-arrow" /></span>
+              <span className="kdn-sc-desc">{(item.chips || [item.text]).join(" · ")}</span>
+              <span className="kdn-sc-illo" aria-hidden="true" dangerouslySetInnerHTML={{ __html: SHORTCUT_ILLOS[item.key] || SHORTCUT_ILLOS.grades }} />
             </button>
           ))}
         </div>
@@ -2885,6 +2884,20 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
     </main>
   );
 }
+
+// 대시보드 바로가기 카드 오른쪽 아래의 둥근 도형 그림. 색은 CSS 변수(--i1 옅은 면, --i2 진한 면, --i3 주황 점)로 모드별로 바꿉니다.
+const SHORTCUT_ILLOS = (() => {
+  const f = n => `style="fill:var(--i${n})"`;
+  const svg = (w, h, body) => `<svg viewBox="0 0 ${w} ${h}" width="100%" height="100%">${body}</svg>`;
+  const book = svg(96, 80, `<rect x="10" y="18" width="40" height="52" rx="10" ${f(1)}/><rect x="44" y="18" width="40" height="52" rx="10" ${f(2)}/><rect x="18" y="30" width="22" height="5" rx="2.5" style="fill:var(--kdn-surface)"/><rect x="18" y="40" width="16" height="5" rx="2.5" style="fill:var(--kdn-surface)"/><circle cx="74" cy="16" r="10" ${f(3)}/>`);
+  const chart = svg(96, 80, `<rect x="14" y="44" width="18" height="30" rx="7" ${f(1)}/><rect x="39" y="28" width="18" height="46" rx="7" ${f(2)}/><rect x="64" y="12" width="18" height="62" rx="7" ${f(3)}/>`);
+  const cells = Array.from({ length: 12 }, (_, i) => `<rect x="${22 + (i % 4) * 14}" y="${38 + Math.floor(i / 4) * 12}" width="9" height="7" rx="3" ${i === 6 ? f(3) : 'style="fill:var(--kdn-surface)"'}/>`).join("");
+  const cal = svg(96, 80, `<rect x="14" y="14" width="64" height="58" rx="14" ${f(1)}/><rect x="14" y="14" width="64" height="16" rx="8" ${f(2)}/>${cells}`);
+  const users = svg(96, 80, `<circle cx="36" cy="30" r="13" ${f(1)}/><rect x="16" y="46" width="40" height="26" rx="13" ${f(1)}/><circle cx="62" cy="26" r="11" ${f(2)}/><rect x="46" y="40" width="34" height="24" rx="12" ${f(2)}/><circle cx="80" cy="14" r="7" ${f(3)}/>`);
+  const shield = svg(96, 80, `<path d="M48 8 76 18v20c0 18-14 30-28 36C34 68 20 56 20 38V18z" ${f(1)}/><path d="m36 40 9 9 17-18" style="stroke:var(--i2);fill:none" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>`);
+  const sliders = svg(96, 80, `<rect x="12" y="20" width="72" height="12" rx="6" ${f(1)}/><circle cx="62" cy="26" r="10" ${f(2)}/><rect x="12" y="46" width="72" height="12" rx="6" ${f(1)}/><circle cx="34" cy="52" r="10" ${f(3)}/>`);
+  return { grades: book, classGrades: chart, gradeLookup: chart, timetable: cal, teacherZone: users, minimumAchievement: shield, admin: sliders, zone: chart };
+})();
 
 // 대시보드 상단 정기시험 띠: D-day, 시험 날짜별 진행(완료·오늘·예정), 끝난 뒤엔 성적 처리 단계.
 function DashboardExamStrip({ exam, now, onStart }) {
