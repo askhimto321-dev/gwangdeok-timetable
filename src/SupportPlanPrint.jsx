@@ -165,6 +165,12 @@ export function fitPrintCards(doc) {
   return remaining;
 }
 
+// A4 가로 한 쪽에 카드가 몇 장 들어가는지 그림으로 보여 주는 작은 아이콘.
+function PageLayoutIcon({count}){
+  const cells=count===6?[[2,2],[8,2],[14,2],[2,8],[8,8],[14,8]].map(([x,y])=>[x,y,5,5]):[[2,2,8,11],[11,2,8,11]];
+  return <svg className="kd-plan-print-icon" width="22" height="16" viewBox="0 0 21 15" aria-hidden="true"><rect x=".5" y=".5" width="20" height="14" rx="2" fill="none" stroke="currentColor" opacity=".45"/>{cells.map(([x,y,w,h],i)=><rect key={i} x={x} y={y} width={w} height={h} rx="1" fill="currentColor"/>)}</svg>;
+}
+
 export default function SupportPlanPrint(props) {
   const frame=useRef(null), [busy,setBusy]=useState(false), [message,setMessage]=useState('');
   useEffect(()=>{setBusy(false);setMessage('');return ()=>{frame.current?.remove();frame.current=null;};},[props.student?.sid]);
@@ -189,5 +195,5 @@ export default function SupportPlanPrint(props) {
     el.srcdoc=printHtml(layout);
     document.body.appendChild(el);
   };
-  return <><div className="kd-plan-print-choice" role="group" aria-label="한 페이지에 인쇄할 카드 수"><button type="button" className="kd-plan-print-option" aria-pressed={layout==='six'} onClick={()=>setLayout('six')}>6장 / 1쪽</button><button type="button" className="kd-plan-print-option" aria-pressed={layout==='two'} onClick={()=>setLayout('two')}>2장 / 1쪽</button></div><button type="button" className="kd-plan-action is-print" disabled={props.disabled || busy || !props.items.filter(Boolean).length} onClick={print}><Printer size={15}/>{busy?'인쇄 준비 중…':'카드 인쇄·PDF 저장'}</button>{message && <small className="kd-plan-print-message" role="status">{message}</small>}</>;
+  return <><div className="kd-plan-print-choice" role="group" aria-label="한 페이지에 인쇄할 카드 수"><button type="button" data-kdn-bare className="kd-plan-print-option" aria-pressed={layout==='six'} title="A4 한 쪽에 카드 6장" onClick={()=>setLayout('six')}><PageLayoutIcon count={6}/>6장</button><button type="button" data-kdn-bare className="kd-plan-print-option" aria-pressed={layout==='two'} title="A4 한 쪽에 카드 2장" onClick={()=>setLayout('two')}><PageLayoutIcon count={2}/>2장</button></div><button type="button" className="kd-plan-action is-print" disabled={props.disabled || busy || !props.items.filter(Boolean).length} onClick={print}><Printer size={15}/>{busy?'인쇄 준비 중…':'카드 인쇄·PDF 저장'}</button>{message && <small className="kd-plan-print-message" role="status">{message}</small>}</>;
 }

@@ -2489,11 +2489,15 @@ function StaffStudentWorkspaceBar({
             <span style={newBar.recentLabel}>최근 본 학생</span>
             {recent.map((student, index) => {
               const tone = RECENT_TONES[index % RECENT_TONES.length];
-              return <button key={student.sid} type="button" data-kdn-bare onClick={() => pickStudent(student.sid)} title={`${student.name} · ${student.sid}`} style={newBar.recentChip}>
-                <span aria-hidden="true" style={{ ...newBar.recentAvatar, background: tone.bg, color: tone.ink }}>{String(student.name || "?").charAt(0)}</span>
-                <span style={newBar.recentName}>{student.name}</span><small style={newBar.recentSid}>{student.sid}</small>
-              </button>;
+              return <span key={student.sid} className="kdn-recent-chip" style={{ display: "inline-flex", alignItems: "center" }}>
+                <button type="button" data-kdn-bare onClick={() => pickStudent(student.sid)} title={`${student.name} · ${student.sid}`} style={newBar.recentChip}>
+                  <span aria-hidden="true" style={{ ...newBar.recentAvatar, background: tone.bg, color: tone.ink }}>{String(student.name || "?").charAt(0)}</span>
+                  <span style={newBar.recentName}>{student.name}</span><small style={newBar.recentSid}>{student.sid}</small>
+                </button>
+                <button type="button" data-kdn-bare className="kdn-recent-x" aria-label={`${student.name} 최근 목록에서 지우기`} title="목록에서 지우기" onClick={() => setRecentSids(forgetRecentStudents(student.sid))}><X size={12} /></button>
+              </span>;
             })}
+            <button type="button" data-kdn-bare className="kdn-recent-clear" onClick={() => setRecentSids(forgetRecentStudents())}>지우기</button>
           </div>}
         </div>
         <div role="tablist" aria-label="학생 화면" style={newBar.tabs}>
@@ -2586,6 +2590,11 @@ function WorkspaceEmptyState({ allRosters, onSelect }) {
 const RECENT_STUDENTS_KEY = "kd_recent_students_v1";
 function readRecentStudents() {
   try { const value = JSON.parse(localStorage.getItem(RECENT_STUDENTS_KEY) || "[]"); return Array.isArray(value) ? value.map(String).slice(0, 8) : []; } catch { return []; }
+}
+function forgetRecentStudents(sid = null) {
+  const next = sid == null ? [] : readRecentStudents().filter(value => value !== String(sid));
+  try { localStorage.setItem(RECENT_STUDENTS_KEY, JSON.stringify(next)); } catch { /* localStorage unavailable */ }
+  return next;
 }
 function rememberRecentStudent(sid) {
   const next = [String(sid), ...readRecentStudents().filter(value => value !== String(sid))].slice(0, 8);

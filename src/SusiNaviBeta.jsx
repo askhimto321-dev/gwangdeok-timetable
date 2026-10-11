@@ -23,7 +23,7 @@ import {
 import { readStorage, writeStorage } from "./storage.js";
 import { evaluateAdmissionRequirement } from "./gradeEngine.js";
 import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAccentKey } from "./admissionMetrics.js";
-import { CutStrip, SupportBandTiles, groupCutItems } from "./naviVisuals.jsx";
+import { CutStrip, SupportBandTiles, groupCutItems, BandPill, MarginBar, supportBandFor } from "./naviVisuals.jsx";
 import { GradeSimPresetChips } from "./GradeSimulator.jsx";
 import { isNewUi } from "./uiMode.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
@@ -2372,6 +2372,9 @@ export default function SusiNaviBetaView({
   // 기본은 표(시안 A), 카드 격자(B)·분포 지도(C)·상세 카드를 골라 볼 수 있습니다.
   const [resultLayout, setResultLayoutState] = useState(() => { try { const saved = localStorage.getItem("kd_navi_result_layout_v2"); return ["list", "grid", "map", "card"].includes(saved) ? saved : "list"; } catch { return "list"; } });
   const setResultLayout = value => { setResultLayoutState(value); try { localStorage.setItem("kd_navi_result_layout_v2", value); } catch { /* ignore */ } };
+  // 표·카드 보기에서 '상세 카드로 보기'를 누르면 상세 카드 보기로 바꾸고 그 모집단위 카드를 펼쳐 보여 줍니다.
+  const [focusCardKey, setFocusCardKey] = useState("");
+  const openCardFor = row => { setFocusCardKey(`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`); setResultLayout("card"); };
   const [cutoffBasis, setCutoffBasis] = useState(restoredViewState?.cutoffBasis === "50" ? "50" : (restoredViewState?.cutoffBasis === "70" ? "70" : readCutoffPreference()));
   const [connectionMode, setConnectionMode] = useState(restoredViewState?.connectionMode === "university" ? "university" : "grade");
   const [connectionRange, setConnectionRange] = useState(restoredViewState?.connectionRange || "0.30");
@@ -3124,6 +3127,9 @@ export default function SusiNaviBetaView({
             favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)}
             onToggleFavorite={onToggleFavorite}
             onOpenCases={onOpenCases}
+            onAddSupportPlan={addSupportPlanItem}
+            supportPlan={supportPlan}
+            onOpenWorkspace={() => navigateViewTab("workspace")}
             onBack={() => goBackWithinNavi("results")}
             onOpenUniversity={item => {
               setConnectionFocus({
@@ -3231,16 +3237,17 @@ export default function SusiNaviBetaView({
           <div style={ui.resultList}>
             {isNewUi() && <div className="kdn-view-switch" role="group" aria-label="결과 보기 방식">
               <span>보기</span>
-              {[["list", "표"], ["grid", "카드"], ["map", "분포 지도"], ["card", "상세 카드"]].map(([value, label]) => <button key={value} type="button" data-kdn-bare aria-pressed={resultLayout === value} className={resultLayout === value ? "is-on" : ""} onClick={() => setResultLayout(value)}>{label}</button>)}
+              {[["list", "표"], ["grid", "카드"], ["card", "상세 카드"], ["map", "분포 지도"]].map(([value, label]) => <button key={value} type="button" data-kdn-bare aria-pressed={resultLayout === value} className={resultLayout === value ? "is-on" : ""} onClick={() => setResultLayout(value)}>{label}</button>)}
             </div>}
             {isNewUi() && resultLayout === "map" && filtered.length ? <NaviResultMap rows={filtered} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
               isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
-              : isNewUi() && resultLayout === "grid" && visibleResultRows.length ? <NaviResultGrid rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis}
+              : isNewUi() && resultLayout === "grid" && visibleResultRows.length ? <NaviResultGrid rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis} onOpenCases={onOpenCases} onOpenCard={openCardFor} mockGrades={effectiveStudent?.latestMockGrades || null}
               isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
-              : isNewUi() && resultLayout === "list" && visibleResultRows.length ? <NaviResultTable rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis} onOpenCases={onOpenCases} mockGrades={effectiveStudent?.latestMockGrades || null}
+              : isNewUi() && resultLayout === "list" && visibleResultRows.length ? <NaviResultTable rows={visibleResultRows} convertedGrade={conversion?.value} cutoffBasis={cutoffBasis} onOpenCases={onOpenCases} onOpenCard={openCardFor} mockGrades={effectiveStudent?.latestMockGrades || null}
               isFavorite={row => favorites.some(item => favoriteMatches(item, row))} favoriteEnabled={Boolean(selectedStudent?.sid && onToggleFavorite)} onToggleFavorite={onToggleFavorite} />
               : (visibleResultRows.length ? visibleResultRows.map(({ row, minimums, minimumEvaluations, minimumHistories, minimumImprovements, courseRules, changes2028, schedules, caseStats, recommendation, recommendationProgress, schoolTrend }, index) => <ResultCard
               key={`${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
+              focused={focusCardKey === `${universityIdentityKey(row[3], row[1])}-${unitIdentityKey(row[5])}-${compactText(row[6] || "공통")}`}
               row={row}
               minimums={minimums}
               minimumEvaluations={minimumEvaluations}
@@ -3382,9 +3389,19 @@ function SupportConnectionExplorer({
   onToggleFavorite,
   onOpenCases,
   onOpenUniversity,
+  onAddSupportPlan,
+  supportPlan = [],
+  onOpenWorkspace,
   onBack,
 }) {
   const gradeReady = validGrade(convertedGrade) != null;
+  // 2차 기준: 성적대로 찾은 후보를 계열(학과)이나 지역으로 묶어 보고, 칩으로 골라 좁힙니다.
+  const [secondary, setSecondaryState] = useState(() => { try { const saved = localStorage.getItem("kd_navi_conn_secondary"); return ["field", "region"].includes(saved) ? saved : "none"; } catch { return "none"; } });
+  const [secondaryPicks, setSecondaryPicks] = useState([]);
+  const setSecondary = next => { setSecondaryState(next); setSecondaryPicks([]); try { localStorage.setItem("kd_navi_conn_secondary", next); } catch { /* 저장 실패는 무시 */ } };
+  const secondaryOf = item => secondary === "field" ? (String(item.field || "").trim() || "공통") : secondary === "region" ? (String(item.region || "").trim() || "미지정") : "";
+  const planItemOf = item => ({ university: item.university, region: item.region || "", department: item.originalDepartment || item.department, field: item.field, admissionType: item.admissionType, track: item.track || item.admissionType, trackYear: 2026, source: "NAVI 통합 기준" });
+  const inPlan = item => supportPlan.some(value => supportPlanItemKey(value) === supportPlanItemKey(planItemOf(item)));
   const rawResults = resultSet?.allItems || resultSet?.items || [];
   const [displayMode, setDisplayMode] = useState("all");
   const [resultPage, setResultPage] = useState(1);
@@ -3428,11 +3445,25 @@ function SupportConnectionExplorer({
   useEffect(() => { setResultPage(1); setSelectedKey(""); }, [connectionBandFilters]);
   useEffect(() => { if (!gradeReady && connectionBandFilters.length) setConnectionBandFilters([]); }, [gradeReady, connectionBandFilters.length]);
 
-  const searchedResults = useMemo(() => {
+  const queriedResults = useMemo(() => {
     const needle = compactText(deferredCandidateQuery);
     if (!needle) return allResults;
     return allResults.filter(item => compactText(`${item.university} ${item.department} ${item.originalDepartment || ""} ${item.field} ${item.track} ${item.admissionType}`).includes(needle));
   }, [allResults, deferredCandidateQuery]);
+  const secondaryCounts = useMemo(() => {
+    if (secondary === "none") return [];
+    const counts = new Map();
+    queriedResults.forEach(item => { const value = secondaryOf(item); counts.set(value, (counts.get(value) || 0) + 1); });
+    return Array.from(counts, ([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "ko"));
+  }, [queriedResults, secondary]); // eslint-disable-line react-hooks/exhaustive-deps
+  const searchedResults = useMemo(() => {
+    if (secondary === "none") return queriedResults;
+    const picked = secondaryPicks.length ? queriedResults.filter(item => secondaryPicks.includes(secondaryOf(item))) : queriedResults;
+    // 고른 게 없으면 묶음(많은 순)대로, 묶음 안에서는 원래 순서(성적 차이 순)를 지킵니다.
+    const rank = new Map(secondaryCounts.map((entry, index) => [entry.value, index]));
+    return picked.map((item, index) => ({ item, index })).sort((a, b) => (rank.get(secondaryOf(a.item)) ?? 999) - (rank.get(secondaryOf(b.item)) ?? 999) || a.index - b.index).map(entry => entry.item);
+  }, [queriedResults, secondary, secondaryPicks, secondaryCounts]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setResultPage(1); }, [secondary, secondaryPicks]);
   const resultPageCount = Math.max(1, Math.ceil(searchedResults.length / pageSize));
   const compactResults = useMemo(() => representativeConnectionResults(searchedResults, CONNECTION_PAGE_SIZE, mode), [searchedResults, mode]);
   const summaryBandCounts = useMemo(() => compactResults.reduce((acc, item) => { const label = connectionSupportBand(item); acc[label] = (acc[label] || 0) + 1; return acc; }, {}), [compactResults]);
@@ -3478,6 +3509,11 @@ function SupportConnectionExplorer({
         {!!connectionBandFilters.length && <button type="button" className="kdn-conn-ghost" onClick={() => setConnectionBandFilters([])}>전체</button>}
         <span className="kdn-conn-src">컷 출처 · 학과 공개 <b>{filteredOfficial.toLocaleString()}</b> · 계열 통합 <b>{filteredIntegrated.toLocaleString()}</b></span>
       </div>}
+      {!!total && <div className="kdn-conn-second">
+        <span className="lb">2차 기준</span>
+        <div className="kdn-conn-seg sm">{[["none", "성적만"], ["field", "계열별"], ["region", "지역별"]].map(([value, label]) => <button key={value} type="button" className={secondary === value ? "is-on" : ""} onClick={() => setSecondary(value)}>{label}</button>)}</div>
+        {secondary !== "none" && <div className="chips">{secondaryCounts.slice(0, 14).map(({ value, count }) => { const on = secondaryPicks.includes(value); return <button key={value} type="button" data-kdn-bare className={on ? "is-on" : ""} aria-pressed={on} onClick={() => setSecondaryPicks(current => current.includes(value) ? current.filter(entry => entry !== value) : [...current, value])}>{value}<small>{count}</small></button>; })}{secondaryPicks.length > 0 && <button type="button" data-kdn-bare className="clear" onClick={() => setSecondaryPicks([])}>선택 해제</button>}</div>}
+      </div>}
       {!!total && <div className="kdn-conn-tools">
         <label className="kdn-conn-search"><Search size={16}/><input value={candidateQuery} onChange={event => { setCandidateQuery(event.target.value); setResultPage(1); }} placeholder="후보 안에서 대학·학과·전형 검색" />{candidateQuery && <button type="button" data-kdn-bare onClick={() => { setCandidateQuery(""); setResultPage(1); }} aria-label="검색어 지우기"><X size={14}/></button>}</label>
         <div className="kdn-conn-seg sm">
@@ -3490,13 +3526,17 @@ function SupportConnectionExplorer({
         </div>
       </div>}
       {!results.length ? <div className="kdn-conn-empty">{emptyText}</div> : tableView ? <div className="kdn-case-table-wrap"><table className="kdn-case-table kdn-conn-table">
-        <thead><tr><th/><th>대학 · 모집단위</th><th>전형</th><th className="n">기준 컷</th><th className="n">{mode === "grade" ? "학생과 차이" : "기준대와 차이"}</th><th className="c">판정</th><th className="n">NAVI 사례</th><th>광덕고 지원 → 합격</th><th/></tr></thead>
-        <tbody>{renderedResults.map(({ item, trend }) => {
+        <thead><tr><th/><th>대학 · 모집단위</th><th>전형</th><th className="n">기준 컷</th><th className="n">{mode === "grade" ? "학생과 차이" : "기준대와 차이"}</th><th className="c">판정</th><th className="n">NAVI 사례</th><th>광덕고 지원 → 합격</th><th className="c">지원 구성</th><th/></tr></thead>
+        <tbody>{renderedResults.map(({ item, trend }, rowIndex) => {
+          const group = secondary !== "none" && displayMode === "all" ? secondaryOf(item) : "";
+          const groupStart = group && (rowIndex === 0 || secondaryOf(renderedResults[rowIndex - 1].item) !== group);
+          const groupCount = groupStart ? secondaryCounts.find(entry => entry.value === group)?.count : null;
           const diff = Number(mode === "grade" ? item.difference : item.linkDifference);
           const support = mode === "grade" ? supportBand(convertedGrade, item.referenceCut) : null;
           const favorite = favorites.some(value => favoriteMatchesConnection(value, item));
           const margin = mode === "grade" && gradeReady ? Number(item.referenceCut) - Number(convertedGrade) : null;
-          return <tr key={`${mode}-${item.key}`} className={selectedKey === item.key ? "is-selected" : ""} onClick={() => { setSelectedKey(item.key); onOpenUniversity?.(item); }}>
+          const saved = inPlan(item);
+          return <React.Fragment key={`${mode}-${item.key}`}>{groupStart && <tr className="kdn-conn-grouprow"><td colSpan={10}><b>{group}</b><small>{groupCount}건</small></td></tr>}<tr className={selectedKey === item.key ? "is-selected" : ""} onClick={() => { setSelectedKey(item.key); onOpenUniversity?.(item); }}>
             <td className="fv"><button type="button" data-kdn-bare className={favorite ? "fav is-on" : "fav"} disabled={!favoriteEnabled} aria-label={favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"} onClick={event => { event.stopPropagation(); onToggleFavorite?.(connectionFavoriteItem(item)); }}><Star size={15} fill={favorite ? "currentColor" : "none"}/></button></td>
             <td><b className="u">{item.university}</b><span className="d">{item.department}</span><small className="m">{[item.field, item.track].filter(Boolean).join(" · ")}{item.minimumSummary?.unsatisfied > 0 && <em className="warn"> · 최저 미도달</em>}</small></td>
             <td><span className="t">{item.admissionType}</span><small className={item.integratedScope ? "src int" : "src off"}>{item.integratedScope ? "계열 통합컷" : "학과 공개컷"}</small></td>
@@ -3505,8 +3545,9 @@ function SupportConnectionExplorer({
             <td className="c">{support ? <span className="admission-band-badge kdn-conn-band" style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <small className="m">{item.linkedTarget ? `${item.linkedTarget.university} 기준` : "유사"}</small>}</td>
             <td className="n">{item.caseCount ? `${item.caseCount.toLocaleString()}건` : "-"}</td>
             <td>{trend.total ? <button type="button" data-kdn-bare className="kdn-conn-school" onClick={event => { event.stopPropagation(); openCases(item); }} title="광덕고 대입 결과에서 사례 보기"><b>{trend.total}</b>→<b className="ok">{trend.accepted}</b><span className="rate"><i><em style={{ width: `${Math.min(100, Number(trend.rate || 0))}%` }}/></i></span><small>{trend.rate == null ? "-" : `${trend.rate}%`}</small></button> : <small className="m">사례 없음</small>}</td>
+            <td className="c">{onAddSupportPlan && <button type="button" data-kdn-bare className={`kdn-conn-plan${saved ? " is-on" : ""}`} onClick={event => { event.stopPropagation(); saved ? onOpenWorkspace?.() : onAddSupportPlan(planItemOf(item)); }} title={saved ? "지원 구성 보기" : "수시 지원 구성에 담기"}>{saved ? "✓ 담김" : "+ 담기"}</button>}</td>
             <td className="go"><ChevronRight size={17}/></td>
-          </tr>;
+          </tr></React.Fragment>;
         })}</tbody>
       </table></div> : null}
       {!!results.length && !tableView && <div style={ui.connectionGrid}>{renderedResults.map(({ item, trend }) => {
@@ -3516,7 +3557,7 @@ function SupportConnectionExplorer({
         return <article key={`${mode}-${item.key}`} className="kdn-conn-card" onClick={() => onOpenUniversity?.(item)}>
           <div className="top"><div><b>{item.university}</b><span>{item.department}</span><small>{item.admissionType} · {item.integratedScope ? "계열 통합컷" : "학과 공개컷"}</small></div><button type="button" data-kdn-bare className={favorite ? "fav is-on" : "fav"} disabled={!favoriteEnabled} onClick={event => { event.stopPropagation(); onToggleFavorite?.(connectionFavoriteItem(item)); }} aria-label="즐겨찾기"><Star size={15} fill={favorite ? "currentColor" : "none"}/></button></div>
           <div className="nums"><span><small>기준 컷</small><b>{Number(item.referenceCut).toFixed(2)}</b></span><span><small>차이</small><b>{Number.isFinite(diff) ? diff.toFixed(2) : "-"}</b></span><span><small>광덕고</small><b>{trend.total ? `${trend.accepted}/${trend.total}` : "-"}</b></span></div>
-          <div className="foot">{support ? <span className="admission-band-badge" style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <span/>}{trend.total > 0 && <button type="button" data-kdn-bare className="kdn-conn-link" onClick={event => { event.stopPropagation(); openCases(item); }}>광덕고 사례 ›</button>}</div>
+          <div className="foot">{onAddSupportPlan && <button type="button" data-kdn-bare className={`kdn-conn-plan${inPlan(item) ? " is-on" : ""}`} onClick={event => { event.stopPropagation(); inPlan(item) ? onOpenWorkspace?.() : onAddSupportPlan(planItemOf(item)); }}>{inPlan(item) ? "✓ 담김" : "+ 지원 구성"}</button>}{support ? <span className="admission-band-badge" style={{ color: support.color, background: support.background, borderColor: support.border }}>{support.label}</span> : <span/>}{trend.total > 0 && <button type="button" data-kdn-bare className="kdn-conn-link" onClick={event => { event.stopPropagation(); openCases(item); }}>광덕고 사례 ›</button>}</div>
         </article>;
       })}</div>}
       {displayMode === "all" && resultPageCount > 1 && <Pagination page={resultPage} pageCount={resultPageCount} onChange={setResultPage}/>}
@@ -3686,42 +3727,82 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
 
 // 새 UI 목록 보기: 모집단위 한 줄씩 핵심만(전형 수 · 지원 구간 분포 · 수능최저) 보여주고,
 // 줄을 누르면 그 자리에서 전형별 '학생 ↔ 컷' 막대가 펼쳐집니다.
-// 목록 보기에서 줄을 펼쳤을 때: 전형별 컷은 같은 전형끼리 묶어 요약하고(전체는 버튼으로),
-// 수능최저는 계산 줄로, 마지막에 광덕고 대입결과로 바로 가는 버튼을 둡니다.
-function NaviRowDetail({ row, minimums = [], minimumEvaluations = [], minimumImprovements = [], convertedGrade, cutoffBasis = "70", mockGrades = null, onOpenCases }) {
+// 목록·카드 보기에서 모집단위를 펼쳤을 때: 전형마다 한 줄(컷 판정 + 그 전형의 수능최저)로 보여 주고,
+// 줄을 누르면 그 전형의 최저 계산 줄만 펼칩니다. 같은 전형(2026 모집단위 여러 곳)은 한 줄로 묶습니다.
+const trackMatchKey = value => minimumTrackKey(String(value || "")).replace(/전형$/, "");
+function NaviRowDetail({ row, minimums = [], minimumEvaluations = [], minimumImprovements = [], convertedGrade, cutoffBasis = "70", mockGrades = null, schoolTrend = null, onOpenCases, onOpenCard }) {
   const [showAll, setShowAll] = useState(false);
+  const [openTrack, setOpenTrack] = useState("");
   const [, , , university, , unit2027, , teaching = [], holistic = []] = row;
   const items = [...teaching.map(item => ({ kind: "교과", name: item[0], cut50: item[1], cut70: item[2] })), ...holistic.map(item => ({ kind: "종합", name: item[0], cut50: item[1], cut70: item[2] }))];
+  const withCut = items.filter(item => validGrade(item.cut50) != null || validGrade(item.cut70) != null);
   const grouped = groupCutItems(items, cutoffBasis);
-  const merged = grouped.length < items.filter(item => validGrade(item.cut50) != null || validGrade(item.cut70) != null).length;
-  const seen = new Set();
-  const judged = minimums.map((item, index) => ({ item, evaluation: minimumEvaluations[index], improvement: minimumImprovements[index] }))
-    .filter(({ item, evaluation }) => {
-      if (!evaluation) return false;
-      const key = `${item?.[3] || item?.[2]}|${evaluation.ruleText}|${evaluation.status}`;
-      if (seen.has(key)) return false;
-      seen.add(key); return true;
-    }).slice(0, 4);
+  const list = showAll ? withCut : grouped;
+  const minimumFor = name => {
+    const key = trackMatchKey(name);
+    const index = minimums.findIndex(item => { const other = trackMatchKey(item?.[3] || item?.[2]); return other && key && (other === key || other.includes(key) || key.includes(other)); });
+    return index >= 0 ? { evaluation: minimumEvaluations[index], improvement: minimumImprovements[index] } : null;
+  };
+  const used = new Set();
+  const rows = list.map((item, index) => { const minimum = minimumFor(item.name); if (minimum) used.add(minimum.evaluation); return { item, index, minimum }; });
+  const extra = minimums.map((item, index) => ({ item, evaluation: minimumEvaluations[index], improvement: minimumImprovements[index] })).filter(entry => entry.evaluation && !used.has(entry.evaluation));
+  const hasStudent = validGrade(convertedGrade) != null;
+  const school = Number(schoolTrend?.total || 0) > 0 ? schoolTrend : null;
+  const minBadge = evaluation => {
+    if (!evaluation) return <span className="mb none">자료 없음</span>;
+    const map = { satisfied: ["ok", "최저 충족"], unsatisfied: ["no", "최저 미충족"], "no-minimum": ["none", "최저 없음"], manual: ["rv", "원문 확인"], unavailable: ["rv", "성적 필요"] };
+    const [tone, label] = map[evaluation.status] || ["rv", "확인 필요"];
+    return <span className={`mb ${tone}`}>{label}</span>;
+  };
+  const calcOf = (evaluation, improvement) => ["satisfied", "unsatisfied"].includes(evaluation?.status) && (evaluation.selectedSubjects || []).length > 0 && evaluation.threshold != null
+    ? <MinimumCalcStrip className="is-compact" grades={mockGrades} result={evaluation} advice={evaluation.status === "unsatisfied" ? improvement : null} />
+    : <small className="why">{evaluation?.status === "manual" ? (evaluation.ruleText || "요강 원문 확인 필요") : evaluation?.status === "no-minimum" ? "이 전형은 수능최저가 없습니다." : (evaluation?.reason || "판정 자료가 없습니다.")}</small>;
   return <div className="kdn-nrd">
-    <CutStrip limit={20} items={showAll ? items : grouped} studentGrade={convertedGrade} cutoffBasis={cutoffBasis} title={showAll ? "전형별 컷 전체" : "전형별 컷 요약"} />
-    {merged && <button type="button" className="kdn-nrd-more" onClick={() => setShowAll(value => !value)}>{showAll ? "‹ 전형별 요약으로" : `모집단위별 컷 전체 보기 (${items.length}개) ›`}</button>}
-    {judged.length > 0 && <section className="kdn-nrd-min">
-      <b className="hd">수능최저</b>
-      <div className="list">{judged.map(({ item, evaluation, improvement }, index) => {
-        const meta = naviMinimumStatusMeta(evaluation.status);
-        const calc = ["satisfied", "unsatisfied"].includes(evaluation.status) && (evaluation.selectedSubjects || []).length > 0 && evaluation.threshold != null;
-        return <div key={index} className="it">
-          <div className="top"><b>{item?.[3] || item?.[2] || "전형"}</b>{evaluation.year && <small>{evaluation.year}학년도</small>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
-          {calc ? <MinimumCalcStrip className="is-compact" grades={mockGrades} result={evaluation} advice={evaluation.status === "unsatisfied" ? improvement : null} />
-            : <small className="why">{evaluation.status === "no-minimum" ? "수능최저 없음" : evaluation.status === "manual" ? "요강 원문 확인 필요" : (evaluation.reason || "판정 불가")}</small>}
-        </div>;
-      })}</div>
+    <div className="kdn-nrd-tracks">
+      <div className="hd"><b>{showAll ? "모집단위별 컷 전체" : "전형별 판정"}</b><small>{hasStudent ? `내 환산 ${Number(convertedGrade).toFixed(2)} · ${cutoffBasis}%컷 기준` : `${cutoffBasis}%컷 기준`} · 줄을 누르면 그 전형의 수능최저</small></div>
+      <div className="th"><span>전형</span><span>50%컷</span><span>70%컷</span><span>내 성적과 차이</span><span>판정</span><span>수능최저</span></div>
+      {rows.map(({ item, index, minimum }) => {
+        const basisCut = cutoffBasis === "50" ? item.cut50 : item.cut70;
+        const band = hasStudent ? supportBandFor(convertedGrade, basisCut) : null;
+        const margin = band ? -band.diff : null;
+        const key = `${item.kind}-${item.name}-${index}`;
+        const open = openTrack === key;
+        return <React.Fragment key={key}>
+          <button type="button" data-kdn-bare className={`tr${open ? " is-open" : ""}`} aria-expanded={open} onClick={() => setOpenTrack(open ? "" : key)}>
+            <span className="nm"><i className={item.kind === "종합" ? "k hol" : "k tea"}>{item.kind}</i><span><b>{item.name || item.kind}</b>{item.count > 1 && <small>모집단위 {item.count}곳{item.range ? ` · ${item.range[0].toFixed(2)}~${item.range[1].toFixed(2)}` : ""} · 가운데값</small>}</span></span>
+            <span className={`num${cutoffBasis === "50" ? " on" : ""}`}>{validGrade(item.cut50) == null ? "-" : Number(item.cut50).toFixed(2)}</span>
+            <span className={`num${cutoffBasis !== "50" ? " on" : ""}`}>{validGrade(item.cut70) == null ? "-" : Number(item.cut70).toFixed(2)}</span>
+            <span className="gap">{margin == null ? <em>-</em> : <><em className={margin >= 0 ? "up" : "down"}>{Math.abs(margin).toFixed(2)} {margin >= 0 ? "여유" : "부족"}</em><MarginBar margin={margin} /></>}</span>
+            <span className="band"><BandPill band={band} size="sm" /></span>
+            <span className="mn">{minBadge(minimum?.evaluation)}<i className="chev" aria-hidden="true">{open ? "▴" : "▾"}</i></span>
+          </button>
+          {open && <div className="tr-open">{minimum ? calcOf(minimum.evaluation, minimum.improvement) : <small className="why">이 전형에 연결된 수능최저 자료가 없습니다.</small>}</div>}
+        </React.Fragment>;
+      })}
+      {grouped.length < withCut.length && <button type="button" className="kdn-nrd-more" onClick={() => { setShowAll(value => !value); setOpenTrack(""); }}>{showAll ? "‹ 전형별로 묶어 보기" : `모집단위별 컷 전체 보기 (${withCut.length}개) ›`}</button>}
+    </div>
+    {extra.length > 0 && <section className="kdn-nrd-min">
+      <b className="hd">컷 자료 없는 전형의 수능최저</b>
+      <div className="list">{extra.slice(0, 4).map(({ item, evaluation, improvement }, index) => <div key={index} className="it">
+        <div className="top"><b>{item?.[3] || item?.[2] || "전형"}</b>{minBadge(evaluation)}</div>
+        {calcOf(evaluation, improvement)}
+      </div>)}</div>
     </section>}
-    {onOpenCases && <div className="kdn-nrd-foot"><button type="button" onClick={() => onOpenCases(university, unit2027, "")}>광덕고 대입결과에서 {university} 보기 ›</button></div>}
+    <div className="kdn-nrd-foot">
+      <span className="school">{school ? <>광덕고 지원 <b>{school.total}</b> → 합격 <b className="ok">{school.accepted}</b>{school.rate != null && <small>{school.rate}%</small>}</> : <small>광덕고 지원 사례 없음</small>}</span>
+      {onOpenCard && <button type="button" className="ghost" onClick={onOpenCard}>상세 카드로 보기 ›</button>}
+      {onOpenCases && <button type="button" onClick={() => onOpenCases(university, unit2027, "")}>광덕고 대입결과 ›</button>}
+    </div>
   </div>;
 }
 
-export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite, onOpenCases, mockGrades = null }) {
+// 광덕고 지원→합격 칸: "6 → 1"(합격 초록), 사례가 없으면 "–".
+function SchoolTrendCell({ trend }) {
+  if (!Number(trend?.total || 0)) return <span style={{ color: "var(--kdn-muted)" }}>–</span>;
+  return <span style={{ display: "inline-flex", alignItems: "baseline", gap: 5, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}><b style={{ fontSize: 15, color: "var(--kdn-ink)" }}>{trend.total}</b><span style={{ color: "var(--kdn-muted)" }}>→</span><b style={{ fontSize: 15, color: "#15803d" }}>{trend.accepted}</b></span>;
+}
+
+export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite, onOpenCases, onOpenCard, mockGrades = null }) {
   const [openKey, setOpenKey] = useState("");
   const order = ["상향", "소신", "적정", "안정", "하향"];
   return <div style={{ overflowX: "auto", borderRadius: 18, border: "1px solid var(--kdn-line)", background: "var(--kdn-surface)" }}>
@@ -3734,9 +3815,10 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
         <th style={{ padding: "12px 10px", fontWeight: 700 }}>가장 가까운 전형 컷 ({cutoffBasis}%)</th>
         <th style={{ padding: "12px 10px", fontWeight: 700 }}>지원 구간</th>
         <th style={{ padding: "12px 10px", fontWeight: 700 }}>수능최저</th>
+        <th style={{ padding: "12px 10px", fontWeight: 700, whiteSpace: "nowrap" }}>광덕고 지원→합격</th>
         <th style={{ padding: "12px 16px 12px 10px", width: 104 }} />
       </tr></thead>
-      <tbody>{rows.map(({ row, minimums, minimumEvaluations, minimumImprovements }, rowIndex) => {
+      <tbody>{rows.map(({ row, minimums, minimumEvaluations, minimumImprovements, schoolTrend }, rowIndex) => {
         const [, region, , university, , unit2027, field, teaching = [], holistic = []] = row;
         // 같은 대학이 이어지면 대학명은 첫 줄에만 쓰고, 대학이 바뀌는 줄 위에 굵은 선을 그어 묶음을 구분합니다.
         const prevUniversity = rowIndex > 0 ? rows[rowIndex - 1]?.row?.[3] : null;
@@ -3755,12 +3837,13 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
             <td style={{ padding: "10px" }}><span style={{ display: "grid", gap: 2 }}>{newGroup ? <b style={{ fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)" }}>{university}</b> : <small style={{ fontSize: 12, color: "var(--kdn-muted)" }}>└ {university}</small>}<span style={{ color: "var(--kdn-ink)", fontWeight: 700, fontSize: 15 }}>{unit2027}</span></span></td>
             <td style={{ padding: "10px", color: "var(--kdn-ink-soft)" }}>{[region, field].filter(Boolean).join(" · ")}</td>
             <td style={{ padding: "10px", textAlign: "center", whiteSpace: "nowrap", fontSize: 13.5, color: "var(--kdn-ink-soft)" }}>교과 <b style={{ color: "var(--kdn-ink)" }}>{teaching.length}</b> · 종합 <b style={{ color: "var(--kdn-ink)" }}>{holistic.length}</b></td>
-            <td style={{ padding: "10px" }}>{primary ? <span style={{ display: "grid", gap: 1 }}><span style={{ fontSize: 12.5, color: "var(--kdn-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 170 }}>{primary.kind} {primary.name}</span><span style={{ display: "flex", alignItems: "baseline", gap: 8 }}><b style={{ fontSize: 16, fontWeight: 800, color: "var(--kdn-ink)", fontVariantNumeric: "tabular-nums" }}>{primary.cut.toFixed(2)}</b>{primary.gap != null && <span style={{ fontSize: 13.5, fontWeight: 800, color: primary.gap >= 0 ? "#15803d" : "#b91c1c", whiteSpace: "nowrap" }}>{Math.abs(primary.gap).toFixed(2)} {primary.gap >= 0 ? "여유" : "부족"}</span>}</span></span> : <span style={{ color: "var(--kdn-muted)" }}>컷 없음</span>}</td>
-            <td style={{ padding: "10px" }}><span style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>{order.filter(label => counts[label]).map(label => { const meta = SUPPORT_META[label]; return <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 999, border: `1px solid ${meta.border}`, background: meta.background, color: meta.color, fontSize: 12.5, fontWeight: 800 }}>{label} {counts[label]}</span>; })}{!Object.keys(counts).length && <span style={{ color: "var(--kdn-muted)" }}>{convertedGrade == null ? "학생 내신 없음" : "-"}</span>}</span></td>
-            <td style={{ padding: "10px", color: "var(--kdn-ink-soft)", fontWeight: 600 }}>{!minimum.total ? "없음" : <span style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>{minimum.satisfied > 0 && <span style={{ color: "#287348", fontWeight: 800 }}>충족 {minimum.satisfied}</span>}{minimum.unsatisfied > 0 && <span style={{ color: "#b05244", fontWeight: 800 }}>미충족 {minimum.unsatisfied}</span>}{minimum.total - minimum.satisfied - minimum.unsatisfied > 0 && <span>확인 {minimum.total - minimum.satisfied - minimum.unsatisfied}</span>}</span>}</td>
-            <td style={{ padding: "10px 16px 10px 10px", textAlign: "right" }}><button type="button" aria-expanded={open} onClick={() => setOpenKey(open ? "" : key)} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 36, padding: "0 10px", whiteSpace: "nowrap", borderRadius: 10, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>{open ? "접기" : "컷 보기"}{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></td>
+            <td style={{ padding: "10px" }}>{primary ? <span style={{ display: "grid", gap: 1, justifyItems: "center", textAlign: "center" }}><span style={{ fontSize: 12.5, color: "var(--kdn-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 170 }}>{primary.kind} {primary.name}</span><span style={{ display: "inline-grid", gridTemplateColumns: "auto auto", alignItems: "baseline", gap: 8 }}><b style={{ fontSize: 16, fontWeight: 800, color: "var(--kdn-ink)", fontVariantNumeric: "tabular-nums" }}>{primary.cut.toFixed(2)}</b>{primary.gap != null && <span style={{ fontSize: 13.5, fontWeight: 800, color: primary.gap >= 0 ? "#15803d" : "#b91c1c", whiteSpace: "nowrap" }}>{Math.abs(primary.gap).toFixed(2)} {primary.gap >= 0 ? "여유" : "부족"}</span>}</span></span> : <span style={{ color: "var(--kdn-muted)" }}>컷 없음</span>}</td>
+            <td style={{ padding: "10px" }}><span style={{ display: "flex", flexWrap: "wrap", gap: 5, justifyContent: "center" }}>{order.filter(label => counts[label]).map(label => { const meta = SUPPORT_META[label]; return <span key={label} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 999, border: `1px solid ${meta.border}`, background: meta.background, color: meta.color, fontSize: 12.5, fontWeight: 800 }}>{label} {counts[label]}</span>; })}{!Object.keys(counts).length && <span style={{ color: "var(--kdn-muted)" }}>{convertedGrade == null ? "학생 내신 없음" : "-"}</span>}</span></td>
+            <td style={{ padding: "10px", color: "var(--kdn-ink-soft)", fontWeight: 600 }}>{!minimum.total ? "없음" : <span style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center" }}>{minimum.satisfied > 0 && <span style={{ color: "#287348", fontWeight: 800 }}>충족 {minimum.satisfied}</span>}{minimum.unsatisfied > 0 && <span style={{ color: "#b05244", fontWeight: 800 }}>미충족 {minimum.unsatisfied}</span>}{minimum.total - minimum.satisfied - minimum.unsatisfied > 0 && <span>확인 {minimum.total - minimum.satisfied - minimum.unsatisfied}</span>}</span>}</td>
+            <td style={{ padding: "10px", textAlign: "center" }}><SchoolTrendCell trend={schoolTrend} /></td>
+            <td style={{ padding: "10px 16px 10px 10px", textAlign: "right" }}><button type="button" aria-expanded={open} onClick={() => setOpenKey(open ? "" : key)} style={{ display: "inline-flex", alignItems: "center", gap: 4, minHeight: 36, padding: "0 10px", whiteSpace: "nowrap", borderRadius: 10, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13.5, fontWeight: 800, cursor: "pointer" }}>{open ? "접기" : "상세"}{open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></td>
           </tr>
-          {open && <tr style={{ background: "var(--kdn-accent-soft)" }}><td colSpan={8} style={{ padding: "0 16px 16px" }}><NaviRowDetail row={row} minimums={minimums} minimumEvaluations={minimumEvaluations} minimumImprovements={minimumImprovements} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} mockGrades={mockGrades} onOpenCases={onOpenCases} /></td></tr>}
+          {open && <tr style={{ background: "var(--kdn-accent-soft)" }}><td colSpan={9} style={{ padding: "0 16px 16px" }}><NaviRowDetail row={row} minimums={minimums} minimumEvaluations={minimumEvaluations} minimumImprovements={minimumImprovements} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} mockGrades={mockGrades} schoolTrend={schoolTrend} onOpenCases={onOpenCases} onOpenCard={onOpenCard ? () => onOpenCard(row) : null} /></td></tr>}
         </React.Fragment>;
       })}</tbody>
     </table>
@@ -3785,9 +3868,10 @@ function rowFavoriteItem(row) {
 }
 
 // 결과 시안 B: 모집단위 카드 격자. 대표 전형의 컷 차이를 크게, 50~70% 컷 구간과 학생 위치를 눈금으로.
-export function NaviResultGrid({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite }) {
+export function NaviResultGrid({ rows = [], convertedGrade, cutoffBasis = "70", isFavorite, favoriteEnabled, onToggleFavorite, onOpenCases, onOpenCard, mockGrades = null }) {
   const grade = validGrade(convertedGrade);
-  return <div className="kdn-rgrid">{rows.map(({ row, minimumEvaluations }, index) => {
+  const [openKey, setOpenKey] = useState("");
+  return <div className="kdn-rgrid">{rows.map(({ row, minimums, minimumEvaluations, minimumImprovements, schoolTrend }, index) => {
     const [, region, , university, , unit2027, field] = row;
     const key = `${universityIdentityKey(university, region)}-${unitIdentityKey(unit2027)}-${compactText(field || "공통")}-${index}`;
     const track = rowPrimaryTrack(row, grade, cutoffBasis);
@@ -3795,7 +3879,7 @@ export function NaviResultGrid({ rows = [], convertedGrade, cutoffBasis = "70", 
     const minimum = minimumEvaluationSummary(minimumEvaluations || []);
     const favorite = isFavorite?.(row);
     const zone = track && track.cut50 != null && track.cut70 != null ? [Math.min(track.cut50, track.cut70), Math.max(track.cut50, track.cut70)] : null;
-    return <article key={key} className="kdn-rcard" style={{ "--band": band?.color || "#8a93a3", "--band-bg": band?.background || "var(--kdn-surface-2)" }}>
+    return <React.Fragment key={key}><article className={`kdn-rcard${openKey === key ? " is-open" : ""}`} style={{ "--band": band?.color || "#8a93a3", "--band-bg": band?.background || "var(--kdn-surface-2)" }}>
       <div className="kdn-rcard-head">
         <div><small>{university}{track ? ` · ${track.kind} ${track.name}` : ""}</small><b>{unit2027}</b></div>
         {band ? <span className="kdn-rcard-tag">{band.label}</span> : <span className="kdn-rcard-tag is-none">판정 전</span>}
@@ -3806,9 +3890,12 @@ export function NaviResultGrid({ rows = [], convertedGrade, cutoffBasis = "70", 
       <div className="kdn-rcard-foot">
         <span className={minimum.unsatisfied > 0 ? "is-bad" : minimum.total ? "is-ok" : ""}>{!minimum.total ? "수능최저 없음" : minimum.unsatisfied > 0 ? `최저 미충족 ${minimum.unsatisfied}` : minimum.satisfied > 0 ? `최저 충족 ${minimum.satisfied}` : "최저 확인 필요"}</span>
         <small>{[region, field].filter(Boolean).join(" · ")}{track?.count > 1 ? ` · 전형 ${track.count}개` : ""}</small>
-        <button type="button" aria-pressed={!!favorite} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(rowFavoriteItem(row))}><Star size={15} fill={favorite ? "currentColor" : "none"} />{favorite ? "관심 저장됨" : "관심 대학"}</button>
+        <button type="button" aria-pressed={!!favorite} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(rowFavoriteItem(row))}><Star size={15} fill={favorite ? "currentColor" : "none"} />{favorite ? "저장됨" : "관심"}</button>
+        <button type="button" className="kdn-rcard-more" aria-expanded={openKey === key} onClick={() => setOpenKey(openKey === key ? "" : key)}>{openKey === key ? "접기" : "상세"}</button>
       </div>
-    </article>;
+    </article>
+    {openKey === key && <div className="kdn-rgrid-detail"><div className="kdn-rgrid-detail-head"><b>{university} · {unit2027}</b><button type="button" onClick={() => setOpenKey("")}>닫기 ✕</button></div><NaviRowDetail row={row} minimums={minimums} minimumEvaluations={minimumEvaluations} minimumImprovements={minimumImprovements} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} mockGrades={mockGrades} schoolTrend={schoolTrend} onOpenCases={onOpenCases} onOpenCard={onOpenCard ? () => onOpenCard(row) : null} /></div>}
+    </React.Fragment>;
   })}</div>;
 }
 
@@ -3883,9 +3970,11 @@ function ResultKeyFigure({ tracks = [], convertedGrade, cutoffBasis = "70" }) {
   </div>;
 }
 
-function ResultCard({ mockGrades = null, row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationStatus = "ready", recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
-  const [open, setOpen] = useState(false);
+function ResultCard({ focused = false, mockGrades = null, row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationStatus = "ready", recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
+  const [open, setOpen] = useState(focused);
   const [detailTab, setDetailTab] = useState("all");
+  const cardRef = useRef(null);
+  useEffect(() => { if (!focused) return; setOpen(true); const timer = setTimeout(() => cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 60); return () => clearTimeout(timer); }, [focused]);
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
   const minimumSummary = minimumEvaluationSummary(minimumEvaluations);
   const favoriteItem = {
@@ -3909,7 +3998,7 @@ function ResultCard({ mockGrades = null, row, minimums, minimumEvaluations = [],
     ["regularMinimum", `정시·최저 ${(regular ? 1 : 0) + (minimums?.length || 0)}`],
   ];
   return (
-    <article className={isNewUi() && !open ? "susi-beta-result-card kdn-rc-compact" : "susi-beta-result-card"} style={ui.resultCard}>
+    <article ref={cardRef} className={isNewUi() && !open ? "susi-beta-result-card kdn-rc-compact" : "susi-beta-result-card"} style={{ ...ui.resultCard, scrollMarginTop: 150 }}>
       <div className={isNewUi() && !open ? "kdn-rc-top" : undefined} style={isNewUi() && !open ? undefined : { display: "contents" }}>
       <div className="kdn-rc-summary" style={ui.resultSummary}>
         <div style={ui.resultSummaryIdentity}>
