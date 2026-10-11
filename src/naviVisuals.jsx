@@ -46,7 +46,7 @@ export function CutPositionBar({ student, cut50, cut70, band }) {
 }
 
 // 컷 차이 막대(가운데 = 컷): 학생 성적이 컷보다 좋으면 오른쪽 초록, 부족하면 왼쪽 빨강으로 뻗습니다.
-function MarginBar({ margin }) {
+export function MarginBar({ margin }) {
   if (margin == null) return <span style={cut.marginTrack} />;
   const width = `${Math.min(1, Math.abs(margin) / 1.5) * 50}%`;
   const good = margin >= 0;
