@@ -3246,6 +3246,7 @@ export default function SusiNaviBetaView({
               minimumHistories={minimumHistories}
               minimumImprovements={minimumImprovements}
               latestMockLabel={effectiveStudent?.latestMockLabel || ""}
+              mockGrades={effectiveStudent?.latestMockGrades || null}
               courseRules={courseRules}
               changes2028={changes2028}
               schedules={schedules}
@@ -3848,7 +3849,7 @@ function ResultKeyFigure({ tracks = [], convertedGrade, cutoffBasis = "70" }) {
   </div>;
 }
 
-function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationStatus = "ready", recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
+function ResultCard({ mockGrades = null, row, minimums, minimumEvaluations = [], minimumHistories = [], minimumImprovements = [], latestMockLabel = "", courseRules = [], changes2028 = [], schedules = [], caseStats = [], recommendation = null, recommendationStatus = "ready", recommendationProgress: recommendationProgressData = null, studentSubjects = [], schoolTrend = null, conversionGroup, convertedGrade, cutoffBasis = "70", favorite, favoriteEnabled, onToggleFavorite, onOpenCases, onConnectUniversity, onAddSupportPlan, supportPlan = [], onAddCompare, compareTray = [], onOpenWorkspace }) {
   const [open, setOpen] = useState(false);
   const [detailTab, setDetailTab] = useState("all");
   const [regionGroup, region, detailRegion, university, unit2026, unit2027, field, teaching, holistic, regular] = row;
@@ -3918,7 +3919,7 @@ function ResultCard({ row, minimums, minimumEvaluations = [], minimumHistories =
             {(detailTab === "all" || detailTab === "teaching") && <AdmissionGroup title="교과전형" year="2026 입시결과" admissionType="교과" items={teaching} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="teaching" university={university} region={region} department={unit2027} field={field} caseStats={caseStats} conversionGroup={conversionGroup} minimums={minimums} minimumEvaluations={minimumEvaluations} onAddSupportPlan={onAddSupportPlan} supportPlan={supportPlan} onOpenWorkspace={onOpenWorkspace} />}
             {(detailTab === "all" || detailTab === "holistic") && <AdmissionGroup title="종합전형" year="2026 입시결과" admissionType="종합" items={holistic} convertedGrade={convertedGrade} cutoffBasis={cutoffBasis} tone="holistic" university={university} region={region} department={unit2027} field={field} caseStats={caseStats} conversionGroup={conversionGroup} minimums={minimums} minimumEvaluations={minimumEvaluations} onAddSupportPlan={onAddSupportPlan} supportPlan={supportPlan} onOpenWorkspace={onOpenWorkspace} />}
             {(detailTab === "all" || detailTab === "regularMinimum") && <RegularGroup info={regular} />}
-            {(detailTab === "all" || detailTab === "regularMinimum") && <MinimumGroup rows={minimums} evaluations={minimumEvaluations} histories={minimumHistories} improvements={minimumImprovements} latestMockLabel={latestMockLabel} />}
+            {(detailTab === "all" || detailTab === "regularMinimum") && <MinimumGroup mockGrades={mockGrades} rows={minimums} evaluations={minimumEvaluations} histories={minimumHistories} improvements={minimumImprovements} latestMockLabel={latestMockLabel} />}
           </div>
         </div>
       </div>}
@@ -4299,7 +4300,7 @@ function RegularGroup({ info }) {
     <p style={ui.regularSubjects}>{info[4] || info[1] || "대학별 반영영역 확인 필요"}</p>
   </div> : <span style={ui.none}>정시 참고 자료 없음</span>}</div>;
 }
-function MinimumGroup({ rows = [], evaluations = [], histories = [], improvements = [], latestMockLabel = "" }) {
+function MinimumGroup({ mockGrades = null, rows = [], evaluations = [], histories = [], improvements = [], latestMockLabel = "" }) {
   const [expanded,setExpanded]=useState(false);
   return <div style={ui.resultSection}><SectionTitle tone="minimum" title="수능최저" year="자료 학년도 표시"/>{rows.length>2&&<button type="button" style={ui.caseToggleBtn} onClick={()=>setExpanded(v=>!v)}>{expanded?'접기':`전형 ${rows.length}개 전체 보기`}</button>}{rows.length ? <div style={ui.minimumList}>{(expanded?rows:rows.slice(0, 2)).map((row, index) => {
     const evaluation = evaluations[index];
@@ -4316,7 +4317,7 @@ function MinimumGroup({ rows = [], evaluations = [], histories = [], improvement
     return <div key={`${row[3]}-${index}`} style={{ ...ui.minimumItem, ...(evaluation?.status === "unsatisfied" ? ui.minimumItemDanger : {}) }}>
       <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span style={{...ui.minimumYearBadge,...(evaluation?.yearMismatch?ui.minimumYearBadgeReference:{})}}>{minimumYearLabel(evaluation)} · {row[2] || "수시"}</span></div>
       <div style={ui.minimumCriteriaRow}>{isManual ? <small style={ui.minimumNote}>{evaluation.reason}</small> : <strong style={ui.minimumCriteria}>{shortRule || evaluation?.ruleText || row[8] || "기준 원문 확인"}</strong>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
-      {showCalc && <MinimumCalcStrip className="is-compact" result={evaluation} advice={evaluation.status === "unsatisfied" ? improvement : null} />}
+      {showCalc && <MinimumCalcStrip className="is-compact" grades={mockGrades} result={evaluation} advice={evaluation.status === "unsatisfied" ? improvement : null} />}
       {evaluation?.source&&<small style={ui.minimumEvaluationNote}>{evaluation.source}</small>}
       {!isManual && <small style={ui.minimumNote}>{[(evaluation?.subjectsText || row[6]) && `반영영역 ${evaluation?.subjectsText || row[6]}`, (evaluation?.note ?? row[10]) || ''].filter(Boolean).join(" · ")}</small>}
       {meta && latestMockLabel && <small style={ui.minimumEvaluationNote}>{latestMockLabel} 기준 판정</small>}
