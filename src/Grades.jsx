@@ -4012,6 +4012,41 @@ function minimumMargin(result) {
   if (result?.ruleType === "each" || result?.studentSum == null || result?.threshold == null) return null;
   return Number(result.threshold) - Number(result.studentSum);
 }
+// 최저 계산 줄: 반영된 과목 칩(등급) → 합, 기준선이 있는 막대로 얼마나 부족/여유인지 보여 줍니다.
+const minimumShortName = name => ({ 국어: "국", 수학: "수", 영어: "영", 한국사: "한", 통합사회: "사", 통합과학: "과", 탐구: "탐" }[name] || String(name || "").replace(/\s+/g, ""));
+function MinimumCalcStrip({ result, advice }) {
+  const subjects = (result?.selectedSubjects || []).filter(item => item && item.grade != null);
+  if (!subjects.length || result.threshold == null) return null;
+  const threshold = Number(result.threshold);
+  const fmt = value => (Number.isInteger(value) ? value : Number(value).toFixed(1));
+  const adviceNode = advice ? (advice.possible
+    ? <span className="tip">{advice.options.slice(0, 2).map(option => <b key={option.name}>{option.name} {option.from}→{option.to}</b>)}<small>{advice.options.length > 1 ? "중 하나면 충족" : "이면 충족"}</small></span>
+    : <span className="tip hard"><small>한 과목만 올려서는 부족 · 두 과목 이상 올려야 해요</small></span>) : null;
+  if (result.ruleType === "each") {
+    return <div className="calc each">
+      <span className="lb">반영</span>
+      <span className="chips">{subjects.map((item, index) => { const ok = Number(item.grade) <= threshold; return <span key={`${item.name}-${index}`} className={`chip ${ok ? "ok" : "no"}`} title={item.name}><small>{item.name}</small><b>{fmt(item.grade)}</b><i>{ok ? "✓" : `${fmt(Number(item.grade) - threshold)} 부족`}</i></span>; })}</span>
+      <span className="rule-note">각 {threshold}등급 이내</span>
+      {adviceNode}
+    </div>;
+  }
+  const sum = subjects.reduce((total, item) => total + Number(item.grade), 0);
+  const scale = Math.max(sum, threshold) * 1.08;
+  const pct = value => `${(value / scale) * 100}%`;
+  let offset = 0;
+  const over = sum > threshold;
+  return <div className={`calc ${over ? "is-over" : "is-ok"}`}>
+    <span className="lb">반영</span>
+    <span className="chips">{subjects.map((item, index) => <React.Fragment key={`${item.name}-${index}`}>{index > 0 && <i className="op">+</i>}<span className="chip" title={item.name}><small>{item.name}</small><b>{fmt(item.grade)}</b></span></React.Fragment>)}<i className="op">=</i><span className={`sum ${over ? "no" : "ok"}`}><small>합</small><b>{fmt(sum)}</b></span></span>
+    <span className="bar" role="img" aria-label={`합 ${fmt(sum)}, 기준 ${threshold} 이내`}>
+      {subjects.map((item, index) => { const left = offset; offset += Number(item.grade); return <i key={index} className="seg" style={{ left: pct(left), width: pct(Number(item.grade)) }}><em>{minimumShortName(item.name)}</em></i>; })}
+      {over ? <i className="gap no" style={{ left: pct(threshold), width: pct(sum - threshold) }} /> : sum < threshold && <i className="gap ok" style={{ left: pct(sum), width: pct(threshold - sum) }} />}
+      <i className="cut" style={{ left: pct(threshold) }}><em>기준 {threshold}</em></i>
+    </span>
+    {adviceNode}
+  </div>;
+}
+
 function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, statusFilter, onStatusFilter, onToggleFavorite, favoriteActive, caseLinkForRow, onOpenCases }) {
   // 상담 D안처럼: 왼쪽 대학 목록에서 고르면 오른쪽에 그 대학의 전형 행만 크게 보여 줍니다(페이지 나눔 없음).
   const [picked, setPicked] = useState("");
@@ -4060,25 +4095,26 @@ function AdmissionMinimumBoard({ rows = [], statusCounts = {}, total = 0, status
           const isOpen = open.has(key);
           const hasMinimum = result.status !== "no-minimum" && result.count && result.threshold != null;
           const margin = minimumMargin(result);
+          const showCalc = hasMinimum && ["satisfied", "unsatisfied"].includes(result.status) && (result.selectedSubjects || []).length > 0;
           const studentText = admissionStudentResultText(result);
           const fav = favoriteActive({ source: "admission", university: row.university, region: row.region, department: row.department, admissionType: row.track });
-          const detail = result.ruleText || row.historySummary?.decidedCount > 0 || (result.status === "unsatisfied" && row.improvementAdvice) || (row.eligibility && row.eligibility.status !== "none") || ["manual", "unlinked"].includes(result.status);
+          const detail = result.ruleText || row.historySummary?.decidedCount > 0 || (row.eligibility && row.eligibility.status !== "none") || ["manual", "unlinked"].includes(result.status);
           return <div key={key} className={`kdn-minb-row s-${result.status}${isOpen ? " is-open" : ""}`}>
             <div className="line">
               {onToggleFavorite ? <button type="button" data-kdn-bare className={fav ? "fav is-on" : "fav"} title="상담·관심 대학에 저장" onClick={() => onToggleFavorite({ source: "admission", favoriteKind: "전형", university: row.university, department: row.department, admissionType: row.track, region: row.region, field: (row._fieldTags || []).join(", "), label: `${row.university} ${row.department || row.track || ""}` })}><Star size={14} fill={fav ? "currentColor" : "none"} /></button> : <span />}
               <div className="dep"><b>{row.track || "전형"}</b><span>{row.department || "전 모집단위"}{(row._fieldTags || []).length ? ` · ${row._fieldTags.join("·")}` : ""}</span></div>
               <div className="rule">{result.status === "no-minimum" ? <b className="none">최저 없음</b> : hasMinimum ? <><b>{admissionMinimumText(result)}</b>{(result.subjectsText || row.requiredSubjects) && <AdmissionSubjectRule value={result.subjectsText || row.requiredSubjects} />}</> : <><b className="none">요강 확인</b><small>원문 조건</small></>}</div>
-              <div className="mine">{hasMinimum && studentText ? <><small>내 {result.ruleType === "each" ? "등급" : `${result.count}합`}</small>{result.ruleType === "each" ? <b className="each" title={studentText}>{(result.selectedSubjects || []).length ? result.selectedSubjects.map(x => x.grade).join("·") : studentText}</b> : <b>{studentText.replace(/^\d합\s*/, "")}</b>}</> : <b className="dash">–</b>}</div>
-              <div className="st"><span style={meta.style}>{meta.label}</span>{margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? `${margin} 여유` : `${-margin} 부족`}</em>}
+              <div className="mine">{showCalc ? null : hasMinimum && studentText ? <><small>내 {result.ruleType === "each" ? "등급" : `${result.count}합`}</small>{result.ruleType === "each" ? <b className="each" title={studentText}>{(result.selectedSubjects || []).length ? result.selectedSubjects.map(x => x.grade).join("·") : studentText}</b> : <b>{studentText.replace(/^\d합\s*/, "")}</b>}</> : <b className="dash">–</b>}</div>
+              <div className="st"><span style={meta.style}>{meta.label}</span>{margin != null && <em className={margin >= 0 ? "up" : "down"}>{margin >= 0 ? (margin === 0 ? "딱 맞음" : `${margin} 여유`) : `${-margin} 부족`}</em>}
                 <span className="act">{detail && <button type="button" data-kdn-bare className="more" onClick={() => toggle(key)} aria-expanded={isOpen}>{isOpen ? "접기" : "근거"}</button>}{row.guideDocs.length ? row.guideDocs.slice(0, 1).map(docItem => <PdfLink key={docItem.id || docItem.url} docItem={docItem} compact />) : null}</span></div>
             </div>
+            {showCalc && <MinimumCalcStrip result={result} advice={result.status === "unsatisfied" ? row.improvementAdvice : null} />}
             {isOpen && <div className="detail">
               {result.year && <span><b>{result.year}학년도</b> {result.yearMismatch ? "참고 기준" : "기준"}</span>}
               {result.ruleText && <span>{result.ruleText}</span>}
               {result.reason && <span>{result.reason}</span>}
               {result.source && <span className="src">{result.source}</span>}
               {row.historySummary?.decidedCount > 0 && <span>최근 {row.historySummary.decidedCount}회 중 <b>{row.historySummary.satisfiedCount}회</b> 충족</span>}
-              {result.status === "unsatisfied" && row.improvementAdvice && <span className="adv">{improvementAdviceText(row.improvementAdvice)}</span>}
               {row.eligibility && row.eligibility.status !== "none" && <span className="elg">지원자격 · {row.eligibility.label}</span>}
             </div>}
           </div>;
