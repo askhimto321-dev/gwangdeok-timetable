@@ -3,6 +3,8 @@ import { validGrade, supportBandClassName, trackChipClassName, trackAccentKey, S
 import { minimumDisplay, minimumYearLabel, studentMockChips, shortSubjectName } from './naviMinimum.js';
 import { recommendedCourseDisplayName } from './recommendationPresentation.js';
 import './supportDecision.css';
+import { isNewUi } from './uiMode.js';
+import MinimumCalcStrip from './MinimumCalcStrip.jsx';
 
 const fmt=value=>validGrade(value)==null?'—':Number(value).toFixed(2);
 export function RecommendedCourseDetails({progress, status='ready', printMode=false, compactPrint=false, defaultOpen=false}) {
@@ -30,7 +32,39 @@ export function RecommendedCourseDetails({progress, status='ready', printMode=fa
 //   "N합M"(예: 2합5) + 도달/미도달 배지로 한눈에 보이게 합니다.
 // - "조건 확인 필요" 상태는 원문 조각을 그대로 노출하지 않고, 왜 확인이 필요한지 이유 한 줄만
 //   기본으로 보여줍니다. 반영 영역·비고처럼 실제 내용이 있을 때만 "자세히"를 둡니다.
+// "A전형: 미적용 / B전형: 국,수,영 중 3개 합 6" 같은 원문을 전형별 줄로 나눕니다.
+function minimumRuleOptions(ruleText) {
+  const parts = String(ruleText || '').split(/\s+\/\s+/).map(part => part.trim()).filter(Boolean);
+  if (parts.length < 2) return null;
+  return parts.map(part => {
+    const at = part.indexOf(':');
+    const name = at > 0 ? part.slice(0, at).trim() : '';
+    const rule = (at > 0 ? part.slice(at + 1) : part).trim();
+    return { name, rule, none: /미적용|없음/.test(rule) && rule.length < 8 };
+  });
+}
+
+// 새 UI: 판정된 최저는 계산 줄, 전형마다 다른 최저는 전형별 목록, 그 아래 내 모의고사 등급.
+function MinimumFactsNew({ minimum, ev, student }) {
+  const hasEvidence = !!ev && !['unlinked','not-listed','source-pending'].includes(minimum.status);
+  const decided = hasEvidence && ['satisfied','unsatisfied'].includes(minimum.status) && (ev.selectedSubjects || []).length > 0 && ev.threshold != null;
+  const options = hasEvidence && !decided ? minimumRuleOptions(ev.ruleText) : null;
+  const chips = decided ? null : studentMockChips(student);
+  const rule = ev?.count && ev?.threshold != null ? (ev.ruleType === 'each' ? `${ev.count}개 각 ${ev.threshold}등급` : `${ev.count}합 ${ev.threshold}`) : '';
+  const meta = [ev?.source && String(ev.source).match(/\d+쪽/)?.[0] ? `요강 ${String(ev.source).match(/\d+쪽/)[0]}` : '', student?.latestMockLabel ? `${student.latestMockLabel} 기준` : ''].filter(Boolean);
+  return <div className="kd-minx">
+    <div className="kd-minx-head"><span className={`kd-minx-verdict is-${minimum.status}`}>{options ? '전형마다 다름' : minimum.label}</span>{rule && !decided && <span className="kd-minx-need"><small>대학 기준</small><b>{rule}</b></span>}</div>
+    {decided && <MinimumCalcStrip className="is-compact" grades={student?.latestMockGrades || null} result={ev} />}
+    {options && <ul className="kd-minx-opts">{options.map((option, index) => <li key={index} className={option.none ? 'is-none' : ''}>{option.name && <b>{option.name}</b>}<span>{option.none ? '최저 없음' : option.rule}</span></li>)}</ul>}
+    {!decided && !options && hasEvidence && ev.ruleText && <p className="kd-minx-rule"><small>요강 원문</small>{ev.ruleText}</p>}
+    {!hasEvidence && <small className="kd-minx-note">{minimum.reason}</small>}
+    {chips && <div className="kd-minx-mock"><small>내 모의고사</small>{chips.map(([label, value]) => <span key={label}>{label} <b>{value}</b></span>)}</div>}
+    {(ev?.note || meta.length > 0) && <div className="kd-minx-meta">{meta.map(text => <span key={text}>{text}</span>)}{ev?.note && <span title={ev.note}>비고 있음</span>}</div>}
+  </div>;
+}
+
 export function MinimumFacts({ minimum, ev, student, printMode=false }) {
+  if (isNewUi() && !printMode) return <MinimumFactsNew minimum={minimum} ev={ev} student={student} />;
   const hasEvidence = !!ev && !['unlinked','not-listed','source-pending'].includes(minimum.status);
   const isManual = minimum.status === 'manual';
   const needsScore = minimum.status === 'unavailable';
