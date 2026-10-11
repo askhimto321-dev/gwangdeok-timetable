@@ -1071,6 +1071,22 @@ const CLASS_GRADE_CSS = `
 .cg-takers{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;border-radius:99px;border:1px solid var(--kdn-control-line,#d6dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#3a4150);font:inherit;font-size:13px;font-weight:800;cursor:pointer}.cg-takers small{font-weight:600;color:var(--kdn-muted,#6b7280)}
 .cg-takers.is-on{background:var(--kdn-ink,#1f2430);border-color:var(--kdn-ink,#1f2430);color:var(--kdn-bg,#fff)}.cg-takers.is-on small{color:inherit;opacity:.75}
 .cg-name b{overflow-wrap:anywhere;word-break:keep-all}.cg-ids{flex-wrap:nowrap}.cg-ids em{white-space:nowrap}
+.cg-mx-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:12px 16px;border-bottom:1px solid var(--kdn-line,#eef0f4);font-size:13px;color:var(--kdn-ink-soft,#3a4150)}
+.cg-mx-legend span{display:inline-flex;align-items:center;gap:7px}.cg-mx-legend em{margin-left:auto;font-style:normal;color:var(--kdn-muted,#6b7280)}
+.cg-mx-legend b,.cg-subj td.cg-mx b{display:inline-block;min-width:46px;padding:3px 8px;border-radius:8px;font-size:15px;font-weight:800;color:var(--kdn-ink,#1f2430);font-variant-numeric:tabular-nums}
+.cg-mx-legend b.is-best,.cg-subj td.cg-mx b.is-best{background:#dcfce7;color:#15803d;box-shadow:inset 0 0 0 1.5px #86efac}
+.cg-mx-legend b.is-worst,.cg-subj td.cg-mx b.is-worst{background:#fee2e2;color:#b91c1c;box-shadow:inset 0 0 0 1.5px #fca5a5}
+[data-kd-ui="dark"] .cg-mx-legend b.is-best,[data-kd-ui="dark"] .cg-subj td.cg-mx b.is-best{background:rgba(34,197,94,.16);color:#86efac;box-shadow:inset 0 0 0 1.5px rgba(34,197,94,.45)}
+[data-kd-ui="dark"] .cg-mx-legend b.is-worst,[data-kd-ui="dark"] .cg-subj td.cg-mx b.is-worst{background:rgba(239,68,68,.16);color:#fca5a5;box-shadow:inset 0 0 0 1.5px rgba(239,68,68,.45)}
+.cg-mx-legend i,.cg-subj td.cg-mx small{font-style:normal;font-size:12px;font-weight:800}
+.cg-subj td.cg-mx small{display:block;margin-top:3px}
+.cg-mx-legend .up,.cg-subj td.cg-mx small.up{color:#15803d}.cg-mx-legend .down,.cg-subj td.cg-mx small.down{color:#c0262d}.cg-subj td.cg-mx small.eq{color:var(--kdn-muted,#8a92a0)}
+[data-kd-ui="dark"] .cg-mx-legend .up,[data-kd-ui="dark"] .cg-subj td.cg-mx small.up{color:#86efac}[data-kd-ui="dark"] .cg-mx-legend .down,[data-kd-ui="dark"] .cg-subj td.cg-mx small.down{color:#fca5a5}
+.cg-subj td.cg-mx{background:var(--kdn-surface,#fff)!important}
+.cg-table .cg-rank{background:var(--kdn-surface-2,#f1f3f6)!important;color:var(--kdn-ink,#1f2430)!important;font-size:15px!important;box-shadow:none!important}
+.cg-table .cg-rank.top{background:#fff0e6!important;color:#c2410c!important;box-shadow:inset 0 0 0 1.5px #f6b48f!important}
+[data-kd-ui="dark"] .cg-table .cg-rank.top{background:rgba(249,115,22,.16)!important;color:#fdba8c!important}
+.cg-sj-rank{min-width:34px!important;height:28px!important;background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-ink,#1f2430)!important;font-size:15px!important}
 .cg-sjt{border-collapse:separate;border-spacing:0}
 .cg-sjt th,.cg-sjt td{border-right:0!important;text-align:center!important}
 .cg-sjt thead th{padding:9px 8px!important;font-size:12.5px!important;font-weight:700;color:var(--kdn-muted,#6b7280)!important;background:var(--kdn-surface-2,#f6f7fa)!important;border-bottom:1px solid var(--kdn-line,#e3e6ec)}
@@ -1151,7 +1167,7 @@ const CLASS_GRADE_CSS = `
 .cg-semtable .cg-semhead span::before{content:"";width:8px;height:8px;border-radius:99px;background:var(--sem-c)}
 .cg-semhead.y1,.cg-semcell.y1{--sem-c:#1d4ed8;--sem-bg:#e8efff;--sem-tint:rgba(37,99,235,.035)}.cg-semhead.y2,.cg-semcell.y2{--sem-c:#047857;--sem-bg:#e3f6ee;--sem-tint:rgba(5,150,105,.04)}.cg-semhead.y3,.cg-semcell.y3{--sem-c:#6d28d9;--sem-bg:#efeafd;--sem-tint:rgba(124,58,237,.04)}
 [data-kd-ui="dark"] .cg-semhead.y1,[data-kd-ui="dark"] .cg-semcell.y1{--sem-c:#93c5fd;--sem-bg:rgba(59,130,246,.18);--sem-tint:rgba(59,130,246,.06)}[data-kd-ui="dark"] .cg-semhead.y2,[data-kd-ui="dark"] .cg-semcell.y2{--sem-c:#6ee7b7;--sem-bg:rgba(16,185,129,.18);--sem-tint:rgba(16,185,129,.06)}[data-kd-ui="dark"] .cg-semhead.y3,[data-kd-ui="dark"] .cg-semcell.y3{--sem-c:#c4b5fd;--sem-bg:rgba(139,92,246,.2);--sem-tint:rgba(139,92,246,.07)}
-.cg-semtable td.cg-semcell{background-image:linear-gradient(var(--sem-tint),var(--sem-tint))}
+.cg-semtable td.cg-semcell{background-image:none}
 .cg-semtable td.cg-semcell b{display:block;font-size:15.5px;font-weight:700;color:var(--kdn-ink-soft,#3a4150);font-variant-numeric:tabular-nums}
 .cg-semtable td.cg-semcell.last b{font-size:16.5px;font-weight:800;color:var(--kdn-ink,#1f2430)}
 .cg-semtable td.cg-semcell em{display:block;margin-top:2px;font-style:normal;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
@@ -1436,7 +1452,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
       {view === "compare" && <ClassBandCompare metricLabel={metricLabel} classStats={sortedStats} sortKey={cmpSort} onSort={setCmpSort} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
     </section>
     {view === "class" && (!rows.length ? <EmptyBox text={isSubject && takersOnly && rosterRows.length ? `${allClasses ? "전체 반" : `${classNo}반`}에 ${subjectName} 수강자가 없습니다.` : `${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
-      <div className="cg-tablebar"><b>{metricLabel} 기준</b>{isSubject && <button type="button" data-kdn-bare className={`cg-takers${takersOnly ? " is-on" : ""}`} aria-pressed={takersOnly} onClick={() => setTakersOnly(value => !value)}>{takersOnly ? "✓ " : ""}수강자만 <small>{rosterRows.filter(row => val(row) != null).length}/{rosterRows.length}명</small></button>}<span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"], ["number", "번호순"]].map(([key, label]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => setTableSort(key)}>{label}</button>)}</div></div>
+      <div className="cg-tablebar"><b>{metricLabel} 기준</b>{isSubject && <button type="button" data-kdn-bare className={`cg-takers${takersOnly ? " is-on" : ""}`} aria-pressed={takersOnly} onClick={() => setTakersOnly(value => !value)}>{takersOnly ? "✓ " : ""}수강자만 <small>{rosterRows.filter(row => val(row) != null).length}/{rosterRows.length}명</small></button>}<span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"]].map(([key, label]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => setTableSort(key)}>{label}</button>)}</div></div>
       {isSubject ? <div className="cg-table-wrap is-sticky"><table className="cg-table cg-sjt"><colgroup><col style={{ width: 64 }} /><col style={{ width: 84 }} /><col style={{ width: 170 }} />{semCols.map(key => <React.Fragment key={key}><col /><col /><col /><col /></React.Fragment>)}</colgroup>
       <thead><tr className="h1"><th rowSpan={2}>순위</th><th rowSpan={2}>학번</th><th rowSpan={2}>이름</th>{semCols.map(key => { const [y, t] = key.split("-"); return <th key={key} colSpan={4} className="sem"><span>{y}학년 {t}학기</span><b>{subjectName}</b></th>; })}</tr>
       <tr className="h2">{semCols.map(key => ["원점수", "석차", "등급", "성취도"].map((label, col) => <th key={`${key}-${label}`} className={col ? "" : "gstart"}>{label}</th>))}</tr></thead>
@@ -1485,22 +1501,25 @@ function ClassSubjectCompare({ matrix = [], classes = [], semesters = [], semest
       {semesters.length > 0 && <><span>학기</span><div className="cg-seg">{semesters.map(key => { const [y, t] = key.split("-"); return <button key={key} type="button" className={semester === key ? "is-on" : ""} onClick={() => onSemester(key)}>{y}-{t}</button>; })}</div></>}
     </div>
     {!matrix.length ? <div className="cg-foot">비교할 과목 성적이 없습니다.</div> : <>
+      <div className="cg-mx-legend"><span><b className="is-best">2.30</b>그 과목 1등 반</span><span><b className="is-worst">3.75</b>그 과목 꼴찌 반</span><span><i className="up">▲ 0.30</i>학년 평균보다 좋음</span><span><i className="down">▼ 0.30</i>학년 평균보다 낮음</span><em>반 평균 등급 · 숫자가 낮을수록 좋아요</em></div>
       <div className="cg-table-wrap"><table className="cg-table cg-subj" style={{ minWidth: 200 + classes.length * 82 }}>
         <thead><tr><th className="sticky">과목</th><th className="c">학년 평균</th>{classes.map(no => <th key={no} className={`c${no === highlight ? " is-mine" : ""}`}>{no}반</th>)}</tr></thead>
         <tbody>{matrix.map(item => {
           const values = classes.map(no => item.classes[no]?.mean).filter(v => v != null);
           const best = values.length ? Math.min(...values) : null;
+          const worst = values.length ? Math.max(...values) : null;
           return <tr key={item.name}>
             <td className="sticky"><b>{item.name}</b><small>{item.category} · {item.all.length}명</small></td>
             <td className="c"><b className="cg-mean">{fmt2(item.mean)}</b></td>
             {classes.map(no => { const cell = item.classes[no]; if (!cell) return <td key={no} className="c"><span className="cg-sub">-</span></td>;
-              const gap = item.mean - cell.mean; const level = Math.min(1, Math.abs(gap) / 0.6);
-              return <td key={no} className={`c cg-heat${no === highlight ? " is-mine" : ""}`} style={{ "--heat": gap >= 0 ? `rgba(22,163,74,${0.08 + level * 0.32})` : `rgba(220,38,38,${0.08 + level * 0.3})` }} title={`${no}반 ${item.name} · ${cell.n}명 · 학년 평균 대비 ${gap >= 0 ? "+" : ""}${gap.toFixed(2)}`}>
-                <b className={cell.mean === best && values.length > 1 ? "is-best" : ""}>{fmt2(cell.mean)}</b><small>{gap >= 0 ? "▲" : "▼"} {Math.abs(gap).toFixed(2)}</small>
+              const gap = item.mean - cell.mean; const spread = values.length > 1 && worst - best > 1e-9; const isBest = spread && cell.mean === best; const isWorst = spread && cell.mean === worst;
+              return <td key={no} className={`c cg-mx${no === highlight ? " is-mine" : ""}`} title={`${no}반 ${item.name} · ${cell.n}명 · 학년 평균 ${fmt2(item.mean)} 대비 ${gap >= 0 ? "좋음" : "낮음"} ${Math.abs(gap).toFixed(2)}`}>
+                <b className={isBest ? "is-best" : isWorst ? "is-worst" : ""}>{fmt2(cell.mean)}</b>
+                <small className={Math.abs(gap) < 0.005 ? "eq" : gap > 0 ? "up" : "down"}>{Math.abs(gap) < 0.005 ? "평균" : `${gap > 0 ? "▲" : "▼"} ${Math.abs(gap).toFixed(2)}`}</small>
               </td>; })}
           </tr>; })}</tbody>
       </table></div>
-      <div className="cg-foot">칸 색 = 학년 평균 대비(초록 = 더 좋음, 빨강 = 낮음, 진할수록 차이 큼) · 밑줄 = 그 과목 최고 반 · 숫자가 낮을수록 상위 등급</div>
+      <div className="cg-foot">▲/▼ 숫자 = 그 반 평균 등급이 학년 평균과 얼마나 차이 나는지 · 내 반은 주황 테두리</div>
     </>}
   </section>;
 }
