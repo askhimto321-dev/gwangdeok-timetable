@@ -1080,8 +1080,8 @@ const CLASS_GRADE_CSS = `
 .cg-sjt tbody tr:hover td{background:color-mix(in srgb,var(--kdn-accent,#ea580c) 5%,var(--kdn-surface,#fff))!important}
 .cg-sj-rank{display:inline-grid;place-items:center;min-width:28px;height:26px;padding:0 6px;border-radius:8px;font-size:14px;font-weight:800;color:var(--kdn-ink-soft,#3a4150)}
 .cg-sj-rank.top{background:color-mix(in srgb,var(--kdn-accent,#ea580c) 13%,var(--kdn-surface,#fff));color:var(--kdn-accent-text,#c2410c)}
-.cg-sjt td.cg-sj-dim{color:var(--kdn-ink-soft,#5d6574);font-variant-numeric:tabular-nums}
-.cg-sjt td.cg-sj-name{font-weight:700;line-height:1.35;overflow-wrap:anywhere;word-break:keep-all}
+.cg-table td.cg-sj-dim{font-size:14px;color:var(--kdn-ink-soft,#5d6574);font-variant-numeric:tabular-nums}
+.cg-table td.cg-sj-name{font-size:15px;color:var(--kdn-ink,#1f2430);font-weight:700;line-height:1.35;overflow-wrap:anywhere;word-break:keep-all}
 .cg-sj-name button{all:unset;cursor:pointer;overflow-wrap:anywhere}.cg-sj-name button:hover{color:var(--kdn-accent-text,#c2410c);text-decoration:underline}
 .cg-sjt td.cg-sj-num{font-size:15.5px;font-weight:800;font-variant-numeric:tabular-nums}
 .cg-sjt td.cg-sj-rk b{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}.cg-sjt td.cg-sj-rk small{font-size:12px;color:var(--kdn-muted,#8a92a0)}
@@ -1437,26 +1437,26 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
     </section>
     {view === "class" && (!rows.length ? <EmptyBox text={isSubject && takersOnly && rosterRows.length ? `${allClasses ? "전체 반" : `${classNo}반`}에 ${subjectName} 수강자가 없습니다.` : `${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
       <div className="cg-tablebar"><b>{metricLabel} 기준</b>{isSubject && <button type="button" data-kdn-bare className={`cg-takers${takersOnly ? " is-on" : ""}`} aria-pressed={takersOnly} onClick={() => setTakersOnly(value => !value)}>{takersOnly ? "✓ " : ""}수강자만 <small>{rosterRows.filter(row => val(row) != null).length}/{rosterRows.length}명</small></button>}<span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"], ["number", "번호순"]].map(([key, label]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => setTableSort(key)}>{label}</button>)}</div></div>
-      {isSubject ? <div className="cg-table-wrap is-sticky"><table className="cg-table cg-sjt"><colgroup><col style={{ width: 64 }} />{allClasses && <col style={{ width: 58 }} />}<col style={{ width: 58 }} /><col style={{ width: 170 }} />{semCols.map(key => <React.Fragment key={key}><col /><col /><col /><col /></React.Fragment>)}</colgroup>
-      <thead><tr className="h1"><th rowSpan={2}>순위</th>{allClasses && <th rowSpan={2}>반</th>}<th rowSpan={2}>번호</th><th rowSpan={2}>이름</th>{semCols.map(key => { const [y, t] = key.split("-"); return <th key={key} colSpan={4} className="sem"><span>{y}학년 {t}학기</span><b>{subjectName}</b></th>; })}</tr>
+      {isSubject ? <div className="cg-table-wrap is-sticky"><table className="cg-table cg-sjt"><colgroup><col style={{ width: 64 }} /><col style={{ width: 84 }} /><col style={{ width: 170 }} />{semCols.map(key => <React.Fragment key={key}><col /><col /><col /><col /></React.Fragment>)}</colgroup>
+      <thead><tr className="h1"><th rowSpan={2}>순위</th><th rowSpan={2}>학번</th><th rowSpan={2}>이름</th>{semCols.map(key => { const [y, t] = key.split("-"); return <th key={key} colSpan={4} className="sem"><span>{y}학년 {t}학기</span><b>{subjectName}</b></th>; })}</tr>
       <tr className="h2">{semCols.map(key => ["원점수", "석차", "등급", "성취도"].map((label, col) => <th key={`${key}-${label}`} className={col ? "" : "gstart"}>{label}</th>))}</tr></thead>
       <tbody>{ordered.map(row => { const rank = ranked.get(row.sid); return <tr key={row.sid}>
         <td><span className={`cg-sj-rank${rank && rank <= 3 ? " top" : ""}`}>{rank || "-"}</span></td>
-        {allClasses && <td className="cg-sj-dim">{row.classNumber}</td>}
-        <td className="cg-sj-dim">{row.number}</td>
-        <td className="cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)} title={`${row.sid} ${row.name}`}>{row.name}</button> : <span title={row.sid}>{row.name}</span>}</td>
+        <td className="cg-sj-dim">{row.sid}</td>
+        <td className="cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)} >{row.name}</button> : <span>{row.name}</span>}</td>
         {semCols.map(key => { const rec = subjectRecordOf(row, subjectName, key); if (!rec) return <td key={key} colSpan={4} className="gstart cg-sj-miss">미수강</td>; const score = Number(rec.score); const ach = String(rec.achievement || "").trim(); return <React.Fragment key={key}>
           <td className="gstart cg-sj-num">{Number.isFinite(score) && String(rec.score ?? "").trim() !== "" ? score : "-"}</td>
           <td className="cg-sj-rk"><b>{String(rec.rank ?? "").trim() || "-"}</b>{rec.classSize ? <small> / {rec.classSize}</small> : null}</td>
           <td className="cg-sj-gr">{getSubjectGrade(rec) ?? "-"}</td>
           <td>{ach ? <span className={`cg-ach a-${ach.charAt(0)}`}>{ach}</span> : "-"}</td>
         </React.Fragment>; })}
-      </tr>; })}</tbody></table></div> : <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 160 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} />{semCols.map(key => <col key={key} />)}</colgroup>
-      <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th rowSpan={2}>학생</th><th className="c" rowSpan={2}>{metricLabel} {isSubject ? "등급" : "누적"}</th><th className="c" rowSpan={2}>직전 → 최근 학기</th><th className="c grp" colSpan={Math.max(1, semCols.length)}>학기별 {metricLabel} {isSubject ? "등급" : "평균"}</th></tr>
+      </tr>; })}</tbody></table></div> : <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 84 }} /><col style={{ width: 130 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} />{semCols.map(key => <col key={key} />)}</colgroup>
+      <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th className="c" rowSpan={2}>학번</th><th className="c" rowSpan={2}>이름</th><th className="c" rowSpan={2}>{metricLabel} {isSubject ? "등급" : "누적"}</th><th className="c" rowSpan={2}>직전 → 최근 학기</th><th className="c grp" colSpan={Math.max(1, semCols.length)}>학기별 {metricLabel} {isSubject ? "등급" : "평균"}</th></tr>
       <tr className="h2">{semCols.length ? semCols.map((key, index) => { const [y, t] = key.split("-"); return <th key={key} className={`c cg-semhead y${y} t${t}${index && t === "1" ? " ybreak" : ""}`}><span>{y}학년 {t}학기</span></th>; }) : <th className="c">-</th>}</tr></thead>
       <tbody>{ordered.map(row => { const v = val(row); const rank = ranked.get(row.sid); return <tr key={row.sid}>
         <td className="c">{rank ? <span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}<small>위</small></span> : "-"}</td>
-        <td>{onOpenStudent ? <button type="button" data-kdn-bare className="cg-name" onClick={() => onOpenStudent(row.sid)}><b>{row.name}</b><span className="cg-ids"><em className="cg-no">{allClasses ? `${row.classNumber}반 ` : ""}{row.number}번</em><em className="cg-sid">{row.sid}</em></span></button> : <span className="cg-name"><b>{row.name}</b><span className="cg-ids"><em className="cg-no">{allClasses ? `${row.classNumber}반 ` : ""}{row.number}번</em><em className="cg-sid">{row.sid}</em></span></span>}</td>
+        <td className="c cg-sj-dim">{row.sid}</td>
+        <td className="c cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)}>{row.name}</button> : <span>{row.name}</span>}</td>
         <td className="c">{v == null ? (isSubject ? <span className="cg-none">미수강</span> : <span className="cg-sub">-</span>) : <><span className="cg-big">{v.toFixed(2)}</span>{row[metric]?.converted != null && <span className="cg-sub">9등급 환산 {Number(row[metric].converted).toFixed(2)}</span>}</>}</td>
         <td className="c"><SemesterChange trend={trendOf(row)} /></td>
         {semCols.length ? semCells(row).map(cell => <td key={cell.key} className={`c cg-semcell y${cell.y} t${cell.t}${cell.ybreak ? " ybreak" : ""}${cell.last ? " last" : ""}`}>{cell.none ? <span className="cg-none sm">미수강</span> : cell.value == null ? <span className="cg-sub">-</span> : <><b>{fmt2(cell.value)}</b><em style={{ color: cell.d == null ? "#8a92a0" : cell.d > 0.004 ? "#15803d" : cell.d < -0.004 ? "#c0262d" : "#8a92a0" }}>{cell.d == null ? "시작" : `${changeMark(cell.d)}${Math.abs(cell.d).toFixed(2)}`}</em></>}</td>) : <td className="c"><span className="cg-sub">-</span></td>}
