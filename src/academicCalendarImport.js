@@ -7,7 +7,9 @@ const iso = (y, m, d) => {
 };
 export function normalizeCalendarDate(value) {
   if (value == null || value === "") return "";
-  if (value instanceof Date && !Number.isNaN(value.getTime())) return iso(value.getFullYear(), value.getMonth() + 1, value.getDate());
+  // 엑셀 라이브러리가 만든 Date는 한국 시간대에서 옛 표준시(+8:27:52) 보정 때문에 전날 23:59로 당겨질 수 있어
+  // 12시간을 더한 뒤 날짜만 취합니다(정상 자정 값은 그대로 같은 날).
+  if (value instanceof Date && !Number.isNaN(value.getTime())) { const fixed = new Date(value.getTime() + 12 * 3600000); return iso(fixed.getFullYear(), fixed.getMonth() + 1, fixed.getDate()); }
   if (typeof value === "number" && value > 20000 && value < 80000) {
     const date = new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000);
     return iso(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
