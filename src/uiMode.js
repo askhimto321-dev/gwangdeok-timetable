@@ -2476,7 +2476,7 @@ const SHARED_NEW_CSS = `
   .kdn-tz-card.is-featured p{font-size:15px}.kdn-tz-card.is-featured ul{padding:14px 16px;gap:8px}.kdn-tz-card.is-featured li{font-size:14px}
   @media (max-width:1000px){.kdn-tz-card.is-featured{grid-row:auto}}
   @media (max-width:640px){.kdn-tz-card.is-featured{grid-column:auto}}
-  .kdn-dash-exam{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:-24px 0 36px;padding:16px 20px;border-radius:20px;background:linear-gradient(100deg,#fff1e6,var(--kdn-surface) 62%);border:1.5px solid #fdba8c;box-shadow:0 10px 26px rgba(234,88,12,.12)}
+  .kdn-dash-exam{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:0 0 14px;padding:16px 20px;border-radius:20px;background:linear-gradient(100deg,#fff1e6,var(--kdn-surface) 62%);border:1.5px solid #fdba8c;box-shadow:0 10px 26px rgba(234,88,12,.12)}
   [data-kd-ui="dark"] .kdn-dash-exam{background:linear-gradient(100deg,rgba(249,115,22,.2),var(--kdn-surface) 62%);border-color:rgba(249,115,22,.5);box-shadow:none}
   .kdn-dash-exam-dd{display:grid;justify-items:center;align-content:center;min-width:90px;height:66px;border-radius:15px;background:#ea580c;color:#fff}
   .kdn-dash-exam-dd small{font-size:11.5px;font-weight:700;opacity:.9}.kdn-dash-exam-dd b{font-size:25px;font-weight:900;line-height:1.05}
@@ -2501,6 +2501,32 @@ const SHARED_NEW_CSS = `
   .kdn-dash-zone-items button:hover{border-color:#f97316}
   .kdn-dash-zone-items b{font-size:15px;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kdn-dash-zone-items span{font-size:12.5px;color:var(--kdn-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   @media (max-width:560px){.kdn-dash-zone{grid-column:auto}.kdn-dash-exam{margin-top:-28px}.kdn-dash-exam-days{flex-basis:100%}.kdn-dash-exam-days li{font-size:11px}.kdn-dash-exam-days li.is-step{display:none}}
+  /* 시험 기간 대시보드는 띠·성적 ZONE이 더해지므로 한 화면에 들어오게 히어로와 카드를 조금 줄입니다. */
+  .kdn-dash-tight h1{font-size:clamp(34px,4.2vw,52px)!important}
+  .kdn-dash-tight section:has(>div>h1) > div:first-child{gap:16px!important}
+  .kdn-dash-tight #kdn-dash-shortcuts + div > button{padding:18px!important;gap:8px!important}
+  .kdn-dash-tight #kdn-dash-shortcuts + div > button > span:nth-of-type(2){display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  /* 성적 산출 1단계 안내: 지금 있는 파일만 올려도 된다는 안내 + 현재 등록 상태 + 4가지 경우 */
+  .kdn-up-guide{display:grid;gap:12px;margin-top:14px;padding:16px 18px;border-radius:16px;background:linear-gradient(135deg,color-mix(in srgb,var(--kdn-accent) 8%,var(--kdn-surface)),var(--kdn-surface) 70%);border:1px solid color-mix(in srgb,var(--kdn-accent) 22%,var(--kdn-line))}
+  .kdn-up-guide-head{display:flex;gap:12px;align-items:flex-start}
+  .kdn-up-guide-ic{flex:none;width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:18px;background:color-mix(in srgb,var(--kdn-accent) 14%,var(--kdn-surface))}
+  .kdn-up-guide-head b{display:block;font-size:16px;font-weight:900;color:var(--kdn-ink)}
+  .kdn-up-guide-head p{margin:3px 0 0;font-size:13.5px;line-height:1.55;color:var(--kdn-ink-soft)}
+  .kdn-up-guide-now{display:flex;flex-wrap:wrap;gap:6px}
+  .kdn-up-guide-now span{padding:4px 11px;border-radius:99px;font-size:12.5px;font-weight:800;border:1px solid transparent}
+  .kdn-up-guide-now .is-ok{background:#e7f7ee;color:#15803d}
+  .kdn-up-guide-now .is-wait{background:#fff4d9;color:#8a5a0b}
+  .kdn-up-guide-now .is-plan{background:transparent;color:var(--kdn-muted);border-color:var(--kdn-control-line);border-style:dashed}
+  [data-kd-ui="dark"] .kdn-up-guide-now .is-ok{background:rgba(34,197,94,.15);color:#86efac}
+  [data-kd-ui="dark"] .kdn-up-guide-now .is-wait{background:rgba(245,158,11,.16);color:#fcd27a}
+  .kdn-up-guide-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0;padding:0;list-style:none}
+  .kdn-up-guide-cards li{display:flex;gap:10px;padding:12px;border-radius:13px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
+  .kdn-up-guide-cards em{flex:none;width:22px;height:22px;border-radius:99px;display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:900;background:var(--kdn-accent);color:var(--kdn-accent-ink)}
+  .kdn-up-guide-cards b{display:block;font-size:14px;font-weight:900;color:var(--kdn-ink)}
+  .kdn-up-guide-cards p{margin:4px 0 0;font-size:12.5px;line-height:1.55;color:var(--kdn-ink-soft)}
+  .kdn-up-guide-cards strong{color:var(--kdn-accent-text);font-weight:800}
+  @media (max-width:1100px){.kdn-up-guide-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:560px){.kdn-up-guide-cards{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}

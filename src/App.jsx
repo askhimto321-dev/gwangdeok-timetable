@@ -2828,7 +2828,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
     ? "내 시간표, 이동수업 교실, 학급 공지와 성적 리포트를 이곳에서 바로 열 수 있어요."
     : "학생을 검색하면 성적 리포트 · 대학 탐색 · 관심대학·상담 · NAVI 분석이 같은 작업 탭으로 이어집니다.";
   return (
-    <main style={dash.page}>
+    <main className={exam ? "kdn-dash-tight" : undefined} style={exam ? { ...dash.page, paddingTop: 24 } : dash.page}>
       {exam && <DashboardExamStrip exam={exam} now={now} onStart={examZone[0].onClick} />}
       <section style={dash.hero}>
         <div style={dash.heroText}>
@@ -2858,7 +2858,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
           </div>
         </div>
       </section>
-      {shortcuts.length > 0 && <section aria-labelledby="kdn-dash-shortcuts" style={dash.shortcuts}>
+      {shortcuts.length > 0 && <section aria-labelledby="kdn-dash-shortcuts" style={exam ? { ...dash.shortcuts, marginTop: 18, gap: 12 } : dash.shortcuts}>
         <h2 id="kdn-dash-shortcuts" style={dash.h2}>바로가기{exam && <small className="kdn-dash-zone-note">시험 기간이라 성적 메뉴를 앞으로 꺼냈어요</small>}</h2>
         <div style={exam ? { ...dash.grid, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" } : dash.grid}>
           {exam && <div className="kdn-dash-zone">
