@@ -1087,6 +1087,7 @@ const CLASS_GRADE_CSS = `
 .cg-table .cg-rank.top{background:#fff0e6!important;color:#c2410c!important;box-shadow:inset 0 0 0 1.5px #f6b48f!important}
 [data-kd-ui="dark"] .cg-table .cg-rank.top{background:rgba(249,115,22,.16)!important;color:#fdba8c!important}
 .cg-sj-rank{min-width:34px!important;height:28px!important;background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-ink,#1f2430)!important;font-size:15px!important}
+.cg-table td.cg-conv{font-size:15px;font-weight:700;color:var(--kdn-ink-soft,#4b5263);font-variant-numeric:tabular-nums}
 .cg-sjt{border-collapse:separate;border-spacing:0}
 .cg-sjt th,.cg-sjt td{border-right:0!important;text-align:center!important}
 .cg-sjt thead th{padding:9px 8px!important;font-size:12.5px!important;font-weight:700;color:var(--kdn-muted,#6b7280)!important;background:var(--kdn-surface-2,#f6f7fa)!important;border-bottom:1px solid var(--kdn-line,#e3e6ec)}
@@ -1354,6 +1355,8 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const counts = bins.map(([lo, hi]) => graded.filter(row => val(row) >= lo && val(row) < hi).length);
   const ordered = rows.slice().sort((a, b) => tableSort === "sid" ? String(a.sid).localeCompare(String(b.sid)) : tableSort === "number" ? ((Number(a.classNumber) || 0) - (Number(b.classNumber) || 0)) * (allClasses ? 1 : 0) || (Number(a.number) || 99) - (Number(b.number) || 99) : (ranked.get(a.sid) || 999) - (ranked.get(b.sid) || 999));
   // 학기 열: 이 반 학생들에게 실제로 값이 있는(또는 과목 보기에서 열린) 학기만 머리글로 한 번 보여줍니다.
+  // 5등급 학생의 9등급 환산값은 별도 칸으로(머리글에만 '9등급 환산'). 과목 보기 표에는 없습니다.
+  const showConverted = !isSubject && rows.some(row => row?.[metric]?.converted != null);
   const semCols = SEMESTER_KEYS.filter(key => rows.some(row => stepsOf(row).some(item => item.key === key)));
   const semCells = row => {
     const steps = new Map(stepsOf(row).map(item => [item.key, item]));
@@ -1466,14 +1469,15 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
           <td className="cg-sj-gr">{getSubjectGrade(rec) ?? "-"}</td>
           <td>{ach ? <span className={`cg-ach a-${ach.charAt(0)}`}>{ach}</span> : "-"}</td>
         </React.Fragment>; })}
-      </tr>; })}</tbody></table></div> : <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 84 }} /><col style={{ width: 130 }} /><col style={{ width: 140 }} /><col style={{ width: 200 }} />{semCols.map(key => <col key={key} />)}</colgroup>
-      <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th className="c" rowSpan={2}>학번</th><th className="c" rowSpan={2}>이름</th><th className="c" rowSpan={2}>{metricLabel} {isSubject ? "등급" : "누적"}</th><th className="c" rowSpan={2}>직전 → 최근 학기</th><th className="c grp" colSpan={Math.max(1, semCols.length)}>학기별 {metricLabel} {isSubject ? "등급" : "평균"}</th></tr>
+      </tr>; })}</tbody></table></div> : <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 84 }} /><col style={{ width: 130 }} /><col style={{ width: 110 }} />{showConverted && <col style={{ width: 92 }} />}<col style={{ width: 200 }} />{semCols.map(key => <col key={key} />)}</colgroup>
+      <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th className="c" rowSpan={2}>학번</th><th className="c" rowSpan={2}>이름</th><th className="c" rowSpan={2}>{metricLabel} 누적</th>{showConverted && <th className="c" rowSpan={2}>9등급 환산</th>}<th className="c" rowSpan={2}>직전 → 최근 학기</th><th className="c grp" colSpan={Math.max(1, semCols.length)}>학기별 {metricLabel} {isSubject ? "등급" : "평균"}</th></tr>
       <tr className="h2">{semCols.length ? semCols.map((key, index) => { const [y, t] = key.split("-"); return <th key={key} className={`c cg-semhead y${y} t${t}${index && t === "1" ? " ybreak" : ""}`}><span>{y}학년 {t}학기</span></th>; }) : <th className="c">-</th>}</tr></thead>
       <tbody>{ordered.map(row => { const v = val(row); const rank = ranked.get(row.sid); return <tr key={row.sid}>
         <td className="c">{rank ? <span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}<small>위</small></span> : "-"}</td>
         <td className="c cg-sj-dim">{row.sid}</td>
         <td className="c cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)}>{row.name}</button> : <span>{row.name}</span>}</td>
-        <td className="c">{v == null ? (isSubject ? <span className="cg-none">미수강</span> : <span className="cg-sub">-</span>) : <><span className="cg-big">{v.toFixed(2)}</span>{row[metric]?.converted != null && <span className="cg-sub">9등급 환산 {Number(row[metric].converted).toFixed(2)}</span>}</>}</td>
+        <td className="c">{v == null ? (isSubject ? <span className="cg-none">미수강</span> : <span className="cg-sub">-</span>) : <span className="cg-big">{v.toFixed(2)}</span>}</td>
+        {showConverted && <td className="c cg-conv">{row[metric]?.converted != null ? Number(row[metric].converted).toFixed(2) : "-"}</td>}
         <td className="c"><SemesterChange trend={trendOf(row)} /></td>
         {semCols.length ? semCells(row).map(cell => <td key={cell.key} className={`c cg-semcell y${cell.y} t${cell.t}${cell.ybreak ? " ybreak" : ""}${cell.last ? " last" : ""}`}>{cell.none ? <span className="cg-none sm">미수강</span> : cell.value == null ? <span className="cg-sub">-</span> : <><b>{fmt2(cell.value)}</b><em style={{ color: cell.d == null ? "#8a92a0" : cell.d > 0.004 ? "#15803d" : cell.d < -0.004 ? "#c0262d" : "#8a92a0" }}>{cell.d == null ? "시작" : `${changeMark(cell.d)}${Math.abs(cell.d).toFixed(2)}`}</em></>}</td>) : <td className="c"><span className="cg-sub">-</span></td>}
       </tr>; })}</tbody></table></div>}

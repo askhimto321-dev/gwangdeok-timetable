@@ -2571,6 +2571,9 @@ const SHARED_NEW_CSS = `
   .kdn-tz2-hero .chips em{font-style:normal;padding:4px 11px;border-radius:99px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);font-size:13px;font-weight:700;color:#e7e2d8}
   .kdn-tz2-hero .chips em.ex{background:#e2531a;border-color:#e2531a;color:#fff}
   .kdn-tz2-hero button{min-height:42px;padding:0 18px;border-radius:12px;border:0!important;background:#e2531a!important;color:#fff!important;font:inherit;font-size:14.5px;font-weight:800;cursor:pointer}
+  .kdn-tz2-nosubj{display:flex;align-items:center;flex-wrap:wrap;gap:10px 16px;padding:14px 18px;border-radius:16px;background:color-mix(in srgb,#2563eb 8%,var(--kdn-surface));border:1px solid color-mix(in srgb,#2563eb 30%,var(--kdn-line))}
+  .kdn-tz2-nosubj>div{flex:1 1 320px;display:grid;gap:2px}.kdn-tz2-nosubj b{font-size:15px;font-weight:800;color:var(--kdn-ink)}.kdn-tz2-nosubj span{font-size:13.5px;color:var(--kdn-ink-soft)}
+  .kdn-tz2-nosubj button{min-height:40px;padding:0 16px;border-radius:11px;border:0!important;background:#2563eb!important;color:#fff!important;font:inherit;font-size:14px;font-weight:800;cursor:pointer}
   .kdn-tz2-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(176px,auto);gap:14px}
   .kdn-tz2.is-exam .kdn-tz2-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
   .kdn-tz2-card{min-height:176px}
@@ -2601,6 +2604,8 @@ const SHARED_NEW_CSS = `
   .kdn-save-bar .dot{width:9px;height:9px;border-radius:99px;background:#f59e0b;flex:none}.kdn-save-bar.is-shared .dot{background:#16a34a}
   .kdn-save-bar b{font-size:14px;font-weight:800;color:var(--kdn-ink)}
   .kdn-save-bar strong{color:var(--kdn-ink);font-weight:800}
+  .kdn-save-co{padding:3px 10px;border-radius:99px;background:color-mix(in srgb,#2563eb 12%,var(--kdn-surface));color:#1d4ed8;font-weight:800;font-size:13px}[data-kd-ui="dark"] .kdn-save-co{color:#93c5fd}
+  .kdn-save-note{font-weight:700;color:#15803d}[data-kd-ui="dark"] .kdn-save-note{color:#86efac}
   .kdn-save-bar button{margin-left:auto;min-height:34px;padding:0 14px;border-radius:10px;border:0!important;background:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important;font:inherit;font-size:13.5px;font-weight:800;cursor:pointer}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
