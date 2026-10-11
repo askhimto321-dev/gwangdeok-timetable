@@ -26,6 +26,7 @@ import { validGrade, supportBandValue, cutoffRange, SUPPORT_BAND_META, trackAcce
 import { CutStrip, SupportBandTiles } from "./naviVisuals.jsx";
 import { GradeSimPresetChips } from "./GradeSimulator.jsx";
 import { isNewUi } from "./uiMode.js";
+import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { loadSupportPlan, loadCompareTray, mutateWorkspaceList, subscribeSupportPlanChanges } from "./supportPlanStore.js";
 import SupportPlanPresets from "./SupportPlanPresets.jsx";
 import SupportPlanButton from "./SupportPlanButton.jsx";
@@ -4309,16 +4310,20 @@ function MinimumGroup({ rows = [], evaluations = [], histories = [], improvement
     // 무슨 뜻인지 알기 어렵습니다. 자동 판정이 안 되는 상태(manual)에서는 원문 대신 왜
     // 확인이 필요한지 이유를 보여줍니다.
     const isManual = evaluation?.status === "manual";
+    // 새 UI: 판정된 전형은 반영 과목·합·기준선 막대로 보여 주고, 같은 내용의 계산식 문장은 짧은 조건으로 줄입니다.
+    const showCalc = isNewUi() && ["satisfied", "unsatisfied"].includes(evaluation?.status) && (evaluation?.selectedSubjects || []).length > 0 && evaluation?.threshold != null;
+    const shortRule = showCalc ? (evaluation.ruleType === "each" ? `${evaluation.count}개 영역 각 ${evaluation.threshold}등급 이내` : `${evaluation.count}개 영역 합 ${evaluation.threshold} 이내`) : "";
     return <div key={`${row[3]}-${index}`} style={{ ...ui.minimumItem, ...(evaluation?.status === "unsatisfied" ? ui.minimumItemDanger : {}) }}>
       <div style={ui.minimumHead}><b>{row[3] || row[2] || "전형"}</b><span style={{...ui.minimumYearBadge,...(evaluation?.yearMismatch?ui.minimumYearBadgeReference:{})}}>{minimumYearLabel(evaluation)} · {row[2] || "수시"}</span></div>
-      <div style={ui.minimumCriteriaRow}>{isManual ? <small style={ui.minimumNote}>{evaluation.reason}</small> : <strong style={ui.minimumCriteria}>{evaluation?.ruleText || row[8] || "기준 원문 확인"}</strong>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
+      <div style={ui.minimumCriteriaRow}>{isManual ? <small style={ui.minimumNote}>{evaluation.reason}</small> : <strong style={ui.minimumCriteria}>{shortRule || evaluation?.ruleText || row[8] || "기준 원문 확인"}</strong>}{meta && <span style={{ ...ui.minimumStatusBadge, ...meta.style }}>{meta.label}</span>}</div>
+      {showCalc && <MinimumCalcStrip className="is-compact" result={evaluation} advice={evaluation.status === "unsatisfied" ? improvement : null} />}
       {evaluation?.source&&<small style={ui.minimumEvaluationNote}>{evaluation.source}</small>}
       {!isManual && <small style={ui.minimumNote}>{[(evaluation?.subjectsText || row[6]) && `반영영역 ${evaluation?.subjectsText || row[6]}`, (evaluation?.note ?? row[10]) || ''].filter(Boolean).join(" · ")}</small>}
       {meta && latestMockLabel && <small style={ui.minimumEvaluationNote}>{latestMockLabel} 기준 판정</small>}
       {/* 3번 요청: 여러 회차를 응시했다면 "최근 N회 중 M회 충족"을 함께 보여줍니다. */}
       {history && history.decidedCount > 0 && <small style={ui.minimumEvaluationNote}>최근 {history.decidedCount}회 중 {history.satisfiedCount}회 충족</small>}
       {/* 4번 요청: 미충족일 때 어느 과목을 몇 등급 올리면 충족되는지 미리 계산해 보여줍니다. */}
-      {evaluation?.status === "unsatisfied" && improvement && <small style={{ ...ui.minimumEvaluationNote, color: "#8a6d1f" }}>{improvementAdviceText(improvement)}</small>}
+      {!showCalc && evaluation?.status === "unsatisfied" && improvement && <small style={{ ...ui.minimumEvaluationNote, color: "#8a6d1f" }}>{improvementAdviceText(improvement)}</small>}
     </div>;
   })}</div> : <span style={ui.none}>해당 모집단위 수능최저 자료 없음</span>}</div>;
 }
