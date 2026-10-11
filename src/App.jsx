@@ -1803,20 +1803,20 @@ export default function App() {
     onOpenStudentView: view => (staffWorkspaceEnabled ? changeStudentWorkspaceView(view) : switchSection(view === "timetable" ? "timetable" : "grades")),
     // 정기시험 기간에 바로가기 맨 앞에 묶어 보여 줄 성적 메뉴(교직원만).
     examZone: canSeeTeacherZone ? [
-      { key: "calc", title: "성적 산출", text: "업로드 → 등급 산출", onClick: openGradeCalc },
-      ...((loggedInAdmin || loggedInTeacher?.homeroomClass) ? [{ key: "classGrades", title: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적", text: "누적 내신·분포·반 비교", onClick: () => openTeacherTool("classGrades") }] : []),
-      ...(canSeeMinimum ? [{ key: "minimum", title: "최성보 대상", text: "성취율 40% 미만·출결", onClick: () => switchSection("minimumAchievement") }] : []),
-      { key: "report", title: "성적 리포트", text: "학생별 내신·모의고사", onClick: () => switchSection("grades") },
+      { key: "calc", title: "성적 산출", text: "선생님 ZONE", onClick: openGradeCalc },
+      ...((loggedInAdmin || loggedInTeacher?.homeroomClass) ? [{ key: "classGrades", title: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적", text: "성적 · 진학", onClick: () => openTeacherTool("classGrades") }] : []),
+      ...(canSeeMinimum ? [{ key: "minimum", title: "최소성취수준", text: "최성보 대상 · 출결", onClick: () => switchSection("minimumAchievement") }] : []),
+      { key: "report", title: "성적 리포트", text: "성적 · 진학", onClick: () => switchSection("grades") },
     ] : [],
     shortcuts: [
-      { key: "grades", tone: "blue", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
+      { key: "grades", tone: "blue", title: "성적 · 진학", text: "성적 리포트, 대학 탐색, 관심대학·상담, 수시 NAVI 분석", chips: ["성적 리포트", "대학 탐색", "수시 NAVI"], icon: <BookOpen size={22} />, onClick: () => switchSection("grades") },
       (loggedInAdmin || loggedInTeacher?.homeroomClass)
-        ? { key: "classGrades", tone: "sky", title: "반별 성적 확인", text: loggedInAdmin ? "반마다 누적 내신·분포·학기별 변화와 반끼리 비교" : `${loggedInTeacher.homeroomClass}반 누적 내신·분포·학기별 변화와 반 비교`, icon: <BarChart3 size={22} />, onClick: () => openTeacherTool("classGrades") }
-        : { key: "gradeLookup", tone: "sky", title: "성적 확인", text: loggedInStudent ? "내 내신·모의고사 성적 리포트" : "학생 내신·모의고사 성적 리포트를 바로 열기", icon: <BarChart3 size={22} />, onClick: () => (loggedInStudent ? switchSection("grades") : staffWorkspaceEnabled ? changeStudentWorkspaceView("grades") : switchSection("grades")) },
-      { key: "timetable", tone: "teal", title: "시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 학급 공지", icon: <Calendar size={22} />, onClick: () => switchSection("timetable") },
-      ...(canSeeTeacherZone ? [{ key: "teacherZone", tone: "purple", title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 비상연락망, 생기부 업무", icon: <Users size={22} />, onClick: () => switchSection("teacherZone") }] : []),
-      ...(canSeeMinimum ? [{ key: "minimumAchievement", tone: "amber", title: "최소성취수준", text: "과목·학급별 최성보 판정과 출결 확인", icon: <Check size={22} />, onClick: () => switchSection("minimumAchievement") }] : []),
-      ...(loggedInAdmin ? [{ key: "admin", tone: "accent", title: "관리자", text: "시간표·성적 데이터, 계정·권한, 공지 관리", icon: <Settings size={22} />, onClick: () => switchSection("admin") }] : []),
+        ? { key: "classGrades", tone: "sky", title: "반별 성적", chips: ["누적 내신", "분포", "반 비교"], text: loggedInAdmin ? "반마다 누적 내신·분포·학기별 변화와 반끼리 비교" : `${loggedInTeacher.homeroomClass}반 누적 내신·분포·학기별 변화와 반 비교`, icon: <BarChart3 size={22} />, onClick: () => openTeacherTool("classGrades") }
+        : { key: "gradeLookup", tone: "sky", title: "성적 확인", chips: ["내신", "모의고사"], text: loggedInStudent ? "내 내신·모의고사 성적 리포트" : "학생 내신·모의고사 성적 리포트를 바로 열기", icon: <BarChart3 size={22} />, onClick: () => (loggedInStudent ? switchSection("grades") : staffWorkspaceEnabled ? changeStudentWorkspaceView("grades") : switchSection("grades")) },
+      { key: "timetable", tone: "teal", title: "시간표", text: "학생별 · 학급별 · 이동수업반별 시간표와 학급 공지", chips: ["학생별", "학급별", "이동수업"], icon: <Calendar size={22} />, onClick: () => switchSection("timetable") },
+      ...(canSeeTeacherZone ? [{ key: "teacherZone", tone: "purple", title: "선생님 ZONE", text: "성적 산출, 공지·수업자료, 비상연락망, 생기부 업무", chips: ["성적 산출", "공지·자료", "생기부"], icon: <Users size={22} />, onClick: () => switchSection("teacherZone") }] : []),
+      ...(canSeeMinimum ? [{ key: "minimumAchievement", tone: "amber", title: "최소성취수준", text: "과목·학급별 최성보 판정과 출결 확인", chips: ["최성보 판정", "출결"], icon: <Check size={22} />, onClick: () => switchSection("minimumAchievement") }] : []),
+      ...(loggedInAdmin ? [{ key: "admin", tone: "accent", title: "관리자", text: "시간표·성적 데이터, 계정·권한, 공지 관리", chips: ["데이터", "계정·권한", "학사일정"], icon: <Settings size={22} />, onClick: () => switchSection("admin") }] : []),
     ],
   };
 
@@ -2861,23 +2861,23 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
       {shortcuts.length > 0 && <section aria-labelledby="kdn-dash-shortcuts" style={exam ? { ...dash.shortcuts, marginTop: 18, gap: 12 } : dash.shortcuts}>
         <h2 id="kdn-dash-shortcuts" style={dash.h2}>바로가기{exam && <small className="kdn-dash-zone-note">시험 기간이라 성적 메뉴를 앞으로 꺼냈어요</small>}</h2>
         <div style={exam ? { ...dash.grid, gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" } : dash.grid}>
-          {exam && <div className="kdn-dash-zone">
+          {exam && <div className="kdn-dash-zone t-accent">
             <div className="kdn-dash-zone-head">
-              <span style={{ ...dash.shortcutIcon, background: "#c2410c", color: "#fff" }}><BarChart3 size={22} /></span>
-              <b style={dash.shortcutTitle}>성적 ZONE</b>
-              <span style={dash.shortcutText}>시험 기간 동안 맨 앞에 고정돼요</span>
+              <span className="kdn-sc-ic"><BarChart3 size={22} /></span>
+              <b className="kdn-sc-title">성적 ZONE</b>
+              <span className="kdn-dash-zone-sub">시험 기간 동안 맨 앞에 고정돼요</span>
               <em className="kdn-dash-zone-badge">{exam.phase === "after" ? "성적 처리" : "시험 기간"}</em>
             </div>
             <div className="kdn-dash-zone-items">
-              {examZone.map(item => <button key={item.key} type="button" onClick={item.onClick}><b>{item.title}</b><span>{item.text}</span></button>)}
+              {examZone.map(item => <button key={item.key} type="button" onClick={item.onClick}><b>{item.title}</b><span>{item.text}</span><ArrowRight size={15} className="go" /></button>)}
             </div>
           </div>}
           {listedShortcuts.map(item => (
-            <button key={item.key} type="button" onClick={item.onClick} style={dash.shortcut}>
-              <span style={{ ...dash.shortcutIcon, ...(TILE_TONES[item.tone] ? { background: TILE_TONES[item.tone].bg, color: TILE_TONES[item.tone].label } : {}) }}>{item.icon}</span>
-              <b style={dash.shortcutTitle}>{item.title}</b>
-              <span style={dash.shortcutText}>{item.text}</span>
-              <span style={dash.shortcutGo}>열기 <ArrowRight size={15} /></span>
+            <button key={item.key} type="button" onClick={item.onClick} className={`kdn-sc t-${item.tone || "accent"}`} title={item.text}>
+              <span className="kdn-sc-ic">{item.icon}</span>
+              <b className="kdn-sc-title">{item.title}</b>
+              <span className="kdn-sc-chips">{(item.chips || [item.text]).map(chip => <i key={chip}>{chip}</i>)}</span>
+              <span className="kdn-sc-go">열기<span className="arr"><ArrowRight size={15} /></span></span>
             </button>
           ))}
         </div>
