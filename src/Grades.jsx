@@ -4769,6 +4769,126 @@ function formatStoredFileSize(size) {
   return `${Math.round(value / 1024 / 102.4) / 10}MB`;
 }
 
+
+// ── 상담 인쇄: 관심 대학 카드를 요약 표로 바꾸기 ─────────────────────────────
+const pcText = node => String(node?.textContent || "").replace(/\s+/g, " ").trim();
+// 자식 요소가 없는 글자 조각들을 순서대로 모아 구분자로 잇습니다(인쇄 복제본은 화면에 붙어 있지 않아 innerText를 못 씀).
+const pcLeaves = (node, skip = null) => {
+  const out = [];
+  const walk = el => {
+    if (!el || (skip && el.matches?.(skip))) return;
+    const kids = Array.from(el.children || []);
+    const ownText = Array.from(el.childNodes || []).some(node => node.nodeType === 3 && node.textContent.trim());
+    // 자식 요소가 없거나, '지원 <b>4건</b>'처럼 글자와 요소가 섞여 있으면 통째로 한 조각
+    if (!kids.length || ownText) { const t = pcText(el); if (t) out.push(t); return; }
+    kids.forEach(walk);
+  };
+  walk(node);
+  return out;
+};
+const pcEl = (tag, className, text) => { const el = document.createElement(tag); if (className) el.className = className; if (text != null) el.textContent = text; return el; };
+function compactFavoritePrintCard(card) {
+  const university = pcText(card.querySelector(".favorite-print-university"));
+  const count = pcText(card.querySelector(".favorite-print-count"));
+  const studentTag = card.querySelector(".counseling-print-card-student");
+  const sources = [
+    ["지원 기준", card.querySelector(".favorite-print-source-admission")],
+    ["광덕고 사례", card.querySelector(".favorite-print-source-cases")],
+    ["NAVI 컷", card.querySelector(".favorite-print-source-navi")],
+  ].map(([label, box]) => {
+    if (!box) return null;
+    const pills = Array.from(box.querySelectorAll(".favorite-print-navi-cut-pill")).map(pill => pcLeaves(pill).join(" "));
+    const text = pills.length ? pills.join(" / ") : pcLeaves(box, ".favorite-print-source-label").join(" · ");
+    return [label, text.replace(/(\d)건/g, "$1")];
+  }).filter(Boolean);
+  const items = Array.from(card.querySelectorAll(".favorite-print-item")).map(item => {
+    const dept = pcText(item.querySelector(".favorite-print-department-line b"));
+    const kind = pcText(item.querySelector(".favorite-print-kind"));
+    const track = pcText(item.querySelector(".favorite-print-track-line b"));
+    const cuts = Array.from(item.querySelectorAll(".favorite-print-item-navi-cuts small")).map(pcText).filter(Boolean);
+    const rows = [];
+    item.querySelectorAll(".kd-counsel-type").forEach(type => {
+      const kindName = pcText(type.querySelector(":scope>summary>b"));
+      type.querySelectorAll(".kd-counsel-minimum").forEach(minimum => {
+        const pill = minimum.querySelector(".kd-status-pill");
+        const raw = pcText(minimum.querySelector(".kd-counsel-print-rule"));
+        const m = raw.match(/^(\d{4})학년도\s*(?:참고\s*)?기준\s*·\s*(.*)$/);
+        rows.push({ kind: kindName, name: pcText(minimum.querySelector(":scope>summary>b")), year: m ? m[1] : "", rule: (m ? m[2] : raw) || "-", status: pcText(pill), tone: (pill?.className.match(/is-([a-z-]+)/) || [])[1] || "" });
+      });
+    });
+    const course = item.querySelector(".kd-course-details");
+    const courseTitle = course ? pcText(course.querySelector("summary span")) : "";
+    const courseStatus = course ? pcText(course.querySelector("summary strong")) : "";
+    const groups = course ? Array.from(course.querySelectorAll(".kd-course-group-title")).map(title => {
+      const chips = title.nextElementSibling?.classList.contains("kd-course-chips") ? Array.from(title.nextElementSibling.querySelectorAll("span")) : [];
+      const name = s => pcText(s).replace(/^[✓○]\s*/, "").replace(/^★\s*/, "★");
+      return { label: pcText(title).replace(/^여러 대학 공통\s*/, ""), done: chips.filter(c => c.classList.contains("is-matched")).map(name), todo: chips.filter(c => !c.classList.contains("is-matched") && !c.classList.contains("kd-course-overflow")).map(name) };
+    }) : [];
+    const note = !rows.length && !course ? pcText(item.querySelector(".favorite-print-item-body")) : "";
+    return { dept, kind, track, cuts, rows, courseTitle, courseStatus, groups, note };
+  });
+  // 새 구조로 바꿔 끼웁니다.
+  card.textContent = "";
+  card.classList.add("pc-card");
+  if (studentTag) card.appendChild(studentTag);
+  const head = pcEl("header", "pc-head");
+  head.appendChild(pcEl("b", "pc-uni", university));
+  if (count) head.appendChild(pcEl("span", "pc-count", count));
+  card.appendChild(head);
+  // 학과 줄에 NAVI 컷이 이미 보이면 위쪽 요약의 NAVI 칸은 뺍니다(같은 숫자 두 번 방지).
+  const shownSources = items.some(item => item.cuts.length) ? sources.filter(([label]) => label !== "NAVI 컷") : sources;
+  if (shownSources.length) {
+    const grid = pcEl("div", `pc-src n${shownSources.length}`);
+    shownSources.forEach(([label, text]) => { const cell = pcEl("div"); cell.appendChild(pcEl("small", null, label)); cell.appendChild(pcEl("span", null, text || "-")); grid.appendChild(cell); });
+    card.appendChild(grid);
+  }
+  items.forEach((item, index) => {
+    const sec = pcEl("section", "pc-item");
+    const h = pcEl("div", "pc-item-head");
+    h.appendChild(pcEl("i", null, String(index + 1)));
+    h.appendChild(pcEl("b", null, item.dept || "학과 미지정"));
+    const meta = [item.kind, item.track && !/기준 보기/.test(item.track) ? item.track : ""].filter(Boolean).join(" · ");
+    if (meta) h.appendChild(pcEl("small", null, meta));
+    if (item.cuts.length) h.appendChild(pcEl("span", "pc-cut", `NAVI ${item.cuts.join("  |  ")}`));
+    sec.appendChild(h);
+    if (item.rows.length) {
+      const table = pcEl("table", "pc-min");
+      const years = Array.from(new Set(item.rows.map(row => row.year).filter(Boolean)));
+      const oneYear = years.length === 1 ? years[0] : "";
+      const thead = pcEl("thead"); const tr = pcEl("tr");
+      ["유형", "전형", oneYear ? `수능최저 (${oneYear}학년도 기준)` : "수능최저", "판정"].forEach(label => tr.appendChild(pcEl("th", null, label)));
+      thead.appendChild(tr); table.appendChild(thead);
+      const tbody = pcEl("tbody");
+      item.rows.forEach(row => {
+        const r = pcEl("tr");
+        r.appendChild(pcEl("td", "k", row.kind));
+        r.appendChild(pcEl("td", "n", row.name));
+        const rule = /^미적용$/.test(row.rule) ? "없음" : row.rule;
+        const ruleCell = pcEl("td", "r", rule);
+        if (row.year && !oneYear) ruleCell.appendChild(pcEl("small", null, ` ${row.year}`));
+        r.appendChild(ruleCell);
+        const st = pcEl("td", "s"); st.appendChild(pcEl("span", `pc-pill is-${row.tone}`, row.status.replace(/^모평 기준\s*/, "") || "-")); r.appendChild(st);
+        tbody.appendChild(r);
+      });
+      table.appendChild(tbody); sec.appendChild(table);
+    }
+    if (item.groups.length || item.courseTitle) {
+      const box = pcEl("div", "pc-course");
+      const t = pcEl("div", "pc-course-head"); t.appendChild(pcEl("b", null, item.courseTitle || "권장과목")); if (item.courseStatus) t.appendChild(pcEl("em", null, item.courseStatus)); box.appendChild(t);
+      item.groups.forEach(group => {
+        const line = pcEl("p");
+        line.appendChild(pcEl("b", null, group.label));
+        if (group.done.length) line.appendChild(pcEl("span", "done", `✓ ${group.done.join(", ")}`));
+        if (group.todo.length) line.appendChild(pcEl("span", "todo", `미이수 ${group.todo.join(", ")}`));
+        box.appendChild(line);
+      });
+      sec.appendChild(box);
+    }
+    if (item.note) sec.appendChild(pcEl("p", "pc-note", item.note));
+    card.appendChild(sec);
+  });
+}
+
 export function printCounselingHistory(options = {}) {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   const includeNotes = options.notes !== false;
@@ -4802,6 +4922,8 @@ export function printCounselingHistory(options = {}) {
   if (noteSection) clone.appendChild(noteSection);
   if (favoriteSection) clone.appendChild(favoriteSection);
   if (!includeNotes) clone.classList.add('is-favorites-only');
+  // 관심 대학 카드는 화면 구조를 그대로 찍지 않고, 한눈에 보이는 인쇄 전용 요약으로 다시 짭니다.
+  clone.querySelectorAll('.favorite-print-card').forEach(compactFavoritePrintCard);
   const studentLabel = clone.querySelector('.student-identity-name')?.textContent || '상담 자료';
   clone.querySelectorAll('.favorite-print-card').forEach((node,index) => {
     const label=document.createElement('div');
@@ -4951,6 +5073,47 @@ html body.print-counseling-history .counseling-print-root-clone .kd-course-detai
 html body.print-counseling-history .counseling-print-root-clone .kd-course-chips{gap:1mm!important;margin:.8mm 0 1.2mm!important}
 html body.print-counseling-history .counseling-print-root-clone .kd-course-group-title{margin:1mm 0 0!important}
 html body.print-counseling-history .counseling-print-root-clone :is(.kd-counsel-type,.kd-course-details,.kd-counsel-facts){margin-top:1.6mm!important;margin-bottom:0!important}
+/* 관심 대학 요약 카드(인쇄 전용 구조) */
+html body.print-counseling-history .counseling-print-root-clone .favorite-print-grid{display:block!important}
+html body.print-counseling-history .counseling-print-root-clone article.pc-card{display:block!important;margin:0 0 4mm!important;padding:3.2mm 3.6mm!important;border:.3mm solid var(--pk-line)!important;border-radius:2.5mm!important;break-inside:avoid!important;page-break-inside:avoid!important;break-before:auto!important;page-break-before:auto!important;break-after:auto!important;page-break-after:auto!important}
+html body.print-counseling-history .counseling-print-root-clone .pc-head{display:flex;align-items:baseline;gap:2.5mm;padding-bottom:1.6mm;border-bottom:.3mm solid var(--pk-ink)}
+html body.print-counseling-history .counseling-print-root-clone .pc-uni{font-size:13.5pt;font-weight:900;color:var(--pk-ink)}
+html body.print-counseling-history .counseling-print-root-clone .pc-count{font-size:8.5pt;color:var(--pk-muted)}
+html body.print-counseling-history .counseling-print-root-clone .pc-src{display:grid;grid-template-columns:1fr 1.2fr 1.6fr;gap:1.6mm;margin:1.8mm 0 2mm}
+html body.print-counseling-history .counseling-print-root-clone .pc-src>div{display:grid;gap:.4mm;padding:1.4mm 2mm;border-radius:1.5mm;background:var(--pk-bg)}
+html body.print-counseling-history .counseling-print-root-clone .pc-src small{font-size:7.6pt;font-weight:800;color:var(--pk-muted)}
+html body.print-counseling-history .counseling-print-root-clone .pc-src span{font-size:9pt;font-weight:700;color:var(--pk-ink);line-height:1.4}
+html body.print-counseling-history .counseling-print-root-clone .pc-item{margin-top:2mm}
+html body.print-counseling-history .counseling-print-root-clone .pc-item-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:1mm 2mm;margin-bottom:1.2mm}
+html body.print-counseling-history .counseling-print-root-clone .pc-item-head i{display:inline-grid;place-items:center;width:4.4mm;height:4.4mm;border-radius:1mm;background:var(--pk-ink);color:#fff;font-style:normal;font-size:8pt;font-weight:900;align-self:center}
+html body.print-counseling-history .counseling-print-root-clone .pc-item-head b{font-size:11.5pt;font-weight:900;color:var(--pk-ink)}
+html body.print-counseling-history .counseling-print-root-clone .pc-item-head small{font-size:8.5pt;color:var(--pk-muted)}
+html body.print-counseling-history .counseling-print-root-clone .pc-cut{margin-left:auto;font-size:8.5pt;font-weight:700;color:var(--pk-soft)}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min{width:100%;border-collapse:collapse;font-size:9pt;table-layout:fixed}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min th{padding:1mm 1.6mm;background:var(--pk-bg);color:var(--pk-muted);font-size:7.8pt;font-weight:800;text-align:left;border-bottom:.25mm solid var(--pk-line)}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min th:nth-child(1){width:11%}html body.print-counseling-history .counseling-print-root-clone table.pc-min th:nth-child(2){width:24%}html body.print-counseling-history .counseling-print-root-clone table.pc-min th:nth-child(4){width:15%;text-align:center}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min td{padding:1.1mm 1.6mm;border-bottom:.25mm solid var(--pk-line);vertical-align:top;color:var(--pk-ink);line-height:1.4}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min td.k{color:var(--pk-muted);font-weight:700}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min td.n{font-weight:800}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min td.r{color:var(--pk-soft)}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min td.r small{font-size:7.4pt;color:var(--pk-muted)}
+html body.print-counseling-history .counseling-print-root-clone table.pc-min td.s{text-align:center}
+html body.print-counseling-history .counseling-print-root-clone .pc-pill{display:inline-block;padding:.2mm 1.8mm;border-radius:99px;border:.25mm solid #d7dce4;background:#f3f4f6;color:var(--pk-soft);font-size:7.8pt;font-weight:800;white-space:nowrap}
+html body.print-counseling-history .counseling-print-root-clone .pc-pill.is-satisfied{background:#e8f5ec;border-color:#b7e0c3;color:#15803d}
+html body.print-counseling-history .counseling-print-root-clone .pc-pill.is-unsatisfied{background:#fdecea;border-color:#f5c2bd;color:#b91c1c}
+html body.print-counseling-history .counseling-print-root-clone .pc-pill:is(.is-manual,.is-unavailable,.is-unlinked){background:#fff7e6;border-color:#f0d3a8;color:#8a5a12}
+html body.print-counseling-history .counseling-print-root-clone .pc-course{margin-top:1.6mm;padding:1.4mm 2mm;border-radius:1.5mm;background:var(--pk-bg)}
+html body.print-counseling-history .counseling-print-root-clone .pc-course-head{display:flex;justify-content:space-between;gap:2mm;font-size:8.8pt}
+html body.print-counseling-history .counseling-print-root-clone .pc-course-head b{font-weight:900;color:var(--pk-ink)}html body.print-counseling-history .counseling-print-root-clone .pc-course-head em{font-style:normal;font-weight:800;color:var(--pk-acc)}
+html body.print-counseling-history .counseling-print-root-clone .pc-course p{margin:.6mm 0 0;font-size:8.4pt;line-height:1.45;color:var(--pk-soft)}
+html body.print-counseling-history .counseling-print-root-clone .pc-course p b{margin-right:1.6mm;color:var(--pk-ink)}
+html body.print-counseling-history .counseling-print-root-clone .pc-course p .done{color:#15803d;margin-right:2mm}
+html body.print-counseling-history .counseling-print-root-clone .pc-course p .todo{color:var(--pk-muted)}
+html body.print-counseling-history .counseling-print-root-clone .pc-note{margin:1mm 0 0;font-size:8.8pt;color:var(--pk-soft)}
+html body.print-counseling-history .counseling-print-root-clone .pc-src.n2{grid-template-columns:1fr 1.4fr}
+html body.print-counseling-history .counseling-print-root-clone .pc-src.n1{grid-template-columns:1fr}
+html body.print-counseling-history .counseling-print-root-clone article.pc-card .counseling-print-card-student{margin:0 0 1mm!important;padding:0!important;font-size:7.6pt!important}
+html body.print-counseling-history .counseling-print-root-clone .pc-head{margin-top:0!important}
 }
 `;
 
