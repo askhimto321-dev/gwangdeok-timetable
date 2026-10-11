@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { examPeriodFromCalendar } from "./examPeriod.js";
+import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
 import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
@@ -3076,7 +3077,8 @@ function NavClock({ semester }) {
 function nextAcademicEvent(calendar, now = new Date()) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return (calendar?.events || [])
-    .map(event => ({ ...event, time: new Date(`${event.date}T00:00:00`).getTime() }))
+    // 여러 날 일정(시험·방학)은 진행 중이면 오늘(D-DAY)로 봅니다.
+    .map(event => { const start = new Date(`${event.date}T00:00:00`).getTime(); const end = event.endDate ? new Date(`${event.endDate}T00:00:00`).getTime() : start; return { ...event, time: start <= today && today <= end ? today : start }; })
     .filter(event => event.label && Number.isFinite(event.time) && event.time >= today && event.time - today <= 60 * 86400000)
     .sort((a, b) => a.time - b.time)
     .map(event => ({ ...event, days: Math.round((event.time - today) / 86400000) }))[0] || null;
@@ -5185,7 +5187,7 @@ function AdminHome({ db = {}, gdb, grade, semester, roster = {}, timetables = {}
   const teachers = (accounts?.teachers || []).length;
   const openFeedback = (db.feedback || []).filter(item => !item.status || item.status === "접수").length;
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const nextEvent = (db.academicCalendar?.events || []).map(event => ({ ...event, d: Math.round((new Date(`${event.date}T00:00:00`) - today) / 86400000) })).filter(event => event.d >= 0).sort((a, b) => a.d - b.d)[0];
+  const nextEvent = (db.academicCalendar?.events || []).map(event => { const d = Math.round((new Date(`${event.date}T00:00:00`) - today) / 86400000); const dEnd = event.endDate ? Math.round((new Date(`${event.endDate}T00:00:00`) - today) / 86400000) : d; return { ...event, d: d < 0 && dEnd >= 0 ? 0 : d }; }).filter(event => event.d >= 0).sort((a, b) => a.d - b.d)[0];
   const cards = [
     { group: "데이터", key: "timetable", icon: <ClipboardList size={20} />, tone: "teal", title: "시간표·명단", value: classes.length ? `${linked}/${classes.length}` : "명단 없음", sub: classes.length ? "반 시간표 연결" : `${grade}학년 ${semLabel} 명단을 올려 주세요`, progress: classes.length ? linked / classes.length : 0, todo: !classes.length || linked < classes.length },
     { group: "데이터", key: "grades", icon: <FileSpreadsheet size={20} />, tone: "blue", title: "성적 데이터", value: gradeStudents ? `${gradeStudents}명` : "없음", sub: `${semKey} 학기 성적`, todo: !gradeStudents },
@@ -5265,14 +5267,44 @@ function AdminAcademicCalendar({ calendar, persist, showToast }) {
   const save = async () => {
     if (invalid) { showToast("2학기 개학일은 1학기 개학일보다 뒤여야 합니다.", "error"); return; }
     setSaving(true);
-    const clean = events.filter(event => event.date && String(event.label || "").trim()).map(event => ({ id: event.id, date: event.date, label: String(event.label).trim().slice(0, 20) })).sort((a, b) => a.date.localeCompare(b.date));
+    const clean = events.filter(event => event.date && String(event.label || "").trim()).map(event => ({ id: event.id, date: event.date, ...(event.endDate && event.endDate > event.date ? { endDate: event.endDate } : {}), label: String(event.label).trim().slice(0, 30), ...(event.kind ? { kind: event.kind } : {}) })).sort((a, b) => a.date.localeCompare(b.date));
     const ok = await persist({ academicCalendar: { sem1Start, sem2Start, events: clean, updatedAt: new Date().toISOString() } });
     setSaving(false);
     if (ok) { setEvents(clean); showToast("학사일정을 저장했습니다. 다음에 접속할 때부터 학기가 이 기준으로 자동 선택됩니다.", "success"); }
   };
+  // 파일로 불러오기: 엑셀/CSV의 '날짜·종료일·일정·구분' 열을 읽어 일정 목록을 바꾸고, 개학식으로 학기 기준일을 채웁니다(저장 버튼을 눌러야 반영).
+  const [importNote, setImportNote] = useState("");
+  const importFile = async file => {
+    if (!file) return;
+    try {
+      const XLSX = await loadXLSX();
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: "" });
+      const { events: loaded, errors } = parseCalendarRows(rows);
+      if (!loaded.length) { setImportNote(errors[0] || "불러올 일정이 없습니다."); showToast(errors[0] || "불러올 일정이 없습니다.", "error"); return; }
+      const starts = semesterStartsFromEvents(loaded);
+      setEvents(loaded);
+      if (starts.sem1Start) setSem1Start(starts.sem1Start);
+      if (starts.sem2Start) setSem2Start(starts.sem2Start);
+      setImportNote(`${file.name}에서 일정 ${loaded.length}개를 불러왔습니다${starts.sem1Start || starts.sem2Start ? " · 개학일 자동 입력" : ""}${errors.length ? ` · 읽지 못한 행 ${errors.length}개` : ""}. 확인 후 '학사일정 저장'을 누르세요.`);
+    } catch (error) {
+      setImportNote(`파일을 읽지 못했습니다: ${error?.message || error}`);
+      showToast("파일을 읽지 못했습니다. 엑셀(.xlsx) 또는 CSV 파일인지 확인해 주세요.", "error");
+    }
+  };
   const field = { display: "grid", gap: 6, fontSize: 13, fontWeight: 700, color: "#3a4150" };
   const input = { ...styles.cellInput, width: "auto", textAlign: "left", border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 10px", fontSize: 14 };
   return <div style={{ display: "grid", gap: 16 }}>
+    <div style={{ ...styles.card, border: `1.5px dashed ${COLORS.line}` }}>
+      <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>학사일정 파일로 불러오기</div>
+      <p style={{ ...styles.pMuted, marginTop: 0 }}>엑셀(.xlsx)·CSV 첫 시트에 <b>날짜 · 종료일 · 일정 · 구분</b> 열이 있으면 일정 목록을 한 번에 바꿉니다. 여러 날 일정(정기시험 등)은 종료일을 넣으면 기간 전체가 반영되고, '개학식' 일정으로 학기 기준일도 채워집니다. 불러온 뒤 확인하고 저장하세요.</p>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <label style={{ ...styles.primaryBtn, cursor: "pointer" }}><Upload size={14} /> 파일 선택<input type="file" accept=".xlsx,.xls,.csv" hidden onChange={event => { importFile(event.target.files?.[0]); event.target.value = ""; }} /></label>
+        <a href={`${import.meta.env.BASE_URL || "/"}academic-calendar-template.csv`} download style={{ fontSize: 13.5, fontWeight: 700, color: "#c2410c" }}>양식 내려받기 (CSV)</a>
+        {importNote && <span style={{ fontSize: 13.5, fontWeight: 700, color: "#3a4150" }}>{importNote}</span>}
+      </div>
+    </div>
     <div style={styles.card}>
       <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>학기 기준일</div>
       <p style={{ ...styles.pMuted, marginTop: 0 }}>개학일을 넣으면 시간표·선생님 ZONE 등이 오늘 날짜에 맞는 학기로 자동으로 열립니다. 월·일만 비교하므로 해마다 날짜가 바뀌면 다시 저장해 주세요.</p>
@@ -5288,7 +5320,9 @@ function AdminAcademicCalendar({ calendar, persist, showToast }) {
       <div style={{ display: "grid", gap: 8 }}>
         {events.map(event => <div key={event.id} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input type="date" value={event.date || ""} onChange={e => setEvents(list => list.map(item => item.id === event.id ? { ...item, date: e.target.value } : item))} style={{ ...input, flex: "0 0 170px", width: 170 }} aria-label="일정 날짜" />
-          <input value={event.label || ""} maxLength={20} placeholder="예: 2학기 기말고사" onChange={e => setEvents(list => list.map(item => item.id === event.id ? { ...item, label: e.target.value } : item))} style={{ ...input, flex: "1 1 220px", minWidth: 0 }} aria-label="일정 이름" />
+          <span style={{ fontSize: 13, color: "#5d6574" }}>~</span>
+          <input type="date" value={event.endDate || ""} min={event.date || undefined} onChange={e => setEvents(list => list.map(item => item.id === event.id ? { ...item, endDate: e.target.value } : item))} style={{ ...input, flex: "0 0 170px", width: 170 }} aria-label="종료일(선택)" title="여러 날 일정이면 종료일" />
+          <input value={event.label || ""} maxLength={30} placeholder="예: 2학기 기말고사" onChange={e => setEvents(list => list.map(item => item.id === event.id ? { ...item, label: e.target.value } : item))} style={{ ...input, flex: "1 1 220px", minWidth: 0 }} aria-label="일정 이름" />
           <button type="button" style={styles.iconBtn} onClick={() => setEvents(list => list.filter(item => item.id !== event.id))} aria-label="일정 삭제"><X size={14} /></button>
         </div>)}
         {!events.length && <div style={{ fontSize: 13.5, color: "#5d6574" }}>아직 등록된 일정이 없습니다.</div>}
