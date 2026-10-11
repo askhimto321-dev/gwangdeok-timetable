@@ -2496,22 +2496,28 @@ const SHARED_NEW_CSS = `
   /* 시험 기간 대시보드는 띠·성적 ZONE이 더해지므로 한 화면에 들어오게 히어로와 카드를 조금 줄입니다. */
   .kdn-dash-tight h1{font-size:clamp(34px,4.2vw,52px)!important}
   .kdn-dash-tight section:has(>div>h1) > div:first-child{gap:16px!important}
-  /* 성적 산출 1단계 안내(짧게): 제목 한 줄 + 등록 상태 칩 + 한 줄 팁 4개 */
-  .teacher-grade-analyzer-upload{padding-top:11px!important;padding-bottom:11px!important}
-  .kdn-up-guide{display:grid;gap:7px;margin-top:8px;padding:9px 14px;border-radius:14px;background:color-mix(in srgb,var(--kdn-accent) 6%,var(--kdn-surface));border:1px solid color-mix(in srgb,var(--kdn-accent) 20%,var(--kdn-line))}
-  .kdn-up-guide-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
-  .kdn-up-guide-head>b{font-size:14.5px;font-weight:900;color:var(--kdn-ink)}
-  .kdn-up-guide-now{display:flex;flex-wrap:wrap;gap:5px}
-  .kdn-up-guide-now span{padding:2px 9px;border-radius:99px;font-size:12px;font-weight:800;border:1px solid transparent}
+  /* 성적 산출 머리: 설명 대신 탭, 버튼은 한 줄 */
+  .teacher-grade-hero .teacher-grade-module-tabs{margin-top:10px}
+  .teacher-grade-hero-actions{max-width:none!important;flex-wrap:nowrap!important}
+  @media (max-width:900px){.teacher-grade-hero-actions{flex-wrap:wrap!important}}
+  .teacher-grade-analyzer-upload p{font-size:13.5px!important;line-height:1.5!important}
+  .teacher-grade-analyzer-upload small{font-size:13.5px!important}
+  .teacher-grade-analyzer-upload>div>div:first-child{font-size:16px!important}
+  /* 성적 산출 1단계 안내: 제목 한 줄 + 등록 상태 칩 + 한 줄 팁 4개 (글자는 읽기 편한 크기) */
+  .kdn-up-guide{display:grid;gap:12px;margin-top:14px;padding:14px 18px;border-radius:16px;background:color-mix(in srgb,var(--kdn-accent) 6%,var(--kdn-surface));border:1px solid color-mix(in srgb,var(--kdn-accent) 20%,var(--kdn-line))}
+  .kdn-up-guide-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+  .kdn-up-guide-head>b{font-size:16px;font-weight:900;color:var(--kdn-ink)}
+  .kdn-up-guide-now{display:flex;flex-wrap:wrap;gap:6px}
+  .kdn-up-guide-now span{padding:3px 11px;border-radius:99px;font-size:13px;font-weight:800;border:1px solid transparent}
   .kdn-up-guide-now .is-ok{background:#e7f7ee;color:#15803d}
   .kdn-up-guide-now .is-wait{background:#fff4d9;color:#8a5a0b}
   .kdn-up-guide-now .is-plan{color:var(--kdn-muted);border-color:var(--kdn-control-line);border-style:dashed}
   [data-kd-ui="dark"] .kdn-up-guide-now .is-ok{background:rgba(34,197,94,.15);color:#86efac}
   [data-kd-ui="dark"] .kdn-up-guide-now .is-wait{background:rgba(245,158,11,.16);color:#fcd27a}
-  .kdn-up-guide-tips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:0;padding:0;list-style:none}
-  .kdn-up-guide-tips li{display:grid;gap:1px;padding:6px 10px;border-radius:10px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
-  .kdn-up-guide-tips b{font-size:13px;font-weight:800;color:var(--kdn-ink)}
-  .kdn-up-guide-tips span{font-size:12px;color:var(--kdn-muted)}
+  .kdn-up-guide-tips{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0;padding:0;list-style:none}
+  .kdn-up-guide-tips li{display:grid;gap:3px;padding:11px 14px;border-radius:12px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
+  .kdn-up-guide-tips b{font-size:15px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-up-guide-tips span{font-size:13.5px;color:var(--kdn-ink-soft)}
   @media (max-width:900px){.kdn-up-guide-tips{grid-template-columns:repeat(2,minmax(0,1fr))}}
   /* 대시보드 바로가기 카드(F안): 흰 카드 + 제목·짧은 설명 + 오른쪽 아래 둥근 도형 그림(저채도, 주황 점 하나). */
   .kdn-sc{position:relative;overflow:hidden;display:flex;flex-direction:column;gap:6px;min-width:0;min-height:168px;padding:18px 18px 16px;border-radius:24px;border:1px solid var(--kdn-line);background:var(--kdn-surface);box-shadow:0 1px 2px rgba(16,24,40,.04);color:var(--kdn-ink);font:inherit;text-align:left;cursor:pointer;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease}
@@ -2555,6 +2561,20 @@ const SHARED_NEW_CSS = `
     .kdn-dash-tight.is-exam .kdn-sc-illo{width:80px;height:66px}
     .kdn-dash-tight.is-exam .kdn-dash-float{margin-top:-122px!important;padding:16px 20px 14px!important;gap:6px!important}
   }
+  /* 선생님 ZONE 홈 시험 기간: 4열 · 성적 산출 2칸(1줄) · 단계는 한 줄 4칸 → 한 화면에 */
+  .kdn-tz.is-exam .kdn-tz-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .kdn-tz.is-exam .kdn-tz-card.is-featured{grid-row:auto}
+  .kdn-tz.is-exam .kdn-tz-steps{flex:none;grid-template-columns:repeat(4,minmax(0,1fr));grid-auto-rows:auto;gap:8px}
+  .kdn-tz.is-exam .kdn-tz-steps>div{padding:10px 12px;gap:2px 10px}
+  .kdn-tz.is-exam .kdn-tz-steps em{width:28px;height:28px;font-size:13.5px}
+  .kdn-tz.is-exam .kdn-tz-steps b{font-size:14.5px}
+  .kdn-tz.is-exam .kdn-tz-steps small{font-size:12px;line-height:1.4}
+  .kdn-tz.is-exam .kdn-tz-card:not(.is-featured) ul{display:none}
+  .kdn-tz.is-exam .kdn-tz-card{gap:10px}
+  @media (max-width:1200px){.kdn-tz.is-exam .kdn-tz-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media (max-width:1000px){.kdn-tz.is-exam .kdn-tz-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kdn-tz.is-exam .kdn-tz-steps{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:640px){.kdn-tz.is-exam .kdn-tz-grid{grid-template-columns:minmax(0,1fr)}}
+  @media (max-height:860px){.kdn-tz{gap:10px}.kdn-tz-hero{padding:14px 22px!important}.kdn-tz-grid{gap:10px!important}.kdn-tz.is-exam .kdn-tz-card{padding-top:16px;padding-bottom:14px}}
   .kdn-calc{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,460px);gap:18px}
   @media (max-width:980px){.kdn-calc{grid-template-columns:minmax(0,1fr)}}
   .kdn-calc-input{display:flex;flex-direction:column;gap:20px;padding:26px 28px;border-radius:22px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}

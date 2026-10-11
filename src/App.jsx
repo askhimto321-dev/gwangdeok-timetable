@@ -2674,19 +2674,13 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
         <span className="chips"><em>{todayLabel}</em><em>{grade}학년 작업</em>{exam && <em className="ex">{exam.label} {exam.dLabel}</em>}</span></div>
       {exam ? <button type="button" onClick={() => onOpen("grades")}>성적 산출 바로 가기 ›</button> : last && <button type="button" onClick={() => onOpen(last.key)}>{last.title} 이어서 하기 ›</button>}
     </section>
-    {exam && cards.some(card => card.key === "grades") && <section className="kdn-tz-exam" role="note">
-      <span className="dd"><small>{exam.label}</small><b>{exam.dLabel}</b></span>
-      <div><b>{exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요" : exam.phase === "today" ? "시험 당일 · 결시자 인정점 입력을 준비하세요" : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요"}</b>
-        <small className="sub">{exam.phase === "after" ? "등급컷·동점자·결시 인정점을 확인한 뒤 최성보 미도달 학생도 함께 점검하세요." : "시험이 끝나면 이 카드에서 바로 성적 산출로 이어집니다."}</small></div>
-      <button type="button" onClick={() => onOpen("grades")}>성적 산출 열기 ›</button>
-    </section>}
     <div className="kdn-tz-grid">{cards.map(card => {
       const isLast = card.key === lastMode;
       const open = () => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));
       const featured = exam && card.key === "grades";
       return <section key={card.key} className={`kdn-tz-card${isLast ? " is-last" : ""}${featured ? " is-featured" : ""}`} style={{ "--a": card.tone, "--s": card.soft }}>
         <div className="top"><span className="ic">{card.icon}</span><h4>{card.title}</h4><span className="tag">{featured ? `정기시험 ${exam.dLabel}` : isLast ? "최근 작업" : card.tag}</span></div>
-        <p>{card.text}</p>
+        <p>{featured ? (exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요." : exam.phase === "today" ? "시험 기간 · 결시자 인정점 입력을 준비하세요." : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요.") : card.text}</p>
         {featured ? <div className="kdn-tz-steps">{[["산출 기준", "반영비율·만점·성취도 기준 확인", "before"], ["파일 업로드", "NEIS 지필·수행 파일 올리기", "today"], ["등급·결과", "등급컷·동점자·결시 인정점 확인", "after"], ["최성보 점검", "미도달·주의 학생 확인", ""]].map(([title, desc, phase], index) => <div key={title} className={phase && phase === exam.phase ? "on" : ""}><em>{index + 1}</em><b>{title}</b><small>{desc}</small></div>)}</div> : <ul>{card.points.map(point => <li key={point}>{point}</li>)}</ul>}
         <div className="acts"><button type="button" className="p" onClick={open}>{featured ? "성적 산출 열기 ›" : isLast ? "이어서 하기 ›" : card.primary}</button></div>
       </section>;

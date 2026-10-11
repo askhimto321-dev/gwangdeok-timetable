@@ -191,6 +191,7 @@ function achievementFromScore(score, courseType, mode, manualCuts) {
     ? manualCuts
     : (courseType === "elective" ? FIXED_ELECTIVE_CUTS : FIXED_COMMON_CUTS);
   const ab = asNumber(cuts.ab), bc = asNumber(cuts.bc), cd = asNumber(cuts.cd), de = asNumber(cuts.de), ei = asNumber(cuts.ei);
+  if (mode === "manual" && [ab, bc, cd, de].every(value => value == null)) return "-";
   if (ab != null && score >= ab) return "A";
   if (bc != null && score >= bc) return "B";
   if (cd != null && score >= cd) return "C";
@@ -672,6 +673,13 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     };
   }, [sortedWritten, plannedWritten, canonicalAreas]);
 
+  // 선택과목은 추정분할(A/B~D/E 컷, 미도달 없음)만 씁니다.
+  // 컷이 고정분할 기본값(90/80/70/60) 그대로면 비워서 NEIS 추정분할점수를 입력하게 합니다.
+  const toElectiveCuts = cuts => (["ab", "bc", "cd", "de"].every(key => Number(cuts?.[key]) === FIXED_COMMON_CUTS[key]) ? { ab: "", bc: "", cd: "", de: "", ei: null } : cuts);
+  const changeCourseType = courseType => setSettings(current => ({ ...current, courseType, ...(courseType === "elective" ? { achievementMode: "manual", manualCuts: toElectiveCuts(current.manualCuts) } : {}) }));
+  useEffect(() => {
+    if (settings.courseType === "elective" && settings.achievementMode === "fixed") setSettings(current => ({ ...current, achievementMode: "manual", manualCuts: toElectiveCuts(current.manualCuts) }));
+  }, [settings.courseType, settings.achievementMode]);
   const updateWrittenWeight = (id, value) => setWritten(current => current.map(item => item.id === id ? { ...item, weight: asNumber(value) ?? 0 } : item));
   const addPlannedWritten = () => setSettings(current => {
     const list = Array.isArray(current.plannedWritten) ? current.plannedWritten : [];
@@ -1259,7 +1267,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     XLSX.utils.book_append_sheet(workbook, sheet, activeView === "combined" ? "학기말 성적" : activeView === "minimum" ? "최소성취수준" : "지필평가");
     const settingsSheet = XLSX.utils.aoa_to_sheet([
       ["항목", "설정값"], ["과목", context?.subject || ""], ["학년도", context?.year || ""], ["학기", context?.semester || ""],
-      ["등급제", `${settings.gradeSystem}등급제`], ["성취도 방식", settings.achievementMode === "fixed" ? "고정분할" : "수동 분할점수"],
+      ["등급제", `${settings.gradeSystem}등급제`], ["성취도 방식", settings.achievementMode === "fixed" ? "고정분할" : "추정분할"],
       ["지필 반영비율", `${weightTotal.written}%`], ["수행 반영비율", `${weightTotal.performance}%`], ["합계", `${weightTotal.total}%`],
       ["학기말 산출 인원", `${combinedRows.filter(row=>row.complete&&!row.excluded).length}명`], ["자퇴·전출 제외", `${combinedRows.filter(row=>row.excluded).length}명`],
     ]);
@@ -1328,6 +1336,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setStudentOverrides(current => { const next = { ...current }; delete next[sid]; return next; });
     setStudentEditor(null);
   };
+  // 새 UI는 '성적 산출 / 데이터 관리' 탭을 제목 아래(설명 자리)에 둬서 한 줄을 아낍니다.
+  const moduleTabs = <div className="teacher-grade-module-tabs no-print" style={ui.moduleTabs}>
+    <button type="button" onClick={()=>setPanelMode("analysis")} style={{...ui.moduleTab,...(panelMode==="analysis"?ui.moduleTabActive:{})}}><FileSpreadsheet size={14}/> 성적 산출</button>
+    <button type="button" onClick={()=>setPanelMode("data")} style={{...ui.moduleTab,...(panelMode==="data"?ui.moduleTabActive:{})}}><Database size={14}/> 데이터 관리</button>
+  </div>;
   return (
     <div className="teacher-grade-analyzer" style={ui.root}>
       <style>{gradeAnalyzerCss}</style>
@@ -1335,7 +1348,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         <div className="teacher-grade-hero-copy">
           <div style={ui.eyebrow}>선생님 ZONE · 성적 산출</div>
           <h2 style={ui.heroTitle}>성적 산출</h2>
-          <p style={ui.heroDescription}>지필·수행 성적을 검증하고 학기말 결과를 확인합니다.</p>
+          {newUi ? moduleTabs : <p style={ui.heroDescription}>지필·수행 성적을 검증하고 학기말 결과를 확인합니다.</p>}
         </div>
         <div className="teacher-grade-hero-actions" style={ui.heroActions}>
           <button type="button" style={ui.lightButton} onClick={saveLocalWorkspace} disabled={!canEditCurrentSubject}><Save size={15} /> 개인 임시 저장</button>
@@ -1345,10 +1358,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         </div>
       </div>
 
-      <div className="teacher-grade-module-tabs no-print" style={ui.moduleTabs}>
-        <button type="button" onClick={()=>setPanelMode("analysis")} style={{...ui.moduleTab,...(panelMode==="analysis"?ui.moduleTabActive:{})}}><FileSpreadsheet size={14}/> 성적 산출</button>
-        <button type="button" onClick={()=>setPanelMode("data")} style={{...ui.moduleTab,...(panelMode==="data"?ui.moduleTabActive:{})}}><Database size={14}/> 데이터 관리</button>
-      </div>
+      {!newUi && moduleTabs}
 
       <div style={{display:panelMode==="analysis"?"contents":"none"}}>
       <div className="teacher-grade-workspace-browser" style={ui.workspaceBrowser}>
@@ -1450,9 +1460,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           </div>
           <section className="kdn-cc-opts">
             {[["석차등급", String(settings.gradeSystem), [["5", "5등급제"], ["9", "9등급제"]], value => setSettings(current => ({ ...current, gradeSystem: Number(value) }))],
-              ["과목 구분", settings.courseType, [["common", "공통과목"], ["elective", "선택과목"]], courseType => setSettings(current => ({ ...current, courseType }))],
-              ["성취도", settings.achievementMode, [["fixed", "고정분할"], ["manual", "추정·수동 컷"]], achievementMode => setSettings(current => ({ ...current, achievementMode }))]].map(([label, value, options, onChange]) => <div key={label} className="kdn-cc-opt"><small>{label}</small><div className="kdn-cc-seg" role="group" aria-label={label}>{options.map(([key, text]) => <button key={key} type="button" data-kdn-bare aria-pressed={value === key} disabled={readOnlyWorkspace} onClick={() => onChange(key)}>{text}</button>)}</div></div>)}
-            <div className="kdn-cc-rule"><b>{settings.achievementMode === "fixed" ? (settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E") : "성취도 컷을 아래에서 직접 입력"}</b><span>{settings.courseType === "common" ? "공통과목 최성보: 출석률 2/3 이상 · 학업성취율 40% 이상" : "선택과목 최성보: 출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div>
+              ["과목 구분", settings.courseType, [["common", "공통과목"], ["elective", "선택과목"]], changeCourseType],
+              ["성취도", settings.achievementMode, settings.courseType === "elective" ? [["manual", "추정분할"]] : [["fixed", "고정분할"], ["manual", "추정분할"]], achievementMode => setSettings(current => ({ ...current, achievementMode }))]].map(([label, value, options, onChange]) => <div key={label} className="kdn-cc-opt"><small>{label}</small><div className="kdn-cc-seg" role="group" aria-label={label}>{options.map(([key, text]) => <button key={key} type="button" data-kdn-bare aria-pressed={value === key} disabled={readOnlyWorkspace} onClick={() => onChange(key)}>{text}</button>)}</div></div>)}
+            <div className="kdn-cc-rule"><b>{settings.achievementMode === "fixed" ? (settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E") : settings.courseType === "elective" ? "선택과목 추정분할: A/B · B/C · C/D · D/E 컷 입력 (미도달 없음)" : "추정분할: A/B · B/C · C/D · D/E · E/미도달 컷 입력"}</b><span>{settings.courseType === "common" ? "공통과목 최성보: 출석률 2/3 이상 · 학업성취율 40% 이상" : "선택과목 최성보: 출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div>
             {settings.achievementMode === "manual" && <div className="kdn-cc-manual"><ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} /></div>}
           </section>
           <details className="kdn-cc-rules"><summary><b>산출 규칙</b><span>동점자 7단계 (정기시험 합계 → 수행 → 2차 → 1차 → …) · 석차는 소수 둘째 자리 · 원점수는 정수 표시</span></summary>
@@ -1479,8 +1489,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           <div className="teacher-grade-setting-card criteria-setting-card" style={ui.settingCard}>
             <div style={ui.settingTitle}>등급·성취도 기준</div>
             <div style={ui.choiceGroup}><span>석차등급</span><Toggle disabled={readOnlyWorkspace} value={String(settings.gradeSystem)} options={[{ value: "5", label: "5등급제" }, { value: "9", label: "9등급제" }]} onChange={value => setSettings(current => ({ ...current, gradeSystem: Number(value) }))} /></div>
-            <div style={ui.choiceGroup}><span>과목 구분</span><Toggle disabled={readOnlyWorkspace} value={settings.courseType} options={[{ value: "common", label: "공통과목" }, { value: "elective", label: "선택과목" }]} onChange={courseType => setSettings(current => ({ ...current, courseType }))} /></div>
-            <div style={ui.choiceGroup}><span>성취도</span><Toggle disabled={readOnlyWorkspace} value={settings.achievementMode} options={[{ value: "fixed", label: "고정분할" }, { value: "manual", label: "추정분할·수동 컷" }]} onChange={achievementMode => setSettings(current => ({ ...current, achievementMode }))} /></div>
+            <div style={ui.choiceGroup}><span>과목 구분</span><Toggle disabled={readOnlyWorkspace} value={settings.courseType} options={[{ value: "common", label: "공통과목" }, { value: "elective", label: "선택과목" }]} onChange={changeCourseType} /></div>
+            <div style={ui.choiceGroup}><span>성취도</span><Toggle disabled={readOnlyWorkspace} value={settings.achievementMode} options={settings.courseType === "elective" ? [{ value: "manual", label: "추정분할" }] : [{ value: "fixed", label: "고정분할" }, { value: "manual", label: "추정분할" }]} onChange={achievementMode => setSettings(current => ({ ...current, achievementMode }))} /></div>
             {settings.achievementMode === "manual" && <ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} />}
             {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}<div className="minimum-course-rule" style={ui.minimumCourseRule}><span style={ui.minimumCourseIcon}><ShieldCheck size={13}/></span><div style={ui.minimumCourseCopy}><b>{settings.courseType === "common" ? "공통과목 최성보" : "선택과목 최성보"}</b><span>{settings.courseType === "common" ? "출석률 2/3 이상 · 학업성취율 40% 이상" : "출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div></div>
           </div>
@@ -1644,7 +1654,7 @@ function AchievementDonut({ rows, total, mode, settings }) {
     ? (settings?.courseType==="common" ? [["A","90 이상"],["B","80 이상"],["C","70 이상"],["D","60 이상"],["E","40 이상"],["미도달","40 미만"]] : [["A","90 이상"],["B","80 이상"],["C","70 이상"],["D","60 이상"],["E","60 미만"]])
     : [["A/B",settings?.manualCuts?.ab],["B/C",settings?.manualCuts?.bc],["C/D",settings?.manualCuts?.cd],["D/E",settings?.manualCuts?.de],...(settings?.courseType==="common"?[["E/미도달",settings?.manualCuts?.ei]]:[])].map(([label,value])=>[label,value!==""&&value!=null?`${value}점`:"미입력"]);
   return <div className="achievement-donut-shell">
-    <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"수동 컷"}</span></div></div><div className="achievement-donut-legend">{rows.map((item,index)=>{const percent=total?item.count/total*100:0;return <div key={item.label}><i style={{background:colors[index%colors.length]}}/><span className="achievement-legend-label">{item.label}</span><b>{item.count}명</b><small>{percent.toFixed(1)}%</small></div>})}</div></div>
+    <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"추정분할"}</span></div></div><div className="achievement-donut-legend">{rows.map((item,index)=>{const percent=total?item.count/total*100:0;return <div key={item.label}><i style={{background:colors[index%colors.length]}}/><span className="achievement-legend-label">{item.label}</span><b>{item.count}명</b><small>{percent.toFixed(1)}%</small></div>})}</div></div>
     <div className="achievement-cut-guide"><strong>성취도 기준</strong><div>{cuts.map(([label,value])=><span key={label}><b>{label}</b><small>{value}</small></span>)}</div></div>
   </div>;
 }
