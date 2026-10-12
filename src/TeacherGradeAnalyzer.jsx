@@ -1,4 +1,6 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { officialSubjectName, curriculumSubjects, curriculumApplies } from "./curriculum.js";
+import SubjectPicker from "./SubjectPicker.jsx";
 import {
   AlertTriangle,
   BarChart3,
@@ -275,7 +277,9 @@ function formatScore(value, digits = 1) {
 }
 function ratioLabel(count, total) { return total ? `${count}명 · ${((count / total) * 100).toFixed(1)}%` : "0명"; }
 function normalizeSubjectName(value) { return normalizeToken(value).replace(/과목$/g, ""); }
-function teacherSubjectAssignments(teacher) {
+// 담당 과목은 시간표 이름("미적")으로 저장돼 있어 편제표 정식 이름("미적분Ⅰ")으로 바꿔 씁니다.
+// 저장값(공지 연결 키)은 그대로 두고 official/aliasToken만 덧붙입니다.
+function teacherSubjectAssignments(teacher, grade = "", currentSemester = "sem1") {
   const raw = [
     ...(Array.isArray(teacher?.assignments) ? teacher.assignments : []),
     ...(Array.isArray(teacher?.subjects) ? teacher.subjects.map(subject => typeof subject === "string" ? { subject, targets: "전체" } : subject) : []),
@@ -283,13 +287,17 @@ function teacherSubjectAssignments(teacher) {
   ];
   return raw
     .map(item => typeof item === "string" ? { subject: item, targets: "전체" } : item)
-    .map(item => ({ ...item, subject: text(item?.subject || item?.name || item?.course), targets: text(item?.targets || item?.classes || "전체") || "전체", token: normalizeSubjectName(item?.subject || item?.name || item?.course) }))
+    .map(item => {
+      const label = text(item?.subject || item?.name || item?.course);
+      const official = grade ? officialSubjectName(label, grade, item?.semester || currentSemester) : label;
+      return { ...item, label, subject: official || label, semester: item?.semester || "", targets: text(item?.targets || item?.classes || "전체") || "전체", token: normalizeSubjectName(official || label), aliasToken: normalizeSubjectName(label) };
+    })
     .filter(item => item.token);
 }
-function teacherHandlesSubject(teacher, subject) {
+function teacherHandlesSubject(teacher, subject, grade = "", semester = "sem1") {
   const token = normalizeSubjectName(subject);
   if (!token) return false;
-  return teacherSubjectAssignments(teacher).some(item => item.token === token || item.token.includes(token) || token.includes(item.token));
+  return teacherSubjectAssignments(teacher, grade, semester).some(item => [item.token, item.aliasToken].some(own => own && (own === token || own.includes(token) || token.includes(own))));
 }
 function compactMissingLabels(values = []) {
   const list = values.filter(Boolean);
@@ -402,21 +410,23 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     return () => { window.removeEventListener("beforeunload", flush); flush(); };
   }, []);
 
-  const assignedSubjects = useMemo(() => teacherSubjectAssignments(teacher), [teacher]);
+  const assignedSubjects = useMemo(() => teacherSubjectAssignments(teacher, grade, semester), [teacher, grade, semester]);
   const editableSubjectNames = useMemo(() => Array.from(new Set(assignedSubjects.map(item => text(item.subject)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [assignedSubjects]);
-  const allKnownSubjectNames = useMemo(() => Array.from(new Set((teacherAccounts || []).flatMap(account => teacherSubjectAssignments(account).map(item => text(item.subject))).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [teacherAccounts]);
+  const allKnownSubjectNames = useMemo(() => Array.from(new Set((teacherAccounts || []).flatMap(account => teacherSubjectAssignments(account, grade, semester).map(item => text(item.subject))).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [teacherAccounts, grade, semester]);
+  // 저장된 옛 이름("미적")으로 연 작업도 내 과목으로 봅니다.
+  const ownsSubjectName = name => { const token = normalizeSubjectName(name); return !!token && assignedSubjects.some(item => item.token === token || item.aliasToken === token); };
   const [draftSubject, setDraftSubject] = useState(() => initialSnapshot?.settings?.workspaceMeta?.subject || editableSubjectNames[0] || "");
   useEffect(() => {
     if (accessRole !== "teacher") return;
     if (!editableSubjectNames.length) { setDraftSubject(""); return; }
-    if (!editableSubjectNames.some(subject => normalizeSubjectName(subject) === normalizeSubjectName(draftSubject))) setDraftSubject(editableSubjectNames[0]);
+    if (!ownsSubjectName(draftSubject)) setDraftSubject(editableSubjectNames[0]);
   }, [accessRole, editableSubjectNames, draftSubject]);
   const canCreateWorkspace = accessRole === "admin" || (accessRole === "teacher" && editableSubjectNames.length > 0);
   const canStartSelectedSubject = canCreateWorkspace && (accessRole !== "admin" || !!text(draftSubject));
-  const canEditSubject = subject => accessRole === "admin" || (accessRole === "teacher" && teacherHandlesSubject(teacher, subject));
+  const canEditSubject = subject => accessRole === "admin" || (accessRole === "teacher" && teacherHandlesSubject(teacher, subject, grade, semester));
   const sharedWorkspaces = useMemo(() => Object.values(db?.teacherGradeWorkspaces || {})
     .filter(item => String(item?.grade || "") === String(grade))
-    .filter(item => canViewAllSubjects || item?.ownerId === teacher?.id || teacherHandlesSubject(teacher, item?.subject))
+    .filter(item => canViewAllSubjects || item?.ownerId === teacher?.id || teacherHandlesSubject(teacher, item?.subject, grade, semester))
     .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [db?.teacherGradeWorkspaces, grade, canViewAllSubjects, teacher]);
   const selectedShared = sharedWorkspaces.find(item => item.id === selectedSharedId) || null;
 
@@ -487,7 +497,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const plannedWritten = useMemo(() => Array.isArray(settings.plannedWritten) ? settings.plannedWritten : [], [settings.plannedWritten]);
   const subjectCollaborators = useMemo(() => {
     if (!context?.subject) return [];
-    return (teacherAccounts || []).filter(account => teacherHandlesSubject(account, context.subject));
+    return (teacherAccounts || []).filter(account => teacherHandlesSubject(account, context.subject, grade, semester));
   }, [teacherAccounts, context?.subject]);
   const localWorkspaceList = useMemo(() => Object.values(localWorkspaces || {})
     .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [localWorkspaces]);
@@ -711,7 +721,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     const fresh = defaultWorkspace();
     const requested = text(subjectOverride);
     const nextSubject = requested || (accessRole === "teacher"
-      ? (editableSubjectNames.some(subject => normalizeSubjectName(subject) === normalizeSubjectName(draftSubject)) ? draftSubject : editableSubjectNames[0] || "")
+      ? (ownsSubjectName(draftSubject) ? draftSubject : editableSubjectNames[0] || "")
       : draftSubject);
     setDraftSubject(nextSubject);
     fresh.settings.workspaceMeta = {
@@ -785,13 +795,10 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     };
   }, [sortedWritten, plannedWritten, canonicalAreas]);
 
-  // 선택과목은 추정분할(A/B~D/E 컷, 미도달 없음)만 씁니다.
-  // 컷이 고정분할 기본값(90/80/70/60) 그대로면 비워서 NEIS 추정분할점수를 입력하게 합니다.
+  // 선택과목도 고정분할(A 90 · B 80 · C 70 · D 60 · 60 미만 E)과 추정분할(A/B~D/E 컷, 미도달 없음)을 모두 씁니다.
+  // 추정분할로 바꿀 때 컷이 공통과목 고정분할 기본값 그대로면 비워서 NEIS 추정분할점수를 입력하게 합니다.
   const toElectiveCuts = cuts => (["ab", "bc", "cd", "de"].every(key => Number(cuts?.[key]) === FIXED_COMMON_CUTS[key]) ? { ab: "", bc: "", cd: "", de: "", ei: null } : cuts);
-  const changeCourseType = courseType => setSettings(current => ({ ...current, courseType, ...(courseType === "elective" ? { achievementMode: "manual", manualCuts: toElectiveCuts(current.manualCuts) } : {}) }));
-  useEffect(() => {
-    if (settings.courseType === "elective" && settings.achievementMode === "fixed") setSettings(current => ({ ...current, achievementMode: "manual", manualCuts: toElectiveCuts(current.manualCuts) }));
-  }, [settings.courseType, settings.achievementMode]);
+  const changeCourseType = courseType => setSettings(current => ({ ...current, courseType, ...(courseType === "elective" && current.achievementMode === "manual" ? { manualCuts: toElectiveCuts(current.manualCuts) } : {}) }));
   const updateWrittenWeight = (id, value) => setWritten(current => current.map(item => item.id === id ? { ...item, weight: asNumber(value) ?? 0 } : item));
   const addPlannedWritten = () => setSettings(current => {
     const list = Array.isArray(current.plannedWritten) ? current.plannedWritten : [];
@@ -1491,7 +1498,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           {!!localWorkspaceList.length && <optgroup label="개인 임시 저장본">{localWorkspaceList.map(item => <option key={`local-${item.id}`} value={`local:${item.id}`}>{item.subject} · {item.year || "-"}학년도 {item.semester || "-"}학기 · 저장본</option>)}</optgroup>}
           {!!sharedWorkspaces.length && <optgroup label="학교 공동 저장본">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
         </select>
-        {accessRole === "teacher" ? <select value={draftSubject} onChange={event => startNewWorkspace(event.target.value)} style={ui.subjectSelect} disabled={!editableSubjectNames.length}><option value="">담당과목 없음</option>{editableSubjectNames.map(subject => <option key={subject} value={subject}>{subject}</option>)}</select> : accessRole === "admin" ? <><input list="teacher-grade-known-subjects" value={draftSubject} onChange={event => setDraftSubject(event.target.value)} style={ui.subjectInput} placeholder="작업할 과목명 입력"/><datalist id="teacher-grade-known-subjects">{allKnownSubjectNames.map(subject => <option key={subject} value={subject}/>)}</datalist></> : <span style={ui.adminEditBadge}>열람 전용</span>}
+        {accessRole === "teacher" ? <SubjectPicker value={draftSubject} onChange={startNewWorkspace} mine={assignedSubjects} grade={grade} semester={semester} disabled={!editableSubjectNames.length} /> : accessRole === "admin" ? <SubjectPicker value={draftSubject} onChange={setDraftSubject} allowFree mine={assignedSubjects} curriculum={curriculumApplies(grade) ? curriculumSubjects(grade, semester) : []} others={allKnownSubjectNames} grade={grade} semester={semester} /> : <span style={ui.adminEditBadge}>열람 전용</span>}
         <button type="button" style={ui.secondaryButton} onClick={() => startNewWorkspace(draftSubject)} disabled={!canStartSelectedSubject}>{accessRole === "admin" ? "과목 작업 시작" : "담당과목 작업 시작"}</button>
         {selectedLocalId && <button type="button" style={ui.deleteWorkspaceButton} onClick={deleteLocalWorkspace}>임시본 삭제</button>}
         {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || (accessRole === "admin" ? "관리자" : "담당 교사")}</span>}{context && readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
@@ -1583,7 +1590,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           <section className="kdn-cc-opts">
             {[["석차등급", String(settings.gradeSystem), [["5", "5등급제"], ["9", "9등급제"]], value => setSettings(current => ({ ...current, gradeSystem: Number(value) }))],
               ["과목 구분", settings.courseType, [["common", "공통과목"], ["elective", "선택과목"]], changeCourseType],
-              ["성취도", settings.achievementMode, settings.courseType === "elective" ? [["manual", "추정분할"]] : [["fixed", "고정분할"], ["manual", "추정분할"]], achievementMode => setSettings(current => ({ ...current, achievementMode }))]].map(([label, value, options, onChange]) => <div key={label} className="kdn-cc-opt"><small>{label}</small><div className="kdn-cc-seg" role="group" aria-label={label}>{options.map(([key, text]) => <button key={key} type="button" data-kdn-bare aria-pressed={value === key} disabled={readOnlyWorkspace} onClick={() => onChange(key)}>{text}</button>)}</div></div>)}
+              ["성취도", settings.achievementMode, [["fixed", "고정분할"], ["manual", "추정분할"]], achievementMode => setSettings(current => ({ ...current, achievementMode }))]].map(([label, value, options, onChange]) => <div key={label} className="kdn-cc-opt"><small>{label}</small><div className="kdn-cc-seg" role="group" aria-label={label}>{options.map(([key, text]) => <button key={key} type="button" data-kdn-bare aria-pressed={value === key} disabled={readOnlyWorkspace} onClick={() => onChange(key)}>{text}</button>)}</div></div>)}
             <div className="kdn-cc-rule"><b>{settings.achievementMode === "fixed" ? (settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E") : settings.courseType === "elective" ? "선택과목 추정분할: A/B · B/C · C/D · D/E 컷 입력 (미도달 없음)" : "추정분할: A/B · B/C · C/D · D/E · E/미도달 컷 입력"}</b><span>{settings.courseType === "common" ? "공통과목 최성보: 출석률 2/3 이상 · 학업성취율 40% 이상" : "선택과목 최성보: 출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div>
             {settings.achievementMode === "manual" && <div className="kdn-cc-manual"><ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} /></div>}
           </section>
@@ -1612,7 +1619,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             <div style={ui.settingTitle}>등급·성취도 기준</div>
             <div style={ui.choiceGroup}><span>석차등급</span><Toggle disabled={readOnlyWorkspace} value={String(settings.gradeSystem)} options={[{ value: "5", label: "5등급제" }, { value: "9", label: "9등급제" }]} onChange={value => setSettings(current => ({ ...current, gradeSystem: Number(value) }))} /></div>
             <div style={ui.choiceGroup}><span>과목 구분</span><Toggle disabled={readOnlyWorkspace} value={settings.courseType} options={[{ value: "common", label: "공통과목" }, { value: "elective", label: "선택과목" }]} onChange={changeCourseType} /></div>
-            <div style={ui.choiceGroup}><span>성취도</span><Toggle disabled={readOnlyWorkspace} value={settings.achievementMode} options={settings.courseType === "elective" ? [{ value: "manual", label: "추정분할" }] : [{ value: "fixed", label: "고정분할" }, { value: "manual", label: "추정분할" }]} onChange={achievementMode => setSettings(current => ({ ...current, achievementMode }))} /></div>
+            <div style={ui.choiceGroup}><span>성취도</span><Toggle disabled={readOnlyWorkspace} value={settings.achievementMode} options={[{ value: "fixed", label: "고정분할" }, { value: "manual", label: "추정분할" }]} onChange={achievementMode => setSettings(current => ({ ...current, achievementMode }))} /></div>
             {settings.achievementMode === "manual" && <ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} />}
             {settings.achievementMode === "fixed" && <div style={ui.ruleNote}>{settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E"}</div>}<div className="minimum-course-rule" style={ui.minimumCourseRule}><span style={ui.minimumCourseIcon}><ShieldCheck size={13}/></span><div style={ui.minimumCourseCopy}><b>{settings.courseType === "common" ? "공통과목 최성보" : "선택과목 최성보"}</b><span>{settings.courseType === "common" ? "출석률 2/3 이상 · 학업성취율 40% 이상" : "출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div></div>
           </div>
