@@ -28,6 +28,7 @@ import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary,
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { buildClassExamCompare } from "./classExamCompare.js";
 import { mergeDuplicateTracks } from "./trackDedupe.js";
+import { featureAllowed } from "./staffPermissions.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
   parseSemesterSheet,
@@ -600,6 +601,9 @@ export default function GradesSection({
   // 다른 탭으로 이동하면 해제합니다. NAVI 검색 상태는 sessionStorage에서 복원됩니다.
   const keepTabMounted = key => tab === key || (!['susiNaviBeta', 'admissionCases', 'gradeCompare'].includes(key) && visitedTabs.includes(key));
   const teacherHasGradeAccess = !loggedInTeacher || (teacherGradeAccess || []).map(String).includes(String(currentGrade));
+  // 기능 권한(staffPermissions): 관리자는 전부, 교직원은 역할 기본값 + 관리자가 계정별로 켜고 끈 값
+  const staffFeature = key => featureAllowed(loggedInTeacher, key, { admin: !!loggedInAdmin });
+  const canClassGrades = !!loggedInAdmin || (!!loggedInTeacher && staffFeature("classGrades") && (teacherHasGradeAccess || !!loggedInTeacher.homeroomClass));
   const [linkedUniversity, setLinkedUniversity] = useState("");
   const [linkedDepartment, setLinkedDepartment] = useState("");
   const [linkedAdmissionType, setLinkedAdmissionType] = useState("");
@@ -792,8 +796,8 @@ export default function GradesSection({
   useEffect(() => {
     // 상단 '교사용 분석' 묶음(학생 성적 비교·모의고사 분석·반별 성적·담임반 계정)도 같은 요청으로 엽니다.
     const staffOk = loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess);
-    if (requestedGradeTab === "classGrades" && (loggedInAdmin || loggedInTeacher?.homeroomClass)) navigateGradeTab("classGrades", { replace: true });
-    else if (["gradeCompare", "mockAnalysis"].includes(requestedGradeTab) && staffOk) navigateGradeTab(requestedGradeTab, { replace: true });
+    if (requestedGradeTab === "classGrades" && canClassGrades) navigateGradeTab("classGrades", { replace: true });
+    else if (["gradeCompare", "mockAnalysis"].includes(requestedGradeTab) && staffOk && staffFeature(requestedGradeTab)) navigateGradeTab(requestedGradeTab, { replace: true });
     else if (requestedGradeTab === "class" && loggedInTeacher?.homeroomClass) navigateGradeTab("class", { replace: true });
   }, [requestedGradeTab, requestedGradeTabNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -845,11 +849,11 @@ export default function GradesSection({
           <div className="kdn-staff-tools" style={staffToolNav.wrap}>
             <div className="kdn-staff-tools-head" style={staffToolNav.heading}><BarChart3 size={17} /><div style={staffToolNav.headingText}><b>교사용 분석·관리</b><span style={{ fontSize: 10.5, fontWeight: 650, color: "#7a8495" }}>학생 조회와 별도로 분석 도구를 사용할 수 있습니다.</span></div></div>
             <div style={staffToolNav.buttons}>
-              <button type="button" onClick={() => navigateGradeTab("gradeCompare")} style={{ ...staffToolNav.button, ...(tab === "gradeCompare" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 학생 성적 비교</button>
-              <button type="button" onClick={() => navigateGradeTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>
+              {staffFeature("gradeCompare") && <button type="button" onClick={() => navigateGradeTab("gradeCompare")} style={{ ...staffToolNav.button, ...(tab === "gradeCompare" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 학생 성적 비교</button>}
+              {staffFeature("mockAnalysis") && <button type="button" onClick={() => navigateGradeTab("mockAnalysis")} style={{ ...staffToolNav.button, ...(tab === "mockAnalysis" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> 모의고사 성적 분석</button>}
               <button type="button" className="kdn-dup-nav" onClick={() => navigateGradeTab("admissionCases")} style={{ ...staffToolNav.button, ...(tab === "admissionCases" ? staffToolNav.active : {}) }}><GraduationCap size={13} /> 2024–2026 광덕고 대입 결과</button>
               <button type="button" className="kdn-dup-nav" onMouseEnter={preloadSusiNaviView} onFocus={preloadSusiNaviView} onClick={() => navigateGradeTab("susiNaviBeta")} style={{ ...staffToolNav.button, ...(tab === "susiNaviBeta" ? staffToolNav.active : {}) }}><BookOpen size={13} /> 2027 수시NAVI <span style={{ fontSize: 9, opacity: .78 }}>Beta</span></button>
-              {(loggedInAdmin || (loggedInTeacher && loggedInTeacher.homeroomClass)) && <button type="button" onClick={() => navigateGradeTab("classGrades")} style={{ ...staffToolNav.button, ...(tab === "classGrades" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> {loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적"}</button>}
+              {canClassGrades && <button type="button" onClick={() => navigateGradeTab("classGrades")} style={{ ...staffToolNav.button, ...(tab === "classGrades" ? staffToolNav.active : {}) }}><BarChart3 size={13} /> {loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적"}</button>}
               {loggedInTeacher && loggedInTeacher.homeroomClass && <button type="button" onClick={() => navigateGradeTab("class")} style={{ ...staffToolNav.button, ...(tab === "class" ? staffToolNav.active : {}) }}><UsersRound size={13} /> 담임반 학생 계정</button>}
             </div>
           </div>
@@ -920,10 +924,10 @@ export default function GradesSection({
             authorName={loggedInAdmin ? "관리자" : (loggedInTeacher?.name || loggedInTeacher?.id || "선생님")}
           /> : <EmptyBox text="상단 학생 통합 검색에서 상담할 학생을 선택하세요." />}
         </div>}
-        {keepTabMounted("gradeCompare") && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{display:tab === "gradeCompare" ? "block" : "none"}}>
+        {keepTabMounted("gradeCompare") && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess && staffFeature("gradeCompare"))) && <div style={{display:tab === "gradeCompare" ? "block" : "none"}}>
           <StudentGradeComparison gdb={gdb} roster={roster} currentGrade={currentGrade} />
         </div>}
-        {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && (
+        {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess && staffFeature("mockAnalysis"))) && (
           <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
         )}
         {keepTabMounted("admissionCases") && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{ display: tab === "admissionCases" ? "block" : "none" }}>
@@ -944,8 +948,8 @@ export default function GradesSection({
             caseRows={gdb?.admissionCases || []}
           /></React.Suspense>
         </div>}
-        {tab === "classGrades" && (loggedInAdmin || (loggedInTeacher && loggedInTeacher.homeroomClass)) && (
-          <ClassGradeOverview examWorkspaces={examWorkspaces} gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin={!!loggedInAdmin} onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
+        {tab === "classGrades" && canClassGrades && (
+          <ClassGradeOverview examWorkspaces={examWorkspaces} gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin={!!loggedInAdmin || !loggedInTeacher?.homeroomClass} onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
