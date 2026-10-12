@@ -52,11 +52,11 @@ export default function CriteriaPresets({ teacher, disabled = false, capture, ap
   };
 
   return (
-    <section className="kd-criteria-presets no-print" aria-label="산출 기준 프리셋" style={st.wrap}>
-      <div style={st.head}>
-        <b style={st.title}><Bookmark size={16} aria-hidden="true" /> 산출 기준 프리셋</b>
-        <span style={st.hint}>지금 설정을 저장해 두고 다른 과목·다음 학기에 불러오세요.</span>
-      </div>
+    <details className="kd-criteria-presets no-print" aria-label="산출 기준 프리셋" style={st.wrap}>
+      <summary style={st.head}>
+        <b style={st.title}><Bookmark size={16} aria-hidden="true" /> 프리셋 (선택)</b>
+        <span style={st.hint}>자주 쓰는 비율을 저장해 두고 다른 과목·학기에 불러오기{presets.length ? ` · ${presets.length}개 저장됨` : ""}</span>
+      </summary>
       <div style={st.row}>
         <input value={name} onChange={event => setName(event.target.value)} maxLength={24} placeholder="이름 (예: 공통과목 지필 60 · 수행 40)" aria-label="프리셋 이름" style={st.input} onKeyDown={event => { if (event.key === "Enter" && !busy) save(); }} />
         <button type="button" onClick={save} disabled={busy} style={{ ...st.save, ...(busy ? st.off : {}) }}>프리셋으로 저장</button>
@@ -69,18 +69,18 @@ export default function CriteriaPresets({ teacher, disabled = false, capture, ap
         </li>)}
       </ul>}
       {message && <small role="status" style={st.message}>{message}</small>}
-    </section>
+    </details>
   );
 }
 
 const st = {
-  wrap: { display: "grid", gap: 10, marginTop: 14, padding: "14px 16px", border: "1px solid #dfe2e8", borderRadius: 14, background: "#fbfaf8" },
-  head: { display: "flex", alignItems: "baseline", gap: "4px 12px", flexWrap: "wrap" },
+  wrap: { display: "grid", gap: 10, marginTop: 14, padding: "10px 16px", border: "1px solid #dfe2e8", borderRadius: 14, background: "#fbfaf8" },
+  head: { display: "flex", alignItems: "baseline", gap: "4px 12px", flexWrap: "wrap", cursor: "pointer" },
   title: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 850, color: "#1f2430" },
   hint: { fontSize: 13, fontWeight: 500, color: "#5d6574" },
   row: { display: "flex", gap: 8, flexWrap: "wrap" },
   input: { flex: "1 1 240px", minWidth: 0, height: 40, padding: "0 12px", border: "1px solid #c3c9d3", borderRadius: 10, background: "#ffffff", color: "#1f2430", fontSize: 14, fontWeight: 600 },
-  save: { minHeight: 40, padding: "0 16px", border: "1px solid #cf4a12", borderRadius: 10, background: "#cf4a12", color: "#ffffff", fontSize: 14, fontWeight: 800, cursor: "pointer" },
+  save: { minHeight: 40, padding: "0 16px", border: "1px solid #c3c9d3", borderRadius: 10, background: "#ffffff", color: "#1f2430", fontSize: 14, fontWeight: 800, cursor: "pointer" },
   off: { opacity: 0.45, cursor: "not-allowed" },
   list: { listStyle: "none", margin: 0, padding: 0, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 8 },
   item: { display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", border: "1px solid #dfe2e8", borderRadius: 12, background: "#ffffff", minWidth: 0 },

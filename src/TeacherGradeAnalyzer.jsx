@@ -807,7 +807,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const criteriaChanged = !!settings.criteriaSavedSig && !criteriaSaved;
   const weightsOk = Math.abs(weightTotal.total - 100) < 1e-9;
   // 결과 확인(3단계)으로 넘어가기 전 필수: 반영비율 100% · 산출 기준 저장 · 학교 공동 저장(수정 권한이 있을 때만)
-  const gateRequired = !!context && canEditCurrentSubject && hasGradeData;
+  const gateRequired = !!context && canEditCurrentSubject;
   const gatePassed = !gateRequired || (weightsOk && criteriaSaved && (sharedHere || !persist));
   const gateRef = useRef(null);
   const jumpToGate = () => { setCalcStep(2); window.setTimeout(() => gateRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); };
@@ -1594,8 +1594,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         {newUi ? <div className="kdn-cc">
           {/* 새 UI 산출 기준: 반영비율 막대 한 줄 + 지필/수행 두 칸 + 등급 옵션 한 줄, 규칙 문장은 접어 둡니다. */}
           <div className="kdn-cc-top">
-            <div className="kdn-cc-head"><div><small>2단계 · 산출 기준</small><b>{Math.abs(weightTotal.total - 100) < 1e-9 ? "반영비율 설정 완료" : "반영비율을 100%로 맞추세요"}</b></div>
-              <span className={`kdn-cc-total ${Math.abs(weightTotal.total - 100) < 1e-9 ? "is-ok" : "is-warn"}`}>합계 {weightTotal.total}%{Math.abs(weightTotal.total - 100) < 1e-9 ? " ✓" : ` · ${weightTotal.total < 100 ? `${+(100 - weightTotal.total).toFixed(2)}% 부족` : `${+(weightTotal.total - 100).toFixed(2)}% 초과`}`}</span>
+            <div className="kdn-cc-head"><div><small>2단계 · 산출 기준</small><b>{!weightsOk ? "반영비율을 100%로 맞추세요" : !gateRequired ? "반영비율 100%" : criteriaSaved ? (sharedHere ? "기준 저장 · 공동 저장 완료" : "기준 저장됨 · 아래에서 학교 공동 저장") : "반영비율 100% · 아래에서 산출 기준 저장"}</b></div>
+              <span className={`kdn-cc-total ${Math.abs(weightTotal.total - 100) < 1e-9 ? "is-ok" : "is-warn"}`}>비율 합계 {weightTotal.total}%{Math.abs(weightTotal.total - 100) < 1e-9 ? "" : ` · ${weightTotal.total < 100 ? `${+(100 - weightTotal.total).toFixed(2)}% 부족` : `${+(weightTotal.total - 100).toFixed(2)}% 초과`}`}</span>
               {gateRequired && <span className={`kdn-cc-savestate ${criteriaSaved ? "is-ok" : criteriaChanged ? "is-warn" : ""}`}>{criteriaSaved ? `✓ 기준 저장됨${settings.criteriaSavedAt ? ` ${clockOf(settings.criteriaSavedAt)}` : ""}` : criteriaChanged ? "기준 바뀜 · 다시 저장" : "기준 미저장"}</span>}</div>
             <div className="kdn-cc-bar">{[...sortedWritten.map(item => ({ key: item.id, label: item.title, weight: Number(item.weight) || 0, kind: "w" })), ...plannedWritten.map(item => ({ key: item.id, label: item.title || "예정 시험", weight: Number(item.weight) || 0, kind: "w" })), ...(uploadedAreas.length ? uploadedAreas : plannedPerformance).map(area => ({ key: area.id, label: `수행${area.order + 1}`, weight: Number(area.weight) || 0, kind: "p" }))].filter(seg => seg.weight > 0).map((seg, index, list) => <i key={seg.key} className={`is-${seg.kind} n${list.slice(0, index).filter(other => other.kind === seg.kind).length % 3}`} style={{ flex: seg.weight }} title={`${seg.label} ${seg.weight}%`}>{seg.weight >= 8 ? `${seg.label} ${seg.weight}%` : `${seg.weight}%`}</i>)}{weightTotal.total < 100 && <i className="is-empty" style={{ flex: 100 - weightTotal.total }}>미배정 {+(100 - weightTotal.total).toFixed(2)}%</i>}</div>
           </div>
@@ -1655,8 +1655,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         </>}
         <CriteriaPresets teacher={teacher} disabled={readOnlyWorkspace} capture={captureCriteriaPreset} apply={applyCriteriaPreset} />
         {newUi && <div className="kdn-gate" ref={gateRef}>
+          {gateRequired && <div className="kdn-gate-head"><b>결과 확인 전 꼭 저장</b><span>순서대로 누르면 다음 단계가 열려요{gatePassed ? " · 모두 완료 ✓" : ""}</span></div>}
           {gateRequired && <ol className="kdn-gate-steps" aria-label="결과 확인 전 저장 단계">
-            <li className={weightsOk ? "is-done" : "is-todo"}><i>{weightsOk ? "✓" : "1"}</i><div><b>반영비율 100%</b><small>{weightsOk ? "합계 100% 맞음" : `지금 ${weightTotal.total}% · ${weightTotal.total < 100 ? "부족" : "초과"}`}</small></div></li>
+            <li className={weightsOk ? "is-done" : "is-todo"}><i>{weightsOk ? "✓" : "1"}</i><div><b>반영비율 합계 100%</b><small>{weightsOk ? "자동 확인 · 맞음" : `지금 ${weightTotal.total}% · 위에서 ${weightTotal.total < 100 ? "더 채우기" : "줄이기"}`}</small></div></li>
             <li className={`is-criteria ${criteriaSaved ? "is-done" : weightsOk ? "is-now" : "is-todo"}`}><i>{criteriaSaved ? "✓" : "2"}</i><div><b>산출 기준 저장</b><small>{criteriaSaved ? `저장됨 ${clockOf(settings.criteriaSavedAt)}${settings.criteriaSavedBy ? ` · ${settings.criteriaSavedBy}` : ""}` : criteriaChanged ? "저장 뒤 기준이 바뀌었어요" : "비율·만점·성취도 기준을 확정"}</small></div>
               <button type="button" onClick={saveCriteriaSettings} disabled={!weightsOk || criteriaSaving || criteriaSaved}><Save size={14} />{criteriaSaving ? "저장 중" : criteriaSaved ? "저장됨" : criteriaChanged ? "다시 저장" : "기준 저장"}</button></li>
             {persist && <li className={`is-shared ${sharedHere ? "is-done" : criteriaSaved ? "is-now" : "is-todo"}`}><i>{sharedHere ? "✓" : "3"}</i><div><b>학교 공동 저장</b><small>{sharedHere ? `같은 과목 선생님과 공유 중 · 자동 반영${autoSave.shared ? ` ${clockOf(autoSave.shared)}` : ""}` : "같은 과목 선생님과 공유 · 이후 자동 반영"}</small></div>
