@@ -1147,6 +1147,8 @@ export default function App() {
   const [classAuthed, setClassAuthed] = useState(false);
   const [loggedInTeacher, setLoggedInTeacher] = useState(null);
   const [loggedInDepartment, setLoggedInDepartment] = useState(null);
+  // 관리자 계정 전환(보기 모드) 상태 — 훅은 아래 로딩 return보다 위에 있어야 합니다.
+  const [impersonation, setImpersonation] = useState(null); // { admin, kind, id }
   const [loggedInMonitor, setLoggedInMonitor] = useState(null);
   const [loggedInStudent, setLoggedInStudent] = useState(null);
   const [viewedTeacher, setViewedTeacher] = useState(null); // admin "view as teacher" (no separate login needed)
@@ -1752,7 +1754,6 @@ export default function App() {
 
   // 관리자 계정 전환(보기 모드): 비밀번호 없이 다른 계정 화면으로 들어갑니다. 메모리에만 두고
   // 로그인 기록(kd_session)은 관리자 그대로 둬서, 새로고침하면 관리자 화면으로 돌아옵니다.
-  const [impersonation, setImpersonation] = useState(null); // { admin, kind, id }
   const clearAllLogins = () => {
     setLoggedInAdmin(null); setLoggedInTeacher(null); setLoggedInDepartment(null); setLoggedInMonitor(null); setClassAuthed(false); setLoggedInStudent(null); setViewedTeacher(null);
     setSelectedStudentSid(null); setSelectedStudentQuery(""); setStudentWorkspaceView("grades"); setStudentWorkspaceTabs(["grades"]);
