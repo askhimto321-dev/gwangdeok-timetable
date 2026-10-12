@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { featureAllowed, STAFF_FEATURES, featureDefault, toggleFeature, staffRoleOf } from "./staffPermissions.js";
 import { mergeAccounts } from "./accountsMerge.js";
 import { officialSubjectName } from "./curriculum.js";
 import { examPeriodFromCalendar } from "./examPeriod.js";
@@ -1760,10 +1761,13 @@ export default function App() {
   const activeSection = section || (isNewUi() ? "home" : "grades");
   const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
   const staffToolAccess = !!loggedInAdmin || ((loggedInTeacher || loggedInDepartment) && (staffGradeAccessList || []).map(String).includes(String(grade)));
+  // 기능 권한(staffPermissions): 역할 기본값 + 관리자가 계정별로 켜고 끈 값
+  const staffAccount = loggedInTeacher || (loggedInDepartment ? { ...loggedInDepartment, accountType: "department" } : null);
+  const canUseFeature = key => featureAllowed(staffAccount, key, { admin: !!loggedInAdmin });
   const teacherTools = !isNewUi() || !staffToolAccess ? [] : [
-    { key: "gradeCompare", label: "학생 성적 비교" },
-    { key: "mockAnalysis", label: "모의고사 분석" },
-    ...((loggedInAdmin || loggedInTeacher?.homeroomClass) ? [{ key: "classGrades", label: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적" }] : []),
+    ...(canUseFeature("gradeCompare") ? [{ key: "gradeCompare", label: "학생 성적 비교" }] : []),
+    ...(canUseFeature("mockAnalysis") ? [{ key: "mockAnalysis", label: "모의고사 분석" }] : []),
+    ...(canUseFeature("classGrades") ? [{ key: "classGrades", label: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적" }] : []),
     ...(loggedInTeacher?.homeroomClass ? [{ key: "class", label: "담임반 계정" }] : []),
   ];
   const openTeacherTool = key => { setTeacherTool(key); setGradeTabRequest(current => ({ tab: key, nonce: current.nonce + 1 })); switchSection("grades"); };
@@ -1845,7 +1849,7 @@ export default function App() {
   };
 
   // 새 UI 대시보드(로그인 후 첫 화면)에 넘길 값. 훅은 로그인 여부와 관계없이 항상 같은 순서로 호출합니다.
-  const canSeeMinimum = !!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))));
+  const canSeeMinimum = !!(loggedInAdmin || loggedInMonitor || ((loggedInTeacher || loggedInDepartment) && canUseFeature("minimum")));
   const canSeeTeacherZone = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor);
   // 최성보 화면의 '성적 산출' 버튼 → 선생님 ZONE을 성적 산출 탭으로 엽니다.
   const openGradeCalc = canSeeTeacherZone ? () => { setTeacherZoneRequest({ mode: "grades", at: Date.now() }); switchSection("teacherZone"); } : undefined;
@@ -1896,7 +1900,7 @@ export default function App() {
     // 정기시험 기간에 바로가기 맨 앞에 묶어 보여 줄 성적 메뉴(교직원만).
     examZone: canSeeTeacherZone ? [
       { key: "calc", title: "성적 산출", text: "선생님 ZONE", onClick: openGradeCalc },
-      ...((loggedInAdmin || loggedInTeacher?.homeroomClass) ? [{ key: "classGrades", title: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적", text: "성적 · 진학", onClick: () => openTeacherTool("classGrades") }] : []),
+      ...((staffToolAccess && canUseFeature("classGrades")) ? [{ key: "classGrades", title: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적", text: "성적 · 진학", onClick: () => openTeacherTool("classGrades") }] : []),
       ...(canSeeMinimum ? [{ key: "minimum", title: "최소성취수준", text: "최성보 대상 · 출결", onClick: () => switchSection("minimumAchievement") }] : []),
       { key: "report", title: "성적 리포트", text: "성적 · 진학", onClick: () => switchSection("grades") },
     ] : [],
@@ -1940,7 +1944,7 @@ export default function App() {
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
       </> : <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />}
       {!loggedInStudent && <QuickLinksDock isAdmin={!!loggedInAdmin} showToast={showToast} userKey={loggedInAdmin ? `admin_${loggedInAdmin.id || "admin"}` : loggedInTeacher ? `teacher_${loggedInTeacher.id}` : loggedInDepartment ? `dept_${loggedInDepartment.id}` : loggedInMonitor ? `monitor_${loggedInMonitor.id}` : "shared"} />}
-      <MegaNav semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (loggedInTeacher && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher))))} />
+      <MegaNav semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={canSeeMinimum} />
       {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
       <SiteAnnouncementModal announcements={db.siteAnnouncements || []} viewer={loggedInAdmin?{...loggedInAdmin,role:"admin"}:loggedInTeacher?{...loggedInTeacher,role:"teacher"}:loggedInDepartment?{...loggedInDepartment,role:"department"}:loggedInMonitor?{...loggedInMonitor,role:"monitor"}:loggedInStudent?{...loggedInStudent,role:"student"}:null} />
       {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
@@ -2010,7 +2014,7 @@ export default function App() {
             homeroomClass={loggedInTeacher?.homeroomClass || ""}
             setGrade={setGrade}
             onOpenGradeCalc={openGradeCalc}
-            allowedGrades={(loggedInAdmin || loggedInDepartment || loggedInMonitor) ? GRADES : [teacherRoleGrade(loggedInTeacher || {})]}
+            allowedGrades={(loggedInAdmin || loggedInDepartment || loggedInMonitor) ? GRADES : (["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher || {})) || !staffGradeAccessList.length ? [teacherRoleGrade(loggedInTeacher || {})] : staffGradeAccessList)}
           /></DeferredPanel>
         </div>
       ) : activeSection === "grades" ? (
@@ -6636,6 +6640,8 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                   </div>
                 </div>
 
+                <TeacherFeatureAccess teacher={teacher} onToggle={key => setTeachers(current => current.map((item, itemIndex) => itemIndex === index ? toggleFeature(item, key) : item))} />
+
                 {role === "homeroom" && (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>{roleGrade}학년 담임반</div>
@@ -6663,6 +6669,24 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         {accountsDirty && <span style={{ fontSize: 13, fontWeight: 700, color: "#9a3412" }}>저장하지 않은 변경이 있어요 · 저장해야 선생님 화면에 권한이 반영돼요</span>}
         <button style={styles.primaryBtn} onClick={save}><Save size={14} /> 계정·권한 저장</button>
         <button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화 ({RESET_PASSWORD})</button>
+      </div>
+    </div>
+  );
+}
+
+// 기능 권한: 역할 기본값에서 켜고 끈 것만 계정에 저장(featureAccess). '기본과 다름'은 점으로 표시합니다.
+function TeacherFeatureAccess({ teacher, onToggle }) {
+  const role = staffRoleOf(teacher);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>기능 권한 <span style={{ color: "#a39d8c" }}>· {TEACHER_ROLE_LABELS[role] || "역할"} 기본값에서 바꿀 수 있어요 (권한 학년 안에서 적용)</span></div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {STAFF_FEATURES.map(feature => {
+          const on = featureAllowed(teacher, feature.key);
+          const custom = typeof teacher.featureAccess?.[feature.key] === "boolean" && teacher.featureAccess[feature.key] !== featureDefault(role, feature.key);
+          return <button key={feature.key} type="button" title={`${feature.hint}${custom ? " · 기본값에서 바꿈" : " · 역할 기본값"}`} aria-pressed={on} onClick={() => onToggle(feature.key)}
+            style={{ ...styles.classChip, padding: "5px 11px", fontSize: 11.5, ...(on ? styles.classChipActive : {}), ...(custom ? { boxShadow: "0 0 0 2px #f59e0b" } : {}) }}>{on ? "✓ " : ""}{feature.label}</button>;
+        })}
       </div>
     </div>
   );
