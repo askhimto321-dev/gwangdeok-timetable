@@ -32,3 +32,15 @@ test("학년·학기 과목 목록", () => {
   assert.equal(list.filter(item => item.kind === "common").length, 5);
   assert.ok(list.some(item => item.name === "공중 보건" && item.group === "택1"));
 });
+
+test("1학년 학급 시간표를 편제표 학점과 맞춰 봄", async () => {
+  const { checkClassAgainstCurriculum } = await import("../src/curriculum.js");
+  const rep = (label, n) => Array(n).fill(label);
+  const ok = [...rep("공국", 4), ...rep("공수", 4), ...rep("공영", 3), ...rep("한국사", 3), ...rep("통사", 4), ...rep("통과", 4), "과탐실", ...rep("체육", 2), ...rep("음악", 2), ...rep("지재", 3), "자율", "진로", "동아리"];
+  const good = checkClassAgainstCurriculum(ok, 1, "sem1", 2026);
+  assert.deepEqual(good.issues, []);
+  assert.equal(good.counts["공통국어1"], 4);
+  const bad = checkClassAgainstCurriculum([...ok.slice(1), "기술가정"], 1, "sem1", 2026);
+  assert.ok(bad.issues.some(text => text.startsWith("공통국어1 주 3시간")));
+  assert.ok(bad.issues.some(text => text.includes("기술가정")));
+});
