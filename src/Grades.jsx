@@ -40,6 +40,8 @@ import {
   getSubjectGrade,
   grade5to9,
   parseAdmissionSubjectGroups,
+  subjectRawScore,
+  formatRawScore,
 } from "./gradeEngine.js";
 
 let admissionCasesModulePromise = null;
@@ -1345,7 +1347,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const rows = useMemo(() => (isSubject && takersOnly ? rosterRows.filter(row => val(row) != null) : rosterRows), [rosterRows, isSubject, takersOnly, metric]); // eslint-disable-line react-hooks/exhaustive-deps
   // 같은 값은 같은 순위(동석차)로 둡니다. 개별 과목은 등급이 정수라 동점이 많습니다.
   // 과목 보기는 같은 등급이면 원점수 높은 학생을 앞에 둡니다.
-  const scoreOf = row => { if (!isSubject) return null; const list = SEMESTER_KEYS.map(key => Number(subjectRecordOf(row, subjectName, key)?.score)).filter(Number.isFinite); return list.length ? list.reduce((sum, v) => sum + v, 0) / list.length : null; };
+  const scoreOf = row => { if (!isSubject) return null; const list = SEMESTER_KEYS.map(key => subjectRawScore(subjectRecordOf(row, subjectName, key))).filter(Number.isFinite); return list.length ? list.reduce((sum, v) => sum + v, 0) / list.length : null; };
   const ranked = useMemo(() => {
     const items = rows.filter(row => val(row) != null).map(row => ({ sid: row.sid, v: val(row), s: scoreOf(row) ?? -1 }));
     return new Map(items.map(me => [me.sid, 1 + items.filter(other => other.v < me.v - 1e-9 || (Math.abs(other.v - me.v) <= 1e-9 && other.s > me.s + 1e-9)).length]));
@@ -1469,8 +1471,8 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
         <td><span className={`cg-sj-rank${rank && rank <= 3 ? " top" : ""}`}>{rank || "-"}</span></td>
         <td className="cg-sj-dim">{row.sid}</td>
         <td className="cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)} >{row.name}</button> : <span>{row.name}</span>}</td>
-        {semCols.map(key => { const rec = subjectRecordOf(row, subjectName, key); if (!rec) return <td key={key} colSpan={4} className="gstart cg-sj-miss">미수강</td>; const score = Number(rec.score); const ach = String(rec.achievement || "").trim(); return <React.Fragment key={key}>
-          <td className="gstart cg-sj-num">{Number.isFinite(score) && String(rec.score ?? "").trim() !== "" ? score : "-"}</td>
+        {semCols.map(key => { const rec = subjectRecordOf(row, subjectName, key); if (!rec) return <td key={key} colSpan={4} className="gstart cg-sj-miss">미수강</td>; const ach = String(rec.achievement || "").trim(); return <React.Fragment key={key}>
+          <td className="gstart cg-sj-num">{formatRawScore(rec)}</td>
           <td className="cg-sj-rk"><b>{String(rec.rank ?? "").trim() || "-"}</b>{rec.classSize ? <small> / {rec.classSize}</small> : null}</td>
           <td className="cg-sj-gr">{getSubjectGrade(rec) ?? "-"}</td>
           <td>{ach ? <span className={`cg-ach a-${ach.charAt(0)}`}>{ach}</span> : "-"}</td>
@@ -2215,7 +2217,7 @@ function StudentGradePrintSheet({
         const avg9 = groups?.["전과목"]?.perSemester9?.[index] ?? null;
         return <article className="semester-card" key={key}>
           <div className="semester-head"><b>{semesterCalendarLabel(key, entryYear)}</b><span>{gradeSystem === 5 ? `평균 ${avg5 ?? "-"} / 환산 ${avg9 ?? "-"}` : `평균 ${avg9 ?? avg5 ?? "-"}`}</span></div>
-          {subjects.length ? <table><colgroup><col style={{width:"34%"}}/><col style={{width:"9%"}}/><col style={{width:"13%"}}/><col style={{width:"12%"}}/><col style={{width:"10%"}}/><col style={{width:"22%"}}/></colgroup><thead><tr><th>과목</th><th>학점</th><th>원점수</th><th>성취도</th><th>등급</th><th>석차/수강자</th></tr></thead><tbody>{subjects.map((subject, subjectIndex) => <tr key={`${key}-${subject.subject}-${subjectIndex}`}><td className="subject">{subject.subject}</td><td>{subject.credit ?? "-"}</td><td>{subject.score ?? "-"}</td><td>{subject.achievement ?? "-"}</td><td><b>{getSubjectGrade(subject) ?? "-"}</b></td><td>{rankText(subject)}</td></tr>)}</tbody></table> : <div className="empty-semester">등록된 성적 없음</div>}
+          {subjects.length ? <table><colgroup><col style={{width:"34%"}}/><col style={{width:"9%"}}/><col style={{width:"13%"}}/><col style={{width:"12%"}}/><col style={{width:"10%"}}/><col style={{width:"22%"}}/></colgroup><thead><tr><th>과목</th><th>학점</th><th>원점수</th><th>성취도</th><th>등급</th><th>석차/수강자</th></tr></thead><tbody>{subjects.map((subject, subjectIndex) => <tr key={`${key}-${subject.subject}-${subjectIndex}`}><td className="subject">{subject.subject}</td><td>{subject.credit ?? "-"}</td><td>{formatRawScore(subject)}</td><td>{subject.achievement ?? "-"}</td><td><b>{getSubjectGrade(subject) ?? "-"}</b></td><td>{rankText(subject)}</td></tr>)}</tbody></table> : <div className="empty-semester">등록된 성적 없음</div>}
         </article>;
       })}
     </div>
@@ -2578,7 +2580,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                       const typeMeta = subjectTypeMeta(subject);
                       const sourceGrade = getSubjectGrade(subject);
                       const convertedGrade = sourceGrade == null ? null : Math.round(grade5to9(sourceGrade) * 100) / 100;
-                      const score = asNumber(subject.score);
+                      const score = subjectRawScore(subject);
                       const achievement = String(subject.achievement ?? "");
                       const rank = asNumber(subject.rank);
                       const classSize = asNumber(subject.classSize);
@@ -2595,7 +2597,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                           <td style={{ ...table.td, ...gradeTable.td }}>{subject.credit}</td>
                           <td style={{ ...table.td, ...gradeTable.td }}>
                             <span style={{ fontWeight: score != null && score >= 90 ? 900 : 600, color: score != null && score >= 90 ? "#24613a" : "inherit" }}>
-                              {subject.score ?? "-"}
+                              {formatRawScore(subject)}
                             </span>
                           </td>
                           <td style={{ ...table.td, ...gradeTable.td }}>
