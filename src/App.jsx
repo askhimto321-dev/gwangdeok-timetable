@@ -1,8 +1,9 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { parseRegisterSheets } from "./registerImport.js";
 import AccountSwitcher, { ImpersonationBar } from "./AccountSwitcher.jsx";
 import { featureAllowed, STAFF_FEATURES, featureDefault, toggleFeature, staffRoleOf } from "./staffPermissions.js";
 import { mergeAccounts } from "./accountsMerge.js";
-import { officialSubjectName } from "./curriculum.js";
+import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, curriculumColumn, ALTERNATE_PAIRS } from "./curriculum.js";
 import { examPeriodFromCalendar } from "./examPeriod.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
 import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay } from "./AppOverlays.jsx";
@@ -1688,7 +1689,7 @@ export default function App() {
         }
       }
     });
-    DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); return { type: "fixed", subject: displaySubjectLabel(subject), location }; } return c; }); });
+    DAYS.forEach(day => { grid[day] = grid[day].map(c => { if (c && c.type === "pf") { const { subject, location } = parseCompositeLabel(c.raw); const label = displaySubjectLabel(subject); return { type: "fixed", subject: label, displaySubject: officialSubjectName(label, grade, semester), location }; } return c; }); });
     const seenCommon = new Set();
     DAYS.forEach(day => grid[day].forEach(c => {
       if (!c || c.type !== "fixed" || IGNORED_COMMON_LABELS.has(c.subject)) return;
@@ -1696,7 +1697,7 @@ export default function App() {
       const key = subjectKeyFor(c.subject);
       if (seenCommon.has(key)) return;
       seenCommon.add(key);
-      registerClassroomCourse(key, c.subject, c.subject, "common", [legacyKey]);
+      registerClassroomCourse(key, c.subject, c.displaySubject || c.subject, "common", [legacyKey]);
       [...asNoticeArray(announcements[key]), ...asNoticeArray(announcements[legacyKey])].forEach(n => notices.push({ subject: c.subject, group: "전체 수강생", ...n }));
     }));
     const personalNotices = asNoticeArray(announcements[`STUDENT_${sid}`]).map(n => ({ ...n, origin: "personal" }));
@@ -1704,7 +1705,7 @@ export default function App() {
     const homeroomNotices = [...homeroomOnly, ...personalNotices];
     const classroomCourses = Array.from(classroomCourseMap.values()).sort((a, b) => a.label.localeCompare(b.label, "ko"));
     return { student: info, grid, warnings, notices, homeroomNotices, classroomCourses, hasTimetable: !!homeTT };
-  }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements, materials]);
+  }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements, materials, grade, semester]);
 
   const adminAccounts = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
   const hasAnyData = Object.keys(roster).length > 0;
@@ -4620,7 +4621,7 @@ function NowLessonCard({ grid, slot }) {
         <b style={nowCardStyles.subject}>{cell ? cell.subject : "수업 없음"}</b>
         {place && <span style={nowCardStyles.place}>{place}</span>}
       </div>
-      {next && <div style={nowCardStyles.next}><span>다음</span><b>{next.period}교시 · {next.c.subject}</b></div>}
+      {next && <div style={nowCardStyles.next}><span>다음</span><b>{next.period}교시 · {next.c.displaySubject || next.c.subject}</b></div>}
     </section>
   );
 }
@@ -4675,8 +4676,8 @@ function TimetableBoard({ grid, slot, homeroomLabel, print = false }) {
           const now = today && pi === nowPi;
           const past = today && pi < passedPi && !now;
           const place = ttPlace(c);
-          return <div key={d} className={`kdn-ttb-cell${today ? " is-today" : ""}${now ? " is-now" : ""}${past ? " is-past" : ""}`} style={{ "--bg": tone.bg, "--fg": tone.fg }} title={[c.subject, c.group, place].filter(Boolean).join(" · ")}>
-            <b>{renderTimetableSubject(c.subject)}</b>
+          return <div key={d} className={`kdn-ttb-cell${today ? " is-today" : ""}${now ? " is-now" : ""}${past ? " is-past" : ""}`} style={{ "--bg": tone.bg, "--fg": tone.fg }} title={[c.displaySubject || c.subject, c.group, place].filter(Boolean).join(" · ")}>
+            <b>{renderTimetableSubject(c.displaySubject || c.subject)}</b>
             {c.type === "move" ? <span className="mv">{c.group && <span className="g">{c.group}반</span>}<span className={c.moved ? "rm go" : "rm"}>{c.moved ? "→ " : ""}{place || "교실 확인"}</span></span> : <small>{place || homeroomLabel}</small>}
             {c.type === "move" && c.moved && <em>이동</em>}
             {now && <i>지금</i>}
@@ -4715,7 +4716,7 @@ function TodayRoute({ grid, slot, homeroomLabel }) {
     {items.map(item => {
       const place = item.c.type === "move" ? (item.c.roomLabel || "교실 확인") : (item.c.location || homeroomLabel);
       const state = item.pi === nowPi ? "cur" : item.pi < nextPi ? "done" : "";
-      return <div key={item.p} className={`row ${state}`}><b>{item.p}교시</b><i /><span>{item.c.subject}{item.c.type === "move" && item.c.moved ? <em>{place}</em> : <small>{place}</small>}</span></div>;
+      return <div key={item.p} className={`row ${state}`}><b>{item.p}교시</b><i /><span>{item.c.displaySubject || item.c.subject}{item.c.type === "move" && item.c.moved ? <em>{place}</em> : <small>{place}</small>}</span></div>;
     })}
   </section>;
 }
@@ -4976,7 +4977,7 @@ function renderTimetableSubject(subject) {
 function renderCell(c) {
   if (!c) return <span style={{ color: "#d8d3c6" }}>–</span>;
   if (c.type === "move") return <div className="student-timetable-cell is-move"><div className="student-timetable-subject" style={styles.cellSubject}>{renderTimetableSubject(c.subject)}</div><div style={styles.cellRow}><span style={styles.cellTag}>{c.group}</span>{c.moved ? <span style={styles.cellMoveTag}><ArrowRight size={9} /> {c.roomLabel}</span> : <span style={styles.cellStayTag}>{c.roomLabel}</span>}</div></div>;
-  if (c.type === "fixed") return <div className="student-timetable-cell is-fixed"><div className="student-timetable-subject" style={styles.cellFixed}>{renderTimetableSubject(c.subject)}</div>{c.location && <div style={styles.cellLocation}>{c.location}</div>}</div>;
+  if (c.type === "fixed") return <div className="student-timetable-cell is-fixed"><div className="student-timetable-subject" style={styles.cellFixed}>{renderTimetableSubject(c.displaySubject || c.subject)}</div>{c.location && <div style={styles.cellLocation}>{c.location}</div>}</div>;
   return null;
 }
 
@@ -5757,6 +5758,55 @@ function UploadStageBar({ stage, labels = ["파일 선택", "미리보기 확인
   </div>;
 }
 
+// 학적(학생 명렬표) 업로드: 이동수업이 없는 학년(1학년)도 학생 명단을 만들 수 있게 합니다.
+function RegisterUpload({ scopeKey, db, persist, showToast, rosterCount }) {
+  const [gradeKey, semKey] = String(scopeKey || "").split("-");
+  const fileRef = useRef(null);
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [bothSemesters, setBothSemesters] = useState(true);
+  const handleFile = async file => {
+    setBusy(true);
+    try {
+      const XLSX = await loadXLSX();
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const sheets = wb.SheetNames.map(name => ({ name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null }) }));
+      const result = parseRegisterSheets(sheets, gradeKey);
+      if (!result.count) { showToast(result.sheetsUsed ? `${gradeKey}학년 학생을 찾지 못했습니다.${result.otherGrade ? ` (다른 학년 ${result.otherGrade}명)` : ""}` : "'성명(이름)'과 '학번' 또는 '반·번호' 머리글을 찾지 못했습니다.", "error"); return; }
+      setPreview({ ...result, fileName: file.name });
+    } catch (e) { showToast(`실패했습니다. (${e.message})`, "error"); } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
+  };
+  const apply = async () => {
+    if (!preview) return;
+    const scopes = bothSemesters ? [`${gradeKey}-sem1`, `${gradeKey}-sem2`] : [scopeKey];
+    if (rosterCount && !window.confirm(`지금 명단 ${rosterCount}명을 학적 파일 ${preview.count}명으로 바꿀까요?\n이동수업 출석부(선택과목 기록)는 그대로 둡니다.`)) return;
+    const nextRoster = { ...db.roster };
+    const nextMeta = { ...db.meta };
+    scopes.forEach(key => { nextRoster[key] = preview.roster; nextMeta[key] = { ...(db.meta?.[key] || {}), updatedAt: new Date().toISOString(), rosterSource: "register" }; });
+    const ok = await persist({ roster: nextRoster, meta: nextMeta });
+    if (ok) { showToast(`${gradeKey}학년 학생 ${preview.count}명을 ${bothSemesters ? "1·2학기" : semKey === "sem2" ? "2학기" : "1학기"} 명단에 반영했습니다.`, "success"); setPreview(null); }
+  };
+  const classCounts = preview ? Object.values(preview.roster).reduce((acc, st) => { acc[st.class] = (acc[st.class] || 0) + 1; return acc; }, {}) : {};
+  return <div style={{ ...styles.uploadBox, marginTop: 12, alignItems: "stretch", textAlign: "left" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+      <Users size={20} color="#8a8578" />
+      <div style={{ flex: 1, minWidth: 220 }}>
+        <div style={{ fontWeight: 700 }}>학적(학생 명렬표) 엑셀로 명단 만들기</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", marginTop: 3 }}>이동수업이 없는 학년(1학년)용 · 머리글 '성명(이름)' + '학번' 또는 '반·번호' · 전출·자퇴 표시는 빼고 반영</div>
+      </div>
+      <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
+      <button style={styles.uploadBtn} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />}{busy ? "분석 중…" : "학적 파일 선택"}</button>
+    </div>
+    {preview && <div style={{ ...styles.previewBox, marginTop: 12 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>{preview.fileName} · {gradeKey}학년 {preview.count}명</div>
+      <div style={{ fontSize: 12.5, color: "#5d6574", marginBottom: 8 }}>{Object.entries(classCounts).sort((a, b) => Number(a[0]) - Number(b[0])).map(([cls, n]) => `${cls}반 ${n}명`).join(" · ")}</div>
+      {(preview.skipped.length > 0 || preview.otherGrade > 0) && <div style={{ fontSize: 12, color: "#9a3412", marginBottom: 8 }}>{preview.otherGrade ? `다른 학년 ${preview.otherGrade}명 제외 · ` : ""}{preview.skipped.slice(0, 6).join(" · ")}{preview.skipped.length > 6 ? ` 외 ${preview.skipped.length - 6}명` : ""}</div>}
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, marginBottom: 10 }}><input type="checkbox" checked={bothSemesters} onChange={e => setBothSemesters(e.target.checked)} /> 1·2학기 명단에 모두 반영 (학적은 학기와 상관없이 같음)</label>
+      <div style={{ display: "flex", gap: 8 }}><button style={styles.primaryBtn} onClick={apply}><Save size={14} /> 명단 반영</button><button style={styles.secondaryBtn} onClick={() => setPreview(null)}>취소</button></div>
+    </div>}
+  </div>;
+}
+
 function AdminRoster({ scopeKey, db, persist, showToast, roster, enrollments, semester, onNextStep }) {
   const fileRef = useRef(null);
   const [parsed, setParsed] = useState(null); // { sheets: [...], letters: [{letter, count}] }
@@ -5832,6 +5882,7 @@ function AdminRoster({ scopeKey, db, persist, showToast, roster, enrollments, se
         <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
         <button style={styles.uploadBtn} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />}{busy ? "분석 중…" : "파일 선택"}</button>
       </div>
+      {!parsed && <RegisterUpload scopeKey={scopeKey} db={db} persist={persist} showToast={showToast} rosterCount={Object.keys(roster || {}).length} />}
       {parsed && filteredStats && (
         <div style={styles.previewBox}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>포함할 그룹 선택</div>
@@ -6875,13 +6926,15 @@ function AdminNoticesViewer({ db, persist, showToast, scopeKey, roster, timetabl
   );
 }
 
-function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persistAbbrev, grade, showToast }) {
+function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persistAbbrev, grade, semester, showToast }) {
   const [report, setReport] = useState(null);
   const run = () => {
     const issues = []; let checked = 0;
     const scoped = new Set();
+    let hasMoveSlots = false;
     const enrolledSubjects = Array.from(new Set(Object.values(enrollments || {}).flatMap(list => (list || []).map(course => course.subject).filter(Boolean))));
     Object.values(timetables).forEach(g => DAYS.forEach(d => (g[d] || []).forEach(c => { if (isMoveSlot(c)) scoped.add(moveSlotAbbrev(c)); })));
+    hasMoveSlots = scoped.size > 0;
     const suggested = {};
     Array.from(scoped).forEach(a => {
       const current = abbrevMap[a];
@@ -6899,7 +6952,18 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persis
       const r = build(sid); checked++;
       if (!r.hasTimetable) issues.push({ sid, name: r.student.name, cls: r.student.class, type: "timetable", detail: "학급 시간표 없음" });
       r.warnings.forEach(w => issues.push({ sid, name: r.student.name, cls: r.student.class, type: w.includes("시간표") ? "slot" : "mapping", detail: w }));
-      if (!(enrollments[sid] || []).length) issues.push({ sid, name: r.student.name, cls: r.student.class, type: "roster", detail: "명단에 선택과목 기록 없음" });
+      // 이동수업이 없는 학년(1학년 등)은 선택과목 기록이 없는 게 정상입니다.
+      if (hasMoveSlots && !(enrollments[sid] || []).length) issues.push({ sid, name: r.student.name, cls: r.student.class, type: "roster", detail: "명단에 선택과목 기록 없음" });
+    });
+    // 학급 시간표(고정 칸)를 교육과정 편제표 학점과 맞춰 봅니다(과목 누락·시수·편제표에 없는 과목명).
+    const curriculumRows = [];
+    Object.keys(timetables || {}).sort((a, b) => Number(a) - Number(b)).forEach(cls => {
+      const grid = timetables[cls];
+      const labels = DAYS.flatMap(d => (grid?.[d] || []).filter(c => c && !isMoveSlot(c)).map(c => displaySubjectLabel(parseCompositeLabel(c).subject)));
+      if (!labels.length) return;
+      const check = checkClassAgainstCurriculum(labels, grade, semester);
+      curriculumRows.push({ cls, counts: check.counts, issues: check.issues });
+      check.issues.forEach(detail => issues.push({ sid: "-", name: `${cls}반 시간표`, cls, type: "curriculum", detail: `편제표 대조: ${detail}` }));
     });
     Object.keys(enrollments).forEach(sid => { if (!roster[sid]) issues.push({ sid, name: "(명단 외)", cls: "-", type: "roster", detail: "출석부엔 있으나 학생 명단에 없는 학번" }); });
 
@@ -6919,7 +6983,7 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persis
       causes[key] = (causes[key] || 0) + 1;
     });
     const causeRows = Object.entries(causes).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    setReport({ checked, issues: deduped, suggested, causeRows });
+    setReport({ checked, issues: deduped, suggested, causeRows, curriculumRows, hasMoveSlots, curriculumOn: curriculumApplies(grade) && !!curriculumColumn(grade, semester) });
   };
   const applySuggested = async () => {
     if (!report?.suggested || !Object.keys(report.suggested).length || !persistAbbrev) return;
@@ -6933,7 +6997,7 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persis
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <button style={styles.primaryBtn} onClick={run}><Check size={14} /> 전체 검증 실행</button>
-        <span style={{ fontSize: 12, color: "#8a8578" }}>PDF/HWP 시간표의 실제 이동수업 약어와 출석부 과목명을 함께 비교합니다.</span>
+        <span style={{ fontSize: 12, color: "#8a8578" }}>이동수업 약어·출석부 과목명 연결과, 학급 시간표 과목·주당 시수를 교육과정 편제표와 함께 비교합니다.</span>
       </div>
       {report && (
         <div style={{ marginTop: 16 }}>
@@ -6951,6 +7015,8 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persis
               <div style={{ display: "grid", gap: 5 }}>{report.causeRows.map(([label, count]) => <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12 }}><span style={{ color: "#665f55" }}>{label}</span><b style={{ color: "#b3401f", whiteSpace: "nowrap" }}>{count}건</b></div>)}</div>
             </div>
           )}
+          {report.curriculumOn && report.curriculumRows?.length > 0 && <CurriculumCheckTable rows={report.curriculumRows} grade={grade} semester={semester} />}
+          {!report.curriculumOn && <div style={{ ...styles.infoBox, marginTop: 10, fontSize: 12 }}>{grade}학년 {semester === "sem2" ? 2 : 1}학기는 편제표(2022 개정, 2025 입학생부터) 대조 대상이 아니라 과목·시수 검사는 건너뛰었습니다.</div>}
           {report.issues.length === 0
             ? <div style={styles.okBanner}><Check size={14} /> 모든 학생의 시간표 연결이 정상입니다.{Object.keys(report.suggested || {}).length ? " 자동 연결 가능한 약어는 위에서 저장할 수 있습니다." : ""}</div>
             : <div style={styles.issueList}>{report.issues.map((x, i) => <div key={i} style={styles.issueRow}><span style={styles.issueBadge}>{x.cls}반</span><span style={{ fontWeight: 700 }}>{x.name}</span><span style={{ color: "#8a8578", fontSize: 12 }}>({x.sid})</span><span style={{ color: "#b3401f", fontSize: 12 }}>{x.detail}</span></div>)}</div>}
@@ -6958,6 +7024,31 @@ function AdminVerify({ roster, enrollments, timetables, build, abbrevMap, persis
       )}
     </div>
   );
+}
+
+// 검증: 반별 과목 시수 표(편제표 학점과 다르면 빨강)
+function CurriculumCheckTable({ rows, grade, semester }) {
+  const column = curriculumColumn(grade, semester);
+  if (!column) return null;
+  const subjects = column.common.map(([name, credit]) => ({ name, credit }));
+  const pairOf = name => ALTERNATE_PAIRS.find(pair => pair.includes(name));
+  return <div style={{ ...styles.infoBox, marginTop: 10, overflowX: "auto" }}>
+    <div style={{ fontWeight: 850, marginBottom: 7 }}>편제표 대조 · {grade}학년 {semester === "sem2" ? 2 : 1}학기 반별 주당 시수 <span style={{ fontWeight: 600, fontSize: 11.5, color: "#8a8578" }}>숫자 = 시간표 칸 수 · 빨강 = 편제표 학점과 다름 · ↔ 과목은 둘 중 하나</span></div>
+    <table style={{ borderCollapse: "collapse", fontSize: 12, minWidth: "100%" }}>
+      <thead><tr><th style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid #ddd" }}>과목 (학점)</th>{rows.map(row => <th key={row.cls} style={{ padding: "4px 6px", borderBottom: "1px solid #ddd" }}>{row.cls}반</th>)}</tr></thead>
+      <tbody>{subjects.map(({ name, credit }) => {
+        const pair = pairOf(name);
+        return <tr key={name}><td style={{ padding: "4px 8px", borderBottom: "1px solid #eee", whiteSpace: "nowrap" }}>{name}{pair ? " ↔" : ""} <small style={{ color: "#8a8578" }}>({credit})</small></td>
+          {rows.map(row => {
+            const count = row.counts[name] || 0;
+            const pairCount = pair ? pair.reduce((sum, other) => sum + (row.counts[other] || 0), 0) : count;
+            const bad = pair ? (count ? count !== credit : pairCount === 0) : count !== credit;
+            return <td key={row.cls} style={{ padding: "4px 6px", textAlign: "center", borderBottom: "1px solid #eee", fontWeight: bad ? 800 : 500, color: bad ? "#c0262d" : count ? "#2b2620" : "#b8b2a6" }}>{count || "-"}</td>;
+          })}
+        </tr>;
+      })}</tbody>
+    </table>
+  </div>;
 }
 
 /* ============ STYLES ============ */

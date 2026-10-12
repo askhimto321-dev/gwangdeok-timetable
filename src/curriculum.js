@@ -97,3 +97,45 @@ export function officialSubjectName(label, grade, semester, year = schoolYearOf(
   if (scored.length > 1 && scored[1].score === scored[0].score) return raw;
   return scored[0].name;
 }
+
+// ↔ 로 학급마다 둘 중 하나를 듣는 과목 묶음(편제표 기준)
+export const ALTERNATE_PAIRS = [["지식 재산 일반", "아동발달과 부모"], ["음악 감상과 비평", "미술 감상과 비평"]];
+// 창체·자습 등 교과가 아닌 칸
+const NON_SUBJECT = /^(자율|자율학습|자율\/자치|자율·자치|자치|진로|진로활동|동아리|동아리활동|창체|창의적체험활동|HR|조회|종례)/;
+
+// 학급 시간표(고정 칸) 한 반을 편제표와 맞춰 봅니다.
+// labels: 고정 칸의 과목 이름 목록(칸 수만큼, 이동수업 칸 제외)
+// → { counts: {정식이름: 시수}, unknown: [시간표 이름], issues: [문장] }
+export function checkClassAgainstCurriculum(labels, grade, semester, year = schoolYearOf()) {
+  const column = curriculumColumn(grade, semester);
+  const result = { counts: {}, unknown: [], issues: [] };
+  if (!column || !curriculumApplies(grade, year)) return result;
+  const unknown = new Set();
+  labels.forEach(raw => {
+    const label = String(raw || "").trim();
+    if (!label || NON_SUBJECT.test(label.replace(/\s+/g, ""))) return;
+    const official = officialSubjectName(label, grade, semester, year);
+    const known = column.common.some(([name]) => name === official);
+    if (!known) { unknown.add(label); return; }
+    result.counts[official] = (result.counts[official] || 0) + 1;
+  });
+  result.unknown = Array.from(unknown);
+  const credit = Object.fromEntries(column.common.map(([name, value]) => [name, value]));
+  const handled = new Set();
+  ALTERNATE_PAIRS.forEach(pair => {
+    if (!pair.every(name => credit[name] != null)) return;
+    pair.forEach(name => handled.add(name));
+    const present = pair.filter(name => result.counts[name]);
+    if (!present.length) result.issues.push(`${pair.join(" ↔ ")} 중 하나가 시간표에 없습니다.`);
+    else if (present.length > 1) result.issues.push(`${pair.join(" ↔ ")}는 학급마다 하나만 듣는데 둘 다 있습니다.`);
+    else if (result.counts[present[0]] !== credit[present[0]]) result.issues.push(`${present[0]} 주 ${result.counts[present[0]]}시간 (편제표 ${credit[present[0]]}학점)`);
+  });
+  column.common.forEach(([name, value]) => {
+    if (handled.has(name)) return;
+    const count = result.counts[name] || 0;
+    if (!count) result.issues.push(`${name} 없음 (편제표 ${value}학점)`);
+    else if (count !== value) result.issues.push(`${name} 주 ${count}시간 (편제표 ${value}학점)`);
+  });
+  if (result.unknown.length) result.issues.push(`편제표에서 찾지 못한 과목명: ${result.unknown.join(", ")}`);
+  return result;
+}
