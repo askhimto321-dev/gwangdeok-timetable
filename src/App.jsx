@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { mergeAccounts } from "./accountsMerge.js";
 import { officialSubjectName } from "./curriculum.js";
 import { examPeriodFromCalendar } from "./examPeriod.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
@@ -145,7 +146,8 @@ export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevM
   return result;
 }
 
-const TEACHER_ROLE_LABELS = { homeroom: "학급담임", gradeHead: "학년부장", other: "그외" };
+const EMPTY_ACCOUNTS = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] };
+const TEACHER_ROLE_LABELS = { homeroom: "학급담임", gradeHead: "학년부장", other: "교과담임" };
 function normalizeGradeAccessList(value) {
   const values = Array.isArray(value) ? value : (value ? [value] : []);
   return Array.from(new Set(values.map(String).filter(item => GRADES.includes(item))));
@@ -1447,12 +1449,37 @@ export default function App() {
     setAbbrevMaps(prev => ({ ...prev, [grade]: m }));
     return true;
   }, [showToast]);
-  const persistAccounts = useCallback(async (a) => {
-    const r = await writeStorage("kd_accounts", a);
+  // 계정 저장: 저장 직전 최신 계정을 다시 읽어 '내가 바꾼 계정'만 합칩니다(accountsMerge).
+  // 다른 화면의 옛 계정 목록으로 통째로 덮어써서 관리자가 준 권한이 사라지던 문제를 막습니다.
+  const accountsRef = useRef(accounts);
+  accountsRef.current = accounts;
+  const persistAccounts = useCallback(async (a, options = {}) => {
+    const base = options.base || accountsRef.current;
+    let value = a;
+    const unread = {};
+    const fresh = await readStorage("kd_accounts", unread);
+    if (fresh !== unread && fresh && typeof fresh === "object") value = mergeAccounts(base, a, { ...EMPTY_ACCOUNTS, ...fresh });
+    const r = await writeStorage("kd_accounts", value);
     if (!r.ok) { showToast(`실패했습니다. (${r.error})`, "error"); return false; }
-    setAccounts(a);
+    setAccounts(value);
     return true;
   }, [showToast]);
+  // 교사·부서 계정은 화면으로 돌아올 때 최신 권한을 다시 읽습니다(새로고침 없이 관리자가 준 권한 반영).
+  useEffect(() => {
+    if (!loggedInTeacher && !loggedInDepartment) return undefined;
+    let last = 0;
+    const refresh = async () => {
+      if (document.visibilityState === "hidden" || Date.now() - last < 30000) return;
+      last = Date.now();
+      const unread = {};
+      const fresh = await readStorage("kd_accounts", unread);
+      if (fresh === unread || !fresh || typeof fresh !== "object") return;
+      setAccounts(current => (JSON.stringify(current) === JSON.stringify({ ...EMPTY_ACCOUNTS, ...fresh }) ? current : { ...EMPTY_ACCOUNTS, ...fresh }));
+    };
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [loggedInTeacher?.id, loggedInDepartment?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const persistGrades = useCallback(async (patch) => {
     const jobs = [];
@@ -3442,10 +3469,10 @@ function AdminTemplateDownloads({ showToast }) {
         fileName = "선생님_계정_업로드양식.xlsx";
         addSheet("선생님 계정", [
           ["이름", "아이디", "비밀번호", "학교역할", "담당학년", "담임반", "성적조회학년", "시간표조회학년", "담당과목", "대상반"],
-          ["홍길동", "teacher01", "kd2026", "그외", "2", "", "2", "2", "대수", "1,2,3"],
+          ["홍길동", "teacher01", "kd2026", "교과담임", "2", "", "2", "2", "대수", "1,2,3"],
           ["김담임", "teacher02", "kd2026", "학급담임", "2", "4", "", "", "", ""],
         ], [14, 16, 14, 13, 10, 10, 16, 16, 18, 16]);
-        addSheet("작성 안내", [["학교역할", "학급담임 / 학년부장 / 그외 중 하나"], ["권한 학년", "여러 학년은 1,2처럼 쉼표로 구분"], ["담당과목·대상반", "여러 과목은 행을 나누어 등록하거나 홈페이지에서 추가 수정"]], [22, 58]);
+        addSheet("작성 안내", [["학교역할", "학급담임 / 학년부장 / 교과담임 중 하나"], ["권한 학년", "여러 학년은 1,2처럼 쉼표로 구분"], ["담당과목·대상반", "여러 과목은 행을 나누어 등록하거나 홈페이지에서 추가 수정"]], [22, 58]);
       } else if (type === "student") {
         fileName = "학생_계정_업로드양식.xlsx";
         addSheet("학생 계정", [["학번", "이름", "초기비밀번호", "학년", "반", "번호", "입학연도"], [20824, "김예환", "kd2026", 2, 8, 24, 2025]], [12, 14, 16, 9, 9, 9, 12]);
@@ -6245,6 +6272,9 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
   const [teachers, setTeachers] = useState(() => normalizeTeachers(accounts.teacher));
   const [teacherSearch, setTeacherSearch] = useState("");
   const [teacherRoleFilter, setTeacherRoleFilter] = useState("all");
+  const accountsDirty = JSON.stringify(teachers) !== JSON.stringify(normalizeTeachers(accounts.teacher))
+    || JSON.stringify(admins) !== JSON.stringify(accounts.admin)
+    || JSON.stringify(departments.map(item => ({ ...item, gradeAccessGrades: normalizeGradeAccessList(item.gradeAccessGrades), timetableAccessGrades: normalizeGradeAccessList(item.timetableAccessGrades) }))) !== JSON.stringify((accounts.departments || []).map(item => ({ ...item, gradeAccessGrades: normalizeGradeAccessList(item.gradeAccessGrades), timetableAccessGrades: normalizeGradeAccessList(item.timetableAccessGrades) })));
   useEffect(() => {
     setAdmins(accounts.admin);
     setDepartments((accounts.departments || []).map(item => ({
@@ -6264,23 +6294,27 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       gradeAccessGrades: normalizeGradeAccessList(item.gradeAccessGrades),
       timetableAccessGrades: normalizeGradeAccessList(item.timetableAccessGrades),
     }));
-    const cleanTeachers = teachers
-      .filter(teacher => teacher.id.trim() && teacher.pw)
-      .map(teacher => {
-        const normalized = applyAutomaticTeacherAccess(teacher, grade);
-        return {
-          id: normalized.id.trim(), pw: normalized.pw, name: (normalized.name || "").trim(),
-          teacherRole: normalized.teacherRole, roleGrade: normalized.roleGrade,
-          homeroomClass: normalized.homeroomClass || "",
-          gradeAccessGrades: normalized.gradeAccessGrades,
-          timetableAccessGrades: normalized.timetableAccessGrades,
-          assignments: (normalized.assignments || []).filter(assignment => String(assignment?.subject || "").trim()).map(assignment => ({ ...assignment, subject: String(assignment.subject).trim(), targets: String(assignment.targets || "").trim() || "전체" })),
-        };
-      });
+    const cleanTeacher = teacher => {
+      const normalized = applyAutomaticTeacherAccess(teacher, grade);
+      // 바로가기 등 다른 화면이 계정에 저장한 값은 그대로 두고 아래 항목만 정리합니다.
+      const { studentGradeAccessGrades, studentTimetableAccessGrades, ...rest } = normalized; // eslint-disable-line no-unused-vars
+      return {
+        ...rest,
+        id: normalized.id.trim(), pw: normalized.pw, name: (normalized.name || "").trim(),
+        teacherRole: normalized.teacherRole, roleGrade: normalized.roleGrade,
+        homeroomClass: normalized.homeroomClass || "",
+        gradeAccessGrades: normalized.gradeAccessGrades,
+        timetableAccessGrades: normalized.timetableAccessGrades,
+        assignments: (normalized.assignments || []).filter(assignment => String(assignment?.subject || "").trim()).map(assignment => ({ ...assignment, subject: String(assignment.subject).trim(), targets: String(assignment.targets || "").trim() || "전체" })),
+      };
+    };
+    const cleanTeachers = list => list.filter(teacher => String(teacher.id || "").trim() && teacher.pw).map(cleanTeacher);
+    // 합칠 때의 기준: 이 화면이 받은 계정을 같은 방식으로 정리한 것(안 바꾼 선생님은 최신본 유지)
+    const base = { ...accounts, admin: cleanAdmins(accounts.admin || []), departments: cleanDepartments(accounts.departments || []), teacher: cleanTeachers(normalizeTeachers(accounts.teacher)) };
     const ok = await persistAccounts({
-      admin: cleanAdmins(admins), classView: accounts.classView || [], departments: cleanDepartments(departments), teacher: cleanTeachers,
+      admin: cleanAdmins(admins), classView: accounts.classView || [], departments: cleanDepartments(departments), teacher: cleanTeachers(teachers),
       teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [],
-    });
+    }, { base });
     if (ok) showToast("저장했습니다.", "success");
   };
 
@@ -6356,13 +6390,13 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       const workbook = XLSX.utils.book_new();
       const sheet = XLSX.utils.aoa_to_sheet([
         ["이름", "아이디", "비밀번호", "학교역할", "담당학년", "담임반", "성적조회학년", "시간표조회학년", "담당과목", "대상반"],
-        ["홍길동", "teacher01", "kd2026", "그외", "2", "", "2", "2", "대수", "1,2,3"],
+        ["홍길동", "teacher01", "kd2026", "교과담임", "2", "", "2", "2", "대수", "1,2,3"],
         ["김담임", "teacher02", "kd2026", "학급담임", "2", "4", "", "", "", ""],
       ]);
       sheet["!cols"] = [14,16,14,13,10,10,16,16,18,16].map(width => ({ wch: width }));
       XLSX.utils.book_append_sheet(workbook, sheet, "선생님 계정");
       const guide = XLSX.utils.aoa_to_sheet([
-        ["학교역할", "학급담임 / 학년부장 / 그외 중 하나"],
+        ["학교역할", "학급담임 / 학년부장 / 교과담임 중 하나"],
         ["권한 학년", "여러 학년은 1,2처럼 쉼표로 구분"],
         ["담당과목·대상반", "같은 아이디를 여러 행에 입력하면 담당과목을 합쳐 등록"],
       ]);
@@ -6536,12 +6570,12 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         <div style={accountConsole.panelHeader}>
           <div>
             <div style={accountConsole.panelTitle}>선생님 계정 및 학생정보 접근 권한</div>
-            <div style={accountConsole.panelDescription}>학급담임·학년부장은 담당 학년 권한이 자동 부여되고, 그외 선생님은 필요한 권한만 직접 선택합니다.</div>
+            <div style={accountConsole.panelDescription}>학급담임·학년부장은 담당 학년 권한이 자동 부여되고, 교과담임 선생님은 필요한 권한만 직접 선택합니다.</div>
           </div>
           <span style={accountConsole.count}>{teachers.length}명</span>
         </div>
         <div style={{ fontSize: 12, color: "#8a8578", marginBottom: 10, lineHeight: 1.55 }}>
-          학급담임과 학년부장은 지정 학년의 전체 학생 성적과 시간표 권한이 자동으로 부여됩니다. 그외 역할은 관리자가 학년별 성적·시간표 권한을 직접 체크해야 합니다.
+          학급담임과 학년부장은 지정 학년의 전체 학생 성적과 시간표 권한이 자동으로 부여됩니다. 교과담임 역할은 관리자가 학년별 성적·시간표 권한을 직접 체크해야 합니다.
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12, padding: 10, border: `1px dashed ${COLORS.line}`, borderRadius: 8 }}>
           <FileSpreadsheet size={18} color="#8a8578" />
@@ -6551,7 +6585,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         </div>
         <div style={accountConsole.teacherToolbar}>
           <div style={{ ...styles.searchBox, flex: "1 1 280px", marginBottom: 0 }}><Search size={15} color="#9a9589" /><input value={teacherSearch} onChange={event => setTeacherSearch(event.target.value)} placeholder="이름·아이디·담당과목 검색" style={styles.searchInput} /></div>
-          <select value={teacherRoleFilter} onChange={event => setTeacherRoleFilter(event.target.value)} style={{ ...styles.cellInput, width: 140, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 10px" }}><option value="all">전체 역할</option><option value="homeroom">학급담임</option><option value="gradeHead">학년부장</option><option value="other">그외</option></select>
+          <select value={teacherRoleFilter} onChange={event => setTeacherRoleFilter(event.target.value)} style={{ ...styles.cellInput, width: 140, border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: "8px 10px" }}><option value="all">전체 역할</option><option value="homeroom">학급담임</option><option value="gradeHead">학년부장</option><option value="other">교과담임</option></select>
           <span style={accountConsole.count}>{visibleTeachers.length}/{teachers.length}명</span>
         </div>
         {!teachers.length && <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 선생님 계정이 없습니다.</div>}
@@ -6584,7 +6618,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                     <select value={role} onChange={event => updateTeacherRole(index, event.target.value)} style={{ ...styles.cellInput, width: "100%", border: `1px solid ${COLORS.line}`, borderRadius: 6, padding: "7px 8px" }}>
                       <option value="homeroom">학급담임</option>
                       <option value="gradeHead">학년부장</option>
-                      <option value="other">그외</option>
+                      <option value="other">교과담임</option>
                     </select>
                   </div>
                   <div>
@@ -6625,7 +6659,8 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         </div>
         <button style={{ ...styles.secondaryBtn, marginTop: 10 }} onClick={addTeacher}>+ 선생님 계정 추가</button>
       </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", ...(accountsDirty ? { position: "sticky", bottom: 12, zIndex: 5, padding: "10px 12px", borderRadius: 12, background: "#fff7ed", border: "1px solid #fdba74", boxShadow: "0 8px 24px rgba(0,0,0,.12)" } : {}) }}>
+        {accountsDirty && <span style={{ fontSize: 13, fontWeight: 700, color: "#9a3412" }}>저장하지 않은 변경이 있어요 · 저장해야 선생님 화면에 권한이 반영돼요</span>}
         <button style={styles.primaryBtn} onClick={save}><Save size={14} /> 계정·권한 저장</button>
         <button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화 ({RESET_PASSWORD})</button>
       </div>
