@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
+import AccountSwitcher, { ImpersonationBar } from "./AccountSwitcher.jsx";
 import { featureAllowed, STAFF_FEATURES, featureDefault, toggleFeature, staffRoleOf } from "./staffPermissions.js";
 import { mergeAccounts } from "./accountsMerge.js";
 import { officialSubjectName } from "./curriculum.js";
@@ -1749,7 +1750,40 @@ export default function App() {
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
+  // 관리자 계정 전환(보기 모드): 비밀번호 없이 다른 계정 화면으로 들어갑니다. 메모리에만 두고
+  // 로그인 기록(kd_session)은 관리자 그대로 둬서, 새로고침하면 관리자 화면으로 돌아옵니다.
+  const [impersonation, setImpersonation] = useState(null); // { admin, kind, id }
+  const clearAllLogins = () => {
+    setLoggedInAdmin(null); setLoggedInTeacher(null); setLoggedInDepartment(null); setLoggedInMonitor(null); setClassAuthed(false); setLoggedInStudent(null); setViewedTeacher(null);
+    setSelectedStudentSid(null); setSelectedStudentQuery(""); setStudentWorkspaceView("grades"); setStudentWorkspaceTabs(["grades"]);
+    setTeacherTool(""); setSection(null);
+  };
+  const viewAsAccount = (kind, account) => {
+    const admin = impersonation?.admin || loggedInAdmin;
+    if (!admin || !account) return;
+    clearAllLogins();
+    if (kind === "teacher") setLoggedInTeacher(account);
+    else if (kind === "department") setLoggedInDepartment(account);
+    else if (kind === "monitor") setLoggedInMonitor(account);
+    else if (kind === "student") {
+      const studentGrade = String(account.id || "").charAt(0);
+      if (GRADES.includes(studentGrade)) setGrade(studentGrade);
+      setLoggedInStudent(account);
+    } else return;
+    setImpersonation({ admin, kind, id: String(account.id) });
+    try { window.scrollTo(0, 0); } catch { /* ignore */ }
+  };
+  const returnToAdmin = () => {
+    if (!impersonation) return;
+    const { admin } = impersonation;
+    clearAllLogins();
+    setLoggedInAdmin(admin);
+    setImpersonation(null);
+    setSection("admin");
+  };
+  const impersonatedAccount = impersonation ? ({ teacher: loggedInTeacher, department: loggedInDepartment, monitor: loggedInMonitor, student: loggedInStudent })[impersonation.kind] : null;
   const globalLogout = () => {
+    setImpersonation(null);
     setLoggedInAdmin(null); setLoggedInTeacher(null); setLoggedInDepartment(null); setLoggedInMonitor(null); setClassAuthed(false); setLoggedInStudent(null); setViewedTeacher(null);
     setSelectedStudentSid(null);
     setSelectedStudentQuery("");
@@ -1944,7 +1978,8 @@ export default function App() {
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
       </> : <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />}
       {!loggedInStudent && <QuickLinksDock isAdmin={!!loggedInAdmin} showToast={showToast} userKey={loggedInAdmin ? `admin_${loggedInAdmin.id || "admin"}` : loggedInTeacher ? `teacher_${loggedInTeacher.id}` : loggedInDepartment ? `dept_${loggedInDepartment.id}` : loggedInMonitor ? `monitor_${loggedInMonitor.id}` : "shared"} />}
-      <MegaNav semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={canSeeMinimum} />
+      {impersonation && <ImpersonationBar kind={impersonation.kind} account={impersonatedAccount} adminId={impersonation.admin?.id} accounts={accounts} onPick={viewAsAccount} onReturn={returnToAdmin} />}
+      <MegaNav accountSwitcher={loggedInAdmin ? <AccountSwitcher accounts={accounts} onPick={viewAsAccount} /> : null} semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={impersonation ? returnToAdmin : globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={canSeeMinimum} />
       {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
       <SiteAnnouncementModal announcements={db.siteAnnouncements || []} viewer={loggedInAdmin?{...loggedInAdmin,role:"admin"}:loggedInTeacher?{...loggedInTeacher,role:"teacher"}:loggedInDepartment?{...loggedInDepartment,role:"department"}:loggedInMonitor?{...loggedInMonitor,role:"monitor"}:loggedInStudent?{...loggedInStudent,role:"student"}:null} />
       {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
@@ -1985,6 +2020,7 @@ export default function App() {
         <NewUiDashboard {...dashboardProps} />
       ) : activeSection === "admin" ? (
         <AdminConsole
+          onViewAs={viewAsAccount}
           db={db} persist={persist} showToast={showToast} grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester}
           scopeKey={scopeKey} roster={roster} enrollments={enrollments} timetables={timetables} abbrevMap={abbrevMap} persistAbbrev={persistAbbrev}
           accounts={accounts} persistAccounts={persistAccounts} build={buildPersonalTimetable} loggedInAdmin={loggedInAdmin}
@@ -2887,7 +2923,7 @@ const newUiNavStyles = {
   ghost: { display: "inline-flex", alignItems: "center", gap: 6, minHeight: 38, padding: "0 13px", borderRadius: 12, border: "1px solid var(--kdn-line)", background: "transparent", color: "var(--kdn-ink)", fontSize: 13, fontWeight: 800, cursor: "pointer" },
 };
 
-function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, primaryAction, semester }) {
+function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, primaryAction, semester, accountSwitcher = null }) {
   const items = [
     { key: "grades", label: "성적 · 진학" },
     { key: "timetable", label: "시간표" },
@@ -2913,6 +2949,7 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
         </div>
         <div className="kdn-nav-actions" style={newUiNavStyles.actions}>
           <UiModeMenu />
+          {accountSwitcher}
           {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile} title="내 정보 · 담당 과목 · 비밀번호">내 정보·과목</button>}
           <button type="button" style={newUiNavStyles.ghost} onClick={onLogout}>로그아웃</button>
           {primaryAction && <button type="button" onClick={primaryAction.onClick} style={{ ...newUiNavStyles.ghost, border: 0, background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", padding: "0 18px", fontSize: 14 }}><Search size={15} />{primaryAction.label}</button>}
@@ -3372,7 +3409,7 @@ function LandingHeroArt() {
   );
 }
 
-function ClassicMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement }) {
+function ClassicMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, showTeacherZone, showMinimumAchievement, accountSwitcher = null }) {
   const items = [
     { key: "grades", label: "성적", icon: "📊", activeBg:"linear-gradient(135deg,#e9f3ff,#eef4ff)", activeColor:"#2d5f96" },
     { key: "timetable", label: "시간표", icon: "🗓️", activeBg:"linear-gradient(135deg,#eef8f4,#e7f5ee)", activeColor:"#34705a" },
@@ -3398,7 +3435,7 @@ function ClassicMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, 
             </button>
           ))}
         </div>
-        <div style={megaNavStyles.accountActions}><UiModeSwitch compact />{onEditProfile && <button style={megaNavStyles.profileButton} onClick={onEditProfile}><Settings size={13}/>내 정보 수정</button>}<button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button></div>
+        <div style={megaNavStyles.accountActions}><UiModeSwitch compact />{accountSwitcher}{onEditProfile && <button style={megaNavStyles.profileButton} onClick={onEditProfile}><Settings size={13}/>내 정보 수정</button>}<button style={styles.secondaryBtn} onClick={onLogout}>로그아웃</button></div>
       </div>
     </div>
   );
@@ -6265,7 +6302,7 @@ function ImeSafeInput({ value, onValueChange, ...props }) {
   );
 }
 
-function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeKey, semester }) {
+function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeKey, semester, onViewAs }) {
   const normalizeTeachers = list => (list || []).map(teacher => applyAutomaticTeacherAccess(teacher, teacherRoleGrade(teacher) || grade));
   const [admins, setAdmins] = useState(accounts.admin);
   const [departments, setDepartments] = useState(() => (accounts.departments || []).map(item => ({
@@ -6613,6 +6650,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                   <input value={teacher.name || ""} onChange={event => updateTeacherField(index, "name", event.target.value)} placeholder="이름" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
                   <input value={teacher.id || ""} onChange={event => updateTeacherField(index, "id", event.target.value)} placeholder="아이디" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
                   <input value={teacher.pw || ""} onChange={event => updateTeacherField(index, "pw", event.target.value)} placeholder="비밀번호" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
+                  {onViewAs && <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 12px" }} title="비밀번호 없이 이 선생님 화면으로 들어가 봅니다(저장된 계정 기준)" onClick={() => { const saved = (accounts.teacher || []).find(item => item.id === teacher.id); if (!saved) { showToast("먼저 '계정·권한 저장'을 눌러 주세요.", "error"); return; } if (accountsDirty) { showToast("저장하지 않은 변경은 반영되지 않아요. 저장된 계정으로 봅니다.", "info"); } onViewAs("teacher", saved); }}><Eye size={14} /> 이 계정으로 보기</button>}
                   <button style={styles.iconBtn} onClick={() => setTeachers(current => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
                 </div>
 
