@@ -82,6 +82,16 @@ export function getSubjectGrade(subject) {
   return toNumberOrNull(subject.grade ?? subject.grade5);
 }
 
+// 과목 원점수: 엑셀 '합계'(소수점 있는 원래 점수)를 우선, 없으면 정수 '원점수'
+export function subjectRawScore(subject) {
+  const total = toNumberOrNull(subject?.raw);
+  return total != null ? total : toNumberOrNull(subject?.score);
+}
+export function formatRawScore(subject) {
+  const value = subjectRawScore(subject);
+  return value == null ? "-" : String(Math.round(value * 100) / 100);
+}
+
 // ---------- 원본 데이터 파싱 (엑셀 '학기 성적' 시트 형식) ----------
 // 시트 레이아웃: A~E = 학번,학년,학급,번호,이름
 // F열부터 6칸씩 반복: 합계,원점수,성취도,석차등급,석차(동석차수),수강자수
