@@ -59,7 +59,7 @@ export default function CriteriaPresets({ teacher, disabled = false, capture, ap
       </div>
       <div style={st.row}>
         <input value={name} onChange={event => setName(event.target.value)} maxLength={24} placeholder="이름 (예: 공통과목 지필 60 · 수행 40)" aria-label="프리셋 이름" style={st.input} onKeyDown={event => { if (event.key === "Enter" && !busy) save(); }} />
-        <button type="button" onClick={save} disabled={busy} style={{ ...st.save, ...(busy ? st.off : {}) }}>현재 기준 저장</button>
+        <button type="button" onClick={save} disabled={busy} style={{ ...st.save, ...(busy ? st.off : {}) }}>프리셋으로 저장</button>
       </div>
       {presets.length > 0 && <ul style={st.list}>
         {[...presets].reverse().map(preset => <li key={preset.id} style={st.item}>
