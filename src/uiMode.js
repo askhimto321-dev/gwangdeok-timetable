@@ -1603,6 +1603,29 @@ const SHARED_NEW_CSS = `
   .counseling-print-option-actions{padding:14px 20px 18px!important;border-color:var(--kdn-line)!important}
   .counseling-print-option-actions button{display:inline-flex;align-items:center;gap:6px;padding:10px 16px!important;border-color:var(--kdn-line)!important;border-radius:11px!important;background:var(--kdn-surface)!important;color:var(--kdn-ink-soft)!important;font-size:13.5px!important}
   .counseling-print-option-actions button.primary{background:var(--kdn-accent)!important;border-color:var(--kdn-accent)!important;color:#fff!important}
+  .kdn-cc-savestate{display:inline-flex;align-items:center;height:30px;padding:0 11px;border-radius:99px;font-size:12.5px;font-weight:700;background:var(--kdn-surface-2);color:var(--kdn-muted);border:1px solid var(--kdn-line)}
+  .kdn-cc-savestate.is-ok{color:#15803d;background:color-mix(in srgb,#16a34a 9%,var(--kdn-surface));border-color:color-mix(in srgb,#16a34a 30%,var(--kdn-line))}
+  .kdn-cc-savestate.is-warn{color:#b45309;background:color-mix(in srgb,#f59e0b 10%,var(--kdn-surface));border-color:color-mix(in srgb,#f59e0b 35%,var(--kdn-line))}
+  .kdn-gate{margin-top:18px;display:grid;gap:4px}
+  .kdn-gate-steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+  .kdn-gate-steps li{--gate:#64748b;display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:14px;border:1px solid var(--kdn-line);background:var(--kdn-surface);min-width:0}
+  .kdn-gate-steps li.is-criteria{--gate:#4f46e5}
+  .kdn-gate-steps li.is-shared{--gate:#0d9488}
+  .kdn-gate-steps li i{flex:none;width:28px;height:28px;border-radius:99px;display:grid;place-items:center;font-style:normal;font-size:13px;font-weight:800;background:var(--kdn-surface-2);color:var(--kdn-muted);border:1px solid var(--kdn-line)}
+  .kdn-gate-steps li>div{flex:1;min-width:0;display:grid;gap:2px}
+  .kdn-gate-steps li b{font-size:14px;font-weight:800;color:var(--kdn-ink)}
+  .kdn-gate-steps li small{font-size:12px;color:var(--kdn-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kdn-gate-steps li button{flex:none;display:inline-flex;align-items:center;gap:5px;height:38px;padding:0 14px;border-radius:10px;border:0;background:var(--gate);color:#fff;font:inherit;font-size:13.5px;font-weight:800;cursor:pointer;white-space:nowrap}
+  .kdn-gate-steps li button:disabled{cursor:not-allowed;opacity:.45}
+  .kdn-gate-steps li.is-now{border-color:color-mix(in srgb,var(--gate) 55%,var(--kdn-line));background:color-mix(in srgb,var(--gate) 7%,var(--kdn-surface));box-shadow:0 0 0 3px color-mix(in srgb,var(--gate) 12%,transparent)}
+  .kdn-gate-steps li.is-now i{background:var(--gate);border-color:var(--gate);color:#fff}
+  .kdn-gate-steps li.is-done{border-color:color-mix(in srgb,#16a34a 30%,var(--kdn-line));background:color-mix(in srgb,#16a34a 6%,var(--kdn-surface))}
+  .kdn-gate-steps li.is-done i{background:#16a34a;border-color:#16a34a;color:#fff}
+  .kdn-gate-steps li.is-done button{background:transparent;color:#15803d;opacity:1;cursor:default;padding:0 6px}
+  .kdn-gate .kdn-step-next{margin-top:10px}
+  .kdn-gate .kdn-step-next button:disabled{opacity:.45;cursor:not-allowed}
+  .kdn-calc-steps button.is-locked span{font-size:12px}
+  .kdn-calc-steps button.is-locked small{color:#b45309}
   .kdn-minb-pager{display:flex;align-items:center;justify-content:center;gap:10px;font-size:13.5px;color:var(--kdn-muted)}.kdn-minb-pager b{color:var(--kdn-ink)}
   .kdn-minb-pager button{min-height:32px;padding:0 12px;border-radius:8px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.kdn-minb-pager button:disabled{opacity:.4}
   [data-kd-ui="dark"] .kdn-minb-row .cmp .need{background:rgba(245,158,11,.16);color:#fcd27a}
@@ -2938,7 +2961,7 @@ const SHARED_NEW_CSS = `
   .teacher-grade-hero h2,.minimum-hero h2{color:var(--kdn-ink)!important;font-size:30px!important;font-weight:900!important;letter-spacing:-.025em!important;margin:4px 0 4px!important;line-height:1.2!important}
   .teacher-grade-hero p,.minimum-hero p{color:var(--kdn-muted)!important;font-size:15px!important;font-weight:500!important;opacity:1!important;margin:0!important}
   .teacher-grade-hero-actions button,.minimum-hero-actions button{min-height:42px!important;padding:0 16px!important;border-radius:12px!important;border:1px solid var(--kdn-control-line)!important;background:var(--kdn-surface)!important;color:var(--kdn-ink)!important;font-size:14px!important;font-weight:700!important;box-shadow:none!important;opacity:1}
-  .teacher-grade-hero-actions button:nth-child(2),.minimum-hero-actions button:nth-child(2){background:var(--kdn-accent)!important;border-color:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important}
+  .teacher-grade-hero-actions button.is-primary,.minimum-hero-actions button:nth-child(2){background:var(--kdn-accent)!important;border-color:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important}
   .teacher-grade-hero-actions button:disabled,.minimum-hero-actions button:disabled{opacity:.45!important;cursor:not-allowed}
   .teacher-grade-hero-actions,.minimum-hero-actions{display:flex!important;flex-wrap:wrap;gap:8px!important;justify-content:flex-end}
   /* 화면 안 보조 탭(성적 산출/데이터 관리, 현황 확인/데이터 관리): 알약 묶음 */

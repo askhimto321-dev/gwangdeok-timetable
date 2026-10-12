@@ -669,7 +669,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     if (!canEditCurrentSubject) { showToast?.("이 과목 담당 교사만 산출 기준을 저장할 수 있습니다.", "error"); return; }
     setCriteriaSaving(true);
     try {
-      const snapshot = currentSnapshot();
+      const savedSettings = { ...settings, criteriaSavedSig: criteriaSignature, criteriaSavedAt: new Date().toISOString(), criteriaSavedBy: teacher?.name || (accessRole === "admin" ? "관리자" : "") };
+      setSettings(savedSettings);
+      const snapshot = { ...currentSnapshot(), settings: savedSettings };
       setLocalWorkspaces(current => ({ ...current, [workspaceId]: snapshot }));
       setSelectedLocalId(workspaceId);
       const alreadyShared = !!(db?.teacherGradeWorkspaces?.[workspaceId] || selectedSharedId);
@@ -794,6 +796,30 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       total: roundTo(uploadedWritten + planned + performanceWeight, 2),
     };
   }, [sortedWritten, plannedWritten, canonicalAreas]);
+  // 산출 기준 저장 여부: 저장할 때의 기준(비율·만점·등급·성취도·동점자)과 지금 기준이 같으면 '저장됨'.
+  const criteriaSignature = useMemo(() => JSON.stringify([
+    settings.gradeSystem, settings.courseType, settings.achievementMode, settings.achievementMode === "manual" ? settings.manualCuts : null, settings.tieItemCount,
+    (settings.plannedWritten || []).map(item => [item.title, Number(item.weight) || 0, item.maxScore]),
+    sortedWritten.map(item => [item.title, Number(item.weight) || 0, item.maxScore]),
+    canonicalAreas.map(area => [text(area.name), Number(area.weight) || 0, area.maxScore]),
+  ]), [settings.gradeSystem, settings.courseType, settings.achievementMode, settings.manualCuts, settings.tieItemCount, settings.plannedWritten, sortedWritten, canonicalAreas]);
+  const criteriaSaved = !!settings.criteriaSavedSig && settings.criteriaSavedSig === criteriaSignature;
+  const criteriaChanged = !!settings.criteriaSavedSig && !criteriaSaved;
+  const weightsOk = Math.abs(weightTotal.total - 100) < 1e-9;
+  // 결과 확인(3단계)으로 넘어가기 전 필수: 반영비율 100% · 산출 기준 저장 · 학교 공동 저장(수정 권한이 있을 때만)
+  const gateRequired = !!context && canEditCurrentSubject && hasGradeData;
+  const gatePassed = !gateRequired || (weightsOk && criteriaSaved && (sharedHere || !persist));
+  const gateRef = useRef(null);
+  const jumpToGate = () => { setCalcStep(2); window.setTimeout(() => gateRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); };
+  const goToStep = step => {
+    if (step === 3 && !gatePassed) {
+      setCalcStep(2);
+      showToast?.(!weightsOk ? "반영비율을 100%로 맞춘 뒤 산출 기준을 저장해 주세요." : !criteriaSaved ? "산출 기준 저장을 먼저 해 주세요." : "학교 공동 저장을 해야 결과 확인으로 넘어갈 수 있어요.", "error");
+      window.setTimeout(() => gateRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+      return;
+    }
+    setCalcStep(step);
+  };
 
   // 선택과목도 고정분할(A 90 · B 80 · C 70 · D 60 · 60 미만 E)과 추정분할(A/B~D/E 컷, 미도달 없음)을 모두 씁니다.
   // 추정분할로 바꿀 때 컷이 공통과목 고정분할 기본값 그대로면 비워서 NEIS 추정분할점수를 입력하게 합니다.
@@ -1471,7 +1497,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         </div>
         <div className="teacher-grade-hero-actions" style={ui.heroActions}>
           <button type="button" style={ui.lightButton} onClick={saveLocalWorkspace} disabled={!canEditCurrentSubject}><Save size={15} /> 개인 임시 저장</button>
-          <button type="button" style={ui.publishButton} onClick={publishWorkspace} disabled={!context || !canEditCurrentSubject}><Check size={15} /> 학교 공동 저장</button>
+          {!newUi && <button type="button" className="is-primary" style={ui.publishButton} onClick={publishWorkspace} disabled={!context || !canEditCurrentSubject}><Check size={15} /> 학교 공동 저장</button>}
           <button type="button" style={ui.lightButton} onClick={exportWorkbook}><Download size={15} /> 결과 엑셀</button>
           <button type="button" style={ui.lightButton} onClick={resetWorkspace}><RotateCcw size={15} /> 초기화</button>
         </div>
@@ -1483,10 +1509,10 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         <b>{context.subject} · {hasGradeData ? `개인 임시본 자동 저장${autoSave.local ? ` ${clockOf(autoSave.local)}` : ""}` : "성적 파일을 올리면 개인 임시본에 자동 저장돼요"}</b>
         {sharedHere
           ? <span>학교 공동본 {autoSave.syncing ? "반영 중…" : `자동 반영${autoSave.shared ? ` ${clockOf(autoSave.shared)}` : " 켜짐"}`} · 같은 과목 선생님과 동시에 작업해도 항목별로 합쳐져요</span>
-          : <span>아직 나만 볼 수 있어요. <strong>학교 공동 저장</strong>을 한 번 누르면 같은 과목 선생님과 공유되고, 이후 수정은 자동으로 반영돼요.</span>}
+          : <span>아직 나만 볼 수 있어요. 2단계 끝에서 <strong>산출 기준 저장 → 학교 공동 저장</strong>을 마쳐야 결과 확인으로 넘어가요.</span>}
         {coEditors.length > 0 && <span className="kdn-save-co">👥 함께 작업 중: {coEditors.map(item => `${item.name}${/선생님$/.test(item.name) ? "" : " 선생님"}`).join(", ")}</span>}
         {remoteNote && <span className="kdn-save-note">↻ {remoteNote}</span>}
-        {!sharedHere && <button type="button" onClick={publishWorkspace}>학교 공동 저장</button>}
+        {!sharedHere && calcStep !== 2 && <button type="button" onClick={jumpToGate}>저장 단계로 ›</button>}
       </div>}
 
       <div style={{display:panelMode==="analysis"?"contents":"none"}}>
@@ -1506,7 +1532,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
 
       {newUi && <div className="kdn-search-steps kdn-calc-steps" role="tablist" aria-label="성적 산출 단계">
         {[[1, "NEIS 파일 업로드", `지필 ${sortedWritten.length}개 · 수행 ${performance.length}반`], [2, "산출 기준 설정", `반영비율 ${weightTotal.total}%`], [3, "결과 확인", activeRows.length ? `${activeRows.length}명` : "학생 결과"]].map(([step, label, note]) => (
-          <button key={step} type="button" role="tab" aria-selected={calcStep === step} className={calcStep === step ? "is-active" : ""} onClick={() => setCalcStep(step)}><span>{step}</span><b>{label}</b><small>{note}</small></button>
+          <button key={step} type="button" role="tab" aria-selected={calcStep === step} className={`${calcStep === step ? "is-active" : ""}${step === 3 && !gatePassed ? " is-locked" : ""}`} onClick={() => goToStep(step)}><span>{step === 3 && !gatePassed ? "🔒" : step}</span><b>{label}</b><small>{step === 3 && !gatePassed ? "기준 저장 · 공동 저장 후" : note}</small></button>
         ))}
       </div>}
       <div style={{display: !newUi || calcStep === 1 ? "contents" : "none"}}>
@@ -1570,7 +1596,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           <div className="kdn-cc-top">
             <div className="kdn-cc-head"><div><small>2단계 · 산출 기준</small><b>{Math.abs(weightTotal.total - 100) < 1e-9 ? "반영비율 설정 완료" : "반영비율을 100%로 맞추세요"}</b></div>
               <span className={`kdn-cc-total ${Math.abs(weightTotal.total - 100) < 1e-9 ? "is-ok" : "is-warn"}`}>합계 {weightTotal.total}%{Math.abs(weightTotal.total - 100) < 1e-9 ? " ✓" : ` · ${weightTotal.total < 100 ? `${+(100 - weightTotal.total).toFixed(2)}% 부족` : `${+(weightTotal.total - 100).toFixed(2)}% 초과`}`}</span>
-              <button type="button" className="kdn-cc-save" onClick={saveCriteriaSettings} disabled={readOnlyWorkspace || criteriaSaving}><Save size={15}/>{criteriaSaving ? "저장 중" : "산출 기준 저장"}</button></div>
+              {gateRequired && <span className={`kdn-cc-savestate ${criteriaSaved ? "is-ok" : criteriaChanged ? "is-warn" : ""}`}>{criteriaSaved ? `✓ 기준 저장됨${settings.criteriaSavedAt ? ` ${clockOf(settings.criteriaSavedAt)}` : ""}` : criteriaChanged ? "기준 바뀜 · 다시 저장" : "기준 미저장"}</span>}</div>
             <div className="kdn-cc-bar">{[...sortedWritten.map(item => ({ key: item.id, label: item.title, weight: Number(item.weight) || 0, kind: "w" })), ...plannedWritten.map(item => ({ key: item.id, label: item.title || "예정 시험", weight: Number(item.weight) || 0, kind: "w" })), ...(uploadedAreas.length ? uploadedAreas : plannedPerformance).map(area => ({ key: area.id, label: `수행${area.order + 1}`, weight: Number(area.weight) || 0, kind: "p" }))].filter(seg => seg.weight > 0).map((seg, index, list) => <i key={seg.key} className={`is-${seg.kind} n${list.slice(0, index).filter(other => other.kind === seg.kind).length % 3}`} style={{ flex: seg.weight }} title={`${seg.label} ${seg.weight}%`}>{seg.weight >= 8 ? `${seg.label} ${seg.weight}%` : `${seg.weight}%`}</i>)}{weightTotal.total < 100 && <i className="is-empty" style={{ flex: 100 - weightTotal.total }}>미배정 {+(100 - weightTotal.total).toFixed(2)}%</i>}</div>
           </div>
           <div className="kdn-cc-cols">
@@ -1628,7 +1654,16 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         <div style={ui.roundingRuleBox}><b>소수점 처리</b><span>영역별 환산점수 합계는 소수 셋째 자리에서 반올림해 둘째 자리까지 석차 산출에 사용합니다.</span><span>공식 원점수는 학기말 환산점수를 소수 첫째 자리에서 반올림한 정수로 표시하며, 평균과 분포 비율은 소수 첫째 자리까지 표시합니다.</span></div>
         </>}
         <CriteriaPresets teacher={teacher} disabled={readOnlyWorkspace} capture={captureCriteriaPreset} apply={applyCriteriaPreset} />
-        {newUi && <div className="kdn-step-next"><button type="button" className="kdn-step-prev" onClick={() => setCalcStep(1)}>‹ 이전</button><span style={{flex:1}} /><button type="button" onClick={() => setCalcStep(3)}>다음: 결과 확인 ›</button></div>}
+        {newUi && <div className="kdn-gate" ref={gateRef}>
+          {gateRequired && <ol className="kdn-gate-steps" aria-label="결과 확인 전 저장 단계">
+            <li className={weightsOk ? "is-done" : "is-todo"}><i>{weightsOk ? "✓" : "1"}</i><div><b>반영비율 100%</b><small>{weightsOk ? "합계 100% 맞음" : `지금 ${weightTotal.total}% · ${weightTotal.total < 100 ? "부족" : "초과"}`}</small></div></li>
+            <li className={`is-criteria ${criteriaSaved ? "is-done" : weightsOk ? "is-now" : "is-todo"}`}><i>{criteriaSaved ? "✓" : "2"}</i><div><b>산출 기준 저장</b><small>{criteriaSaved ? `저장됨 ${clockOf(settings.criteriaSavedAt)}${settings.criteriaSavedBy ? ` · ${settings.criteriaSavedBy}` : ""}` : criteriaChanged ? "저장 뒤 기준이 바뀌었어요" : "비율·만점·성취도 기준을 확정"}</small></div>
+              <button type="button" onClick={saveCriteriaSettings} disabled={!weightsOk || criteriaSaving || criteriaSaved}><Save size={14} />{criteriaSaving ? "저장 중" : criteriaSaved ? "저장됨" : criteriaChanged ? "다시 저장" : "기준 저장"}</button></li>
+            {persist && <li className={`is-shared ${sharedHere ? "is-done" : criteriaSaved ? "is-now" : "is-todo"}`}><i>{sharedHere ? "✓" : "3"}</i><div><b>학교 공동 저장</b><small>{sharedHere ? `같은 과목 선생님과 공유 중 · 자동 반영${autoSave.shared ? ` ${clockOf(autoSave.shared)}` : ""}` : "같은 과목 선생님과 공유 · 이후 자동 반영"}</small></div>
+              <button type="button" onClick={publishWorkspace} disabled={!criteriaSaved || sharedHere || autoSave.syncing}><Check size={14} />{sharedHere ? "공유 중" : autoSave.syncing ? "저장 중" : "공동 저장"}</button></li>}
+          </ol>}
+          <div className="kdn-step-next"><button type="button" className="kdn-step-prev" onClick={() => setCalcStep(1)}>‹ 이전</button><span style={{flex:1}}>{gatePassed ? "" : "위 단계를 마치면 결과 확인으로 넘어갈 수 있어요"}</span><button type="button" disabled={!gatePassed} onClick={() => goToStep(3)}>다음: 결과 확인 ›</button></div>
+        </div>}
       </section>
       </div>
 
