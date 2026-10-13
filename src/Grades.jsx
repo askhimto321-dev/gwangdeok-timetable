@@ -248,7 +248,31 @@ function normalizeCohortSettings(value) {
   return { academicYear, cohorts: cohorts.length ? cohorts : DEFAULT_COHORT_SETTINGS.cohorts };
 }
 function cohortDataKey(entryYear, key) { return `${Number(entryYear)}:${key}`; }
-function cohortRecord(data, entryYear, key) { return data?.[cohortDataKey(entryYear, key)] || data?.[key] || null; }
+// 입학연도 구분 없이 저장된 예전(legacy) 기록이 어느 입학생 것인지: entryYear가 있으면 그 값,
+// 없으면 저장 시점 학년도와 학번 앞자리(그때 학년)로 계산합니다. 다른 입학생 화면에 섞이지 않게 합니다.
+const legacyOwnerCache = new WeakMap();
+function legacyOwnerYear(record) {
+  if (!record || typeof record !== "object") return null;
+  if (legacyOwnerCache.has(record)) return legacyOwnerCache.get(record);
+  let owner = Number(record.entryYear) || null;
+  if (!owner) {
+    const counts = {};
+    Object.keys(record.students || {}).forEach(sid => { const g = String(sid).charAt(0); if (/[1-3]/.test(g)) counts[g] = (counts[g] || 0) + 1; });
+    const grade = Number(Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0]);
+    const at = record.updatedAt ? new Date(record.updatedAt) : null;
+    const schoolYear = at && !Number.isNaN(at.getTime()) ? (at.getMonth() + 1 >= 3 ? at.getFullYear() : at.getFullYear() - 1) : CURRENT_ACADEMIC_YEAR;
+    owner = grade ? schoolYear - grade + 1 : null;
+  }
+  legacyOwnerCache.set(record, owner);
+  return owner;
+}
+function legacyFor(data, entryYear, key) {
+  const legacy = data?.[key];
+  if (!legacy) return null;
+  const owner = legacyOwnerYear(legacy);
+  return !owner || owner === Number(entryYear) ? legacy : null;
+}
+function cohortRecord(data, entryYear, key) { return data?.[cohortDataKey(entryYear, key)] || legacyFor(data, entryYear, key); }
 function semesterCohortRecord(data, entryYear, key) {
   const scopedKey = cohortDataKey(entryYear, key);
   const scopedContainer = data?.[scopedKey];
@@ -257,7 +281,7 @@ function semesterCohortRecord(data, entryYear, key) {
   const scopedKeys = Object.keys(data || {})
     .filter(value => value.startsWith(`${Number(entryYear)}:`))
     .map(value => value.split(":").slice(1).join(":"));
-  if (!scopedKeys.length) return data?.[key] || null;
+  if (!scopedKeys.length) return legacyFor(data, entryYear, key);
 
   // 입학연도별 저장이 시작된 뒤에는 아직 업로드하지 않은 '미래 학기'에
   // 예전 비분리(legacy) 데이터가 섞여 들어가면 안 됩니다.
@@ -268,7 +292,7 @@ function semesterCohortRecord(data, entryYear, key) {
     .filter(index => index >= 0)
     .reduce((max, index) => Math.max(max, index), -1);
   if (requestedIndex > latestScopedIndex) return null;
-  return data?.[key] || null;
+  return legacyFor(data, entryYear, key);
 }
 function semesterStudentRecord(data, entryYear, key, sid) {
   return semesterCohortRecord(data, entryYear, key)?.students?.[sid] || null;
@@ -6615,6 +6639,8 @@ function BulkUpload({ gdb, persistGrades, showToast, currentGrade = "2" }) {
         const year = entryYearForGrade(gdb.cohortSettings, Number(top));
         return year && year !== entryYear ? { year, note: ` (학번이 ${top}학년이라 ${year}년 입학생으로 저장)` } : { year: entryYear, note: "" };
       };
+      // 같은 학기를 'N-N 성적' 시트와 반별 일람표로 함께 올리면, 처리 순서와 상관없이 과목이 더 많은 일람표 값을 남깁니다.
+      const reportStudentsByKey = {};
       for (const file of files) {
       const fileBuffer = await file.arrayBuffer();
       await yieldForUploadPaint();
@@ -6631,6 +6657,7 @@ function BulkUpload({ gdb, persistGrades, showToast, currentGrade = "2" }) {
             const semKey = `${report.grade}-${report.semester || 1}`;
             const { year, note } = cohortOf(report.students, report.grade);
             const key = cohortDataKey(year, semKey);
+            reportStudentsByKey[key] = { ...(reportStudentsByKey[key] || {}), ...report.students };
             newSemesterData[key] = { students: { ...(newSemesterData[key]?.students || {}), ...report.students }, entryYear: year, updatedAt: new Date().toISOString() };
             found.push(`${prefix}${year}년 입학생 · ${SEMESTER_LABELS[semKey] || semKey} 성적 · ${report.grade}학년 ${report.classNo}반 일람표 — ${Object.keys(report.students).length}명 · ${report.subjects.length}과목${note}`);
           } else skipped.push(`${prefix}${name}`);
@@ -6641,7 +6668,8 @@ function BulkUpload({ gdb, persistGrades, showToast, currentGrade = "2" }) {
           const count = Object.keys(students).length;
           if (count) {
             const { year, note } = cohortOf(students, cls.key.charAt(0));
-            newSemesterData[cohortDataKey(year, cls.key)] = { students, entryYear: year, updatedAt: new Date().toISOString() };
+            const sheetKey = cohortDataKey(year, cls.key);
+            newSemesterData[sheetKey] = { students: { ...students, ...(reportStudentsByKey[sheetKey] || {}) }, entryYear: year, updatedAt: new Date().toISOString() };
             found.push(`${prefix}${year}년 입학생 · ${SEMESTER_LABELS[cls.key] || cls.key} 성적 — ${count}명${note}`);
           } else skipped.push(`${prefix}${name} (학생 데이터 인식 실패)`);
         } else if (cls.type === "mock") {
@@ -6680,7 +6708,7 @@ function BulkUpload({ gdb, persistGrades, showToast, currentGrade = "2" }) {
         setBusy(false);
         return;
       }
-      setPreview({ newSemesterData, newMockData, newAdmissionRows, found, skipped });
+      setPreview({ newSemesterData, newMockData, newAdmissionRows, found, skipped, fileCount: files.length });
       showToast(`${found.length}개 시트를 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
@@ -6712,7 +6740,7 @@ function BulkUpload({ gdb, persistGrades, showToast, currentGrade = "2" }) {
       </div>
       {preview && (
         <div style={card}>
-          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>인식된 시트 ({preview.found.length}개) — 아직 저장되지 않았습니다</div>
+          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>{preview.fileCount > 1 ? `파일 ${preview.fileCount}개 · ` : ""}인식된 시트 ({preview.found.length}개) — 아직 저장되지 않았습니다</div>
           <ul style={{ margin: "0 0 12px", paddingLeft: 18, fontSize: 12.5 }}>{preview.found.map((f, i) => <li key={i}>{f}</li>)}</ul>
           {preview.skipped.length > 0 && (
             <>
@@ -6735,39 +6763,88 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
   const [entryYear, setEntryYear] = useState(entryYearForGrade(gdb.cohortSettings, 2));
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState(null); // { students, count }
+  const [preview, setPreview] = useState(null); // { students, count, merge, classes, note }
   const [applying, setApplying] = useState(false);
 
-  const handleFile = async (file) => {
+  // 'N-N 성적' 시트 1개, 또는 NEIS 반별 일람표(101·102 …) 여러 개
+  const handleFile = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
     setBusy(true);
     setPreview(null);
     try {
       const XLSX = await loadXLSX();
-      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
-      const students = parseSemesterSheet(rows);
+      const reportStudents = {};
+      const reportClasses = new Set();
+      let reportKey = null, reportGrade = null;
+      let sheetStudents = null;
+      const failed = [];
+      for (const file of files) {
+        const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
+        const report = parseNeisClassReport(rows);
+        if (report && Object.keys(report.students).length) {
+          Object.assign(reportStudents, report.students);
+          reportClasses.add(report.classNo);
+          reportKey = `${report.grade}-${report.semester || 1}`;
+          reportGrade = report.grade;
+          continue;
+        }
+        const students = parseSemesterSheet(rows);
+        if (Object.keys(students).length) sheetStudents = { ...(sheetStudents || {}), ...students };
+        else failed.push(file.name);
+      }
+      if (!Object.keys(reportStudents).length && !sheetStudents) { showToast("학생 데이터를 인식하지 못했습니다. 'N-N 성적' 시트나 NEIS 전과목 성적 일람표인지 확인해주세요.", "error"); return; }
+      const merge = Object.keys(reportStudents).length > 0;
+      const students = merge ? { ...(sheetStudents || {}), ...reportStudents } : sheetStudents;
+      let note = "";
+      if (merge && reportKey) {
+        // 일람표에 적힌 학년·학기와 학번 앞자리로 학기·입학연도를 맞춥니다.
+        if (reportKey !== semKey) { setSemKey(reportKey); note += `학기를 일람표에 적힌 ${SEMESTER_LABELS[reportKey] || reportKey}로 맞춤. `; }
+        const year = entryYearForGrade(gdb.cohortSettings, reportGrade);
+        if (year && year !== entryYear) { setEntryYear(year); note += `입학연도를 ${year}년 입학생으로 맞춤. `; }
+      }
+      if (failed.length) note += `인식 못 함: ${failed.join(", ")}`;
       const count = Object.keys(students).length;
-      if (!count) { showToast("학생 데이터를 인식하지 못했습니다. 시트 형식을 확인해주세요.", "error"); setBusy(false); return; }
-      setPreview({ students, count });
+      setPreview({ students, count, merge, classes: Array.from(reportClasses).sort((a, b) => a - b), note: note.trim() });
       showToast(`${count}명분을 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
     }
-    setBusy(false);
   };
 
   const apply = async () => {
     setApplying(true);
-    const ok = await persistGrades({ semesterData: { ...gdb.semesterData, [cohortDataKey(entryYear, semKey)]: { students: preview.students, entryYear, updatedAt: new Date().toISOString() } } });
-    if (ok) { showToast(`저장했습니다. (${SEMESTER_LABELS[semKey]} ${preview.count}명)`, "success"); setPreview(null); }
+    const key = cohortDataKey(entryYear, semKey);
+    // 일람표는 반별로 나눠 올릴 수 있어 이미 저장된 다른 반은 그대로 두고 합칩니다.
+    const students = preview.merge ? { ...(gdb.semesterData?.[key]?.students || {}), ...preview.students } : preview.students;
+    const ok = await persistGrades({ semesterData: { ...gdb.semesterData, [key]: { students, entryYear, updatedAt: new Date().toISOString() } } });
+    if (ok) { showToast(`저장했습니다. (${entryYear}년 입학생 · ${SEMESTER_LABELS[semKey]} ${Object.keys(students).length}명)`, "success"); setPreview(null); }
     setApplying(false);
   };
 
-  const removeSemester = async (k) => {
+  const removeSemester = async (year, k) => {
+    if (!window.confirm(`${year}년 입학생 · ${SEMESTER_LABELS[k]} 성적을 삭제할까요?`)) return;
     const updated = { ...gdb.semesterData };
-    delete updated[cohortDataKey(entryYear, k)];
+    delete updated[cohortDataKey(year, k)];
     const ok = await persistGrades({ semesterData: updated });
-    if (ok) showToast(`${SEMESTER_LABELS[k]} 데이터를 삭제했습니다.`, "success");
+    if (ok) showToast(`${year}년 입학생 · ${SEMESTER_LABELS[k]} 데이터를 삭제했습니다.`, "success");
+  };
+  const cohorts = normalizeCohortSettings(gdb.cohortSettings).cohorts.filter(item => item.status !== "졸업").sort((a, b) => b.entryYear - a.entryYear);
+  const statusCell = (year, k) => {
+    const scoped = gdb.semesterData?.[cohortDataKey(year, k)];
+    const legacy = !scoped ? legacyFor(gdb.semesterData, year, k) : null;
+    const record = scoped || legacy;
+    if (!record) return <span style={{ color: "#b8b2a6" }}>-</span>;
+    const n = Object.keys(record.students || {}).length;
+    const classes = new Set(Object.values(record.students || {}).map(st => st?.class).filter(value => value != null && value !== "")).size;
+    return <span title={`${record.updatedAt ? new Date(record.updatedAt).toLocaleDateString("ko-KR") : ""}${legacy ? " · 입학연도 구분 전 방식으로 저장된 자료" : ""}`} style={{ color: "#3d5c3a", fontWeight: 700 }}>
+      {n}명{classes > 1 ? <small style={{ color: "#8a8578", fontWeight: 600 }}> · {classes}개 반</small> : null}{legacy ? <small style={{ color: "#a16207" }}> (이전)</small> : null}
+      {scoped && <button style={{ ...btn.link, marginLeft: 6 }} onClick={() => removeSemester(year, k)}>삭제</button>}
+    </span>;
   };
 
   return (
@@ -6776,33 +6853,33 @@ function SemesterUpload({ gdb, persistGrades, showToast }) {
         <FileSpreadsheet size={22} color="#8a8578" />
         <div style={{ fontWeight: 700, marginTop: 8 }}>학기별 성적표 업로드</div>
         <CohortSelector value={entryYear} onChange={setEntryYear} cohortSettings={gdb.cohortSettings} />
-        <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center" }}>엑셀의 "N-N 성적" 시트를 그대로 올려주세요. (A~E: 학번,학년,학급,번호,이름 / F열부터 과목당 6칸: 합계,원점수,성취도,석차등급,석차,수강자수)</div>
+        <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center" }}>엑셀의 "N-N 성적" 시트(A~E: 학번,학년,학급,번호,이름 / F열부터 과목당 6칸) 또는 NEIS '전과목 성적 일람표' 반별 파일(101~110)을 올려주세요.<br />일람표는 여러 개를 한꺼번에 골라도 되고, 반별로 나눠 올려도 이미 저장된 다른 반은 그대로 둡니다.</div>
         <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
           {SEMESTER_KEYS.map(k => <button key={k} onClick={() => setSemKey(k)} style={{ ...btn.chip, ...(semKey === k ? btn.chipActive : {}) }}>{SEMESTER_LABELS[k]}</button>)}
         </div>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {SEMESTER_LABELS[semKey]} 파일 선택</button>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" multiple style={{ display: "none" }} onChange={e => e.target.files?.length && handleFile(e.target.files)} />
+        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {SEMESTER_LABELS[semKey]} 파일 선택 (여러 개 가능)</button>
       </div>
       {preview && (
         <div style={card}>
-          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>{SEMESTER_LABELS[semKey]} — {preview.count}명 인식됨 (아직 저장되지 않았습니다)</div>
+          <div style={{ fontWeight: 700, marginBottom: 6, color: "#3d5c3a" }}>{entryYear}년 입학생 · {SEMESTER_LABELS[semKey]} — {preview.count}명 인식됨{preview.classes?.length ? ` · ${preview.classes.join(", ")}반 일람표` : ""} (아직 저장되지 않았습니다)</div>
+          {preview.merge && <div style={{ fontSize: 12, color: "#5d6574", marginBottom: 6 }}>이미 저장된 다른 반 성적은 그대로 두고 이 반들만 바꿉니다.</div>}
+          {preview.note && <div style={{ fontSize: 12, color: "#a16207", marginBottom: 6 }}>{preview.note}</div>}
           <div style={{ display: "flex", gap: 8 }}>
             <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 반영하기</button>
             <button style={btn.secondary} onClick={() => setPreview(null)}>취소</button>
           </div>
         </div>
       )}
-      <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>현재 업로드 현황</div>
-        {SEMESTER_KEYS.map(k => (
-          <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
-            <span>{SEMESTER_LABELS[k]}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: semesterCohortRecord(gdb.semesterData, entryYear, k) ? "#3d5c3a" : "#a39d8c" }}>{semesterCohortRecord(gdb.semesterData, entryYear, k) ? `${Object.keys(semesterCohortRecord(gdb.semesterData, entryYear, k).students || {}).length}명 (${new Date(semesterCohortRecord(gdb.semesterData, entryYear, k).updatedAt).toLocaleDateString("ko-KR")})` : "미등록"}</span>
-              {gdb.semesterData?.[cohortDataKey(entryYear, k)] && <button style={btn.link} onClick={() => removeSemester(k)}>삭제</button>}
-            </div>
-          </div>
-        ))}
+      <div style={{ ...card, overflowX: "auto" }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>현재 업로드 현황 <small style={{ fontWeight: 600, color: "#8a8578" }}>입학연도(현재 학년)별 · (이전) = 입학연도 구분 전에 올린 자료</small></div>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead><tr><th style={{ textAlign: "left", padding: "6px 8px", borderBottom: "1px solid #e6e1d3" }}>입학생</th>{SEMESTER_KEYS.map(k => <th key={k} style={{ padding: "6px 8px", borderBottom: "1px solid #e6e1d3", whiteSpace: "nowrap" }}>{SEMESTER_LABELS[k]}</th>)}</tr></thead>
+          <tbody>{cohorts.map(item => <tr key={item.entryYear} style={item.entryYear === entryYear ? { background: "#fff7ed" } : undefined}>
+            <td style={{ padding: "6px 8px", borderBottom: "1px solid #f0eee6", whiteSpace: "nowrap", fontWeight: 700 }}>{item.entryYear}년 입학 <small style={{ color: "#8a8578" }}>· 현재 {item.currentGrade}학년</small></td>
+            {SEMESTER_KEYS.map(k => <td key={k} style={{ padding: "6px 8px", borderBottom: "1px solid #f0eee6", textAlign: "center", whiteSpace: "nowrap" }}>{statusCell(item.entryYear, k)}</td>)}
+          </tr>)}</tbody>
+        </table>
       </div>
     </div>
   );
