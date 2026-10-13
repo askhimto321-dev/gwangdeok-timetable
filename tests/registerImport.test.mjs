@@ -20,3 +20,15 @@ test("머리글이 없는 시트는 건너뜀", () => {
   assert.equal(out.sheetsUsed, 0);
   assert.equal(out.count, 0);
 });
+
+test("'구분'이 전체 연번이면 번호로 쓰지 않음(학번 추정 금지)", () => {
+  const rows = [["학급", "구분", "성명", "성별"], ...Array.from({ length: 70 }, (_, i) => [Math.floor(i / 25) + 1, i + 1, `학생${i}`, "남자"])];
+  const out = parseRegisterSheets([{ name: "전체", rows }], "1");
+  assert.equal(out.count, 0);
+  assert.equal(out.serialNumber, true);
+});
+
+test("성적·모의고사 파일의 학번·이름 열로 명단", () => {
+  const out = parseRegisterSheets([{ name: "3월 모의고사", rows: [["연번", "학번", "학년", "반", "번호", "이름", "국어"], [1, 10101, 1, 1, 1, "가", 40], [2, 10102, 1, 1, 2, "나", 50]] }], "1");
+  assert.deepEqual(Object.keys(out.roster), ["10101", "10102"]);
+});

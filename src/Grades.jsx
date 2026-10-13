@@ -29,6 +29,7 @@ import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { buildClassExamCompare } from "./classExamCompare.js";
 import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { featureAllowed } from "./staffPermissions.js";
+import { parseNeisClassReport } from "./neisClassReport.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
 import {
   parseSemesterSheet,
@@ -6075,8 +6076,11 @@ function classifySheetName(name) {
   const trimmed = name.trim();
   let m = trimmed.match(/^([123])\s*-\s*([12])\s*성적$/);
   if (m) return { type: "semester", key: `${m[1]}-${m[2]}` };
-  m = trimmed.match(/^([123])\s*학년\s*(\d{1,2})\s*월$/);
+  m = trimmed.match(/^([123])\s*학년\s*(\d{1,2})\s*월\s*(모의고사|학력평가|모평)?$/);
   if (m) return { type: "mock", key: `${m[1]}-${m[2]}` };
+  // "3월 모의고사"처럼 학년이 없는 이름: 학년은 시트 안의 학번·학년 열로 정합니다.
+  m = trimmed.match(/^(\d{1,2})\s*월\s*(모의고사|학력평가|모평)$/);
+  if (m) return { type: "mock", month: m[1], key: null };
   if (trimmed.includes("대입") && trimmed.includes("전형")) return { type: "admission" };
   return null;
 }
@@ -6589,38 +6593,67 @@ function BulkUpload({ gdb, persistGrades, showToast, currentGrade = "2" }) {
   const [preview, setPreview] = useState(null); // { newSemesterData, newMockData, newAdmissionRows, found, skipped }
   const [applying, setApplying] = useState(false);
 
-  const handleFile = async (file) => {
+  // 여러 파일을 한 번에(예: NEIS 반별 일람표 101·102·…) 받아 같은 미리보기에 모읍니다.
+  const handleFile = async (fileOrList) => {
+    const files = Array.from(fileOrList?.length != null ? fileOrList : [fileOrList]).filter(Boolean);
+    if (!files.length) return;
     setBusy(true);
     setPreview(null);
     try {
       const XLSX = await loadXLSX();
-      const fileBuffer = await file.arrayBuffer();
-      await yieldForUploadPaint();
-      const wb = XLSX.read(fileBuffer, workbookReadOptions());
       const newSemesterData = { ...gdb.semesterData };
       const newMockData = { ...gdb.mockData };
       let newAdmissionRows = gdb.admissionRows;
       const found = [];
       const skipped = [];
+      // 학번 앞자리(현재 학년)로 입학연도를 정합니다. 선택한 입학연도와 다르면 자동으로 바꾸고 알려 줍니다.
+      const cohortOf = (students, fallbackGrade = null) => {
+        const counts = {};
+        Object.keys(students || {}).forEach(sid => { const g = String(sid).charAt(0); if (/[1-3]/.test(g)) counts[g] = (counts[g] || 0) + 1; });
+        const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || (fallbackGrade ? String(fallbackGrade) : null);
+        if (!top) return { year: entryYear, note: "" };
+        const year = entryYearForGrade(gdb.cohortSettings, Number(top));
+        return year && year !== entryYear ? { year, note: ` (학번이 ${top}학년이라 ${year}년 입학생으로 저장)` } : { year: entryYear, note: "" };
+      };
+      for (const file of files) {
+      const fileBuffer = await file.arrayBuffer();
+      await yieldForUploadPaint();
+      const wb = XLSX.read(fileBuffer, workbookReadOptions());
+      const prefix = files.length > 1 ? `${file.name} · ` : "";
 
       wb.SheetNames.forEach(name => {
         const cls = classifySheetName(name);
-        if (!cls) { skipped.push(name); return; }
         const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null });
+        if (!cls) {
+          // NEIS '전과목 성적 일람표' 반별 파일: 같은 학기 다른 반과 합쳐 저장
+          const report = parseNeisClassReport(rows);
+          if (report && Object.keys(report.students).length) {
+            const semKey = `${report.grade}-${report.semester || 1}`;
+            const { year, note } = cohortOf(report.students, report.grade);
+            const key = cohortDataKey(year, semKey);
+            newSemesterData[key] = { students: { ...(newSemesterData[key]?.students || {}), ...report.students }, entryYear: year, updatedAt: new Date().toISOString() };
+            found.push(`${prefix}${year}년 입학생 · ${SEMESTER_LABELS[semKey] || semKey} 성적 · ${report.grade}학년 ${report.classNo}반 일람표 — ${Object.keys(report.students).length}명 · ${report.subjects.length}과목${note}`);
+          } else skipped.push(`${prefix}${name}`);
+          return;
+        }
         if (cls.type === "semester") {
           const students = parseSemesterSheet(rows);
           const count = Object.keys(students).length;
           if (count) {
-            newSemesterData[cohortDataKey(entryYear, cls.key)] = { students, entryYear, updatedAt: new Date().toISOString() };
-            found.push(`${entryYear}년 입학생 · ${SEMESTER_LABELS[cls.key] || cls.key} 성적 — ${count}명`);
-          } else skipped.push(`${name} (학생 데이터 인식 실패)`);
+            const { year, note } = cohortOf(students, cls.key.charAt(0));
+            newSemesterData[cohortDataKey(year, cls.key)] = { students, entryYear: year, updatedAt: new Date().toISOString() };
+            found.push(`${prefix}${year}년 입학생 · ${SEMESTER_LABELS[cls.key] || cls.key} 성적 — ${count}명${note}`);
+          } else skipped.push(`${prefix}${name} (학생 데이터 인식 실패)`);
         } else if (cls.type === "mock") {
           const students = parseMockSheet(rows);
           const count = Object.keys(students).length;
-          if (count) {
-            newMockData[cohortDataKey(entryYear, cls.key)] = { students, entryYear, updatedAt: new Date().toISOString() };
-            found.push(`${entryYear}년 입학생 · ${MOCK_MONTH_LABELS[cls.key] || cls.key} 모의고사 — ${count}명`);
-          } else skipped.push(`${name} (학생 데이터 인식 실패)`);
+          const { year, note } = cohortOf(students, cls.key ? cls.key.charAt(0) : null);
+          const sheetGrade = cls.key ? cls.key.split("-")[0] : (Object.keys(students)[0] || "").charAt(0);
+          const key = cls.key || `${sheetGrade}-${cls.month}`;
+          if (count && MOCK_MONTH_KEYS.includes(key)) {
+            newMockData[cohortDataKey(year, key)] = { students, entryYear: year, updatedAt: new Date().toISOString() };
+            found.push(`${prefix}${year}년 입학생 · ${MOCK_MONTH_LABELS[key] || key} 모의고사 — ${count}명${note}`);
+          } else skipped.push(`${prefix}${name} (${count ? `${key} 모의고사는 지원하지 않는 회차` : "학생 데이터 인식 실패"})`);
         } else if (cls.type === "admission") {
           // 전형표와 별도의 "전형-반영비율" 시트를 함께 읽기 위해
           // 실제 대입 데이터 처리는 아래에서 통합 실행합니다.
@@ -6641,6 +6674,7 @@ function BulkUpload({ gdb, persistGrades, showToast, currentGrade = "2" }) {
         found.push(`${targetGrade}학년 대입 전형표 — ${scopedRows.length}건 (반영비율 ${scopedRows.filter(row => admissionReflectionText(row)).length}건 · 내신반영 ${curriculumCount}건)`);
       }
 
+      }
       if (!found.length) {
         showToast("이 파일에서 인식 가능한 시트를 찾지 못했습니다. 시트 이름이 원본과 같은지 확인해주세요.", "error");
         setBusy(false);
@@ -6669,11 +6703,12 @@ function BulkUpload({ gdb, persistGrades, showToast, currentGrade = "2" }) {
         <div style={{ fontWeight: 700, marginTop: 8 }}>원본 성적 엑셀 파일 통째로 업로드</div>
         <CohortSelector value={entryYear} onChange={setEntryYear} cohortSettings={gdb.cohortSettings} />
         <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center", maxWidth: 480 }}>
-          "1-1 성적"부터 "3-2 성적"까지의 학기 성적 시트와 "N학년 N월"(모의고사), "2028 대입 전형" 시트가 들어있는 원본 파일을 그대로 올려주세요.
+          "1-1 성적"부터 "3-2 성적"까지의 학기 성적 시트와 "N학년 N월"·"N월 모의고사"(모의고사), "2028 대입 전형" 시트가 들어있는 원본 파일을 그대로 올려주세요.
+          NEIS 반별 '전과목 성적 일람표'(101, 102 …)는 여러 개를 한꺼번에 골라 올리면 반끼리 합쳐집니다. 입학연도는 학번 앞자리로 자동으로 맞춥니다.
           시트 이름을 보고 자동으로 종류를 구분해서 한 번에 전부 반영합니다.
         </div>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 파일 선택</button>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls" multiple style={{ display: "none" }} onChange={e => { if (e.target.files?.length) handleFile(e.target.files); e.target.value = ""; }} />
+        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} 파일 선택 (여러 개 가능)</button>
       </div>
       {preview && (
         <div style={card}>
