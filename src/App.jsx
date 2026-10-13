@@ -2014,6 +2014,7 @@ export default function App() {
           requestedGradeTab={gradeTabRequest.tab}
           requestedGradeTabNonce={gradeTabRequest.nonce}
           onWorkspaceViewChange={syncStudentWorkspaceView}
+          onGradeChange={setGrade}
           enrolledSubjectsByStudent={enrolledSubjectsByStudent}
           persistGrades={persistGrades}
         /></DeferredPanel>

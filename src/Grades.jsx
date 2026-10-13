@@ -598,6 +598,7 @@ export default function GradesSection({
   examWorkspaces = null,
   currentGrade = "2",
   teacherGradeAccess = [],
+  onGradeChange,
   selectedStudentSid,
   onSelectedStudentSidChange,
   selectedStudentQuery,
@@ -953,7 +954,7 @@ export default function GradesSection({
           <StudentGradeComparison gdb={gdb} roster={roster} currentGrade={currentGrade} />
         </div>}
         {tab === "mockAnalysis" && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess && staffFeature("mockAnalysis"))) && (
-          <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} />
+          <MockAnalysisDashboard gdb={gdb} roster={roster} currentGrade={currentGrade} onGradeChange={onGradeChange} gradeOptions={loggedInAdmin ? ["1", "2", "3"] : (teacherGradeAccess || []).map(String).sort()} />
         )}
         {keepTabMounted("admissionCases") && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess)) && <div style={{ display: tab === "admissionCases" ? "block" : "none" }}>
           <React.Suspense fallback={<AdmissionCasesLoading />}><MemoAdmissionCaseAnalytics gdb={gdb} roster={roster} currentGrade={currentGrade} selectedStudentSid={lookupSid} onSelectedStudentSidChange={setLookupSid} selectedStudentQuery={lookupQuery} onSelectedStudentQueryChange={setLookupQuery} favorites={favoriteItemsFor(lookupSid)} onToggleFavorite={lookupSid ? item => toggleFavorite(lookupSid,item) : undefined} onOpenAdmission={openAdmissionUniversity} onOpenSusiNavi={(name,department)=>openSusiNaviUniversity(name,false,department)} onAddSupportPlan={addCaseToSupportPlan} onOpenSupportPlan={()=>openSusiNaviWorkspace(false)} focusUniversity={linkedUniversity} focusDepartment={linkedDepartment} focusAdmissionType={linkedAdmissionType} onBackToConsultation={returnToConsultation ? returnToConsultationView : undefined} onClearFocus={clearLinkedUniversity} /></React.Suspense>
@@ -1285,16 +1286,17 @@ function ClassGradeKpis({ metricLabel = "전교과",  rows, graded, avg, gradeMe
   </div>;
 }
 // 전교과 분포 막대: 구간 색을 단계로 바꾸고, 반 평균이 있는 구간 이름을 강조합니다.
-function ClassGradeHistogram({ metricLabel = "전교과",  bins, counts, total, scale, avg }) {
+// labels가 있으면 구간 이름 대신 그 글자를 씁니다(단일 과목 정수 등급·성취도 A~E).
+function ClassGradeHistogram({ metricLabel = "전교과",  bins, counts, total, scale, avg, labels = null, title = "", note = "" }) {
   const maxCount = Math.max(1, ...counts);
   const avgBin = avg == null ? -1 : bins.findIndex(([lo, hi]) => avg >= lo && avg < hi);
   return <div className="cg-hist">
-    <div className="cg-sec-h"><b>{metricLabel} 누적 분포</b><span>막대 = 구간별 학생 수 · 주황 글자 = 반 평균이 있는 구간</span></div>
+    <div className="cg-sec-h"><b>{title || `${metricLabel} 누적 분포`}</b><span>{note || "막대 = 구간별 학생 수 · 주황 글자 = 반 평균이 있는 구간"}</span></div>
     <div className="cg-bars" style={{ "--n": bins.length }}>{bins.map(([lo], index) => <div key={lo} className="cg-bar">
       <span className="cg-cnt"><b>{counts[index]}<em>명</em></b><small>{total ? `${Math.round(counts[index] / total * 100)}%` : ""}</small></span>
       {rawColors(() => <i style={{ height: `${(counts[index] / maxCount) * 74}%`, minHeight: counts[index] ? 6 : 2, background: CG_BAND_COLORS[index] || "#c0c8d3", outline: index === avgBin ? "2px solid var(--kdn-ink,#1f2430)" : "none", outlineOffset: 2 }} />)}
     </div>)}</div>
-    <div className="cg-axis" style={{ "--n": bins.length }}>{bins.map(([lo, hi], index) => <span key={lo} className={index === avgBin ? "is-avg" : ""}>{index === avgBin ? "● " : ""}{lo.toFixed(1)}–{(hi > scale ? scale : hi).toFixed(1)}</span>)}</div>
+    <div className="cg-axis" style={{ "--n": bins.length }}>{bins.map(([lo, hi], index) => <span key={lo} className={index === avgBin ? "is-avg" : ""}>{index === avgBin ? "● " : ""}{labels ? labels[index] : `${lo.toFixed(1)}–${(hi > scale ? scale : hi).toFixed(1)}`}</span>)}</div>
   </div>;
 }
 // 직전 학기 → 최근 학기 값과 변화량(낮을수록 좋은 성적).
@@ -1386,8 +1388,29 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const delta = row => { const t = trendOf(row); return t.length >= 2 ? t[t.length - 2].value - t[t.length - 1].value : null; };
   const up = rows.filter(row => (delta(row) ?? 0) > 0.004).length, down = rows.filter(row => (delta(row) ?? 0) < -0.004).length;
   const scale = allRows.some(row => row.gradeSystem === 9) ? 9 : 5;
-  const bins = scale === 5 ? [[1, 1.5], [1.5, 2], [2, 2.5], [2.5, 3], [3, 3.5], [3.5, 4], [4, 5.01]] : [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 9.01]];
+  // 단일 과목을 한 학기만 볼 때는 등급이 정수라 1·2·…등급 막대로, 여러 학기 평균이면 소수 구간으로 나눕니다.
+  const integerGrades = isSubject && graded.length > 0 && graded.every(row => Math.abs(val(row) - Math.round(val(row))) < 1e-9);
+  const bins = integerGrades
+    ? Array.from({ length: scale }, (_, i) => [i + 0.5, i + 1.5])
+    : scale === 5 ? [[1, 1.5], [1.5, 2], [2, 2.5], [2.5, 3], [3, 3.5], [3.5, 4], [4, 5.01]] : [[1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 9.01]];
   const counts = bins.map(([lo, hi]) => graded.filter(row => val(row) >= lo && val(row) < hi).length);
+  // 단일 과목: 가장 최근 학기 성취도(A~E) 분포를 함께 보여 줍니다.
+  const achievementInfo = useMemo(() => {
+    if (!isSubject) return null;
+    const keys = SEMESTER_KEYS.filter(key => rows.some(row => subjectRecordOf(row, subjectName, key)));
+    const lastKey = keys[keys.length - 1];
+    if (!lastKey) return null;
+    const letters = ["A", "B", "C", "D", "E"];
+    const tally = Object.fromEntries(letters.map(letter => [letter, 0]));
+    let other = 0;
+    rows.forEach(row => {
+      const ach = String(subjectRecordOf(row, subjectName, lastKey)?.achievement || "").trim().charAt(0).toUpperCase();
+      if (!ach) return;
+      if (tally[ach] != null) tally[ach] += 1; else other += 1;
+    });
+    const total = letters.reduce((sum, letter) => sum + tally[letter], 0) + other;
+    return total ? { lastKey, letters, counts: letters.map(letter => tally[letter]), total, other } : null;
+  }, [isSubject, rows, subjectName]); // eslint-disable-line react-hooks/exhaustive-deps
   const ordered = rows.slice().sort((a, b) => tableSort === "sid" ? String(a.sid).localeCompare(String(b.sid)) : tableSort === "number" ? ((Number(a.classNumber) || 0) - (Number(b.classNumber) || 0)) * (allClasses ? 1 : 0) || (Number(a.number) || 99) - (Number(b.number) || 99) : (ranked.get(a.sid) || 999) - (ranked.get(b.sid) || 999));
   // 학기 열: 이 반 학생들에게 실제로 값이 있는(또는 과목 보기에서 열린) 학기만 머리글로 한 번 보여줍니다.
   // 5등급 학생의 9등급 환산값은 별도 칸으로(머리글에만 '9등급 환산'). 과목 보기 표에는 없습니다.
@@ -1486,7 +1509,10 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
       </div>
       {view === "class" && <>
         <ClassGradeKpis metricLabel={metricLabel} rows={rows} graded={graded} avg={avg} gradeMean={gradeMean} scale={scale} up={up} down={down} />
-        {graded.length > 0 && <ClassGradeHistogram metricLabel={metricLabel} bins={bins} counts={counts} total={graded.length} scale={scale} avg={avg} />}
+        {graded.length > 0 && <ClassGradeHistogram metricLabel={metricLabel} bins={bins} counts={counts} total={graded.length} scale={scale} avg={avg}
+          {...(integerGrades ? { labels: bins.map((_, i) => `${i + 1}등급`), title: `${metricLabel} 등급 분포`, note: "막대 = 등급별 학생 수 · 주황 글자 = 반 평균이 있는 등급" } : {})} />}
+        {achievementInfo && <ClassGradeHistogram metricLabel={metricLabel} bins={achievementInfo.letters.map((_, i) => [i, i + 1])} counts={achievementInfo.counts} total={achievementInfo.total} scale={5} avg={null}
+          labels={achievementInfo.letters} title={`${metricLabel} 성취도 분포`} note={`${SEMESTER_LABELS[achievementInfo.lastKey] || achievementInfo.lastKey} 기준 · 막대 = 성취도별 학생 수${achievementInfo.other ? ` · 그 외(P 등) ${achievementInfo.other}명` : ""}`} />}
       </>}
       {view === "compare" && !hasSemesterStats && <div className="cg-foot">아직 올라온 학기 성적이 없어요. 아래 정기시험 반 비교는 선생님 ZONE에 저장한 점수로 바로 보여요.</div>}
       {view === "compare" && hasSemesterStats && <ClassBandCompare metricLabel={metricLabel} classStats={sortedStats} sortKey={cmpSort} onSort={setCmpSort} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
@@ -1661,7 +1687,7 @@ function StudentGradeComparison({ gdb, roster, currentGrade }) {
   </div>;
 }
 
-function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
+function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange, gradeOptions = [] }) {
   const entryYear = entryYearForGrade(gdb.cohortSettings, currentGrade);
   // 현재 학년까지의 누적 회차를 모두 보여줍니다. 예: 2학년은 1학년 3·6·9·10월도 함께 조회.
   const available = MOCK_MONTH_KEYS.filter(key => (
@@ -1861,6 +1887,14 @@ function MockAnalysisDashboard({ gdb, roster, currentGrade }) {
           <div style={{ fontWeight: 950, fontSize: 19 }}>모의고사 성적 분석</div>
           <div style={{ fontSize: 11.5, color: "#e8edf6", marginTop: 4 }}>{entryYear}년 입학생 · 1학년부터 {currentGrade}학년까지 누적 회차 분석</div>
         </div>
+        {/* 몇 학년(입학생)을 볼지: 사이트 학년 선택과 같이 바뀌어 명단도 그 학년으로 맞춰집니다. */}
+        {onGradeChange && gradeOptions.length > 0 && <div className="kdn-mock-grades" role="group" aria-label="학년 선택" style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#e8edf6" }}>학년</span>
+          {gradeOptions.map(g => {
+            const on = String(g) === String(currentGrade);
+            return <button key={g} type="button" aria-pressed={on} onClick={() => onGradeChange(String(g))} style={{ ...btn.chip, minHeight: 32, background: on ? "#ffd978" : "rgba(255,255,255,.13)", color: on ? "#2e3445" : "#f7f8fc", borderColor: on ? "#ffe7a5" : "rgba(255,255,255,.34)", fontWeight: 850 }}>{on ? "✓ " : ""}{g}학년 <small style={{ fontWeight: 600, opacity: .75 }}>· {entryYearForGrade(gdb.cohortSettings, g)} 입학</small></button>;
+          })}
+        </div>}
         <div className="kdn-mock-months" style={{ marginTop: 14, padding: 8, borderRadius: 12, background: "rgba(255,255,255,.13)", border: "1px solid rgba(255,255,255,.15)", display: "flex", gap: 7, flexWrap: "wrap" }}>
           {available.map(key => (
             <button key={key} aria-pressed={mockKey === key} style={{ ...btn.chip, minHeight: 32, background: mockKey === key ? "#ffd978" : "rgba(255,255,255,.13)", color: mockKey === key ? "#2e3445" : "#f7f8fc", borderColor: mockKey === key ? "#ffe7a5" : "rgba(255,255,255,.34)", boxShadow: mockKey === key ? "0 3px 10px rgba(0,0,0,.18)" : "none", fontWeight: 900 }} onClick={() => setMockKey(key)}>
