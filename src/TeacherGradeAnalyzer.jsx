@@ -977,20 +977,32 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       }
       if (accessRole === "teacher" && draftSubject) {
         const selectedToken = normalizeSubjectName(draftSubject);
-        const mismatch = parsed.find(item => normalizeSubjectName(item.subject) !== selectedToken);
+        // "미적"(시간표 이름)과 "미적분Ⅰ"(NEIS 이름)처럼 한쪽이 다른 쪽을 포함하면 같은 과목으로 봅니다.
+        const sameSubject = name => { const token = normalizeSubjectName(name); return token === selectedToken || token.includes(selectedToken) || selectedToken.includes(token); };
+        const mismatch = parsed.find(item => !sameSubject(item.subject));
         if (mismatch) {
           addUploadMessage({ type: "error", text: `현재 담당과목은 ${draftSubject}입니다. ${mismatch.subject} 파일은 별도 과목 작업에서 올려주세요.` });
           return;
         }
       }
-      const baseContext = contextKey(context || parsed[0]);
+      // 아직 성적 파일이 없는 작업이면 첫 파일의 과목·학년·학기를 작업 기준으로 삼습니다
+      // (예전에 '미적 · 1학기'로 만든 빈 작업에 '미적분Ⅰ · 2학기' 파일을 올리는 경우).
+      const emptyWorkspace = !written.length && !performance.length;
+      const baseItem = emptyWorkspace ? parsed[0] : (context || parsed[0]);
+      const baseContext = contextKey(baseItem);
+      const describe = item => `${item?.grade || "?"}학년 ${item?.semester || "?"}학기 ${item?.subject || ""}`.trim();
       const accepted = parsed.filter(item => {
         if (contextKey(item) !== baseContext) {
-          addUploadMessage({ type: "error", text: `${item.fileName}: 현재 분석 과목·학년·학기와 다른 파일이라 제외했습니다.` });
+          addUploadMessage({ type: "error", text: `${item.fileName}: 파일은 ${describe(item)}, 지금 작업은 ${describe(baseItem)}이라 제외했습니다. 다른 과목·학기는 '과목 작업 시작'으로 새 작업을 만든 뒤 올려 주세요.` });
           return false;
         }
         return true;
       });
+      if (emptyWorkspace && accepted.length) {
+        const first = accepted[0];
+        if (first.subject) setDraftSubject(first.subject);
+        setSettings(current => ({ ...current, workspaceMeta: { ...(current.workspaceMeta || {}), year: first.year ?? current.workspaceMeta?.year, semester: first.semester ?? current.workspaceMeta?.semester, grade: first.grade ?? current.workspaceMeta?.grade, subject: first.subject || current.workspaceMeta?.subject } }));
+      }
       if (kind === "written" && target?.id) {
         // 2단계 버튼으로 고른 시험의 파일 바꾸기(나뉜 시험이면 객관식/논술형 한쪽만).
         const file = accepted[0];
