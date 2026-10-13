@@ -35,3 +35,17 @@ test("반은 명단(roster) 기준이 우선", () => {
   const [exam] = buildClassExamCompare(workspaces, "2", { "20101": { class: 3 } });
   assert.ok(exam.subjects[0].classes["3"]);
 });
+
+test("examSubjectScores: 과목·시험마다 학생 원점수, 다른 학년도·학년 제외", async () => {
+  const { examSubjectScores } = await import("../src/classExamCompare.js");
+  const ws = {
+    a: { grade: 2, year: 2026, semester: 2, subject: "기하", written: [{ title: "중간고사", maxScore: 100, students: { "20101": { score: 80 }, "20102": { score: null, status: "결시" } } }] },
+    b: { grade: 2, year: 2025, semester: 2, subject: "기하", written: [{ title: "1차 정기시험", students: { "20101": { score: 50 } } }] },
+    c: { grade: 1, year: 2026, semester: 2, subject: "공통수학2", written: [{ title: "1차", students: { "10101": { score: 70 } } }] },
+  };
+  const list = examSubjectScores(ws, "2", 2026);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].title, "1차");
+  assert.equal(list[0].label, "2학기 1차 정기시험");
+  assert.deepEqual(list[0].scores, { "20101": 80 });
+});
