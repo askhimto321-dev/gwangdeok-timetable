@@ -61,3 +61,24 @@ export function buildClassExamCompare(workspaces = {}, grade = "", roster = {}) 
     // 최근 시험 먼저: 연도 → 학기 → 차수
     .sort((a, b) => String(b.year).localeCompare(String(a.year)) || String(b.semester).localeCompare(String(a.semester)) || b.title.localeCompare(a.title, "ko"));
 }
+
+// 반 성적 '과목별 보기'용: 시험 × 과목마다 학생별 원점수를 그대로 돌려줍니다.
+// → [{ id, key, year, semester, title, label, subject, maxScore, pending, scores: { sid: 점수 } }]
+export function examSubjectScores(workspaces = {}, grade = "", year = null) {
+  const out = [];
+  Object.values(workspaces || {}).forEach(ws => {
+    if (!ws || String(ws.grade || "") !== String(grade)) return;
+    if (year != null && ws.year && Number(ws.year) !== Number(year)) return;
+    const subject = String(ws.subject || "").trim();
+    if (!subject) return;
+    (Array.isArray(ws.written) ? ws.written : []).forEach(item => {
+      const scores = {};
+      Object.entries(item?.students || {}).forEach(([sid, student]) => { const score = finite(student?.score); if (score != null) scores[sid] = score; });
+      if (!Object.keys(scores).length) return;
+      const title = examTitleKey(item?.title);
+      const key = `${ws.year || ""}-${ws.semester || ""}-${title}`;
+      out.push({ id: `${key}|${subject}`, key, year: ws.year, semester: ws.semester, title, label: examLabel({ semester: ws.semester, title }), subject, maxScore: finite(item?.maxScore) || 100, pending: !!item?.essayPending, scores });
+    });
+  });
+  return out.sort((a, b) => String(a.semester).localeCompare(String(b.semester)) || a.title.localeCompare(b.title, "ko") || a.subject.localeCompare(b.subject, "ko"));
+}
