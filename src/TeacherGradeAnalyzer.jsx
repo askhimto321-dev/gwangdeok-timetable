@@ -521,6 +521,14 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     return true;
   }), [managedWorkspaces, dataSubjectFilter, dataClassFilter]);
   const workspaceSelection = selectedLocalId ? `local:${selectedLocalId}` : selectedSharedId ? `shared:${selectedSharedId}` : "";
+  // 저장된 과목 작업 탭: 같은 작업(id)의 개인 임시본·학교 공동본을 한 탭으로 묶습니다. 최근 학기 먼저.
+  const workspaceTabs = useMemo(() => {
+    const map = new Map();
+    const entry = item => map.get(item.id) || { id: item.id, subject: item.subject, year: item.year, semester: item.semester, local: null, shared: null };
+    localWorkspaceList.forEach(item => { if (item?.id) map.set(item.id, { ...entry(item), local: item }); });
+    sharedWorkspaces.forEach(item => { if (item?.id) map.set(item.id, { ...entry(item), shared: item }); });
+    return [...map.values()].sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0) || (Number(b.semester) || 0) - (Number(a.semester) || 0) || String(a.subject || "").localeCompare(String(b.subject || ""), "ko"));
+  }, [localWorkspaceList, sharedWorkspaces]);
   const currentSnapshot = () => {
     const existing = db?.teacherGradeWorkspaces?.[workspaceId] || selectedShared || null;
     return {
@@ -743,14 +751,6 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setSelectedLocalId(""); setSelectedSharedId(""); setWritten([]); setPerformance([]); setSettings(fresh.settings); setTieScores({}); setStudentOverrides({}); setStudentEditor(null);
     setActiveView("combined"); setClassFilter(homeroomClass ? String(homeroomClass) : "all"); setGradeFilter("all"); setMinimumFilter("all"); setSearch(""); setUploadMessages([]);
   };
-  const deleteLocalWorkspace = () => {
-    if (!selectedLocalId || !localWorkspaces[selectedLocalId]) return;
-    const item = localWorkspaces[selectedLocalId];
-    if (!window.confirm(`${item.subject || "이 과목"}의 개인 임시본을 삭제할까요? 학교 공동 저장본은 삭제되지 않습니다.`)) return;
-    setLocalWorkspaces(current => { const next = { ...current }; delete next[selectedLocalId]; return next; });
-    startNewWorkspace();
-    showToast?.("개인 임시본을 삭제했습니다.", "success");
-  };
   const deleteLocalWorkspaceById = item => {
     const id = item?.id;
     if (!id || !localWorkspaces[id]) return;
@@ -764,7 +764,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     if (!id || !db?.teacherGradeWorkspaces?.[id]) return;
     if (!(accessRole === "admin" || canEditSubject(item.subject))) { showToast?.("이 과목 담당 교사 또는 관리자만 학교 공동본을 삭제할 수 있습니다.", "error"); return; }
     if (!window.confirm(`${item.subject || "이 과목"} 학교 공동본을 삭제할까요? 같은 과목 담당 교사 화면에서도 제거됩니다.`)) return;
-    const next = { ...(db?.teacherGradeWorkspaces || {}) };
+    // 그사이 다른 선생님이 저장한 다른 과목을 덮어쓰지 않도록 최신본을 다시 읽어 이 과목만 뺍니다.
+    const unread = {};
+    const fresh = await readStorage("kd_teacher_grade_workspaces", unread);
+    if (fresh === unread) { showToast?.("학교 공동본을 읽지 못해 삭제를 미뤘어요. 잠시 뒤 다시 시도해 주세요.", "error"); return; }
+    const next = { ...(fresh && typeof fresh === "object" ? fresh : {}) };
     delete next[id];
     const ok = await persist?.({ teacherGradeWorkspaces: next });
     if (ok === false) return;
@@ -1539,14 +1543,28 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       <div className="teacher-grade-workspace-browser" style={ui.workspaceBrowser}>
         <div style={ui.workspaceIntro}><b>과목별 공동 작업</b><span>{accessRole === "admin" ? `${grade}학년 모든 과목을 생성·수정할 수 있습니다.` : canViewAllSubjects ? `${grade}학년 전체 과목을 열람하며, 담당 과목만 수정합니다.` : "같은 과목 담당 교사가 하나의 화면을 함께 사용합니다."}</span></div>
         <div style={ui.saveTypeLegend}><span><i style={ui.localDot}/>개인 임시본</span><span><i style={ui.sharedDot}/>학교 공동본</span></div>
-        <select value={workspaceSelection} onChange={event => loadWorkspaceSelection(event.target.value)} style={ui.workspaceSelect}>
-          <option value="">저장된 과목 작업 선택</option>
-          {!!localWorkspaceList.length && <optgroup label="개인 임시 저장본">{localWorkspaceList.map(item => <option key={`local-${item.id}`} value={`local:${item.id}`}>{item.subject} · {item.year || "-"}학년도 {item.semester || "-"}학기 · 저장본</option>)}</optgroup>}
-          {!!sharedWorkspaces.length && <optgroup label="학교 공동 저장본">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
-        </select>
         {accessRole === "teacher" ? <SubjectPicker value={draftSubject} onChange={startNewWorkspace} mine={assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade))} grade={grade} semester={semester} disabled={!editableSubjectNames.length} /> : accessRole === "admin" ? <SubjectPicker value={draftSubject} onChange={setDraftSubject} allowFree mine={assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade))} curriculum={curriculumApplies(grade) ? curriculumSubjects(grade, semester) : []} others={allKnownSubjectNames} grade={grade} semester={semester} /> : <span style={ui.adminEditBadge}>열람 전용</span>}
         <button type="button" style={ui.secondaryButton} onClick={() => startNewWorkspace(draftSubject)} disabled={!canStartSelectedSubject}>{accessRole === "admin" ? "과목 작업 시작" : "담당과목 작업 시작"}</button>
-        {selectedLocalId && <button type="button" style={ui.deleteWorkspaceButton} onClick={deleteLocalWorkspace}>임시본 삭제</button>}
+        {workspaceTabs.length > 0 && <div className="tg-ws-tabs" role="tablist" aria-label="저장된 과목 작업">
+          <small className="tg-ws-tabs-label">저장된 과목 작업</small>
+          {workspaceTabs.map(tab => {
+            const on = tab.id === selectedLocalId || tab.id === selectedSharedId;
+            const shared = tab.shared;
+            const canDeleteShared = !!shared && (accessRole === "admin" || canEditSubject(shared.subject));
+            const editor = shared ? (shared.lastEditedName || shared.ownerName || "") : "";
+            const when = (shared || tab.local)?.updatedAt ? new Date((shared || tab.local).updatedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "";
+            return <div key={tab.id} className={`tg-ws-tab${on ? " is-on" : ""}`} role="tab" aria-selected={on}>
+              <button type="button" data-kdn-bare className="tg-ws-open" onClick={() => loadWorkspaceSelection(tab.local ? `local:${tab.id}` : `shared:${tab.id}`)} title={`${tab.subject} · ${tab.year || "-"}학년도 ${tab.semester || "-"}학기${editor ? ` · 마지막 수정 ${editor}` : ""}`}>
+                <b>{tab.subject || "과목 미정"}</b>
+                <small>{tab.year || "-"} · {tab.semester || "-"}학기{when ? ` · ${when}` : ""}{editor ? ` · ${editor}` : ""}</small>
+              </button>
+              <span className="tg-ws-badges">
+                {tab.local && <span className="tg-ws-badge is-local">개인<button type="button" data-kdn-bare aria-label={`${tab.subject} 개인 임시본 삭제`} title="개인 임시본 삭제" onClick={() => deleteLocalWorkspaceById(tab.local)}>×</button></span>}
+                {shared && <span className="tg-ws-badge is-shared">공동{canDeleteShared && <button type="button" data-kdn-bare aria-label={`${tab.subject} 학교 공동본 삭제`} title="학교 공동본 삭제(같은 과목 선생님 화면에서도 사라짐)" onClick={() => deleteSharedWorkspace(shared)}>×</button>}</span>}
+              </span>
+            </div>;
+          })}
+        </div>}
         {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || (accessRole === "admin" ? "관리자" : "담당 교사")}</span>}{context && readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
       </div>
 
@@ -1985,6 +2003,19 @@ const gradeAnalyzerCss = `
 .teacher-grade-analyzer .planned-written-row>span:last-child,.teacher-grade-analyzer .planned-performance-row>span:last-child{width:100%;justify-content:flex-end;flex-wrap:wrap}
 .teacher-grade-analyzer .planned-written-row input[type="number"],.teacher-grade-analyzer .planned-performance-row input[type="number"]{width:72px}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{display:grid;gap:3px;min-width:210px;flex:1 1 230px}
+.teacher-grade-analyzer .tg-ws-tabs{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding-top:9px;border-top:1px dashed #d6e0ec}
+.teacher-grade-analyzer .tg-ws-tabs-label{font-size:11px;font-weight:850;color:#738196;margin-right:2px}
+.teacher-grade-analyzer .tg-ws-tab{display:inline-flex;align-items:center;gap:6px;padding:5px 7px 5px 4px;border:1px solid #d3deeb;border-radius:12px;background:#fff}
+.teacher-grade-analyzer .tg-ws-tab.is-on{border-color:#d4541a;box-shadow:0 0 0 2px rgba(212,84,26,.15);background:#fff7f2}
+.teacher-grade-analyzer .tg-ws-open{display:grid;gap:1px;padding:3px 8px;border:0;background:transparent;text-align:left;cursor:pointer;font:inherit}
+.teacher-grade-analyzer .tg-ws-open b{font-size:13px;font-weight:900;color:#24364f;white-space:nowrap}
+.teacher-grade-analyzer .tg-ws-open small{font-size:10.5px;font-weight:700;color:#7a8698;white-space:nowrap}
+.teacher-grade-analyzer .tg-ws-badges{display:inline-flex;gap:4px}
+.teacher-grade-analyzer .tg-ws-badge{display:inline-flex;align-items:center;gap:2px;height:22px;padding:0 4px 0 7px;border-radius:99px;font-size:10.5px;font-weight:850}
+.teacher-grade-analyzer .tg-ws-badge.is-local{background:#fdf0e3;color:#a1561c}
+.teacher-grade-analyzer .tg-ws-badge.is-shared{background:#e6f0fb;color:#2d5f96}
+.teacher-grade-analyzer .tg-ws-badge button{width:16px;height:16px;display:grid;place-items:center;border:0;border-radius:99px;background:transparent;color:inherit;font-size:13px;line-height:1;cursor:pointer;opacity:.6}
+.teacher-grade-analyzer .tg-ws-badge button:hover{opacity:1;background:rgba(0,0,0,.08)}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child b{font-size:13px;color:#2e435e}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child span{font-size:10.5px;color:#738196;font-weight:700;line-height:1.4}.teacher-grade-analyzer .minimum-course-rule{white-space:normal}.teacher-grade-analyzer .minimum-course-rule>span:last-child{min-width:0;line-height:1.35}
 .teacher-grade-analyzer table{border-collapse:separate!important;border-spacing:0;width:100%;font-family:${FONT_STACK};font-size:11.7px;line-height:1.42}
