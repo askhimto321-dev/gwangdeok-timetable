@@ -1389,9 +1389,15 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   // 수강자만: 고른 과목(또는 교과 조합) 성적이 있는 학생만 표에 남깁니다. 과목 보기에서는 기본으로 켭니다.
   const [takersOnly, setTakersOnly] = useState(true);
   const isSubject = metric.startsWith(SUBJECT_METRIC);
+  // 학년 전체 학생 행을 한 번 만들어 '우리 반'과 '반 비교'가 같이 씁니다.
+  const allRows = useMemo(() => Object.entries(roster || {})
+    .map(([sid, info]) => { const row = buildStudentComparisonRow(String(sid), info, gdb); return row ? { ...row, classNumber: String(info?.class || row.classNumber || ""), number: info?.number ?? row.number } : null; })
+    .filter(Boolean), [roster, gdb]);
+  // 학기말 성적(NEIS)이 이미 올라온 학년-학기는 그 학기 정기시험(선생님 ZONE)을 따로 보여 주지 않습니다.
+  const loadedSemesters = useMemo(() => new Set(SEMESTER_KEYS.filter((key, index) => allRows.some(row => row.semesterSubjects?.[index]?.length))), [allRows]);
   // 정기시험 과목 보기: 선생님 ZONE 학교 공동본의 지필 원점수(학기 성적이 오기 전 2-2 중간고사 등)
   const isExam = metric.startsWith(EXAM_METRIC);
-  const examSubjects = useMemo(() => { const now = new Date(); return examSubjectScores(examWorkspaces || {}, currentGrade, now.getMonth() + 1 >= 3 ? now.getFullYear() : now.getFullYear() - 1); }, [examWorkspaces, currentGrade]);
+  const examSubjects = useMemo(() => { const now = new Date(); return examSubjectScores(examWorkspaces || {}, currentGrade, now.getMonth() + 1 >= 3 ? now.getFullYear() : now.getFullYear() - 1).filter(item => !loadedSemesters.has(`${currentGrade}-${item.semester}`)); }, [examWorkspaces, currentGrade, loadedSemesters]);
   const examPick = isExam ? examSubjects.find(item => `${EXAM_METRIC}${item.id}` === metric) || null : null;
   useEffect(() => { if (view === "compare" && isExam) setMetric("overall"); }, [view, isExam]);
   const subjectName = isSubject ? metric.slice(SUBJECT_METRIC.length) : "";
@@ -1405,10 +1411,6 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const trendOf = row => isSubject ? subjectGradesOf(row, subjectName).filter(item => item.value != null) : (row?.trendsBy?.[metric] || row?.trend || []);
   const classNo = isAdmin ? (pickedClass || classes[0] || "") : String(homeroomClass || "");
   const allClasses = isAdmin && classNo === "all";
-  // 학년 전체 학생 행을 한 번 만들어 '우리 반'과 '반 비교'가 같이 씁니다.
-  const allRows = useMemo(() => Object.entries(roster || {})
-    .map(([sid, info]) => { const row = buildStudentComparisonRow(String(sid), info, gdb); return row ? { ...row, classNumber: String(info?.class || row.classNumber || ""), number: info?.number ?? row.number } : null; })
-    .filter(Boolean), [roster, gdb]);
   // 개별 과목 목록: 학년 학생들의 학기별 과목을 모아 학기 순서로 묶습니다(수강자 3명 이상).
   const subjectOptions = useMemo(() => {
     const map = new Map();
@@ -1507,7 +1509,8 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const classExams = useMemo(() => buildClassExamCompare(examWorkspaces || {}, currentGrade, roster || {})
     // 지금 이 학년 학생들 시험만(작년 같은 학년 시험은 다른 학생들이라 뺌)
     .filter(exam => { const now = new Date(); const year = now.getMonth() + 1 >= 3 ? now.getFullYear() : now.getFullYear() - 1; return !exam.year || Number(exam.year) === year; })
-    .map(exam => ({ ...exam, chip: `exam:${exam.key}`, gradeSem: `${currentGrade}-${exam.semester}` })), [examWorkspaces, currentGrade, roster]);
+    .map(exam => ({ ...exam, chip: `exam:${exam.key}`, gradeSem: `${currentGrade}-${exam.semester}` }))
+    .filter(exam => !loadedSemesters.has(exam.gradeSem)), [examWorkspaces, currentGrade, roster, loadedSemesters]);
   const latestSem = subjectSemesters[subjectSemesters.length - 1] || "";
   const newerExam = classExams.find(exam => SEMESTER_KEYS.indexOf(exam.gradeSem) > SEMESTER_KEYS.indexOf(latestSem));
   const activeSubjectSem = subjectSemesters.includes(subjectSem) || classExams.some(exam => exam.chip === subjectSem) ? subjectSem : (newerExam?.chip || latestSem || classExams[0]?.chip || "");
