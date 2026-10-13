@@ -289,8 +289,10 @@ function teacherSubjectAssignments(teacher, grade = "", currentSemester = "sem1"
     .map(item => typeof item === "string" ? { subject: item, targets: "전체" } : item)
     .map(item => {
       const label = text(item?.subject || item?.name || item?.course);
-      const official = grade ? officialSubjectName(label, grade, item?.semester || currentSemester) : label;
-      return { ...item, label, subject: official || label, semester: item?.semester || "", targets: text(item?.targets || item?.classes || "전체") || "전체", token: normalizeSubjectName(official || label), aliasToken: normalizeSubjectName(label) };
+      // 담당 과목에 학년이 저장돼 있으면(1학년 과목 등) 그 학년 편제표로 이름을 맞춥니다.
+      const itemGrade = String(item?.grade || grade || "");
+      const official = itemGrade ? officialSubjectName(label, itemGrade, item?.semester || currentSemester) : label;
+      return { ...item, label, grade: itemGrade, subject: official || label, semester: item?.semester || "", targets: text(item?.targets || item?.classes || "전체") || "전체", token: normalizeSubjectName(official || label), aliasToken: normalizeSubjectName(label) };
     })
     .filter(item => item.token);
 }
@@ -411,7 +413,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   }, []);
 
   const assignedSubjects = useMemo(() => teacherSubjectAssignments(teacher, grade, semester), [teacher, grade, semester]);
-  const editableSubjectNames = useMemo(() => Array.from(new Set(assignedSubjects.map(item => text(item.subject)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [assignedSubjects]);
+  // 이 화면 학년의 담당 과목만(학년 없이 저장된 예전 과목은 그대로 포함)
+  const editableSubjectNames = useMemo(() => Array.from(new Set(assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade)).map(item => text(item.subject)).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [assignedSubjects, grade]);
   const allKnownSubjectNames = useMemo(() => Array.from(new Set((teacherAccounts || []).flatMap(account => teacherSubjectAssignments(account, grade, semester).map(item => text(item.subject))).filter(Boolean))).sort((a, b) => a.localeCompare(b, "ko")), [teacherAccounts, grade, semester]);
   // 저장된 옛 이름("미적")으로 연 작업도 내 과목으로 봅니다.
   const ownsSubjectName = name => { const token = normalizeSubjectName(name); return !!token && assignedSubjects.some(item => item.token === token || item.aliasToken === token); };
@@ -1524,7 +1527,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           {!!localWorkspaceList.length && <optgroup label="개인 임시 저장본">{localWorkspaceList.map(item => <option key={`local-${item.id}`} value={`local:${item.id}`}>{item.subject} · {item.year || "-"}학년도 {item.semester || "-"}학기 · 저장본</option>)}</optgroup>}
           {!!sharedWorkspaces.length && <optgroup label="학교 공동 저장본">{sharedWorkspaces.map(item => <option key={`shared-${item.id}`} value={`shared:${item.id}`}>{item.subject} · 마지막 수정 {item.lastEditedName || item.ownerName || item.ownerId} · {new Date(item.updatedAt || 0).toLocaleDateString("ko-KR")}</option>)}</optgroup>}
         </select>
-        {accessRole === "teacher" ? <SubjectPicker value={draftSubject} onChange={startNewWorkspace} mine={assignedSubjects} grade={grade} semester={semester} disabled={!editableSubjectNames.length} /> : accessRole === "admin" ? <SubjectPicker value={draftSubject} onChange={setDraftSubject} allowFree mine={assignedSubjects} curriculum={curriculumApplies(grade) ? curriculumSubjects(grade, semester) : []} others={allKnownSubjectNames} grade={grade} semester={semester} /> : <span style={ui.adminEditBadge}>열람 전용</span>}
+        {accessRole === "teacher" ? <SubjectPicker value={draftSubject} onChange={startNewWorkspace} mine={assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade))} grade={grade} semester={semester} disabled={!editableSubjectNames.length} /> : accessRole === "admin" ? <SubjectPicker value={draftSubject} onChange={setDraftSubject} allowFree mine={assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade))} curriculum={curriculumApplies(grade) ? curriculumSubjects(grade, semester) : []} others={allKnownSubjectNames} grade={grade} semester={semester} /> : <span style={ui.adminEditBadge}>열람 전용</span>}
         <button type="button" style={ui.secondaryButton} onClick={() => startNewWorkspace(draftSubject)} disabled={!canStartSelectedSubject}>{accessRole === "admin" ? "과목 작업 시작" : "담당과목 작업 시작"}</button>
         {selectedLocalId && <button type="button" style={ui.deleteWorkspaceButton} onClick={deleteLocalWorkspace}>임시본 삭제</button>}
         {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || (accessRole === "admin" ? "관리자" : "담당 교사")}</span>}{context && readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
