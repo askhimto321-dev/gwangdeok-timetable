@@ -1069,6 +1069,9 @@ const CLASS_GRADE_CSS = `
 .cg-split span{display:grid;gap:2px;padding:6px 10px;border-radius:10px}
 .cg-split b{font-size:24px;font-weight:800;line-height:1.1}.cg-split small{font-size:12px;font-weight:600}
 .cg-hist{padding:14px 20px 20px}
+.cg-hist-split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+.cg-hist-split>.cg-hist+.cg-hist{border-left:1px solid var(--kdn-line,#e3e6ec)}
+@media (max-width:900px){.cg-hist-split{grid-template-columns:1fr}.cg-hist-split>.cg-hist+.cg-hist{border-left:0;border-top:1px solid var(--kdn-line,#e3e6ec)}}
 .cg-sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 .cg-sec-h b{font-size:16px;font-weight:800;color:var(--kdn-ink,#1f2430)}
 .cg-sec-h span{font-size:12.5px;color:var(--kdn-muted,#5d6574)}
@@ -1509,10 +1512,13 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
       </div>
       {view === "class" && <>
         <ClassGradeKpis metricLabel={metricLabel} rows={rows} graded={graded} avg={avg} gradeMean={gradeMean} scale={scale} up={up} down={down} />
+        {/* 단일 과목은 교과 ZONE처럼 등급 분포 | 성취도 분포를 좌우로 나란히 */}
+        <div className={achievementInfo && graded.length > 0 ? "cg-hist-split" : undefined}>
         {graded.length > 0 && <ClassGradeHistogram metricLabel={metricLabel} bins={bins} counts={counts} total={graded.length} scale={scale} avg={avg}
           {...(integerGrades ? { labels: bins.map((_, i) => `${i + 1}등급`), title: `${metricLabel} 등급 분포`, note: "막대 = 등급별 학생 수 · 주황 글자 = 반 평균이 있는 등급" } : {})} />}
         {achievementInfo && <ClassGradeHistogram metricLabel={metricLabel} bins={achievementInfo.letters.map((_, i) => [i, i + 1])} counts={achievementInfo.counts} total={achievementInfo.total} scale={5} avg={null}
           labels={achievementInfo.letters} title={`${metricLabel} 성취도 분포`} note={`${SEMESTER_LABELS[achievementInfo.lastKey] || achievementInfo.lastKey} 기준 · 막대 = 성취도별 학생 수${achievementInfo.other ? ` · 그 외(P 등) ${achievementInfo.other}명` : ""}`} />}
+        </div>
       </>}
       {view === "compare" && !hasSemesterStats && <div className="cg-foot">아직 올라온 학기 성적이 없어요. 아래 정기시험 반 비교는 선생님 ZONE에 저장한 점수로 바로 보여요.</div>}
       {view === "compare" && hasSemesterStats && <ClassBandCompare metricLabel={metricLabel} classStats={sortedStats} sortKey={cmpSort} onSort={setCmpSort} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
