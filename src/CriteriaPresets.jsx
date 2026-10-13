@@ -7,6 +7,12 @@ import { readStorage, updateStorage } from "./storage.js";
 const LIMIT = 12;
 const keyFor = teacher => `kd_grade_criteria_presets_v1:${String(teacher?.id || teacher?.name || "shared")}`;
 const listOf = value => (value && Array.isArray(value.presets) ? value.presets : []);
+// 같은 기준인지 비교(이름·저장 시각 빼고 설정·비율만). 같은 기준을 또 저장하면 새로 늘리지 않습니다.
+const contentKey = preset => JSON.stringify([
+  preset.settings?.gradeSystem, preset.settings?.courseType, preset.settings?.achievementMode, preset.settings?.tieItemCount,
+  (preset.written || []).map(item => [item.title, Number(item.weight) || 0, Number(item.maxScore) || 0, item.split || null]),
+  (preset.areas || []).map(area => [area.name, Number(area.weight) || 0, Number(area.maxScore) || 0]),
+]);
 const summary = preset => [
   `${preset.settings?.gradeSystem || 5}등급제`,
   preset.settings?.courseType === "elective" ? "선택과목" : "공통과목",
@@ -27,11 +33,18 @@ export default function CriteriaPresets({ teacher, disabled = false, capture, ap
   }, [storageKey]);
 
   const save = async () => {
-    const label = (name.trim() || `기준 ${presets.length + 1}`).slice(0, 24);
+    const captured = capture();
+    const typed = name.trim().slice(0, 24);
+    const same = presets.find(item => contentKey(item) === contentKey(captured));
+    // 이름 없이 같은 기준을 다시 누르면 새 프리셋을 만들지 않습니다.
+    if (same && (!typed || typed === same.name)) { setMessage(`같은 기준이 이미 '${same.name}'으로 저장돼 있어요.`); return; }
+    let label = typed;
+    if (!label) { let i = presets.length + 1; while (presets.some(item => item.name === `기준 ${i}`)) i += 1; label = `기준 ${i}`; }
     setBusy(true); setMessage("");
-    const preset = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: label, savedAt: new Date().toISOString(), ...capture() };
+    const preset = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: label, savedAt: new Date().toISOString(), ...captured };
     const result = await updateStorage(storageKey, { presets: [] }, stored => {
-      const others = listOf(stored).filter(item => item.name !== label);
+      // 같은 이름이거나 같은 기준(이름만 바꿔 저장)이면 그 프리셋을 바꿉니다.
+      const others = listOf(stored).filter(item => item.name !== label && contentKey(item) !== contentKey(captured));
       if (others.length >= LIMIT) throw new Error(`산출 기준 프리셋은 ${LIMIT}개까지 저장할 수 있습니다. 먼저 하나를 삭제해주세요.`);
       return { ...(stored || {}), presets: [...others, preset], updatedAt: preset.savedAt };
     });
@@ -41,7 +54,7 @@ export default function CriteriaPresets({ teacher, disabled = false, capture, ap
   };
   const load = preset => {
     if (typeof window !== "undefined" && !window.confirm(`'${preset.name}' 기준을 불러올까요?\n등급·성취도 설정과 반영비율이 바뀝니다. 이름이 같은 시험·영역에 비율을 채우고, 아직 파일이 없는 항목은 '예정'으로 추가합니다.`)) return;
-    apply(preset); setMessage(`'${preset.name}' 기준을 불러왔습니다. 확인 후 '산출 기준 저장'을 눌러 주세요.`);
+    apply(preset); setMessage(`'${preset.name}' 기준을 불러왔습니다.`);
   };
   const remove = async preset => {
     if (typeof window !== "undefined" && !window.confirm(`프리셋 '${preset.name}'을 삭제할까요?`)) return;

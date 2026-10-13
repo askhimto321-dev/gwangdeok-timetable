@@ -431,9 +431,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const canStartSelectedSubject = canCreateWorkspace && (accessRole !== "admin" || !!text(draftSubject));
   const canEditSubject = subject => accessRole === "admin" || (accessRole === "teacher" && teacherHandlesSubject(teacher, subject, grade, semester));
   const sharedWorkspaces = useMemo(() => Object.values(db?.teacherGradeWorkspaces || {})
+    // 성적 권한으로 이 화면에 들어온 선생님은 그 학년 학교 공동본을 모두 열람합니다(수정은 담당 교사·관리자만).
     .filter(item => String(item?.grade || "") === String(grade))
-    .filter(item => canViewAllSubjects || item?.ownerId === teacher?.id || teacherHandlesSubject(teacher, item?.subject, grade, semester))
-    .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [db?.teacherGradeWorkspaces, grade, canViewAllSubjects, teacher]);
+    .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [db?.teacherGradeWorkspaces, grade]);
   const selectedShared = sharedWorkspaces.find(item => item.id === selectedSharedId) || null;
 
   useEffect(() => {
@@ -521,14 +521,17 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     return true;
   }), [managedWorkspaces, dataSubjectFilter, dataClassFilter]);
   const workspaceSelection = selectedLocalId ? `local:${selectedLocalId}` : selectedSharedId ? `shared:${selectedSharedId}` : "";
-  // 저장된 과목 작업 탭: 같은 작업(id)의 개인 임시본·학교 공동본을 한 탭으로 묶습니다. 최근 학기 먼저.
+  // 저장된 과목 작업 탭: 지금 화면 학년도·학기의 작업만, 같은 작업(id)의 개인 임시본·학교 공동본을 한 탭으로 묶습니다.
+  // 작업 탭은 관리자·그 과목 담당 교사에게만, 나머지 학교 공동본은 '조회'(결과 확인 바로 열기)로 보여 줍니다.
+  const inThisTerm = item => (!item?.semester || Number(item.semester) === currentSemesterNumber) && (!item?.year || Number(item.year) === currentAcademicYear());
   const workspaceTabs = useMemo(() => {
     const map = new Map();
     const entry = item => map.get(item.id) || { id: item.id, subject: item.subject, year: item.year, semester: item.semester, local: null, shared: null };
-    localWorkspaceList.forEach(item => { if (item?.id) map.set(item.id, { ...entry(item), local: item }); });
-    sharedWorkspaces.forEach(item => { if (item?.id) map.set(item.id, { ...entry(item), shared: item }); });
-    return [...map.values()].sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0) || (Number(b.semester) || 0) - (Number(a.semester) || 0) || String(a.subject || "").localeCompare(String(b.subject || ""), "ko"));
-  }, [localWorkspaceList, sharedWorkspaces]);
+    localWorkspaceList.forEach(item => { if (item?.id && inThisTerm(item) && canEditSubject(item.subject)) map.set(item.id, { ...entry(item), local: item }); });
+    sharedWorkspaces.forEach(item => { if (item?.id && inThisTerm(item) && canEditSubject(item.subject)) map.set(item.id, { ...entry(item), shared: item }); });
+    return [...map.values()].sort((a, b) => String(a.subject || "").localeCompare(String(b.subject || ""), "ko"));
+  }, [localWorkspaceList, sharedWorkspaces, currentSemesterNumber, accessRole, teacher, grade, semester]); // eslint-disable-line react-hooks/exhaustive-deps
+  const viewTabs = useMemo(() => sharedWorkspaces.filter(item => item?.id && inThisTerm(item) && !canEditSubject(item.subject)), [sharedWorkspaces, currentSemesterNumber, accessRole, teacher, grade, semester]); // eslint-disable-line react-hooks/exhaustive-deps
   const currentSnapshot = () => {
     const existing = db?.teacherGradeWorkspaces?.[workspaceId] || selectedShared || null;
     return {
@@ -734,6 +737,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setSelectedSharedId(id);
     setSelectedLocalId("");
     applyWorkspace(item);
+    // 담당이 아닌 과목은 조회만 하므로 결과 확인으로 바로 갑니다.
+    if (!canEditSubject(item.subject)) setCalcStep(3);
   };
   const startNewWorkspace = subjectOverride => {
     const fresh = defaultWorkspace();
@@ -808,19 +813,33 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       total: roundTo(uploadedWritten + planned + performanceWeight, 2),
     };
   }, [sortedWritten, plannedWritten, canonicalAreas]);
-  // 산출 기준 저장 여부: 저장할 때의 기준(비율·만점·등급·성취도·동점자)과 지금 기준이 같으면 '저장됨'.
-  const criteriaSignature = useMemo(() => JSON.stringify([
-    settings.gradeSystem, settings.courseType, settings.achievementMode, settings.achievementMode === "manual" ? settings.manualCuts : null, settings.tieItemCount,
-    (settings.plannedWritten || []).map(item => [item.title, Number(item.weight) || 0, item.maxScore]),
-    sortedWritten.map(item => [item.title, Number(item.weight) || 0, item.maxScore]),
-    canonicalAreas.map(area => [text(area.name), Number(area.weight) || 0, area.maxScore]),
-  ]), [settings.gradeSystem, settings.courseType, settings.achievementMode, settings.manualCuts, settings.tieItemCount, settings.plannedWritten, sortedWritten, canonicalAreas]);
+  // 산출 기준 저장 여부: 저장할 때의 기준(비율·만점·등급·성취도 방식·동점자)과 지금 기준이 같으면 '저장됨'.
+  // 추정분할 A~D 컷은 NEIS 확정 뒤 나중에 넣는 값이라 기준에서 뺍니다(컷을 넣거나 비워도 다시 저장할 필요 없음).
+  // 숫자는 Number로 맞춰, 공동본과 합칠 때 "30"/30처럼 형태만 달라져도 '바뀜'으로 보지 않게 합니다.
+  const criteriaSignature = useMemo(() => {
+    const n = value => (Number.isFinite(Number(value)) ? Number(value) : 0);
+    return JSON.stringify([
+      Number(settings.gradeSystem) || 5, settings.courseType || "", settings.achievementMode || "", Number(settings.tieItemCount) || 0,
+      (settings.plannedWritten || []).map(item => [text(item.title), n(item.weight), n(item.maxScore)]),
+      sortedWritten.map(item => [text(item.title), n(item.weight), n(item.maxScore)]),
+      canonicalAreas.map(area => [text(area.name), n(area.weight), n(area.maxScore)]),
+    ]);
+  }, [settings.gradeSystem, settings.courseType, settings.achievementMode, settings.tieItemCount, settings.plannedWritten, sortedWritten, canonicalAreas]);
   const criteriaSaved = !!settings.criteriaSavedSig && settings.criteriaSavedSig === criteriaSignature;
   const criteriaChanged = !!settings.criteriaSavedSig && !criteriaSaved;
   const weightsOk = Math.abs(weightTotal.total - 100) < 1e-9;
   // 결과 확인(3단계)으로 넘어가기 전 필수: 반영비율 100% · 산출 기준 저장 · 학교 공동 저장(수정 권한이 있을 때만)
   const gateRequired = !!context && canEditCurrentSubject;
   const gatePassed = !gateRequired || (weightsOk && criteriaSaved && (sharedHere || !persist));
+  // 한 번 기준을 저장한 작업은 이후 비율·만점을 고쳐도(합계 100%일 때) 잠시 뒤 기준을 자동으로 다시 저장합니다.
+  // 매번 '다시 저장'을 누르지 않아도 되고, 공동 저장된 과목은 자동 반영으로 같은 과목 선생님께도 전해집니다.
+  useEffect(() => {
+    if (!gateRequired || !settings.criteriaSavedSig || criteriaSaved || !weightsOk) return undefined;
+    const timer = window.setTimeout(() => {
+      setSettings(current => ({ ...current, criteriaSavedSig: criteriaSignature, criteriaSavedAt: new Date().toISOString(), criteriaSavedBy: teacher?.name || (accessRole === "admin" ? "관리자" : "") }));
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [gateRequired, settings.criteriaSavedSig, criteriaSaved, weightsOk, criteriaSignature]); // eslint-disable-line react-hooks/exhaustive-deps
   const gateRef = useRef(null);
   const jumpToGate = () => { setCalcStep(2); window.setTimeout(() => gateRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); };
   const goToStep = step => {
@@ -1546,7 +1565,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         {accessRole === "teacher" ? <SubjectPicker value={draftSubject} onChange={startNewWorkspace} mine={assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade))} grade={grade} semester={semester} disabled={!editableSubjectNames.length} /> : accessRole === "admin" ? <SubjectPicker value={draftSubject} onChange={setDraftSubject} allowFree mine={assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade))} curriculum={curriculumApplies(grade) ? curriculumSubjects(grade, semester) : []} others={allKnownSubjectNames} grade={grade} semester={semester} /> : <span style={ui.adminEditBadge}>열람 전용</span>}
         <button type="button" style={ui.secondaryButton} onClick={() => startNewWorkspace(draftSubject)} disabled={!canStartSelectedSubject}>{accessRole === "admin" ? "과목 작업 시작" : "담당과목 작업 시작"}</button>
         {workspaceTabs.length > 0 && <div className="tg-ws-tabs" role="tablist" aria-label="저장된 과목 작업">
-          <small className="tg-ws-tabs-label">저장된 과목 작업</small>
+          <small className="tg-ws-tabs-label">{currentSemesterNumber}학기 작업</small>
           {workspaceTabs.map(tab => {
             const on = tab.id === selectedLocalId || tab.id === selectedSharedId;
             const shared = tab.shared;
@@ -1562,6 +1581,18 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
                 {tab.local && <span className="tg-ws-badge is-local">개인<button type="button" data-kdn-bare aria-label={`${tab.subject} 개인 임시본 삭제`} title="개인 임시본 삭제" onClick={() => deleteLocalWorkspaceById(tab.local)}>×</button></span>}
                 {shared && <span className="tg-ws-badge is-shared">공동{canDeleteShared && <button type="button" data-kdn-bare aria-label={`${tab.subject} 학교 공동본 삭제`} title="학교 공동본 삭제(같은 과목 선생님 화면에서도 사라짐)" onClick={() => deleteSharedWorkspace(shared)}>×</button>}</span>}
               </span>
+            </div>;
+          })}
+        </div>}
+        {viewTabs.length > 0 && <div className="tg-ws-tabs is-view" role="tablist" aria-label="조회할 과목">
+          <small className="tg-ws-tabs-label">{currentSemesterNumber}학기 조회</small>
+          {viewTabs.map(item => {
+            const on = item.id === selectedSharedId;
+            return <div key={item.id} className={`tg-ws-tab${on ? " is-on" : ""}`} role="tab" aria-selected={on}>
+              <button type="button" data-kdn-bare className="tg-ws-open" onClick={() => loadWorkspaceSelection(`shared:${item.id}`)} title={`${item.subject} 결과 보기${item.lastEditedName ? ` · 마지막 수정 ${item.lastEditedName}` : ""}`}>
+                <b>{item.subject || "과목 미정"}</b>
+                <small>결과 보기{item.updatedAt ? ` · ${new Date(item.updatedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" })}` : ""}</small>
+              </button>
             </div>;
           })}
         </div>}
@@ -1634,7 +1665,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           <div className="kdn-cc-top">
             <div className="kdn-cc-head"><div><small>2단계 · 산출 기준</small><b>{!weightsOk ? "반영비율을 100%로 맞추세요" : !gateRequired ? "반영비율 100%" : criteriaSaved ? (sharedHere ? "기준 저장 · 공동 저장 완료" : "기준 저장됨 · 아래에서 학교 공동 저장") : "반영비율 100% · 아래에서 산출 기준 저장"}</b></div>
               <span className={`kdn-cc-total ${Math.abs(weightTotal.total - 100) < 1e-9 ? "is-ok" : "is-warn"}`}>비율 합계 {weightTotal.total}%{Math.abs(weightTotal.total - 100) < 1e-9 ? "" : ` · ${weightTotal.total < 100 ? `${+(100 - weightTotal.total).toFixed(2)}% 부족` : `${+(weightTotal.total - 100).toFixed(2)}% 초과`}`}</span>
-              {gateRequired && <span className={`kdn-cc-savestate ${criteriaSaved ? "is-ok" : criteriaChanged ? "is-warn" : ""}`}>{criteriaSaved ? `✓ 기준 저장됨${settings.criteriaSavedAt ? ` ${clockOf(settings.criteriaSavedAt)}` : ""}` : criteriaChanged ? "기준 바뀜 · 다시 저장" : "기준 미저장"}</span>}</div>
+              {gateRequired && <span className={`kdn-cc-savestate ${criteriaSaved ? "is-ok" : criteriaChanged ? "is-warn" : ""}`}>{criteriaSaved ? `✓ 기준 저장됨${settings.criteriaSavedAt ? ` ${clockOf(settings.criteriaSavedAt)}` : ""}` : criteriaChanged ? (weightsOk ? "기준 바뀜 · 자동 저장 중" : "기준 바뀜 · 비율 100% 맞추기") : "기준 미저장"}</span>}</div>
             <div className="kdn-cc-bar">{[...sortedWritten.map(item => ({ key: item.id, label: item.title, weight: Number(item.weight) || 0, kind: "w" })), ...plannedWritten.map(item => ({ key: item.id, label: item.title || "예정 시험", weight: Number(item.weight) || 0, kind: "w" })), ...(uploadedAreas.length ? uploadedAreas : plannedPerformance).map(area => ({ key: area.id, label: `수행${area.order + 1}`, weight: Number(area.weight) || 0, kind: "p" }))].filter(seg => seg.weight > 0).map((seg, index, list) => <i key={seg.key} className={`is-${seg.kind} n${list.slice(0, index).filter(other => other.kind === seg.kind).length % 3}`} style={{ flex: seg.weight }} title={`${seg.label} ${seg.weight}%`}>{seg.weight >= 8 ? `${seg.label} ${seg.weight}%` : `${seg.weight}%`}</i>)}{weightTotal.total < 100 && <i className="is-empty" style={{ flex: 100 - weightTotal.total }}>미배정 {+(100 - weightTotal.total).toFixed(2)}%</i>}</div>
           </div>
           <div className="kdn-cc-cols">
@@ -1696,7 +1727,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           {gateRequired && <div className="kdn-gate-head"><b>결과 확인 전 꼭 저장</b><span>순서대로 누르면 다음 단계가 열려요{gatePassed ? " · 모두 완료 ✓" : ""}</span></div>}
           {gateRequired && <ol className="kdn-gate-steps" aria-label="결과 확인 전 저장 단계">
             <li className={weightsOk ? "is-done" : "is-todo"}><i>{weightsOk ? "✓" : "1"}</i><div><b>반영비율 합계 100%</b><small>{weightsOk ? "자동 확인 · 맞음" : `지금 ${weightTotal.total}% · 위에서 ${weightTotal.total < 100 ? "더 채우기" : "줄이기"}`}</small></div></li>
-            <li className={`is-criteria ${criteriaSaved ? "is-done" : weightsOk ? "is-now" : "is-todo"}`}><i>{criteriaSaved ? "✓" : "2"}</i><div><b>산출 기준 저장</b><small>{criteriaSaved ? `저장됨 ${clockOf(settings.criteriaSavedAt)}${settings.criteriaSavedBy ? ` · ${settings.criteriaSavedBy}` : ""}` : criteriaChanged ? "저장 뒤 기준이 바뀌었어요" : "비율·만점·성취도 기준을 확정"}</small></div>
+            <li className={`is-criteria ${criteriaSaved ? "is-done" : weightsOk ? "is-now" : "is-todo"}`}><i>{criteriaSaved ? "✓" : "2"}</i><div><b>산출 기준 저장</b><small>{criteriaSaved ? `저장됨 ${clockOf(settings.criteriaSavedAt)}${settings.criteriaSavedBy ? ` · ${settings.criteriaSavedBy}` : ""}` : criteriaChanged ? (weightsOk ? "바뀐 기준을 자동으로 다시 저장해요" : "비율 합계 100%가 되면 자동으로 다시 저장해요") : settings.achievementMode === "manual" ? "추정분할 A~D 컷은 나중에 넣어도 돼요" : "비율·만점·성취도 기준을 확정"}</small></div>
               <button type="button" onClick={saveCriteriaSettings} disabled={!weightsOk || criteriaSaving || criteriaSaved}><Save size={14} />{criteriaSaving ? "저장 중" : criteriaSaved ? "저장됨" : criteriaChanged ? "다시 저장" : "기준 저장"}</button></li>
             {persist && <li className={`is-shared ${sharedHere ? "is-done" : criteriaSaved ? "is-now" : "is-todo"}`}><i>{sharedHere ? "✓" : "3"}</i><div><b>학교 공동 저장</b><small>{sharedHere ? `같은 과목 선생님과 공유 중 · 자동 반영${autoSave.shared ? ` ${clockOf(autoSave.shared)}` : ""}` : "같은 과목 선생님과 공유 · 이후 자동 반영"}</small></div>
               <button type="button" onClick={publishWorkspace} disabled={!criteriaSaved || sharedHere || autoSave.syncing}><Check size={14} />{sharedHere ? "공유 중" : autoSave.syncing ? "저장 중" : "공동 저장"}</button></li>}
@@ -1926,7 +1957,7 @@ function ManualCutInputs({ settings, setSettings, disabled = false }) {
   const fields = [
     ["ab", "A/B"], ["bc", "B/C"], ["cd", "C/D"], ["de", "D/E"], ...(settings.courseType === "common" ? [["ei", "E/미도달"]] : []),
   ];
-  return <div><div style={ui.manualCutNote}>추정분할점수는 자동 산출하지 않습니다. NEIS에서 확정된 분할점수를 직접 입력하세요.</div><div style={ui.cutGrid}>{fields.map(([key, label]) => <label key={key}><span>{label}</span><input type="number" step="0.01" value={settings.manualCuts?.[key] ?? ""} disabled={disabled} onChange={event => setSettings(current => ({ ...current, manualCuts: { ...current.manualCuts, [key]: event.target.value } }))} /></label>)}</div></div>;
+  return <div><div style={ui.manualCutNote}>NEIS 추정분할점수를 입력하세요. 아직 없으면 비워 두고 결과를 먼저 볼 수 있어요(성취도는 '-').</div><div style={ui.cutGrid}>{fields.map(([key, label]) => <label key={key}><span>{label}</span><input type="number" step="0.01" value={settings.manualCuts?.[key] ?? ""} disabled={disabled} onChange={event => setSettings(current => ({ ...current, manualCuts: { ...current.manualCuts, [key]: event.target.value } }))} /></label>)}</div></div>;
 }
 function EmptyLine({ children }) { return <div style={ui.emptyLine}>{children}</div>; }
 function MetricCard({ label, value, caption, danger }) { return <div className="teacher-grade-metric-card" style={{ ...ui.metricCard, ...(danger ? ui.metricDanger : {}) }}><span>{label}</span><strong>{value}</strong><small>{caption}</small></div>; }
@@ -2003,17 +2034,19 @@ const gradeAnalyzerCss = `
 .teacher-grade-analyzer .planned-written-row>span:last-child,.teacher-grade-analyzer .planned-performance-row>span:last-child{width:100%;justify-content:flex-end;flex-wrap:wrap}
 .teacher-grade-analyzer .planned-written-row input[type="number"],.teacher-grade-analyzer .planned-performance-row input[type="number"]{width:72px}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child{display:grid;gap:3px;min-width:210px;flex:1 1 230px}
-.teacher-grade-analyzer .tg-ws-tabs{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding-top:9px;border-top:1px dashed #d6e0ec}
-.teacher-grade-analyzer .tg-ws-tabs-label{font-size:11px;font-weight:850;color:#738196;margin-right:2px}
-.teacher-grade-analyzer .tg-ws-tab{display:inline-flex;align-items:center;gap:6px;padding:5px 7px 5px 4px;border:1px solid #d3deeb;border-radius:12px;background:#fff}
-.teacher-grade-analyzer .tg-ws-tab.is-on{border-color:#d4541a;box-shadow:0 0 0 2px rgba(212,84,26,.15);background:#fff7f2}
+.teacher-grade-analyzer .tg-ws-tabs{flex:1 1 100%;display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding-top:9px;border-top:1px dashed var(--kdn-line,#d6e0ec)}
+.teacher-grade-analyzer .tg-ws-tabs-label{min-width:56px;font-size:11px;font-weight:850;color:var(--kdn-muted,#738196);margin-right:2px}
+.teacher-grade-analyzer .tg-ws-tab{display:inline-flex;align-items:center;gap:6px;min-height:42px;padding:4px 7px 4px 4px;border:1px solid var(--kdn-control-line,#d3deeb);border-radius:12px;background:var(--kdn-surface,#fff)}
+.teacher-grade-analyzer .tg-ws-tab.is-on{border-color:var(--kdn-accent,#d4541a);box-shadow:0 0 0 2px color-mix(in srgb,var(--kdn-accent,#d4541a) 18%,transparent);background:var(--kdn-accent-soft,#fff7f2)}
+.teacher-grade-analyzer .tg-ws-tabs.is-view .tg-ws-tab{background:var(--kdn-surface-2,#f6f8fb);border-style:dashed}
+.teacher-grade-analyzer .tg-ws-tabs.is-view .tg-ws-tab.is-on{border-style:solid;background:var(--kdn-accent-soft,#fff7f2)}
 .teacher-grade-analyzer .tg-ws-open{display:grid;gap:1px;padding:3px 8px;border:0;background:transparent;text-align:left;cursor:pointer;font:inherit}
-.teacher-grade-analyzer .tg-ws-open b{font-size:13px;font-weight:900;color:#24364f;white-space:nowrap}
-.teacher-grade-analyzer .tg-ws-open small{font-size:10.5px;font-weight:700;color:#7a8698;white-space:nowrap}
+.teacher-grade-analyzer .tg-ws-open b{font-size:13px;font-weight:900;color:var(--kdn-ink,#24364f);white-space:nowrap}
+.teacher-grade-analyzer .tg-ws-open small{font-size:10.5px;font-weight:700;color:var(--kdn-muted,#7a8698);white-space:nowrap}
 .teacher-grade-analyzer .tg-ws-badges{display:inline-flex;gap:4px}
 .teacher-grade-analyzer .tg-ws-badge{display:inline-flex;align-items:center;gap:2px;height:22px;padding:0 4px 0 7px;border-radius:99px;font-size:10.5px;font-weight:850}
-.teacher-grade-analyzer .tg-ws-badge.is-local{background:#fdf0e3;color:#a1561c}
-.teacher-grade-analyzer .tg-ws-badge.is-shared{background:#e6f0fb;color:#2d5f96}
+.teacher-grade-analyzer .tg-ws-badge.is-local{background:color-mix(in srgb,#e08a3c 16%,transparent);color:#b0601f}
+.teacher-grade-analyzer .tg-ws-badge.is-shared{background:color-mix(in srgb,#3b78c0 16%,transparent);color:#3a6ea8}
 .teacher-grade-analyzer .tg-ws-badge button{width:16px;height:16px;display:grid;place-items:center;border:0;border-radius:99px;background:transparent;color:inherit;font-size:13px;line-height:1;cursor:pointer;opacity:.6}
 .teacher-grade-analyzer .tg-ws-badge button:hover{opacity:1;background:rgba(0,0,0,.08)}
 .teacher-grade-analyzer .teacher-grade-workspace-browser>div:first-child b{font-size:13px;color:#2e435e}
