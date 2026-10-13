@@ -180,6 +180,8 @@ function parsePerformanceWorkbook(XLSX, workbook, fileName = "") {
     uploadedAt: new Date().toISOString(),
   };
 }
+// 학년도: 3월부터 새 학년도(1·2월은 전 학년도)
+function currentAcademicYear(date = new Date()) { return date.getMonth() + 1 >= 3 ? date.getFullYear() : date.getFullYear() - 1; }
 function contextKey(item) {
   return [item?.year, item?.semester, item?.grade, normalizeToken(item?.subject)].join(":");
 }
@@ -225,7 +227,8 @@ function defaultWorkspace() {
       tieItemCount: 3,
       plannedWritten: [],
       plannedPerformance: [],
-      workspaceMeta: { year: new Date().getFullYear(), semester: 1, grade: null, subject: "" },
+      // 학년도·학기는 비워 두고 화면에서 고른 학기(사이트 상단 학기)를 씁니다. 예전에는 1학기로 고정돼 2학기에도 1학기 작업이 만들어졌습니다.
+      workspaceMeta: { year: null, semester: null, grade: null, subject: "" },
     },
     tieScores: {},
     studentOverrides: {},
@@ -446,8 +449,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setSettings(current => {
       const nextMeta = {
         ...(current.workspaceMeta || {}),
-        year: asNumber(current.workspaceMeta?.year) || new Date().getFullYear(),
-        semester: asNumber(current.workspaceMeta?.semester) || (semester === "sem2" ? 2 : 1),
+        // 파일이 들어온 작업은 파일(written/performance)의 학기가 기준이라, 메타는 화면 학기를 따라가게 둡니다.
+        year: currentAcademicYear(),
+        semester: semester === "sem2" ? 2 : 1,
         grade: Number(grade),
         subject: draftSubject || current.workspaceMeta?.subject || "",
       };
@@ -458,9 +462,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   useEffect(() => {
     if (!selectedLocalId || !localWorkspaces[selectedLocalId]) return;
     const saveContext = written[0] || performance[0] || (draftSubject ? {
-      year: asNumber(settings.workspaceMeta?.year) || new Date().getFullYear(),
-      semester: asNumber(settings.workspaceMeta?.semester) || (semester === "sem2" ? 2 : 1),
-      grade: asNumber(settings.workspaceMeta?.grade) || Number(grade),
+      year: currentAcademicYear(),
+      semester: semester === "sem2" ? 2 : 1,
+      grade: Number(grade),
       subject: draftSubject,
     } : null);
     setLocalWorkspaces(current => ({
@@ -488,9 +492,10 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const canonicalAreas = uploadedAreas.length ? uploadedAreas : plannedPerformance;
   const currentSemesterNumber = semester === "sem2" ? 2 : 1;
   const manualContext = draftSubject ? {
-    year: asNumber(settings.workspaceMeta?.year) || new Date().getFullYear(),
-    semester: asNumber(settings.workspaceMeta?.semester) || currentSemesterNumber,
-    grade: asNumber(settings.workspaceMeta?.grade) || Number(grade),
+    // 성적 파일이 아직 없는 작업은 지금 화면의 학년도·학기·학년을 따릅니다(파일을 올리면 파일 기준으로 바뀜).
+    year: currentAcademicYear(),
+    semester: currentSemesterNumber,
+    grade: Number(grade),
     subject: draftSubject,
   } : null;
   const context = written[0] || performance[0] || manualContext;
@@ -730,7 +735,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       : draftSubject);
     setDraftSubject(nextSubject);
     fresh.settings.workspaceMeta = {
-      year: new Date().getFullYear(),
+      year: currentAcademicYear(),
       semester: semester === "sem2" ? 2 : 1,
       grade: Number(grade),
       subject: nextSubject,
