@@ -5772,7 +5772,12 @@ function RegisterUpload({ scopeKey, db, persist, showToast, rosterCount }) {
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const sheets = wb.SheetNames.map(name => ({ name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: null }) }));
       const result = parseRegisterSheets(sheets, gradeKey);
-      if (!result.count) { showToast(result.sheetsUsed ? `${gradeKey}학년 학생을 찾지 못했습니다.${result.otherGrade ? ` (다른 학년 ${result.otherGrade}명)` : ""}` : "'성명(이름)'과 '학번' 또는 '반·번호' 머리글을 찾지 못했습니다.", "error"); return; }
+      if (!result.count) {
+        showToast(result.serialNumber
+          ? "이 파일의 '구분(번호)'은 반별 출석번호가 아니라 전체 연번이라 학번을 만들 수 없어요. 반배정 순서는 실제 번호와 달라 추정하지 않습니다. 학번이 들어 있는 파일(성적·모의고사 엑셀 등)을 올려 주세요."
+          : result.sheetsUsed ? `${gradeKey}학년 학생을 찾지 못했습니다.${result.otherGrade ? ` (다른 학년 ${result.otherGrade}명)` : ""}` : "'성명(이름)'과 '학번' 또는 '반·번호' 머리글을 찾지 못했습니다.", "error");
+        return;
+      }
       setPreview({ ...result, fileName: file.name });
     } catch (e) { showToast(`실패했습니다. (${e.message})`, "error"); } finally { setBusy(false); if (fileRef.current) fileRef.current.value = ""; }
   };
@@ -5792,7 +5797,7 @@ function RegisterUpload({ scopeKey, db, persist, showToast, rosterCount }) {
       <Users size={20} color="#8a8578" />
       <div style={{ flex: 1, minWidth: 220 }}>
         <div style={{ fontWeight: 700 }}>학적(학생 명렬표) 엑셀로 명단 만들기</div>
-        <div style={{ fontSize: 12.5, color: "#8a8578", marginTop: 3 }}>이동수업이 없는 학년(1학년)용 · 머리글 '성명(이름)' + '학번' 또는 '반·번호' · 전출·자퇴 표시는 빼고 반영</div>
+        <div style={{ fontSize: 12.5, color: "#8a8578", marginTop: 3 }}>이동수업이 없는 학년(1학년)용 · '성명(이름)' + '학번'(또는 반별 '반·번호') 열이 있는 엑셀 · 학번이 든 성적·모의고사 파일도 됩니다 · 전출·자퇴 표시는 빼고 반영</div>
       </div>
       <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
       <button style={styles.uploadBtn} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />}{busy ? "분석 중…" : "학적 파일 선택"}</button>

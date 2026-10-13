@@ -9,7 +9,7 @@ const HEADERS = {
   name: ["성명", "이름", "학생명", "학생이름"],
   grade: ["학년"],
   class: ["반", "학급"],
-  number: ["번호", "출석번호", "번"],
+  number: ["번호", "출석번호", "번", "구분"],
   gender: ["성별"],
   status: ["학적상태", "학적변동", "상태", "비고"],
 };
@@ -23,8 +23,8 @@ function findHeader(rows) {
     const row = (rows[r] || []).map(clean);
     const col = {};
     Object.entries(HEADERS).forEach(([key, names]) => {
-      const index = row.findIndex(cell => names.includes(cell));
-      if (index >= 0) col[key] = index;
+      // 이름 목록 순서가 우선순위('구분'은 '번호'가 없을 때만 번호로 씀)
+      for (const want of names) { const index = row.indexOf(want); if (index >= 0) { col[key] = index; break; } }
     });
     if (col.name != null && (col.sid != null || (col.class != null && col.number != null))) return { at: r, col };
   }
@@ -38,6 +38,7 @@ export function parseRegisterSheets(sheets = [], grade = "") {
   const skipped = [];
   let sheetsUsed = 0;
   let otherGrade = 0;
+  let serialNumber = false;
   const left = /전출|자퇴|퇴학|제적|유학|면제/;
   sheets.forEach(sheet => {
     const rows = sheet.rows || [];
@@ -45,6 +46,12 @@ export function parseRegisterSheets(sheets = [], grade = "") {
     if (!header) return;
     sheetsUsed += 1;
     const { at, col } = header;
+    // '구분'·'번호'가 반마다 다시 1부터 시작하지 않는 연번(1~263)이면 출석번호가 아니므로 쓰지 않습니다.
+    // (반배정 명단의 순서는 실제 NEIS 번호와 달라, 추정하면 다른 학생 성적이 연결될 수 있습니다.)
+    if (col.number != null) {
+      const values = rows.slice(at + 1).map(row => toInt((row || [])[col.number])).filter(value => value != null);
+      if (values.length && Math.max(...values) > 60) { serialNumber = true; delete col.number; }
+    }
     for (let r = at + 1; r < rows.length; r++) {
       const row = rows[r] || [];
       const name = String(row[col.name] ?? "").trim();
@@ -58,7 +65,7 @@ export function parseRegisterSheets(sheets = [], grade = "") {
         const g = rowGrade ?? toInt(grade);
         if (g != null) sid = `${g}${String(classNo).padStart(2, "0")}${String(number).padStart(2, "0")}`;
       }
-      if (!/^\d{5}$/.test(sid)) { skipped.push(`${name}: 학번을 만들 수 없음`); continue; }
+      if (!/^\d{5}$/.test(sid)) { skipped.push(`${name}: 학번·번호 없음`); continue; }
       if (grade && sid.charAt(0) !== String(grade)) { otherGrade += 1; continue; }
       roster[sid] = {
         name,
@@ -68,5 +75,5 @@ export function parseRegisterSheets(sheets = [], grade = "") {
       };
     }
   });
-  return { roster, count: Object.keys(roster).length, sheetsUsed, skipped, otherGrade };
+  return { roster, count: Object.keys(roster).length, sheetsUsed, skipped, otherGrade, serialNumber };
 }
