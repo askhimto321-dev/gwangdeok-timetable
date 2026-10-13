@@ -1987,6 +1987,8 @@ export default function App() {
       {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
         allowedGrades={workspaceAllowedGrades}
+        grade={grade}
+        onGradeChange={setGrade}
         selectedSid={selectedStudentSid}
         query={selectedStudentQuery}
         onQueryChange={updateSelectedStudentQuery}
@@ -2481,6 +2483,8 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
 function StaffStudentWorkspaceBar({
   allRosters,
   allowedGrades,
+  grade = "",
+  onGradeChange,
   selectedSid,
   query,
   onQueryChange,
@@ -2560,6 +2564,12 @@ function StaffStudentWorkspaceBar({
     return <div className="no-print kdn-work-bar" style={newBar.wrap}>
       <div style={newBar.inner}>
         <div style={newBar.topRow}>
+          {/* 학년 선택: 반별 성적·모의고사 분석·학생 비교 등 학년 단위 화면이 이 학년을 봅니다. */}
+          {onGradeChange && (allowedGrades || []).length > 0 && <div className="kdn-grade-pick" role="group" aria-label="학년 선택" style={newBar.gradePick}>
+            <span style={newBar.gradePickLabel}>학년</span>
+            {GRADES.filter(g => (allowedGrades || []).map(String).includes(g)).map(g => <button key={g} type="button" data-kdn-bare aria-pressed={String(grade) === g} onClick={() => onGradeChange(g)}
+              style={{ ...newBar.gradePickBtn, ...(String(grade) === g ? newBar.gradePickOn : {}) }}>{g}학년</button>)}
+          </div>}
           <div style={newBar.search}>
             <Search size={18} color="currentColor" />
             <input id="kdn-student-search" ref={searchInputRef} value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => setDraftQuery(event.target.value)} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }}
@@ -2705,6 +2715,10 @@ const newBar = {
   wrap: { position: "sticky", top: 68, zIndex: 35, background: "var(--kdn-bg)", borderBottom: "1px solid var(--kdn-line)" },
   inner: { maxWidth: 1240, margin: "0 auto", padding: "14px 24px 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 10 },
   topRow: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" },
+  gradePick: { display: "inline-flex", alignItems: "center", gap: 4, minHeight: 48, padding: "0 6px 0 12px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)" },
+  gradePickLabel: { fontSize: 12.5, fontWeight: 800, color: "var(--kdn-muted)", marginRight: 4 },
+  gradePickBtn: { height: 36, padding: "0 12px", borderRadius: 10, border: 0, background: "transparent", color: "var(--kdn-ink-soft)", font: "inherit", fontSize: 14, fontWeight: 800, cursor: "pointer" },
+  gradePickOn: { background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)" },
   search: { position: "relative", flex: "1 1 340px", maxWidth: 480, display: "flex", alignItems: "center", gap: 10, minHeight: 48, padding: "0 12px 0 16px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", color: "var(--kdn-muted)" },
   input: { flex: 1, minWidth: 0, border: 0, outline: "none", background: "transparent", color: "var(--kdn-ink)", fontSize: 16, fontWeight: 600 },
   kbd: { minWidth: 24, height: 24, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 7, border: "1px solid var(--kdn-line)", fontSize: 13, fontWeight: 800, color: "var(--kdn-muted)", fontFamily: "inherit" },
