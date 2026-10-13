@@ -1814,12 +1814,14 @@ function AchievementDonut({ rows, total, mode, settings }) {
   const colors=["#3568a3","#6c7fba","#7b69a8","#d59b49","#d87362","#9b4b43"];
   let cursor=0;
   const stops=rows.map((item,index)=>{const start=cursor;const size=total?item.count/total*100:0;cursor+=size;return `${colors[index%colors.length]} ${start}% ${cursor}%`});
-  const background=total?`conic-gradient(${stops.join(",")})`:"#edf1f5";
+  // 성취도가 정해진 학생이 없으면(추정분할 컷 미입력 등) 회색 원 + 안내. 일부만 정해졌으면 나머지는 회색으로 남깁니다.
+  const assigned=rows.reduce((sum,item)=>sum+(Number(item.count)||0),0);
+  const background=total&&assigned?`conic-gradient(${[...stops,`#edf1f5 ${cursor}% 100%`].join(",")})`:"#edf1f5";
   const cuts=mode==="fixed"
     ? (settings?.courseType==="common" ? [["A","90 이상"],["B","80 이상"],["C","70 이상"],["D","60 이상"],["E","40 이상"],["미도달","40 미만"]] : [["A","90 이상"],["B","80 이상"],["C","70 이상"],["D","60 이상"],["E","60 미만"]])
     : [["A/B",settings?.manualCuts?.ab],["B/C",settings?.manualCuts?.bc],["C/D",settings?.manualCuts?.cd],["D/E",settings?.manualCuts?.de],...(settings?.courseType==="common"?[["E/미도달",settings?.manualCuts?.ei]]:[])].map(([label,value])=>[label,value!==""&&value!=null?`${value}점`:"미입력"]);
   return <div className="achievement-donut-shell">
-    <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"추정분할"}</span></div></div><div className="achievement-donut-legend">{rows.map((item,index)=>{const percent=total?item.count/total*100:0;return <div key={item.label}><i style={{background:colors[index%colors.length]}}/><span className="achievement-legend-label">{item.label}</span><b>{item.count}명</b><small>{percent.toFixed(1)}%</small></div>})}</div></div>
+    <div className="achievement-donut-layout"><div className="achievement-donut" style={{background}}><div><b>{total}명</b><span>{mode==="fixed"?"고정분할":"추정분할"}</span>{total>0&&!assigned&&<small style={{display:"block",marginTop:3,fontSize:11,fontWeight:800,color:"#b45309"}}>성취도 기준 입력 필요</small>}</div></div><div className="achievement-donut-legend">{rows.map((item,index)=>{const percent=total?item.count/total*100:0;return <div key={item.label}><i style={{background:colors[index%colors.length]}}/><span className="achievement-legend-label">{item.label}</span><b>{item.count}명</b><small>{percent.toFixed(1)}%</small></div>})}</div></div>
     <div className="achievement-cut-guide"><strong>성취도 기준</strong><div>{cuts.map(([label,value])=><span key={label}><b>{label}</b><small>{value}</small></span>)}</div></div>
   </div>;
 }
