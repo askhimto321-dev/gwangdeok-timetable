@@ -3699,7 +3699,6 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
   if (isNewUi() && !Number(value.total || 0)) {
     return <div className="susi-beta-school-trend kdn-trend-empty" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "10px 18px", borderTop: "1px solid var(--kdn-line)", fontSize: 14, color: "var(--kdn-muted)" }}>
       <span><b style={{ color: "var(--kdn-ink-soft)", fontWeight: 800 }}>광덕고 별도 사례</b> · 2024–2026 연결 사례 없음</span>
-      {onOpenCases && <button type="button" onClick={() => onOpenCases(university, department, "")} style={{ border: 0, background: "transparent", color: "var(--kdn-accent-text)", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>광덕고 대입 결과 ›</button>}
     </div>;
   }
   const visibleTypes = value.detailTypes?.slice(0, compact ? 4 : 8) || [];
@@ -3729,7 +3728,7 @@ function SupportTrendPanel({ trend, compact = false, university = "", department
       {hiddenCount > 0 && <em style={ui.schoolTrendMore}>외 {hiddenCount}개 세부전형은 광덕고 대입 결과 탭에서 확인할 수 있습니다.</em>}
     </div>
     <div style={ui.schoolTrendAction}>
-      {onOpenCases ? <button type="button" style={ui.schoolTrendOpenButton} onClick={() => onOpenCases(university, department, "")}>광덕고 대입 결과에서 전체 보기 ›</button> : <span>교사용 ‘2024–2026 광덕고 대입 결과’ 탭에서 전체 사례를 확인합니다.</span>}
+      {onOpenCases ? <button type="button" style={ui.schoolTrendOpenButton} onClick={() => onOpenCases(university, "", "")}>광덕고 대입 결과에서 전체 보기 ›</button> : <span>교사용 ‘2024–2026 광덕고 대입 결과’ 탭에서 전체 사례를 확인합니다.</span>}
     </div>
   </div>;
 }
@@ -3800,7 +3799,8 @@ function NaviRowDetail({ row, minimums = [], minimumEvaluations = [], minimumImp
     <div className="kdn-nrd-foot">
       <span className="school">{school ? <>광덕고 지원 <b>{school.total}</b> → 합격 <b className="ok">{school.accepted}</b>{school.rate != null && <small>{school.rate}%</small>}</> : <small>광덕고 지원 사례 없음</small>}</span>
       {onOpenCard && <button type="button" className="ghost" onClick={onOpenCard}>상세 카드로 보기 ›</button>}
-      {onOpenCases && <button type="button" onClick={() => onOpenCases(university, unit2027, "")}>광덕고 대입결과 ›</button>}
+      {/* 2027 모집단위명은 광덕고 자료(과거 학과명)와 달라 검색이 비기 쉬워, 그 대학의 광덕고 결과 화면으로 엽니다. */}
+      {onOpenCases && school && <button type="button" onClick={() => onOpenCases(university, "", "")}>광덕고 대입결과 ›</button>}
     </div>
   </div>;
 }
@@ -3843,7 +3843,7 @@ export function NaviResultTable({ rows = [], convertedGrade, cutoffBasis = "70",
         return <React.Fragment key={key}>
           <tr className="kdn-nrt-row" style={{ borderTop: newGroup ? "2px solid var(--kdn-control-line)" : "1px dashed var(--kdn-line)", background: open ? "var(--kdn-accent-soft)" : "transparent" }}>
             <td style={{ padding: "10px 8px 10px 16px" }}><button type="button" aria-label={favorite ? `${university} 관심 해제` : `${university} 관심 저장`} aria-pressed={!!favorite} disabled={!favoriteEnabled} onClick={() => onToggleFavorite?.(favoriteItem)} style={{ width: 36, height: 36, border: 0, borderRadius: 10, background: "transparent", color: favorite ? "#e0a000" : "var(--kdn-muted)", cursor: favoriteEnabled ? "pointer" : "default", opacity: favoriteEnabled ? 1 : .45 }}><Star size={17} fill={favorite ? "currentColor" : "none"} /></button></td>
-            <td style={{ padding: "10px" }}><span style={{ display: "grid", gap: 2 }}>{newGroup ? <b style={{ fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)" }}>{university}</b> : <small style={{ fontSize: 12, color: "var(--kdn-muted)" }}>└ {university}</small>}<span style={{ color: "var(--kdn-ink)", fontWeight: 700, fontSize: 15 }}>{unit2027}</span></span></td>
+            <td style={{ padding: "10px" }}><span style={{ display: "grid", gap: 2 }}><b style={{ fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)" }}>{university}</b><span style={{ color: "var(--kdn-ink)", fontWeight: 700, fontSize: 15 }}>{unit2027}</span></span></td>
             <td style={{ padding: "10px", color: "var(--kdn-ink-soft)" }}>{[region, field].filter(Boolean).join(" · ")}</td>
             <td style={{ padding: "10px", textAlign: "center", whiteSpace: "nowrap", fontSize: 13.5, color: "var(--kdn-ink-soft)" }}>교과 <b style={{ color: "var(--kdn-ink)" }}>{teaching.length}</b> · 종합 <b style={{ color: "var(--kdn-ink)" }}>{holistic.length}</b></td>
             <td style={{ padding: "10px" }}>{primary ? <span style={{ display: "grid", gap: 1, justifyItems: "center", textAlign: "center" }}><span style={{ fontSize: 12.5, color: "var(--kdn-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 170 }}>{primary.kind} {primary.name}</span><span style={{ display: "inline-grid", gridTemplateColumns: "auto auto", alignItems: "baseline", gap: 8 }}><b style={{ fontSize: 16, fontWeight: 800, color: "var(--kdn-ink)", fontVariantNumeric: "tabular-nums" }}>{primary.cut.toFixed(2)}</b>{primary.gap != null && <span style={{ fontSize: 13.5, fontWeight: 800, color: primary.gap >= 0 ? "#15803d" : "#b91c1c", whiteSpace: "nowrap" }}>{Math.abs(primary.gap).toFixed(2)} {primary.gap >= 0 ? "여유" : "부족"}</span>}</span></span> : <span style={{ color: "var(--kdn-muted)" }}>컷 없음</span>}</td>
