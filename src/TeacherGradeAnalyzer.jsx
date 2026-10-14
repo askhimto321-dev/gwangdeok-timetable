@@ -362,7 +362,7 @@ function defaultMinimumSettings(settings, totalWeight = 0) {
   };
 }
 
-export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], roster = {}, grade = "2", semester = "sem1", showToast, db = {}, persist, accessRole = "teacher", homeroomClass = "", canViewAllSubjects = false }) {
+export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], roster = {}, grade = "2", semester = "sem1", showToast, db = {}, persist, accessRole = "teacher", homeroomClass = "", canViewAllSubjects = false, jumpRequest = null }) {
   const storageKey = `kd_teacher_grade_workspace_v2_${teacher?.id || "shared"}_${grade}`;
   const legacyStorageKey = `kd_teacher_grade_workspace_v1_${teacher?.id || "shared"}_${grade}`;
   const initialRef = useRef(null);
@@ -841,6 +841,23 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     return () => window.clearTimeout(timer);
   }, [gateRequired, settings.criteriaSavedSig, criteriaSaved, weightsOk, criteriaSignature]); // eslint-disable-line react-hooks/exhaustive-deps
   const gateRef = useRef(null);
+  // 선생님 ZONE 홈에서 '단계·과목 바로 가기'를 누르면: 그 과목 작업을 열고(개인 임시본 우선) 그 단계로 갑니다.
+  const [pendingJump, setPendingJump] = useState(null);
+  useEffect(() => {
+    if (!jumpRequest?.nonce) return;
+    const id = jumpRequest.id;
+    if (id && localWorkspaces[id]) loadWorkspaceSelection(`local:${id}`);
+    else if (id && sharedWorkspaces.some(item => item.id === id)) loadWorkspaceSelection(`shared:${id}`);
+    setPendingJump({ ...jumpRequest, tries: 0 });
+  }, [jumpRequest?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!pendingJump) return;
+    // 작업을 연 상태가 반영될 때까지(최대 몇 번의 렌더) 기다렸다가 단계 이동. 결과 확인은 저장 단계 확인을 거칩니다.
+    if (pendingJump.id && workspaceId !== pendingJump.id && pendingJump.tries < 3) { setPendingJump(current => current && { ...current, tries: current.tries + 1 }); return; }
+    setPendingJump(null);
+    if (pendingJump.step === 3) goToStep(3); else setCalcStep(pendingJump.step || 1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [pendingJump, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
   const jumpToGate = () => { setCalcStep(2); window.setTimeout(() => gateRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); };
   const goToStep = step => {
     if (step === 3 && !gatePassed) {
