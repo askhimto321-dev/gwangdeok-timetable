@@ -2857,7 +2857,13 @@ const SHARED_NEW_CSS = `
   .kdn-tz2-feature .badge{font-style:normal;padding:4px 11px;border-radius:99px;background:#ea580c;color:#fff;font-size:12.5px;font-weight:800}
   .kdn-tz2-feature>p{position:relative;z-index:1;margin:0;font-size:14.5px;color:var(--kdn-ink-soft)}
   .kdn-tz2-steps{position:relative;z-index:1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0;padding:0 100px 0 0;list-style:none}
-  .kdn-tz2-steps li{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:13px;background:var(--kdn-surface);border:1px solid var(--kdn-line);font-size:14px;font-weight:800;color:var(--kdn-ink);white-space:nowrap}
+  .kdn-tz2-steps li>button{flex:1;min-width:0;display:flex;align-items:center;gap:9px;padding:10px 12px;border:0;border-radius:13px;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
+  .kdn-tz2-steps li:hover{border-color:#f97316}
+  .kdn-tz2-quick{display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:0 0 14px;padding:10px 14px;border:1px solid var(--kdn-line);border-radius:14px;background:var(--kdn-surface)}
+  .kdn-tz2-quick>b{font-size:13px;font-weight:850;color:var(--kdn-ink);margin-right:4px}
+  .kdn-tz2-quick>button{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;border:1px solid var(--kdn-control-line);border-radius:99px;background:var(--kdn-surface-2);color:var(--kdn-ink);font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+  .kdn-tz2-quick>button:hover{border-color:#f97316;color:#c2410c}
+  .kdn-tz2-steps li{display:flex;align-items:center;padding:0;border-radius:13px;background:var(--kdn-surface);border:1px solid var(--kdn-line);font-size:14px;font-weight:800;color:var(--kdn-ink);white-space:nowrap}
   .kdn-tz2-steps i{flex:none;width:24px;height:24px;border-radius:99px;display:grid;place-items:center;font-style:normal;font-size:12.5px;font-weight:900;background:var(--kdn-surface-2);color:var(--kdn-ink-soft)}
   .kdn-tz2-steps li.is-on{border-color:#f97316;box-shadow:0 0 0 2px rgba(249,115,22,.15)}.kdn-tz2-steps li.is-on i{background:#ea580c;color:#fff}
   .kdn-tz2-steps li.is-done{color:var(--kdn-muted)}.kdn-tz2-steps li.is-done i{background:#fed7aa;color:#9a3412}

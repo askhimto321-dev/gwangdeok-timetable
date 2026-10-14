@@ -3,7 +3,7 @@
 // 예전에는 '반별 성적'이 담임반이 있는 선생님에게만 하드코딩돼 학년부장·교과담임·부서가 빠졌습니다.
 
 export const STAFF_FEATURES = [
-  { key: "classGrades", label: "반별 성적·반 비교", hint: "담임은 자기 반, 그 외는 권한 학년의 반 선택" },
+  { key: "classGrades", label: "반별 성적·반 비교", hint: "권한 학년의 모든 반 선택 (담임은 자기 반부터)" },
   { key: "gradeCompare", label: "학생 성적 비교", hint: "여러 학생 성적을 나란히 비교" },
   { key: "mockAnalysis", label: "모의고사 분석", hint: "학년 모의고사 성적 분석" },
   { key: "minimum", label: "최소성취수준", hint: "최성보 대상자 관리" },

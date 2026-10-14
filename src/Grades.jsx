@@ -975,7 +975,7 @@ export default function GradesSection({
           /></React.Suspense>
         </div>}
         {tab === "classGrades" && canClassGrades && (
-          <ClassGradeOverview examWorkspaces={examWorkspaces} gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin={!!loggedInAdmin || !loggedInTeacher?.homeroomClass} onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
+          <ClassGradeOverview examWorkspaces={examWorkspaces} gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin /* 학급담임도 관리자처럼 학년 전체 반을 고를 수 있음(처음엔 자기 반) */ onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
