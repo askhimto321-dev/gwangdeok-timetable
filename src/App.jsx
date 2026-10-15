@@ -1978,6 +1978,8 @@ export default function App() {
         <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
         {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }} />}
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
+        {canSeeTeacherZone && !loggedInStudent && <GradeCheckPopup calendar={db.academicCalendar} workspaces={db.teacherGradeWorkspaces} teacher={loggedInTeacher || viewedTeacher} isAdmin={!!loggedInAdmin} semester={semester} userKey={overlayUserKey}
+          onOpen={(step, id, toGrade) => { if (toGrade) setGrade(String(toGrade)); setTeacherZoneRequest({ mode: "grades", step, id, at: Date.now() }); switchSection("teacherZone"); }} />}
       </> : <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />}
       {!loggedInStudent && <QuickLinksDock isAdmin={!!loggedInAdmin} showToast={showToast} userKey={loggedInAdmin ? `admin_${loggedInAdmin.id || "admin"}` : loggedInTeacher ? `teacher_${loggedInTeacher.id}` : loggedInDepartment ? `dept_${loggedInDepartment.id}` : loggedInMonitor ? `monitor_${loggedInMonitor.id}` : "shared"} />}
       {impersonation && <ImpersonationBar kind={impersonation.kind} account={impersonatedAccount} adminId={impersonation.admin?.id} accounts={accounts} onPick={viewAsAccount} onReturn={returnToAdmin} />}
@@ -2805,7 +2807,9 @@ function TeacherZoneWorkspace({
   useEffect(() => { if (modeRequest?.mode) setWorkspaceMode(modeRequest.mode); }, [modeRequest?.at]);
   // 홈에서 성적 산출 단계·과목으로 바로 가기: { step, id, nonce }를 성적 산출 화면에 넘깁니다.
   const [gradeJump, setGradeJump] = useState(null);
-  const openGradeAt = (step, id = "") => { setGradeJump({ step, id, nonce: Date.now() }); setWorkspaceMode("grades"); };
+  const openGradeAt = (step, id = "", toGrade = "") => { if (toGrade && String(toGrade) !== String(grade)) setGrade(String(toGrade)); setGradeJump({ step, id, nonce: Date.now() }); setWorkspaceMode("grades"); };
+  // 바깥(성적 확인 팝업 등)에서 단계·과목까지 정해 열어 달라고 하면 그대로 이어 줍니다.
+  useEffect(() => { if (modeRequest?.step) setGradeJump({ step: modeRequest.step, id: modeRequest.id || "", nonce: modeRequest.at }); }, [modeRequest?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   const [lastDepartmentToolView, setLastDepartmentToolView] = useState(() => ["contacts", "records", "gradeData"].includes(workspaceMode) ? workspaceMode : "contacts");
   useEffect(() => {
     setVisitedWorkspaceModes(current => current.includes(workspaceMode) ? current : [...current, workspaceMode]);
@@ -2849,7 +2853,7 @@ function TeacherZoneWorkspace({
     </div>
     {workspaceMode === "home" && <TeacherZoneHome calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum}  onEditProfile={onEditProfile} onOpenGrade={openGradeAt} workspaces={db?.teacherGradeWorkspaces} semester={semester} />}
     {visitedWorkspaceModes.includes("grades") && <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
-      <DeferredPanel label="성적 산출 도구를 불러오는 중입니다."><TeacherGradeAnalyzer teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
+      <DeferredPanel label="성적 산출 도구를 불러오는 중입니다."><TeacherGradeAnalyzer key={`tga-${grade}-${semester}`} teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={activeAccessRole}
         homeroomClass={activeTeacher?.homeroomClass || ""}
         jumpRequest={gradeJump}
@@ -2871,12 +2875,37 @@ function myGradeWorkspaces(workspaces, teacher, grade, semester, isAdmin) {
   const semNo = String(semester) === "sem2" ? 2 : 1;
   const mine = (teacher?.assignments || []).map(item => zoneSubjectKey(item?.subject)).filter(Boolean);
   return Object.values(workspaces || {})
-    .filter(ws => ws?.id && String(ws.grade || "") === String(grade) && (!ws.year || Number(ws.year) === year) && (!ws.semester || Number(ws.semester) === semNo))
+    .filter(ws => ws?.id && (!grade || String(ws.grade || "") === String(grade)) && (!ws.year || Number(ws.year) === year) && (!ws.semester || Number(ws.semester) === semNo))
     .filter(ws => isAdmin || ws.ownerId === teacher?.id || (ws.editorIds || []).includes(teacher?.id) || mine.some(key => { const own = zoneSubjectKey(ws.subject); return own && (own === key || own.includes(key) || key.includes(own)); }))
-    .sort((a, b) => String(a.subject || "").localeCompare(String(b.subject || ""), "ko"));
+    // 최근에 고친 과목 먼저
+    .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")) || String(a.subject || "").localeCompare(String(b.subject || ""), "ko"));
+}
+// 학년별로 묶기: [[학년, [작업…]], …] (학년 순)
+const groupByGrade = list => Array.from(list.reduce((map, ws) => { const g = String(ws.grade || ""); if (!map.has(g)) map.set(g, []); map.get(g).push(ws); return map; }, new Map())).sort((a, b) => Number(a[0]) - Number(b[0]));
+
+// 성적 확인 기간(정기시험이 끝난 뒤 3주) 팝업: 내 과목 결과로 바로 가는 버튼을 학년별로 보여 줍니다. 하루 한 번, '오늘 그만 보기'로 닫을 수 있어요.
+function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, userKey, onOpen }) {
+  const exam = examPeriodFromCalendar(calendar);
+  const today = new Date();
+  const dayKey = `kd_grade_check_popup_${userKey || "staff"}_${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
+  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(dayKey) === "1"; } catch { return false; } });
+  const [closed, setClosed] = useState(false);
+  if (!exam || exam.phase !== "after" || hidden || closed) return null;
+  const groups = groupByGrade(myGradeWorkspaces(workspaces, teacher, null, semester, isAdmin));
+  const hideToday = () => { try { localStorage.setItem(dayKey, "1"); } catch { /* 저장 못 해도 이번엔 닫힘 */ } setHidden(true); };
+  const go = (step, id, grade) => { setClosed(true); onOpen?.(step, id, grade); };
+  return <div className="kdn-gcp-back no-print" role="dialog" aria-modal="true" aria-label="성적 확인 기간 안내" onClick={event => { if (event.target === event.currentTarget) setClosed(true); }}>
+    <div className="kdn-gcp">
+      <div className="kdn-gcp-head"><em>{exam.label} {exam.dLabel}</em><b>성적 확인 기간이에요</b><span>저장한 과목 결과를 바로 열어 확인하세요.</span></div>
+      {groups.length ? <div className="kdn-gcp-groups">{groups.map(([grade, list]) => <div key={grade} className="kdn-gcp-row"><small>{grade}학년</small><div>{list.slice(0, 8).map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => go(3, ws.id, grade)}>{ws.subject}<ArrowRight size={13} /></button>)}</div></div>)}</div>
+        : <p className="kdn-gcp-empty">이번 학기 학교 공동 저장한 과목이 아직 없어요. 성적 산출에서 지필 파일을 올려 주세요.</p>}
+      <div className="kdn-gcp-foot"><button type="button" data-kdn-bare className="ghost" onClick={hideToday}>오늘 그만 보기</button><span style={{ flex: 1 }} /><button type="button" data-kdn-bare className="ghost" onClick={() => setClosed(true)}>닫기</button><button type="button" data-kdn-bare className="go" onClick={() => go(groups.length ? 3 : 1, groups[0]?.[1]?.[0]?.id || "", groups[0]?.[0] || "")}>성적 산출 열기 <ArrowRight size={14} /></button></div>
+    </div>
+  </div>;
 }
 function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum, onEditProfile, onOpenGrade, workspaces, semester }) {
   const myResults = myGradeWorkspaces(workspaces, activeTeacher, grade, semester, isAdmin).slice(0, 8);
+  const resultGroups = groupByGrade(myGradeWorkspaces(workspaces, activeTeacher, null, semester, isAdmin));
   const exam = examPeriodFromCalendar(calendar);
   const rawName = String(activeTeacher?.name || actor?.name || "").trim();
   const callName = !rawName || /선생님$/.test(rawName) ? "선생님" : `${rawName} 선생님`;
@@ -2909,9 +2938,9 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
       <div><b>담당 과목이 아직 없어요</b><span>수업하는 과목을 고르면 성적 산출·공지 대상이 자동으로 정해지고, 같은 과목 선생님과 성적을 함께 작업할 수 있어요.</span></div>
       <button type="button" onClick={onEditProfile}>담당 과목 고르기 →</button>
     </section>}
-    {myResults.length > 0 && <section className="kdn-tz2-quick" aria-label="내 과목 결과 바로 보기">
-      <b>결과 바로 보기</b>
-      {myResults.map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => onOpenGrade?.(3, ws.id)} title={`${ws.subject} 등급·결과 확인으로 바로 가기`}>{ws.subject}<ArrowRight size={13} /></button>)}
+    {resultGroups.length > 0 && <section className="kdn-tz2-quick" aria-label="최근 작업 과목 결과 바로 보기">
+      <b>최근 작업 과목</b>
+      {resultGroups.map(([g, list]) => <div key={g} className="kdn-tz2-quick-row"><small>{g}학년</small>{list.slice(0, 8).map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => onOpenGrade?.(3, ws.id, g)} title={`${g}학년 ${ws.subject} 결과 확인으로 바로 가기`}>{ws.subject}<ArrowRight size={13} /></button>)}</div>)}
     </section>}
     <div className="kdn-tz2-grid">{cards.map(card => {
       const [short, illo, palette] = SHORT[card.key] || [card.text, "grades", "il-admin"];

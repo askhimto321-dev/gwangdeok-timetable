@@ -730,6 +730,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       setSelectedLocalId(id);
       setSelectedSharedId("");
       applyWorkspace(item);
+      setCalcStep(1);
+      setPendingJump({ step: 3, soft: true, id, tries: 0 });
       return;
     }
     const item = sharedWorkspaces.find(entry => entry.id === id);
@@ -737,8 +739,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setSelectedSharedId(id);
     setSelectedLocalId("");
     applyWorkspace(item);
-    // 담당이 아닌 과목은 조회만 하므로 결과 확인으로 바로 갑니다.
+    // 담당이 아닌 과목은 조회만 하므로 결과 확인으로 바로 갑니다. 담당 과목도 입력이 끝났으면 결과 확인부터.
     if (!canEditSubject(item.subject)) setCalcStep(3);
+    else { setCalcStep(1); setPendingJump({ step: 3, soft: true, id, tries: 0 }); }
   };
   const startNewWorkspace = subjectOverride => {
     const fresh = defaultWorkspace();
@@ -855,9 +858,13 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     // 작업을 연 상태가 반영될 때까지(최대 몇 번의 렌더) 기다렸다가 단계 이동. 결과 확인은 저장 단계 확인을 거칩니다.
     if (pendingJump.id && workspaceId !== pendingJump.id && pendingJump.tries < 3) { setPendingJump(current => current && { ...current, tries: current.tries + 1 }); return; }
     setPendingJump(null);
+    // soft: 입력·저장이 끝난 과목(기준 저장 + 공동 저장)만 결과 확인으로 열고, 아니면 지금 단계 그대로 둡니다.
+    if (pendingJump.soft) { if (hasGradeData && settings.criteriaSavedSig && gatePassed) setCalcStep(3); return; }
     if (pendingJump.step === 3) goToStep(3); else setCalcStep(pendingJump.step || 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [pendingJump, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 화면을 처음 열 때 이어서 연 과목이 이미 다 끝난 과목이면 결과 확인부터 보여 줍니다.
+  useEffect(() => { if (!jumpRequest?.nonce) setPendingJump({ step: 3, soft: true, id: "", tries: 0 }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const jumpToGate = () => { setCalcStep(2); window.setTimeout(() => gateRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); };
   const goToStep = step => {
     if (step === 3 && !gatePassed) {
