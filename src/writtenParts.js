@@ -94,7 +94,15 @@ export function pickWrittenPart(item, fileMaxScore) {
   const mcMatch = max === Number(item.split.mcMax);
   if (essayMatch && !mcMatch) return "essay";
   if (mcMatch && !essayMatch) return "mc";
+  // 객관식+논술형이 합쳐진 파일(만점 = 두 배점의 합)이면 시험 전체 점수로 씁니다.
+  if (max === Number(item.split.mcMax) + Number(item.split.essayMax)) return "whole";
   return null;
+}
+
+// 시험 전체 점수 파일(객관식+논술형 합산)로 바꿉니다. 나뉜 시험이면 나누기를 풀고 이 파일 점수를 씁니다.
+export function replaceWholeWritten(item, file) {
+  const base = isSplitWritten(item) ? unsplitWritten(item) : item;
+  return { ...base, students: file.students || {}, fileName: file.fileName, maxScore: file.maxScore, uploadedAt: file.uploadedAt || new Date().toISOString() };
 }
 
 // 파트 점수가 배점을 넘는 학생 수(배점 설정이나 파일 선택이 잘못됐을 때 알려 줍니다).
