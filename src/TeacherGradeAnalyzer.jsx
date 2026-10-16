@@ -26,7 +26,7 @@ import { isNewUi } from "./uiMode.js";
 import CriteriaPresets from "./CriteriaPresets.jsx";
 import { readStorage, updateStorage } from "./storage.js";
 import { mergeWorkspacePayload, workspacePayload, samePayload, activeEditors } from "./gradeWorkspaceMerge.js";
-import { isSplitWritten, defaultWrittenSplit, splitWritten, unsplitWritten, setWrittenPart, removeWrittenPart, recombineWritten, pickWrittenPart, partLabel, countOverMax } from "./writtenParts.js";
+import { isSplitWritten, defaultWrittenSplit, splitWritten, unsplitWritten, setWrittenPart, removeWrittenPart, recombineWritten, pickWrittenPart, partLabel, countOverMax, replaceWholeWritten } from "./writtenParts.js";
 import { gradeQuotaCumulative, compareVectors, vectorKey, rankAndGrade } from "./gradeQuota.js";
 import { ResultListDetail, ResultDistribution, ResultClassCompare, ResultStudentLookup } from "./gradeResultViews.jsx";
 
@@ -1064,14 +1064,17 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         if (accepted.length > 1) messages.push({ type: "warn", text: `파일을 여러 개 골라 첫 파일(${file.fileName})만 반영했습니다.` });
         if (normalizeToken(file.title) !== normalizeToken(existing.title)) messages.push({ type: "warn", text: `${file.fileName}: 시험명(${file.title})이 ${existing.title}과 달라요. 맞는 파일인지 확인해 주세요.` });
         let updated;
-        if (target.part && isSplitWritten(existing)) {
+        if (isSplitWritten(existing) && (target.part === "whole" || (!target.part && pickWrittenPart(existing, file.maxScore) === "whole"))) {
+          updated = replaceWholeWritten(existing, file);
+          messages.push({ type: "ok", text: `${existing.title} · 객관식+논술형 합산 파일(${file.maxScore}점)로 바꿨습니다(${Object.values(file.students).filter(student => student.score != null).length}명).` });
+        } else if (target.part && target.part !== "whole" && isSplitWritten(existing)) {
           const limit = existing.split[target.part === "essay" ? "essayMax" : "mcMax"];
           const over = countOverMax(file, limit);
           if (over) messages.push({ type: "warn", text: `${file.fileName}: ${over}명의 점수가 ${partLabel(target.part)} 배점(${limit}점)보다 커요. 배점이나 파일을 확인해 주세요.` });
           updated = setWrittenPart(existing, target.part, file);
           messages.push({ type: "ok", text: `${existing.title} ${partLabel(target.part)} · ${Object.values(file.students).filter(student => student.score != null).length}명 점수를 ${existing.parts?.[target.part] ? "바꿨습니다" : "불러왔습니다"}.` });
         } else {
-          updated = { ...existing, students: file.students, fileName: file.fileName, maxScore: file.maxScore, uploadedAt: file.uploadedAt };
+          updated = replaceWholeWritten(existing, file);
           messages.push({ type: "ok", text: `${existing.title} · 파일을 바꿨습니다(${Object.values(file.students).filter(student => student.score != null).length}명).` });
         }
         setWritten(current => current.map(item => item.id === existing.id ? updated : item));
@@ -1087,6 +1090,11 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             const index = next.findIndex(existing => existing.id === item.id);
             const existing = next[index];
             const part = pickWrittenPart(existing, item.maxScore);
+            if (part === "whole") {
+              next[index] = replaceWholeWritten(existing, item);
+              messages.push({ type: "ok", text: `${item.title} · 객관식+논술형 합산 파일(${item.maxScore}점)로 바꿨습니다(${Object.values(item.students).filter(student => student.score != null).length}명).` });
+              return;
+            }
             if (part) {
               next[index] = setWrittenPart(existing, part, item);
               messages.push({ type: "ok", text: `${item.title} ${partLabel(part)}(${item.maxScore}점) · ${Object.values(item.students).filter(student => student.score != null).length}명 점수를 ${existing.parts?.[part] ? "바꿨습니다" : "불러왔습니다"}.` });
@@ -1959,7 +1967,7 @@ function WrittenPartsEditor({ item, readOnly, onToggle, onSplit, onPick, onClear
         {file && part === "essay" ? <button type="button" style={wp.btn} disabled={readOnly} onClick={() => onClear(part)} title="논술형 점수를 빼고 객관식만으로 계산">빼기</button> : <span />}
       </div>;
     })}
-    <div style={wp.foot}><span>만점 {item.maxScore}점 = 객관식 {item.split.mcMax} + 논술형 {item.split.essayMax}</span><span style={{ flex: 1 }} /><button type="button" style={wp.link} disabled={readOnly} onClick={() => { if (!item.parts?.essay || window.confirm("논술형 점수를 빼고 객관식 파일 점수만 시험 점수로 쓸까요?")) onToggle(); }}>나누기 해제</button></div>
+    <div style={wp.foot}><span>만점 {item.maxScore}점 = 객관식 {item.split.mcMax} + 논술형 {item.split.essayMax}</span><span style={{ flex: 1 }} /><button type="button" style={wp.link} disabled={readOnly} onClick={() => onPick("whole")} title="NEIS 교과목별 일람표처럼 객관식+논술형이 합쳐진 점수 파일로 바꿉니다">합산 파일로 바꾸기</button><button type="button" style={wp.link} disabled={readOnly} onClick={() => { if (!item.parts?.essay || window.confirm("논술형 점수를 빼고 객관식 파일 점수만 시험 점수로 쓸까요?")) onToggle(); }}>나누기 해제</button></div>
   </div>;
 }
 function PlannedSplitEditor({ item, readOnly, onToggle, onSplit }) {

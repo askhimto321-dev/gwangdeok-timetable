@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { splitWritten, unsplitWritten, setWrittenPart, removeWrittenPart, pickWrittenPart, defaultWrittenSplit, countOverMax } from "../src/writtenParts.js";
+import { splitWritten, unsplitWritten, setWrittenPart, removeWrittenPart, pickWrittenPart, defaultWrittenSplit, countOverMax, replaceWholeWritten, isSplitWritten } from "../src/writtenParts.js";
 
 const student = (sid, score, status = "") => ({ sid, classNumber: 1, number: Number(sid.slice(-2)), score, status });
 const exam = {
@@ -57,11 +57,23 @@ test("파일 만점으로 파트 고르기", () => {
   const split = splitWritten(exam, { mcMax: 80, essayMax: 20 });
   assert.equal(pickWrittenPart(split, 20), "essay");
   assert.equal(pickWrittenPart(split, 80), "mc");
-  assert.equal(pickWrittenPart(split, 100), null);
+  assert.equal(pickWrittenPart(split, 100), "whole");
+  assert.equal(pickWrittenPart(split, 50), null);
   assert.equal(pickWrittenPart(exam, 20), null);
 });
 
 test("배점 초과 학생 수", () => {
   assert.equal(countOverMax(essayFile, 5), 1);
   assert.equal(countOverMax(essayFile, 10), 0);
+});
+
+test("합산 파일로 바꾸면 나누기를 풀고 파일 점수를 그대로 씀", () => {
+  const exam = { id: "w1", title: "1차 정기시험", maxScore: 100, fileName: "mc.xlsx", students: { "20101": { sid: "20101", classNumber: 1, number: 1, score: 60 } } };
+  const split = splitWritten(exam, { mcMax: 80, essayMax: 20 });
+  const whole = replaceWholeWritten(split, { fileName: "all.xlsx", maxScore: 100, students: { "20101": { sid: "20101", classNumber: 1, number: 1, score: 77.5 } } });
+  assert.equal(isSplitWritten(whole), false);
+  assert.equal(whole.maxScore, 100);
+  assert.equal(whole.fileName, "all.xlsx");
+  assert.equal(whole.students["20101"].score, 77.5);
+  assert.equal(whole.parts, undefined);
 });
