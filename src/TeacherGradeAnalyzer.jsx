@@ -252,6 +252,11 @@ function normalizeWorkspaceSnapshot(parsed = {}) {
     studentOverrides: parsed.studentOverrides || {},
   };
 }
+// 임시본·공동본 내용 비교(화면 학기 표시용 workspaceMeta는 빼고, 같은 형식으로 맞춘 뒤 비교)
+function sameWorkspaceContent(a, b) {
+  const pick = item => { const n = normalizeWorkspaceSnapshot(item); const { workspaceMeta, ...settings } = n.settings || {}; return { ...n, settings }; };
+  return samePayload(pick(a), pick(b));
+}
 function workspaceIdFromContext(item, fallbackGrade = "") {
   if (!item) return "";
   return `${item.year || "year"}-${item.semester || "sem"}-${item.grade || fallbackGrade || "grade"}-${normalizeToken(item.subject || "subject")}`;
@@ -574,6 +579,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   // 30초마다 다른 선생님 변경을 가져오며, 같은 과목을 열어 둔 선생님을 '함께 작업 중'으로 보여 줍니다.
   const ancestorRef = useRef({ id: "", payload: null });
   const mineRef = useRef(null);
+  const selectedLocalIdRef = useRef("");
+  selectedLocalIdRef.current = selectedLocalId;
   const syncingRef = useRef(false);
   const [remoteNote, setRemoteNote] = useState("");
   const [coEditors, setCoEditors] = useState([]);
@@ -605,6 +612,10 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       const ok = await persist({ teacherGradeWorkspaces: { ...map, [workspaceId]: snapshot } });
       if (ok === false) return false;
       ancestorRef.current = { id: workspaceId, payload: workspacePayload(snapshot) };
+      // 올렸으니 임시본은 이 공동본 기준으로 '수정 없음'
+      const localId = selectedLocalId || workspaceId;
+      const editedSince = !samePayload(mineRef.current, mine);
+      setLocalWorkspaces(current => current[localId] ? { ...current, [localId]: { ...current[localId], dirty: editedSince, syncedAt: snapshot.updatedAt } } : current);
       if (!samePayload(merged, mine)) { applyPayload(merged); setRemoteNote(`${theirs?.lastEditedName || "다른"} 선생님 변경 내용을 합쳤어요`); }
       if (conflicts.length) showToast?.(`같은 항목을 함께 고친 ${conflicts.length}곳은 더 최근에 고친 내용으로 저장했어요.`, "info");
       setAutoSave(current => ({ ...current, shared: new Date().toISOString() }));
@@ -619,6 +630,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     if (!sharedHere || !canEditCurrentSubject || !persist || !hasGradeData) return undefined;
     if (ancestorRef.current.id !== workspaceId) ancestorRef.current = { id: workspaceId, payload: workspacePayload(db.teacherGradeWorkspaces[workspaceId]) };
     if (samePayload(mineRef.current, ancestorRef.current.payload)) return undefined;
+    // 아직 학교 공동본에 못 올린 수정이 있다고 임시본에 표시(올리면 지움). 다음에 열 때 공동본보다 이걸 살립니다.
+    const localId = selectedLocalId || workspaceId;
+    if (localWorkspaces[localId] && !localWorkspaces[localId].dirty) setLocalWorkspaces(current => current[localId] ? { ...current, [localId]: { ...current[localId], dirty: true } } : current);
     const timer = window.setTimeout(() => { syncShared(); }, 2500);
     return () => window.clearTimeout(timer);
   }, [sharedHere, canEditCurrentSubject, hasGradeData, workspaceId, written, performance, settings, tieScores, studentOverrides]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -635,6 +649,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       if (ancestor && samePayload(theirs, ancestor)) return;
       const { merged } = mergeWorkspacePayload(ancestor, mineRef.current, theirs);
       ancestorRef.current = { id: workspaceId, payload: workspacePayload(theirs) };
+      if (samePayload(merged, theirs)) { const localId = selectedLocalIdRef.current || workspaceId; setLocalWorkspaces(current => current[localId] ? { ...current, [localId]: { ...current[localId], dirty: false, syncedAt: theirs.updatedAt || "" } } : current); }
       if (!samePayload(merged, mineRef.current)) {
         applyPayload(merged);
         setRemoteNote(`${theirs.lastEditedName || "다른"} 선생님 변경 내용을 가져왔어요 · ${clockOf(theirs.updatedAt)}`);
@@ -720,10 +735,72 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     setSearch("");
     setUploadMessages([]);
   };
+  // 과목 작업 열기(편집 가능한 과목): 개인 임시본과 학교 공동본 중 무엇을 열지 정합니다.
+  //  - 임시본에 아직 공동본에 못 올린 수정(dirty)이 없으면 → 학교 공동본(최신)을 엽니다.
+  //    (예전엔 임시본을 먼저 열어서, 다른 컴퓨터·다른 선생님이 고친 최신본을 옛 임시본이 다시 덮어쓰는 일이 있었습니다.)
+  //  - 임시본에 못 올린 수정이 있고 그사이 공동본도 바뀌었으면 → 둘을 합쳐서(항목별로 더 최근 것) 엽니다.
+  //  - 공동본이 없으면 임시본을 엽니다.
+  // 백업: 학교 공동본으로 바꾸기 전, 내용이 다른 이 컴퓨터의 임시본을 과목마다 최근 3개까지 따로 보관합니다.
+  const backupKey = `${storageKey}_backup`;
+  const [lastBackup, setLastBackup] = useState(null);
+  const backupLocal = (item, label) => {
+    if (!item?.id) return;
+    const entry = { savedAt: new Date().toISOString(), item, label };
+    try {
+      const all = JSON.parse(localStorage.getItem(backupKey) || "{}") || {};
+      all[item.id] = [entry, ...(Array.isArray(all[item.id]) ? all[item.id] : [])].slice(0, 3);
+      localStorage.setItem(backupKey, JSON.stringify(all));
+    } catch { /* 저장 공간이 부족하면 이번 화면에서만 되돌리기 가능 */ }
+    setLastBackup(entry);
+  };
+  const restoreBackup = () => {
+    const item = lastBackup?.item;
+    if (!item?.id) return;
+    if (!window.confirm(`${clockOf(lastBackup.savedAt)}에 보관한 이 컴퓨터의 이전 임시본으로 되돌릴까요? 되돌린 내용이 학교 공동본에도 반영됩니다.`)) return;
+    const shared = sharedWorkspaces.find(entry => entry.id === item.id);
+    applyWorkspace(item);
+    if (shared) ancestorRef.current = { id: item.id, payload: workspacePayload(shared) };
+    setSelectedLocalId(item.id);
+    setLastBackup(null);
+    showToast?.("이전 임시본으로 되돌렸어요. 잠시 뒤 학교 공동본에도 반영됩니다.", "success");
+  };
+  const openWorkspace = id => {
+    const local = localWorkspaces[id];
+    const shared = sharedWorkspaces.find(entry => entry.id === id);
+    if (!local && !shared) return false;
+    setSelectedLocalId(id);
+    setSelectedSharedId("");
+    setLastBackup(null);
+    const differs = local && shared && !sameWorkspaceContent(local, shared);
+    if (shared && !local?.dirty) {
+      if (differs) backupLocal(local, "최신 학교 공동본으로 열었어요");
+      applyWorkspace(shared);
+      ancestorRef.current = { id, payload: workspacePayload(shared) };
+      setLocalWorkspaces(current => ({ ...current, [id]: { ...shared, id, dirty: false, syncedAt: shared.updatedAt || "" } }));
+      return true;
+    }
+    if (shared && local.syncedAt !== (shared.updatedAt || "")) {
+      if (differs) backupLocal(local, "합치기 전 임시본도 보관했어요");
+      const { merged } = mergeWorkspacePayload(null, local, shared);
+      applyWorkspace({ ...shared, ...merged });
+      ancestorRef.current = { id, payload: workspacePayload(shared) };
+      setRemoteNote("이 컴퓨터에 남아 있던 수정과 최신 학교 공동본을 합쳤어요");
+      return true;
+    }
+    applyWorkspace(local);
+    if (shared) ancestorRef.current = { id, payload: workspacePayload(shared) };
+    return true;
+  };
   const loadWorkspaceSelection = value => {
     if (!value) { startNewWorkspace(); return; }
     const [source, ...idParts] = value.split(":");
     const id = idParts.join(":");
+    const subjectOfId = (localWorkspaces[id] || sharedWorkspaces.find(entry => entry.id === id))?.subject;
+    if (canEditSubject(subjectOfId) && openWorkspace(id)) {
+      setCalcStep(1);
+      setPendingJump({ step: 3, soft: true, id, tries: 0 });
+      return;
+    }
     if (source === "local") {
       const item = localWorkspaces[id];
       if (!item) return;
@@ -863,6 +940,16 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     if (pendingJump.step === 3) goToStep(3); else setCalcStep(pendingJump.step || 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, [pendingJump, workspaceId]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 화면을 처음 열 때 이 브라우저에 남은 임시본을 그대로 쓰지 않고, 학교 공동본과 비교해 최신으로 다시 엽니다.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || jumpRequest?.nonce) return;
+    const id = selectedLocalId;
+    if (!id) { restoredRef.current = true; return; }
+    if (!sharedWorkspaces.some(entry => entry.id === id)) { if (Object.keys(db?.teacherGradeWorkspaces || {}).length) restoredRef.current = true; return; }
+    restoredRef.current = true;
+    if (canEditSubject(localWorkspaces[id]?.subject)) openWorkspace(id);
+  }, [sharedWorkspaces]); // eslint-disable-line react-hooks/exhaustive-deps
   // 화면을 처음 열 때 이어서 연 과목이 이미 다 끝난 과목이면 결과 확인부터 보여 줍니다.
   useEffect(() => { if (!jumpRequest?.nonce) setPendingJump({ step: 3, soft: true, id: "", tries: 0 }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const jumpToGate = () => { setCalcStep(2); window.setTimeout(() => gateRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 60); };
@@ -1587,6 +1674,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           : <span>아직 나만 볼 수 있어요. 2단계 끝에서 <strong>산출 기준 저장 → 학교 공동 저장</strong>을 마쳐야 결과 확인으로 넘어가요.</span>}
         {coEditors.length > 0 && <span className="kdn-save-co">👥 함께 작업 중: {coEditors.map(item => `${item.name}${/선생님$/.test(item.name) ? "" : " 선생님"}`).join(", ")}</span>}
         {remoteNote && <span className="kdn-save-note">↻ {remoteNote}</span>}
+        {lastBackup && <span className="kdn-save-note">{lastBackup.label || "이 컴퓨터 이전 임시본 보관됨"} <button type="button" onClick={restoreBackup}>되돌리기</button></span>}
         {!sharedHere && calcStep !== 2 && <button type="button" onClick={jumpToGate}>저장 단계로 ›</button>}
       </div>}
 
