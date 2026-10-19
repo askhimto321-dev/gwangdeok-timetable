@@ -1,3 +1,4 @@
+import { rankAndGrade } from "./gradeQuota.js";
 // 반 비교 '정기시험' 보기: 선생님 ZONE 성적 산출에 저장된(학교 공동본) 지필 시험 점수로
 // 과목 × 반 평균을 만듭니다. 학기 성적이 아직 없어도 1차 정기시험 하나만 저장하면 바로 보입니다.
 
@@ -81,4 +82,11 @@ export function examSubjectScores(workspaces = {}, grade = "", year = null) {
     });
   });
   return out.sort((a, b) => String(a.semester).localeCompare(String(b.semester)) || a.title.localeCompare(b.title, "ko") || a.subject.localeCompare(b.subject, "ko"));
+}
+
+// 한 과목 시험 원점수 { sid: 점수 } → { sid: 등급 }. 학년 전체 석차로 5등급(누적 10·34·66·90%, 동점은 같은 등급).
+export function examGrades(scores = {}, system = 5) {
+  const list = Object.entries(scores || {}).filter(([, score]) => Number.isFinite(Number(score))).map(([sid, score]) => ({ sid, score: Number(score) }));
+  rankAndGrade(list, { vectorOf: row => [row.score], isEligible: () => true, system });
+  return Object.fromEntries(list.map(row => [row.sid, row.grade]));
 }

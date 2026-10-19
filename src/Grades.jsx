@@ -26,8 +26,7 @@ import { LayoutGrid } from 'lucide-react';
 import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore.js';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
-import { buildClassExamCompare, examSubjectScores } from "./classExamCompare.js";
-import { rankAndGrade } from "./gradeQuota.js";
+import { buildClassExamCompare, examSubjectScores, examGrades } from "./classExamCompare.js";
 import { SURVEY_FIELDS, SURVEY_GROUPS, parseCounselSurvey, mergeCounselSurveys, splitChoice } from "./counselSurvey.js";
 import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { featureAllowed } from "./staffPermissions.js";
@@ -1227,6 +1226,10 @@ const CLASS_GRADE_CSS = `
   .cg-sjt thead tr.h1 th{position:sticky;top:var(--cg-sticky-top,70px);height:54px;box-sizing:border-box}
   .cg-sjt thead tr.h2 th{position:sticky;top:calc(var(--cg-sticky-top,70px) + 54px)}
 }
+.cg-exam-mode{display:flex;align-items:center;gap:8px;padding:10px 16px 0;font-size:12.5px;font-weight:800;color:var(--kdn-muted,#5d6574)}
+.cg-exam-mode .cg-seg{display:inline-flex;gap:2px;padding:3px;border-radius:10px;background:var(--kdn-surface-2,#f1f3f6);border:1px solid var(--kdn-line,#dfe2e8)}
+.cg-exam-mode .cg-seg button{height:30px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--kdn-ink-soft,#3a4150);font:inherit;font-size:13px;font-weight:800;cursor:pointer;opacity:1}
+.cg-exam-mode .cg-seg button.is-on{background:var(--kdn-ink,#1f2430);color:var(--kdn-surface,#fff)}
 .cg-exam-grade{display:inline-block;min-width:54px;padding:3px 9px;border-radius:99px;font-size:13px;font-weight:850;background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-ink,#1f2430)}
 .cg-exam-grade.g1{background:color-mix(in srgb,#ea580c 18%,transparent);color:#c2410c}.cg-exam-grade.g2{background:color-mix(in srgb,#d97706 16%,transparent);color:#b45309}
 .cg-subject-pick{min-height:38px;max-width:210px;padding:0 10px;border-radius:11px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#f5f1ea;font:inherit;font-size:13.5px;font-weight:700}
@@ -1294,16 +1297,71 @@ function ClassGradeKpis({ metricLabel = "전교과",  rows, graded, avg, gradeMe
     <div className="cg-kpi">{label(<TrendingUp size={15} />, "#fff4d6", "#a16207", "직전 학기보다")}<div className="cg-split"><span style={{ background: "#e7f6ec", color: "#15803d" }}><b>▲ {up}</b><small>좋아진 학생</small></span><span style={{ background: "#fdecec", color: "#c0262d" }}><b>▼ {down}</b><small>낮아진 학생</small></span></div></div>
   </div>;
 }
+// 반 성적 › 정기시험 '전 과목 보기': 한 정기시험에서 공동 저장된 과목을 학생별로 나란히(원점수·참고 등급) 보여 주고,
+// 과목 등급의 단순 평균으로 반 안 순위를 매깁니다(정기시험 파일에는 학점이 없어 가중하지 않음).
+function ClassExamAll({ exam, rosterRows = [], allClasses = false, classNo = "", tableSort = "rank", onSort, onOpenStudent, part = "head" }) {
+  const subjects = exam.subjects || [];
+  const mean = list => (list.length ? list.reduce((sum, v) => sum + v, 0) / list.length : null);
+  const rows = useMemo(() => rosterRows.map(row => {
+    const cells = subjects.map(item => ({ score: item.scores[row.sid] ?? null, grade: item.grades[row.sid] ?? null }));
+    const grades = cells.map(cell => cell.grade).filter(g => g != null);
+    return { ...row, cells, avg: mean(grades), taken: grades.length };
+  }).filter(row => row.taken > 0), [rosterRows, exam]); // eslint-disable-line react-hooks/exhaustive-deps
+  const gradeAvgAll = useMemo(() => {
+    const sids = new Set(subjects.flatMap(item => Object.keys(item.grades)));
+    return mean([...sids].map(sid => mean(subjects.map(item => item.grades[sid]).filter(g => g != null))).filter(v => v != null));
+  }, [exam]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rankOf = row => 1 + rows.filter(other => other.avg < row.avg - 1e-9).length;
+  const where = allClasses ? "전체 반" : `${classNo}반`;
+  if (part === "head") {
+    const classAvg = mean(rows.map(row => row.avg));
+    const gap = classAvg != null && gradeAvgAll != null ? gradeAvgAll - classAvg : null;
+    const label = (icon, bg, fg, text) => <span className="cg-kpi-l"><i style={{ background: bg, color: fg }}>{icon}</i>{text}</span>;
+    return <>
+      <div className="cg-kpis">
+        <div className="cg-kpi">{label(<UsersRound size={15} />, "#e0ecff", "#1d4ed8", "응시 학생")}<span className="cg-kpi-v">{rows.length}<small>명</small></span><span className="cg-kpi-n">{where} · {subjects.length}과목</span></div>
+        <div className="cg-kpi">{label(<BarChart3 size={15} />, "#fff0e6", "#c2410c", "반 평균 등급 · 전 과목")}<span className="cg-kpi-v">{fmt2(classAvg)}</span><span className="cg-kpi-n">{gap == null ? "과목 등급 단순 평균" : <>학년 평균 {fmt2(gradeAvgAll)}<span className={`cg-pill ${changeTone(gap)}`}>{changeMark(gap)} {Math.abs(gap).toFixed(2)}</span></>}</span></div>
+        <div className="cg-kpi">{label(<TrendingUp size={15} />, "#e7f6ec", "#15803d", "1등급 받은 과목 수")}<span className="cg-kpi-v">{rows.reduce((sum, row) => sum + row.cells.filter(cell => cell.grade === 1).length, 0)}<small>개</small></span><span className="cg-kpi-n">{where} 학생 전체 합</span></div>
+      </div>
+      <div className="cg-table-wrap"><table className="cg-table cg-subj" style={{ minWidth: 640 }}>
+        <thead><tr><th className="sticky">과목</th><th className="c">응시</th><th className="c">반 평균 원점수</th><th className="c">학년 평균 원점수</th><th className="c">반 평균 등급</th><th className="c">학년 대비</th></tr></thead>
+        <tbody>{subjects.map((item, index) => {
+          const mine = rows.map(row => row.cells[index]).filter(cell => cell.score != null);
+          const all = Object.values(item.scores);
+          const myGrade = mean(mine.map(cell => cell.grade).filter(g => g != null));
+          const allGrade = mean(Object.values(item.grades));
+          const d = myGrade != null && allGrade != null ? allGrade - myGrade : null;
+          return <tr key={item.subject}><td className="sticky"><b>{item.subject}</b><small>{item.maxScore}점 만점{item.pending ? " · 논술형 전" : ""}</small></td><td className="c">{mine.length}명</td><td className="c"><b>{mine.length ? mean(mine.map(cell => cell.score)).toFixed(1) : "-"}</b></td><td className="c">{all.length ? mean(all).toFixed(1) : "-"}</td><td className="c"><b>{fmt2(myGrade)}</b></td><td className="c">{d == null ? "-" : <span className={`cg-pill ${changeTone(d)}`}>{changeMark(d)} {Math.abs(d).toFixed(2)}</span>}</td></tr>;
+        })}</tbody>
+      </table></div>
+    </>;
+  }
+  if (!rows.length) return <EmptyBox text={`${where}에 ${exam.label} 점수가 없습니다.`} />;
+  const ordered = rows.slice().sort((a, b) => tableSort === "sid" ? String(a.sid).localeCompare(String(b.sid)) : a.avg - b.avg || String(a.sid).localeCompare(String(b.sid)));
+  return <section className="cg-card">
+    <div className="cg-tablebar"><b>{exam.label} · 전 과목 <small className="cg-subhint">원점수 · 참고 등급(과목별 학년 석차 5등급)</small></b><span>정렬</span><div className="cg-seg">{[["rank", "평균 등급순"], ["sid", "학번순"]].map(([key, text]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => onSort(key)}>{text}</button>)}</div></div>
+    <div className="cg-table-wrap is-sticky"><table className="cg-table cg-sjt"><colgroup><col style={{ width: 64 }} /><col style={{ width: 84 }} /><col style={{ width: 120 }} /><col style={{ width: 96 }} />{subjects.map(item => <React.Fragment key={item.subject}><col /><col /></React.Fragment>)}</colgroup>
+      <thead><tr className="h1"><th rowSpan={2}>순위</th><th rowSpan={2}>학번</th><th rowSpan={2}>이름</th><th rowSpan={2}>평균 등급</th>{subjects.map(item => <th key={item.subject} colSpan={2} className="sem"><b>{item.subject}</b></th>)}</tr>
+      <tr className="h2">{subjects.map(item => ["원점수", "등급"].map((text, col) => <th key={`${item.subject}-${text}`} className={col ? "" : "gstart"}>{text}</th>))}</tr></thead>
+      <tbody>{ordered.map(row => { const rank = rankOf(row); return <tr key={row.sid}>
+        <td><span className={`cg-sj-rank${rank <= 3 ? " top" : ""}`}>{rank}</span></td>
+        <td className="cg-sj-dim">{row.sid}</td>
+        <td className="cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)}>{row.name}</button> : <span>{row.name}</span>}</td>
+        <td><b>{fmt2(row.avg)}</b>{row.taken < subjects.length && <small className="cg-sub"> ({row.taken}과목)</small>}</td>
+        {row.cells.map((cell, index) => cell.score == null ? <td key={index} colSpan={2} className="gstart cg-sj-miss">미응시</td> : <React.Fragment key={index}>
+          <td className="gstart cg-sj-num">{Number(cell.score).toFixed(1).replace(/\.0$/, "")}</td>
+          <td>{cell.grade ? <span className={`cg-exam-grade g${cell.grade}`}>{cell.grade}</span> : "-"}</td>
+        </React.Fragment>)}
+      </tr>; })}</tbody></table></div>
+    <div className="cg-foot">등급 = 과목마다 이 시험 하나만으로 본 참고 등급(학년 전체 석차, 누적 10·34·66·90%) · 평균 등급 = 응시 과목 등급의 단순 평균(학점 미반영) · 학기말 성적(NEIS)이 올라오면 이 시험은 목록에서 빠져요</div>
+  </section>;
+}
 // 반 성적 › 정기시험 과목 보기: 원점수(높을수록 좋음) KPI·분포와 순위 | 학번 | 이름 | 원점수 | 반 석차 | 학년 석차 표.
 function ClassExamStudents({ exam, rosterRows = [], allClasses = false, classNo = "", tableSort = "rank", onSort, onOpenStudent, part = "head" }) {
   const gradeScores = Object.values(exam.scores);
   const gradeRank = score => 1 + gradeScores.filter(other => other > score + 1e-9).length;
   // 학년 전체 원점수로 석차 → 5등급(누적 10·34·66·90%, 동점은 같은 등급). 성적 산출 화면과 같은 계산입니다.
-  const gradeBySid = useMemo(() => {
-    const list = Object.entries(exam.scores).map(([sid, score]) => ({ sid, score }));
-    rankAndGrade(list, { vectorOf: row => [row.score], isEligible: () => true, system: 5 });
-    return new Map(list.map(row => [row.sid, row.grade]));
-  }, [exam]);
+  const gradeBySid = useMemo(() => new Map(Object.entries(examGrades(exam.scores))), [exam]);
   const gradeMean = gradeScores.length ? gradeScores.reduce((sum, v) => sum + v, 0) / gradeScores.length : null;
   const rows = rosterRows.map(row => ({ ...row, score: exam.scores[row.sid] ?? null })).filter(row => row.score != null);
   const classRank = row => 1 + rows.filter(other => other.score > row.score + 1e-9).length;
@@ -1414,9 +1472,30 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const isExam = metric.startsWith(EXAM_METRIC);
   const examSubjects = useMemo(() => { const now = new Date(); return examSubjectScores(examWorkspaces || {}, currentGrade, now.getMonth() + 1 >= 3 ? now.getFullYear() : now.getFullYear() - 1).filter(item => !loadedSemesters.has(`${currentGrade}-${item.semester}`)); }, [examWorkspaces, currentGrade, loadedSemesters]);
   const examPick = isExam ? examSubjects.find(item => `${EXAM_METRIC}${item.id}` === metric) || null : null;
+  // '전 과목 보기': 한 정기시험에서 저장된 과목을 모두 학생별로 나란히
+  const EXAM_ALL = `${EXAM_METRIC}ALL|`;
+  const examAll = useMemo(() => {
+    if (!metric.startsWith(EXAM_ALL)) return null;
+    const key = metric.slice(EXAM_ALL.length);
+    const list = examSubjects.filter(item => item.key === key);
+    return list.length ? { key, title: list[0].title, label: list[0].label, semester: list[0].semester, subjects: list.map(item => ({ ...item, grades: examGrades(item.scores) })) } : null;
+  }, [metric, examSubjects]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 반 비교 정기시험 표의 '평균 등급': 시험·과목마다 반 평균 등급
+  const examClassGrades = useMemo(() => {
+    const out = {};
+    examSubjects.forEach(item => {
+      const grades = examGrades(item.scores);
+      const byClass = {};
+      Object.entries(grades).forEach(([sid, g]) => { const no = String(roster?.[sid]?.class || Number(String(sid).slice(1, 3)) || ""); if (!no) return; (byClass[no] ||= []).push(g); });
+      const mean = list => list.reduce((sum, v) => sum + v, 0) / list.length;
+      const all = Object.values(grades);
+      (out[item.key] ||= {})[item.subject] = { mean: all.length ? mean(all) : null, classes: Object.fromEntries(Object.entries(byClass).map(([no, list]) => [no, mean(list)])) };
+    });
+    return out;
+  }, [examSubjects, roster]);
   useEffect(() => { if (view === "compare" && isExam) setMetric("overall"); }, [view, isExam]);
   const subjectName = isSubject ? metric.slice(SUBJECT_METRIC.length) : "";
-  const metricLabel = isSubject ? subjectName : isExam ? (examPick ? `${examPick.subject} ${examPick.title}` : "정기시험") : CLASS_METRICS.find(([key]) => key === metric)?.[1] || "전교과";
+  const metricLabel = isSubject ? subjectName : isExam ? (examPick ? `${examPick.subject} ${examPick.title}` : examAll ? `${examAll.label} 전 과목` : "정기시험") : CLASS_METRICS.find(([key]) => key === metric)?.[1] || "전교과";
   // 개별 과목: 그 과목 등급(여러 학기에 같은 이름이면 평균). 듣지 않은 학생은 값 없음 → '미수강'.
   const val = row => {
     if (!isSubject) return row?.[metric]?.primary ?? null;
@@ -1582,11 +1661,12 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
         <div className="cg-hero-tools">
           <div className="cg-seg" role="tablist"><button type="button" className={view === "class" ? "is-on" : ""} onClick={() => setView("class")}>{isAdmin ? "반 성적" : "우리 반"}</button><button type="button" className={view === "compare" ? "is-on" : ""} onClick={() => setView("compare")}>반 비교</button></div>
           <div className="cg-seg cg-metric" role="group" aria-label="교과 조합">{CLASS_METRICS.map(([key, label]) => <button key={key} type="button" className={metric === key ? "is-on" : ""} onClick={() => setMetric(key)}>{label}</button>)}</div>
-          {(subjectOptions.length > 0 || (view === "class" && examSubjects.length > 0)) && <select className={`cg-subject-pick${isSubject || isExam ? " is-on" : ""}`} value={isSubject || isExam ? metric : ""} onChange={event => setMetric(event.target.value || "overall")} aria-label="개별 과목"><option value="">과목별 보기…</option>{SEMESTER_KEYS.map(key => { const list = subjectOptions.filter(item => [...item.keys][0] === key); if (!list.length) return null; const [y, t] = key.split("-"); return <optgroup key={key} label={`${y}학년 ${t}학기`}>{list.map(item => <option key={item.name} value={`${SUBJECT_METRIC}${item.name}`}>{item.name}</option>)}</optgroup>; })}{view === "class" && Array.from(new Set(examSubjects.map(item => item.key))).map(key => { const list = examSubjects.filter(item => item.key === key); return <optgroup key={key} label={`${currentGrade}학년 ${list[0].semester}학기 · ${list[0].title} 정기시험`}>{list.map(item => <option key={item.id} value={`${EXAM_METRIC}${item.id}`}>{item.subject} · {item.title}</option>)}</optgroup>; })}</select>}
+          {(subjectOptions.length > 0 || (view === "class" && examSubjects.length > 0)) && <select className={`cg-subject-pick${isSubject || isExam ? " is-on" : ""}`} value={isSubject || isExam ? metric : ""} onChange={event => setMetric(event.target.value || "overall")} aria-label="개별 과목"><option value="">과목별 보기…</option>{SEMESTER_KEYS.map(key => { const list = subjectOptions.filter(item => [...item.keys][0] === key); if (!list.length) return null; const [y, t] = key.split("-"); return <optgroup key={key} label={`${y}학년 ${t}학기`}>{list.map(item => <option key={item.name} value={`${SUBJECT_METRIC}${item.name}`}>{item.name}</option>)}</optgroup>; })}{view === "class" && Array.from(new Set(examSubjects.map(item => item.key))).map(key => { const list = examSubjects.filter(item => item.key === key); return <optgroup key={key} label={`${currentGrade}학년 ${list[0].semester}학기 · ${list[0].title} 정기시험`}>{list.length > 1 && <option value={`${EXAM_METRIC}ALL|${key}`}>전 과목 보기 ({list.length}과목)</option>}{list.map(item => <option key={item.id} value={`${EXAM_METRIC}${item.id}`}>{item.subject} · {item.title}</option>)}</optgroup>; })}</select>}
           {isAdmin && view === "class" && <select value={classNo} onChange={event => setPickedClass(event.target.value)} aria-label="반 선택"><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
           {view === "class" && <button type="button" className="cg-ghost no-print" data-kdn-bare onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${allClasses ? "전체 반" : `${classNo}반`} 성적 ·`)} disabled={!rows.length}><Printer size={15} />인쇄·PDF</button>}
         </div>
       </div>
+      {view === "class" && isExam && examAll && <ClassExamAll exam={examAll} rosterRows={rosterRows} allClasses={allClasses} classNo={classNo} tableSort={tableSort} onSort={setTableSort} onOpenStudent={onOpenStudent} part="head" />}
       {view === "class" && isExam && examPick && <ClassExamStudents exam={examPick} rosterRows={rosterRows} allClasses={allClasses} classNo={classNo} tableSort={tableSort} onSort={setTableSort} onOpenStudent={onOpenStudent} part="head" />}
       {view === "class" && !isExam && <>
         <ClassGradeKpis metricLabel={metricLabel} rows={rows} graded={graded} avg={avg} gradeMean={gradeMean} scale={scale} up={up} down={down} />
@@ -1601,6 +1681,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
       {view === "compare" && !hasSemesterStats && <div className="cg-foot">아직 올라온 학기 성적이 없어요. 아래 과목별 반 비교에서 선생님 ZONE에 저장한 정기시험을 볼 수 있어요.</div>}
       {view === "compare" && hasSemesterStats && <ClassBandCompare metricLabel={metricLabel} classStats={sortedStats} sortKey={cmpSort} onSort={setCmpSort} scale={scale} gradeMean={gradeMean} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} onPick={isAdmin ? no => { setPickedClass(no); setView("class"); } : null} />}
     </section>
+    {view === "class" && isExam && examAll && <ClassExamAll exam={examAll} rosterRows={rosterRows} allClasses={allClasses} classNo={classNo} tableSort={tableSort} onSort={setTableSort} onOpenStudent={onOpenStudent} part="table" />}
     {view === "class" && isExam && examPick && <ClassExamStudents exam={examPick} rosterRows={rosterRows} allClasses={allClasses} classNo={classNo} tableSort={tableSort} onSort={setTableSort} onOpenStudent={onOpenStudent} part="table" />}
     {view === "class" && !isExam && (!rows.length ? <EmptyBox text={isSubject && takersOnly && rosterRows.length ? `${allClasses ? "전체 반" : `${classNo}반`}에 ${subjectName} 수강자가 없습니다.` : `${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
       <div className="cg-tablebar"><b>{metricLabel} 기준</b>{isSubject && <button type="button" data-kdn-bare className={`cg-takers${takersOnly ? " is-on" : ""}`} aria-pressed={takersOnly} onClick={() => setTakersOnly(value => !value)}>{takersOnly ? "✓ " : ""}수강자만 <small>{rosterRows.filter(row => val(row) != null).length}/{rosterRows.length}명</small></button>}<span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"]].map(([key, label]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => setTableSort(key)}>{label}</button>)}</div></div>
@@ -1642,16 +1723,42 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
           <td className="c">{stat.change == null ? "-" : <span className={`cg-pill ${changeTone(stat.change)}`}>{changeMark(stat.change)} {Math.abs(stat.change).toFixed(2)}</span>}</td>
         </tr>; })}</tbody></table></div>
     </section>}
-    {view === "compare" && <ClassSubjectCompare matrix={subjectMatrix} classes={classes} semesters={subjectSemesters} semester={activeSubjectSem} onSemester={setSubjectSem} exams={classExams} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} />}
+    {view === "compare" && <ClassSubjectCompare matrix={subjectMatrix} classes={classes} semesters={subjectSemesters} semester={activeSubjectSem} onSemester={setSubjectSem} exams={classExams} examGradeStats={examClassGrades} highlight={String(homeroomClass || (isAdmin ? "" : classNo))} />}
   </div>;
 }
 
 // 정기시험 반 비교 표: 선생님 ZONE에 저장된 지필 점수(학교 공동본)로 과목 × 반 평균 원점수를 봅니다.
 // 학기 성적 파일이 올라오기 전, 1차 정기시험만 저장해도 바로 보입니다.
-function ClassExamTable({ exam, classes = [], highlight = "" }) {
+function ClassExamTable({ exam, classes = [], highlight = "", gradeStats = {} }) {
   const cols = classes.length ? classes : Array.from(new Set(exam.subjects.flatMap(item => Object.keys(item.classes)))).sort((a, b) => Number(a) - Number(b));
   const fmt1 = value => (value == null ? "-" : Number(value).toFixed(1));
+  // 보기: 반 평균 원점수(높을수록 좋음) ↔ 반 평균 등급(학년 석차 5등급, 낮을수록 좋음)
+  const [mode, setMode] = useState("score");
+  if (mode === "grade") return <>
+    <div className="cg-exam-mode"><span>보기</span><div className="cg-seg">{[["score", "평균 원점수"], ["grade", "평균 등급"]].map(([key, text]) => <button key={key} type="button" className={mode === key ? "is-on" : ""} onClick={() => setMode(key)}>{text}</button>)}</div></div>
+    <div className="cg-table-wrap"><table className="cg-table cg-subj" style={{ minWidth: 200 + cols.length * 82 }}>
+      <thead><tr><th className="sticky">과목</th><th className="c">학년 평균</th>{cols.map(no => <th key={no} className={`c${no === highlight ? " is-mine" : ""}`}>{no}반</th>)}</tr></thead>
+      <tbody>{exam.subjects.map(item => {
+        const stat = gradeStats[item.subject] || { mean: null, classes: {} };
+        const values = cols.map(no => stat.classes[no]).filter(v => v != null);
+        const best = values.length ? Math.min(...values) : null;
+        const worst = values.length ? Math.max(...values) : null;
+        const spread = values.length > 1 && worst - best > 1e-9;
+        return <tr key={item.subject}>
+          <td className="sticky"><b>{item.subject}</b><small>{item.n}명 · 5등급(학년 석차)</small></td>
+          <td className="c"><b className="cg-mean">{fmt2(stat.mean)}</b></td>
+          {cols.map(no => { const value = stat.classes[no]; if (value == null) return <td key={no} className="c"><span className="cg-sub">-</span></td>;
+            const gap = stat.mean - value;
+            return <td key={no} className={`c cg-mx${no === highlight ? " is-mine" : ""}`} title={`${no}반 ${item.subject} 평균 ${fmt2(value)}등급 · 학년 평균 ${fmt2(stat.mean)}등급`}>
+              <b className={spread && value === best ? "is-best" : spread && value === worst ? "is-worst" : ""}>{fmt2(value)}</b>
+              <small className={Math.abs(gap) < 0.005 ? "eq" : gap > 0 ? "up" : "down"}>{Math.abs(gap) < 0.005 ? "평균" : `${gap > 0 ? "▲" : "▼"} ${Math.abs(gap).toFixed(2)}`}</small>
+            </td>; })}
+        </tr>; })}</tbody>
+    </table></div>
+    <div className="cg-foot">반 평균 등급 · 낮을수록 좋음 · 이 시험 하나만으로 본 참고 등급(학년 전체 석차, 누적 10·34·66·90%) · ▲/▼ = 학년 평균 등급과의 차이</div>
+  </>;
   return <>
+    <div className="cg-exam-mode"><span>보기</span><div className="cg-seg">{[["score", "평균 원점수"], ["grade", "평균 등급"]].map(([key, text]) => <button key={key} type="button" className={mode === key ? "is-on" : ""} onClick={() => setMode(key)}>{text}</button>)}</div></div>
     <div className="cg-table-wrap"><table className="cg-table cg-subj" style={{ minWidth: 200 + cols.length * 82 }}>
       <thead><tr><th className="sticky">과목</th><th className="c">학년 평균</th>{cols.map(no => <th key={no} className={`c${no === highlight ? " is-mine" : ""}`}>{no}반</th>)}</tr></thead>
       <tbody>{exam.subjects.map(item => {
@@ -1674,7 +1781,7 @@ function ClassExamTable({ exam, classes = [], highlight = "" }) {
   </>;
 }
 
-function ClassSubjectCompare({ matrix = [], classes = [], semesters = [], semester = "", onSemester, exams = [], highlight = "" }) {
+function ClassSubjectCompare({ matrix = [], classes = [], semesters = [], semester = "", onSemester, exams = [], examGradeStats = {}, highlight = "" }) {
   const exam = exams.find(item => item.chip === semester) || null;
   const [year, term] = String(exam ? exam.gradeSem : semester).split("-");
   // 칩: 학기 성적(2-1) 사이에 저장된 정기시험(2-2 1차)을 학년-학기 순서로 끼웁니다.
@@ -1683,10 +1790,10 @@ function ClassSubjectCompare({ matrix = [], classes = [], semesters = [], semest
     .sort((a, b) => a.order - b.order);
   if (!chips.length) return null;
   return <section className="cg-card">
-    <div className="cg-tablebar"><b>과목별 반 비교 <small className="cg-subhint">{exam ? `${year}학년 ${term}학기 ${exam.title} 정기시험 · 반 평균 원점수` : semester ? `${year}학년 ${term}학기 · 반 평균 등급` : ""}</small></b>
+    <div className="cg-tablebar"><b>과목별 반 비교 <small className="cg-subhint">{exam ? `${year}학년 ${term}학기 ${exam.title} 정기시험 · 반 평균` : semester ? `${year}학년 ${term}학기 · 반 평균 등급` : ""}</small></b>
       <span>학기</span><div className="cg-seg">{chips.map(chip => <button key={chip.id} type="button" title={chip.title} className={semester === chip.id ? "is-on" : ""} onClick={() => onSemester(chip.id)}>{chip.label}</button>)}</div>
     </div>
-    {exam ? <ClassExamTable exam={exam} classes={classes} highlight={highlight} /> : !matrix.length ? <div className="cg-foot">비교할 과목 성적이 없습니다.</div> : <>
+    {exam ? <ClassExamTable exam={exam} classes={classes} highlight={highlight} gradeStats={examGradeStats[exam.key] || {}} /> : !matrix.length ? <div className="cg-foot">비교할 과목 성적이 없습니다.</div> : <>
       <div className="cg-mx-legend"><span><b className="is-best">2.30</b>그 과목 1등 반</span><span><b className="is-worst">3.75</b>그 과목 꼴찌 반</span><span><i className="up">▲ 0.30</i>학년 평균보다 좋음</span><span><i className="down">▼ 0.30</i>학년 평균보다 낮음</span><em>반 평균 등급 · 숫자가 낮을수록 좋아요</em></div>
       <div className="cg-table-wrap"><table className="cg-table cg-subj" style={{ minWidth: 200 + classes.length * 82 }}>
         <thead><tr><th className="sticky">과목</th><th className="c">학년 평균</th>{classes.map(no => <th key={no} className={`c${no === highlight ? " is-mine" : ""}`}>{no}반</th>)}</tr></thead>
