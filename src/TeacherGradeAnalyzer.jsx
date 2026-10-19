@@ -267,7 +267,20 @@ function safeLoadWorkspaceStore(key, legacyKey, fallbackGrade) {
     const raw = localStorage.getItem(key);
     if (raw) {
       const parsed = JSON.parse(raw);
-      const workspaces = Object.fromEntries(Object.entries(parsed?.workspaces || {}).map(([id, value]) => [id, normalizeWorkspaceSnapshot(value)]));
+      // 예전에 작업 학년을 바꿀 때 다른 학년 임시본이 이 학년 칸에 섞여 저장된 적이 있어,
+      // 학년이 다른 작업은 제 학년 칸으로 옮기고(그쪽에 없을 때만) 여기서는 뺍니다.
+      const all = Object.entries(parsed?.workspaces || {});
+      const misplaced = all.filter(([, value]) => value?.grade && fallbackGrade && String(value.grade) !== String(fallbackGrade));
+      misplaced.forEach(([id, value]) => {
+        const otherKey = key.replace(/_[123]$/, `_${value.grade}`);
+        if (otherKey === key) return;
+        try {
+          const other = JSON.parse(localStorage.getItem(otherKey) || "null") || { activeId: "", workspaces: {} };
+          if (!other.workspaces?.[id]) localStorage.setItem(otherKey, JSON.stringify({ activeId: other.activeId || id, workspaces: { ...(other.workspaces || {}), [id]: value } }));
+        } catch { /* 옮기지 못해도 이 학년 화면에서는 빼 둡니다 */ }
+      });
+      const misplacedIds = new Set(misplaced.map(([id]) => id));
+      const workspaces = Object.fromEntries(all.filter(([id]) => !misplacedIds.has(id)).map(([id, value]) => [id, normalizeWorkspaceSnapshot(value)]));
       const activeId = workspaces[parsed?.activeId] ? parsed.activeId : (Object.keys(workspaces)[0] || "");
       return { activeId, workspaces };
     }
@@ -513,7 +526,8 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
     return (teacherAccounts || []).filter(account => teacherHandlesSubject(account, context.subject, grade, semester));
   }, [teacherAccounts, context?.subject]);
   const localWorkspaceList = useMemo(() => Object.values(localWorkspaces || {})
-    .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [localWorkspaces]);
+    .filter(item => !item?.grade || String(item.grade) === String(grade))
+    .sort((a, b) => String(a?.subject || "").localeCompare(String(b?.subject || ""), "ko") || String(b?.updatedAt || "").localeCompare(String(a?.updatedAt || ""))), [localWorkspaces, grade]);
   const managedWorkspaces = useMemo(() => [
     ...localWorkspaceList.map(item => summarizeManagedWorkspace(item, "local", grade)),
     ...sharedWorkspaces.map(item => summarizeManagedWorkspace(item, "shared", grade)),

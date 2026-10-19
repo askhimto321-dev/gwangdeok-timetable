@@ -27,6 +27,7 @@ import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { buildClassExamCompare, examSubjectScores } from "./classExamCompare.js";
+import { SURVEY_FIELDS, SURVEY_GROUPS, parseCounselSurvey, mergeCounselSurveys, splitChoice } from "./counselSurvey.js";
 import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { featureAllowed } from "./staffPermissions.js";
 import { parseNeisClassReport } from "./neisClassReport.js";
@@ -570,7 +571,7 @@ export async function loadGradesDB() {
     semesterData, mockData,
     legacyAdmissionRows, admissionRows1, admissionRows2, admissionRows3,
     legacyAdmissionDocs, admissionDocs1, admissionDocs2, admissionDocs3,
-    studentAccounts, cohortSettings, admissionCaseSources, admissionCases, admissionFavorites, admissionCounseling, minimumCatalog,
+    studentAccounts, cohortSettings, admissionCaseSources, admissionCases, admissionFavorites, admissionCounseling, counselSurveys, minimumCatalog,
   ] = await Promise.all([
     readStorage("kd_grades_semesters", {}), readStorage("kd_grades_mocks", {}),
     readStorage("kd_grades_admission", []),
@@ -578,12 +579,12 @@ export async function loadGradesDB() {
     readStorage("kd_grades_admission_docs", []),
     readStorage("kd_grades_admission_docs_grade_1", []), readStorage("kd_grades_admission_docs_grade_2", []), readStorage("kd_grades_admission_docs_grade_3", []),
     readStorage("kd_grades_students_meta", {}), readStorage("kd_grades_cohorts", DEFAULT_COHORT_SETTINGS),
-    readStorage("kd_grades_admission_case_sources", []), readStorage("kd_grades_admission_cases", []), readStorage("kd_grades_admission_favorites", {}), readStorage("kd_grades_admission_counseling", {}),
+    readStorage("kd_grades_admission_case_sources", []), readStorage("kd_grades_admission_cases", []), readStorage("kd_grades_admission_favorites", {}), readStorage("kd_grades_admission_counseling", {}), readStorage("kd_grades_counsel_surveys", {}),
     readStorage("kd_grades_minimum_catalog_v1", null),
   ]);
   const admissionRows = mergeScopedAdmissionStorage(legacyAdmissionRows, [admissionRows1, admissionRows2, admissionRows3]);
   const admissionDocs = deduplicateAdmissionDocuments(mergeScopedAdmissionStorage(legacyAdmissionDocs, [admissionDocs1, admissionDocs2, admissionDocs3]));
-  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases, admissionFavorites: admissionFavorites || {}, admissionCounseling: admissionCounseling || {}, minimumCatalog };
+  return { semesterData, mockData, admissionRows, admissionDocs, studentAccounts, cohortSettings: normalizeCohortSettings(cohortSettings), admissionCaseSources, admissionCases, admissionFavorites: admissionFavorites || {}, admissionCounseling: admissionCounseling || {}, counselSurveys: counselSurveys || {}, minimumCatalog };
 }
 
 export default function GradesSection({
@@ -5729,6 +5730,44 @@ function ConsultPlanBoard({ sid, planItems = [], status, favorites = [], onOpenS
   </section>;
 }
 
+// 진학상담 사전 설문 카드: 묶음(기본·희망·지원·학습·상담)별로 학생 답을 보여 주고, 희망 대학은 NAVI·대학 탐색으로 바로 엽니다.
+function CounselSurveyCard({ entry, onOpenSusiNavi, onOpenAdmission }) {
+  const [open, setOpen] = useState(true);
+  const answers = entry?.answers || {};
+  const choice = splitChoice(answers.topChoice);
+  const when = entry?.submittedAt ? new Date(entry.submittedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "";
+  const groups = SURVEY_GROUPS.map(group => [group, SURVEY_FIELDS.filter(([key, , , g]) => g === group && key !== "sid" && key !== "name" && answers[key])]).filter(([, list]) => list.length);
+  const GROUP_LABEL = { 기본: "진로 목표", 희망: "희망 학과·대학", 지원: "지원 범위·계획", 학습: "학습·학교생활", 상담: "이번 상담에서" };
+  return <section className="kd-survey">
+    <div className="kd-survey-head">
+      <b>진학상담 사전 설문</b><span>{when ? `${when} 제출` : "제출"}</span>
+      {choice && <span className="kd-survey-links">{(choice.university || choice.department) && onOpenSusiNavi && <button type="button" data-kdn-bare onClick={() => onOpenSusiNavi(choice.university, choice.department)}>희망 대학 NAVI ›</button>}{choice.university && onOpenAdmission && <button type="button" data-kdn-bare onClick={() => onOpenAdmission(choice.university)}>대학 탐색 ›</button>}</span>}
+      <button type="button" data-kdn-bare className="kd-survey-toggle no-print" onClick={() => setOpen(value => !value)}>{open ? "접기" : "펼치기"}</button>
+    </div>
+    {open && <div className="kd-survey-grid">{groups.map(([group, list]) => <div key={group} className="kd-survey-group">
+      <small>{GROUP_LABEL[group] || group}</small>
+      <dl>{list.map(([key, label]) => <React.Fragment key={key}><dt>{label}</dt><dd>{answers[key]}</dd></React.Fragment>)}</dl>
+    </div>)}</div>}
+  </section>;
+}
+const SURVEY_CSS = `
+.kd-survey{display:grid;gap:10px;padding:14px 16px;border:1px solid var(--kdn-line,#dfe2e8);border-radius:16px;background:var(--kdn-surface,#fff)}
+.kd-survey-head{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px}
+.kd-survey-head>b{font-size:15px;font-weight:900;color:var(--kdn-ink,#1f2430)}
+.kd-survey-head>span{font-size:12.5px;color:var(--kdn-muted,#5d6574)}
+.kd-survey-links{display:inline-flex;gap:6px}
+.kd-survey-links button,.kd-survey-toggle{height:28px;padding:0 10px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:8px;background:var(--kdn-surface-2,#f6f8fb);color:var(--kdn-ink,#1f2430);font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
+.kd-survey-toggle{margin-left:auto}
+.kd-survey-grid{display:grid;align-items:start;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.kd-survey-group{display:grid;align-content:start;gap:6px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f8fb)}
+.kd-survey-group>small{font-size:12px;font-weight:850;color:var(--kdn-muted,#5d6574)}
+.kd-survey-group dl{display:grid;align-content:start;grid-template-columns:110px 1fr;gap:5px 10px;margin:0}
+.kd-survey-group dt{font-size:12.5px;font-weight:800;color:var(--kdn-ink-soft,#3a4150)}
+.kd-survey-group dd{margin:0;font-size:13.5px;color:var(--kdn-ink,#1f2430);white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere}
+.kd-survey-none,.kd-survey-msg{display:flex;align-items:center;gap:8px;padding:9px 14px;border:1px dashed var(--kdn-line,#dfe2e8);border-radius:12px;font-size:13px;color:var(--kdn-muted,#5d6574)}
+.kd-survey-msg button{margin-left:auto;border:0;background:transparent;color:inherit;cursor:pointer}
+@media (max-width:640px){.kd-survey-group dl{grid-template-columns:1fr}}
+`;
 export function StudentConsultationView({
   sid,
   gdb,
@@ -5757,6 +5796,32 @@ export function StudentConsultationView({
   const [printPaper, setPrintPaper] = useState("A4");
   const supportPlanCount = useSupportPlanCount(sid);
   const newUi = isNewUi();
+  // 진학상담 사전 설문(구글 폼 응답): 학번별로 저장된 응답과 올리기
+  const survey = gdb?.counselSurveys?.[String(sid)] || null;
+  const surveyTotal = Object.keys(gdb?.counselSurveys || {}).length;
+  const [surveyBusy, setSurveyBusy] = useState(false);
+  const [surveyMsg, setSurveyMsg] = useState("");
+  const importSurvey = async file => {
+    if (!file || !persistGrades) return;
+    setSurveyBusy(true); setSurveyMsg("");
+    try {
+      const XLSX = await loadXLSX();
+      const workbook = /\.csv$/i.test(file.name) ? XLSX.read(await file.text(), { type: "string" }) : XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "", raw: true });
+      const result = parseCounselSurvey(rows);
+      if (!result.count) { setSurveyMsg("학번이 있는 응답을 찾지 못했어요."); return; }
+      const before = gdb?.counselSurveys || {};
+      const merged = mergeCounselSurveys(before, result.responses);
+      const fresh = Object.keys(result.responses).filter(id => !before[id]).length;
+      const ok = await persistGrades({ counselSurveys: merged });
+      if (ok === false) return;
+      setSurveyMsg(`사전 설문 ${result.count}명 반영 (새로 ${fresh}명 · 전체 ${Object.keys(merged).length}명)${result.missing.length ? ` · 못 찾은 질문: ${result.missing.join(", ")}` : ""}${result.skipped.length ? ` · ${result.skipped.slice(0, 3).join(" / ")}` : ""}`);
+    } catch (error) {
+      setSurveyMsg(error?.message || "설문 파일을 읽지 못했어요.");
+    } finally {
+      setSurveyBusy(false);
+    }
+  };
   const [consultLayout, setConsultLayoutState] = useState(readConsultLayout);
   const setConsultLayout = value => { setConsultLayoutState(value); try { localStorage.setItem(CONSULT_LAYOUT_KEY, value); } catch { /* 저장 실패는 무시 */ } };
   const layout = newUi ? consultLayout : "classic";
@@ -5820,19 +5885,25 @@ export function StudentConsultationView({
   return <div className={`kd-consultation-ui${cardFocus ? ' is-card-focus' : ''}`} style={{display:"grid",gap:14}}>
     <style>{COUNSELING_PRINT_CSS}</style>
     <style>{counselingCss}</style>
+    <style>{SURVEY_CSS}</style>
     <div className="kd-consult-toolbar no-print">
       <div><h3>관심 대학·상담</h3><p>관심 대학 카드와 상담 기록을 함께 확인합니다.</p></div>
       <button type="button" className="kd-consult-action" aria-pressed={cardFocus} onClick={()=>setCardFocus(value=>!value)}><LayoutGrid size={16}/>{cardFocus ? '상세 보기' : '대학 요약 보기'}</button>
       <button type="button" className="kd-consult-action is-print" onClick={()=>setPrintOptionsOpen(true)}><Printer size={16}/>상담 인쇄·PDF 저장</button>
+      {canEdit && persistGrades && <label className="kd-consult-action" title="구글 시트 응답을 '파일 → 다운로드 → .xlsx 또는 .csv'로 받아 올리면 학번별로 들어갑니다"><Upload size={16}/>{surveyBusy ? "설문 읽는 중…" : "사전 설문 올리기"}<input hidden type="file" accept=".xlsx,.xls,.csv" disabled={surveyBusy} onChange={event=>{ importSurvey(event.target.files?.[0]); event.target.value=""; }}/></label>}
     </div>
+    {surveyMsg && <div className="kd-survey-msg no-print" role="status">{surveyMsg}<button type="button" data-kdn-bare onClick={()=>setSurveyMsg("")} aria-label="닫기">✕</button></div>}
     {newUi && <div className="kdn-case-layout-switch no-print"><span>화면 구성</span><div>{CONSULT_LAYOUTS.map(([key,label])=><button key={key} type="button" className={consultLayout===key?"is-on":""} aria-pressed={consultLayout===key} onClick={()=>setConsultLayout(key)}>{label}</button>)}</div></div>}
     <div className="counseling-print-root" style={{display:"grid",gap:14}}>
     <div className="counseling-print-student-banner"><StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" /></div>
-    <div className={`kd-consult-linkhub no-print${layout==="explorer"?" kdn-hide-new":""}`} style={consultationView.linkHub}>
-      <div style={consultationView.linkHubCopy}><span>상담 연결</span><b>관심 대학과 NAVI·광덕고 사례를 함께 확인하세요.</b><small>대학 탐색에서 저장한 관심 항목은 아래 카드에 모이고, 같은 대학을 NAVI와 광덕고 실제 사례로 바로 이어서 볼 수 있습니다.</small></div>
+    {/* 목록+상세 보기에서도 상담 연결(대학 탐색·NAVI·지원 구성·광덕고 사례)은 보이게 하고 설명 글만 줄입니다. */}
+    <div className={`kd-consult-linkhub no-print${layout==="explorer"?" is-compact":""}`} style={consultationView.linkHub}>
+      <div style={consultationView.linkHubCopy} className={layout==="explorer"?"kdn-hide-new":undefined}><span>상담 연결</span><b>관심 대학과 NAVI·광덕고 사례를 함께 확인하세요.</b><small>대학 탐색에서 저장한 관심 항목은 아래 카드에 모이고, 같은 대학을 NAVI와 광덕고 실제 사례로 바로 이어서 볼 수 있습니다.</small></div>
       <div className="kd-consult-linkhub-stats" style={consultationView.linkHubStats}><span><small>관심 항목</small><b>{favorites.length}개</b></span><span><small>지원 구성</small><b>{supportPlanCount == null ? "확인 필요" : `${supportPlanCount}/6`}</b></span><span><small>상담 기록</small><b>{notes.length}건</b></span></div>
       <div style={consultationView.linkHubActions}>{onOpenAdmission&&<button type="button" onClick={()=>onOpenAdmission("")} style={consultationView.linkHubButton}><GraduationCap size={13}/>대학 탐색</button>}{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi("","")} style={consultationView.linkHubButton}><BookOpen size={13}/>NAVI 분석</button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan} count={supportPlanCount}/>}{onOpenCases&&<button type="button" onClick={()=>onOpenCases("","","")} style={consultationView.linkHubButton}><BarChart3 size={13}/>광덕고 사례</button>}</div>
     </div>
+    {survey && canEdit ? <CounselSurveyCard entry={survey} onOpenSusiNavi={onOpenSusiNavi} onOpenAdmission={onOpenAdmission} />
+      : canEdit && surveyTotal > 0 && <div className="kd-survey-none no-print">진학상담 사전 설문: 이 학생 응답이 아직 없어요 (전체 {surveyTotal}명 제출)</div>}
     {layout==="board" && <ConsultPlanBoard sid={sid} planItems={planState.items} status={planState.status} favorites={favorites} onOpenSupportPlan={onOpenSupportPlan}/>}
     {layout!=="timeline" && layout!=="classic" && <div className="kd-consult-todo-row no-print"><ConsultTodoList sid={sid} canEdit={canEdit} /></div>}
     <div className={`kd-consult-body is-${layout}`}>
