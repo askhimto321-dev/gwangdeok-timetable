@@ -5809,7 +5809,7 @@ export function StudentConsultationView({
       const workbook = /\.csv$/i.test(file.name) ? XLSX.read(await file.text(), { type: "string" }) : XLSX.read(await file.arrayBuffer(), { type: "array" });
       const rows = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1, defval: "", raw: true });
       const result = parseCounselSurvey(rows);
-      if (!result.count) { setSurveyMsg("학번이 있는 응답을 찾지 못했어요."); return; }
+      if (!result.count) { setSurveyMsg(result.skipped.length ? `학번이 있는 응답을 찾지 못했어요 · ${result.skipped.slice(0, 3).join(" / ")}` : `아직 응답이 없어요${result.missing.length ? ` · 못 찾은 질문: ${result.missing.join(", ")}` : " · 질문 열은 모두 확인했어요"}`); return; }
       const before = gdb?.counselSurveys || {};
       const merged = mergeCounselSurveys(before, result.responses);
       const fresh = Object.keys(result.responses).filter(id => !before[id]).length;
