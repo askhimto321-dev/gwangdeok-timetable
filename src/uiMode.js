@@ -2148,6 +2148,15 @@ const SHARED_NEW_CSS = `
   .kdn-gr-cls-table th:last-child,.kdn-gr-cls-table td:last-child{border-right:0}
   .kdn-gr-cls-table td b{color:var(--kdn-ink)}.kdn-gr-cls-table td small{font-size:11.5px}
   .kdn-gr-cls-table tr.total td{background:var(--kdn-surface-2)}
+  /* 반별 비교 표: 성적 산출 화면 기본 표 글꼴(작게)보다 크게 */
+  .teacher-grade-analyzer .kdn-gr-cls-table,.kdn-gr-cls-table{font-size:15px}
+  .teacher-grade-analyzer .kdn-gr-cls-table th,.kdn-gr-cls-table th{font-size:13.5px;padding:11px 10px}
+  .teacher-grade-analyzer .kdn-gr-cls-table td,.kdn-gr-cls-table td{font-size:15px;padding:11px 10px}
+  .teacher-grade-analyzer .kdn-gr-cls-table td b,.kdn-gr-cls-table td b{font-size:16px}
+  .kdn-gr-cls-table th.grp{border-bottom:1px solid var(--kdn-line)}
+  .kdn-gr-cls-table th.g i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;vertical-align:1px}
+  .kdn-gr-cls-table td.g{line-height:1.15}.kdn-gr-cls-table td.g b{display:block;font-size:15.5px}.kdn-gr-cls-table td.g small{display:block;font-size:12px;color:var(--kdn-muted)}
+  .kdn-gr-cls-table td.g.zero{opacity:.38}
   @media (max-width:900px){.kdn-gr-cls-row,.kdn-gr-cls-colhead{grid-template-columns:92px minmax(0,1fr) 60px}.kdn-gr-cls-row .grades{grid-column:1/-1}.kdn-gr-cls-colhead>span:last-child{display:none}}
   /* 성적 산출 결과 확인 (새 UI): 시험 탭 · 요약 줄 · 등급컷 카드 */
   .kdn-rs-tabs{display:inline-flex;flex-wrap:wrap;gap:3px;padding:3px;margin:4px 0 12px;border-radius:12px;background:var(--kdn-surface-2)}
