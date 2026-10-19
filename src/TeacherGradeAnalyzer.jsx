@@ -1,5 +1,6 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { officialSubjectName, curriculumSubjects, curriculumApplies } from "./curriculum.js";
+import { inferSubjectType } from "./gradeEngine.js";
 import SubjectPicker from "./SubjectPicker.jsx";
 import {
   AlertTriangle,
@@ -980,7 +981,17 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   // 선택과목도 고정분할(A 90 · B 80 · C 70 · D 60 · 60 미만 E)과 추정분할(A/B~D/E 컷, 미도달 없음)을 모두 씁니다.
   // 추정분할로 바꿀 때 컷이 공통과목 고정분할 기본값 그대로면 비워서 NEIS 추정분할점수를 입력하게 합니다.
   const toElectiveCuts = cuts => (["ab", "bc", "cd", "de"].every(key => Number(cuts?.[key]) === FIXED_COMMON_CUTS[key]) ? { ab: "", bc: "", cd: "", de: "", ei: null } : cuts);
-  const changeCourseType = courseType => setSettings(current => ({ ...current, courseType, ...(courseType === "elective" && current.achievementMode === "manual" ? { manualCuts: toElectiveCuts(current.manualCuts) } : {}) }));
+  const changeCourseType = (courseType, manual = true) => setSettings(current => ({ ...current, courseType, ...(manual ? { courseTypeManual: true } : {}), ...(courseType === "elective" && current.achievementMode === "manual" ? { manualCuts: toElectiveCuts(current.manualCuts) } : {}) }));
+  // 과목 구분 기본값: 2022 개정 교육과정 구분으로 정합니다(공통과목만 '공통과목', 일반·진로·융합선택은 '선택과목').
+  // 예전엔 모든 과목이 공통과목으로 시작해 대수·미적분Ⅰ 같은 일반선택에도 '미도달'이 붙었습니다. 선생님이 직접 바꾸면 그대로 둡니다.
+  const inferredCourseType = useMemo(() => {
+    const type = inferSubjectType(context?.subject || "");
+    return type === "공통과목" ? "common" : type === "기타" ? "" : "elective";
+  }, [context?.subject]);
+  useEffect(() => {
+    if (!inferredCourseType || settings.courseTypeManual || readOnlyWorkspace || settings.courseType === inferredCourseType) return;
+    changeCourseType(inferredCourseType, false);
+  }, [inferredCourseType, settings.courseTypeManual, readOnlyWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps
   const updateWrittenWeight = (id, value) => setWritten(current => current.map(item => item.id === id ? { ...item, weight: asNumber(value) ?? 0 } : item));
   const addPlannedWritten = () => setSettings(current => {
     const list = Array.isArray(current.plannedWritten) ? current.plannedWritten : [];
@@ -1820,7 +1831,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
             {[["석차등급", String(settings.gradeSystem), [["5", "5등급제"], ["9", "9등급제"]], value => setSettings(current => ({ ...current, gradeSystem: Number(value) }))],
               ["과목 구분", settings.courseType, [["common", "공통과목"], ["elective", "선택과목"]], changeCourseType],
               ["성취도", settings.achievementMode, [["fixed", "고정분할"], ["manual", "추정분할"]], achievementMode => setSettings(current => ({ ...current, achievementMode }))]].map(([label, value, options, onChange]) => <div key={label} className="kdn-cc-opt"><small>{label}</small><div className="kdn-cc-seg" role="group" aria-label={label}>{options.map(([key, text]) => <button key={key} type="button" data-kdn-bare aria-pressed={value === key} disabled={readOnlyWorkspace} onClick={() => onChange(key)}>{text}</button>)}</div></div>)}
-            <div className="kdn-cc-rule"><b>{settings.achievementMode === "fixed" ? (settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E") : settings.courseType === "elective" ? "선택과목 추정분할: A/B · B/C · C/D · D/E 컷 입력 (미도달 없음)" : "추정분할: A/B · B/C · C/D · D/E · E/미도달 컷 입력"}</b><span>{settings.courseType === "common" ? "공통과목 최성보: 출석률 2/3 이상 · 학업성취율 40% 이상" : "선택과목 최성보: 출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div>
+            <div className="kdn-cc-rule"><b>{settings.achievementMode === "fixed" ? (settings.courseType === "common" ? "A 90 · B 80 · C 70 · D 60 · E 40 · 40 미만 미도달" : "A 90 · B 80 · C 70 · D 60 · 60 미만 E") : settings.courseType === "elective" ? "선택과목 추정분할: A/B · B/C · C/D · D/E 컷 입력 (미도달 없음)" : "추정분할: A/B · B/C · C/D · D/E · E/미도달 컷 입력"}</b><span>{context?.subject && inferSubjectType(context.subject) !== "기타" ? `${context.subject}: 2022 개정 ${inferSubjectType(context.subject)} · ` : ""}{settings.courseType === "common" ? "공통과목 최성보: 출석률 2/3 이상 · 학업성취율 40% 이상" : "선택과목 최성보: 출석률 2/3 이상 · 학업성취율 기준 미적용"}</span></div>
             {settings.achievementMode === "manual" && <div className="kdn-cc-manual"><ManualCutInputs settings={settings} setSettings={setSettings} disabled={readOnlyWorkspace} /></div>}
           </section>
           <details className="kdn-cc-rules"><summary><b>산출 규칙</b><span>동점자 7단계 (정기시험 합계 → 수행 → 2차 → 1차 → …) · 석차는 소수 둘째 자리 · 원점수는 정수 표시</span></summary>

@@ -3,7 +3,7 @@ import { parseRegisterSheets } from "./registerImport.js";
 import AccountSwitcher, { ImpersonationBar } from "./AccountSwitcher.jsx";
 import { featureAllowed, STAFF_FEATURES, featureDefault, toggleFeature, staffRoleOf } from "./staffPermissions.js";
 import { mergeAccounts } from "./accountsMerge.js";
-import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, curriculumColumn, curriculumSubjects, ALTERNATE_PAIRS } from "./curriculum.js";
+import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, curriculumColumn, curriculumSubjects, ALTERNATE_PAIRS, subjectCategory } from "./curriculum.js";
 import { examPeriodFromCalendar } from "./examPeriod.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
 import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay } from "./AppOverlays.jsx";
@@ -2206,7 +2206,7 @@ function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semester
   const semesterName = sem => sem === "sem2" ? "2학기" : "1학기";
   // 시간표 이름("미적")은 저장값으로 두고, 화면에는 편제표 정식 이름("미적분Ⅰ")을 보여줍니다.
   const officialOf = (subject, sem, g = gradeView) => officialSubjectName(subject, g, sem);
-  const optionLabel = (subject, sem, g = gradeView) => { const official = officialOf(subject, sem, g); return official !== subject ? `${official} (시간표: ${subject})` : subject; };
+  const optionLabel = (subject, sem, g = gradeView) => { const official = officialOf(subject, sem, g); const category = subjectCategory(official); return `${official !== subject ? `${official} (시간표: ${subject})` : subject}${category !== "기타" ? ` · ${category}` : ""}`; };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2236,7 +2236,8 @@ function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semester
         if (!lists.elective.length && !lists.common.length) return null;
         return <div className="kd-subj-pick">
           <div className="kd-subj-pick-h"><b>{gradeView}학년 {semesterName(semesterView)} 과목을 눌러 고르세요{lists.fromCurriculum ? " · 시간표가 없어 편제표 과목으로 보여요" : ""}</b><span>선택 {picked.size}개 · 다시 누르면 빠져요</span></div>
-          {[["elective", "이동수업 과목", lists.elective], ["common", "공통과목", lists.common]].filter(([, , list]) => list.length).map(([kind, label, list]) => <div key={kind} className="kd-subj-pick-g"><small>{label}</small><div>{list.map(subject => <button key={subject} type="button" aria-pressed={picked.has(`${kind}::${subject}`)} className={picked.has(`${kind}::${subject}`) ? "is-on" : ""} onClick={() => toggle(kind, subject)} title={officialOf(subject, semesterView) !== subject ? `시간표 이름: ${subject}` : undefined}>{picked.has(`${kind}::${subject}`) ? "✓ " : ""}{officialOf(subject, semesterView)}{officialOf(subject, semesterView) !== subject && <small className="kd-subj-alias"> {subject}</small>}</button>)}</div></div>)}
+          {/* 묶음은 시간표 기준(이동수업 / 학급 고정 수업)이고, 과목마다 2022 개정 구분(공통과목·일반선택·진로선택·융합선택)을 붙입니다. */}
+          {[["elective", "이동수업 과목", lists.elective], ["common", "학급 고정 수업", lists.common]].filter(([, , list]) => list.length).map(([kind, label, list]) => <div key={kind} className="kd-subj-pick-g"><small>{label}</small><div>{list.map(subject => <button key={subject} type="button" aria-pressed={picked.has(`${kind}::${subject}`)} className={picked.has(`${kind}::${subject}`) ? "is-on" : ""} onClick={() => toggle(kind, subject)} title={officialOf(subject, semesterView) !== subject ? `시간표 이름: ${subject}` : undefined}>{picked.has(`${kind}::${subject}`) ? "✓ " : ""}{officialOf(subject, semesterView)}{officialOf(subject, semesterView) !== subject && <small className="kd-subj-alias"> {subject}</small>}<small className="kd-subj-cat"> {subjectCategory(officialOf(subject, semesterView)).replace("과목", "")}</small></button>)}</div></div>)}
         </div>;
       })()}
       {assignments.some(item => item.subject) && <div style={{ fontSize: 12, color: "#6f6a5e", fontWeight: 600 }}>고른 과목의 대상 반·그룹</div>}
@@ -2267,7 +2268,7 @@ function AssignmentsEditor({ assignments, setAssignments, db, scopeKey, semester
                   <option value="">{semesterName(sem)} 과목 선택</option>
                   {a.subject && !known && <option value={`${a.kind}::${a.subject}`}>{optionLabel(a.subject, sem, g)} (저장된 과목)</option>}
                   {lists.elective.length > 0 && <optgroup label="이동수업 과목">{lists.elective.map(s => <option key={"e" + s} value={`elective::${s}`}>{optionLabel(s, sem, g)}</option>)}</optgroup>}
-                  {lists.common.length > 0 && <optgroup label="공통과목">{lists.common.map(s => <option key={"c" + s} value={`common::${s}`}>{optionLabel(s, sem, g)}</option>)}</optgroup>}
+                  {lists.common.length > 0 && <optgroup label="학급 고정 수업">{lists.common.map(s => <option key={"c" + s} value={`common::${s}`}>{optionLabel(s, sem, g)}</option>)}</optgroup>}
                 </select>
               ) : (
                 <input value={a.subject || ""} onChange={e => updateBlock(i, { kind: a.kind || "elective", subject: e.target.value, semester: sem })}
@@ -7171,6 +7172,7 @@ const globalCss = `
   .kd-subj-pick-g button{min-height:34px;padding:0 12px;border:1px solid #d9d2c3;border-radius:99px;background:#fff;color:#3b3a36;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
   .kd-subj-pick-g button.is-on{background:#e2531a;border-color:#e2531a;color:#fff}
   .kd-subj-pick-g button .kd-subj-alias{font-size:10.5px;font-weight:600;opacity:.65}
+  .kd-subj-pick-g button .kd-subj-cat{font-size:10px;font-weight:800;opacity:.55;margin-left:2px}
   .kd-ql-sec{margin-top:10px}.kd-ql-sec-h{display:flex;align-items:baseline;gap:6px}.kd-ql-sec-h b{font-size:12px;color:#243a55}.kd-ql-sec-h small{font-size:10.5px;color:#8a95a5}
   .kd-ql-sec .kd-quick-links-list{margin-top:6px}
   .kd-ql-empty{margin:6px 0 0;padding:9px;border-radius:10px;background:#f6f8fb;font-size:11.5px;color:#7a8797}
