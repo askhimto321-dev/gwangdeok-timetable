@@ -1725,7 +1725,7 @@ export default function App() {
             : { role: classAuthed ? "공용 조회" : "이용자", id: "", name: "" };
 
   // 대시보드 바로가기에서 성적·진학의 특정 탭(예: 반별 성적)을 바로 열 때 씁니다(훅이므로 loading 조기 반환보다 먼저).
-  const [gradeTabRequest, setGradeTabRequest] = useState({ tab: "", nonce: 0 });
+  const [gradeTabRequest, setGradeTabRequest] = useState({ tab: "", nonce: 0, preset: "" });
   // 상단 탭 바의 '교사용 분석' 묶음에서 연 도구(학생 탭을 누르면 비웁니다).
   const [teacherTool, setTeacherTool] = useState("");
   // 새 UI 대시보드용 값(훅이라 아래 loading 조기 반환보다 먼저 호출합니다).
@@ -1807,7 +1807,7 @@ export default function App() {
     ...(canUseFeature("classGrades") ? [{ key: "classGrades", label: loggedInTeacher?.homeroomClass ? `우리 반(${loggedInTeacher.homeroomClass}반) 성적` : "반별 성적" }] : []),
     ...(loggedInTeacher?.homeroomClass ? [{ key: "class", label: "담임반 계정" }] : []),
   ];
-  const openTeacherTool = key => { setTeacherTool(key); setGradeTabRequest(current => ({ tab: key, nonce: current.nonce + 1 })); switchSection("grades"); };
+  const openTeacherTool = (key, preset = "") => { setTeacherTool(key); setGradeTabRequest(current => ({ tab: key, nonce: current.nonce + 1, preset })); switchSection("grades"); };
   const workspaceAllowedGrades = loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || [])]));
   const changeStudentWorkspaceView = (view) => {
     if (!STUDENT_WORKSPACE_VIEW_KEYS.includes(view)) return;
@@ -1980,6 +1980,8 @@ export default function App() {
         {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }} />}
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
         {canSeeTeacherZone && !loggedInStudent && <GradeCheckPopup calendar={db.academicCalendar} workspaces={db.teacherGradeWorkspaces} teacher={loggedInTeacher || viewedTeacher} isAdmin={!!loggedInAdmin} semester={semester} userKey={overlayUserKey}
+          homeroomClass={loggedInTeacher?.homeroomClass && canUseFeature("classGrades") ? loggedInTeacher.homeroomClass : ""} homeroomGrade={loggedInTeacher?.homeroomClass ? (teacherRoleGrade(loggedInTeacher) || grade) : ""}
+          onOpenClassExam={() => { const g = teacherRoleGrade(loggedInTeacher); if (g) setGrade(String(g)); openTeacherTool("classGrades", "examAll"); }}
           onOpen={(step, id, toGrade) => { if (toGrade) setGrade(String(toGrade)); setTeacherZoneRequest({ mode: "grades", step, id, at: Date.now() }); switchSection("teacherZone"); }} />}
       </> : <AppHistoryEdgeControls depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} />}
       {!loggedInStudent && <QuickLinksDock isAdmin={!!loggedInAdmin} showToast={showToast} userKey={loggedInAdmin ? `admin_${loggedInAdmin.id || "admin"}` : loggedInTeacher ? `teacher_${loggedInTeacher.id}` : loggedInDepartment ? `dept_${loggedInDepartment.id}` : loggedInMonitor ? `monitor_${loggedInMonitor.id}` : "shared"} />}
@@ -2018,6 +2020,7 @@ export default function App() {
           requestedStudentViewNonce={workspaceViewNonce}
           requestedGradeTab={gradeTabRequest.tab}
           requestedGradeTabNonce={gradeTabRequest.nonce}
+          requestedGradePreset={gradeTabRequest.preset}
           onWorkspaceViewChange={syncStudentWorkspaceView}
           onGradeChange={setGrade}
           enrolledSubjectsByStudent={enrolledSubjectsByStudent}
@@ -2074,6 +2077,7 @@ export default function App() {
           requestedStudentViewNonce={workspaceViewNonce}
           requestedGradeTab={gradeTabRequest.tab}
           requestedGradeTabNonce={gradeTabRequest.nonce}
+          requestedGradePreset={gradeTabRequest.preset}
           enrolledSubjectsByStudent={enrolledSubjectsByStudent}
           persistGrades={persistGrades}
         /></DeferredPanel>
@@ -2886,7 +2890,7 @@ function myGradeWorkspaces(workspaces, teacher, grade, semester, isAdmin) {
 const groupByGrade = list => Array.from(list.reduce((map, ws) => { const g = String(ws.grade || ""); if (!map.has(g)) map.set(g, []); map.get(g).push(ws); return map; }, new Map())).sort((a, b) => Number(a[0]) - Number(b[0]));
 
 // 성적 확인 기간(정기시험이 끝난 뒤 3주) 팝업: 내 과목 결과로 바로 가는 버튼을 학년별로 보여 줍니다. 하루 한 번, '오늘 그만 보기'로 닫을 수 있어요.
-function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, userKey, onOpen }) {
+function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, userKey, onOpen, homeroomClass = "", homeroomGrade = "", onOpenClassExam }) {
   const exam = examPeriodFromCalendar(calendar);
   const today = new Date();
   const dayKey = `kd_grade_check_popup_${userKey || "staff"}_${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
@@ -2894,13 +2898,19 @@ function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, use
   const [closed, setClosed] = useState(false);
   if (!exam || exam.phase !== "after" || hidden || closed) return null;
   const groups = groupByGrade(myGradeWorkspaces(workspaces, teacher, null, semester, isAdmin));
+  // 학급담임: 우리 반 정기시험 결과(반별 성적 › 정기시험 전 과목)로 바로
+  const classExamCount = homeroomClass && homeroomGrade ? myGradeWorkspaces(workspaces, null, homeroomGrade, semester, true).length : 0;
   const hideToday = () => { try { localStorage.setItem(dayKey, "1"); } catch { /* 저장 못 해도 이번엔 닫힘 */ } setHidden(true); };
   const go = (step, id, grade) => { setClosed(true); onOpen?.(step, id, grade); };
   return <div className="kdn-gcp-back no-print" role="dialog" aria-modal="true" aria-label="성적 확인 기간 안내" onClick={event => { if (event.target === event.currentTarget) setClosed(true); }}>
     <div className="kdn-gcp">
       <div className="kdn-gcp-head"><em>{exam.label} {exam.dLabel}</em><b>성적 확인 기간이에요</b><span>저장한 과목 결과를 바로 열어 확인하세요.</span></div>
-      {groups.length ? <div className="kdn-gcp-groups">{groups.map(([grade, list]) => <div key={grade} className="kdn-gcp-row"><small>{grade}학년</small><div>{list.slice(0, 8).map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => go(3, ws.id, grade)}>{ws.subject}<ArrowRight size={13} /></button>)}</div></div>)}</div>
-        : <p className="kdn-gcp-empty">이번 학기 학교 공동 저장한 과목이 아직 없어요. 성적 산출에서 지필 파일을 올려 주세요.</p>}
+      {homeroomClass && onOpenClassExam && <div className="kdn-gcp-class">
+        <div><b>우리 반({homeroomGrade}학년 {homeroomClass}반) 정기시험 결과</b><span>{classExamCount ? `선생님들이 저장한 ${classExamCount}과목 점수·참고 등급을 학생별로 한 표에` : "아직 저장된 과목이 없어요. 과목 선생님들이 저장하면 여기서 볼 수 있어요."}</span></div>
+        <button type="button" data-kdn-bare onClick={() => { setClosed(true); onOpenClassExam(); }}>반별 성적 열기 <ArrowRight size={14} /></button>
+      </div>}
+      {!(homeroomClass && !groups.length) && (groups.length ? <div className="kdn-gcp-groups">{groups.map(([grade, list]) => <div key={grade} className="kdn-gcp-row"><small>{grade}학년</small><div>{list.slice(0, 8).map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => go(3, ws.id, grade)}>{ws.subject}<ArrowRight size={13} /></button>)}</div></div>)}</div>
+        : <p className="kdn-gcp-empty">이번 학기 학교 공동 저장한 과목이 아직 없어요. 성적 산출에서 지필 파일을 올려 주세요.</p>)}
       <div className="kdn-gcp-foot"><button type="button" data-kdn-bare className="ghost" onClick={hideToday}>오늘 그만 보기</button><span style={{ flex: 1 }} /><button type="button" data-kdn-bare className="ghost" onClick={() => setClosed(true)}>닫기</button><button type="button" data-kdn-bare className="go" onClick={() => go(groups.length ? 3 : 1, groups[0]?.[1]?.[0]?.id || "", groups[0]?.[0] || "")}>성적 산출 열기 <ArrowRight size={14} /></button></div>
     </div>
   </div>;

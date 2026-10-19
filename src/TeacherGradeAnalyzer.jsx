@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { isNewUi } from "./uiMode.js";
 import CriteriaPresets from "./CriteriaPresets.jsx";
+import TourGuide, { TourButton } from "./TourGuide.jsx";
 import { readStorage, updateStorage } from "./storage.js";
 import { mergeWorkspacePayload, workspacePayload, samePayload, activeEditors } from "./gradeWorkspaceMerge.js";
 import { isSplitWritten, defaultWrittenSplit, splitWritten, unsplitWritten, setWrittenPart, removeWrittenPart, recombineWritten, pickWrittenPart, partLabel, countOverMax, replaceWholeWritten } from "./writtenParts.js";
@@ -381,6 +382,12 @@ function defaultMinimumSettings(settings, totalWeight = 0) {
   };
 }
 
+const GRADE_CALC_TOUR = [
+  { target: "tg-subject", title: "1. 과목 고르기", body: "담당 과목을 고르고 ‘담당과목 작업 시작’을 누르세요. 저장된 과목은 아래 탭으로, 다른 선생님 과목은 ‘조회’로 결과만 볼 수 있어요." },
+  { target: "tg-steps", title: "2. 세 단계로 진행", body: "NEIS 파일 업로드 → 산출 기준 설정 → 결과 확인 순서예요. 기준 저장과 학교 공동 저장을 마치면 결과 확인이 열려요." },
+  { target: "tg-upload", title: "3. 있는 파일만 올려도 돼요", body: "1차만 봤으면 1차만, 수행은 끝난 반부터 올려도 됩니다. 논술형 점수는 나중에 따로 넣을 수 있어요." },
+  { target: "tg-save", title: "4. 자동 저장", body: "고친 내용은 이 브라우저에 바로 저장되고, 학교 공동 저장을 한 과목은 같은 과목 선생님과 자동으로 합쳐져요." },
+];
 export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], roster = {}, grade = "2", semester = "sem1", showToast, db = {}, persist, accessRole = "teacher", homeroomClass = "", canViewAllSubjects = false, jumpRequest = null }) {
   const storageKey = `kd_teacher_grade_workspace_v2_${teacher?.id || "shared"}_${grade}`;
   const legacyStorageKey = `kd_teacher_grade_workspace_v1_${teacher?.id || "shared"}_${grade}`;
@@ -411,6 +418,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   const [panelMode, setPanelMode] = useState("analysis");
   const newUi = isNewUi();
   const [calcStep, setCalcStep] = useState(1);
+  const [tourToken, setTourToken] = useState(0);
   // 결과 확인 보기: 대시보드(A, 기본) · 학생 목록+상세(B) · 분포 차트(C). 고른 보기는 이 브라우저에 기억합니다.
   const [resultLook, setResultLookState] = useState(() => { try { const saved = localStorage.getItem("kd_grade_result_look"); return ["dashboard", "list", "chart", "classes", "lookup"].includes(saved) ? saved : "dashboard"; } catch { return "dashboard"; } });
   const setResultLook = value => { setResultLookState(value); try { localStorage.setItem("kd_grade_result_look", value); } catch { /* 저장 실패해도 화면 전환은 됨 */ } };
@@ -1691,7 +1699,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       </div>
 
       {!newUi && moduleTabs}
-      {newUi && context && canEditCurrentSubject && <div className={`kdn-save-bar${sharedHere ? " is-shared" : ""}`} role="status">
+      {newUi && context && canEditCurrentSubject && <div className={`kdn-save-bar${sharedHere ? " is-shared" : ""}`} role="status" data-tour="tg-save">
         <span className="dot" aria-hidden="true" />
         <b>{context.subject} · {hasGradeData ? `개인 임시본 자동 저장${autoSave.local ? ` ${clockOf(autoSave.local)}` : ""}` : "성적 파일을 올리면 개인 임시본에 자동 저장돼요"}</b>
         {sharedHere
@@ -1704,8 +1712,9 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
       </div>}
 
       <div style={{display:panelMode==="analysis"?"contents":"none"}}>
-      <div className="teacher-grade-workspace-browser" style={ui.workspaceBrowser}>
-        <div style={ui.workspaceIntro}><b>과목별 공동 작업</b><span>{accessRole === "admin" ? `${grade}학년 모든 과목을 생성·수정할 수 있습니다.` : canViewAllSubjects ? `${grade}학년 전체 과목을 열람하며, 담당 과목만 수정합니다.` : "같은 과목 담당 교사가 하나의 화면을 함께 사용합니다."}</span></div>
+      {newUi && <TourGuide id="gradeCalc" startToken={tourToken} steps={GRADE_CALC_TOUR} />}
+      <div className="teacher-grade-workspace-browser" style={ui.workspaceBrowser} data-tour="tg-subject">
+        <div style={ui.workspaceIntro}><b>과목별 공동 작업 {newUi && <TourButton onClick={() => setTourToken(Date.now())} />}</b><span>{accessRole === "admin" ? `${grade}학년 모든 과목을 생성·수정할 수 있습니다.` : canViewAllSubjects ? `${grade}학년 전체 과목을 열람하며, 담당 과목만 수정합니다.` : "같은 과목 담당 교사가 하나의 화면을 함께 사용합니다."}</span></div>
         <div style={ui.saveTypeLegend}><span><i style={ui.localDot}/>개인 임시본</span><span><i style={ui.sharedDot}/>학교 공동본</span></div>
         {accessRole === "teacher" ? <SubjectPicker value={draftSubject} onChange={startNewWorkspace} mine={assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade))} grade={grade} semester={semester} disabled={!editableSubjectNames.length} /> : accessRole === "admin" ? <SubjectPicker value={draftSubject} onChange={setDraftSubject} allowFree mine={assignedSubjects.filter(item => !item.grade || String(item.grade) === String(grade))} curriculum={curriculumApplies(grade) ? curriculumSubjects(grade, semester) : []} others={allKnownSubjectNames} grade={grade} semester={semester} /> : <span style={ui.adminEditBadge}>열람 전용</span>}
         <button type="button" style={ui.secondaryButton} onClick={() => startNewWorkspace(draftSubject)} disabled={!canStartSelectedSubject}>{accessRole === "admin" ? "과목 작업 시작" : "담당과목 작업 시작"}</button>
@@ -1744,7 +1753,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
         {context && canEditCurrentSubject && <span style={ui.collaborationBadge}>공동 작업 · {subjectCollaborators.map(item => item.name).filter(Boolean).join(" · ") || (accessRole === "admin" ? "관리자" : "담당 교사")}</span>}{context && readOnlyWorkspace && <span style={ui.readOnlyBadge}>열람 전용</span>}
       </div>
 
-      {newUi && <div className="kdn-search-steps kdn-calc-steps" role="tablist" aria-label="성적 산출 단계">
+      {newUi && <div className="kdn-search-steps kdn-calc-steps" role="tablist" aria-label="성적 산출 단계" data-tour="tg-steps">
         {[[1, "NEIS 파일 업로드", `지필 ${sortedWritten.length}개 · 수행 ${performance.length}반`], [2, "산출 기준 설정", `반영비율 ${weightTotal.total}%`], [3, "결과 확인", activeRows.length ? `${activeRows.length}명` : "학생 결과"]].map(([step, label, note]) => (
           <button key={step} type="button" role="tab" aria-selected={calcStep === step} className={`${calcStep === step ? "is-active" : ""}${step === 3 && !gatePassed ? " is-locked" : ""}`} onClick={() => goToStep(step)}><span>{step === 3 && !gatePassed ? "🔒" : step}</span><b>{label}</b><small>{step === 3 && !gatePassed ? "기준 저장 · 공동 저장 후" : note}</small></button>
         ))}
@@ -1782,7 +1791,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           />
         </div>
         <input ref={writtenPartInputRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={event => parseFiles(event.target.files, "written", writtenPartTargetRef.current)} />
-        {newUi && <div className="kdn-up-guide">
+        {newUi && <div className="kdn-up-guide" data-tour="tg-upload">
           <div className="kdn-up-guide-head">
             <b>💡 지금 있는 파일만 올려도 돼요</b>
             <div className="kdn-up-guide-now" aria-label="지금 등록 상태">

@@ -27,6 +27,7 @@ import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { buildClassExamCompare, examSubjectScores, examGrades } from "./classExamCompare.js";
+import TourGuide, { TourButton } from "./TourGuide.jsx";
 import { SURVEY_FIELDS, SURVEY_GROUPS, parseCounselSurvey, mergeCounselSurveys, splitChoice } from "./counselSurvey.js";
 import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { featureAllowed } from "./staffPermissions.js";
@@ -609,6 +610,7 @@ export default function GradesSection({
   requestedStudentViewNonce = 0,
   requestedGradeTab = "",
   requestedGradeTabNonce = 0,
+  requestedGradePreset = "",
   onWorkspaceViewChange,
   enrolledSubjectsByStudent = {},
   persistGrades,
@@ -977,7 +979,7 @@ export default function GradesSection({
           /></React.Suspense>
         </div>}
         {tab === "classGrades" && canClassGrades && (
-          <ClassGradeOverview examWorkspaces={examWorkspaces} gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin /* 학급담임도 관리자처럼 학년 전체 반을 고를 수 있음(처음엔 자기 반) */ onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
+          <ClassGradeOverview preset={requestedGradePreset} presetNonce={requestedGradeTabNonce} examWorkspaces={examWorkspaces} gdb={gdb} roster={roster} currentGrade={currentGrade} homeroomClass={loggedInTeacher?.homeroomClass || ""} isAdmin /* 학급담임도 관리자처럼 학년 전체 반을 고를 수 있음(처음엔 자기 반) */ onOpenStudent={sid => { setLookupSid(sid); navigateGradeTab("lookup"); }} />
         )}
         {tab === "class" && loggedInTeacher && teacherHasGradeAccess && (
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
@@ -1290,7 +1292,7 @@ function ClassGradeKpis({ metricLabel = "전교과",  rows, graded, avg, gradeMe
   const topCount = graded.filter(row => row.overall.primary < 2).length;
   const gap = avg != null && gradeMean != null ? gradeMean - avg : null;
   const label = (icon, bg, fg, text) => <span className="cg-kpi-l"><i style={{ background: bg, color: fg }}>{icon}</i>{text}</span>;
-  return <div className="cg-kpis">
+  return <div className="cg-kpis" data-tour="cg-kpis">
     <div className="cg-kpi">{label(<UsersRound size={15} />, "#e0ecff", "#1d4ed8", "학생 수")}<span className="cg-kpi-v">{rows.length}<small>명</small></span><span className="cg-kpi-n">성적이 있는 학생 {graded.length}명</span></div>
     <div className="cg-kpi">{label(<BarChart3 size={15} />, "#fff0e6", "#c2410c", `반 평균 · ${metricLabel}`)}<span className="cg-kpi-v">{avg == null ? "-" : avg.toFixed(2)}</span><span className="cg-kpi-n">{gap == null ? `${scale}등급제` : <>학년 평균 {gradeMean.toFixed(2)}<span className={`cg-pill ${changeTone(gap)}`}>{changeMark(gap)} {Math.abs(gap).toFixed(2)}</span></>}</span></div>
     <div className="cg-kpi">{label(<TrendingUp size={15} />, "#e7f6ec", "#15803d", scale === 5 ? "1등급대 학생" : "1~2등급 학생")}<span className="cg-kpi-v">{topCount}<small>명</small></span><span className="cg-kpi-n">{graded.length ? `반의 ${Math.round(topCount / graded.length * 100)}% · 누적 ${metricLabel} 기준` : `누적 ${metricLabel} 기준`}</span></div>
@@ -1452,7 +1454,15 @@ function ClassBandCompare({ metricLabel = "전교과",  classStats = [], scale, 
   </div>;
 }
 
-export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent, examWorkspaces = null }) {
+const CLASS_GRADES_TOUR = [
+  { target: "cg-view", title: "반 성적 · 반 비교", body: "‘반 성적’은 한 반 학생들을, ‘반 비교’는 학년 전체 반을 나란히 봅니다." },
+  { target: "cg-metric", title: "교과 조합", body: "전교과, 국수영사과 같은 교과 조합을 바꾸면 순위·분포·표가 그 기준으로 바뀝니다." },
+  { target: "cg-pick", title: "과목별 · 정기시험 보기", body: "과목 하나만 골라 보거나, 학기말 성적 전이라면 ‘1차 정기시험 › 전 과목 보기’로 선생님들이 저장한 시험 점수와 참고 등급을 한 표로 볼 수 있어요." },
+  { target: "cg-class", title: "반 고르기", body: "다른 반이나 전체 반으로 바꿔 볼 수 있어요. 처음에는 담임 반이 열립니다." },
+  { target: "cg-kpis", title: "한눈 요약", body: "학생 수, 반 평균과 학년 평균 차이, 상위권 인원, 직전 학기보다 오르고 내린 학생 수예요." },
+];
+export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent, examWorkspaces = null, preset = "", presetNonce = 0 }) {
+  const [tourToken, setTourToken] = useState(0);
   const classes = useMemo(() => Array.from(new Set(Object.values(roster || {}).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
   const [pickedClass, setPickedClass] = useState(String(homeroomClass || ""));
   const [view, setView] = useState("class");
@@ -1493,6 +1503,14 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
     });
     return out;
   }, [examSubjects, roster]);
+  // 바깥(성적 확인 기간 팝업)에서 '정기시험 전 과목'으로 열어 달라고 하면 가장 최근 시험을 엽니다.
+  useEffect(() => {
+    if (preset !== "examAll" || !examSubjects.length) return;
+    const latest = examSubjects.slice().sort((a, b) => String(b.semester).localeCompare(String(a.semester)) || b.title.localeCompare(a.title, "ko"))[0];
+    const sameExam = examSubjects.filter(item => item.key === latest.key);
+    setView("class");
+    setMetric(sameExam.length > 1 ? `${EXAM_ALL}${latest.key}` : `${EXAM_METRIC}${latest.id}`);
+  }, [preset, presetNonce, examSubjects.length]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (view === "compare" && isExam) setMetric("overall"); }, [view, isExam]);
   const subjectName = isSubject ? metric.slice(SUBJECT_METRIC.length) : "";
   const metricLabel = isSubject ? subjectName : isExam ? (examPick ? `${examPick.subject} ${examPick.title}` : examAll ? `${examAll.label} 전 과목` : "정기시험") : CLASS_METRICS.find(([key]) => key === metric)?.[1] || "전교과";
@@ -1655,14 +1673,16 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
   const hasSemesterStats = sortedStats.some(stat => stat.n > 0);
   return <div className="cg" ref={cgRootRef}>
     <style>{CLASS_GRADE_CSS}</style>
+    <TourGuide id="classGrades" startToken={tourToken} steps={CLASS_GRADES_TOUR} />
     <section className="cg-card">
       <div className="cg-hero">
         <div><h3><UsersRound size={21} />{currentGrade}학년 {view === "compare" ? "반별 비교" : `${allClasses ? "전체 반" : `${classNo}반`} 성적`}</h3><p>{view === "compare" ? `학년 전체 반의 ${metricLabel} 분포와 평균을 나란히 비교합니다.` : "누적 내신, 교과 조합, 학기별 변화를 한 화면에서 봅니다."} 숫자가 낮을수록 상위입니다.</p></div>
         <div className="cg-hero-tools">
-          <div className="cg-seg" role="tablist"><button type="button" className={view === "class" ? "is-on" : ""} onClick={() => setView("class")}>{isAdmin ? "반 성적" : "우리 반"}</button><button type="button" className={view === "compare" ? "is-on" : ""} onClick={() => setView("compare")}>반 비교</button></div>
-          <div className="cg-seg cg-metric" role="group" aria-label="교과 조합">{CLASS_METRICS.map(([key, label]) => <button key={key} type="button" className={metric === key ? "is-on" : ""} onClick={() => setMetric(key)}>{label}</button>)}</div>
-          {(subjectOptions.length > 0 || (view === "class" && examSubjects.length > 0)) && <select className={`cg-subject-pick${isSubject || isExam ? " is-on" : ""}`} value={isSubject || isExam ? metric : ""} onChange={event => setMetric(event.target.value || "overall")} aria-label="개별 과목"><option value="">과목별 보기…</option>{SEMESTER_KEYS.map(key => { const list = subjectOptions.filter(item => [...item.keys][0] === key); if (!list.length) return null; const [y, t] = key.split("-"); return <optgroup key={key} label={`${y}학년 ${t}학기`}>{list.map(item => <option key={item.name} value={`${SUBJECT_METRIC}${item.name}`}>{item.name}</option>)}</optgroup>; })}{view === "class" && Array.from(new Set(examSubjects.map(item => item.key))).map(key => { const list = examSubjects.filter(item => item.key === key); return <optgroup key={key} label={`${currentGrade}학년 ${list[0].semester}학기 · ${list[0].title} 정기시험`}>{list.length > 1 && <option value={`${EXAM_METRIC}ALL|${key}`}>전 과목 보기 ({list.length}과목)</option>}{list.map(item => <option key={item.id} value={`${EXAM_METRIC}${item.id}`}>{item.subject} · {item.title}</option>)}</optgroup>; })}</select>}
-          {isAdmin && view === "class" && <select value={classNo} onChange={event => setPickedClass(event.target.value)} aria-label="반 선택"><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
+          <div className="cg-seg" role="tablist" data-tour="cg-view"><button type="button" className={view === "class" ? "is-on" : ""} onClick={() => setView("class")}>{isAdmin ? "반 성적" : "우리 반"}</button><button type="button" className={view === "compare" ? "is-on" : ""} onClick={() => setView("compare")}>반 비교</button></div>
+          <div className="cg-seg cg-metric" role="group" aria-label="교과 조합" data-tour="cg-metric">{CLASS_METRICS.map(([key, label]) => <button key={key} type="button" className={metric === key ? "is-on" : ""} onClick={() => setMetric(key)}>{label}</button>)}</div>
+          {(subjectOptions.length > 0 || (view === "class" && examSubjects.length > 0)) && <select data-tour="cg-pick" className={`cg-subject-pick${isSubject || isExam ? " is-on" : ""}`} value={isSubject || isExam ? metric : ""} onChange={event => setMetric(event.target.value || "overall")} aria-label="개별 과목"><option value="">과목별 보기…</option>{SEMESTER_KEYS.map(key => { const list = subjectOptions.filter(item => [...item.keys][0] === key); if (!list.length) return null; const [y, t] = key.split("-"); return <optgroup key={key} label={`${y}학년 ${t}학기`}>{list.map(item => <option key={item.name} value={`${SUBJECT_METRIC}${item.name}`}>{item.name}</option>)}</optgroup>; })}{view === "class" && Array.from(new Set(examSubjects.map(item => item.key))).map(key => { const list = examSubjects.filter(item => item.key === key); return <optgroup key={key} label={`${currentGrade}학년 ${list[0].semester}학기 · ${list[0].title} 정기시험`}>{list.length > 1 && <option value={`${EXAM_METRIC}ALL|${key}`}>전 과목 보기 ({list.length}과목)</option>}{list.map(item => <option key={item.id} value={`${EXAM_METRIC}${item.id}`}>{item.subject} · {item.title}</option>)}</optgroup>; })}</select>}
+          {isAdmin && view === "class" && <select data-tour="cg-class" value={classNo} onChange={event => setPickedClass(event.target.value)} aria-label="반 선택"><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
+          <TourButton onClick={() => setTourToken(Date.now())} />
           {view === "class" && <button type="button" className="cg-ghost no-print" data-kdn-bare onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${allClasses ? "전체 반" : `${classNo}반`} 성적 ·`)} disabled={!rows.length}><Printer size={15} />인쇄·PDF</button>}
         </div>
       </div>
@@ -5851,6 +5871,12 @@ function ConsultPlanBoard({ sid, planItems = [], status, favorites = [], onOpenS
   </section>;
 }
 
+const CONSULT_TOUR = [
+  { target: "cs-toolbar", title: "상담 준비 도구", body: "대학 요약 보기, 상담 인쇄·PDF, 그리고 구글 폼 ‘사전 설문 올리기’가 여기 있어요. 설문은 학번별로 이 학생 화면에 붙습니다.", staff: true },
+  { target: "cs-layout", title: "화면 구성 고르기", body: "목록+상세, 2단 작업대, 상담 타임라인, 수시 6장 보드 중 상담 방식에 맞는 구성을 고르세요. 고른 구성은 기억돼요." },
+  { target: "cs-links", title: "다른 화면으로 바로", body: "대학 탐색·NAVI 분석·수시 지원 구성·광덕고 사례로 이 학생을 그대로 데리고 이동합니다." },
+  { target: "cs-notes", title: "상담 기록", body: "상담일과 내용을 적고 파일을 붙여 저장하세요. 담임·진학 선생님이 함께 볼 수 있어요.", staff: true },
+];
 // 진학상담 사전 설문 카드: 묶음(기본·희망·지원·학습·상담)별로 학생 답을 보여 주고, 희망 대학은 NAVI·대학 탐색으로 바로 엽니다.
 function CounselSurveyCard({ entry, onOpenSusiNavi, onOpenAdmission }) {
   const [open, setOpen] = useState(true);
@@ -5921,6 +5947,7 @@ export function StudentConsultationView({
   const survey = gdb?.counselSurveys?.[String(sid)] || null;
   const surveyTotal = Object.keys(gdb?.counselSurveys || {}).length;
   const [surveyBusy, setSurveyBusy] = useState(false);
+  const [consultTour, setConsultTour] = useState(0);
   const [surveyMsg, setSurveyMsg] = useState("");
   const importSurvey = async file => {
     if (!file || !persistGrades) return;
@@ -6007,18 +6034,20 @@ export function StudentConsultationView({
     <style>{COUNSELING_PRINT_CSS}</style>
     <style>{counselingCss}</style>
     <style>{SURVEY_CSS}</style>
-    <div className="kd-consult-toolbar no-print">
+    <TourGuide id="consultation" startToken={consultTour} steps={CONSULT_TOUR.filter(step => canEdit || !step.staff)} />
+    <div className="kd-consult-toolbar no-print" data-tour="cs-toolbar">
       <div><h3>관심 대학·상담</h3><p>관심 대학 카드와 상담 기록을 함께 확인합니다.</p></div>
+      <TourButton onClick={() => setConsultTour(Date.now())} />
       <button type="button" className="kd-consult-action" aria-pressed={cardFocus} onClick={()=>setCardFocus(value=>!value)}><LayoutGrid size={16}/>{cardFocus ? '상세 보기' : '대학 요약 보기'}</button>
       <button type="button" className="kd-consult-action is-print" onClick={()=>setPrintOptionsOpen(true)}><Printer size={16}/>상담 인쇄·PDF 저장</button>
       {canEdit && persistGrades && <label className="kd-consult-action" title="구글 시트 응답을 '파일 → 다운로드 → .xlsx 또는 .csv'로 받아 올리면 학번별로 들어갑니다"><Upload size={16}/>{surveyBusy ? "설문 읽는 중…" : "사전 설문 올리기"}<input hidden type="file" accept=".xlsx,.xls,.csv" disabled={surveyBusy} onChange={event=>{ importSurvey(event.target.files?.[0]); event.target.value=""; }}/></label>}
     </div>
     {surveyMsg && <div className="kd-survey-msg no-print" role="status">{surveyMsg}<button type="button" data-kdn-bare onClick={()=>setSurveyMsg("")} aria-label="닫기">✕</button></div>}
-    {newUi && <div className="kdn-case-layout-switch no-print"><span>화면 구성</span><div>{CONSULT_LAYOUTS.map(([key,label])=><button key={key} type="button" className={consultLayout===key?"is-on":""} aria-pressed={consultLayout===key} onClick={()=>setConsultLayout(key)}>{label}</button>)}</div></div>}
+    {newUi && <div className="kdn-case-layout-switch no-print" data-tour="cs-layout"><span>화면 구성</span><div>{CONSULT_LAYOUTS.map(([key,label])=><button key={key} type="button" className={consultLayout===key?"is-on":""} aria-pressed={consultLayout===key} onClick={()=>setConsultLayout(key)}>{label}</button>)}</div></div>}
     <div className="counseling-print-root" style={{display:"grid",gap:14}}>
     <div className="counseling-print-student-banner"><StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" /></div>
     {/* 목록+상세 보기에서도 상담 연결(대학 탐색·NAVI·지원 구성·광덕고 사례)은 보이게 하고 설명 글만 줄입니다. */}
-    <div className={`kd-consult-linkhub no-print${layout==="explorer"?" is-compact":""}`} style={consultationView.linkHub}>
+    <div className={`kd-consult-linkhub no-print${layout==="explorer"?" is-compact":""}`} style={consultationView.linkHub} data-tour="cs-links">
       <div style={consultationView.linkHubCopy} className={layout==="explorer"?"kdn-hide-new":undefined}><span>상담 연결</span><b>관심 대학과 NAVI·광덕고 사례를 함께 확인하세요.</b><small>대학 탐색에서 저장한 관심 항목은 아래 카드에 모이고, 같은 대학을 NAVI와 광덕고 실제 사례로 바로 이어서 볼 수 있습니다.</small></div>
       <div className="kd-consult-linkhub-stats" style={consultationView.linkHubStats}><span><small>관심 항목</small><b>{favorites.length}개</b></span><span><small>지원 구성</small><b>{supportPlanCount == null ? "확인 필요" : `${supportPlanCount}/6`}</b></span><span><small>상담 기록</small><b>{notes.length}건</b></span></div>
       <div style={consultationView.linkHubActions}>{onOpenAdmission&&<button type="button" onClick={()=>onOpenAdmission("")} style={consultationView.linkHubButton}><GraduationCap size={13}/>대학 탐색</button>}{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi("","")} style={consultationView.linkHubButton}><BookOpen size={13}/>NAVI 분석</button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan} count={supportPlanCount}/>}{onOpenCases&&<button type="button" onClick={()=>onOpenCases("","","")} style={consultationView.linkHubButton}><BarChart3 size={13}/>광덕고 사례</button>}</div>
@@ -6032,7 +6061,7 @@ export function StudentConsultationView({
     <div className="counseling-print-favorites"><StudentFavoritesView explorer={layout==="explorer"} sid={sid} gdb={gdb} selectedStudent={selectedStudent} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
     <div className="counseling-print-notes" style={consultationView.card}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={()=>setPrintOptionsOpen(true)} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="상담 기록과 관심 대학·학과의 포함 여부를 선택해 인쇄합니다."><Printer size={13}/>인쇄·PDF</button></div>
-      {canEdit && <div className="no-print" style={consultationView.editor}>
+      {canEdit && <div className="no-print" style={consultationView.editor} data-tour="cs-notes">
         <div style={consultationView.editorTop}>
           <label style={consultationView.dateLabel}>상담일<input type="date" value={noteDate} onChange={event=>setNoteDate(event.target.value)} style={consultationView.dateInput}/></label>
           <span style={consultationView.authorBadge}><MessageSquare size={12}/>{authorName}</span>

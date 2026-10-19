@@ -2881,6 +2881,11 @@ const SHARED_NEW_CSS = `
   .kdn-gcp-head b{font-size:19px;font-weight:900}
   .kdn-gcp-head span,.kdn-gcp-empty{font-size:13.5px;color:var(--kdn-muted);margin:0}
   .kdn-gcp-groups{display:grid;gap:10px}
+  .kdn-gcp-class{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-radius:14px;background:color-mix(in srgb,#ea580c 10%,transparent);border:1px solid color-mix(in srgb,#ea580c 35%,transparent)}
+  .kdn-gcp-class>div{display:grid;gap:3px;flex:1 1 240px}
+  .kdn-gcp-class b{font-size:14.5px;font-weight:900}
+  .kdn-gcp-class span{font-size:12.5px;color:var(--kdn-muted)}
+  .kdn-gcp-class button{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 14px;border:0;border-radius:10px;background:#ea580c;color:#fff;font:inherit;font-size:13.5px;font-weight:850;cursor:pointer}
   .kdn-gcp-row{display:grid;grid-template-columns:48px 1fr;align-items:start;gap:8px}
   .kdn-gcp-row>small{padding-top:8px;font-size:12.5px;font-weight:850;color:var(--kdn-muted)}
   .kdn-gcp-row>div{display:flex;flex-wrap:wrap;gap:7px}
