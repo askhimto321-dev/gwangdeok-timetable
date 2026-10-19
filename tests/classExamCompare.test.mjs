@@ -49,3 +49,14 @@ test("examSubjectScores: 과목·시험마다 학생 원점수, 다른 학년도
   assert.equal(list[0].label, "2학기 1차 정기시험");
   assert.deepEqual(list[0].scores, { "20101": 80 });
 });
+
+test("examGrades: 학년 석차로 5등급, 동점 같은 등급", async () => {
+  const { examGrades } = await import("../src/classExamCompare.js");
+  const scores = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`2010${String(i).padStart(2, "0")}`, 100 - i]));
+  const g = examGrades(scores);
+  assert.equal(g["201000"], 1); assert.equal(g["201001"], 1); assert.equal(g["201002"], 2);
+  assert.equal(g["201019"], 5);
+  const tie = examGrades({ a: 90, b: 90, c: 10 });
+  assert.equal(tie.a, tie.b);
+  assert.ok(tie.c > tie.a);
+});
