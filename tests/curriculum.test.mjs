@@ -44,3 +44,15 @@ test("1학년 학급 시간표를 편제표 학점과 맞춰 봄", async () => {
   assert.ok(bad.issues.some(text => text.startsWith("공통국어1 주 3시간")));
   assert.ok(bad.issues.some(text => text.includes("기술가정")));
 });
+
+test("2022 개정 과목 구분: 편제표 공통 편성과 별개", async () => {
+  const { subjectCategory, curriculumSubjects } = await import("../src/curriculum.js");
+  const cases = { "공통국어1": "공통과목", "통합과학2": "공통과목", "과학탐구실험1": "공통과목", "문학": "일반선택", "대수": "일반선택", "미적분Ⅰ": "일반선택", "영어Ⅰ": "일반선택", "체육1": "일반선택", "음악": "일반선택",
+    "기하": "진로선택", "미적분Ⅱ": "진로선택", "스포츠 문화": "진로선택", "스포츠 과학": "진로선택", "미술 창작": "진로선택", "음악 연주와 창작": "진로선택", "인간과 심리": "진로선택",
+    "수학과제 탐구": "융합선택", "스포츠 생활1": "융합선택", "지식 재산 일반": "융합선택", "아동발달과 부모": "융합선택", "역사로 탐구하는 현대 세계": "융합선택", "인간과 경제활동": "융합선택",
+    "진로와 직업": "일반선택", "공중 보건": "전문교과", "프로그래밍": "전문교과" };
+  Object.entries(cases).forEach(([name, want]) => assert.equal(subjectCategory(name), want, name));
+  const twoTwo = curriculumSubjects(2, "sem1");
+  assert.equal(twoTwo.find(item => item.name === "문학").kind, "common");
+  assert.equal(twoTwo.find(item => item.name === "문학").category, "일반선택");
+});

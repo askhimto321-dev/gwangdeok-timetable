@@ -42,14 +42,17 @@ export default function SubjectPicker({ value, onChange, mine = [], curriculum =
 
   const q = norm(query);
   const hit = name => !q || norm(name).includes(q);
+  // 2022 개정 교육과정 구분(공통과목·일반선택·진로선택·융합선택)으로 묶습니다. 편제표 '택4' 같은 묶음은 칩 옆 작은 글씨로.
   const groups = useMemo(() => {
+    const order = ["공통과목", "일반선택", "진로선택", "융합선택", "전문교과", "기타"];
     const out = [];
     curriculum.forEach(item => {
-      let group = out.find(entry => entry.label === item.group);
-      if (!group) { group = { label: item.group, items: [] }; out.push(group); }
+      const label = item.category || "기타";
+      let group = out.find(entry => entry.label === label);
+      if (!group) { group = { label, items: [] }; out.push(group); }
       group.items.push(item);
     });
-    return out;
+    return out.sort((a, b) => order.indexOf(a.label) - order.indexOf(b.label));
   }, [curriculum]);
   const inCurriculum = new Set(curriculum.map(item => norm(item.name)));
   const extra = others.filter(name => !inCurriculum.has(norm(name)) && !mineRows.some(row => norm(row.subject) === norm(name)));
@@ -80,8 +83,8 @@ export default function SubjectPicker({ value, onChange, mine = [], curriculum =
       {groups.length > 0 && groups.some(group => group.items.some(item => hit(item.name))) && <section>
         <h4>편제표 {grade}학년 {semName(semester)}</h4>
         {groups.filter(group => group.items.some(item => hit(item.name))).map(group => <div key={group.label} className="kd-sp-group">
-          <small>{group.label === "공통" ? "공통" : `선택 ${group.label}`}</small>
-          <div className="kd-sp-chips">{group.items.filter(item => hit(item.name)).map(item => <button key={item.name} type="button" data-kdn-bare role="option" aria-selected={isOn(item.name)} className={isOn(item.name) ? "is-on" : ""} onClick={() => pick(item.name)}>{item.name}<i>{item.credit}</i></button>)}</div>
+          <small>{group.label === "기타" ? "기타 (구분 확인 필요)" : group.label}</small>
+          <div className="kd-sp-chips">{group.items.filter(item => hit(item.name)).map(item => <button key={item.name} type="button" data-kdn-bare role="option" aria-selected={isOn(item.name)} className={isOn(item.name) ? "is-on" : ""} onClick={() => pick(item.name)} title={`${item.category || "기타"} · ${item.credit}학점 · 편제표 ${item.kind === "common" ? "학교 공통 편성" : `선택 ${item.group}`}`}>{item.name}<i>{item.credit}</i>{item.kind !== "common" && <em className="kd-sp-pick">{item.group}</em>}</button>)}</div>
         </div>)}
       </section>}
       {extra.some(hit) && <section>
@@ -119,6 +122,7 @@ const SP_CSS = `
 .kd-sp-name{display:flex;align-items:baseline;gap:6px;min-width:0}
 .kd-sp-name b{font-size:13.5px;font-weight:800}
 .kd-sp-meta{font-size:11px;color:var(--kdn-muted,#7b8797);font-weight:600;white-space:nowrap}
+.kd-sp-chips em.kd-sp-pick{font-style:normal;font-size:10px;font-weight:700;opacity:.65;margin-left:3px}
 .kd-sp-group{display:grid;gap:4px;padding:0 4px}
 .kd-sp-group>small{font-size:10.5px;font-weight:700;color:var(--kdn-muted,#7b8797)}
 .kd-sp-chips{display:flex;flex-wrap:wrap;gap:5px}

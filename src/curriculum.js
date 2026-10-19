@@ -2,7 +2,15 @@
 // 시간표 칸에는 "미적", "독작", "확통"처럼 줄인 이름이 들어가므로, 같은 학년·학기 편제표 과목 중
 // 하나로만 맞아떨어질 때 정식 이름으로 바꿉니다. 애매하면(후보 2개 이상) 원래 이름을 그대로 둡니다.
 
+import { inferSubjectType } from "./gradeEngine.js";
+
+// 2022 개정 교육과정 과목 구분(공통과목·일반선택·진로선택·융합선택·전문교과·기타)
+export const SUBJECT_CATEGORIES = ["공통과목", "일반선택", "진로선택", "융합선택", "전문교과", "기타"];
+export const subjectCategory = name => inferSubjectType(name);
+
 // [과목명, 학점]. alt = 학급별로 바꿔 듣는 과목(↔)
+// common/electives는 '편제표에서 학교가 모두 이수시키는지(공통 편성) / 골라 듣는지(택N)'이고,
+// 과목의 교육과정 구분(공통과목·일반선택 등)은 subjectCategory로 따로 봅니다.
 export const CURRICULUM_2026 = {
   "1-1": {
     common: [["공통국어1", 4], ["공통수학1", 4], ["공통영어1", 3], ["한국사1", 3], ["통합사회1", 4], ["통합과학1", 4], ["과학탐구실험1", 1], ["체육1", 2], ["음악", 2], ["지식 재산 일반", 3], ["아동발달과 부모", 3]],
@@ -54,14 +62,14 @@ export function curriculumApplies(grade, year = schoolYearOf()) {
 export function curriculumColumn(grade, semester) {
   return CURRICULUM_2026[`${Number(grade)}-${semesterNo(semester)}`] || null;
 }
-// 그 학년·학기에 편성된 과목 목록 [{ name, credit, kind: "common"|"elective", group }]
+// 그 학년·학기에 편성된 과목 목록 [{ name, credit, kind: "common"|"elective"(편제), group, category(2022 구분) }]
 export function curriculumSubjects(grade, semester) {
   const column = curriculumColumn(grade, semester);
   if (!column) return [];
   const seen = new Set();
   const out = [];
-  column.common.forEach(([name, credit]) => { if (!seen.has(name)) { seen.add(name); out.push({ name, credit, kind: "common", group: "공통" }); } });
-  column.electives.forEach(block => block.subjects.forEach(name => { if (!seen.has(name)) { seen.add(name); out.push({ name, credit: block.credit, kind: "elective", group: block.label }); } }));
+  column.common.forEach(([name, credit]) => { if (!seen.has(name)) { seen.add(name); out.push({ name, credit, kind: "common", group: "공통", category: subjectCategory(name) }); } });
+  column.electives.forEach(block => block.subjects.forEach(name => { if (!seen.has(name)) { seen.add(name); out.push({ name, credit: block.credit, kind: "elective", group: block.label, category: subjectCategory(name) }); } }));
   return out;
 }
 

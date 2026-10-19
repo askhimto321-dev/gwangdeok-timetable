@@ -132,6 +132,7 @@ const SUBJECT_TYPE_META = {
   "일반선택": { short: "일반", color: "#3f6862", background: "#eaf2f0", border: "#bfd2ce" },
   "진로선택": { short: "진로", color: "#6d5a70", background: "#f1edf2", border: "#d4c8d5" },
   "융합선택": { short: "융합", color: "#7b604e", background: "#f4eee9", border: "#dccdc2" },
+  "전문교과": { short: "전문", color: "#5a5f7b", background: "#eeeff5", border: "#cfd1df" },
   "기타": { short: "기타", color: "#66645f", background: "#f3f2ef", border: "#d8d5cf" },
 };
 
