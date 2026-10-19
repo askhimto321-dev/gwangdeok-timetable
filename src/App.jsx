@@ -1506,6 +1506,7 @@ export default function App() {
     if (patch.admissionCases) jobs.push(writeStorage("kd_grades_admission_cases", patch.admissionCases));
     if (patch.admissionFavorites) jobs.push(writeStorage("kd_grades_admission_favorites", patch.admissionFavorites));
     if (patch.admissionCounseling) jobs.push(writeStorage("kd_grades_admission_counseling", patch.admissionCounseling));
+    if (patch.counselSurveys) jobs.push(writeStorage("kd_grades_counsel_surveys", patch.counselSurveys));
     const results = await Promise.all(jobs);
     const failed = results.find(result => result && result.ok === false);
     if (failed) {
