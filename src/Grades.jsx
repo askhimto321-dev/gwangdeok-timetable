@@ -27,6 +27,7 @@ import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
 import { buildClassExamCompare, examSubjectScores } from "./classExamCompare.js";
+import { rankAndGrade } from "./gradeQuota.js";
 import { SURVEY_FIELDS, SURVEY_GROUPS, parseCounselSurvey, mergeCounselSurveys, splitChoice } from "./counselSurvey.js";
 import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { featureAllowed } from "./staffPermissions.js";
@@ -1225,6 +1226,8 @@ const CLASS_GRADE_CSS = `
   .cg-sjt thead tr.h1 th{position:sticky;top:var(--cg-sticky-top,70px);height:54px;box-sizing:border-box}
   .cg-sjt thead tr.h2 th{position:sticky;top:calc(var(--cg-sticky-top,70px) + 54px)}
 }
+.cg-exam-grade{display:inline-block;min-width:54px;padding:3px 9px;border-radius:99px;font-size:13px;font-weight:850;background:var(--kdn-surface-2,#f1f3f6);color:var(--kdn-ink,#1f2430)}
+.cg-exam-grade.g1{background:color-mix(in srgb,#ea580c 18%,transparent);color:#c2410c}.cg-exam-grade.g2{background:color-mix(in srgb,#d97706 16%,transparent);color:#b45309}
 .cg-subject-pick{min-height:38px;max-width:210px;padding:0 10px;border-radius:11px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.1);color:#f5f1ea;font:inherit;font-size:13.5px;font-weight:700}
 .cg-subject-pick option,.cg-subject-pick optgroup{color:#1f2430;background:#fff}
 .cg-subject-pick.is-on{background:#fff;color:#1f2430;border-color:#fff}
@@ -1294,6 +1297,12 @@ function ClassGradeKpis({ metricLabel = "전교과",  rows, graded, avg, gradeMe
 function ClassExamStudents({ exam, rosterRows = [], allClasses = false, classNo = "", tableSort = "rank", onSort, onOpenStudent, part = "head" }) {
   const gradeScores = Object.values(exam.scores);
   const gradeRank = score => 1 + gradeScores.filter(other => other > score + 1e-9).length;
+  // 학년 전체 원점수로 석차 → 5등급(누적 10·34·66·90%, 동점은 같은 등급). 성적 산출 화면과 같은 계산입니다.
+  const gradeBySid = useMemo(() => {
+    const list = Object.entries(exam.scores).map(([sid, score]) => ({ sid, score }));
+    rankAndGrade(list, { vectorOf: row => [row.score], isEligible: () => true, system: 5 });
+    return new Map(list.map(row => [row.sid, row.grade]));
+  }, [exam]);
   const gradeMean = gradeScores.length ? gradeScores.reduce((sum, v) => sum + v, 0) / gradeScores.length : null;
   const rows = rosterRows.map(row => ({ ...row, score: exam.scores[row.sid] ?? null })).filter(row => row.score != null);
   const classRank = row => 1 + rows.filter(other => other.score > row.score + 1e-9).length;
@@ -1316,24 +1325,28 @@ function ClassExamStudents({ exam, rosterRows = [], allClasses = false, classNo 
         <div className="cg-kpi">{label(<BarChart3 size={15} />, "#fff0e6", "#c2410c", `반 평균 · ${exam.subject}`)}<span className="cg-kpi-v">{fmt1(mean)}<small>점</small></span><span className="cg-kpi-n">{gap == null ? `${max}점 만점` : <>학년 평균 {fmt1(gradeMean)}<span className={`cg-pill ${changeTone(gap)}`}>{changeMark(gap)} {Math.abs(gap).toFixed(1)}</span></>}</span></div>
         <div className="cg-kpi">{label(<TrendingUp size={15} />, "#e7f6ec", "#15803d", "최고 · 최저")}<span className="cg-kpi-v">{fmt1(top)}<small> / {fmt1(low)}</small></span><span className="cg-kpi-n">{max}점 만점{exam.pending ? " · 논술형 전(객관식만)" : ""}</span></div>
       </div>
-      {rows.length > 0 && <ClassGradeHistogram metricLabel={exam.subject} bins={cuts.map((_, i) => [i, i + 1])} counts={counts} total={rows.length} scale={cuts.length} avg={null} labels={labels} title={`${exam.subject} ${exam.label} 점수 분포`} note={`막대 = 점수대별 학생 수 · 선생님 ZONE 학교 공동본 기준`} />}
+      {rows.length > 0 && <div className="cg-hist-split">
+        <ClassGradeHistogram metricLabel={exam.subject} bins={cuts.map((_, i) => [i, i + 1])} counts={counts} total={rows.length} scale={cuts.length} avg={null} labels={labels} title={`${exam.subject} ${exam.label} 점수 분포`} note="막대 = 점수대별 학생 수" />
+        <ClassGradeHistogram metricLabel={exam.subject} bins={[1, 2, 3, 4, 5].map(g => [g - 0.5, g + 0.5])} counts={[1, 2, 3, 4, 5].map(g => rows.filter(row => gradeBySid.get(row.sid) === g).length)} total={rows.length} scale={5} avg={null} labels={[1, 2, 3, 4, 5].map(g => `${g}등급`)} title="이 시험 기준 등급 분포" note="학년 전체 석차 · 5등급(누적 10·34·66·90%)" />
+      </div>}
     </>;
   }
   if (!rows.length) return <EmptyBox text={`${where}에 ${exam.subject} ${exam.title} 점수가 없습니다.`} />;
   const ordered = rows.slice().sort((a, b) => tableSort === "sid" ? String(a.sid).localeCompare(String(b.sid)) : b.score - a.score || String(a.sid).localeCompare(String(b.sid)));
   return <section className="cg-card">
     <div className="cg-tablebar"><b>{exam.subject} {exam.label} 기준</b><span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"]].map(([key, text]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => onSort(key)}>{text}</button>)}</div></div>
-    <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 84 }} /><col style={{ width: 130 }} /><col /><col /><col /></colgroup>
-      <thead><tr><th className="c">{allClasses ? "학년 순위" : "반 순위"}</th><th className="c">학번</th><th className="c">이름</th><th className="c">원점수</th><th className="c">학년 석차</th><th className="c">학년 평균 대비</th></tr></thead>
+    <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 84 }} /><col style={{ width: 130 }} /><col /><col /><col /><col /></colgroup>
+      <thead><tr><th className="c">{allClasses ? "학년 순위" : "반 순위"}</th><th className="c">학번</th><th className="c">이름</th><th className="c">원점수</th><th className="c">학년 석차</th><th className="c">등급</th><th className="c">학년 평균 대비</th></tr></thead>
       <tbody>{ordered.map(row => { const rank = classRank(row); const gap = gradeMean == null ? null : row.score - gradeMean; return <tr key={row.sid}>
         <td className="c"><span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}<small>위</small></span></td>
         <td className="c cg-sj-dim">{row.sid}</td>
         <td className="c cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)}>{row.name}</button> : <span>{row.name}</span>}</td>
         <td className="c"><span className="cg-big">{fmt1(row.score)}</span></td>
         <td className="c" style={{ whiteSpace: "nowrap" }}><b>{gradeRank(row.score)}</b><span style={{ color: "var(--kdn-muted,#8a92a0)", fontSize: 12 }}> / {gradeScores.length}</span></td>
+        <td className="c">{gradeBySid.get(row.sid) ? <span className={`cg-exam-grade g${gradeBySid.get(row.sid)}`}>{gradeBySid.get(row.sid)}등급</span> : "-"}</td>
         <td className="c">{gap == null ? "-" : <span className={`cg-pill ${changeTone(gap)}`}>{changeMark(gap)} {Math.abs(gap).toFixed(1)}</span>}</td>
       </tr>; })}</tbody></table></div>
-    <div className="cg-foot">원점수 = 선생님 ZONE 성적 산출에 공동 저장한 지필 점수 · 순위·석차는 같은 점수면 같은 등수 · 학기 성적(NEIS)이 올라오면 학기 과목으로도 볼 수 있어요</div>
+    <div className="cg-foot">원점수 = 선생님 ZONE 성적 산출에 공동 저장한 지필 점수 · 등급 = 이 시험 하나만으로 본 참고 등급(학기말 등급과 다를 수 있음) · 순위·석차는 같은 점수면 같은 등수 · 학기 성적(NEIS)이 올라오면 학기 과목으로도 볼 수 있어요</div>
   </section>;
 }
 // 전교과 분포 막대: 구간 색을 단계로 바꾸고, 반 평균이 있는 구간 이름을 강조합니다.
