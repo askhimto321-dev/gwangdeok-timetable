@@ -32,6 +32,9 @@ const GradeDepartmentTools = lazy(() => import("./GradeDepartmentTools.jsx"));
 const AdminBackup = lazy(() => import("./AdminBackup.jsx"));
 const LessonStamps = lazy(() => import("./LessonStamps.jsx"));
 import InstallPrompt from "./InstallPrompt.jsx";
+import { serverLogin, exchangeTicket, googleAuth, kakaoAuth, signOutAccount, takeAuthReturn, KAKAO_ERRORS, changePassword } from "./authClient.js";
+import { HASHED_PW, isHashedPw } from "./accountSecret.js";
+import { SocialLoginButtons, SocialLinkCard } from "./SocialLogin.jsx";
 const SusiNaviBetaAdmin = lazy(() => loadSusiNaviModule().then(module => ({ default: module.SusiNaviBetaAdmin })));
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
@@ -1386,6 +1389,7 @@ export default function App() {
   }, [section, tab, studentWorkspaceView, grade, semester]);
 
   const saveSession = (patch) => {
+    if (["adminId", "teacherId", "departmentId", "monitorId", "classViewId", "studentId"].some(key => key in patch && patch[key] == null)) signOutAccount();
     try {
       const current = JSON.parse(localStorage.getItem("kd_session") || "{}");
       localStorage.setItem("kd_session", JSON.stringify({ ...current, ...patch }));
@@ -1403,30 +1407,62 @@ export default function App() {
   // Unified login: one credential check tried against every account type, regardless of
   // which tab's login form triggered it. Whichever role matches gets activated immediately,
   // unlocking every tab that role has access to — no more separate logins per tab.
-  const attemptLogin = useCallback((idRaw, pw) => {
-    const id = (idRaw || "").trim();
-    const adminList = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
-    const adminMatch = adminList.find(a => a.id === id && a.pw === pw);
-    if (adminMatch) { clearStudentWorkspaceSelection(); setLoggedInAdmin(adminMatch); saveSession({ adminId: adminMatch.id }); return "admin"; }
-    const teacherMatch = (accounts.teacher || []).find(a => a.id === id && a.pw === pw);
-    if (teacherMatch) { clearStudentWorkspaceSelection(); setViewedTeacher(null); setLoggedInTeacher(teacherMatch); saveSession({ teacherId: teacherMatch.id }); return "teacher"; }
-    const departmentMatch = (accounts.departments || []).find(a => a.id === id && a.pw === pw);
-    if (departmentMatch) { clearStudentWorkspaceSelection(); setLoggedInDepartment(departmentMatch); saveSession({ departmentId: departmentMatch.id }); return "department"; }
-    const monitorMatch = (accounts.monitors || []).find(a => a.id === id && a.pw === pw);
-    if (monitorMatch) { clearStudentWorkspaceSelection(); setLoggedInMonitor(monitorMatch); saveSession({ monitorId: monitorMatch.id }); return "monitor"; }
-    const classMatch = (accounts.classView || []).find(a => a.id === id && a.pw === pw);
-    if (classMatch) { clearStudentWorkspaceSelection(); setClassAuthed(true); saveSession({ classViewId: classMatch.id }); return "classView"; }
-    const studentMatch = (accounts.students || []).find(a => a.id === id && a.pw === pw);
-    if (studentMatch) {
-      clearStudentWorkspaceSelection();
-      const studentGrade = String(studentMatch.id || "").charAt(0);
+  // 확인은 로그인 서버(/api/auth/login)에서 합니다. 서버가 없거나 응답하지 않을 때만 예전처럼 화면에서
+  // 확인합니다(이때도 암호화된 비밀번호 계정은 화면에서 확인할 수 없음).
+  const activateAccount = (kind, account) => {
+    if (!account) return null;
+    clearStudentWorkspaceSelection();
+    if (kind === "admin") { setLoggedInAdmin(account); saveSession({ adminId: account.id }); return "admin"; }
+    if (kind === "teacher") { setViewedTeacher(null); setLoggedInTeacher(account); saveSession({ teacherId: account.id }); return "teacher"; }
+    if (kind === "departments") { setLoggedInDepartment(account); saveSession({ departmentId: account.id }); return "department"; }
+    if (kind === "monitors") { setLoggedInMonitor(account); saveSession({ monitorId: account.id }); return "monitor"; }
+    if (kind === "classView") { setClassAuthed(true); saveSession({ classViewId: account.id }); return "classView"; }
+    if (kind === "students") {
+      const studentGrade = String(account.id || "").charAt(0);
       if (GRADES.includes(studentGrade)) setGrade(studentGrade);
-      setLoggedInStudent(studentMatch);
-      saveSession({ studentId: studentMatch.id });
+      setLoggedInStudent(account);
+      saveSession({ studentId: account.id });
       return "student";
     }
     return null;
-  }, [accounts]);
+  };
+  // 서버가 확인한 계정을 최신 계정 목록에서 찾아 로그인 상태로 만듭니다.
+  const applyServerLogin = async ({ kind, id }) => {
+    const unread = {};
+    const fresh = await readStorage("kd_accounts", unread);
+    let list = accountsRef.current;
+    if (fresh !== unread && fresh && typeof fresh === "object") { list = { ...EMPTY_ACCOUNTS, ...fresh }; setAccounts(list); }
+    const entries = list[kind] || [];
+    const account = entries.find(item => String(item.id) === String(id)) || (kind === "admin" && !entries.length && id === DEFAULT_ADMIN.id ? DEFAULT_ADMIN : null);
+    return activateAccount(kind, account) || { error: "계정 정보를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요." };
+  };
+  const localLogin = (id, pw) => {
+    const ok = a => a.id === id && a.pw === pw && !isHashedPw(a.pw);
+    const adminList = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
+    for (const [kind, entries] of [["admin", adminList], ["teacher", accounts.teacher], ["departments", accounts.departments], ["monitors", accounts.monitors], ["classView", accounts.classView], ["students", accounts.students]]) {
+      const match = (entries || []).find(ok);
+      if (match) return activateAccount(kind, match);
+    }
+    return null;
+  };
+  // 결과: 역할 이름(성공) · { error } · null(틀림). 첫 인자가 { provider }면 구글·카카오 로그인.
+  const attemptLogin = useCallback(async (idRaw, pw) => {
+    if (idRaw && typeof idRaw === "object") {
+      if (idRaw.provider === "kakao") {
+        const result = await kakaoAuth("login");
+        return result.status === "redirect" ? "redirect" : { error: result.error || "카카오 로그인 서버에 연결하지 못했습니다." };
+      }
+      const result = await googleAuth("login");
+      if (result.status === "cancel") return { error: "" };
+      if (result.status !== "ok") return { error: result.error || "구글 로그인 서버에 연결하지 못했습니다." };
+      return applyServerLogin(result.data);
+    }
+    const id = (idRaw || "").trim();
+    const result = await serverLogin(id, pw);
+    if (result.status === "ok") return applyServerLogin(result.data);
+    if (result.status === "fail") return result.http === 401 ? null : { error: result.error };
+    return localLogin(id, pw);
+  }, [accounts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist = useCallback(async (patch) => {
     const jobs = [];
@@ -1755,6 +1791,20 @@ export default function App() {
     const other = byCalendar === "sem1" ? "sem2" : "sem1";
     setSemester(!hasData(byCalendar) && hasData(other) ? other : byCalendar);
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 카카오 로그인·연결에서 돌아왔을 때(주소 # 뒤 결과) 처리
+  useEffect(() => {
+    if (loading) return;
+    const back = takeAuthReturn();
+    if (!back) return;
+    if (back.error) { showToast(KAKAO_ERRORS[back.error] || "카카오 로그인을 하지 못했어요.", "error"); return; }
+    if (back.linked) { showToast("카카오 계정을 연결했어요. 다음부터 카카오로 로그인할 수 있어요.", "success"); return; }
+    if (back.ticket) exchangeTicket(back.ticket).then(async result => {
+      if (result.status !== "ok") { showToast(result.error || "카카오 로그인을 하지 못했어요.", "error"); return; }
+      const role = await applyServerLogin(result.data);
+      if (typeof role === "string") showToast("카카오 계정으로 로그인했어요.", "success");
+      else showToast(role?.error || "로그인하지 못했어요.", "error");
+    });
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
   if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   // 관리자 계정 전환(보기 모드): 비밀번호 없이 다른 계정 화면으로 들어갑니다. 메모리에만 두고
@@ -1796,6 +1846,7 @@ export default function App() {
     setStudentWorkspaceView("grades");
     setStudentWorkspaceTabs(["grades"]);
     setSection(null);
+    signOutAccount();
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
   const activeSection = section || (isNewUi() ? "home" : "grades");
@@ -1959,9 +2010,12 @@ export default function App() {
   const renderSignup = () => <TeacherZoneGate accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} db={db} grade={grade} scopeKey={scopeKey} semester={semester} attemptLogin={attemptLogin} initialMode="signup" />;
 
   if (!anyLoggedIn) {
+    // 로그인 전 화면에도 알림(가입 신청·카카오 로그인 결과 등)을 보여 줍니다.
+    const landingToast = toast && <div className="no-print" style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620" }}>{toast.msg}</div>;
     return (
-      isNewUi() ? <NewUiLanding attemptLogin={attemptLogin} showToast={showToast} renderSignup={renderSignup} /> :
+      isNewUi() ? <><NewUiLanding attemptLogin={attemptLogin} showToast={showToast} renderSignup={renderSignup} />{landingToast}</> :
       <div className="kdn-app" style={styles.app}>
+        {landingToast}
         <style>{globalCss}</style>
         <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 20px 0" }}><UiModeSwitch compact /></div>
         <div style={{ padding: "26px 20px 40px" }}>
@@ -2304,9 +2358,20 @@ function UnifiedLoginGate({ label, attemptLogin, showToast, satisfies, hint }) {
   const [id, setId] = useState(() => { try { return localStorage.getItem("kd_saved_login_id") || ""; } catch { return ""; } });
   const [pw, setPw] = useState(""), [err, setErr] = useState("");
   const [rememberId, setRememberId] = useState(() => { try { return !!localStorage.getItem("kd_saved_login_id"); } catch { return false; } });
-  const submit = () => {
-    const role = attemptLogin(id.trim(), pw);
-    if (!role) { setErr("아이디 또는 비밀번호가 올바르지 않습니다."); return; }
+  const [busy, setBusy] = useState(false);
+  const afterLogin = role => {
+    if (role === "redirect") return;
+    if (typeof role !== "string") { if (role?.error !== "") setErr(role?.error || "아이디 또는 비밀번호가 올바르지 않습니다."); return; }
+    setErr("");
+    if (satisfies && !satisfies(role)) showToast(`${ROLE_LABEL[role] || "학생"} 계정으로 로그인되었습니다. 해당 메뉴에서 이용해주세요.`, "info");
+  };
+  const social = async provider => { setBusy(true); try { afterLogin(await attemptLogin({ provider })); } finally { setBusy(false); } };
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true);
+    let role;
+    try { role = await attemptLogin(id.trim(), pw); } finally { setBusy(false); }
+    if (typeof role !== "string") { setErr(role?.error || "아이디 또는 비밀번호가 올바르지 않습니다."); return; }
     setErr("");
     try {
       if (rememberId) localStorage.setItem("kd_saved_login_id", id.trim());
@@ -2329,7 +2394,8 @@ function UnifiedLoginGate({ label, attemptLogin, showToast, satisfies, hint }) {
         <input type="checkbox" checked={rememberId} onChange={e => setRememberId(e.target.checked)} /> 아이디 저장
       </label>
       {err && <div style={{ color: "#b3401f", fontSize: 12, marginBottom: 6 }}>{err}</div>}
-      <button style={styles.primaryBtn} onClick={submit}><KeyRound size={14} /> 로그인</button>
+      <button style={styles.primaryBtn} onClick={submit} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} 로그인</button>
+      <SocialLoginButtons onPick={social} disabled={busy} />
     </div>
   );
 }
@@ -2437,10 +2503,18 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
   const [homeroomClass, setHomeroomClass] = useState("");
   const [submitted, setSubmitted] = useState(false);
 
-  const submitLogin = () => {
-    const role = attemptLogin(id.trim(), pw);
-    if (role) { setErr(""); }
-    else setErr("아이디 또는 비밀번호가 올바르지 않습니다. (승인 대기 중일 수 있습니다)");
+  const [busy, setBusy] = useState(false);
+  const submitLogin = async () => {
+    if (busy) return;
+    setBusy(true);
+    let role;
+    try { role = await attemptLogin(id.trim(), pw); } finally { setBusy(false); }
+    if (typeof role === "string") setErr("");
+    else setErr(role?.error || "아이디 또는 비밀번호가 올바르지 않습니다. (승인 대기 중일 수 있습니다)");
+  };
+  const social = async provider => {
+    setBusy(true);
+    try { const role = await attemptLogin({ provider }); if (role !== "redirect" && typeof role !== "string" && role?.error) setErr(role.error); } finally { setBusy(false); }
   };
 
   const submitSignup = async () => {
@@ -2490,7 +2564,8 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
           </select>
           <input value={pw} onChange={e => setPw(e.target.value)} placeholder="비밀번호" type="password" style={styles.loginInput} onKeyDown={e => e.key === "Enter" && submitLogin()} />
           {err && <div style={{ color: "#b3401f", fontSize: 12, marginBottom: 6 }}>{err}</div>}
-          <button style={styles.primaryBtn} onClick={submitLogin}><KeyRound size={14} /> 로그인</button>
+          <button style={styles.primaryBtn} onClick={submitLogin} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <KeyRound size={14} />} 로그인</button>
+          <SocialLoginButtons onPick={social} disabled={busy} />
         </>
       ) : (
         <div style={{ width: "100%" }}>
@@ -4400,7 +4475,7 @@ function MonitorManager({ targetKey, subject, group, label, roster, enrollments,
             <div key={m.id} style={styles.issueRow}>
               <span style={{ fontWeight: 700 }}>{m.studentName}</span>
               <span style={{ color: "#8a8578", fontSize: 12 }}>({m.id})</span>
-              <span style={{ fontSize: 12, color: "#8a8578" }}>비밀번호: {m.pw}</span>
+              <span style={{ fontSize: 12, color: "#8a8578" }}>비밀번호: {isHashedPw(m.pw) ? "암호화됨(재발급으로 새로 받기)" : m.pw}</span>
               <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
                 <button style={{ ...styles.secondaryBtn, padding: "4px 10px", fontSize: 11.5 }} onClick={() => resetMonitorPw(m.id)}>비밀번호 재발급</button>
                 <button style={{ ...styles.dangerBtn, padding: "4px 10px", fontSize: 11.5, marginTop: 0 }} onClick={() => removeMonitor(m.id)}>해제</button>
@@ -4447,19 +4522,31 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
   const save = async () => {
     const wantsPasswordChange = currentPassword || newPassword || confirmPassword;
     if (wantsPasswordChange) {
-      if (String(currentPassword) !== String(teacher.pw || "")) { showToast("현재 비밀번호가 올바르지 않습니다.", "error"); return; }
+      if (!currentPassword) { showToast("현재 비밀번호를 입력해주세요.", "error"); return; }
       if (String(newPassword).length < 4) { showToast("새 비밀번호는 4자 이상 입력해주세요.", "error"); return; }
       if (newPassword !== confirmPassword) { showToast("새 비밀번호 확인이 일치하지 않습니다.", "error"); return; }
       if (newPassword === currentPassword) { showToast("새 비밀번호는 현재 비밀번호와 다르게 입력해주세요.", "error"); return; }
     }
     setSaving(true);
     try {
+      // 비밀번호는 로그인 서버에서 바꿉니다(암호화 보관). 서버가 없을 때만 예전처럼 계정 목록에 저장.
+      let localPassword = null;
+      if (wantsPasswordChange) {
+        const result = await changePassword(currentPassword, newPassword);
+        if (result.status === "fail") { showToast(result.error, "error"); setSaving(false); return; }
+        if (result.status === "unavailable") {
+          if (isHashedPw(teacher.pw) || String(currentPassword) !== String(teacher.pw || "")) { showToast(isHashedPw(teacher.pw) ? "지금은 비밀번호를 바꿀 수 없어요. 잠시 뒤 다시 시도해주세요." : "현재 비밀번호가 올바르지 않습니다.", "error"); setSaving(false); return; }
+          localPassword = newPassword;
+        }
+      }
       const cleanAssignments = assignments.filter(a => String(a.subject || "").trim()).map(a => ({ ...a, subject: String(a.subject).trim(), targets: String(a.targets || "").trim() || "전체" }));
+      // pw는 화면이 가진 계정 목록 값 그대로 둬서(바꾸지 않음) 저장 때 서버의 최신 값이 유지되게 합니다.
+      const baseEntry = (accounts.teacher || []).find(t => t.id === teacher.id) || teacher;
       const updatedTeacher = applyAutomaticTeacherAccess({
         ...teacher,
+        pw: localPassword != null ? localPassword : baseEntry.pw,
         homeroomClass: canEditHomeroom ? homeroomClass : teacher.homeroomClass,
         assignments: cleanAssignments,
-        ...(wantsPasswordChange ? { pw: newPassword } : {}),
       }, teacherRoleGrade(teacher));
       const newTeacherList = (accounts.teacher || []).map(t => t.id === teacher.id ? updatedTeacher : t);
       const ok = await persistAccounts({ ...accounts, teacher: newTeacherList });
@@ -4507,6 +4594,7 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
           </div>
           <p>비밀번호를 잊은 경우 학교 관리자 또는 시스템 담당자에게 초기화를 요청하세요.</p>
         </div>
+        <SocialLinkCard showToast={showToast} />
         <button style={{ ...styles.primaryBtn, marginTop: 14 }} onClick={save} disabled={saving}>{saving ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 내 정보 저장</button>
       </div>
     </div>
@@ -6699,6 +6787,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
     <div>
       {!accounts.admin.length && <div style={styles.warnBanner}><AlertTriangle size={14} /> 관리자 계정이 없어 초기 계정({DEFAULT_ADMIN.id}/{DEFAULT_ADMIN.pw})으로 접속 중입니다. 계정을 등록해주세요.</div>}
 
+      <SocialLinkCard showToast={showToast} />
       <div style={accountConsole.summaryGrid}>
         {[
           ["관리자", admins.length, "전체 설정"],
@@ -6743,7 +6832,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
               </div>
               <div style={accountConsole.credentials}>
                 <label style={accountConsole.field}><span>아이디</span><ImeSafeInput value={department.id || ""} onValueChange={value => updateDepartmentField(index, "id", value)} placeholder="영문·숫자 또는 한글 아이디" style={accountConsole.input} autoComplete="off" spellCheck={false} /></label>
-                <label style={accountConsole.field}><span>비밀번호</span><ImeSafeInput value={department.pw || ""} onValueChange={value => updateDepartmentField(index, "pw", value)} placeholder="비밀번호" style={accountConsole.input} autoComplete="new-password" /></label>
+                <label style={accountConsole.field}><span>비밀번호</span><ImeSafeInput value={pwShown(department.pw)} onValueChange={value => updateDepartmentField(index, "pw", pwInput(value, department.pw))} placeholder={pwHint(department.pw)} style={accountConsole.input} autoComplete="new-password" /></label>
               </div>
               <TeacherAccessMatrix teacher={department} index={index} onToggle={toggleDepartmentAccess} />
             </div>
@@ -6818,7 +6907,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                 <div style={{ display: "flex", gap: 8, marginBottom: 12, alignItems: "center", flexWrap: "wrap" }}>
                   <input value={teacher.name || ""} onChange={event => updateTeacherField(index, "name", event.target.value)} placeholder="이름" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
                   <input value={teacher.id || ""} onChange={event => updateTeacherField(index, "id", event.target.value)} placeholder="아이디" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
-                  <input value={teacher.pw || ""} onChange={event => updateTeacherField(index, "pw", event.target.value)} placeholder="비밀번호" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
+                  <input value={pwShown(teacher.pw)} onChange={event => updateTeacherField(index, "pw", pwInput(event.target.value, teacher.pw))} placeholder={pwHint(teacher.pw)} style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: "1 1 130px" }} />
                   {onViewAs && <button type="button" style={{ ...styles.secondaryBtn, padding: "6px 12px" }} title="비밀번호 없이 이 선생님 화면으로 들어가 봅니다(저장된 계정 기준)" onClick={() => { const saved = (accounts.teacher || []).find(item => item.id === teacher.id); if (!saved) { showToast("먼저 '계정·권한 저장'을 눌러 주세요.", "error"); return; } if (accountsDirty) { showToast("저장하지 않은 변경은 반영되지 않아요. 저장된 계정으로 봅니다.", "info"); } onViewAs("teacher", saved); }}><Eye size={14} /> 이 계정으로 보기</button>}
                   <button style={styles.iconBtn} onClick={() => setTeachers(current => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
                 </div>
@@ -6919,12 +7008,17 @@ function TeacherAccessMatrix({ teacher, index, onToggle }) {
   );
 }
 
+// 관리자 계정 편집: 암호화된 비밀번호는 칸을 비워 보여 주고, 새로 적을 때만 바뀝니다(비우면 그대로 유지).
+const pwShown = value => (isHashedPw(value) ? "" : value || "");
+const pwHint = (value, plain = "비밀번호") => (isHashedPw(value) ? "암호화됨 · 바꿀 때만 입력" : plain);
+const pwInput = (typed, previous) => (typed === "" && isHashedPw(previous) ? HASHED_PW : typed);
+
 function AccountTable({ list, setList }) {
   if (!list.length) return <div style={{ fontSize: 12, color: "#a39d8c", marginBottom: 8 }}>등록된 계정이 없습니다.</div>;
   return (
     <table style={{ ...styles.editTable, marginBottom: 8 }}>
       <thead><tr><th style={styles.th}>아이디</th><th style={styles.th}>비밀번호</th><th style={{ ...styles.th, width: 40 }}></th></tr></thead>
-      <tbody>{list.map((a, i) => <tr key={i}><td style={styles.tdEdit}><input value={a.id} onChange={e => setList(l => l.map((x, j) => j === i ? { ...x, id: e.target.value } : x))} style={styles.cellInput} /></td><td style={styles.tdEdit}><input value={a.pw} onChange={e => setList(l => l.map((x, j) => j === i ? { ...x, pw: e.target.value } : x))} style={styles.cellInput} /></td><td style={styles.tdEdit}><button style={styles.iconBtn} onClick={() => setList(l => l.filter((_, j) => j !== i))}><X size={14} /></button></td></tr>)}</tbody>
+      <tbody>{list.map((a, i) => <tr key={i}><td style={styles.tdEdit}><input value={a.id} onChange={e => setList(l => l.map((x, j) => j === i ? { ...x, id: e.target.value } : x))} style={styles.cellInput} /></td><td style={styles.tdEdit}><input value={pwShown(a.pw)} placeholder={pwHint(a.pw, "")} onChange={e => setList(l => l.map((x, j) => j === i ? { ...x, pw: pwInput(e.target.value, x.pw) } : x))} style={styles.cellInput} /></td><td style={styles.tdEdit}><button style={styles.iconBtn} onClick={() => setList(l => l.filter((_, j) => j !== i))}><X size={14} /></button></td></tr>)}</tbody>
     </table>
   );
 }
@@ -6942,7 +7036,7 @@ function AdminAccountTable({ list, setList }) {
         <div key={i} style={{ border: `1px solid ${COLORS.line}`, borderRadius: 8, padding: 10, background: "#fff" }}>
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
             <input value={a.id} onChange={e => setList(l => l.map((x, j) => j === i ? { ...x, id: e.target.value } : x))} placeholder="아이디" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
-            <input value={a.pw} onChange={e => setList(l => l.map((x, j) => j === i ? { ...x, pw: e.target.value } : x))} placeholder="비밀번호" style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
+            <input value={pwShown(a.pw)} onChange={e => setList(l => l.map((x, j) => j === i ? { ...x, pw: pwInput(e.target.value, x.pw) } : x))} placeholder={pwHint(a.pw)} style={{ ...styles.cellInput, border: `1px solid ${COLORS.line}`, borderRadius: 6, flex: 1 }} />
             <button style={styles.iconBtn} onClick={() => setList(l => l.filter((_, j) => j !== i))}><X size={14} /></button>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>

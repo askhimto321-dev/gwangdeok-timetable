@@ -21,7 +21,11 @@ export function mergeAccountList(base = [], mine = [], theirs = []) {
     const id = keyOf(item);
     if (removed.has(id)) return;
     seen.add(id);
-    out.push(changed.has(id) ? changed.get(id) : item);
+    if (!changed.has(id)) { out.push(item); return; }
+    const mineItem = changed.get(id);
+    const baseItem = baseMap.get(id);
+    // 비밀번호는 내가 바꾼 경우에만 내 값으로(로그인 서버가 그사이 암호화 표시로 바꿨을 수 있음)
+    out.push(baseItem && item && "pw" in item && mineItem?.pw === baseItem.pw && item.pw !== mineItem.pw ? { ...mineItem, pw: item.pw } : mineItem);
   });
   // 내가 새로 추가한 계정(최신본에 없음)
   mine.forEach(item => {
