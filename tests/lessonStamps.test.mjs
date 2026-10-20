@@ -47,3 +47,70 @@ test("최성보: 결석 허용 1/3 초과·성취율 기준 미만은 보충지�
   assert.equal(csbStatus(book, "20102").label, "이수 확인");
   assert.equal(nextMark(""), "stamp"); assert.equal(nextMark("stamp"), "absent"); assert.equal(nextMark("absent"), "");
 });
+
+test("교시 자동: 쉬는 시간은 다음 교시, 방과 후는 비움", async () => {
+  const { periodAt } = await import("../src/lessonStamps.js");
+  const at = (h, m) => new Date(2026, 9, 21, h, m);
+  assert.equal(periodAt(at(8, 0)), 1);
+  assert.equal(periodAt(at(9, 30)), 1);
+  assert.equal(periodAt(at(9, 35)), 2);
+  assert.equal(periodAt(at(12, 50)), 5);
+  assert.equal(periodAt(at(16, 20)), 7);
+  assert.equal(periodAt(at(16, 21)), "");
+});
+
+test("차시 미리 만들기 · 도장 시각 기록 · 같은 바꾸기를 두 번 해도 같은 결과", async () => {
+  const { applyOp, markOf, markAt, nextSessionFor, stampStats, sessionsAsc } = await import("../src/lessonStamps.js");
+  let book = emptyBook();
+  const plan = { t: "plan", count: 5, at: "2026-10-01T00:00:00Z", by: "김" };
+  book = applyOp(applyOp(book, plan), plan);
+  assert.equal(Object.keys(book.sessions).length, 5);
+  assert.deepEqual(sessionsAsc(book).map(s => s.no), [1, 2, 3, 4, 5]);
+  // 날짜 없는 미리 만든 차시는 도장 찍기 전엔 '한 수업'에 안 들어감
+  assert.equal(stampStats(book, "20101").held, 0);
+  const mark = { t: "mark", s: "n1", sid: "20101", v: "stamp", at: "2026-10-21T09:12:00Z", by: "김" };
+  book = applyOp(applyOp(book, mark), mark);
+  assert.equal(markOf(book.marks.n1["20101"]), "stamp");
+  assert.equal(markAt(book.marks.n1["20101"]), "2026-10-21T09:12:00Z");
+  assert.equal(stampStats(book, "20101").held, 1);
+  assert.equal(stampStats(book, "20101").stamps, 1);
+  // 예전 글자 형식도 그대로 읽힘
+  book.marks.n2 = { "20101": "absent" };
+  assert.equal(stampStats(book, "20101").absent, 1);
+  // 다음 수업 = 아직 안 쓴 3차시
+  assert.deepEqual(nextSessionFor(book), { id: "n3", no: 3, existing: true });
+  // 남은 학생만 도장(이미 결석인 학생은 그대로)
+  book = applyOp(book, { t: "markMany", s: "n2", sids: ["20101", "20102"], v: "stamp", at: "x" });
+  assert.equal(markOf(book.marks.n2["20101"]), "absent");
+  assert.equal(markOf(book.marks.n2["20102"]), "stamp");
+  book = applyOp(book, { t: "mark", s: "n1", sid: "20101", v: "" });
+  assert.equal(book.marks.n1, undefined);
+  const log = { t: "logAdd", log: { id: "l1", sid: "20101" } };
+  book = applyOp(applyOp(book, log), log);
+  assert.equal(book.logs.length, 1);
+});
+
+test("포트폴리오: 도장판 8(도장률 비례) + 제출 항목 1점씩", async () => {
+  const { presetPortfolio, applyOp, totalFor, totalMax, stampScore } = await import("../src/lessonStamps.js");
+  let book = emptyBook();
+  book = applyOp(book, { t: "scoring", value: presetPortfolio() });
+  for (let i = 1; i <= 4; i++) book.sessions[`s${i}`] = { date: "2026-10-01", period: i };
+  for (let i = 1; i <= 3; i++) book = applyOp(book, { t: "mark", s: `s${i}`, sid: "20101", v: "stamp", at: "x" });
+  assert.equal(stampScore(book, "20101"), 6);
+  book = applyOp(book, { t: "itemMany", item: "p_wrong", sids: ["20101", "20102"], v: true });
+  book = applyOp(book, { t: "item", item: "p_mock", sid: "20101", v: true });
+  assert.equal(totalFor(book, "20101"), 8);
+  assert.equal(totalMax(book), 11);
+  book = applyOp(book, { t: "dropItem", item: "p_mock" });
+  assert.equal(totalMax(book), 10);
+  assert.equal(totalFor(book, "20101"), 7);
+});
+
+test("예전 날짜 수업이 있을 때 차시 미리 만들기: 날짜순으로 번호를 먼저 채움", async () => {
+  const { applyOp, sessionsAsc } = await import("../src/lessonStamps.js");
+  let book = emptyBook();
+  book.sessions.a = { date: "2026-09-02", period: 2 };
+  book.sessions.b = { date: "2026-09-01", period: 1 };
+  book = applyOp(book, { t: "plan", count: 4, at: "x" });
+  assert.deepEqual(sessionsAsc(book).map(s => [s.id, s.no]), [["b", 1], ["a", 2], ["n3", 3], ["n4", 4]]);
+});
