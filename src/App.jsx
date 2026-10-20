@@ -2948,7 +2948,7 @@ function TeacherZoneWorkspace({
     </div>}
     {(activeTeacher || loggedInAdmin) && visitedWorkspaceModes.includes("stamps") && <div style={{ display: workspaceMode === "stamps" ? "block" : "none" }} aria-hidden={workspaceMode !== "stamps"}>
       {activeTeacher
-        ? <DeferredPanel label="수업 포트폴리오를 불러오는 중입니다."><LessonStamps key={`ls-${grade}-${semester}-${activeTeacher.id || ""}`} teacher={activeTeacher} db={db} grade={grade} semester={semester} showToast={showToast} /></DeferredPanel>
+        ? <DeferredPanel label="수업 포트폴리오를 불러오는 중입니다."><LessonStamps key={`ls-${grade}-${semester}-${activeTeacher.id || ""}`} teacher={activeTeacher} accounts={accounts} db={db} grade={grade} semester={semester} showToast={showToast} /></DeferredPanel>
         // 관리자: 수업 포트폴리오는 선생님 담당 과목별이라, 볼 선생님을 먼저 고릅니다.
         : <AdminTeacherPicker accounts={accounts} onSelect={setViewedTeacher} />}
     </div>}
