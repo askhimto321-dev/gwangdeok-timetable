@@ -2013,9 +2013,10 @@ export default function App() {
     // 로그인 전 화면에도 알림(가입 신청·카카오 로그인 결과 등)을 보여 줍니다.
     const landingToast = toast && <div className="no-print" style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620" }}>{toast.msg}</div>;
     return (
-      isNewUi() ? <><NewUiLanding attemptLogin={attemptLogin} showToast={showToast} renderSignup={renderSignup} />{landingToast}</> :
+      isNewUi() ? <><NewUiLanding attemptLogin={attemptLogin} showToast={showToast} renderSignup={renderSignup} />{landingToast}<InstallPrompt /></> :
       <div className="kdn-app" style={styles.app}>
         {landingToast}
+        <InstallPrompt />
         <style>{globalCss}</style>
         <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 20px 0" }}><UiModeSwitch compact /></div>
         <div style={{ padding: "26px 20px 40px" }}>
