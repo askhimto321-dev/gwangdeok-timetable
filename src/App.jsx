@@ -30,6 +30,7 @@ const TeacherGradeAnalyzer = lazy(() => import("./TeacherGradeAnalyzer.jsx"));
 const MinimumAchievement = lazy(() => import("./MinimumAchievement.jsx"));
 const GradeDepartmentTools = lazy(() => import("./GradeDepartmentTools.jsx"));
 const AdminBackup = lazy(() => import("./AdminBackup.jsx"));
+const LessonStamps = lazy(() => import("./LessonStamps.jsx"));
 import InstallPrompt from "./InstallPrompt.jsx";
 const SusiNaviBetaAdmin = lazy(() => loadSusiNaviModule().then(module => ({ default: module.SusiNaviBetaAdmin })));
 
@@ -2808,10 +2809,10 @@ function TeacherZoneWorkspace({
       const saved = localStorage.getItem(modeStorageKey);
       // 새 UI는 들어올 때 항상 업무 카드 홈부터 보여 줍니다(마지막 작업은 홈에서 '이어서 하기'로 표시).
       if (isNewUi()) return "home";
-      return ["grades", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : "grades";
+      return ["grades", "stamps", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : "grades";
     } catch { return isNewUi() ? "home" : "grades"; }
   });
-  const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : ""; } catch { return ""; } });
+  const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "stamps", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : ""; } catch { return ""; } });
   const [visitedWorkspaceModes, setVisitedWorkspaceModes] = useState(() => [workspaceMode]);
   useEffect(() => { if (modeRequest?.mode) setWorkspaceMode(modeRequest.mode); }, [modeRequest?.at]);
   // 홈에서 성적 산출 단계·과목으로 바로 가기: { step, id, nonce }를 성적 산출 화면에 넘깁니다.
@@ -2852,6 +2853,7 @@ function TeacherZoneWorkspace({
       <div style={teacherZoneWorkspaceStyles.modeTabs}>
         {isNewUi() && <button type="button" onClick={() => setWorkspaceMode("home")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "home" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 홈</button>}
         <button type="button" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
+        {activeTeacher && <button type="button" onClick={() => setWorkspaceMode("stamps")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "stamps" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ClipboardList size={15} /> 수업 도장</button>}
         {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무 (Beta)</button>}
@@ -2867,6 +2869,9 @@ function TeacherZoneWorkspace({
         homeroomClass={activeTeacher?.homeroomClass || ""}
         jumpRequest={gradeJump}
         canViewAllSubjects={!!(loggedInAdmin || loggedInDepartment || loggedInMonitor || (activeTeacher && ["homeroom","gradeHead"].includes(normalizedTeacherRole(activeTeacher))))} /></DeferredPanel>
+    </div>}
+    {activeTeacher && visitedWorkspaceModes.includes("stamps") && <div style={{ display: workspaceMode === "stamps" ? "block" : "none" }} aria-hidden={workspaceMode !== "stamps"}>
+      <DeferredPanel label="수업 도장을 불러오는 중입니다."><LessonStamps key={`ls-${grade}-${semester}-${activeTeacher.id || ""}`} teacher={activeTeacher} db={db} grade={grade} semester={semester} showToast={showToast} /></DeferredPanel>
     </div>}
     {canUseNotice && visitedWorkspaceModes.includes("notice") && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
     {canUseGradeDepartmentTools && visitedWorkspaceModes.some(mode => ["contacts", "records", "gradeData"].includes(mode)) && <div style={{ display: ["contacts", "records", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records", "gradeData"].includes(workspaceMode))}>
@@ -2927,6 +2932,7 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
   const homeroom = activeTeacher?.homeroomClass ? `${grade}학년 ${activeTeacher.homeroomClass}반 담임` : isAdmin ? "관리자" : `${grade}학년`;
   const cards = [
     { key: "grades", icon: <FileSpreadsheet size={20} />, tone: "#c2410c", soft: "#fff0e6", title: "성적 산출", tag: "학기말", text: "NEIS 지필·수행 파일을 올려 반영비율대로 학기말 성적을 계산합니다.", points: ["① 파일 업로드 → ② 산출 기준 → ③ 결과 확인", "개인 임시 저장 · 학교 공동 저장"], primary: "성적 산출 열기", show: true },
+    { key: "stamps", icon: <ClipboardList size={20} />, tone: "#c2410c", soft: "#fff0e6", title: "수업 도장", tag: "수업마다", text: "학생 명단·이동수업 출석부로 반마다 도장·결석을 찍고 포트폴리오 점수와 최성보를 봅니다.", points: ["도장 → 결석 → 비움 한 번에", "포트폴리오 점수 · 최성보 판정"], primary: "도장 찍기", show: !!activeTeacher },
     { key: "notice", icon: <Megaphone size={20} />, tone: "#1d4ed8", soft: "#e0ecff", title: "공지·수업자료", tag: "학생에게 전달", text: "담당 반 학생에게 공지·제출·신청 안내와 수업자료를 보냅니다.", points: ["마감일 · 첨부파일 · 읽음 확인", "과목별 · 반별 대상 선택"], primary: "공지 쓰기", show: canUseNotice },
     { key: "contacts", icon: <Users size={20} />, tone: "#0e7490", soft: "#dff4f7", title: "학생 비상연락망", tag: "2학년부", text: "학교에 반영된 2학년 비상연락망을 반별로 확인합니다.", points: ["반·번호·이름으로 찾기", "자료 관리에서 반영한 최신본"], primary: "연락망 보기", show: canUseDept },
     { key: "records", icon: <BookOpen size={20} />, tone: "#6d28d9", soft: "#ede9fe", title: "생기부 업무", tag: "Beta", text: "진로 활동 배정과 학생 소감문을 반별로 정리합니다.", points: ["소감문 응답 확인", "활동 배정 현황"], primary: "생기부 업무 열기", show: canUseDept },
@@ -2939,7 +2945,7 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
   const today = new Date();
   const todayLabel = `${today.getMonth() + 1}월 ${today.getDate()}일 ${"일월화수목금토"[today.getDay()]}요일`;
   // 카드: 대시보드 바로가기(F안)와 같은 흰 카드 + 제목·태그 한 줄 + 한 줄 설명 + 둥근 도형 그림. 카드 전체가 버튼입니다.
-  const SHORT = { grades: ["NEIS 파일로 학기말 성적 계산", "classGrades", "il-classGrades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
+  const SHORT = { grades: ["NEIS 파일로 학기말 성적 계산", "classGrades", "il-classGrades"], stamps: ["반마다 수업 도장·결석·최성보", "grades", "il-grades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
   const stepIndex = exam ? (exam.phase === "before" ? 0 : exam.phase === "today" ? 1 : 2) : -1;
   const tip = exam ? (exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요." : exam.phase === "today" ? "시험 기간 · 결시자 인정점 입력을 준비하세요." : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요.") : "";
   const openCard = card => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));
