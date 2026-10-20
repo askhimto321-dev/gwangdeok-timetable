@@ -174,3 +174,12 @@ test("서버 설정이 없으면 503(화면은 예전 방식으로)", async () =
   assert.equal(res.status, 503);
   process.env.SESSION_SECRET = keep;
 });
+
+test("설정 점검: 값은 보여 주지 않고 있음/없음만", async () => {
+  const status = (await import("../netlify/functions/auth-status.mjs")).default;
+  const text = await (await status()).text();
+  const body = JSON.parse(text);
+  assert.equal(body.KAKAO_REST_API_KEY, "있음");
+  assert.equal(body.SESSION_SECRET, "있음");
+  assert.ok(!text.includes("rest-key") && !text.includes("kakao-secret") && !text.includes("abc") && !text.includes("ssss"));
+});
