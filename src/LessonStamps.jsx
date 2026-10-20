@@ -29,7 +29,17 @@ const withTimeout = (promise, ms) => Promise.race([promise, new Promise(resolve 
 const sessionName = (s, index) => `${Number(s.no) || index + 1}차시`;
 const seatOf = (meta, st) => (meta.kind === "common" ? `${st.number}` : `${st.class}-${st.number}`);
 
-export default function LessonStamps({ teacher, db = {}, grade = "2", semester = "sem1", showToast }) {
+// 큰 화면(PC)인지: PC는 표, 휴대폰은 세로 카드
+function useWide(query = "(min-width: 900px)") {
+  const get = () => { try { return window.matchMedia(query).matches; } catch { return true; } };
+  const [wide, setWide] = useState(get);
+  useEffect(() => { let mq; try { mq = window.matchMedia(query); } catch { return undefined; } const on = () => setWide(mq.matches); mq.addEventListener?.("change", on); return () => mq.removeEventListener?.("change", on); }, [query]);
+  return wide;
+}
+const subjectKeyOf = value => String(value || "").normalize("NFC").replace(/\s+/g, "");
+
+export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = "2", semester = "sem1", showToast }) {
+  const wide = useWide();
   const scope = `${grade}-${semester}`;
   const roster = db?.roster?.[scope] || {};
   const enrollments = db?.enrollments?.[scope] || {};
@@ -40,8 +50,27 @@ export default function LessonStamps({ teacher, db = {}, grade = "2", semester =
     list.forEach(item => booksForAssignment(item, { roster, enrollments, grade, semester }).forEach(book => { if (!out.some(other => other.id === book.id)) out.push(book); }));
     return out;
   }, [teacher, roster, enrollments, grade, semester]);
+  // 다른 선생님 담당: 같은 반·분반을 함께 맡은 선생님(공동 작업) · 같은 과목 다른 반(조회 전용)
+  const { coTeachers, viewBooks } = useMemo(() => {
+    const co = {};
+    const others = [];
+    const mySubjects = new Set(books.map(book => subjectKeyOf(book.subject)));
+    (accounts?.teacher || []).forEach(other => {
+      if (!other || other.id === teacher?.id) return;
+      (other.assignments || []).filter(item => item?.subject && String(item.grade || grade) === String(grade) && String(item.semester || semester) === String(semester))
+        .forEach(item => booksForAssignment(item, { roster, enrollments, grade, semester }).forEach(book => {
+          if (books.some(mine => mine.id === book.id)) { (co[book.id] ||= []).includes(other.name) || co[book.id].push(other.name || other.id); return; }
+          if (!mySubjects.has(subjectKeyOf(book.subject))) return;
+          const found = others.find(x => x.id === book.id);
+          if (found) { if (!found.owners.includes(other.name)) found.owners.push(other.name || other.id); }
+          else others.push({ ...book, owners: [other.name || other.id], readOnly: true });
+        }));
+    });
+    return { coTeachers: co, viewBooks: others.sort((a, b) => a.subject.localeCompare(b.subject, "ko") || String(a.target).localeCompare(String(b.target), "ko", { numeric: true })) };
+  }, [accounts, teacher, books, roster, enrollments, grade, semester]);
   const [pickedId, setPickedId] = useState(() => { try { return localStorage.getItem(`kd_stamps_last_${teacher?.id || "t"}`) || ""; } catch { return ""; } });
-  const meta = books.find(book => book.id === pickedId) || books[0] || null;
+  const meta = books.find(book => book.id === pickedId) || viewBooks.find(book => book.id === pickedId) || books[0] || null;
+  const readOnly = !!meta?.readOnly;
   useEffect(() => { if (meta) try { localStorage.setItem(`kd_stamps_last_${teacher?.id || "t"}`, meta.id); } catch { /* 기억 못 해도 됨 */ } }, [meta?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // 탭 3개: 도장(오늘 수업·도장판) · 채점 · 현황(학생·최성보)
   const [tab, setTab] = useState(() => { try { const saved = localStorage.getItem("kd_stamps_tab2"); return ["stamp", "score", "status"].includes(saved) ? saved : "stamp"; } catch { return "stamp"; } });
@@ -130,6 +159,7 @@ export default function LessonStamps({ teacher, db = {}, grade = "2", semester =
   const book = useMemo(() => (serverBook ? pending.reduce((acc, op) => applyOp(acc, op), clone(serverBook)) : null), [serverBook, pending]);
   const act = op => {
     if (!meta) return;
+    if (readOnly) { showToast?.("조회 전용이에요. 함께 기록하려면 내 정보에서 이 반을 담당 과목에 넣어 주세요.", "info"); return; }
     const next = [...readLocal(queueKey(meta.id), []), op];
     writeLocal(queueKey(meta.id), next);
     setPending(next);
@@ -153,13 +183,18 @@ export default function LessonStamps({ teacher, db = {}, grade = "2", semester =
   return <div className="ls">
     <style>{LS_CSS}</style>
     <div className="ls-head">
-      {books.length > 1
-        ? <div className="ls-books" role="tablist" aria-label="반·분반">{books.map(item => <button key={item.id} type="button" data-kdn-bare role="tab" aria-selected={item.id === meta.id} className={item.id === meta.id ? "is-on" : ""} onClick={() => setPickedId(item.id)}><b>{item.subject}</b><small>{item.label} · {item.students.length}명</small></button>)}</div>
-        : <div className="ls-one"><b>{meta.subject}</b><small>{meta.label} · {meta.students.length}명</small></div>}
-      <button type="button" data-kdn-bare className="ls-gear" onClick={() => openSettings("")} aria-label="설정"><Settings2 size={18} /><span>설정</span></button>
+      <div className="ls-books" role="tablist" aria-label="반·분반">{books.map(item => <button key={item.id} type="button" data-kdn-bare role="tab" aria-selected={item.id === meta.id} className={item.id === meta.id ? "is-on" : ""} onClick={() => setPickedId(item.id)}><b>{item.subject} <span>{item.label.split(" · ")[0]}</span></b><small>{item.students.length}명{coTeachers[item.id]?.length ? ` · 공동 ${coTeachers[item.id].join("·")}` : ""}</small></button>)}
+        {viewBooks.length > 0 && <select className={`ls-viewpick ${readOnly ? "is-on" : ""}`} value={readOnly ? meta.id : ""} onChange={e => e.target.value && setPickedId(e.target.value)} aria-label="같은 과목 다른 반 보기">
+          <option value="">같은 과목 다른 반 보기…</option>
+          {viewBooks.map(item => <option key={item.id} value={item.id}>{item.subject} {item.label.split(" · ")[0]} · {item.owners.join("·")} 선생님</option>)}
+        </select>}
+      </div>
+      <button type="button" data-kdn-bare className="ls-gear" onClick={() => openSettings("")} aria-label="설정"><Settings2 size={17} /><span>설정</span></button>
     </div>
+    {readOnly && <div className="ls-note is-info"><b>조회 전용</b> · {meta.subject} {meta.label.split(" · ")[0]} ({meta.owners.join("·")} 선생님 담당). 함께 기록하려면 내 정보에서 이 반을 담당 과목에 넣으면 같은 도장부를 함께 써요. <button type="button" data-kdn-bare onClick={() => setPickedId(books[0]?.id || "")}>내 반으로</button></div>}
+    {!readOnly && coTeachers[meta.id]?.length > 0 && <div className="ls-note">이 반은 <b>{coTeachers[meta.id].join("·")} 선생님</b>과 함께 쓰는 도장부예요. 누가 찍든 같은 기록에 모이고, 도장마다 찍은 선생님이 남아요.</div>}
     <div className="ls-nav">
-      <div className="ls-seg3" role="tablist">{[["stamp", "도장"], ["score", "채점"], ["status", "현황"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={tab === key ? "is-on" : ""} onClick={() => setTab(key)}>{label}</button>)}</div>
+      <div className="ls-tabs3" role="tablist">{[["stamp", "도장 찍기", <Stamp size={16} key="i" />], ["score", "채점", <Sparkles size={16} key="i" />], ["status", "현황·최성보", <List size={16} key="i" />]].map(([key, label, icon]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={tab === key ? "is-on" : ""} onClick={() => setTab(key)}>{icon}<span>{label}</span></button>)}</div>
       <div className={`ls-save is-${saveTone}`} role="status" title={save.error || ""}>
         {waiting ? (save.state === "error"
           ? <><CloudOff size={14} /><span>저장 대기 {waiting}건</span><button type="button" data-kdn-bare onClick={() => flush()}>다시</button></>
@@ -170,9 +205,9 @@ export default function LessonStamps({ teacher, db = {}, grade = "2", semester =
     </div>
     {waiting > 0 && save.state === "error" && <div className="ls-note is-warn">연결이 안 돼서 이 기기에 {waiting}건을 보관 중이에요. 연결되면 자동으로 저장돼요(창을 닫아도 다음에 열면 이어서 저장).</div>}
     {!book ? <div className="ls-note">불러오는 중…</div>
-      : tab === "stamp" ? <StampTab book={book} meta={meta} act={act} who={who} sessionId={sessionId} setSessionId={setSessionId} onEditSession={id => setSheet({ type: "session", id })} onOpenSettings={openSettings} />
-      : tab === "score" ? <ScoreTab book={book} meta={meta} act={act} onOpenSettings={() => openSettings("score")} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />
-      : <StatusTab book={book} meta={meta} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />}
+      : tab === "stamp" ? <StampTab wide={wide} readOnly={readOnly} book={book} meta={meta} act={act} who={who} sessionId={sessionId} setSessionId={setSessionId} onEditSession={id => setSheet({ type: "session", id })} onOpenSettings={openSettings} />
+      : tab === "score" ? <ScoreTab wide={wide} book={book} meta={meta} act={act} onOpenSettings={() => openSettings("score")} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />
+      : <StatusTab wide={wide} book={book} meta={meta} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />}
     {book && sheet?.type === "settings" && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsBody book={book} meta={meta} act={act} who={who} section={sheet.section} showToast={showToast} onDownload={downloadBackup} /></Sheet>}
     {book && sheet?.type === "session" && book.sessions[sheet.id] && <Sheet title="수업 정보" onClose={() => setSheet(null)}><SessionBody book={book} meta={meta} act={act} id={sheet.id} onDeleted={() => { setSheet(null); setSessionId(""); }} /></Sheet>}
     {book && sheet?.type === "student" && <Sheet title="학생" onClose={() => setSheet(null)}><StudentBody book={book} meta={meta} act={act} who={who} sid={sheet.id} /></Sheet>}
@@ -219,7 +254,7 @@ function ItemInput({ it, value, onChange, label }) {
 }
 
 // ── 도장: 수업을 고르고(◀ ▶) 명단에서 한 명씩 누르기 · '표'로 바꾸면 학생 × 차시 도장판 ──
-function StampTab({ book, meta, act, who, sessionId, setSessionId, onEditSession, onOpenSettings }) {
+function StampTab({ wide, readOnly, book, meta, act, who, sessionId, setSessionId, onEditSession, onOpenSettings }) {
   const asc = sessionsAsc(book);
   const indexOf = id => asc.findIndex(s => s.id === id);
   const started = asc.filter(s => s.date || Object.keys(book.marks?.[s.id] || {}).length);
@@ -238,31 +273,53 @@ function StampTab({ book, meta, act, who, sessionId, setSessionId, onEditSession
     setView("list");
   };
   const todays = started.filter(s => s.date === today);
+  const startButton = !readOnly && <button type="button" data-kdn-bare className="ls-primary" onClick={startToday}><Plus size={16} />{todays.length ? "오늘 수업 하나 더" : "오늘 수업 시작"}{nowPeriod ? ` · ${nowPeriod}교시` : ""}</button>;
+  const viewToggle = <div className="ls-view" role="tablist" aria-label="보기">
+    <button type="button" data-kdn-bare className={view === "list" ? "is-on" : ""} onClick={() => setView("list")} title="명단으로 보기"><List size={16} />{wide && <span>명단</span>}</button>
+    <button type="button" data-kdn-bare className={view === "board" ? "is-on" : ""} onClick={() => setView("board")} title="학생 × 차시 도장판"><Grid3x3 size={16} />{wide && <span>도장판 표</span>}</button>
+  </div>;
+  const curTitle = current ? <button type="button" data-kdn-bare className="ls-cur" onClick={() => onEditSession(current.id)} disabled={readOnly}>
+    <b>{sessionName(current, indexOf(current.id))}{!readOnly && <PencilLine size={13} />}</b>
+    <small>{current.date ? dayLabel(current.date) : "날짜 없음"}{current.period ? ` · ${current.period}교시` : ""}{current.topic ? ` · ${current.topic}` : ""}</small>
+  </button> : <div className="ls-cur"><b>수업 없음</b><small>{readOnly ? "아직 기록이 없어요" : "‘오늘 수업 시작’을 눌러 주세요"}</small></div>;
+  const body = view === "board" ? <BoardView book={book} meta={meta} act={act} who={who} current={current} onPick={id => { setSessionId(id); setView("list"); }} onOpenSettings={onOpenSettings} />
+    : current ? <RollView wide={wide} book={book} meta={meta} act={act} who={who} session={current} index={indexOf(current.id)} readOnly={readOnly} />
+    : <div className="ls-card"><div className="ls-note">{readOnly ? "아직 이 반의 수업 기록이 없어요." : "‘오늘 수업 시작’을 누르면 날짜는 오늘, 교시는 지금 시각으로 들어가고 바로 도장을 찍을 수 있어요."}</div></div>;
+
+  if (wide) return <div className="ls-pc">
+    <aside className="ls-card ls-side">
+      {startButton}
+      <div className="ls-side-title">수업 기록 <small>{started.length}회</small></div>
+      {!started.length && <p className="ls-mini">아직 수업 기록이 없어요.</p>}
+      <ul>{started.slice().reverse().map(s => { const m = book.marks?.[s.id] || {}; const stamped = Object.values(m).filter(v => markOf(v) === "stamp").length; return <li key={s.id}><button type="button" data-kdn-bare className={current?.id === s.id && view === "list" ? "is-on" : ""} onClick={() => { setSessionId(s.id); setView("list"); }}>
+        <b>{sessionName(s, indexOf(s.id))}</b><small>{s.date ? dayLabel(s.date) : "날짜 없음"}{s.period ? ` ${s.period}교시` : ""}</small><em>{stamped}/{meta.students.length}</em>
+      </button></li>; })}</ul>
+    </aside>
+    <section className="ls-main">
+      <div className="ls-card ls-mainhead">
+        <button type="button" data-kdn-bare className="ls-arrow" disabled={pos <= 0} onClick={() => setSessionId(started[pos - 1].id)} aria-label="이전 수업"><ChevronLeft size={18} /></button>
+        {curTitle}
+        <button type="button" data-kdn-bare className="ls-arrow" disabled={pos < 0 || pos >= started.length - 1} onClick={() => setSessionId(started[pos + 1].id)} aria-label="다음 수업"><ChevronRight size={18} /></button>
+        {viewToggle}
+      </div>
+      {body}
+    </section>
+  </div>;
+
   return <div className="ls-stamp">
     <div className="ls-card ls-picker">
       <div className="ls-picker-row">
         <button type="button" data-kdn-bare className="ls-arrow" disabled={pos <= 0} onClick={() => setSessionId(started[pos - 1].id)} aria-label="이전 수업"><ChevronLeft size={20} /></button>
-        {current ? <button type="button" data-kdn-bare className="ls-cur" onClick={() => onEditSession(current.id)}>
-          <b>{sessionName(current, indexOf(current.id))}<PencilLine size={13} /></b>
-          <small>{current.date ? dayLabel(current.date) : "날짜 없음"}{current.period ? ` · ${current.period}교시` : ""}{current.topic ? ` · ${current.topic}` : ""}</small>
-        </button> : <div className="ls-cur"><b>수업 없음</b><small>아래 버튼으로 오늘 수업을 시작하세요</small></div>}
+        {curTitle}
         <button type="button" data-kdn-bare className="ls-arrow" disabled={pos < 0 || pos >= started.length - 1} onClick={() => setSessionId(started[pos + 1].id)} aria-label="다음 수업"><ChevronRight size={20} /></button>
       </div>
-      <div className="ls-picker-row">
-        <button type="button" data-kdn-bare className="ls-primary" onClick={startToday}><Plus size={16} />{todays.length ? "오늘 수업 하나 더" : "오늘 수업 시작"}{nowPeriod ? ` · ${nowPeriod}교시` : ""}</button>
-        <div className="ls-view" role="tablist" aria-label="보기">
-          <button type="button" data-kdn-bare className={view === "list" ? "is-on" : ""} onClick={() => setView("list")} aria-label="명단으로 보기"><List size={16} /></button>
-          <button type="button" data-kdn-bare className={view === "board" ? "is-on" : ""} onClick={() => setView("board")} aria-label="표(도장판)로 보기"><Grid3x3 size={16} /></button>
-        </div>
-      </div>
+      <div className="ls-picker-row">{startButton}{viewToggle}</div>
     </div>
-    {view === "board" ? <BoardView book={book} meta={meta} act={act} who={who} current={current} onPick={id => { setSessionId(id); setView("list"); }} onOpenSettings={onOpenSettings} />
-      : current ? <RollView book={book} meta={meta} act={act} who={who} session={current} index={indexOf(current.id)} />
-      : <div className="ls-note">‘오늘 수업 시작’을 누르면 날짜는 오늘, 교시는 지금 시각으로 들어가고 바로 도장을 찍을 수 있어요.</div>}
+    {body}
   </div>;
 }
 // 명단: 한 줄에 한 명, 줄 어디를 눌러도 도장 → 결석 → 비움
-function RollView({ book, meta, act, who, session, index }) {
+function RollView({ wide, book, meta, act, who, session, index, readOnly }) {
   const marks = book.marks?.[session.id] || {};
   const count = state => meta.students.filter(st => markOf(marks[st.sid]) === state).length;
   const tap = sid => act({ t: "mark", s: session.id, sid, v: nextMark(marks[sid]), at: new Date().toISOString(), by: who });
@@ -270,8 +327,8 @@ function RollView({ book, meta, act, who, session, index }) {
   const left = meta.students.length - count("stamp") - count("absent");
   return <div className="ls-card ls-roll">
     <div className="ls-count"><span><b className="c-stamp">{count("stamp")}</b>도장</span><span><b>{count("absent")}</b>결석</span><span><b>{left}</b>남음</span>
-      {left > 0 && <button type="button" data-kdn-bare onClick={stampAll}><Check size={14} />남은 학생 모두 도장</button>}</div>
-    <ul className="ls-rows">{meta.students.map(st => { const value = marks[st.sid]; const state = markOf(value); const late = isLate(session, value); return <li key={st.sid}>
+      {left > 0 && !readOnly && <button type="button" data-kdn-bare onClick={stampAll}><Check size={14} />남은 학생 모두 도장</button>}</div>
+    <ul className={`ls-rows ${wide ? "is-wide" : ""}`}>{meta.students.map(st => { const value = marks[st.sid]; const state = markOf(value); const late = isLate(session, value); return <li key={st.sid}>
       <button type="button" data-kdn-bare className={`ls-row ${state ? `is-${state}` : ""}`} onClick={() => tap(st.sid)} aria-label={markTitle(st, session, value, index)}>
         <span className="no">{meta.kind === "common" ? st.number : `${st.class}-${st.number}`}</span>
         <span className="nm"><b>{st.name || st.sid}</b>{state && markAt(value) ? <small className={late ? "is-late" : ""}>{late ? "늦게 · " : ""}{stampTime(markAt(value))}</small> : null}</span>
@@ -307,7 +364,7 @@ function BoardView({ book, meta, act, who, current, onPick, onOpenSettings }) {
 }
 
 // ── 채점: 기준 요약 + 학생별 입력(휴대폰은 카드, 큰 화면은 표) ──
-function ScoreTab({ book, meta, act, onOpenSettings, onOpenStudent }) {
+function ScoreTab({ wide, book, meta, act, onOpenSettings, onOpenStudent }) {
   const cfg = book.scoring.stamp;
   const items = book.scoring.items;
   const max = totalMax(book);
@@ -321,18 +378,27 @@ function ScoreTab({ book, meta, act, onOpenSettings, onOpenStudent }) {
     </div>
     {!items.length && <div className="ls-card ls-hint"><span>도장판 외에 오답노트·모의고사 같은 항목을 더하려면</span><button type="button" data-kdn-bare className="ls-chip" onClick={usePreset}><Sparkles size={14} />예시로 시작: 도장판 8 + 3항목 1점씩</button></div>}
     {items.filter(it => it.type === "check").length > 0 && <div className="ls-allrow">{items.filter(it => it.type === "check").map(it => <button key={it.id} type="button" data-kdn-bare className="ls-chip" onClick={() => allOn(it)}><Check size={13} />{it.name} 모두 제출</button>)}</div>}
-    <ul className="ls-scards">{meta.students.map(st => <li key={st.sid} className="ls-card">
+    {wide ? <div className="ls-card ls-tcard"><div className="ls-table-wrap"><table className="ls-table ls-ptable">
+      <thead><tr><th>번호</th><th className="l">이름</th>{cfg.enabled && <th>{cfg.name || "도장판"}<small>/{stampMax(book)}</small></th>}{items.map(it => <th key={it.id}>{it.name}<small>/{itemMax(it)}</small></th>)}<th>합계<small>/{max}</small></th></tr></thead>
+      <tbody>{meta.students.map(st => <tr key={st.sid}>
+        <td className="dim">{seatOf(meta, st)}</td>
+        <td className="l"><button type="button" data-kdn-bare className="ls-namebtn" onClick={() => onOpenStudent(st.sid)}>{st.name}</button></td>
+        {cfg.enabled && <td><b>{stampScore(book, st.sid)}</b><small> ({Math.round(stampStats(book, st.sid).rate)}%)</small></td>}
+        {items.map(it => <td key={it.id}><ItemInput it={it} value={book.items?.[it.id]?.[st.sid]} onChange={v => setValue(it.id, st.sid, v)} label={`${st.name} ${it.name}`} /></td>)}
+        <td className="tot">{totalFor(book, st.sid)}</td>
+      </tr>)}</tbody></table></div></div>
+    : <ul className="ls-scards">{meta.students.map(st => <li key={st.sid} className="ls-card">
       <button type="button" data-kdn-bare className="ls-scard-head" onClick={() => onOpenStudent(st.sid)}><span className="no">{seatOf(meta, st)}</span><b>{st.name}</b><em>{totalFor(book, st.sid)}<small>/{max}</small></em></button>
       <div className="ls-scard-items">
         {cfg.enabled && <div className="ls-sitem"><span>{cfg.name || "도장판"}</span><b>{stampScore(book, st.sid)}<small> /{stampMax(book)} · {Math.round(stampStats(book, st.sid).rate)}%</small></b></div>}
         {items.map(it => <div key={it.id} className="ls-sitem"><span>{it.name}<small> /{itemMax(it)}</small></span><ItemInput it={it} value={book.items?.[it.id]?.[st.sid]} onChange={v => setValue(it.id, st.sid, v)} label={`${st.name} ${it.name}`} /></div>)}
       </div>
-    </li>)}</ul>
+    </li>)}</ul>}
   </div>;
 }
 
 // ── 현황: 학생별 도장률·점수·최성보 → 누르면 학생 팝업 ──
-function StatusTab({ book, meta, onOpenStudent }) {
+function StatusTab({ wide, book, meta, onOpenStudent }) {
   const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("seat");
   const rows = meta.students.map(st => ({ ...st, s: stampStats(book, st.sid), total: totalFor(book, st.sid), csb: csbStatus(book, st.sid) }));
@@ -346,13 +412,24 @@ function StatusTab({ book, meta, onOpenStudent }) {
       <select className="ls-select" value={sort} onChange={e => setSort(e.target.value)} aria-label="정렬"><option value="seat">번호순</option><option value="rate">도장률 낮은 순</option><option value="score">점수 높은 순</option></select>
       <span className="ls-mini">수업 {held}회 · 만점 {max}점</span>
     </div>
-    <ul className="ls-srows">{shown.map(r => <li key={r.sid}><button type="button" data-kdn-bare className="ls-srow" onClick={() => onOpenStudent(r.sid)}>
+    {wide ? <div className="ls-card ls-tcard"><div className="ls-table-wrap"><table className="ls-table ls-ptable">
+      <thead><tr><th>번호</th><th>학번</th><th className="l">이름</th><th>도장</th><th>결석</th><th>미도장</th><th>도장률</th><th>점수</th><th>학업성취율</th><th>최성보</th><th>지도 기록</th></tr></thead>
+      <tbody>{shown.map(r => <tr key={r.sid} className="clickable" onClick={() => onOpenStudent(r.sid)}>
+        <td className="dim">{seatOf(meta, r)}</td><td className="dim">{r.sid}</td><td className="l"><b>{r.name}</b></td>
+        <td>{r.s.stamps}</td><td>{r.s.absent || ""}</td><td>{r.s.missed || ""}</td>
+        <td><span className="ls-rate inline"><i style={{ width: `${Math.min(100, r.s.rate)}%` }} /></span>{Math.round(r.s.rate)}%</td>
+        <td className="tot">{r.total}<small>/{max}</small></td>
+        <td>{r.csb.info.rate ?? "-"}{r.csb.info.rate != null && r.csb.info.rate !== "" ? "%" : ""}</td>
+        <td><span className={`ls-pill is-${r.csb.level}`}>{r.csb.label}</span></td>
+        <td>{r.csb.logs.length ? `${r.csb.logs.length}건 · ${r.csb.guidedHours}시간` : ""}</td>
+      </tr>)}</tbody></table></div></div>
+    : <ul className="ls-srows">{shown.map(r => <li key={r.sid}><button type="button" data-kdn-bare className="ls-srow" onClick={() => onOpenStudent(r.sid)}>
       <span className="no">{seatOf(meta, r)}</span>
       <span className="nm"><b>{r.name}</b><small>도장 {r.s.stamps} · 결석 {r.s.absent}{r.s.missed ? ` · 미도장 ${r.s.missed}` : ""}</small></span>
       <span className="rt"><span className="ls-rate"><i style={{ width: `${Math.min(100, r.s.rate)}%` }} /></span><small>{Math.round(r.s.rate)}%</small></span>
       <span className="sc"><b>{r.total}</b><small>/{max}</small></span>
       <span className={`ls-pill is-${r.csb.level}`}>{r.csb.label}</span>
-    </button></li>)}</ul>
+    </button></li>)}</ul>}
     <p className="ls-foot">학생을 누르면 차시별 도장(찍은 때)·점수·최성보 기록을 보고 고칠 수 있어요. 엑셀 내보내기는 ⚙ 설정에 있어요.</p>
   </div>;
 }
@@ -498,7 +575,7 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) 
 }
 
 const LS_CSS = `
-.ls{display:grid;grid-template-columns:minmax(0,1fr);gap:10px;color:var(--kdn-ink,#1f2430);max-width:960px}
+.ls{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;color:var(--kdn-ink,#1f2430);max-width:1280px}
 .ls *{box-sizing:border-box}
 .ls-empty{display:grid;justify-items:center;gap:6px;padding:40px 20px;text-align:center;border:1px dashed var(--kdn-line,#dfe2e8);border-radius:18px;color:var(--kdn-muted,#5d6574)}
 .ls-empty b{font-size:16px;color:var(--kdn-ink,#1f2430)}
@@ -508,22 +585,57 @@ const LS_CSS = `
 .ls-mini{margin:0;font-size:12.5px;color:var(--kdn-muted,#5d6574);line-height:1.5}
 .ls-foot{margin:0;font-size:12px;color:var(--kdn-muted,#5d6574);line-height:1.5}
 /* 머리: 반 고르기 + 설정 */
-.ls-head{display:flex;align-items:center;gap:8px;min-width:0}
-.ls-books{display:flex;gap:6px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none}
-.ls-books::-webkit-scrollbar{display:none}
-.ls-books button,.ls-one{flex:none;display:grid;gap:1px;padding:8px 12px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:12px;background:var(--kdn-surface,#fff);text-align:left;font:inherit;cursor:pointer;color:inherit}
-.ls-one{flex:1;border:0;padding:4px 2px;cursor:default;background:transparent}
-.ls-books b,.ls-one b{font-size:15px;font-weight:900}.ls-books small,.ls-one small{font-size:12px;color:var(--kdn-muted,#5d6574)}
-.ls-books button.is-on{border-color:#ea580c;background:var(--kdn-accent-soft,#fff4ec)}
-.ls-gear{flex:none;display:inline-flex;align-items:center;gap:5px;height:40px;padding:0 12px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:12px;background:var(--kdn-surface,#fff);font:inherit;font-size:13.5px;font-weight:800;color:inherit;cursor:pointer}
-/* 탭 3개 + 저장 상태 */
-.ls-nav{display:flex;align-items:center;gap:10px}
-.ls-seg3{flex:1;display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:4px;border-radius:14px;background:var(--kdn-surface-2,#f1f3f6);max-width:420px}
-.ls-seg3 button{height:40px;border:0;border-radius:10px;background:transparent;font:inherit;font-size:15px;font-weight:850;color:var(--kdn-ink-soft,#3a4150);cursor:pointer}
-.ls-seg3 button.is-on{background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2430);box-shadow:0 1px 4px rgba(0,0,0,.12)}
-.ls-save{flex:none;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:750;color:var(--kdn-muted,#5d6574);white-space:nowrap}
+.ls-head{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.ls-books{display:flex;gap:6px;flex:1;min-width:0;flex-wrap:wrap}
+.ls-books button{flex:none;display:grid;gap:1px;padding:7px 12px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:12px;background:var(--kdn-surface,#fff);text-align:left;font:inherit;cursor:pointer;color:inherit}
+.ls-books b{font-size:14px;font-weight:900}.ls-books b span{font-weight:700;color:var(--kdn-ink-soft,#3a4150)}.ls-books small{font-size:11.5px;color:var(--kdn-muted,#5d6574)}
+.ls-books button.is-on{border-color:var(--kdn-accent,#cf4a12);background:var(--kdn-accent-soft,#fff0e6);box-shadow:inset 0 0 0 1px var(--kdn-accent,#cf4a12)}
+.ls-books button.is-on b span{color:var(--kdn-accent-text,#b23e0c)}
+.ls-viewpick{height:44px;max-width:240px;padding:0 10px;border:1px dashed var(--kdn-control-line,#cfd5df);border-radius:12px;background:var(--kdn-surface,#fff);color:var(--kdn-muted,#5d6574);font:inherit;font-size:13px;font-weight:700}
+.ls-viewpick.is-on{border-style:solid;border-color:#2563eb;color:#1d4ed8}
+.ls-gear{flex:none;display:inline-flex;align-items:center;gap:5px;height:40px;padding:0 13px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:12px;background:var(--kdn-surface,#fff);font:inherit;font-size:13.5px;font-weight:800;color:inherit;cursor:pointer}
+.ls-note.is-info{background:color-mix(in srgb,#2563eb 9%,var(--kdn-surface,#fff));color:var(--kdn-ink,#1f2430)}
+.ls-note button{margin-left:6px;height:28px;padding:0 10px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:8px;background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:800;color:inherit;cursor:pointer}
+/* 탭 3개(선택된 탭은 사이트 강조색 채움) + 저장 상태 */
+.ls-nav{display:flex;align-items:center;gap:12px;padding-bottom:2px;border-bottom:1px solid var(--kdn-line,#dfe2e8)}
+.ls-tabs3{display:flex;gap:4px}
+.ls-tabs3 button{display:inline-flex;align-items:center;gap:7px;height:44px;padding:0 18px;border:0;border-bottom:3px solid transparent;border-radius:12px 12px 0 0;background:transparent;font:inherit;font-size:15px;font-weight:850;color:var(--kdn-muted,#5d6574);cursor:pointer;margin-bottom:-3px}
+.ls-tabs3 button:hover{color:var(--kdn-ink,#1f2430);background:var(--kdn-surface-2,#f0f1f5)}
+.ls-tabs3 button.is-on{color:var(--kdn-accent-text,#b23e0c);border-bottom-color:var(--kdn-accent,#cf4a12);background:var(--kdn-accent-soft,#fff0e6)}
+.ls-save{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:750;color:var(--kdn-muted,#5d6574);white-space:nowrap}
 .ls-save.is-ok svg{color:#16a34a}.ls-save.is-saving{color:#b45309}.ls-save.is-error{color:#b42318}
 .ls-save button{height:26px;padding:0 8px;border:1px solid currentColor;border-radius:8px;background:transparent;font:inherit;font-size:12px;font-weight:800;color:inherit;cursor:pointer}
+/* PC: 왼쪽 수업 목록 + 오른쪽 명단 */
+.ls-pc{display:grid;grid-template-columns:250px minmax(0,1fr);gap:12px;align-items:start}
+.ls-side{position:sticky;top:12px;gap:8px;max-height:calc(100vh - 40px);overflow:auto}
+.ls-side .ls-primary{width:100%}
+.ls-side-title{font-size:13px;font-weight:900;color:var(--kdn-muted,#5d6574);padding:4px 2px 0}.ls-side-title small{font-weight:700}
+.ls-side ul{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.ls-side li button{width:100%;display:grid;grid-template-columns:1fr auto;gap:0 6px;padding:8px 10px;border:0;border-radius:10px;background:transparent;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.ls-side li button:hover{background:var(--kdn-surface-2,#f0f1f5)}
+.ls-side li button.is-on{background:var(--kdn-accent-soft,#fff0e6);box-shadow:inset 3px 0 0 var(--kdn-accent,#cf4a12)}
+.ls-side li b{font-size:14px;font-weight:850}.ls-side li small{grid-column:1;font-size:12px;color:var(--kdn-muted,#5d6574)}
+.ls-side li em{grid-row:1/3;grid-column:2;align-self:center;font-style:normal;font-size:12.5px;font-weight:850;color:var(--kdn-accent-text,#b23e0c)}
+.ls-main{display:grid;gap:12px;min-width:0}
+.ls-mainhead{display:flex;align-items:center;gap:8px;padding:8px}
+.ls-mainhead .ls-arrow{height:44px;width:40px}
+.ls-mainhead .ls-cur{justify-items:start;text-align:left;background:transparent}
+.ls-mainhead .ls-view button{width:auto;display:inline-flex;align-items:center;gap:5px;padding:0 12px;white-space:nowrap}.ls-view button span{font-size:13px;font-weight:800}
+.ls-rows.is-wide{grid-template-columns:repeat(auto-fill,minmax(190px,1fr))}
+/* PC 표 */
+.ls-tcard{padding:0;overflow:hidden}.ls-tcard .ls-table-wrap{border:0;border-radius:0;max-height:72vh}
+.ls-ptable th{position:sticky;top:0;z-index:1;padding:10px 12px;background:var(--kdn-surface-2,#f6f8fb);font-size:12.5px;font-weight:850;color:var(--kdn-muted,#5d6574)}
+.ls-ptable th small{margin-left:2px;font-weight:700}
+.ls-ptable td{padding:7px 12px;font-size:14px}
+.ls-ptable td small{font-size:11.5px;color:var(--kdn-muted,#5d6574)}
+.ls-ptable .l{text-align:left}.ls-ptable td.dim{color:var(--kdn-muted,#5d6574);font-size:13px}
+.ls-ptable td.tot{font-size:16px;font-weight:900;color:var(--kdn-accent-text,#b23e0c)}
+.ls-ptable tbody tr:hover td{background:var(--kdn-surface-2,#f8f9fb)}
+.ls-ptable tr.clickable{cursor:pointer}
+.ls-namebtn{border:0;background:transparent;padding:0;font:inherit;font-size:14.5px;font-weight:850;color:inherit;cursor:pointer;text-decoration:underline;text-decoration-color:transparent}
+.ls-namebtn:hover{text-decoration-color:currentColor}
+.ls-rate.inline{display:inline-block;width:56px;margin-right:6px;vertical-align:middle}
+.ls-ptable .ls-states button{min-width:40px;height:30px;font-size:12.5px}
 /* 공통 컨트롤 */
 .ls-chip{display:inline-flex;align-items:center;gap:5px;min-height:36px;padding:0 12px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:10px;background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:800;color:inherit;cursor:pointer;justify-self:start}
 .ls-primary{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border:0;border-radius:12px;background:#ea580c;color:#fff;font:inherit;font-size:15px;font-weight:900;cursor:pointer}
@@ -672,7 +784,13 @@ const LS_CSS = `
 .ls-pts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ls-pts label{display:inline-flex;align-items:center;gap:5px;font-size:13.5px;font-weight:800}.ls-pts .ls-num{width:60px}
 /* 휴대폰 */
 @media (max-width:640px){
-  .ls-nav{flex-wrap:wrap}.ls-seg3{max-width:none;flex-basis:100%}.ls-save{order:-1;margin-left:auto}
+  .ls-nav{flex-wrap:wrap;border-bottom:0;padding:0}.ls-save{order:-1;margin-left:auto}
+  .ls-tabs3{flex-basis:100%;display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:4px;border-radius:14px;background:var(--kdn-surface-2,#f0f1f5)}
+  .ls-tabs3 button{justify-content:center;height:42px;padding:0 6px;margin:0;border:0;border-radius:10px;font-size:14px}
+  .ls-tabs3 button svg{display:none}
+  .ls-tabs3 button.is-on{background:var(--kdn-panel,#2a3040);color:#fff}
+  .ls-books{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}.ls-books::-webkit-scrollbar{display:none}
+  .ls-viewpick{max-width:180px}
   .ls-gear span{display:none}.ls-gear{width:44px;justify-content:center;padding:0}
   .ls-rows{grid-template-columns:1fr}
   .ls-scards{grid-template-columns:1fr}
