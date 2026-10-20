@@ -17,15 +17,18 @@ export function presetPortfolio() {
   return {
     stamp: { ...defaultScoring().stamp, mode: "ratio", max: 8 },
     items: [
-      { id: "p_wrong", name: "오답노트", type: "check", on: 1, off: 0 },
-      { id: "p_mock", name: "모의고사 풀이", type: "check", on: 1, off: 0 },
-      { id: "p_feedback", name: "모의고사 피드백", type: "check", on: 1, off: 0 },
+      { id: "p_wrong", name: "오답노트", type: "check", on: 1, late: 0.5, poor: 0.5, off: 0 },
+      { id: "p_mock", name: "모의고사 풀이", type: "check", on: 1, late: 0.5, poor: 0.5, off: 0 },
+      { id: "p_feedback", name: "모의고사 피드백", type: "check", on: 1, late: 0.5, poor: 0.5, off: 0 },
     ],
   };
 }
+// 제출 항목 상태: 제출 · 늦게 제출 · 미흡(점수는 항목마다 정함) · 미제출
+export const CHECK_STATES = [[true, "제출"], ["late", "늦게"], ["poor", "미흡"]];
+export const checkLabel = value => (value === "late" ? "늦게 제출" : value === "poor" ? "미흡" : value ? "제출" : "미제출");
 export const ITEM_TEMPLATES = {
-  check: { name: "제출 항목", type: "check", on: 1, off: 0 },
-  wrong: { name: "중간고사 오답노트", type: "check", on: 5, off: 0 },
+  check: { name: "제출 항목", type: "check", on: 1, late: 0.5, poor: 0.5, off: 0 },
+  wrong: { name: "중간고사 오답노트", type: "check", on: 5, late: 2.5, poor: 2.5, off: 0 },
   mock: { name: "홈페이지 모의고사 풀이 업로드", type: "level", levels: [{ label: "3회 이상", score: 5 }, { label: "2회", score: 4 }, { label: "1회", score: 3 }, { label: "0회", score: 0 }] },
   feedback: { name: "피드백", type: "level", levels: [{ label: "상", score: 5 }, { label: "중", score: 4 }, { label: "하", score: 3 }] },
   custom: { name: "직접 입력 항목", type: "number", max: 10 },
@@ -137,7 +140,13 @@ export function itemMax(item) {
 export function itemScore(book, item, sid) {
   const value = book.items?.[item.id]?.[sid];
   if (value == null || value === "") return null;
-  if (item.type === "check") return value ? Number(item.on) || 0 : Number(item.off) || 0;
+  if (item.type === "check") {
+    // 제출(true) · 늦게 제출("late") · 미흡("poor") · 미제출
+    const on = Number(item.on) || 0;
+    if (value === "late") return item.late == null || item.late === "" ? on : Number(item.late) || 0;
+    if (value === "poor") return item.poor == null || item.poor === "" ? on : Number(item.poor) || 0;
+    return value ? on : Number(item.off) || 0;
+  }
   if (item.type === "level") return Number(item.levels?.[value]?.score ?? 0);
   return Math.min(Math.max(Number(value) || 0, 0), itemMax(item));
 }

@@ -114,3 +114,15 @@ test("예전 날짜 수업이 있을 때 차시 미리 만들기: 날짜순으�
   book = applyOp(book, { t: "plan", count: 4, at: "x" });
   assert.deepEqual(sessionsAsc(book).map(s => [s.id, s.no]), [["b", 1], ["a", 2], ["n3", 3], ["n4", 4]]);
 });
+
+test("제출 항목: 제출 · 늦게 제출 · 미흡 점수 따로", async () => {
+  const { itemScore, presetPortfolio, emptyBook: eb } = await import("../src/lessonStamps.js");
+  const book = eb(); book.scoring = presetPortfolio();
+  const it = book.scoring.items[0];
+  book.items[it.id] = { a: true, b: "late", c: "poor", d: "" };
+  assert.equal(itemScore(book, it, "a"), 1);
+  assert.equal(itemScore(book, it, "b"), 0.5);
+  assert.equal(itemScore(book, it, "c"), 0.5);
+  assert.equal(itemScore(book, it, "d"), null);
+  assert.equal(itemScore(book, { ...it, late: undefined }, "b"), 1);
+});
