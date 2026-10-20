@@ -1,4 +1,5 @@
 // GET /api/auth/kakao/callback?code&state — 카카오가 돌려보내는 주소(카카오 개발자 콘솔에 등록한 Redirect URI)
+import { env } from "../lib/env.mjs";
 import { readToken, signToken, findAccount } from "../lib/authCore.mjs";
 import { handle, redirect, secret, siteOrigin, readAccounts, readLinkFor, linkProvider, HttpError } from "../lib/kdServer.mjs";
 
@@ -14,8 +15,8 @@ export default handle(async req => {
   if (!code) return back(req, { kdauth_error: "kakao-cancel" });
 
   // 1) 받은 code로 카카오 토큰 받기
-  const form = new URLSearchParams({ grant_type: "authorization_code", client_id: process.env.KAKAO_REST_API_KEY || "", redirect_uri: `${siteOrigin(req)}/api/auth/kakao/callback`, code });
-  if (process.env.KAKAO_CLIENT_SECRET) form.set("client_secret", process.env.KAKAO_CLIENT_SECRET);
+  const form = new URLSearchParams({ grant_type: "authorization_code", client_id: env("KAKAO_REST_API_KEY"), redirect_uri: `${siteOrigin(req)}/api/auth/kakao/callback`, code });
+  if (env("KAKAO_CLIENT_SECRET")) form.set("client_secret", env("KAKAO_CLIENT_SECRET"));
   const tokenRes = await fetch("https://kauth.kakao.com/oauth/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded;charset=utf-8" }, body: form });
   const tokenJson = await tokenRes.json().catch(() => ({}));
   if (!tokenRes.ok || !tokenJson.access_token) { console.warn("kakao token failed", tokenRes.status, tokenJson.error_code || tokenJson.error); return back(req, { kdauth_error: "kakao-failed" }); }
