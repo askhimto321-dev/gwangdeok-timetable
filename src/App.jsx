@@ -8,7 +8,7 @@ import { examPeriodFromCalendar } from "./examPeriod.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
 import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay } from "./AppOverlays.jsx";
 import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid } from "lucide-react";
-import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck } from "lucide-react";
+import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck, Archive } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi, rawColors } from "./uiMode.js";
 import { TILE_TONES } from "./counselVisuals.jsx";
@@ -29,6 +29,8 @@ const AdminStudentAccounts = lazy(() => loadGradesModule().then(module => ({ def
 const TeacherGradeAnalyzer = lazy(() => import("./TeacherGradeAnalyzer.jsx"));
 const MinimumAchievement = lazy(() => import("./MinimumAchievement.jsx"));
 const GradeDepartmentTools = lazy(() => import("./GradeDepartmentTools.jsx"));
+const AdminBackup = lazy(() => import("./AdminBackup.jsx"));
+import InstallPrompt from "./InstallPrompt.jsx";
 const SusiNaviBetaAdmin = lazy(() => loadSusiNaviModule().then(module => ({ default: module.SusiNaviBetaAdmin })));
 
 const COLORS = { ink: "#2b2620", paper: "#faf8f3", line: "#e6e1d3", accent: "#3d5c3a", accentSoft: "#eaf0e8" };
@@ -1975,6 +1977,7 @@ export default function App() {
   return (
     <div className="kdn-app" style={styles.app}>
       <style>{globalCss}</style>
+      <InstallPrompt />
       {isNewUi() ? <>
         <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
         {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }} />}
@@ -5631,10 +5634,12 @@ function AdminConsole(props) {
         <button onClick={() => setSub("siteAnnouncements")} style={{ ...styles.adminTabBtn, ...(sub === "siteAnnouncements" ? styles.adminTabBtnActive : {}) }}><BellRing size={14} /> 전체 공지 팝업</button>
         <button onClick={() => setSub("susiNaviBeta")} style={{ ...styles.adminTabBtn, ...(sub === "susiNaviBeta" ? styles.adminTabBtnActive : {}) }}><BookOpen size={14} /> 수시NAVI Beta</button>
         <button onClick={() => setSub("feedback")} style={{ ...styles.adminTabBtn, ...(sub === "feedback" ? styles.adminTabBtnActive : {}) }}><Bug size={14} /> 건의·버그</button>
+        <button onClick={() => setSub("backup")} style={{ ...styles.adminTabBtn, ...(sub === "backup" ? styles.adminTabBtnActive : {}) }}><Archive size={14} /> 백업·복원</button>
       </div>
       <div className="kdn-admin-main">
       {sub === "home" && <AdminHome db={props.db} gdb={props.gdb} grade={props.grade} semester={props.semester} roster={props.roster} timetables={props.timetables} accounts={props.accounts} onOpen={setSub} />}
       {sub === "timetable" && <AdminView key={props.scopeKey} {...props} onLogout={null} />}
+      {sub === "backup" && <DeferredPanel label="백업 목록을 불러오는 중입니다."><AdminBackup showToast={props.showToast} /></DeferredPanel>}
       {sub === "grades" && (
         props.gdb ? <DeferredPanel label="성적 데이터 관리 화면을 불러오는 중입니다."><AdminGradesUpload gdb={props.gdb} persistGrades={props.persistGrades} showToast={props.showToast} roster={props.roster} currentGrade={props.grade} /></DeferredPanel>
           : <div style={{ padding: 20, textAlign: "center" }}><Loader2 className="spin" size={18} /></div>

@@ -1,0 +1,17 @@
+{
+  "name": "광덕고 KDTIME",
+  "short_name": "KDTIME",
+  "description": "광덕고 시간표 · 성적 · 진학 · 선생님 ZONE",
+  "lang": "ko",
+  "start_url": "/?source=app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#14171f",
+  "theme_color": "#ea580c",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

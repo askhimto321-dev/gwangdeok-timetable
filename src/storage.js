@@ -3,6 +3,7 @@ import { initializeFirestore, doc, getDoc, setDoc, deleteDoc, runTransaction } f
 import { getStorage, ref as storageRef, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { firebaseConfig } from "./firebaseConfig.js";
+import { pruneBackups } from "./backupPolicy.js";
 
 const app = initializeApp(firebaseConfig);
 // 학교·기관 네트워크에서 Firestore 스트리밍 연결이 막히는 경우를 대비해
@@ -88,6 +89,88 @@ async function removeChunkBatch(key, manifest) {
   await Promise.all(jobs);
 }
 
+// ── 자동 백업 ──────────────────────────────────────────────────────────────
+// 자료를 덮어쓸 때 바로 전 내용을 같은 컬렉션의 백업 문서(__bk__키__시각)로 남깁니다.
+// 같은 자료는 30분에 한 번만 남기고, 최근 20개 + 30일 동안 하루 1개씩 보관합니다.
+// 큰(분할) 자료는 이전 조각을 지우지 않고 그대로 백업으로 돌려 씁니다.
+const BACKUP_INTERVAL_MS = 30 * 60 * 1000;
+const BACKUP_SKIP = /^(__|kd_tgw_presence)/;
+const backupIndexId = key => `__bkindex__${key}`;
+const BACKUP_KEYS_DOC = "__bkkeys__";
+const lastBackupAt = new Map();
+
+async function readBackupIndex(key) {
+  const snap = await withTimeout(getDoc(doc(db, COLLECTION, backupIndexId(key))), 15000, "백업 목록 읽기");
+  if (!snap.exists()) return [];
+  try { const list = JSON.parse(snap.data()?.value || "[]"); return Array.isArray(list) ? list : []; } catch { return []; }
+}
+// previous: 덮어쓰기 전 원본 키 문서 내용. 백업을 남겼으면(분할 자료면 조각을 넘겨받았으면) true.
+async function backupPrevious(key, previous) {
+  if (!previous || BACKUP_SKIP.test(key)) return false;
+  if (!previous.chunked && typeof previous.value !== "string") return false;
+  const now = Date.now();
+  if (now - (lastBackupAt.get(key) || 0) < BACKUP_INTERVAL_MS) return false;
+  try {
+    const at = new Date(now).toISOString();
+    const id = `__bk__${key}__${now.toString(36)}`;
+    const entry = previous.chunked
+      ? { id, at, bytes: Number(previous.byteLength) || 0, chunked: true, batchId: previous.batchId, chunks: Number(previous.chunks) || 0, sourceAt: previous.updatedAt || "" }
+      : { id, at, bytes: Number(previous.byteLength) || 0, chunked: false, sourceAt: previous.updatedAt || "" };
+    let index = await readBackupIndex(key);
+    const latest = index.reduce((max, item) => Math.max(max, Date.parse(item.at || 0) || 0), 0);
+    if (now - latest < BACKUP_INTERVAL_MS) { lastBackupAt.set(key, latest); return false; }
+    await withTimeout(setDoc(doc(db, COLLECTION, id), previous.chunked
+      ? { backupOf: key, chunked: true, encoding: previous.encoding || "base64-utf8", batchId: previous.batchId, chunks: entry.chunks, byteLength: entry.bytes, createdAt: at, sourceAt: entry.sourceAt }
+      : { backupOf: key, chunked: false, value: previous.value, byteLength: entry.bytes, createdAt: at, sourceAt: entry.sourceAt }), 30000, "백업 저장");
+    const { kept, removed } = pruneBackups([entry, ...index]);
+    await withTimeout(setDoc(doc(db, COLLECTION, backupIndexId(key)), { value: JSON.stringify(kept), chunked: false, updatedAt: at }), 15000, "백업 목록 저장");
+    lastBackupAt.set(key, now);
+    // 오래된 백업 정리(분할 백업은 조각까지)
+    await Promise.all(removed.map(async item => {
+      await deleteDoc(doc(db, COLLECTION, item.id)).catch(() => null);
+      if (item.chunked) await removeChunkBatch(key, { chunked: true, batchId: item.batchId, chunks: item.chunks });
+    }));
+    // 백업이 있는 자료 이름 목록(관리자 화면용)
+    runTransaction(db, async transaction => {
+      const target = doc(db, COLLECTION, BACKUP_KEYS_DOC);
+      const snap = await transaction.get(target);
+      let keys = [];
+      try { keys = JSON.parse(snap.exists() ? snap.data()?.value || "[]" : "[]"); } catch { keys = []; }
+      if (keys.includes(key)) return;
+      transaction.set(target, { value: JSON.stringify([...keys, key].sort()), chunked: false, updatedAt: at });
+    }).catch(() => null);
+    return true;
+  } catch (error) {
+    console.warn("backup skipped", key, error);
+    return false;
+  }
+}
+export async function listBackupKeys() {
+  const snap = await withTimeout(getDoc(doc(db, COLLECTION, BACKUP_KEYS_DOC)), 15000, "백업 목록 읽기");
+  try { return snap.exists() ? JSON.parse(snap.data()?.value || "[]") : []; } catch { return []; }
+}
+export async function listBackups(key) {
+  return (await readBackupIndex(key)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+export async function readBackup(key, entry) {
+  const snap = await withTimeout(getDoc(doc(db, COLLECTION, entry.id)), 20000, "백업 읽기");
+  if (!snap.exists()) throw new Error("백업 문서를 찾지 못했습니다.");
+  const data = snap.data();
+  if (!data.chunked) return JSON.parse(data.value);
+  const parts = await withTimeout(Promise.all(Array.from({ length: Number(data.chunks) || 0 }, (_, index) => getDoc(doc(db, COLLECTION, chunkDocumentId(key, data.batchId, index))))), 60000, "백업 조각 읽기");
+  const bytes = parts.map((part, index) => { if (!part.exists()) throw new Error(`백업 조각 ${index + 1} 누락`); return base64ToBytes(part.data()?.data || ""); });
+  const merged = new Uint8Array(bytes.reduce((sum, b) => sum + b.length, 0));
+  let offset = 0;
+  bytes.forEach(b => { merged.set(b, offset); offset += b.length; });
+  return JSON.parse(new TextDecoder().decode(merged));
+}
+// 되돌리기: 백업 내용을 다시 저장합니다(지금 내용은 그 저장 과정에서 또 백업됨).
+export async function restoreBackup(key, entry) {
+  const value = await readBackup(key, entry);
+  lastBackupAt.delete(key);
+  return writeStorage(key, value);
+}
+
 const failedReadKeys = new Set();
 
 export async function readStorage(key, fallback, options = {}) {
@@ -140,7 +223,8 @@ export async function writeStorage(key, value) {
         byteLength: bytes.length,
         updatedAt: new Date().toISOString(),
       }), 30000, "저장");
-      await removeChunkBatch(key, previousManifest);
+      const keptAsBackup = await backupPrevious(key, previousManifest);
+      if (!(keptAsBackup && previousManifest?.chunked)) await removeChunkBatch(key, previousManifest);
       return { ok: true, mode: "direct", bytes: bytes.length };
     }
 
@@ -173,7 +257,8 @@ export async function writeStorage(key, value) {
       byteLength: bytes.length,
       updatedAt: new Date().toISOString(),
     }), 30000, "분할 데이터 목록 저장");
-    await removeChunkBatch(key, previousManifest);
+    const keptAsBackup = await backupPrevious(key, previousManifest);
+    if (!(keptAsBackup && previousManifest?.chunked)) await removeChunkBatch(key, previousManifest);
     return { ok: true, mode: "chunked", bytes: bytes.length, chunks: chunks.length };
   } catch (error) {
     console.error("storage write failed", key, error);
@@ -198,9 +283,11 @@ export async function updateStorage(key, fallback, updater) {
       const byteLength = utf8Bytes(serialized).length;
       if (byteLength > DIRECT_VALUE_LIMIT_BYTES) throw new Error("목록 크기를 확인해주세요. 기존 자료는 유지됩니다.");
       transaction.set(target, { value: serialized, chunked: false, byteLength, updatedAt: new Date().toISOString() });
-      return { value, changed: true };
+      return { value, changed: true, previous: data };
     });
-    return { ok: true, ...result };
+    if (result.changed && result.previous) backupPrevious(key, result.previous).catch(() => null);
+    const { previous, ...rest } = result;
+    return { ok: true, ...rest };
   } catch (error) {
     return { ok: false, error: error?.message || error?.code || "목록 저장 실패" };
   }
