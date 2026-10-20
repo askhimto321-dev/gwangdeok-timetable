@@ -63,3 +63,27 @@ test("계정 저장 합치기: 내가 비밀번호를 안 바꿨으면 서버가
   const reset = [{ id: "lee", pw: "new1", subject: "수학" }];
   assert.deepEqual(mergeAccountList(base, reset, theirs), [{ id: "lee", pw: "new1", subject: "수학" }]);
 });
+
+test("비밀 키 붙여 넣기 실수 바로잡기", async () => {
+  const crypto = await import("node:crypto");
+  const { normalizePrivateKey, describePrivateKey } = await import("../netlify/lib/authCore.mjs");
+  const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
+  const escaped = privateKey.replace(/\n/g, "\\n");
+  const body = privateKey.replace(/-----[A-Z ]+-----/g, "").replace(/\s/g, "");
+  const variants = [
+    privateKey, escaped, `"${escaped}"`, `"${escaped}",`,
+    `"private_key": "${escaped}",`,
+    escaped.replace("-----BEGIN", "----BEGIN").replace("KEY-----\\n-----END", "KEY----\\n-----END"),
+    escaped.replace(/^-----BEGIN PRIVATE KEY-----\\n/, ""),
+    body,
+    privateKey.replace(/\n/g, "\r\n"),
+  ];
+  for (const v of variants) {
+    const key = normalizePrivateKey(v);
+    assert.doesNotThrow(() => crypto.createPrivateKey(key), v.slice(0, 40));
+    assert.equal(describePrivateKey(v), "있음");
+  }
+  assert.equal(normalizePrivateKey("abc"), "");
+  assert.match(describePrivateKey("abc"), /형식 확인 필요/);
+  assert.equal(describePrivateKey(""), "없음");
+});
