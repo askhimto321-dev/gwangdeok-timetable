@@ -28,7 +28,10 @@ mock.module("firebase-admin/firestore", { namedExports: { getFirestore: () => fa
 mock.module("firebase-admin/auth", { namedExports: { getAuth: () => ({ createCustomToken: async uid => `custom:${uid}`, verifyIdToken: async t => { if (!idTokens.has(t)) throw new Error("bad"); return idTokens.get(t); } }) } });
 
 process.env.FIREBASE_CLIENT_EMAIL = "svc@test";
-process.env.FIREBASE_PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----\\n";
+{
+  const { generateKeyPairSync } = await import("node:crypto");
+  process.env.FIREBASE_PRIVATE_KEY = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } }).privateKey.replace(/\n/g, "\\n");
+}
 process.env.SESSION_SECRET = "s".repeat(48);
 process.env.KAKAO_REST_API_KEY = "rest-key";
 process.env.KAKAO_CLIENT_SECRET = "kakao-secret";
@@ -181,5 +184,5 @@ test("설정 점검: 값은 보여 주지 않고 있음/없음만", async () => 
   const body = JSON.parse(text);
   assert.equal(body.KAKAO_REST_API_KEY, "있음");
   assert.equal(body.SESSION_SECRET, "있음");
-  assert.ok(!text.includes("rest-key") && !text.includes("kakao-secret") && !text.includes("abc") && !text.includes("ssss"));
+  assert.ok(!text.includes("rest-key") && !text.includes("kakao-secret") && !text.includes("ssss"));
 });

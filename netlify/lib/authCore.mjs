@@ -92,3 +92,23 @@ export function markHashed(accounts, kind, id, plain) {
   });
   return changed ? { ...accounts, [kind]: next } : null;
 }
+
+// 비밀 키 붙여 넣기 실수를 바로잡습니다: JSON 줄 통째·따옴표·쉼표·\n 글자·대시 개수·머리글 누락 등
+export function normalizePrivateKey(raw) {
+  let text = String(raw || "").trim();
+  const inJson = /"private_key"\s*:\s*"([^"]+)"/.exec(text);
+  if (inJson) text = inJson[1];
+  text = text.replace(/^private_key\s*[:=]\s*/i, "").trim().replace(/,$/, "").trim().replace(/^["']|["']$/g, "");
+  text = text.replace(/\\r/g, "").replace(/\\n/g, "\n").replace(/\r/g, "");
+  const body = text.replace(/-*\s*BEGIN (RSA )?PRIVATE KEY\s*-*/i, "").replace(/-*\s*END (RSA )?PRIVATE KEY\s*-*/i, "").replace(/[^A-Za-z0-9+/=]/g, "");
+  if (body.length < 100) return "";
+  const lines = body.match(/.{1,64}/g).join("\n");
+  return `-----BEGIN PRIVATE KEY-----\n${lines}\n-----END PRIVATE KEY-----\n`;
+}
+// 점검용 설명(값은 안 보임)
+export function describePrivateKey(raw) {
+  const text = String(raw || "");
+  if (!text.trim()) return "없음";
+  if (normalizePrivateKey(text)) return "있음";
+  return `있음(형식 확인 필요: 길이 ${text.length}자 · BEGIN ${/BEGIN/.test(text) ? "있음" : "없음"} · END ${/END/.test(text) ? "있음" : "없음"}. 키 파일의 private_key 값 전체를 다시 붙여 넣어 주세요)`;
+}

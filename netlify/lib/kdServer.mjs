@@ -4,7 +4,7 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import crypto from "node:crypto";
 import { env } from "./env.mjs";
-import { idKey, markHashed, hashPassword } from "./authCore.mjs";
+import { idKey, markHashed, hashPassword, normalizePrivateKey } from "./authCore.mjs";
 
 const PROJECT_ID = "kwangdeoktimetable";
 const KV = "kd_timetable_kv";
@@ -17,7 +17,7 @@ export class HttpError extends Error {
 
 export function config() {
   const clientEmail = env("FIREBASE_CLIENT_EMAIL");
-  const privateKey = env("FIREBASE_PRIVATE_KEY").replace(/\\n/g, "\n").replace(/^"|"$/g, "");
+  const privateKey = normalizePrivateKey(env("FIREBASE_PRIVATE_KEY"));
   const secret = env("SESSION_SECRET");
   if (!clientEmail || !privateKey.includes("PRIVATE KEY") || secret.length < 24) throw new HttpError(503, "로그인 서버 설정이 아직 끝나지 않았습니다.");
   return { clientEmail, privateKey, secret };
