@@ -19,7 +19,6 @@ const KEY_LABELS = {
   kd_grades_admission_favorites: "관심 대학",
   kd_minimum_achievement_settings: "최성보 설정",
   kd_minimum_achievement_attendance: "최성보 출결",
-  kd_class_stamps: "수업 도장",
   kd_notices: "공지",
   kd_materials: "수업 자료",
   kd_staff_notices: "교직원 공지",
@@ -28,7 +27,7 @@ const KEY_LABELS = {
 };
 // 전체 내려받기에 늘 넣는 주요 자료
 const CORE_KEYS = Object.keys(KEY_LABELS);
-const labelOf = key => KEY_LABELS[key] || key.replace(/^kd_/, "");
+const labelOf = key => KEY_LABELS[key] || (key.startsWith("kd_stamps__") ? `수업 포트폴리오 · ${key.slice(11).replace(/^(\d)-sem(\d)-/, "$1학년 $2학기 ")}` : key.replace(/^kd_/, ""));
 const when = iso => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? "-" : d.toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }); };
 const sizeOf = bytes => (bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`);
 const download = (name, value) => {
