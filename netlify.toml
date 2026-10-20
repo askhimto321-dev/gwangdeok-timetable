@@ -8,6 +8,13 @@
   command = "npm run build"
   publish = "dist"
 
+# 로그인 서버(구글·카카오 연결, 비밀번호 확인): netlify/functions/*.mjs → /api/auth/*
+# 필요한 환경변수: FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, KAKAO_REST_API_KEY, KAKAO_CLIENT_SECRET, SESSION_SECRET
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["firebase-admin"]
+
 [context.deploy-preview]
   ignore = "exit 0"
 

@@ -772,3 +772,7 @@ export async function deleteAdmissionPdf(identifier, bucketName = "") {
     return { ok: false, error: error?.code || error?.message || String(error) };
   }
 }
+
+// 로그인 서버(authClient.js)가 같은 Firebase 로그인 상태를 쓰도록 내보냅니다.
+export function getFirebaseAuth() { return auth; }
+export function resetAnonymousAuth() { anonymousAuthPromise = null; }
