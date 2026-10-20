@@ -3,6 +3,7 @@ import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import crypto from "node:crypto";
+import { env } from "./env.mjs";
 import { idKey, markHashed, hashPassword } from "./authCore.mjs";
 
 const PROJECT_ID = "kwangdeoktimetable";
@@ -15,9 +16,9 @@ export class HttpError extends Error {
 }
 
 export function config() {
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL || "";
-  const privateKey = String(process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n").replace(/^"|"$/g, "");
-  const secret = process.env.SESSION_SECRET || "";
+  const clientEmail = env("FIREBASE_CLIENT_EMAIL");
+  const privateKey = env("FIREBASE_PRIVATE_KEY").replace(/\\n/g, "\n").replace(/^"|"$/g, "");
+  const secret = env("SESSION_SECRET");
   if (!clientEmail || !privateKey.includes("PRIVATE KEY") || secret.length < 24) throw new HttpError(503, "로그인 서버 설정이 아직 끝나지 않았습니다.");
   return { clientEmail, privateKey, secret };
 }

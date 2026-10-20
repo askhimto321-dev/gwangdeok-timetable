@@ -1,2 +1,3 @@
 node_modules/
 dist/
+netlify/lib/buildEnv.generated.mjs
