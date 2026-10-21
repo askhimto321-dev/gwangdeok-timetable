@@ -29,3 +29,11 @@ test("change marks are dropped and 'A → B' columns are split", async () => {
   assert.deepEqual(header, ["순위", "직전", "최근 학기"]);
   assert.deepEqual(body.map(r => r.map(cellValue)), [[1, 1.28, 1.27], [2, 1.5, 1.4]]);
 });
+
+test("column groups and picking columns", async () => {
+  const { columnGroups, pickColumns } = await import("../src/tableExport.js");
+  const headers = ["순위", "이름", "직전 대비 변화량(+ 상승)", "학기별 전교과 평균 · 1학년 1학기", "학기별 전교과 평균 · 1학년 1학기 변화량(+ 상승)"];
+  const groups = columnGroups(headers);
+  assert.deepEqual(groups.map(g => [g.name, g.items.map(i => i.label)]), [["기본 항목", ["순위", "이름"]], ["성적 변화량", ["직전 대비", "1학년 1학기"]], ["학기별 전교과 평균", ["1학년 1학기"]]]);
+  assert.deepEqual(pickColumns([headers, [1, "가", 0.1, 2.4, ""]], ["이름", "학기별 전교과 평균 · 1학년 1학기"]), [["이름", "학기별 전교과 평균 · 1학년 1학기"], ["가", 2.4]]);
+});

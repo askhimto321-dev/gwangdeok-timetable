@@ -116,25 +116,49 @@ const titleFor = table => {
   return head ? textOf(head) : "";
 };
 
-// root 안의 보이는 표를 시트로 묶어 저장. 표가 없으면 false.
-export async function exportVisibleTables(root, fileName, { loadXLSX, dropDelta = false } = {}) {
-  if (!root) return false;
+// root 안의 보이는 표 → [{ title, aoa }] (칸은 나누고, 변화량은 아직 남겨 둠 → 고르는 창에서 뺄 수 있게)
+export function collectVisibleTables(root) {
+  if (!root) return [];
   const tables = Array.from(root.querySelectorAll("table")).filter(t => t.offsetParent !== null && t.rows.length > 1 && !t.closest(".no-export"));
-  if (!tables.length) return false;
+  return tables.map((table, i) => ({ title: titleFor(table) || `표${i + 1}`, aoa: tableToAoa(table) })).filter(item => item.aoa.length > 1);
+}
+// 고른 열만 남기기(머리글 기준)
+export function pickColumns(aoa, keep) {
+  const set = keep instanceof Set ? keep : new Set(keep);
+  const idx = (aoa[0] || []).map((h, i) => (set.has(String(h)) ? i : -1)).filter(i => i >= 0);
+  return aoa.map(row => idx.map(i => row[i] ?? ""));
+}
+// 머리글을 묶음으로: '변화량' 열 / 'A · B' 는 A 묶음 / 나머지 기본 항목
+export function columnGroups(headers = []) {
+  const groups = [];
+  const add = (name, header, label) => { let g = groups.find(x => x.name === name); if (!g) groups.push(g = { name, items: [] }); g.items.push({ header, label }); };
+  headers.forEach(h => {
+    const text = String(h);
+    if (!text.trim()) return;
+    if (text.includes("변화량")) add("성적 변화량", text, text.replace(/^.*·\s*/, "").replace(/\s*변화량.*$/, "") || text);
+    else if (text.includes(" · ")) { const [head, ...rest] = text.split(" · "); add(head, text, rest.join(" · ")); }
+    else add("기본 항목", text, text);
+  });
+  return groups;
+}
+export async function writeWorkbook(tables, fileName, { loadXLSX } = {}) {
+  const list = (tables || []).filter(t => t.aoa?.length && t.aoa[0]?.length);
+  if (!list.length) return false;
   const XLSX = loadXLSX ? await loadXLSX() : await import("xlsx");
   const book = XLSX.utils.book_new();
   const used = new Set();
-  tables.forEach((table, i) => {
-    const aoa = tableToAoa(table, { dropDelta });
-    if (!aoa.length) return;
-    const sheet = XLSX.utils.aoa_to_sheet(aoa);
-    sheet["!cols"] = (aoa[0] || []).map((_, col) => ({ wch: Math.min(40, Math.max(6, ...aoa.slice(0, 200).map(row => String(row[col] ?? "").length * 1.6))) }));
-    sheet["!freeze"] = { xSplit: 0, ySplit: 1 };
-    XLSX.utils.book_append_sheet(book, sheet, safeSheet(titleFor(table) || `표${i + 1}`, used));
+  list.forEach((t, i) => {
+    const sheet = XLSX.utils.aoa_to_sheet(t.aoa);
+    sheet["!cols"] = (t.aoa[0] || []).map((_, col) => ({ wch: Math.min(40, Math.max(6, ...t.aoa.slice(0, 200).map(row => String(row[col] ?? "").length * 1.6))) }));
+    XLSX.utils.book_append_sheet(book, sheet, safeSheet(t.title || `표${i + 1}`, used));
   });
-  if (!book.SheetNames.length) return false;
   XLSX.writeFile(book, String(fileName || "성적").replace(/[\\/:*?"<>|\s]+/g, "_").replace(/\.xlsx$/i, "") + ".xlsx");
   return true;
+}
+// root 안의 보이는 표를 시트로 묶어 바로 저장(고르는 창 없이). 표가 없으면 false.
+export async function exportVisibleTables(root, fileName, { loadXLSX, dropDelta = false } = {}) {
+  const tables = collectVisibleTables(root).map(t => (dropDelta ? { ...t, aoa: pickColumns(t.aoa, (t.aoa[0] || []).filter(h => !String(h).includes("변화량"))) } : t));
+  return writeWorkbook(tables, fileName, { loadXLSX });
 }
 
 // 화면의 한 부분을 보이는 모습 그대로 인쇄·PDF로(글꼴·색·표 그대로, 버튼은 빼고 스크롤 상자는 펼침)
