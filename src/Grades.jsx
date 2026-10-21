@@ -1893,7 +1893,7 @@ function StudentGradeComparison({ gdb, roster, currentGrade }) {
   </div>;
 }
 
-function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange, gradeOptions = [] }) {
+export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange, gradeOptions = [] }) {
   const entryYear = entryYearForGrade(gdb.cohortSettings, currentGrade);
   // 현재 학년까지의 누적 회차를 모두 보여줍니다. 예: 2학년은 1학년 3·6·9·10월도 함께 조회.
   const available = MOCK_MONTH_KEYS.filter(key => (
