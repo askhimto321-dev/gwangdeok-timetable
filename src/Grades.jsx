@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { MOCK_MONTH_KEYS, MOCK_MONTH_LABELS, MOCK_SUBJECTS as MOCK_SUBJECT_LIST, detectMockFormat, parseRawMock, defaultCuts, applyCuts, gradeCounts, estimateCuts, ABSOLUTE_CUTS, MOCK_BANDS, bandCounts } from "./mockImport.js";
+import { MOCK_MONTH_KEYS, MOCK_MONTH_LABELS, MOCK_SUBJECTS as MOCK_SUBJECT_LIST, detectMockFormat, parseRawMock, defaultCuts, applyCuts, gradeCounts, estimateCuts, ABSOLUTE_CUTS } from "./mockImport.js";
 import { ArrowRight, Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert, CheckCircle2, Star, MessageSquare, Paperclip, Download, X, ArrowLeft } from "lucide-react";
 import { readStorage, updateStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, diagnoseAdmissionFileBackends, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
 import SupportPlanButton, { useSupportPlanCount } from "./SupportPlanButton.jsx";
@@ -1906,6 +1906,9 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
   const [subjectFilter, setSubjectFilter] = useState("전체");
   const [subjectView, setSubjectView] = useState(MOCK_SUBJECTS[0]);
   const [gradeFilter, setGradeFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const [detailSid, setDetailSid] = useState("");
+  const [summaryMode, setSummaryMode] = useState("count");
   const [classMetric, setClassMetric] = useState("총점");
 
   useEffect(() => {
@@ -1966,7 +1969,9 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
   const classes = Array.from(new Set(rows.map(row => String(row.classNumber)).filter(Boolean))).sort((a, b) => Number(a) - Number(b));
   const classScopedRows = classFilter === "all" ? rows : rows.filter(row => String(row.classNumber) === classFilter);
   const classScopedPresentRows = classScopedRows.filter(row => !row.isAbsent);
+  const queryText = query.trim();
   const filtered = classScopedRows.filter(row => {
+    if (queryText && !String(row.name || "").includes(queryText) && !String(row.sid).includes(queryText)) return false;
     if (gradeFilter === "all") return true;
     const targetGrade = Number(gradeFilter);
     if (subjectFilter === "전체") {
@@ -2060,12 +2065,12 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
     { label: "평균 총점", value: totalAverage(presentRows) ?? "-" },
     { label: "최고 총점", value: presentRows.find(row => row.total != null)?.total ?? "-" },
   ];
-  const gradeBadge = grade => grade ? <span className={`mk-g g${grade}`}>{grade}</span> : null;
+  const gradeBadge = grade => grade ? <span className={`mk-g mk-gc g${grade}`}>{grade}</span> : null;
   const pick = (label, value, onChange, options) => <label className="mk-pick"><span>{label}</span><select value={value} onChange={event => onChange(event.target.value)}>{options.map(([v, text]) => <option key={v} value={v}>{text}</option>)}</select></label>;
   const classOptions = [["all", "전체"], ...classes.map(value => [value, `${value}반`])];
   const gradeOptions9 = [["all", "전체"], ...Array.from({ length: 9 }, (_, index) => [String(index + 1), `${index + 1}등급`])];
-  const filtersOn = classFilter !== "all" || gradeFilter !== "all" || (analysisView === "students" && subjectFilter !== "전체");
-  const resetFilters = () => { setClassFilter("all"); setGradeFilter("all"); setSubjectFilter("전체"); };
+  const filtersOn = classFilter !== "all" || gradeFilter !== "all" || (analysisView === "students" && (subjectFilter !== "전체" || !!queryText));
+  const resetFilters = () => { setClassFilter("all"); setGradeFilter("all"); setSubjectFilter("전체"); setQuery(""); };
   const openSubject = subject => { setSubjectView(subject); setAnalysisView("subjects"); };
   const metricOptions = ["총점", ...MOCK_SUBJECTS];
 
@@ -2091,7 +2096,7 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
       </section>
 
       {analysisView === "summary" && <div className="mk-sum">
-        <MockSubjectOverview gradeCounts={gradeCounts} onPick={openSubject} />
+        <MockGradeTable rows={rows} cuts={cohortRecord(gdb.mockData, entryYear, mockKey)?.cuts || {}} mode={summaryMode} onMode={setSummaryMode} onPick={openSubject} />
         <section className="mk-card">
           <header className="mk-card-head"><div><b>반별 평균 총점</b><span>미응시는 평균에서 빼요</span></div><button type="button" data-kdn-bare className="mk-link" onClick={() => setAnalysisView("classes")}>반별 비교 <ArrowRight size={13} /></button></header>
           <div className="mk-minibars">
@@ -2112,22 +2117,25 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
         <header className="mk-card-head">
           <div><b>학생별 총점 순위</b><span>{filtered.length}명{subjectFilter === "전체" && gradeFilter !== "all" ? ` · 한 과목이라도 ${gradeFilter}등급` : ""}</span></div>
           <div className="mk-picks">
+            <label className="mk-search"><Search size={14} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="이름·학번 찾기" aria-label="학생 찾기" />{query && <button type="button" data-kdn-bare onClick={() => setQuery("")} aria-label="지우기">×</button>}</label>
             {pick("반", classFilter, setClassFilter, classOptions)}
             {pick("과목", subjectFilter, setSubjectFilter, [["전체", "전체"], ...MOCK_SUBJECTS.map(s => [s, s])])}
             {pick("등급", gradeFilter, setGradeFilter, gradeOptions9)}
             {filtersOn && <button type="button" data-kdn-bare className="mk-reset" onClick={resetFilters}>초기화</button>}
           </div>
         </header>
-        <div className="mk-scroll"><table className="mk-table">
+        <MockGradeLegend />
+        <div className="mk-scroll"><table className="mk-table mk-students">
           <thead><tr><th>등수</th><th>학번</th><th className="l">이름</th><th>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}</tr></thead>
-          <tbody>{filtered.map(row => <tr key={row.sid} className={row.isAbsent ? "is-absent" : row.rank != null && row.rank <= 3 ? "is-top" : undefined}>
+          <tbody>{filtered.map(row => <tr key={row.sid} className={`is-click${row.isAbsent ? " is-absent" : row.rank != null && row.rank <= 3 ? " is-top" : ""}`} onClick={() => setDetailSid(row.sid)} title="눌러서 회차별 성적 보기">
             <td><span className="mk-rank">{row.rank ?? "-"}</span></td>
             <td className="muted">{row.sid}</td>
             <td className="l name" title={row.name}>{row.name}</td>
             <td className="total">{row.isAbsent ? <span className="mk-absent">미응시</span> : (row.total ?? "-")}</td>
-            {MOCK_SUBJECTS.map(subject => <td key={subject}>{row.isAbsent ? "" : <span className="mk-cell">{row.scores?.[subject] ?? "-"}{gradeBadge(Number(row.grades?.[subject]))}</span>}</td>)}
-          </tr>)}</tbody>
+            {MOCK_SUBJECTS.map(subject => { const g = Number(row.grades?.[subject]); return row.isAbsent ? <td key={subject} /> : <td key={subject} className={g ? `mk-gc g${g}` : undefined}><b>{g || "-"}</b><small>{row.scores?.[subject] ?? ""}</small></td>; })}
+          </tr>)}{!filtered.length && <tr><td colSpan={4 + MOCK_SUBJECTS.length} className="muted">조건에 맞는 학생이 없어요.</td></tr>}</tbody>
         </table></div>
+        {detailSid && <MockStudentDetail sid={detailSid} name={rows.find(row => row.sid === detailSid)?.name || ""} gdb={gdb} entryYear={entryYear} rounds={available} onClose={() => setDetailSid("")} />}
       </section>}
 
       {analysisView === "subjects" && <>
@@ -2185,31 +2193,78 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
   );
 }
 
-// 모의고사: 과목별 등급 분포 한눈에. 9개 등급을 4구간(1–2 / 3–4 / 5–6 / 7–9)으로 묶어 보여 줍니다. 과목을 누르면 과목별로.
-function MockSubjectOverview({ gradeCounts, onPick }) {
-  const subjects = MOCK_SUBJECTS.filter(subject => (gradeCounts?.[subject] || []).some(Boolean));
-  if (!subjects.length) return <section className="mk-card"><p className="mk-empty">등급 자료가 없어요.</p></section>;
+// 모의고사: 과목 × 1~9등급 표(인원 / 비율 / 등급컷). 과목 줄을 누르면 과목별로 이동합니다.
+function MockGradeTable({ rows, cuts = {}, mode = "count", onMode, onPick }) {
+  const present = rows.filter(row => !row.isAbsent);
+  const subjects = MOCK_SUBJECTS.filter(subject => present.some(row => Number(row.grades?.[subject])));
+  const data = subjects.map(subject => {
+    const counts = Array(9).fill(0), mins = Array(9).fill(null);
+    present.forEach(row => {
+      const g = Number(row.grades?.[subject]); if (!(g >= 1 && g <= 9)) return;
+      counts[g - 1] += 1;
+      const score = Number(row.scores?.[subject]);
+      if (Number.isFinite(score) && (mins[g - 1] == null || score < mins[g - 1])) mins[g - 1] = score;
+    });
+    const official = Array.isArray(cuts?.[subject]) ? cuts[subject] : null;
+    return { subject, counts, mins, official, total: counts.reduce((a, b) => a + b, 0) };
+  });
+  const modes = [["count", "인원"], ["rate", "비율"], ["cut", "등급컷"]];
+  const anyObserved = mode === "cut" && data.some(item => !item.official);
   return <section className="mk-card">
     <header className="mk-card-head"><div><b>과목별 등급 분포</b><span>과목을 누르면 자세히 볼 수 있어요</span></div>
-      <div className="mk-legend">{MOCK_BANDS.map(band => <span key={band.key}><i className={band.key} />{band.label}</span>)}</div></header>
-    <div className="mk-ov">
-      {subjects.map(subject => {
-        const bands = bandCounts(gradeCounts[subject]);
-        const total = bands.reduce((a, b) => a + b, 0) || 1;
-        return <button key={subject} type="button" data-kdn-bare className="mk-ov-row" onClick={() => onPick(subject)}>
-          <span className="name">{subject}</span>
-          <span className="bar">{bands.map((n, i) => n ? <i key={i} className={MOCK_BANDS[i].key} style={{ width: `${n / total * 100}%` }} title={`${MOCK_BANDS[i].label} ${n}명`}>{n / total >= 0.1 ? `${Math.round(n / total * 100)}%` : ""}</i> : null)}</span>
-          <span className="top"><b>{bands[0]}</b>명</span>
-        </button>;
-      })}
-    </div>
+      <div className="mk-seg" role="group" aria-label="보기 선택">{modes.map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={mode === key} onClick={() => onMode(key)}>{label}</button>)}</div></header>
+    {!data.length ? <p className="mk-empty">등급 자료가 없어요.</p> : <div className="mk-scroll is-auto"><table className="mk-table mk-gradetable">
+      <thead><tr><th className="l">과목</th>{Array.from({ length: 9 }, (_, i) => <th key={i}>{i + 1}등급</th>)}<th>{mode === "cut" ? "기준" : "응시"}</th></tr></thead>
+      <tbody>{data.map(item => <tr key={item.subject} className="is-click" onClick={() => onPick(item.subject)}>
+        <td className="l strong">{item.subject}</td>
+        {item.counts.map((n, i) => {
+          if (mode === "cut") {
+            const value = i === 8 ? null : item.official ? item.official[i] : item.mins[i];
+            return <td key={i} className={`mk-gc g${i + 1}`}><b>{value ?? "-"}</b></td>;
+          }
+          return <td key={i} className={n ? `mk-gc g${i + 1}` : "muted"}>{n ? <b>{mode === "rate" ? `${Math.round(n / (item.total || 1) * 1000) / 10}%` : n}</b> : "0"}</td>;
+        })}
+        <td className="muted">{mode === "cut" ? (item.official ? "등급컷" : "최저점*") : `${item.total}명`}</td>
+      </tr>)}</tbody>
+    </table></div>}
+    {mode === "cut" && <p className="mk-note">등급컷은 그 등급이 되는 최저 원점수예요.{anyObserved ? " *표시는 등급컷이 저장되지 않아 그 등급 학생 중 가장 낮은 점수를 보여 줘요." : ""}</p>}
   </section>;
+}
+function MockGradeLegend() {
+  return <div className="mk-legend9" aria-hidden="true"><span>등급</span>{Array.from({ length: 9 }, (_, i) => <i key={i} className={`mk-gc g${i + 1}`}>{i + 1}</i>)}<small>칸의 큰 숫자 = 등급, 작은 숫자 = 원점수 · 줄을 누르면 회차별 성적</small></div>;
+}
+// 학생 한 명의 회차별 모의고사 성적(같은 학년 회차). 지난 학년 회차는 학번이 달라 학생 성적 화면에서 봐요.
+function MockStudentDetail({ sid, name, gdb, entryYear, rounds = [], onClose }) {
+  useEffect(() => { const onKey = event => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [onClose]);
+  const totalOf = st => { if (!st) return null; if (Number.isFinite(Number(st._total))) return Number(st._total); const v = Object.values(st._scores || {}).map(Number).filter(Number.isFinite); return v.length ? v.reduce((a, b) => a + b, 0) : null; };
+  const list = rounds.filter(key => key.split("-")[0] === String(sid).charAt(0)).map(key => {
+    const rec = cohortRecord(gdb.mockData, entryYear, key);
+    const st = rec?.students?.[sid];
+    const total = totalOf(st);
+    const totals = Object.values(rec?.students || {}).map(totalOf).filter(value => value != null && value > 0);
+    return { key, st, total: total && total > 0 ? total : null, rank: total && total > 0 ? 1 + totals.filter(value => value > total).length : null, n: totals.length };
+  });
+  return <div className="mk-modal-back" role="dialog" aria-modal="true" aria-label={`${name} 모의고사 성적`} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="mk-modal">
+      <header className="mk-card-head"><div><b>{name || sid}</b><span>{sid} · 회차별 모의고사</span></div><button type="button" data-kdn-bare className="mk-reset" onClick={onClose}>닫기</button></header>
+      {!list.length ? <p className="mk-empty">이 학년 회차 자료가 없어요.</p> : <div className="mk-scroll is-auto"><table className="mk-table mk-students">
+        <thead><tr><th className="l">회차</th><th>총점</th><th>순위</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}</tr></thead>
+        <tbody>{list.map(item => <tr key={item.key} className={item.total == null ? "is-absent" : undefined}>
+          <td className="l strong">{MOCK_MONTH_LABELS[item.key]}</td>
+          <td className="total">{item.total == null ? <span className="mk-absent">미응시</span> : item.total}</td>
+          <td className="muted">{item.rank ? `${item.rank} / ${item.n}` : "-"}</td>
+          {MOCK_SUBJECTS.map(subject => { const g = Number(item.st?.[subject]); return item.total == null ? <td key={subject} /> : <td key={subject} className={g ? `mk-gc g${g}` : undefined}><b>{g || "-"}</b><small>{item.st?._scores?.[subject] ?? ""}</small></td>; })}
+        </tr>)}</tbody>
+      </table></div>}
+      <p className="mk-note">지난 학년 회차는 학번이 달라 여기 나오지 않아요. 학생 성적 화면에서 볼 수 있어요.</p>
+    </div>
+  </div>;
 }
 // 모의고사: 한 과목 등급별 인원 막대그래프(아래에 그 등급 최저 점수)
 function MockGradeBars({ counts = [], cuts = [] }) {
   const max = Math.max(1, ...counts);
   return <div className="mk-bars">
-    {counts.map((n, i) => <div key={i} className={`col ${MOCK_BANDS.find(band => i + 1 >= band.from && i + 1 <= band.to)?.key || ""}`}>
+    {counts.map((n, i) => <div key={i} className={`col c${i + 1}`}>
       <span className="val">{n}</span>
       <span className="bar"><i style={{ height: `${Math.max(n ? 4 : 0, n / max * 100)}%` }} /></span>
       <span className="lab">{i + 1}</span>
@@ -2273,8 +2328,6 @@ const MOCK_CHART_CSS = `
 .mk-rank{display:inline-grid;place-items:center;min-width:28px;height:22px;padding:0 4px;border-radius:6px;font-weight:850}
 .mk-absent{display:inline-block;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,#c2410c 12%,transparent);color:#c2410c;font-size:11.5px;font-weight:800}
 .mk-cell{display:inline-flex;align-items:center;gap:5px}
-.mk-g{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:6px;background:var(--kdn-surface-2);color:var(--kdn-ink-soft);font-size:11px;font-weight:850}
-.mk-g.g1,.mk-g.g2{background:var(--mk-b1);color:var(--kdn-accent-ink,#fff)}.mk-g.g3,.mk-g.g4{background:var(--mk-b2);color:var(--kdn-ink)}
 .mk-subjectbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;min-width:0}.mk-subjectbar .mk-seg{min-width:0}
 .mk-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:12px;align-items:start}
 .mk-kv{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
@@ -2295,6 +2348,28 @@ const MOCK_CHART_CSS = `
 .mk-table td.kdn-mock-heat{background-image:linear-gradient(rgba(34,197,94,calc(var(--t,0) * .2)),rgba(34,197,94,calc(var(--t,0) * .2)))}
 .mk-table td.kdn-mock-heat.is-max{color:#15803d;font-weight:850}.mk-table td.kdn-mock-heat.is-min{color:#b91c1c;font-weight:850}
 [data-kd-ui="dark"] .mk-table td.kdn-mock-heat.is-max{color:#86efac}[data-kd-ui="dark"] .mk-table td.kdn-mock-heat.is-min{color:#fca5a5}
+.mk-gc.g1{background:color-mix(in srgb,#16a34a 30%,transparent)}.mk-gc.g2{background:color-mix(in srgb,#16a34a 15%,transparent)}
+.mk-gc.g3{background:color-mix(in srgb,#0ea5e9 17%,transparent)}.mk-gc.g4{background:color-mix(in srgb,#0ea5e9 8%,transparent)}
+.mk-gc.g5{background:transparent}.mk-gc.g6{background:color-mix(in srgb,#f59e0b 12%,transparent)}
+.mk-gc.g7{background:color-mix(in srgb,#f59e0b 24%,transparent)}.mk-gc.g8{background:color-mix(in srgb,#ef4444 15%,transparent)}.mk-gc.g9{background:color-mix(in srgb,#ef4444 26%,transparent)}
+.mk-table td.mk-gc b{font-size:14px;font-weight:850;color:var(--kdn-ink)}
+.mk-students td.mk-gc,.mk-students td:empty{min-width:58px}
+.mk-students td.mk-gc b{display:inline-block;min-width:14px}.mk-students td.mk-gc small{margin-left:6px;font-size:11.5px;color:var(--kdn-muted);font-weight:600}
+.mk-table tr.is-click{cursor:pointer}
+.mk-legend9{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:-2px 0 10px;font-size:12px;color:var(--kdn-muted)}
+.mk-legend9 i{display:inline-grid;place-items:center;width:24px;height:20px;border-radius:5px;font-style:normal;font-size:11.5px;font-weight:850;color:var(--kdn-ink);border:1px solid var(--kdn-line)}
+.mk-legend9 span{margin-right:2px;font-weight:700}.mk-legend9 small{margin-left:8px;font-size:12px}
+.mk-search{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 8px 0 10px;border:1px solid var(--kdn-line);border-radius:10px;background:var(--kdn-surface);color:var(--kdn-muted)}
+.mk-search input{width:130px;border:0!important;outline:0;background:transparent!important;box-shadow:none!important;padding:0!important;min-height:0!important;font-size:13.5px;color:var(--kdn-ink)}
+.mk-search button{border:0;background:transparent;color:var(--kdn-muted);font-size:16px;line-height:1;cursor:pointer}
+.mk-gradetable td,.mk-gradetable th{min-width:52px}
+.mk-scroll.is-auto{max-height:none}
+.mk-note{margin:8px 2px 0;font-size:12px;color:var(--kdn-muted)}
+.mk-bars .c1 .bar i{background:#16a34a}.mk-bars .c2 .bar i{background:#4ade80}.mk-bars .c3 .bar i{background:#0ea5e9}.mk-bars .c4 .bar i{background:#7dd3fc}
+.mk-bars .c5 .bar i{background:#cbd5e1}.mk-bars .c6 .bar i{background:#fcd34d}.mk-bars .c7 .bar i{background:#f59e0b}.mk-bars .c8 .bar i{background:#f87171}.mk-bars .c9 .bar i{background:#dc2626}
+.mk-g{display:inline-grid;place-items:center;min-width:24px;height:22px;border-radius:6px;font-size:12px;font-weight:850;color:var(--kdn-ink)}
+.mk-modal-back{position:fixed;inset:0;z-index:95;display:grid;place-items:center;padding:16px;background:rgba(15,20,30,.45)}
+.mk-modal{width:min(980px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:18px;border-radius:18px;background:var(--kdn-surface);color:var(--kdn-ink);box-shadow:0 20px 50px rgba(0,0,0,.25)}
 .mk-empty{margin:0;font-size:13px;color:var(--kdn-muted)}
 @media (max-width:900px){.mk-sum,.mk-split{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:640px){.mk-top{padding:12px 12px 0}.mk-tabbar{margin:0 -12px;padding:0 12px}.mk-stats{min-height:0;padding-bottom:8px;gap:10px}.mk-card{padding:12px}.mk-ov-row{grid-template-columns:58px minmax(0,1fr) 40px;gap:8px}.mk-bars .bar{height:90px}.mk-minibar{grid-template-columns:34px minmax(0,1fr) 46px}.mk-minibar small{display:none}.mk-picks{width:100%}.mk-pick{flex:1 1 30%;min-width:0}.mk-pick select{flex:1;min-width:0;padding-right:18px}}
