@@ -141,18 +141,66 @@ export function columnGroups(headers = []) {
   });
   return groups;
 }
+// 글자 폭(한글·전각은 2칸) → 열 너비
+const textWidth = v => Array.from(String(v ?? "")).reduce((w, ch) => w + (/[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7af\uff00-\uffef]/.test(ch) ? 2 : 1), 0);
+export function columnWidths(aoa) {
+  const head = aoa[0] || [];
+  return head.map((h, col) => {
+    const body = aoa.slice(1, 400).map(row => { const v = row[col]; return typeof v === "number" && !Number.isInteger(v) ? v.toFixed(2) : v; });
+    const valueW = Math.max(0, ...body.map(textWidth));
+    const headW = Math.min(textWidth(h), 22); // 긴 머리글은 줄바꿈
+    return { wch: Math.min(42, Math.max(6, valueW + 2, headW + 2)) };
+  });
+}
+const BORDER = { style: "thin", color: { rgb: "D5DBE3" } };
+const BORDERS = { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER };
+const FONT = "맑은 고딕";
+// 보기 좋게: 머리글(진한 바탕·흰 굵은 글씨·가운데·줄바꿈), 줄무늬, 테두리, 소수 2자리, 변화량 색(+초록/−빨강), 순위 1~3 강조
+export function styleSheet(XLSX, sheet, aoa) {
+  const head = aoa[0] || [];
+  const decimalCol = head.map((_, col) => aoa.slice(1).some(row => typeof row[col] === "number" && !Number.isInteger(row[col])));
+  const deltaCol = head.map(h => String(h).includes("변화량"));
+  const leftCol = head.map(h => /이름|과목|대학|학과|내용|메모|비고|칸/.test(String(h)));
+  const rankCol = head.map(h => /^(순위|등수)/.test(String(h).trim()));
+  aoa.forEach((row, r) => row.forEach((value, c) => {
+    const ref = XLSX.utils.encode_cell({ r, c });
+    const cell = sheet[ref] || (sheet[ref] = { t: "s", v: "" });
+    if (r === 0) {
+      cell.s = { font: { name: FONT, sz: 11, bold: true, color: { rgb: "FFFFFF" } }, fill: { patternType: "solid", fgColor: { rgb: "1F2937" } }, alignment: { horizontal: "center", vertical: "center", wrapText: true }, border: BORDERS };
+      return;
+    }
+    const zebra = r % 2 === 0;
+    const style = { font: { name: FONT, sz: 11, color: { rgb: "1F2430" } }, alignment: { horizontal: leftCol[c] ? "left" : "center", vertical: "center" }, border: BORDERS };
+    if (zebra) style.fill = { patternType: "solid", fgColor: { rgb: "F5F7FA" } };
+    if (typeof value === "number") {
+      if (deltaCol[c]) { cell.z = "+0.00;-0.00;0.00"; style.font.color = { rgb: value > 0 ? "15803D" : value < 0 ? "B91C1C" : "6B7280" }; style.font.bold = value !== 0; }
+      else if (decimalCol[c]) cell.z = "0.00";
+      if (rankCol[c] && value >= 1 && value <= 3) { style.font.bold = true; style.font.color = { rgb: "C2410C" }; style.fill = { patternType: "solid", fgColor: { rgb: "FFF1E6" } }; }
+    }
+    if (/미응시|미수강/.test(String(value))) style.font.color = { rgb: "B91C1C" };
+    cell.s = style;
+  }));
+  sheet["!cols"] = columnWidths(aoa);
+  sheet["!rows"] = [{ hpt: 30 }];
+  if (aoa.length > 1 && head.length) sheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: head.length - 1 } }) };
+  sheet["!views"] = [{ state: "frozen", ySplit: 1, xSplit: 0, topLeftCell: "A2" }];
+  return sheet;
+}
+async function loadStyled(loadXLSX) {
+  try { const mod = await import("xlsx-js-style"); return mod.default?.utils ? mod.default : mod; } catch { return loadXLSX ? loadXLSX() : import("xlsx"); }
+}
 export async function writeWorkbook(tables, fileName, { loadXLSX } = {}) {
   const list = (tables || []).filter(t => t.aoa?.length && t.aoa[0]?.length);
   if (!list.length) return false;
-  const XLSX = loadXLSX ? await loadXLSX() : await import("xlsx");
+  const XLSX = await loadStyled(loadXLSX);
   const book = XLSX.utils.book_new();
   const used = new Set();
   list.forEach((t, i) => {
     const sheet = XLSX.utils.aoa_to_sheet(t.aoa);
-    sheet["!cols"] = (t.aoa[0] || []).map((_, col) => ({ wch: Math.min(40, Math.max(6, ...t.aoa.slice(0, 200).map(row => String(row[col] ?? "").length * 1.6))) }));
+    styleSheet(XLSX, sheet, t.aoa);
     XLSX.utils.book_append_sheet(book, sheet, safeSheet(t.title || `표${i + 1}`, used));
   });
-  XLSX.writeFile(book, String(fileName || "성적").replace(/[\\/:*?"<>|\s]+/g, "_").replace(/\.xlsx$/i, "") + ".xlsx");
+  XLSX.writeFile(book, String(fileName || "성적").replace(/[\\/:*?"<>|\s]+/g, "_").replace(/\.xlsx$/i, "") + ".xlsx", { cellStyles: true });
   return true;
 }
 // root 안의 보이는 표를 시트로 묶어 바로 저장(고르는 창 없이). 표가 없으면 false.
