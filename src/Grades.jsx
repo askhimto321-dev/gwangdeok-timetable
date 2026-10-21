@@ -19,6 +19,7 @@ import { CutStrip, supportBandFor } from './naviVisuals.jsx';
 import { GradeInsights, GradeHeatmap } from './gradeInsights.jsx';
 import GradeSimulator, { GradeSimPresetChips } from './GradeSimulator.jsx';
 import { CompareOverview, SemesterChips, printGradeComparison, COMPARE_COLORS } from './gradeCompareVisuals.jsx';
+import { exportVisibleTables } from './tableExport.js';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
 import { isNewUi, getUiMode, rawColors } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
@@ -1679,6 +1680,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
           {(subjectOptions.length > 0 || (view === "class" && examSubjects.length > 0)) && <select data-tour="cg-pick" className={`cg-subject-pick${isSubject || isExam ? " is-on" : ""}`} value={isSubject || isExam ? metric : ""} onChange={event => setMetric(event.target.value || "overall")} aria-label="개별 과목"><option value="">과목별 보기…</option>{SEMESTER_KEYS.map(key => { const list = subjectOptions.filter(item => [...item.keys][0] === key); if (!list.length) return null; const [y, t] = key.split("-"); return <optgroup key={key} label={`${y}학년 ${t}학기`}>{list.map(item => <option key={item.name} value={`${SUBJECT_METRIC}${item.name}`}>{item.name}</option>)}</optgroup>; })}{view === "class" && Array.from(new Set(examSubjects.map(item => item.key))).map(key => { const list = examSubjects.filter(item => item.key === key); return <optgroup key={key} label={`${currentGrade}학년 ${list[0].semester}학기 · ${list[0].title} 정기시험`}>{list.length > 1 && <option value={`${EXAM_METRIC}ALL|${key}`}>전 과목 보기 ({list.length}과목)</option>}{list.map(item => <option key={item.id} value={`${EXAM_METRIC}${item.id}`}>{item.subject} · {item.title}</option>)}</optgroup>; })}</select>}
           {isAdmin && view === "class" && <select data-tour="cg-class" value={classNo} onChange={event => setPickedClass(event.target.value)} aria-label="반 선택"><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
           <TourButton onClick={() => setTourToken(Date.now())} />
+          <button type="button" className="cg-ghost no-print" data-kdn-bare title="지금 화면의 표를 엑셀 파일로 저장" onClick={async () => { const ok = await exportVisibleTables(cgRootRef.current, `${currentGrade}학년_${view === "compare" ? "반비교" : allClasses ? "전체반" : `${classNo}반`}_${metricLabel}_${new Date().toISOString().slice(0, 10)}`, { loadXLSX }); if (!ok) window.alert("내보낼 표가 없어요."); }}><FileSpreadsheet size={15} />엑셀</button>
           {view === "class" && <button type="button" className="cg-ghost no-print" data-kdn-bare onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${allClasses ? "전체 반" : `${classNo}반`} 성적 ·`)} disabled={!rows.length}><Printer size={15} />인쇄·PDF</button>}
         </div>
       </div>
@@ -1902,6 +1904,7 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
   ));
   const [mockKey, setMockKey] = useState(available[available.length - 1] || "");
   const [analysisView, setAnalysisView] = useState("summary");
+  const mkRootRef = useRef(null);
   const [classFilter, setClassFilter] = useState("all");
   const [subjectFilter, setSubjectFilter] = useState("전체");
   const [subjectView, setSubjectView] = useState(MOCK_SUBJECTS[0]);
@@ -2077,13 +2080,15 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
   const resetFilters = () => { setClassFilter("all"); setGradeFilter("all"); setSubjectFilter("전체"); setQuery(""); };
   const openSubject = subject => { setSubjectView(subject); setAnalysisView("subjects"); };
   const metricOptions = ["총점", ...MOCK_SUBJECTS];
+  const exportMock = async () => { const tabName = { summary: "한눈에", students: "학생별", subjects: `과목별_${subjectView}`, classes: "반별" }[analysisView] || ""; const ok = await exportVisibleTables(mkRootRef.current, `모의고사_${MOCK_MONTH_LABELS[mockKey] || mockKey}_${tabName}`, { loadXLSX }); if (!ok) window.alert("내보낼 표가 없어요."); };
 
   return (
-    <div className="kdn-mock mk">
+    <div className="kdn-mock mk" ref={mkRootRef}>
       <style dangerouslySetInnerHTML={{ __html: MOCK_CHART_CSS }} />
       <section className="mk-top">
         <div className="mk-top-row">
           <div className="mk-title"><b>모의고사 분석</b><span>{entryYear}년 입학생 · {MOCK_MONTH_LABELS[mockKey] || ""}</span></div>
+          <button type="button" data-kdn-bare className="mk-xlsx" onClick={exportMock} title="지금 보는 탭의 표를 엑셀 파일로 저장"><FileSpreadsheet size={15} />엑셀</button>
           {onGradeChange && gradeOptions.length > 1 && <div className="mk-seg" role="group" aria-label="학년 선택">
             {gradeOptions.map(g => <button key={g} type="button" data-kdn-bare aria-pressed={String(g) === String(currentGrade)} onClick={() => onGradeChange(String(g))}>{g}학년</button>)}
           </div>}
@@ -2130,13 +2135,13 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
         </header>
         <MockGradeLegend />
         <div className="mk-scroll"><table className="mk-table mk-students">
-          <thead><tr><th>등수</th><th>학번</th><th className="l">이름</th><th>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}</tr></thead>
+          <thead><tr><th>등수</th><th>학번</th><th className="l">이름</th><th>총점</th>{MOCK_SUBJECTS.map(subject => <th key={subject} data-x-sub="등급,원점수">{subject}</th>)}</tr></thead>
           <tbody>{filtered.map(row => <tr key={row.sid} className={`is-click${row.isAbsent ? " is-absent" : row.rank != null && row.rank <= 3 ? " is-top" : ""}`} onClick={() => setDetailSid(row.sid)} title="눌러서 회차별 성적 보기">
             <td><span className="mk-rank">{row.rank ?? "-"}</span></td>
             <td className="muted">{row.sid}</td>
             <td className="l name" title={row.name}>{row.name}</td>
             <td className="total">{row.isAbsent ? <span className="mk-absent">미응시</span> : (row.total ?? "-")}</td>
-            {MOCK_SUBJECTS.map(subject => { const g = Number(row.grades?.[subject]); return row.isAbsent ? <td key={subject} /> : <td key={subject} className={g ? `mk-gc g${g}` : undefined}><b>{g || "-"}</b><small>{row.scores?.[subject] ?? ""}</small></td>; })}
+            {MOCK_SUBJECTS.map(subject => { const g = Number(row.grades?.[subject]); return row.isAbsent ? <td key={subject} data-x-parts='["",""]' /> : <td key={subject} data-x-parts={JSON.stringify([g || "", row.scores?.[subject] ?? ""])} className={g ? `mk-gc g${g}` : undefined}><b>{g || "-"}</b><small>{row.scores?.[subject] ?? ""}</small></td>; })}
           </tr>)}{!filtered.length && <tr><td colSpan={4 + MOCK_SUBJECTS.length} className="muted">조건에 맞는 학생이 없어요.</td></tr>}</tbody>
         </table></div>
         {detailSid && <MockStudentDetail sid={detailSid} name={rows.find(row => row.sid === detailSid)?.name || ""} gdb={gdb} entryYear={entryYear} rounds={available} onClose={() => setDetailSid("")} />}
@@ -2252,12 +2257,12 @@ function MockStudentDetail({ sid, name, gdb, entryYear, rounds = [], onClose }) 
     <div className="mk-modal">
       <header className="mk-card-head"><div><b>{name || sid}</b><span>{sid} · 회차별 모의고사</span></div><button type="button" data-kdn-bare className="mk-reset" onClick={onClose}>닫기</button></header>
       {!list.length ? <p className="mk-empty">이 학년 회차 자료가 없어요.</p> : <div className="mk-scroll is-auto"><table className="mk-table mk-students">
-        <thead><tr><th className="l">회차</th><th>총점</th><th>순위</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}</tr></thead>
+        <thead><tr><th className="l">회차</th><th>총점</th><th>순위</th>{MOCK_SUBJECTS.map(subject => <th key={subject} data-x-sub="등급,원점수">{subject}</th>)}</tr></thead>
         <tbody>{list.map(item => <tr key={item.key} className={item.total == null ? "is-absent" : undefined}>
           <td className="l strong">{MOCK_MONTH_LABELS[item.key]}</td>
           <td className="total">{item.total == null ? <span className="mk-absent">미응시</span> : item.total}</td>
           <td className="muted">{item.rank ? `${item.rank} / ${item.n}` : "-"}</td>
-          {MOCK_SUBJECTS.map(subject => { const g = Number(item.st?.[subject]); return item.total == null ? <td key={subject} /> : <td key={subject} className={g ? `mk-gc g${g}` : undefined}><b>{g || "-"}</b><small>{item.st?._scores?.[subject] ?? ""}</small></td>; })}
+          {MOCK_SUBJECTS.map(subject => { const g = Number(item.st?.[subject]); return item.total == null ? <td key={subject} data-x-parts='["",""]' /> : <td key={subject} data-x-parts={JSON.stringify([g || "", item.st?._scores?.[subject] ?? ""])} className={g ? `mk-gc g${g}` : undefined}><b>{g || "-"}</b><small>{item.st?._scores?.[subject] ?? ""}</small></td>; })}
         </tr>)}</tbody>
       </table></div>}
       <p className="mk-note">지난 학년 회차는 학번이 달라 여기 나오지 않아요. 학생 성적 화면에서 볼 수 있어요.</p>
@@ -2282,6 +2287,7 @@ const MOCK_CHART_CSS = `
 .mk button{font:inherit}
 .mk-top{display:grid;gap:10px;padding:14px 16px 0;border:1px solid var(--kdn-line);border-radius:16px;background:var(--kdn-surface)}
 .mk-top-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.mk-xlsx{margin-left:auto;display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 12px;border:1px solid var(--kdn-line);border-radius:10px;background:var(--kdn-surface);color:var(--kdn-ink);font-size:13px;font-weight:800;cursor:pointer}
 .mk-title{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.mk-title b{font-size:18px;font-weight:850;color:var(--kdn-ink)}.mk-title span{font-size:13px;color:var(--kdn-muted)}
 .mk-seg{display:inline-flex;gap:2px;padding:3px;border-radius:11px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line);max-width:100%;overflow-x:auto;scrollbar-width:none}
 .mk-seg button{flex:none;min-height:32px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--kdn-ink-soft);font-size:13.5px;font-weight:700;cursor:pointer}
