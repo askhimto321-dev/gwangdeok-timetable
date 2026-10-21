@@ -148,3 +148,35 @@ test("parseSlotLines makes unit slots and named slots", async () => {
   assert.equal(slots[5].unit, "");
   assert.deepEqual(parseSlotLines("12").map(s => s.label), ["12"]);
 });
+
+test("addSlots reuse fills the unused 1차시 first and is safe to re-apply", async () => {
+  const { emptyBook, applyOp, sessionsAsc, slotName } = await import("../src/lessonStamps.js");
+  let b = emptyBook({ id: "x" });
+  b = applyOp(b, { t: "session", id: "s1", fields: { no: 1, date: "2026-10-21", period: 1 } });
+  const op = { t: "addSlots", reuse: true, slots: [1, 2, 3].map(k => ({ id: `u${k}`, label: `이차곡선${k}`, unit: "이차곡선" })) };
+  b = applyOp(b, op);
+  b = applyOp(b, JSON.parse(JSON.stringify(op)));
+  const list = sessionsAsc(b);
+  assert.deepEqual(list.map((s, i) => slotName(s, i)), ["이차곡선1", "이차곡선2", "이차곡선3"]);
+  assert.equal(list[0].date, "2026-10-21");
+});
+
+test("template copies slot names, order and scoring without touching marks", async () => {
+  const { emptyBook, applyOp, sessionsAsc, slotName, templateOp } = await import("../src/lessonStamps.js");
+  let src = emptyBook({ id: "a" });
+  src = applyOp(src, { t: "addSlots", slots: [{ id: "u1", label: "쌍곡선", unit: "" }, { id: "u2", label: "이차곡선1", unit: "이차곡선" }, { id: "u3", label: "이차곡선2", unit: "이차곡선" }] });
+  src.scoring = { ...src.scoring, stamp: { ...src.scoring.stamp, max: 8 } };
+  let dst = emptyBook({ id: "b" });
+  dst = applyOp(dst, { t: "session", id: "s1", fields: { no: 1, date: "2026-10-20" } });
+  dst = applyOp(dst, { t: "mark", s: "s1", sid: "20301", v: "stamp", at: "t" });
+  dst = applyOp(dst, { t: "session", id: "s2", fields: { no: 2 } });
+  const op = templateOp(src);
+  dst = applyOp(dst, op);
+  dst = applyOp(dst, JSON.parse(JSON.stringify(op)));
+  const names = sessionsAsc(dst).map((s, i) => slotName(s, i));
+  assert.deepEqual(names.slice(0, 3), ["쌍곡선", "이차곡선1", "이차곡선2"]);
+  assert.equal(dst.scoring.stamp.max, 8);
+  assert.equal(Object.keys(dst.marks).length, 1);
+  assert.equal(dst.sessions.s1.label, "쌍곡선");
+  assert.equal(dst.marks.s1["20301"].m, "stamp");
+});

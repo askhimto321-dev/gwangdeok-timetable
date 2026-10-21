@@ -182,6 +182,15 @@ export function csbStatus(book, sid) {
   return { level: info.done ? "ok" : level, label, reasons, allow, left, stats: s, info, logs, guidedHours: logs.reduce((sum, log) => sum + (Number(log.hours) || 0), 0) };
 }
 
+// 아직 안 쓴 빈 칸: 이름·단원·주제가 없고 도장·결석도 없는 칸
+export function isBlankSlot(book, session) {
+  return !!session && !session.label && !session.unit && !session.topic && !Object.keys(book?.marks?.[session.id] || {}).length;
+}
+// 이 도장부의 양식(칸 이름·단원·순서 + 채점 기준) → 다른 반에 보낼 'template' op
+export function templateOp(book, { at = "", by = "", prune = true } = {}) {
+  return { t: "template", slots: sessionsAsc(book).map(x => ({ id: x.slotRef || x.id, label: x.label || "", unit: x.unit || "", no: Number(x.no) || 0 })), scoring: book.scoring, prune, at, by };
+}
+
 // 도장 칸 누르기: 없음 → 도장 → 결석 → 없음
 export function nextMark(current) {
   const state = markOf(current);
@@ -221,9 +230,46 @@ export function applyOp(book, op) {
       return b;
     }
     case "addSlots": {
-      // 도장 칸 추가(단원별 이름 등): 맨 뒤에 번호를 이어 붙입니다. 이미 있는 id는 건너뜀.
+      // 도장 칸 추가(단원별 이름 등): 맨 뒤에 번호를 이어 붙입니다. 이미 있는 칸(id·slotRef)은 건너뜀.
+      // reuse: 아직 안 쓴 빈 칸(이름·단원·도장 없음, 예: '오늘 수업 시작'으로 생긴 1차시)부터 채웁니다.
       let maxNo = Object.values(b.sessions).reduce((max, x) => Math.max(max, Number(x.no) || 0), 0);
-      (op.slots || []).forEach(slot => { if (b.sessions[slot.id]) return; maxNo += 1; b.sessions[slot.id] = { no: maxNo, label: slot.label || "", unit: slot.unit || "", date: "", period: "", topic: "", pages: "", at: op.at, by: op.by || "" }; });
+      const exists = id => b.sessions[id] || Object.values(b.sessions).some(x => x.slotRef === id);
+      const unused = op.reuse ? sessionsAsc(b).filter(x => isBlankSlot(b, x)) : [];
+      (op.slots || []).forEach(slot => {
+        if (exists(slot.id)) return;
+        const free = unused.shift();
+        if (free) { b.sessions[free.id] = { ...b.sessions[free.id], label: slot.label || "", unit: slot.unit || "", slotRef: slot.id }; return; }
+        maxNo += 1;
+        b.sessions[slot.id] = { no: maxNo, label: slot.label || "", unit: slot.unit || "", date: "", period: "", topic: "", pages: "", at: op.at, by: op.by || "" };
+      });
+      return b;
+    }
+    case "template": {
+      // 다른 반 양식 맞추기: 도장 칸 이름·단원·순서와 채점 기준을 원본과 같게.
+      // 이 반 기록(날짜·도장·점수)은 그대로 두고, 원본에 없는 칸은 도장이 하나도 없을 때만 지웁니다.
+      if (op.scoring) b.scoring = JSON.parse(JSON.stringify(op.scoring));
+      if (!Array.isArray(op.slots)) return b;
+      const used = new Set();
+      const orig = sessionsAsc(b);
+      const all = () => sessionsAsc(b).filter(x => !used.has(x.id));
+      const order = [];
+      let maxNo = Object.values(b.sessions).reduce((max, x) => Math.max(max, Number(x.no) || 0), 0);
+      op.slots.forEach((slot, index) => {
+        const label = String(slot.label || ""), unit = String(slot.unit || "");
+        let hit = b.sessions[slot.id] && !used.has(slot.id) ? { id: slot.id } : all().find(x => x.slotRef === slot.id);
+        if (!hit && label) hit = all().find(x => String(x.label || "") === label && String(x.unit || "") === unit);
+        if (!hit && !label) hit = all().find(x => !x.label && Number(x.no) === Number(slot.no || index + 1));
+        // 같은 자리의 이름 없는 칸(그 반 n번째 수업)은 그 이름으로 맞춥니다. 찍힌 도장은 그대로.
+        const same = orig[index];
+        if (!hit && same && !used.has(same.id) && !b.sessions[same.id].label && !b.sessions[same.id].unit) hit = { id: same.id };
+        if (!hit) hit = all().find(x => isBlankSlot(b, x));
+        if (hit) b.sessions[hit.id] = { ...b.sessions[hit.id], label, unit };
+        else { maxNo += 1; b.sessions[slot.id] = { no: maxNo, label, unit, date: "", period: "", topic: "", pages: "", at: op.at, by: op.by || "" }; hit = { id: slot.id }; }
+        used.add(hit.id); order.push(hit.id);
+      });
+      if (op.prune) all().forEach(x => { if (!Object.keys(b.marks[x.id] || {}).length && !x.date) { delete b.sessions[x.id]; delete b.marks[x.id]; } });
+      const rest = sessionsAsc(b).map(x => x.id).filter(id => !order.includes(id));
+      [...order, ...rest].forEach((id, i) => { b.sessions[id] = { ...b.sessions[id], no: i + 1 }; });
       return b;
     }
     case "order": {

@@ -8,7 +8,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stamp, Plus, Trash2, Copy, Check, Download, CloudOff, Cloud, Loader2, Settings2, Sparkles, ChevronLeft, ChevronRight, X, List, Grid3x3, PencilLine, ListPlus } from "lucide-react";
 import { readStorage, updateStorage } from "./storage.js";
-import { CHECK_STATES, checkLabel, parseSlotLines, slotName, slotGroups, booksForAssignment, emptyBook, normalizeBook, sessionsAsc, sessionHeld, stampStats, stampScore, stampMax, itemScore, itemMax, totalFor, totalMax, nextMark, markOf, markAt, markBy, applyOp, nextSessionFor, periodAt, localIso, presetPortfolio, PERIOD_TIMES, MATH_UNITS, ITEM_TEMPLATES } from "./lessonStamps.js";
+import { CHECK_STATES, checkLabel, parseSlotLines, templateOp, slotName, slotGroups, booksForAssignment, emptyBook, normalizeBook, sessionsAsc, sessionHeld, stampStats, stampScore, stampMax, itemScore, itemMax, totalFor, totalMax, nextMark, markOf, markAt, markBy, applyOp, nextSessionFor, periodAt, localIso, presetPortfolio, PERIOD_TIMES, MATH_UNITS, ITEM_TEMPLATES } from "./lessonStamps.js";
 
 const storeKey = id => `kd_stamps__${id}`;
 const queueKey = id => `kd_stamps_q__${id}`;
@@ -117,6 +117,14 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
     }
   }, [info?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 지금 열지 않은 반의 저장 대기분 보내기
+  const sendOther = async id => {
+    const batch = readLocal(queueKey(id), []);
+    if (!batch.length) return;
+    const result = await withTimeout(updateStorage(storeKey(id), emptyBook({ id }), current => batch.reduce((acc, op) => applyOp(acc, op), clone(normalizeBook(current, { id })))), 20000);
+    if (result.ok) { writeLocal(queueKey(id), readLocal(queueKey(id), []).slice(batch.length)); writeLocal(copyKey(id), normalizeBook(result.value, { id })); }
+  };
+
   // 도장부 불러오기(+ 기기에 남은 저장 대기분 다시 보내기) · 20초마다 다른 선생님 변경 반영
   useEffect(() => {
     if (!meta) return undefined;
@@ -139,15 +147,23 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
   useEffect(() => {
     let keys = [];
     try { keys = Object.keys(localStorage).filter(key => key.startsWith("kd_stamps_q__")); } catch { keys = []; }
-    keys.forEach(async key => {
-      const id = key.slice("kd_stamps_q__".length);
-      if (id === idRef.current) return;
-      const batch = readLocal(key, []);
-      if (!batch.length) return;
-      const result = await withTimeout(updateStorage(storeKey(id), emptyBook({ id }), current => batch.reduce((acc, op) => applyOp(acc, op), clone(normalizeBook(current, { id })))), 20000);
-      if (result.ok) writeLocal(key, readLocal(key, []).slice(batch.length));
-    });
-  }, []);
+    keys.forEach(key => { const id = key.slice("kd_stamps_q__".length); if (id !== idRef.current) sendOther(id); });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 같은 과목 다른 반: 양식(도장 칸·채점 기준) 맞추기
+  const siblings = useMemo(() => (meta && !meta.readOnly ? books.filter(other => other.id !== meta.id && subjectKeyOf(other.subject) === subjectKeyOf(meta.subject)) : []), [books, meta?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const syncKey = meta ? `kd_stamps_sync_${teacher?.id || "t"}_${grade}-${semester}_${subjectKeyOf(meta.subject)}` : "";
+  const [syncOn, setSyncOnState] = useState(false);
+  useEffect(() => { setSyncOnState(!!readLocal(syncKey, false)); }, [syncKey]);
+  const bookRef = useRef(null);
+  const syncTimer = useRef(0);
+  const pushTemplate = (ids, source = bookRef.current) => {
+    if (!source) return 0;
+    const op = templateOp(source, { at: new Date().toISOString(), by: teacher?.name || teacher?.id || "" });
+    ids.forEach(id => { writeLocal(queueKey(id), [...readLocal(queueKey(id), []), op]); sendOther(id); });
+    return ids.length;
+  };
+  const setSyncOn = value => { setSyncOnState(value); writeLocal(syncKey, value || null); if (value && siblings.length) { pushTemplate(siblings.map(x => x.id)); showToast?.(`${siblings.length}개 반을 이 반 양식으로 맞췄어요. 앞으로 바꾸는 것도 자동으로 맞춰요.`, "success"); } };
 
   // 페이지를 닫으려는데 저장 대기분이 있으면 한 번 묻습니다(기기에는 남아 있어 다음에 열면 다시 보냄).
   useEffect(() => {
@@ -157,6 +173,8 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
   }, []);
 
   const book = useMemo(() => (serverBook ? pending.reduce((acc, op) => applyOp(acc, op), clone(serverBook)) : null), [serverBook, pending]);
+  bookRef.current = book;
+  const SHAPE_OPS = ["addSlots", "delSession", "order", "scoring", "dropItem", "plan", "template"];
   const act = op => {
     if (!meta) return;
     if (readOnly) { showToast?.("조회 전용이에요. 함께 기록하려면 내 정보에서 이 반을 담당 과목에 넣어 주세요.", "info"); return; }
@@ -164,6 +182,9 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
     writeLocal(queueKey(meta.id), next);
     setPending(next);
     flush();
+    // 자동 맞추기: 칸 이름·단원·순서·채점 기준을 바꾸면 같은 과목 다른 반에도(잠시 뒤 한 번에)
+    const shape = SHAPE_OPS.includes(op.t) || (op.t === "session" && op.fields && ("label" in op.fields || "unit" in op.fields));
+    if (syncOn && shape && siblings.length) { window.clearTimeout(syncTimer.current); syncTimer.current = window.setTimeout(() => pushTemplate(siblings.map(x => x.id)), 1500); }
   };
   const who = teacher?.name || teacher?.id || "";
   const downloadBackup = () => {
@@ -203,13 +224,14 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
           : <><Cloud size={14} /><span>{save.at ? `저장됨 ${stampTime(save.at).split(" ")[1]}` : "자동 저장"}</span></>}
       </div>
     </div>
+    {book && !readOnly && !Object.keys(book.sessions || {}).length && (() => { const src = siblings.map(x => ({ x, copy: readLocal(copyKey(x.id), null) })).find(item => item.copy && Object.keys(item.copy.sessions || {}).length); return src ? <div className="ls-note is-info">이 반은 아직 도장 칸이 없어요. <b>{src.x.label.split(" · ")[0]}</b> 양식({Object.keys(src.copy.sessions).length}칸·채점 기준)을 그대로 불러올까요? <button type="button" data-kdn-bare onClick={() => { act(templateOp(normalizeBook(src.copy, { id: src.x.id }), { at: new Date().toISOString(), by: who })); showToast?.("양식을 불러왔어요.", "success"); }}>불러오기</button></div> : null; })()}
     {waiting > 0 && save.state === "error" && <div className="ls-note is-warn">연결이 안 돼서 이 기기에 {waiting}건을 보관 중이에요. 연결되면 자동으로 저장돼요(창을 닫아도 다음에 열면 이어서 저장).</div>}
     {!book ? <div className="ls-note">불러오는 중…</div>
       : tab === "stamp" ? <StampTab wide={wide} readOnly={readOnly} book={book} meta={meta} act={act} who={who} sessionId={sessionId} setSessionId={setSessionId} onEditSession={id => setSheet({ type: "session", id })} onOpenSettings={openSettings}  onBulk={() => setSheet({ type: "bulk" })} />
       : tab === "score" ? <ScoreTab wide={wide} book={book} meta={meta} act={act} onOpenSettings={() => openSettings("score")} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />
       : <StatusTab wide={wide} book={book} meta={meta} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />}
     {book && sheet?.type === "bulk" && <Sheet title="도장 칸 한꺼번에 추가" onClose={() => setSheet(null)}><BulkSlotsBody book={book} meta={meta} act={act} who={who} showToast={showToast} onDone={() => setSheet(null)} onOpenSettings={() => openSettings("plan")} /></Sheet>}
-    {book && sheet?.type === "settings" && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsBody book={book} meta={meta} act={act} who={who} section={sheet.section} showToast={showToast} onDownload={downloadBackup} /></Sheet>}
+    {book && sheet?.type === "settings" && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsBody book={book} meta={meta} act={act} who={who} section={sheet.section} showToast={showToast} onDownload={downloadBackup} siblings={siblings} syncOn={syncOn} setSyncOn={setSyncOn} onPushTemplate={ids => { const n = pushTemplate(ids, book); if (n) showToast?.(`${n}개 반에 이 반 양식을 맞췄어요. 그 반의 도장·점수 기록은 그대로예요.`, "success"); }} /></Sheet>}
     {book && sheet?.type === "session" && book.sessions[sheet.id] && <Sheet title="수업 정보" onClose={() => setSheet(null)}><SessionBody book={book} meta={meta} act={act} id={sheet.id} onDeleted={() => { setSheet(null); setSessionId(""); }} /></Sheet>}
     {book && sheet?.type === "student" && <Sheet title="학생" onClose={() => setSheet(null)}><StudentBody book={book} meta={meta} act={act} who={who} sid={sheet.id} /></Sheet>}
   </div>;
@@ -343,10 +365,15 @@ function RollView({ wide, book, meta, act, who, session, index, readOnly }) {
 }
 // 표(도장판): 학생 × 차시
 function BoardView({ book, meta, act, who, current, onPick, onOpenSettings, bulkButton }) {
-  const sessions = sessionsAsc(book);
+  const allSessions = sessionsAsc(book);
   const [showTime, setShowTime] = useState(false);
   const tap = (s, sid) => act({ t: "mark", s: s.id, sid, v: nextMark(book.marks?.[s.id]?.[sid]), at: new Date().toISOString(), by: who });
   const today = localIso();
+  const allUnits = Array.from(new Set(allSessions.map(s => String(s.unit || "").trim()).filter(Boolean)));
+  const noneCount = allSessions.filter(s => !String(s.unit || "").trim()).length;
+  const [unitFilter, setUnitFilter] = useState("");
+  const filterOn = unitFilter && (unitFilter === "__none" ? noneCount > 0 : allUnits.includes(unitFilter));
+  const sessions = filterOn ? allSessions.filter(s => (unitFilter === "__none" ? !String(s.unit || "").trim() : String(s.unit || "").trim() === unitFilter)) : allSessions;
   const groups = slotGroups(sessions);
   const units = Array.from(new Set(sessions.map(s => String(s.unit || "").trim()).filter(Boolean)));
   const hasUnits = units.length > 0;
@@ -355,6 +382,11 @@ function BoardView({ book, meta, act, who, current, onPick, onOpenSettings, bulk
   return <div className="ls-card">
     <div className="ls-bar"><label className="ls-check"><input type="checkbox" checked={showTime} onChange={e => setShowTime(e.target.checked)} />찍은 날짜 보기</label>
       <span className="ls-legend"><i className="is-stamp" />도장 <i className="is-absent" />결석 <i className="is-late" />늦게</span>{bulkButton}</div>
+    {allUnits.length > 0 && <div className="ls-ufilter" role="group" aria-label="단원만 보기">
+      <button type="button" data-kdn-bare className={!filterOn ? "is-on" : ""} onClick={() => setUnitFilter("")}>전체 <small>{allSessions.length}</small></button>
+      {allUnits.map(u => <button key={u} type="button" data-kdn-bare className={filterOn && unitFilter === u ? "is-on" : ""} onClick={() => setUnitFilter(u)}>{u} <small>{allSessions.filter(x => String(x.unit || "").trim() === u).length}</small></button>)}
+      {noneCount > 0 && <button type="button" data-kdn-bare className={filterOn && unitFilter === "__none" ? "is-on" : ""} onClick={() => setUnitFilter("__none")}>단원 없음 <small>{noneCount}</small></button>}
+    </div>}
     <div className="ls-table-wrap ls-board-wrap"><table className="ls-table ls-board">
       <thead>
         {hasUnits && <tr className="ls-unitrow"><th className="sticky c1" rowSpan={2}>이름</th>{groups.map((g, gi) => <th key={gi} colSpan={g.items.length} className="ls-unit">{g.unit || "단원 없음"}</th>)}<th colSpan={units.length + 1} className="ls-unit sum">단원별 도장</th></tr>}
@@ -465,42 +497,76 @@ function StudentBody({ book, meta, act, who, sid }) {
   </div>;
 }
 
-// ── 팝업: 도장 칸 한꺼번에 추가 ──
-function BulkSlotsBody({ book, meta, act, who, showToast, onDone, onOpenSettings }) {
+// ── 단원 고르기: 대단원별 소단원 버튼 + 직접 입력(브라우저 기본 선택창 대신) ──
+function UnitPicker({ subject, value = "", onChange, allowNone = false, commitOnBlur = false }) {
+  const groups = MATH_UNITS[subject] || [];
+  const known = groups.some(([, smalls]) => smalls.includes(value));
+  return <div className="ls-unitpick">
+    {allowNone && <div className="grp"><div><button type="button" data-kdn-bare className={`ls-uchip${!value ? " is-on" : ""}`} onClick={() => onChange("")}>단원 없음</button></div></div>}
+    {groups.map(([big, smalls]) => <div key={big} className="grp"><small>{big}</small><div>{smalls.map(u => <button key={u} type="button" data-kdn-bare className={`ls-uchip${value === u ? " is-on" : ""}`} aria-pressed={value === u} onClick={() => onChange(u)}>{u}</button>)}</div></div>)}
+    {commitOnBlur ? <BlurInput className="ls-text" value={known ? "" : value} onCommit={v => onChange(v.trim())} placeholder={groups.length ? "목록에 없으면 직접 입력 (예: 형성평가)" : "단원 이름 (예: 이차곡선)"} aria-label="단원 직접 입력" />
+    : <input className="ls-text" value={known ? "" : value} onChange={e => onChange(e.target.value)} placeholder={groups.length ? "목록에 없으면 직접 입력 (예: 형성평가)" : "단원 이름 (예: 이차곡선)"} aria-label="단원 직접 입력" />}
+  </div>;
+}
+function Stepper({ value, onChange, min = 1, max = 50, label }) {
+  return <div className="ls-stepper" role="group" aria-label={label}>
+    <button type="button" data-kdn-bare disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))} aria-label="하나 빼기">−</button>
+    <b>{value}</b>
+    <button type="button" data-kdn-bare disabled={value >= max} onClick={() => onChange(Math.min(max, value + 1))} aria-label="하나 더하기">+</button>
+  </div>;
+}
+// ── 도장 칸 추가: 단원별 / 차시 번호 / 여러 줄 ──
+function SlotAdder({ book, meta, act, who, showToast, onAdded }) {
   const sessions = sessionsAsc(book);
   const lastNo = sessions.reduce((max, s) => Math.max(max, Number(s.no) || 0), 0);
-  const [count, setCount] = useState("10");
+  const hasUnits = !!MATH_UNITS[meta.subject];
+  const [mode, setMode] = useState(hasUnits ? "unit" : "no");
+  const [unit, setUnit] = useState("");
+  const [unitCount, setUnitCount] = useState(4);
+  const [count, setCount] = useState(10);
   const [text, setText] = useState("");
-  const slots = parseSlotLines(text, sessions);
-  const n = Math.min(200, Math.max(0, Number(count) || 0));
-  const units = (MATH_UNITS[meta.subject] || []).flatMap(([, smalls]) => smalls);
-  const addNumbered = () => {
-    if (!n) return;
-    act({ t: "addSlots", slots: Array.from({ length: n }, () => ({ id: uid("u"), label: "", unit: "" })), at: new Date().toISOString(), by: who });
-    showToast?.(`${lastNo + 1}~${lastNo + n}차시 ${n}칸을 추가했어요.`, "success");
-    onDone();
-  };
-  const addLines = () => {
+  const u = unit.trim();
+  const have = sessions.filter(x => (x.unit || "") === u).length;
+  const unitSlots = u ? Array.from({ length: unitCount }, (_, k) => ({ label: `${u}${have + k + 1}`, unit: u })) : [];
+  const lineSlots = parseSlotLines(text, sessions);
+  const blank = sessions.filter(x => !x.label && !x.unit && !x.topic && !Object.keys(book.marks?.[x.id] || {}).length).length;
+  const add = (slots, reuse, message) => {
     if (!slots.length) return;
-    act({ t: "addSlots", slots: slots.map(slot => ({ id: uid("u"), ...slot })), at: new Date().toISOString(), by: who });
-    showToast?.(`${slots.length}칸을 추가했어요.`, "success");
-    onDone();
+    act({ t: "addSlots", reuse, slots: slots.map(slot => ({ id: uid("u"), label: slot.label || "", unit: slot.unit || "" })), at: new Date().toISOString(), by: who });
+    showToast?.(message, "success");
+    onAdded?.();
   };
-  return <div className="ls-settings ls-bulkform">
-    <p className="ls-mini">지금 {sessions.length}칸 있어요. 추가한 칸은 맨 뒤에 붙고, 도장판 표에서 바로 찍을 수 있어요.</p>
-    <section><h4>차시 번호로</h4>
-      <div className="ls-line"><span>{lastNo + 1}차시부터</span><input className="ls-num" type="number" inputMode="numeric" min="1" max="200" value={count} onChange={e => setCount(e.target.value)} aria-label="추가할 칸 수" /><span>칸 → {n ? `${lastNo + n}차시까지` : "-"}</span>
-        <button type="button" data-kdn-bare className="ls-primary" disabled={!n} onClick={addNumbered}><Plus size={14} />추가</button></div>
-      <div className="ls-adds">{[5, 10, 17, 34].map(k => <button key={k} type="button" data-kdn-bare className="ls-chip" onClick={() => setCount(String(k))}>{k}칸</button>)}</div>
-    </section>
-    <section><h4>단원·이름으로 <small>한 줄에 하나씩</small></h4>
+  const preview = list => list.length > 0 && <div className="ls-preview"><small>추가될 칸 · {list.length}칸{blank && mode !== "no" ? ` (빈 칸 ${Math.min(blank, list.length)}개를 먼저 채워요)` : ""}</small><div>{list.slice(0, 40).map((slot, i) => <span key={i}>{slot.label}</span>)}{list.length > 40 && <span>…</span>}</div></div>;
+  return <div className="ls-adder">
+    <div className="ls-seg ls-adder-tabs">{[["unit", "단원별"], ["no", "차시 번호"], ["lines", "여러 줄로"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare className={mode === key ? "is-on" : ""} onClick={() => setMode(key)}>{label}</button>)}</div>
+    {mode === "unit" && <>
+      <div className="ls-step"><span className="ls-stepno">1</span><b>단원 고르기</b></div>
+      <UnitPicker subject={meta.subject} value={unit} onChange={setUnit} />
+      <div className="ls-step"><span className="ls-stepno">2</span><b>몇 칸?</b><Stepper value={unitCount} onChange={setUnitCount} label="칸 수" /></div>
+      {preview(unitSlots)}
+      <button type="button" data-kdn-bare className="ls-primary ls-wide" disabled={!u} onClick={() => { add(unitSlots, true, `${u} ${unitCount}칸을 추가했어요.`); setUnit(""); }}><Plus size={16} />{u ? `${u} ${unitCount}칸 추가` : "단원을 먼저 골라 주세요"}</button>
+    </>}
+    {mode === "no" && <>
+      <div className="ls-step"><b>{lastNo + 1}차시부터 몇 칸?</b><Stepper value={count} onChange={setCount} max={200} label="칸 수" /></div>
+      <div className="ls-adds">{[5, 10, 17, 34].map(k => <button key={k} type="button" data-kdn-bare className={`ls-uchip${count === k ? " is-on" : ""}`} onClick={() => setCount(k)}>{k}칸</button>)}</div>
+      <p className="ls-mini">{lastNo + 1}차시 ~ {lastNo + count}차시가 생겨요.</p>
+      <button type="button" data-kdn-bare className="ls-primary ls-wide" onClick={() => add(Array.from({ length: count }, () => ({})), false, `${lastNo + 1}~${lastNo + count}차시 ${count}칸을 추가했어요.`)}><Plus size={16} />{count}칸 추가</button>
+    </>}
+    {mode === "lines" && <>
       <textarea className="ls-area" rows={5} value={text} onChange={e => setText(e.target.value)} placeholder={"이차곡선 4\n공간벡터 3\n형성평가"} aria-label="칸 목록" />
-      <p className="ls-mini">‘단원 이름 + 숫자’는 그 단원 칸을 숫자만큼(이차곡선1, 이차곡선2…), 숫자가 없으면 그 이름으로 한 칸 만들어요.</p>
-      {units.length > 0 && <div className="ls-adds">{units.slice(0, 12).map(u => <button key={u} type="button" data-kdn-bare className="ls-chip" onClick={() => setText(t => `${t}${t && !t.endsWith("\n") ? "\n" : ""}${u} 4`)}><Plus size={12} />{u}</button>)}</div>}
-      {slots.length > 0 && <div className="ls-preview"><small>미리 보기 · {slots.length}칸</small><div>{slots.slice(0, 60).map((slot, i) => <span key={i}>{slot.label}</span>)}{slots.length > 60 && <span>…</span>}</div></div>}
-      <button type="button" data-kdn-bare className="ls-primary" disabled={!slots.length} onClick={addLines}><Plus size={14} />{slots.length ? `${slots.length}칸 추가` : "추가"}</button>
-    </section>
-    <button type="button" data-kdn-bare className="ls-chip" onClick={onOpenSettings}>칸 이름·순서 고치기·지우기는 ⚙ 설정 › 도장 칸</button>
+      <p className="ls-mini">한 줄에 하나씩: ‘단원 이름 + 숫자’는 그 단원 칸을 숫자만큼, 숫자가 없으면 그 이름으로 한 칸.</p>
+      {preview(lineSlots)}
+      <button type="button" data-kdn-bare className="ls-primary ls-wide" disabled={!lineSlots.length} onClick={() => { add(lineSlots, true, `${lineSlots.length}칸을 추가했어요.`); setText(""); }}><Plus size={16} />{lineSlots.length ? `${lineSlots.length}칸 추가` : "추가"}</button>
+    </>}
+  </div>;
+}
+
+// ── 팝업: 도장 칸 추가 ──
+function BulkSlotsBody({ book, meta, act, who, showToast, onDone, onOpenSettings }) {
+  return <div className="ls-settings ls-bulkform">
+    <p className="ls-mini">지금 {sessionsAsc(book).length}칸 있어요. 추가한 칸은 도장판 표에서 바로 찍을 수 있어요.</p>
+    <SlotAdder book={book} meta={meta} act={act} who={who} showToast={showToast} onAdded={onDone} />
+    <button type="button" data-kdn-bare className="ls-chip" onClick={onOpenSettings}>칸 이름·순서 고치기·지우기 → ⚙ 설정</button>
   </div>;
 }
 
@@ -515,7 +581,7 @@ function SessionBody({ book, meta, act, id, onDeleted }) {
     <label>차시<BlurInput className="ls-num" type="number" inputMode="numeric" min="1" value={s.no || index + 1} onCommit={value => patch({ no: Number(value) || "" })} /></label>
     <label>날짜<input type="date" value={s.date || ""} onChange={e => patch({ date: e.target.value })} /></label>
     <label>교시<select className="ls-select" value={s.period || ""} onChange={e => patch({ period: e.target.value ? Number(e.target.value) : "" })}><option value="">-</option>{PERIOD_TIMES.map(([from, to], i) => <option key={i} value={i + 1}>{i + 1}교시 ({from}~{to})</option>)}</select></label>
-    {units && <label className="wide">단원<select className="ls-select" value={s.unit || ""} onChange={e => patch({ unit: e.target.value })}><option value="">단원 선택</option>{units.map(([big, smalls]) => <optgroup key={big} label={big}>{smalls.map(small => <option key={small} value={`${big} · ${small}`}>{small}</option>)}</optgroup>)}</select></label>}
+    {units && <div className="wide ls-field"><span>단원</span><UnitPicker subject={meta.subject} value={s.unit || ""} onChange={value => { if (value !== (s.unit || "")) patch({ unit: value }); }} allowNone commitOnBlur /></div>}
     <label className="wide">주제<BlurInput value={s.topic} placeholder="오늘 배운 내용" onCommit={value => patch({ topic: value })} /></label>
     <label className="wide">교재 쪽<BlurInput value={s.pages} placeholder="예: 32-35" onCommit={value => patch({ pages: value })} /></label>
     <button type="button" data-kdn-bare className="ls-danger" onClick={() => { if (!window.confirm(`${sessionName(s, index)}을(를) 지울까요?${marked ? ` 도장·결석 ${marked}건도 함께 지워져요.` : ""} (관리자 백업에서 되돌릴 수 있어요)`)) return; act({ t: "delSession", id }); onDeleted(); }}><Trash2 size={14} />이 수업 지우기</button>
@@ -524,7 +590,7 @@ function SessionBody({ book, meta, act, id, onDeleted }) {
 
 // ── 팝업: 설정(차시 · 채점 기준 · 내보내기) ──
 const parseLevels = text => String(text || "").split(/[,\n]/).map(part => { const [label, score] = part.split(":").map(x => x.trim()); return label ? { label, score: Number(score) || 0 } : null; }).filter(Boolean);
-function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) {
+function SettingsBody({ book, meta, act, who, section, showToast, onDownload, siblings = [], syncOn = false, setSyncOn, onPushTemplate }) {
   const scoring = book.scoring;
   const cfg = scoring.stamp;
   const items = scoring.items;
@@ -539,20 +605,8 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) 
   const removeItem = it => { if (window.confirm(`'${it.name}' 항목과 입력한 점수를 지울까요?`)) act({ t: "dropItem", item: it.id }); };
   const usePreset = () => { if (items.length && !window.confirm("채점 기준을 예시(도장판 8 + 오답노트·모의고사 풀이·모의고사 피드백 1점씩)로 바꿀까요?")) return; const preset = presetPortfolio(); act({ t: "scoring", value: { ...preset, stamp: { ...preset.stamp, excludeAbsent: cfg.excludeAbsent } } }); };
   const sessions = sessionsAsc(book);
-  const [count, setCount] = useState(() => String(Number(book.planCount) || Math.max(sessions.length, Number(book.hours) || 0) || 34));
-  const [unitName, setUnitName] = useState("");
-  const [unitCount, setUnitCount] = useState("4");
-  const addUnitSlots = () => {
-    const unit = unitName.trim();
-    const n = Math.min(50, Math.max(1, Number(unitCount) || 0));
-    if (!unit || !n) return;
-    const have = sessions.filter(x => (x.unit || "") === unit).length;
-    act({ t: "addSlots", slots: Array.from({ length: n }, (_, k) => ({ id: uid("u"), label: `${unit}${have + k + 1}`, unit })), at: new Date().toISOString(), by: who });
-    showToast?.(`${unit} ${n}칸을 추가했어요.`, "success");
-    setUnitName("");
-  };
+  const [picked, setPicked] = useState(() => siblings.map(x => x.id));
   const moveSlot = (i, dir) => { const ids = sessions.map(x => x.id); const j = i + dir; [ids[i], ids[j]] = [ids[j], ids[i]]; act({ t: "order", ids }); };
-  const makePlan = () => { const n = Math.min(200, Math.max(1, Number(count) || 0)); act({ t: "plan", count: n, at: new Date().toISOString(), by: who }); act({ t: "meta", fields: { planCount: n } }); showToast?.(`${n}차시까지 만들었어요. 도장 탭의 표에서 볼 수 있어요.`, "success"); };
   const max = totalMax(book);
   const rows = meta.students.map(st => ({ ...st, s: stampStats(book, st.sid), total: totalFor(book, st.sid) }));
   const exports = {
@@ -562,21 +616,24 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) 
   };
   return <div className="ls-settings">
     <section ref={planRef}><h4>도장 칸 <small>{sessions.length}칸</small></h4>
-      <p className="ls-mini">차시(1차시, 2차시…)로 해도 되고, 단원별(이차곡선1, 이차곡선2…)로 이름을 붙여도 돼요. 단원을 정하면 도장판 표에 단원별로 묶이고 단원별 도장 수가 함께 나와요.</p>
-      <div className="ls-line"><span>차시로</span><input className="ls-num" type="number" inputMode="numeric" min="1" max="200" value={count} onChange={e => setCount(e.target.value)} aria-label="전체 차시 수" /><span>차시까지</span><button type="button" data-kdn-bare className="ls-chip" onClick={makePlan}><Plus size={14} />만들기</button></div>
-      <div className="ls-line"><span>단원별로</span><input className="ls-text" list="ls-unit-suggest" value={unitName} onChange={e => setUnitName(e.target.value)} placeholder="예: 이차곡선" aria-label="단원 이름" />
-        <datalist id="ls-unit-suggest">{(MATH_UNITS[meta.subject] || []).flatMap(([, smalls]) => smalls).map(name => <option key={name} value={name} />)}</datalist>
-        <input className="ls-num" type="number" inputMode="numeric" min="1" max="50" value={unitCount} onChange={e => setUnitCount(e.target.value)} aria-label="칸 수" /><span>칸</span>
-        <button type="button" data-kdn-bare className="ls-chip" onClick={addUnitSlots} disabled={!unitName.trim()}><Plus size={14} />추가</button></div>
+      <p className="ls-mini">단원별로 추가하면 도장판 표에서 단원별로 묶이고, 단원만 골라 볼 수 있어요.</p>
+      <SlotAdder book={book} meta={meta} act={act} who={who} showToast={showToast} />
+      {sessions.length > 0 && <h5 className="ls-subh">지금 있는 칸</h5>}
       {sessions.length > 0 && <ul className="ls-slots">{sessions.map((s, i) => { const marked = Object.keys(book.marks?.[s.id] || {}).length; return <li key={s.id}>
         <span className="no">{i + 1}</span>
         <BlurInput className="ls-text" value={s.label || ""} placeholder={`${Number(s.no) || i + 1}차시`} onCommit={value => act({ t: "session", id: s.id, fields: { label: value.trim() } })} aria-label="칸 이름" />
-        <BlurInput className="ls-text unit" value={s.unit || ""} placeholder="단원(선택)" list="ls-unit-suggest" onCommit={value => act({ t: "session", id: s.id, fields: { unit: value.trim() } })} aria-label="단원" />
+        <BlurInput className="ls-text unit" value={s.unit || ""} placeholder="단원(선택)" onCommit={value => act({ t: "session", id: s.id, fields: { unit: value.trim() } })} aria-label="단원" />
         <button type="button" data-kdn-bare className="ls-x" disabled={i === 0} onClick={() => moveSlot(i, -1)} aria-label="위로"><ChevronLeft size={15} style={{ rotate: "90deg" }} /></button>
         <button type="button" data-kdn-bare className="ls-x" disabled={i === sessions.length - 1} onClick={() => moveSlot(i, 1)} aria-label="아래로"><ChevronRight size={15} style={{ rotate: "90deg" }} /></button>
         <button type="button" data-kdn-bare className="ls-x" onClick={() => { if (window.confirm(`'${sessionName(s, i)}' 칸을 지울까요?${marked ? ` 찍힌 도장·결석 ${marked}건도 함께 지워져요.` : ""}`)) act({ t: "delSession", id: s.id }); }} aria-label="칸 지우기"><Trash2 size={14} /></button>
       </li>; })}</ul>}
     </section>
+    {siblings.length > 0 && <section><h4>다른 반에도 같은 양식 <small>{meta.subject}</small></h4>
+      <p className="ls-mini">이 반의 도장 칸(이름·단원·순서)과 채점 기준을 같은 과목 다른 반에도 똑같이 맞춰요. 그 반에 찍힌 도장·점수·수업 날짜는 그대로예요.</p>
+      <div className="ls-adds">{siblings.map(x => <label key={x.id} className="ls-check"><input type="checkbox" checked={picked.includes(x.id)} onChange={e => setPicked(list => e.target.checked ? [...list, x.id] : list.filter(id => id !== x.id))} />{x.label.split(" · ")[0]}</label>)}</div>
+      <button type="button" data-kdn-bare className="ls-primary ls-sm" disabled={!picked.length} onClick={() => { if (window.confirm(`${picked.length}개 반의 도장 칸 이름·순서와 채점 기준을 이 반과 같게 맞출까요? (찍힌 도장은 그대로)`)) onPushTemplate?.(picked); }}><Copy size={15} />선택한 반에 지금 맞추기</button>
+      <label className="ls-toggle"><input type="checkbox" checked={syncOn} onChange={e => setSyncOn?.(e.target.checked)} /><span>앞으로 칸·채점 기준을 바꾸면 다른 반에도 자동으로 맞추기</span></label>
+    </section>}
     <section ref={scoreRef}><h4>채점 기준 <small>만점 {max}점</small></h4>
       <div className="ls-it is-stamp">
         <div className="ls-it-top"><label className="ls-toggle"><input type="checkbox" checked={!!cfg.enabled} onChange={e => setStamp({ enabled: e.target.checked })} /><span>사용</span></label><BlurInput className="ls-name" value={cfg.name || "도장판"} onCommit={value => setStamp({ name: value || "도장판" })} aria-label="도장 항목 이름" /></div>
@@ -620,6 +677,28 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) 
 }
 
 const LS_CSS = `
+.ls-adder{display:grid;gap:10px;padding:14px;border:1px solid var(--kdn-line,#dfe2e8);border-radius:14px;background:var(--kdn-surface-2,#f6f7f9)}
+.ls-adder-tabs{justify-self:start}
+.ls-step{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14.5px}
+.ls-stepno{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:999px;background:#ea580c;color:#fff;font-size:12px;font-weight:900}
+.ls-step .ls-stepper{margin-left:auto}
+.ls-unitpick{display:grid;gap:8px}
+.ls-unitpick .grp{display:grid;gap:5px}.ls-unitpick .grp small{font-size:12px;font-weight:800;color:var(--kdn-muted,#5d6574)}
+.ls-unitpick .grp>div{display:flex;flex-wrap:wrap;gap:6px}
+.ls-uchip{min-height:36px;padding:0 13px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:999px;background:var(--kdn-surface,#fff);color:inherit;font:inherit;font-size:13.5px;font-weight:750;cursor:pointer}
+.ls-uchip.is-on{background:#ea580c;border-color:#ea580c;color:#fff}
+.ls-stepper{display:inline-flex;align-items:center;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:12px;background:var(--kdn-surface,#fff);overflow:hidden}
+.ls-stepper button{width:40px;height:40px;border:0;background:transparent;color:inherit;font-size:20px;font-weight:700;cursor:pointer}.ls-stepper button:disabled{opacity:.3;cursor:default}
+.ls-stepper b{min-width:40px;text-align:center;font-size:17px;font-variant-numeric:tabular-nums}
+.ls-primary.ls-wide{width:100%}
+.ls-subh{margin:14px 0 6px;font-size:13px;color:var(--kdn-muted,#5d6574)}
+.ls-field{display:grid;gap:6px}.ls-field>span{font-size:13px;font-weight:800;color:var(--kdn-muted,#5d6574)}
+.ls-ufilter{display:flex;gap:6px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:thin}
+.ls-ufilter button{flex:none;min-height:34px;padding:0 12px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:999px;background:var(--kdn-surface,#fff);color:inherit;font:inherit;font-size:13.5px;font-weight:750;cursor:pointer}
+.ls-ufilter button small{margin-left:3px;font-size:12px;color:var(--kdn-muted,#5d6574)}
+.ls-ufilter button.is-on{background:#2b2f3a;border-color:#2b2f3a;color:#fff}.ls-ufilter button.is-on small{color:#d6d9e0}
+.ls-primary.ls-sm{min-height:38px;padding:0 14px;font-size:14px;border-radius:10px}
+.ls-primary:disabled{opacity:.45;cursor:default}
 .ls-bulk{width:100%;justify-content:center;margin-top:8px}
 .ls-picker .ls-bulk{margin-top:0}
 .ls-bar .ls-bulk{width:auto;margin:0 0 0 auto}
