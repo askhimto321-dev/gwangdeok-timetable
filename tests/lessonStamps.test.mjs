@@ -139,3 +139,12 @@ test("단원별 도장 칸: 추가·순서 바꾸기·이름·단원 묶음", as
   assert.deepEqual(sessionsAsc(book).map(s => s.id), ["v1", "q1", "q2", "q3"]);
   assert.equal(slotName({ no: 5 }), "5차시");
 });
+
+test("parseSlotLines makes unit slots and named slots", async () => {
+  const { parseSlotLines } = await import("../src/lessonStamps.js");
+  const slots = parseSlotLines("이차곡선 3\n벡터 x2\n형성평가\n\n공간도형 2칸", [{ unit: "이차곡선" }]);
+  assert.deepEqual(slots.map(s => s.label), ["이차곡선2", "이차곡선3", "이차곡선4", "벡터1", "벡터2", "형성평가", "공간도형1", "공간도형2"]);
+  assert.equal(slots[0].unit, "이차곡선");
+  assert.equal(slots[5].unit, "");
+  assert.deepEqual(parseSlotLines("12").map(s => s.label), ["12"]);
+});
