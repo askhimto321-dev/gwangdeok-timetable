@@ -117,3 +117,28 @@ export function gradeCounts(students, cuts, subject) {
   Object.values(students || {}).forEach(st => { const g = gradeFor(st?._scores?.[subject], cuts?.[subject]); if (g) counts[g - 1] += 1; });
   return counts;
 }
+
+// 등급 9개를 4구간으로 묶어 보여 줄 때 씁니다(1–2 / 3–4 / 5–6 / 7–9).
+export const MOCK_BANDS = [
+  { key: "b1", label: "1–2등급", from: 1, to: 2 },
+  { key: "b2", label: "3–4등급", from: 3, to: 4 },
+  { key: "b3", label: "5–6등급", from: 5, to: 6 },
+  { key: "b4", label: "7–9등급", from: 7, to: 9 },
+];
+export function bandCounts(counts = []) {
+  return MOCK_BANDS.map(band => counts.slice(band.from - 1, band.to).reduce((sum, n) => sum + (Number(n) || 0), 0));
+}
+
+// 최근(기본 7일 안) 새로 저장된 모의고사 회차 하나. 선생님 알림 팝업에 씁니다.
+export function latestMockUpload(mockData, now = Date.now(), days = 7) {
+  let best = null;
+  Object.entries(mockData || {}).forEach(([dataKey, rec]) => {
+    const at = Date.parse(rec?.updatedAt || "");
+    const key = String(dataKey).split(":")[1] || "";
+    if (!Number.isFinite(at) || !MOCK_MONTH_LABELS[key] || now - at > days * 86400000 || at > now + 60000) return;
+    const count = Object.keys(rec?.students || {}).length;
+    if (!count) return;
+    if (!best || at > best.at) best = { dataKey, key, at, count, label: MOCK_MONTH_LABELS[key], entryYear: Number(rec?.entryYear) || Number(String(dataKey).split(":")[0]) || 0 };
+  });
+  return best;
+}

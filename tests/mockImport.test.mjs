@@ -41,3 +41,25 @@ test("회차: 2학년 10월 포함, 시간순", () => {
   assert.ok(MOCK_MONTH_KEYS.includes("2-10"));
   assert.ok(MOCK_MONTH_KEYS.indexOf("2-9") < MOCK_MONTH_KEYS.indexOf("2-10"));
 });
+
+test("bandCounts groups nine grades into four bands", async () => {
+  const { bandCounts } = await import("../src/mockImport.js");
+  assert.deepEqual(bandCounts([1, 2, 3, 4, 5, 6, 7, 8, 9]), [3, 7, 11, 24]);
+  assert.deepEqual(bandCounts([]), [0, 0, 0, 0]);
+});
+
+test("latestMockUpload finds the newest recent round with students", async () => {
+  const { latestMockUpload } = await import("../src/mockImport.js");
+  const now = Date.parse("2026-10-21T00:00:00Z");
+  const data = {
+    "2025:2-9": { entryYear: 2025, updatedAt: "2026-10-18T00:00:00Z", students: { "20101": {} } },
+    "2025:2-10": { entryYear: 2025, updatedAt: "2026-10-20T00:00:00Z", students: { "20101": {}, "20102": {} } },
+    "2024:3-10": { entryYear: 2024, updatedAt: "2026-10-01T00:00:00Z", students: { "30101": {} } },
+    "2025:2-6": { entryYear: 2025, updatedAt: "2026-10-20T12:00:00Z", students: {} },
+  };
+  const latest = latestMockUpload(data, now);
+  assert.equal(latest.key, "2-10");
+  assert.equal(latest.count, 2);
+  assert.equal(latest.label, "2학년 10월");
+  assert.equal(latestMockUpload({ "2024:3-10": data["2024:3-10"] }, now), null);
+});
