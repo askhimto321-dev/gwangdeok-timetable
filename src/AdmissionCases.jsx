@@ -1,4 +1,5 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { MOCK_MONTH_KEYS } from "./mockImport.js";
 import { Upload, FileSpreadsheet, Loader2, Save, Trash2, Search, GraduationCap, Database, AlertTriangle, CheckCircle2, Filter, RotateCcw, ChevronUp, ChevronDown, ArrowLeft, ChevronRight, Star, ExternalLink, Printer } from "lucide-react";
 import { computeAllGroupAverages, computeMockExamSums, grade5to9, parseAdmissionCaseRows, summarizeAdmissionCases } from "./gradeEngine.js";
 import { conversionDetails, loadSusiNaviBetaData } from "./susiNaviData.js";
@@ -9,7 +10,7 @@ import { isNewUi } from "./uiMode.js";
 import "./supportDecision.css";
 
 const SEMESTERS=["1-1","1-2","2-1","2-2","3-1","3-2"];
-const MOCKS=["1-3","1-6","1-9","1-10","2-3","2-6","2-9","3-3","3-6","3-9"];
+const MOCKS=MOCK_MONTH_KEYS;
 const PAGE_SIZE=50;
 const COLORS={blue:"#315a9b",green:"#39724c",purple:"#6b4f91",red:"#9a3f3f",gold:"#8a641d",line:"#e2ded3",muted:"#777167"};
 const CASE_CONVERSION_GROUPS=["전교과","국수영사과","국수영과","국수영사"];
