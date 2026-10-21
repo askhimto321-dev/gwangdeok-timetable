@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { MOCK_MONTH_KEYS, MOCK_MONTH_LABELS, MOCK_SUBJECTS as MOCK_SUBJECT_LIST, detectMockFormat, parseRawMock, defaultCuts, applyCuts, gradeCounts, estimateCuts, ABSOLUTE_CUTS } from "./mockImport.js";
 import { Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert, CheckCircle2, Star, MessageSquare, Paperclip, Download, X, ArrowLeft } from "lucide-react";
 import { readStorage, updateStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, diagnoseAdmissionFileBackends, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
 import SupportPlanButton, { useSupportPlanCount } from "./SupportPlanButton.jsx";
@@ -70,13 +71,8 @@ const SEMESTER_LABELS = {
   "2-1": "2학년 1학기", "2-2": "2학년 2학기",
   "3-1": "3학년 1학기", "3-2": "3학년 2학기",
 };
-const MOCK_MONTH_KEYS = ["1-3", "1-6", "1-9", "1-10", "2-3", "2-6", "2-9", "3-3", "3-6", "3-9"];
-const MOCK_MONTH_LABELS = {
-  "1-3": "1학년 3월", "1-6": "1학년 6월", "1-9": "1학년 9월", "1-10": "1학년 10월",
-  "2-3": "2학년 3월", "2-6": "2학년 6월", "2-9": "2학년 9월",
-  "3-3": "3학년 3월", "3-6": "3학년 6월", "3-9": "3학년 9월",
-};
-const MOCK_SUBJECTS = ["국어", "수학", "영어", "한국사", "통합사회", "통합과학"];
+// 모의고사 회차·과목·원점수 파일 읽기·등급컷은 mockImport.js
+const MOCK_SUBJECTS = MOCK_SUBJECT_LIST;
 const CORE_MOCK_SUBJECTS = ["국어", "수학", "영어", "통합사회", "통합과학"];
 const CATEGORY_GROUP_NAMES = ["국어", "영어", "수학", "사회", "과학", "기술가정/정보", "제2외국어/한문"];
 const COMBINATION_GROUP_NAMES = ["전과목", "국영수사과", "국영수사", "국영수과", "국영수", "국영사", "국영과", "영수사", "영수과"];
@@ -7245,79 +7241,179 @@ function parseMockSheet(rows) {
   return students;
 }
 
+// 모의고사 등급컷 표: 과목마다 1~8등급 최저 점수(이 점수 이상이면 그 등급). 아래 줄은 등급별 인원.
+const CUT_KIND_LABEL = { official: "공식", estimated: "학교 추정", absolute: "절대평가" };
+function MockCutEditor({ students, subjects, cuts, kinds, onChange }) {
+  const setCut = (subject, index, value) => {
+    const next = { ...cuts, [subject]: (cuts[subject] || Array(8).fill("")).slice() };
+    next[subject][index] = value === "" ? "" : Number(value);
+    onChange(next, { ...kinds, [subject]: kinds[subject] === "absolute" && ABSOLUTE_CUTS[subject] ? "absolute" : "official" });
+  };
+  const reset = subject => {
+    if (ABSOLUTE_CUTS[subject]) onChange({ ...cuts, [subject]: ABSOLUTE_CUTS[subject].slice() }, { ...kinds, [subject]: "absolute" });
+    else { const est = estimateCuts(students, subject); if (est) onChange({ ...cuts, [subject]: est }, { ...kinds, [subject]: "estimated" }); }
+  };
+  const list = subjects.filter(subject => MOCK_SUBJECTS.includes(subject));
+  return (
+    <div className="mock-cut-editor" style={{ overflowX: "auto" }}>
+      <table className="grade-cutoff-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead><tr>
+          <th style={{ textAlign: "left", padding: "8px 10px" }}>과목</th><th style={{ padding: "8px 6px" }}>구분</th>
+          {Array.from({ length: 8 }, (_, i) => <th key={i} style={{ padding: "8px 4px", whiteSpace: "nowrap" }}>{i + 1}등급</th>)}<th />
+        </tr></thead>
+        <tbody>{list.map(subject => { const counts = gradeCounts(students, cuts, subject); const kind = kinds[subject] || "estimated"; return <React.Fragment key={subject}>
+          <tr>
+            <td style={{ padding: "8px 10px", fontWeight: 800, whiteSpace: "nowrap" }}>{subject}</td>
+            <td style={{ padding: "4px 6px", textAlign: "center" }}><span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 99, fontSize: 11.5, fontWeight: 800, background: kind === "official" ? "#e7f6ec" : kind === "absolute" ? "#eef2ff" : "#fff4e5", color: kind === "official" ? "#15803d" : kind === "absolute" ? "#4338ca" : "#b45309" }}>{CUT_KIND_LABEL[kind]}</span></td>
+            {Array.from({ length: 8 }, (_, i) => <td key={i} style={{ padding: "4px 3px", textAlign: "center" }}>
+              <input key={`${subject}-${i}-${cuts[subject]?.[i] ?? ""}`} type="text" inputMode="decimal" defaultValue={cuts[subject]?.[i] ?? ""} aria-label={`${subject} ${i + 1}등급 컷`}
+                onBlur={e => { const v = e.target.value.trim(); if (v === String(cuts[subject]?.[i] ?? "")) return; if (v !== "" && !Number.isFinite(Number(v))) { e.target.value = cuts[subject]?.[i] ?? ""; return; } setCut(subject, i, v); }}
+                onKeyDown={e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                style={{ width: 52, height: 32, padding: "0 6px", border: "1px solid #d5dbe3", borderRadius: 7, textAlign: "right", font: "inherit", fontSize: 13.5 }} />
+            </td>)}
+            <td style={{ padding: "4px 6px", whiteSpace: "nowrap" }}><button type="button" style={btn.link} onClick={() => reset(subject)}>{ABSOLUTE_CUTS[subject] ? "절대평가 기본값" : "학교 분포로 추정"}</button></td>
+          </tr>
+          <tr><td /><td style={{ padding: "0 6px 8px", fontSize: 11.5, color: "#8a8578", textAlign: "center" }}>인원</td>
+            {counts.slice(0, 8).map((n, i) => <td key={i} style={{ padding: "0 3px 8px", fontSize: 11.5, color: "#8a8578", textAlign: "center" }}>{n}</td>)}
+            <td style={{ padding: "0 6px 8px", fontSize: 11.5, color: "#8a8578" }}>9등급 {counts[8]}</td></tr>
+        </React.Fragment>; })}</tbody>
+      </table>
+      <div style={{ fontSize: 12, color: "#8a8578", marginTop: 6, lineHeight: 1.5 }}>각 칸은 그 등급의 최저 점수예요(이 점수 이상이면 그 등급). 공식 등급컷이 나오면 고쳐 넣으세요 — 고친 과목은 ‘공식’으로 표시돼요. ‘학교 추정’은 우리 학교 응시자 분포(4·11·23·40·60·77·89·96%)로 계산한 값이에요.</div>
+    </div>
+  );
+}
+
 function MockUpload({ gdb, persistGrades, showToast }) {
-  const [monthKey, setMonthKey] = useState("2-6");
+  const [monthKey, setMonthKey] = useState("2-10");
   const [entryYear, setEntryYear] = useState(entryYearForGrade(gdb.cohortSettings, 2));
   const fileRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState(null);
   const [applying, setApplying] = useState(false);
+  const [editing, setEditing] = useState(null); // 저장된 회차 등급컷 고치기: { key, students, subjects, cuts, kinds }
+  const record = key => cohortRecord(gdb.mockData, entryYear, key);
 
   const handleFile = async (file) => {
     setBusy(true);
     setPreview(null);
+    setEditing(null);
     try {
       const XLSX = await loadXLSX();
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
-      const students = parseMockSheet(rows);
-      const count = Object.keys(students).length;
-      if (!count) { showToast('학생 데이터를 인식하지 못했습니다. "학번"(또는 신학번) 열이 있는지 확인해주세요.', "error"); setBusy(false); return; }
-      setPreview({ students, count });
-      showToast(`${count}명분을 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
+      const { format } = detectMockFormat(rows);
+      if (format === "raw") {
+        const parsed = parseRawMock(rows, { grade: monthKey.split("-")[0] });
+        if (!parsed.count) { showToast("학생 점수를 찾지 못했어요. 학년·반·번호와 국어점수 등의 열이 있는지 확인해주세요.", "error"); setBusy(false); return; }
+        const fileGrade = Object.keys(parsed.students)[0]?.charAt(0);
+        const { cuts, kinds } = defaultCuts(parsed.students, parsed.subjects);
+        setPreview({ format, fileName: file.name, ...parsed, cuts, kinds, gradeMismatch: fileGrade && fileGrade !== monthKey.split("-")[0] ? fileGrade : "" });
+        showToast(`원점수 ${parsed.count}명을 읽었어요. 등급컷을 확인하고 '반영하기'를 눌러주세요.`, "success");
+      } else {
+        const students = parseMockSheet(rows);
+        const count = Object.keys(students).length;
+        if (!count) { showToast('학생 데이터를 인식하지 못했습니다. "학번"(또는 신학번) 열이나 학년·반·번호 열이 있는지 확인해주세요.', "error"); setBusy(false); return; }
+        setPreview({ format: "legacy", fileName: file.name, students, count });
+        showToast(`${count}명분을 인식했습니다. 아래에서 확인 후 "반영하기"를 눌러주세요.`, "success");
+      }
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
     }
     setBusy(false);
+    if (fileRef.current) fileRef.current.value = "";
   };
 
+  const saveRecord = async (key, payload, message) => {
+    const ok = await persistGrades({ mockData: { ...gdb.mockData, [cohortDataKey(entryYear, key)]: { entryYear, updatedAt: new Date().toISOString(), ...payload } } });
+    if (ok) showToast(message, "success");
+    return ok;
+  };
   const apply = async () => {
+    if (record(monthKey) && !window.confirm(`${MOCK_MONTH_LABELS[monthKey]} 자료가 이미 있어요. 새 파일로 바꿀까요? (바꾸기 전 내용은 자동 백업돼요)`)) return;
     setApplying(true);
-    const ok = await persistGrades({ mockData: { ...gdb.mockData, [cohortDataKey(entryYear, monthKey)]: { students: preview.students, entryYear, updatedAt: new Date().toISOString() } } });
-    if (ok) { showToast(`저장했습니다. (${MOCK_MONTH_LABELS[monthKey]} ${preview.count}명)`, "success"); setPreview(null); }
+    const payload = preview.format === "raw"
+      ? { students: applyCuts(preview.students, preview.cuts), source: "raw", cuts: preview.cuts, cutKinds: preview.kinds, fileName: preview.fileName }
+      : { students: preview.students, source: "graded", fileName: preview.fileName };
+    if (await saveRecord(monthKey, payload, `저장했습니다. (${MOCK_MONTH_LABELS[monthKey]} ${preview.count}명)`)) setPreview(null);
     setApplying(false);
   };
-
+  const openCutEditor = key => {
+    const rec = record(key);
+    if (!rec) return;
+    const students = rec.students || {};
+    const subjects = MOCK_SUBJECTS.filter(subject => Object.values(students).some(st => Number.isFinite(st?._scores?.[subject])));
+    if (!subjects.length) { showToast("이 회차는 원점수 없이 등급만 올라와 있어 등급컷으로 다시 계산할 수 없어요. 원점수 파일을 다시 올려주세요.", "info"); return; }
+    const base = defaultCuts(students, subjects);
+    setPreview(null);
+    setEditing({ key, students, subjects, cuts: { ...base.cuts, ...(rec.cuts || {}) }, kinds: { ...base.kinds, ...(rec.cutKinds || {}) } });
+  };
+  const saveCuts = async () => {
+    setApplying(true);
+    const rec = record(editing.key);
+    const ok = await saveRecord(editing.key, { ...rec, students: applyCuts(editing.students, editing.cuts), cuts: editing.cuts, cutKinds: editing.kinds, source: rec?.source || "raw" }, `${MOCK_MONTH_LABELS[editing.key]} 등급컷을 바꾸고 등급을 다시 계산했어요.`);
+    if (ok) setEditing(null);
+    setApplying(false);
+  };
   const removeMock = async (k) => {
+    if (!window.confirm(`${MOCK_MONTH_LABELS[k]} 모의고사 자료를 지울까요? (지우기 전 내용은 자동 백업돼요)`)) return;
     const updated = { ...gdb.mockData };
     delete updated[cohortDataKey(entryYear, k)];
     const ok = await persistGrades({ mockData: updated });
     if (ok) showToast(`${MOCK_MONTH_LABELS[k]} 모의고사 데이터를 삭제했습니다.`, "success");
   };
+  const grades = ["1", "2", "3"];
 
   return (
     <div>
-      <div style={{ ...card, display: "flex", flexDirection: "column", alignItems: "center", border: `1.5px dashed #e6e1d3` }}>
-        <FileSpreadsheet size={22} color="#8a8578" />
-        <div style={{ fontWeight: 700, marginTop: 8 }}>모의고사 성적 업로드</div>
-        <CohortSelector value={entryYear} onChange={setEntryYear} cohortSettings={gdb.cohortSettings} />
-        <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 12px", textAlign: "center" }}>1행에 "학번"과 과목명(국어,수학,영어,한국사,통합사회,통합과학) 헤더가 있는 엑셀을 올려주세요.</div>
-        <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", justifyContent: "center" }}>
-          {MOCK_MONTH_KEYS.map(k => <button key={k} onClick={() => setMonthKey(k)} style={{ ...btn.chip, ...(monthKey === k ? btn.chipActive : {}) }}>{MOCK_MONTH_LABELS[k]}</button>)}
+      <div style={{ ...card, display: "grid", gap: 12, border: `1.5px dashed #e6e1d3` }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <FileSpreadsheet size={20} color="#8a8578" />
+          <div style={{ fontWeight: 800, fontSize: 15 }}>모의고사 성적 올리기</div>
+          <CohortSelector value={entryYear} onChange={setEntryYear} cohortSettings={gdb.cohortSettings} />
         </div>
-        <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
-        <button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {MOCK_MONTH_LABELS[monthKey]} 파일 선택</button>
+        <div style={{ display: "grid", gap: 6 }}>
+          {grades.map(g => <div key={g} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <b style={{ width: 44, fontSize: 12.5, color: "#5d6574" }}>{g}학년</b>
+            {MOCK_MONTH_KEYS.filter(k => k.startsWith(`${g}-`)).map(k => <button key={k} onClick={() => { setMonthKey(k); setPreview(null); }} style={{ ...btn.chip, ...(monthKey === k ? btn.chipActive : {}) }}>{k.split("-")[1]}월{record(k) ? " ✓" : ""}</button>)}
+          </div>)}
+        </div>
+        <div style={{ fontSize: 12, color: "#8a8578", lineHeight: 1.5 }}>회차를 고르고 파일을 올리세요. <b>원점수 원본 파일</b>(학년·반·번호·이름·국어점수…·탐구 선택과목·총점)은 그대로 올리면 되고, 등급은 아래 등급컷으로 계산해요. 예전 양식(학번 + 과목별 원점수·등급)도 그대로 됩니다.</div>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={e => e.target.files[0] && handleFile(e.target.files[0])} />
+        <div><button style={btn.primary} onClick={() => fileRef.current.click()} disabled={busy}>{busy ? <Loader2 size={14} className="spin" /> : <Upload size={14} />} {MOCK_MONTH_LABELS[monthKey]} 파일 선택</button></div>
       </div>
       {preview && (
-        <div style={card}>
-          <div style={{ fontWeight: 700, marginBottom: 8, color: "#3d5c3a" }}>{MOCK_MONTH_LABELS[monthKey]} — {preview.count}명 인식됨 (아직 저장되지 않았습니다)</div>
+        <div style={{ ...card, display: "grid", gap: 10 }}>
+          <div style={{ fontWeight: 800, color: "#3d5c3a" }}>{MOCK_MONTH_LABELS[monthKey]} — {preview.count}명 {preview.format === "raw" ? "원점수" : ""} 인식됨 <span style={{ fontWeight: 600, color: "#8a8578" }}>(아직 저장 전 · {preview.fileName})</span></div>
+          {preview.gradeMismatch && <div style={{ fontSize: 12.5, color: "#b45309" }}>파일은 {preview.gradeMismatch}학년 자료인데 {monthKey.split("-")[0]}학년 회차를 골랐어요. 회차를 확인해주세요.</div>}
+          {preview.format === "raw" && <MockCutEditor students={preview.students} subjects={preview.subjects} cuts={preview.cuts} kinds={preview.kinds} onChange={(cuts, kinds) => setPreview(p => ({ ...p, cuts, kinds }))} />}
           <div style={{ display: "flex", gap: 8 }}>
             <button style={btn.primary} onClick={apply} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 반영하기</button>
             <button style={btn.secondary} onClick={() => setPreview(null)}>취소</button>
           </div>
         </div>
       )}
+      {editing && (
+        <div style={{ ...card, display: "grid", gap: 10 }}>
+          <div style={{ fontWeight: 800 }}>{MOCK_MONTH_LABELS[editing.key]} 등급컷 고치기 <span style={{ fontWeight: 600, color: "#8a8578" }}>· 저장하면 학생 등급을 다시 계산해요</span></div>
+          <MockCutEditor students={editing.students} subjects={editing.subjects} cuts={editing.cuts} kinds={editing.kinds} onChange={(cuts, kinds) => setEditing(p => ({ ...p, cuts, kinds }))} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={btn.primary} onClick={saveCuts} disabled={applying}>{applying ? <Loader2 size={14} className="spin" /> : <Save size={14} />} 등급컷 저장</button>
+            <button style={btn.secondary} onClick={() => setEditing(null)}>취소</button>
+          </div>
+        </div>
+      )}
       <div style={card}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>현재 업로드 현황</div>
-        {MOCK_MONTH_KEYS.map(k => (
-          <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0eee6" }}>
-            <span>{MOCK_MONTH_LABELS[k]}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: cohortRecord(gdb.mockData, entryYear, k) ? "#3d5c3a" : "#a39d8c" }}>{cohortRecord(gdb.mockData, entryYear, k) ? `${Object.keys(cohortRecord(gdb.mockData, entryYear, k).students).length}명` : "미등록"}</span>
-              {cohortRecord(gdb.mockData, entryYear, k) && <button style={btn.link} onClick={() => removeMock(k)}>삭제</button>}
+        <div style={{ fontWeight: 800, marginBottom: 8 }}>{entryYear}년 입학생 회차별 현황</div>
+        {MOCK_MONTH_KEYS.filter(k => record(k) || k === monthKey).map(k => { const rec = record(k); const hasRaw = rec && Object.values(rec.students || {}).some(st => st?._scores); return (
+          <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 13, padding: "8px 0", borderBottom: "1px solid #f0eee6", flexWrap: "wrap" }}>
+            <span style={{ fontWeight: 700 }}>{MOCK_MONTH_LABELS[k]}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <span style={{ color: rec ? "#3d5c3a" : "#a39d8c" }}>{rec ? `${Object.keys(rec.students || {}).length}명${rec.cuts ? ` · 등급컷 ${Object.values(rec.cutKinds || {}).some(v => v === "estimated") ? "일부 추정" : "입력됨"}` : ""}` : "미등록"}</span>
+              {hasRaw && <button style={btn.secondary} onClick={() => openCutEditor(k)}>등급컷 고치기</button>}
+              {rec && <button style={btn.link} onClick={() => removeMock(k)}>삭제</button>}
             </div>
           </div>
-        ))}
+        ); })}
       </div>
     </div>
   );
