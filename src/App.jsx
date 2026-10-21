@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { parseRegisterSheets } from "./registerImport.js";
 import AccountSwitcher, { ImpersonationBar } from "./AccountSwitcher.jsx";
+import { latestMockUpload } from "./mockImport.js";
 import { featureAllowed, STAFF_FEATURES, featureDefault, toggleFeature, staffRoleOf } from "./staffPermissions.js";
 import { mergeAccounts } from "./accountsMerge.js";
 import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, curriculumColumn, curriculumSubjects, ALTERNATE_PAIRS, subjectCategory } from "./curriculum.js";
@@ -1959,6 +1960,7 @@ export default function App() {
     }
   };
   // 새 UI 빠른 메뉴·검색·학사일정에서 쓰는 값
+  const canUseMockAnalysis = !!(loggedInAdmin || ((loggedInTeacher || loggedInDepartment) && (staffGradeAccessList || []).length && featureAllowed(loggedInTeacher || { ...loggedInDepartment, accountType: "department" }, "mockAnalysis")));
   const overlayUserKey = loggedInStudent ? `student_${loggedInStudent.sid || loggedInStudent.id || ""}` : (loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor) ? (loggedInAdmin ? `admin_${loggedInAdmin.id || "admin"}` : loggedInTeacher ? `teacher_${loggedInTeacher.id}` : loggedInDepartment ? `dept_${loggedInDepartment.id}` : loggedInMonitor ? `monitor_${loggedInMonitor.id}` : "shared") : "";
   const paletteStudents = staffWorkspaceEnabled ? Object.entries(roster || {}).map(([sid, info]) => ({ sid, name: info?.name, class: info?.class, number: info?.number })).filter(student => student.name) : [];
   const paletteMenus = [
@@ -2039,6 +2041,8 @@ export default function App() {
         <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
         {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }} />}
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
+        {canSeeTeacherZone && !loggedInStudent && !loggedInAdmin && canUseMockAnalysis && gdb?.mockData && <MockUploadPopup mockData={gdb.mockData} userKey={overlayUserKey}
+          onOpen={latest => { const year = new Date().getFullYear(); const g = latest.entryYear ? String(year - latest.entryYear + 1) : ""; if (["1", "2", "3"].includes(g)) setGrade(g); setTeacherZoneRequest({ mode: "mock", at: Date.now() }); switchSection("teacherZone"); }} />}
         {canSeeTeacherZone && !loggedInStudent && <GradeCheckPopup calendar={db.academicCalendar} workspaces={db.teacherGradeWorkspaces} teacher={loggedInTeacher || viewedTeacher} isAdmin={!!loggedInAdmin} semester={semester} userKey={overlayUserKey}
           homeroomClass={loggedInTeacher?.homeroomClass && canUseFeature("classGrades") ? loggedInTeacher.homeroomClass : ""} homeroomGrade={loggedInTeacher?.homeroomClass ? (teacherRoleGrade(loggedInTeacher) || grade) : ""}
           onOpenClassExam={() => { const g = teacherRoleGrade(loggedInTeacher); if (g) setGrade(String(g)); openTeacherTool("classGrades", "examAll"); }}
@@ -2102,7 +2106,7 @@ export default function App() {
           modeRequest={teacherZoneRequest}
           gdb={gdb}
           mockGradeOptions={loggedInAdmin ? GRADES : (staffGradeAccessList || []).map(String).sort()}
-          canUseMock={!!(loggedInAdmin || ((loggedInTeacher || loggedInDepartment) && (staffGradeAccessList || []).length && featureAllowed(loggedInTeacher || { ...loggedInDepartment, accountType: "department" }, "mockAnalysis")))}
+          canUseMock={canUseMockAnalysis}
           onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : undefined}
           onOpenMinimum={canSeeMinimum ? () => switchSection("minimumAchievement") : undefined}
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInDepartment={loggedInDepartment} loggedInMonitor={loggedInMonitor}
@@ -3000,14 +3004,33 @@ function myGradeWorkspaces(workspaces, teacher, grade, semester, isAdmin) {
 // 학년별로 묶기: [[학년, [작업…]], …] (학년 순)
 const groupByGrade = list => Array.from(list.reduce((map, ws) => { const g = String(ws.grade || ""); if (!map.has(g)) map.set(g, []); map.get(g).push(ws); return map; }, new Map())).sort((a, b) => Number(a[0]) - Number(b[0]));
 
-// 성적 확인 기간(정기시험이 끝난 뒤 3주) 팝업: 내 과목 결과로 바로 가는 버튼을 학년별로 보여 줍니다. 하루 한 번, '오늘 그만 보기'로 닫을 수 있어요.
+// 모의고사 성적이 새로 올라오면(7일 안) 선생님에게 한 번 알려 줍니다. 회차·저장 시각마다 한 번만 떠요.
+function MockUploadPopup({ mockData, userKey, onOpen }) {
+  const latest = latestMockUpload(mockData);
+  const seenKey = latest ? `kd_mock_seen_${userKey || "staff"}_${latest.dataKey}_${latest.at}` : "";
+  const [seen, setSeen] = useState(false);
+  const already = (() => { if (!seenKey) return true; try { return localStorage.getItem(seenKey) === "1"; } catch { return false; } })();
+  if (!latest || already || seen) return null;
+  const close = () => { try { localStorage.setItem(seenKey, "1"); } catch { /* 저장 못 해도 이번엔 닫힘 */ } setSeen(true); };
+  const date = new Date(latest.at);
+  return <div className="kdn-gcp-back no-print" role="dialog" aria-modal="true" aria-label="모의고사 성적 안내" onClick={event => { if (event.target === event.currentTarget) close(); }}>
+    <div className="kdn-gcp">
+      <div className="kdn-gcp-head"><em>모의고사</em><b>{latest.label} 모의고사 성적이 올라왔어요</b><span>{latest.entryYear ? `${latest.entryYear}년 입학생 · ` : ""}{latest.count}명 · {date.getMonth() + 1}월 {date.getDate()}일 반영</span></div>
+      <p className="kdn-gcp-empty">등급 분포, 반별 평균, 미응시 학생을 모의고사 분석에서 바로 볼 수 있어요.</p>
+      <div className="kdn-gcp-foot"><span style={{ flex: 1 }} /><button type="button" data-kdn-bare className="ghost" onClick={close}>닫기</button><button type="button" data-kdn-bare className="go" onClick={() => { close(); onOpen?.(latest); }}>모의고사 분석 보기 <ArrowRight size={14} /></button></div>
+    </div>
+  </div>;
+}
+
+// 성적 확인 기간(정기시험이 끝난 뒤 D+6까지) 팝업: 내 과목 결과로 바로 가는 버튼을 학년별로 보여 줍니다. 하루 한 번, '오늘 그만 보기'로 닫을 수 있어요.
 function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, userKey, onOpen, homeroomClass = "", homeroomGrade = "", onOpenClassExam }) {
   const exam = examPeriodFromCalendar(calendar);
   const today = new Date();
   const dayKey = `kd_grade_check_popup_${userKey || "staff"}_${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(dayKey) === "1"; } catch { return false; } });
   const [closed, setClosed] = useState(false);
-  if (!exam || exam.phase !== "after" || hidden || closed) return null;
+  // 성적 확인 기간 팝업은 시험이 끝난 날부터 D+6까지만 띄웁니다.
+  if (!exam || exam.phase !== "after" || exam.d < -6 || hidden || closed) return null;
   const groups = groupByGrade(myGradeWorkspaces(workspaces, teacher, null, semester, isAdmin));
   // 학급담임: 우리 반 정기시험 결과(반별 성적 › 정기시험 전 과목)로 바로
   const classExamCount = homeroomClass && homeroomGrade ? myGradeWorkspaces(workspaces, null, homeroomGrade, semester, true).length : 0;
