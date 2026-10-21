@@ -220,6 +220,19 @@ export function applyOp(book, op) {
       for (let no = 1; no <= Number(op.count); no += 1) if (!have.has(no)) b.sessions[`n${no}`] = { no, date: "", period: "", unit: "", topic: "", pages: "", at: op.at, by: op.by || "" };
       return b;
     }
+    case "addSlots": {
+      // 도장 칸 추가(단원별 이름 등): 맨 뒤에 번호를 이어 붙입니다. 이미 있는 id는 건너뜀.
+      let maxNo = Object.values(b.sessions).reduce((max, x) => Math.max(max, Number(x.no) || 0), 0);
+      (op.slots || []).forEach(slot => { if (b.sessions[slot.id]) return; maxNo += 1; b.sessions[slot.id] = { no: maxNo, label: slot.label || "", unit: slot.unit || "", date: "", period: "", topic: "", pages: "", at: op.at, by: op.by || "" }; });
+      return b;
+    }
+    case "order": {
+      // 칸 순서 바꾸기: ids 순서대로 번호를 다시 매깁니다(목록에 없는 칸은 뒤로).
+      const ids = (op.ids || []).filter(id => b.sessions[id]);
+      const rest = sessionsAsc(b).map(x => x.id).filter(id => !ids.includes(id));
+      [...ids, ...rest].forEach((id, index) => { b.sessions[id] = { ...b.sessions[id], no: index + 1 }; });
+      return b;
+    }
     case "meta": Object.assign(b, op.fields || {}); return b;
     case "scoring": b.scoring = op.value; return b;
     case "item": {
@@ -243,4 +256,15 @@ export function nextSessionFor(book) {
   if (planned) return { id: planned.id, no: Number(planned.no) || 0, existing: true };
   const maxNo = list.reduce((max, s, index) => Math.max(max, Number(s.no) || index + 1), 0);
   return { id: null, no: maxNo + 1, existing: false };
+}
+
+// 도장 칸 이름: 이름을 정했으면 그 이름(예: 이차곡선1), 아니면 N차시
+export function slotName(session, index = 0) {
+  return String(session?.label || "").trim() || `${Number(session?.no) || index + 1}차시`;
+}
+// 이어진 칸들을 단원별로 묶기(표 머리글·단원별 합계용). 단원이 없으면 한 묶음.
+export function slotGroups(sessions) {
+  const groups = [];
+  sessions.forEach(s => { const unit = String(s.unit || "").trim(); const last = groups[groups.length - 1]; if (last && last.unit === unit) last.items.push(s); else groups.push({ unit, items: [s] }); });
+  return groups;
 }

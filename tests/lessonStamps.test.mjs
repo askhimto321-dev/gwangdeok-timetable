@@ -126,3 +126,16 @@ test("제출 항목: 제출 · 늦게 제출 · 미흡 점수 따로", async () 
   assert.equal(itemScore(book, it, "d"), null);
   assert.equal(itemScore(book, { ...it, late: undefined }, "b"), 1);
 });
+
+test("단원별 도장 칸: 추가·순서 바꾸기·이름·단원 묶음", async () => {
+  const { applyOp, sessionsAsc, slotName, slotGroups } = await import("../src/lessonStamps.js");
+  let book = emptyBook();
+  book = applyOp(book, { t: "addSlots", slots: [1, 2, 3].map(i => ({ id: `q${i}`, label: `이차곡선${i}`, unit: "이차곡선" })), at: "x" });
+  book = applyOp(book, { t: "addSlots", slots: [{ id: "v1", label: "벡터1", unit: "벡터" }, { id: "q1", label: "중복" }], at: "x" });
+  const asc = sessionsAsc(book);
+  assert.deepEqual(asc.map(s => slotName(s)), ["이차곡선1", "이차곡선2", "이차곡선3", "벡터1"]);
+  assert.deepEqual(slotGroups(asc).map(g => [g.unit, g.items.length]), [["이차곡선", 3], ["벡터", 1]]);
+  book = applyOp(book, { t: "order", ids: ["v1", "q1"] });
+  assert.deepEqual(sessionsAsc(book).map(s => s.id), ["v1", "q1", "q2", "q3"]);
+  assert.equal(slotName({ no: 5 }), "5차시");
+});

@@ -2472,13 +2472,27 @@ function MonitorZoneView({ monitor, db, persist, showToast, scopeKey, onLogout }
   );
 }
 
-function AdminTeacherPicker({ accounts, onSelect }) {
+// 관리자 계정으로 수업 포트폴리오를 열 때: 한 번 고른 '내 선생님 계정'을 기억해 다음부터 바로 엽니다.
+// (관리자 아이디와 같은 아이디의 선생님 계정이 있으면 그것을 씁니다.)
+function AdminOwnTeacher({ accounts, admin, onSelect }) {
+  const key = `kd_admin_teacher_${admin?.id || "admin"}`;
+  const teachers = accounts?.teacher || [];
+  useEffect(() => {
+    let saved = "";
+    try { saved = localStorage.getItem(key) || ""; } catch { saved = ""; }
+    const mine = teachers.find(t => t.id === saved) || teachers.find(t => t.id === admin?.id);
+    if (mine) onSelect(mine);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <AdminTeacherPicker accounts={accounts} title="내 선생님 계정 고르기" note="한 번 고르면 기억해서, 다음부터는 이 화면 없이 바로 열려요." onSelect={teacher => { try { localStorage.setItem(key, teacher.id); } catch { /* 기억 못 해도 이번엔 열림 */ } onSelect(teacher); }} />;
+}
+
+function AdminTeacherPicker({ accounts, onSelect, title = "선생님 화면 보기", note = "" }) {
   const teachers = (accounts.teacher || []).slice().sort((a, b) => a.name.localeCompare(b.name, "ko"));
   return (
     <div style={styles.loginBox}>
       <Users size={22} color="#8a8578" />
-      <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>선생님 화면 보기</div>
-      <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 14px", textAlign: "center" }}>관리자 권한으로, 비밀번호 없이 선생님 계정 화면을 보고 관리할 수 있습니다.</div>
+      <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>{title}</div>
+      <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 14px", textAlign: "center" }}>{note || "관리자 권한으로, 비밀번호 없이 선생님 계정 화면을 보고 관리할 수 있습니다."}</div>
       {teachers.length === 0 ? (
         <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 선생님 계정이 없습니다.</div>
       ) : (
@@ -2950,7 +2964,7 @@ function TeacherZoneWorkspace({
       {activeTeacher
         ? <DeferredPanel label="수업 포트폴리오를 불러오는 중입니다."><LessonStamps key={`ls-${grade}-${semester}-${activeTeacher.id || ""}`} teacher={activeTeacher} accounts={accounts} db={db} grade={grade} semester={semester} showToast={showToast} /></DeferredPanel>
         // 관리자: 수업 포트폴리오는 선생님 담당 과목별이라, 볼 선생님을 먼저 고릅니다.
-        : <AdminTeacherPicker accounts={accounts} onSelect={setViewedTeacher} />}
+        : <AdminOwnTeacher accounts={accounts} admin={loggedInAdmin} onSelect={setViewedTeacher} />}
     </div>}
     {canUseNotice && visitedWorkspaceModes.includes("notice") && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
     {canUseGradeDepartmentTools && visitedWorkspaceModes.some(mode => ["contacts", "records", "gradeData"].includes(mode)) && <div style={{ display: ["contacts", "records", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records", "gradeData"].includes(workspaceMode))}>
@@ -3064,13 +3078,14 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
 }
 
 const teacherZoneWorkspaceStyles = {
-  toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14, padding: "10px 12px", border: "1px solid #dbe3ef", borderRadius: 14, background: "linear-gradient(135deg,#f7fbff,#faf8ff)", boxShadow: "0 7px 20px rgba(55,72,110,.06)", flexWrap: "wrap" },
-  modeTabs: { display: "flex", gap: 7, flexWrap: "wrap" },
-  modeButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d3ddea", borderRadius: 10, padding: "8px 12px", color: "#5d6b7e", background: "#fff", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 12.2, fontWeight: 850, cursor: "pointer" },
-  modeButtonActive: { color: "#fff", background: "#3568a3", borderColor: "#3568a3", boxShadow: "0 6px 15px rgba(53,104,163,.2)" },
-  gradeGroup: { display: "flex", alignItems: "center", gap: 5, color: "#738095", fontSize: 11.5, fontWeight: 850 },
-  gradeButton: { border: "1px solid #d5dfeb", borderRadius: 999, padding: "6px 9px", color: "#5f6f82", background: "#fff", fontWeight: 850, cursor: "pointer" },
-  gradeButtonActive: { color: "#315d90", background: "#e9f2fc", borderColor: "#b8cde5" },
+  // 새 UI 색 변수(라이트·다크 공통)로: 선택한 업무 탭은 강조색으로 분명하게, 글자는 크게
+  toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16, padding: "8px 10px", border: "1px solid var(--kdn-line)", borderRadius: 16, background: "var(--kdn-surface)", flexWrap: "wrap" },
+  modeTabs: { display: "flex", gap: 4, flexWrap: "wrap" },
+  modeButton: { display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid transparent", borderRadius: 11, padding: "10px 15px", color: "var(--kdn-ink-soft)", background: "transparent", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 14.5, fontWeight: 850, cursor: "pointer" },
+  modeButtonActive: { color: "var(--kdn-accent-text)", background: "var(--kdn-accent-soft)", borderColor: "var(--kdn-accent)", boxShadow: "inset 0 -3px 0 var(--kdn-accent)" },
+  gradeGroup: { display: "flex", alignItems: "center", gap: 5, color: "var(--kdn-muted)", fontSize: 13, fontWeight: 850 },
+  gradeButton: { border: "1px solid var(--kdn-control-line)", borderRadius: 999, padding: "7px 12px", color: "var(--kdn-ink-soft)", background: "var(--kdn-surface)", fontSize: 13, fontWeight: 850, cursor: "pointer" },
+  gradeButtonActive: { color: "var(--kdn-accent-ink)", background: "var(--kdn-accent)", borderColor: "var(--kdn-accent)" },
 };
 
 function MegaNav(props) {
