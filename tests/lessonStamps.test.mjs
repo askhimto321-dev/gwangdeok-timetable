@@ -180,3 +180,17 @@ test("template copies slot names, order and scoring without touching marks", asy
   assert.equal(dst.sessions.s1.label, "쌍곡선");
   assert.equal(dst.marks.s1["20301"].m, "stamp");
 });
+
+test("small units group under their big unit and swapped names are detected", async () => {
+  const { unitGroup, slotGroups, slotName, looksSwapped } = await import("../src/lessonStamps.js");
+  assert.equal(unitGroup("포물선"), "이차곡선");
+  assert.equal(unitGroup("Ⅰ. 이차곡선 · 타원"), "이차곡선");
+  assert.equal(unitGroup("형성평가"), "형성평가");
+  const slots = [{ id: "a", no: 1, label: "이차곡선", unit: "포물선" }, { id: "b", no: 2, label: "이차곡선", unit: "타원" }, { id: "c", no: 3, label: "공간도형", unit: "위치관계" }];
+  assert.deepEqual(slotGroups(slots).map(g => [g.unit, g.items.length]), [["이차곡선", 2], ["위치관계", 1]]);
+  assert.equal(slotName(slots[0]), "포물선");
+  assert.equal(slotName({ label: "포물선1", unit: "포물선" }), "포물선1");
+  assert.equal(slotName({ no: 3 }), "3차시");
+  assert.equal(looksSwapped(slots), true);
+  assert.equal(looksSwapped([{ label: "포물선1", unit: "포물선" }, { label: "포물선2", unit: "포물선" }]), false);
+});

@@ -305,13 +305,37 @@ export function nextSessionFor(book) {
 }
 
 // 도장 칸 이름: 이름을 정했으면 그 이름(예: 이차곡선1), 아니면 N차시
+// 단원 묶음: 소단원(포물선)은 대단원(이차곡선)으로 묶습니다. 'Ⅰ. 이차곡선 · 포물선' 같은 예전 값도 대단원으로.
+const stripBig = big => String(big || "").replace(/^[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩIVX]+\.\s*/, "").trim();
+const UNIT_GROUP = (() => {
+  const map = {};
+  Object.values(MATH_UNITS).forEach(groups => groups.forEach(([big, smalls]) => { const name = stripBig(big); map[name] = name; map[big] = name; smalls.forEach(small => { map[small] = name; map[`${big} · ${small}`] = name; }); }));
+  return map;
+})();
+export function unitGroup(unit) {
+  const u = String(unit || "").trim();
+  return UNIT_GROUP[u] || u;
+}
+export const bigUnitName = stripBig;
+// 칸 이름: 이름 → (이름이 단원 묶음과 같으면) 소단원 → N차시
 export function slotName(session, index = 0) {
-  return String(session?.label || "").trim() || `${Number(session?.no) || index + 1}차시`;
+  const label = String(session?.label || "").trim();
+  const unit = String(session?.unit || "").trim();
+  const group = unitGroup(unit);
+  if (label && !(label === group && unit && unit !== group)) return label;
+  if (unit && unit !== group) return unit.includes(" · ") ? unit.split(" · ").pop() : unit;
+  return label || `${Number(session?.no) || index + 1}차시`;
+}
+// 칸 이름 자리에 단원을 적은 것 같은지(같은 이름이 여러 칸, 단원 칸은 서로 다름) → 설정에서 '이름·단원 바꾸기' 안내
+export function looksSwapped(sessions = []) {
+  const byLabel = {};
+  sessions.forEach(s => { const label = String(s?.label || "").trim(); const unit = String(s?.unit || "").trim(); if (label && unit && label !== unit) (byLabel[label] ||= new Set()).add(unit); });
+  return Object.values(byLabel).some(units => units.size >= 2);
 }
 // 이어진 칸들을 단원별로 묶기(표 머리글·단원별 합계용). 단원이 없으면 한 묶음.
 export function slotGroups(sessions) {
   const groups = [];
-  sessions.forEach(s => { const unit = String(s.unit || "").trim(); const last = groups[groups.length - 1]; if (last && last.unit === unit) last.items.push(s); else groups.push({ unit, items: [s] }); });
+  sessions.forEach(s => { const unit = unitGroup(s.unit); const last = groups[groups.length - 1]; if (last && last.unit === unit) last.items.push(s); else groups.push({ unit, items: [s] }); });
   return groups;
 }
 
