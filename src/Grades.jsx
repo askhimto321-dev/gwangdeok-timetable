@@ -19,7 +19,7 @@ import { CutStrip, supportBandFor } from './naviVisuals.jsx';
 import { GradeInsights, GradeHeatmap } from './gradeInsights.jsx';
 import GradeSimulator, { GradeSimPresetChips } from './GradeSimulator.jsx';
 import { CompareOverview, SemesterChips, printGradeComparison, COMPARE_COLORS } from './gradeCompareVisuals.jsx';
-import { exportVisibleTables } from './tableExport.js';
+import { exportVisibleTables, printElement } from './tableExport.js';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
 import { isNewUi, getUiMode, rawColors } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
@@ -1057,6 +1057,10 @@ const CLASS_GRADE_CSS = `
 .cg-hero select{min-height:40px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font:inherit;font-size:14px;font-weight:700}
 .cg-hero select option{color:#1f2430}
 .cg-ghost{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#fff;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.kd-xlsx-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:grid;gap:8px;width:260px;padding:14px;border:1px solid var(--kdn-line,#dfe2e8);border-radius:14px;background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2430);box-shadow:0 14px 34px rgba(15,23,42,.22);text-align:left}
+.kd-xlsx-pop b{font-size:14.5px}.kd-xlsx-pop label{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;cursor:pointer}.kd-xlsx-pop label input{width:18px;height:18px}
+.kd-xlsx-pop small{font-size:12px;color:var(--kdn-muted,#5d6574);line-height:1.4}
+.kd-xlsx-pop button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border:0;border-radius:10px;background:var(--kdn-accent,#ea580c);color:#fff;font:inherit;font-size:14px;font-weight:850;cursor:pointer}
 .cg-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:18px 20px 6px}
 .cg-kpi{display:grid;gap:8px;align-content:start;padding:16px 18px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e3e6ec)}
 .cg-kpi-l{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--kdn-muted,#5d6574)}
@@ -1422,6 +1426,30 @@ function ClassGradeHistogram({ metricLabel = "전교과",  bins, counts, total, 
   </div>;
 }
 // 직전 학기 → 최근 학기 값과 변화량(낮을수록 좋은 성적).
+// 엑셀 받기 버튼 + 선택지(성적 변화량 빼기)
+function XlsxButton({ className = "", withDelta = false, onExport }) {
+  const [open, setOpen] = useState(false);
+  const [dropDelta, setDropDelta] = useState(() => { try { return localStorage.getItem("kd_xlsx_drop_delta") !== "0"; } catch { return true; } });
+  const ref = useRef(null);
+  useEffect(() => { if (!open) return undefined; const close = e => { if (!ref.current?.contains(e.target)) setOpen(false); }; document.addEventListener("pointerdown", close); return () => document.removeEventListener("pointerdown", close); }, [open]);
+  const run = () => { try { localStorage.setItem("kd_xlsx_drop_delta", dropDelta ? "1" : "0"); } catch { /* 무시 */ } setOpen(false); onExport?.(dropDelta); };
+  return <span className="kd-xlsx" ref={ref} style={{ position: "relative", display: "inline-flex" }}>
+    <button type="button" className={className} data-kdn-bare onClick={() => (withDelta ? setOpen(v => !v) : onExport?.(false))} title="지금 화면의 표를 엑셀 파일로 저장"><FileSpreadsheet size={15} />엑셀</button>
+    {open && <div className="kd-xlsx-pop" role="dialog" aria-label="엑셀 받기">
+      <b>엑셀로 받기</b>
+      <label><input type="checkbox" checked={dropDelta} onChange={e => setDropDelta(e.target.checked)} /><span>성적 변화량(▲▼) 빼고 받기</span></label>
+      <small>학기 성적과 '직전·최근 학기'는 칸을 나눠 숫자로 저장해요.</small>
+      <button type="button" data-kdn-bare onClick={run}><FileSpreadsheet size={15} />엑셀 받기</button>
+    </div>}
+  </span>;
+}
+// 엑셀용: [직전, 최근, 변화량(+ 상승)]
+function changeParts(trend = []) {
+  if (!trend.length) return ["", "", ""];
+  if (trend.length < 2) return ["", fmt2(trend[0].value), ""];
+  const prev = trend[trend.length - 2], last = trend[trend.length - 1];
+  return [fmt2(prev.value), fmt2(last.value), Number((prev.value - last.value).toFixed(2))];
+}
 function SemesterChange({ trend = [] }) {
   if (trend.length < 2) return trend.length ? <span className="cg-sub">최근 {fmt2(trend[0].value)} · 비교 없음</span> : <span className="cg-sub">-</span>;
   const prev = trend[trend.length - 2], last = trend[trend.length - 1];
@@ -1680,7 +1708,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
           {(subjectOptions.length > 0 || (view === "class" && examSubjects.length > 0)) && <select data-tour="cg-pick" className={`cg-subject-pick${isSubject || isExam ? " is-on" : ""}`} value={isSubject || isExam ? metric : ""} onChange={event => setMetric(event.target.value || "overall")} aria-label="개별 과목"><option value="">과목별 보기…</option>{SEMESTER_KEYS.map(key => { const list = subjectOptions.filter(item => [...item.keys][0] === key); if (!list.length) return null; const [y, t] = key.split("-"); return <optgroup key={key} label={`${y}학년 ${t}학기`}>{list.map(item => <option key={item.name} value={`${SUBJECT_METRIC}${item.name}`}>{item.name}</option>)}</optgroup>; })}{view === "class" && Array.from(new Set(examSubjects.map(item => item.key))).map(key => { const list = examSubjects.filter(item => item.key === key); return <optgroup key={key} label={`${currentGrade}학년 ${list[0].semester}학기 · ${list[0].title} 정기시험`}>{list.length > 1 && <option value={`${EXAM_METRIC}ALL|${key}`}>전 과목 보기 ({list.length}과목)</option>}{list.map(item => <option key={item.id} value={`${EXAM_METRIC}${item.id}`}>{item.subject} · {item.title}</option>)}</optgroup>; })}</select>}
           {isAdmin && view === "class" && <select data-tour="cg-class" value={classNo} onChange={event => setPickedClass(event.target.value)} aria-label="반 선택"><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
           <TourButton onClick={() => setTourToken(Date.now())} />
-          <button type="button" className="cg-ghost no-print" data-kdn-bare title="지금 화면의 표를 엑셀 파일로 저장" onClick={async () => { const ok = await exportVisibleTables(cgRootRef.current, `${currentGrade}학년_${view === "compare" ? "반비교" : allClasses ? "전체반" : `${classNo}반`}_${metricLabel}_${new Date().toISOString().slice(0, 10)}`, { loadXLSX }); if (!ok) window.alert("내보낼 표가 없어요."); }}><FileSpreadsheet size={15} />엑셀</button>
+          <XlsxButton className="cg-ghost no-print" withDelta onExport={async dropDelta => { const ok = await exportVisibleTables(cgRootRef.current, `${currentGrade}학년_${view === "compare" ? "반비교" : allClasses ? "전체반" : `${classNo}반`}_${metricLabel}_${new Date().toISOString().slice(0, 10)}`, { loadXLSX, dropDelta }); if (!ok) window.alert("내보낼 표가 없어요."); }} />
           {view === "class" && <button type="button" className="cg-ghost no-print" data-kdn-bare onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${allClasses ? "전체 반" : `${classNo}반`} 성적 ·`)} disabled={!rows.length}><Printer size={15} />인쇄·PDF</button>}
         </div>
       </div>
@@ -1717,16 +1745,16 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
           <td>{ach ? <span className={`cg-ach a-${ach.charAt(0)}`}>{ach}</span> : "-"}</td>
         </React.Fragment>; })}
       </tr>; })}</tbody></table></div> : <div className="cg-table-wrap is-sticky"><table className="cg-table cg-semtable"><colgroup><col style={{ width: 70 }} /><col style={{ width: 84 }} /><col style={{ width: 130 }} /><col style={{ width: 110 }} />{showConverted && <col style={{ width: 92 }} />}<col style={{ width: 200 }} />{semCols.map(key => <col key={key} />)}</colgroup>
-      <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th className="c" rowSpan={2}>학번</th><th className="c" rowSpan={2}>이름</th><th className="c" rowSpan={2}>{metricLabel} 누적</th>{showConverted && <th className="c" rowSpan={2}>9등급 환산</th>}<th className="c" rowSpan={2}>직전 → 최근 학기</th><th className="c grp" colSpan={Math.max(1, semCols.length)}>학기별 {metricLabel} {isSubject ? "등급" : "평균"}</th></tr>
-      <tr className="h2">{semCols.length ? semCols.map((key, index) => { const [y, t] = key.split("-"); return <th key={key} className={`c cg-semhead y${y} t${t}${index && t === "1" ? " ybreak" : ""}`}><span>{y}학년 {t}학기</span></th>; }) : <th className="c">-</th>}</tr></thead>
+      <thead><tr className="h1"><th className="c" rowSpan={2}>순위</th><th className="c" rowSpan={2}>학번</th><th className="c" rowSpan={2}>이름</th><th className="c" rowSpan={2}>{metricLabel} 누적</th>{showConverted && <th className="c" rowSpan={2}>9등급 환산</th>}<th className="c" rowSpan={2} data-x-heads='["직전 학기","최근 학기","직전 대비 변화량(+ 상승)"]'>직전 → 최근 학기</th><th className="c grp" colSpan={Math.max(1, semCols.length)} data-x-span={Math.max(1, semCols.length) * 2}>학기별 {metricLabel} {isSubject ? "등급" : "평균"}</th></tr>
+      <tr className="h2">{semCols.length ? semCols.map((key, index) => { const [y, t] = key.split("-"); return <th key={key} data-x-heads={JSON.stringify([`${y}학년 ${t}학기`, `${y}학년 ${t}학기 변화량(+ 상승)`])} className={`c cg-semhead y${y} t${t}${index && t === "1" ? " ybreak" : ""}`}><span>{y}학년 {t}학기</span></th>; }) : <th className="c" data-x-span={2}>-</th>}</tr></thead>
       <tbody>{ordered.map(row => { const v = val(row); const rank = ranked.get(row.sid); return <tr key={row.sid}>
-        <td className="c">{rank ? <span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}<small>위</small></span> : "-"}</td>
+        <td className="c" data-x={rank || ""}>{rank ? <span className={`cg-rank${rank <= 3 ? " top" : ""}`}>{rank}<small>위</small></span> : "-"}</td>
         <td className="c cg-sj-dim">{row.sid}</td>
         <td className="c cg-sj-name">{onOpenStudent ? <button type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)}>{row.name}</button> : <span>{row.name}</span>}</td>
         <td className="c">{v == null ? (isSubject ? <span className="cg-none">미수강</span> : <span className="cg-sub">-</span>) : <span className="cg-big">{v.toFixed(2)}</span>}</td>
         {showConverted && <td className="c cg-conv">{row[metric]?.converted != null ? Number(row[metric].converted).toFixed(2) : "-"}</td>}
-        <td className="c"><SemesterChange trend={trendOf(row)} /></td>
-        {semCols.length ? semCells(row).map(cell => <td key={cell.key} className={`c cg-semcell y${cell.y} t${cell.t}${cell.ybreak ? " ybreak" : ""}${cell.last ? " last" : ""}`}>{cell.none ? <span className="cg-none sm">미수강</span> : cell.value == null ? <span className="cg-sub">-</span> : <><b>{fmt2(cell.value)}</b><em style={{ color: cell.d == null ? "#8a92a0" : cell.d > 0.004 ? "#15803d" : cell.d < -0.004 ? "#c0262d" : "#8a92a0" }}>{cell.d == null ? "시작" : `${changeMark(cell.d)}${Math.abs(cell.d).toFixed(2)}`}</em></>}</td>) : <td className="c"><span className="cg-sub">-</span></td>}
+        <td className="c" data-x-parts={JSON.stringify(changeParts(trendOf(row)))}><SemesterChange trend={trendOf(row)} /></td>
+        {semCols.length ? semCells(row).map(cell => <td key={cell.key} data-x-parts={JSON.stringify(cell.none ? ["미수강", ""] : cell.value == null ? ["", ""] : [fmt2(cell.value), cell.d == null ? "" : Number(cell.d.toFixed(2))])} className={`c cg-semcell y${cell.y} t${cell.t}${cell.ybreak ? " ybreak" : ""}${cell.last ? " last" : ""}`}>{cell.none ? <span className="cg-none sm">미수강</span> : cell.value == null ? <span className="cg-sub">-</span> : <><b>{fmt2(cell.value)}</b><em style={{ color: cell.d == null ? "#8a92a0" : cell.d > 0.004 ? "#15803d" : cell.d < -0.004 ? "#c0262d" : "#8a92a0" }}>{cell.d == null ? "시작" : `${changeMark(cell.d)}${Math.abs(cell.d).toFixed(2)}`}</em></>}</td>) : <td className="c"><span className="cg-sub">-</span></td>}
       </tr>; })}</tbody></table></div>}
       <div className="cg-foot">{isSubject ? "순위 = 이 표 안에서 등급 순(같은 등급은 원점수 높은 순) · 석차 = NEIS 석차(동석차수)/수강자수" : "숫자가 낮을수록 좋은 성적 · ▲ 초록 = 앞 학기보다 좋아짐, ▼ 빨강 = 낮아짐 · 진한 숫자 = 가장 최근 학기"}</div>
     </section>)}
@@ -2089,6 +2117,7 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
         <div className="mk-top-row">
           <div className="mk-title"><b>모의고사 분석</b><span>{entryYear}년 입학생 · {MOCK_MONTH_LABELS[mockKey] || ""}</span></div>
           <button type="button" data-kdn-bare className="mk-xlsx" onClick={exportMock} title="지금 보는 탭의 표를 엑셀 파일로 저장"><FileSpreadsheet size={15} />엑셀</button>
+          <button type="button" data-kdn-bare className="mk-xlsx mk-print" onClick={() => printElement(mkRootRef.current, { title: `모의고사 ${MOCK_MONTH_LABELS[mockKey] || ""}` })} title="지금 보는 화면 그대로 인쇄하거나 PDF로 저장"><Printer size={15} />인쇄·PDF</button>
           {onGradeChange && gradeOptions.length > 1 && <div className="mk-seg" role="group" aria-label="학년 선택">
             {gradeOptions.map(g => <button key={g} type="button" data-kdn-bare aria-pressed={String(g) === String(currentGrade)} onClick={() => onGradeChange(String(g))}>{g}학년</button>)}
           </div>}
@@ -2287,6 +2316,7 @@ const MOCK_CHART_CSS = `
 .mk button{font:inherit}
 .mk-top{display:grid;gap:10px;padding:14px 16px 0;border:1px solid var(--kdn-line);border-radius:16px;background:var(--kdn-surface)}
 .mk-top-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.mk-print{margin-left:6px!important}
 .mk-xlsx{margin-left:auto;display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 12px;border:1px solid var(--kdn-line);border-radius:10px;background:var(--kdn-surface);color:var(--kdn-ink);font-size:13px;font-weight:800;cursor:pointer}
 .mk-title{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}.mk-title b{font-size:18px;font-weight:850;color:var(--kdn-ink)}.mk-title span{font-size:13px;color:var(--kdn-muted)}
 .mk-seg{display:inline-flex;gap:2px;padding:3px;border-radius:11px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line);max-width:100%;overflow-x:auto;scrollbar-width:none}
