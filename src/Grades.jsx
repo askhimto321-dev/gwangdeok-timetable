@@ -19,7 +19,7 @@ import { CutStrip, supportBandFor } from './naviVisuals.jsx';
 import { GradeInsights, GradeHeatmap } from './gradeInsights.jsx';
 import GradeSimulator, { GradeSimPresetChips } from './GradeSimulator.jsx';
 import { CompareOverview, SemesterChips, printGradeComparison, COMPARE_COLORS } from './gradeCompareVisuals.jsx';
-import { exportVisibleTables, printElement } from './tableExport.js';
+import { collectVisibleTables, columnGroups, pickColumns, writeWorkbook, printElement } from './tableExport.js';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
 import { isNewUi, getUiMode, rawColors } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
@@ -1057,10 +1057,6 @@ const CLASS_GRADE_CSS = `
 .cg-hero select{min-height:40px;padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font:inherit;font-size:14px;font-weight:700}
 .cg-hero select option{color:#1f2430}
 .cg-ghost{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,.3);background:transparent;color:#fff;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
-.kd-xlsx-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:grid;gap:8px;width:260px;padding:14px;border:1px solid var(--kdn-line,#dfe2e8);border-radius:14px;background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2430);box-shadow:0 14px 34px rgba(15,23,42,.22);text-align:left}
-.kd-xlsx-pop b{font-size:14.5px}.kd-xlsx-pop label{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;cursor:pointer}.kd-xlsx-pop label input{width:18px;height:18px}
-.kd-xlsx-pop small{font-size:12px;color:var(--kdn-muted,#5d6574);line-height:1.4}
-.kd-xlsx-pop button{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border:0;border-radius:10px;background:var(--kdn-accent,#ea580c);color:#fff;font:inherit;font-size:14px;font-weight:850;cursor:pointer}
 .cg-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;padding:18px 20px 6px}
 .cg-kpi{display:grid;gap:8px;align-content:start;padding:16px 18px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e3e6ec)}
 .cg-kpi-l{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--kdn-muted,#5d6574)}
@@ -1426,22 +1422,76 @@ function ClassGradeHistogram({ metricLabel = "전교과",  bins, counts, total, 
   </div>;
 }
 // 직전 학기 → 최근 학기 값과 변화량(낮을수록 좋은 성적).
-// 엑셀 받기 버튼 + 선택지(성적 변화량 빼기)
-function XlsxButton({ className = "", withDelta = false, onExport }) {
-  const [open, setOpen] = useState(false);
-  const [dropDelta, setDropDelta] = useState(() => { try { return localStorage.getItem("kd_xlsx_drop_delta") !== "0"; } catch { return true; } });
-  const ref = useRef(null);
-  useEffect(() => { if (!open) return undefined; const close = e => { if (!ref.current?.contains(e.target)) setOpen(false); }; document.addEventListener("pointerdown", close); return () => document.removeEventListener("pointerdown", close); }, [open]);
-  const run = () => { try { localStorage.setItem("kd_xlsx_drop_delta", dropDelta ? "1" : "0"); } catch { /* 무시 */ } setOpen(false); onExport?.(dropDelta); };
-  return <span className="kd-xlsx" ref={ref} style={{ position: "relative", display: "inline-flex" }}>
-    <button type="button" className={className} data-kdn-bare onClick={() => (withDelta ? setOpen(v => !v) : onExport?.(false))} title="지금 화면의 표를 엑셀 파일로 저장"><FileSpreadsheet size={15} />엑셀</button>
-    {open && <div className="kd-xlsx-pop" role="dialog" aria-label="엑셀 받기">
-      <b>엑셀로 받기</b>
-      <label><input type="checkbox" checked={dropDelta} onChange={e => setDropDelta(e.target.checked)} /><span>성적 변화량(▲▼) 빼고 받기</span></label>
-      <small>학기 성적과 '직전·최근 학기'는 칸을 나눠 숫자로 저장해요.</small>
-      <button type="button" data-kdn-bare onClick={run}><FileSpreadsheet size={15} />엑셀 받기</button>
-    </div>}
-  </span>;
+// 엑셀 받기: 누르면 '받을 항목' 고르는 창(상담 인쇄 항목 고르기처럼). 고른 항목은 기억해요.
+const XLSX_OFF_KEY = "kd_xlsx_off_cols";
+const XLSX_DIALOG_CSS = `.kd-xlsx-overlay{position:fixed;inset:0;z-index:1500;display:grid;place-items:center;padding:20px;background:rgba(24,34,49,.42)}
+.kd-xlsx-modal{width:min(620px,100%);max-height:calc(100vh - 40px);display:flex;flex-direction:column;overflow:hidden;border:1px solid #d6e0ec;border-radius:16px;background:#fff;color:#1f2430;box-shadow:0 22px 60px rgba(29,43,61,.22)}
+.kd-xlsx-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 17px 12px;border-bottom:1px solid #e6ebf1}.kd-xlsx-head b{display:block;font-size:16px;color:#263b56}.kd-xlsx-head span{display:block;margin-top:4px;font-size:12.5px;color:#7b8796}
+.kd-xlsx-head button{border:0;background:transparent;font-size:22px;line-height:1;color:#7b8796;cursor:pointer}
+.kd-xlsx-actions{display:flex;align-items:center;gap:7px;padding:12px 17px 16px;border-top:1px solid #edf1f5}.kd-xlsx-actions button{border:1px solid #cfdae6;border-radius:10px;padding:9px 13px;background:#fff;color:#546a82;font-size:13px;font-weight:850;cursor:pointer}
+.kd-xlsx-actions button.primary{background:#ea580c;border-color:#ea580c;color:#fff}.kd-xlsx-actions button:disabled{opacity:.45;cursor:not-allowed}
+.kd-xlsx-body{display:grid;gap:10px;padding:13px 17px;overflow:auto}
+.kd-xlsx-table h5{margin:4px 0;font-size:13px;color:#263b56}
+.kd-xlsx-group{border:1px solid #dce4ed;border-radius:12px;padding:10px 12px;background:#fafbfd}
+.kd-xlsx-group header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.kd-xlsx-group header b{font-size:13.5px;color:#263b56}.kd-xlsx-group header small{font-size:12px;color:#7b8796}
+.kd-xlsx-group header button{margin-left:auto;border:1px solid #cfdae6;border-radius:8px;padding:5px 10px;background:#fff;color:#546a82;font-size:12px;font-weight:800;cursor:pointer}
+.kd-xlsx-group>div{display:flex;flex-wrap:wrap;gap:6px}
+.kd-xlsx-group label{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 11px;border:1px solid #dce4ed;border-radius:999px;background:#fff;color:#7b8796;font-size:13px;font-weight:700;cursor:pointer;text-decoration:line-through}
+.kd-xlsx-group label.is-on{border-color:#ea580c;background:#fff4ec;color:#9a3412;text-decoration:none}
+.kd-xlsx-group label input{width:15px;height:15px;accent-color:#ea580c}`;
+const readOff = () => { try { return new Set(JSON.parse(localStorage.getItem(XLSX_OFF_KEY) || "null") || ["__delta__"]); } catch { return new Set(["__delta__"]); } };
+function XlsxButton({ className = "", getRoot, fileName = "성적", label = "엑셀" }) {
+  const [tables, setTables] = useState(null);
+  const open = () => {
+    const found = collectVisibleTables(getRoot?.());
+    if (!found.length) { window.alert("내보낼 표가 없어요."); return; }
+    setTables(found);
+  };
+  return <>
+    <button type="button" className={className} data-kdn-bare onClick={open} title="지금 화면의 표를 엑셀 파일로 저장"><FileSpreadsheet size={15} />{label}</button>
+    {tables && <XlsxDialog tables={tables} fileName={typeof fileName === "function" ? fileName() : fileName} onClose={() => setTables(null)} />}
+  </>;
+}
+function XlsxDialog({ tables, fileName, onClose }) {
+  const [off, setOff] = useState(() => {
+    const saved = readOff();
+    // 처음엔 변화량 열을 빼 둡니다(__delta__ 표시), 그 밖엔 지난번에 뺀 열을 그대로
+    const set = new Set([...saved].filter(x => x !== "__delta__"));
+    if (saved.has("__delta__")) tables.forEach(t => (t.aoa[0] || []).forEach(h => { if (String(h).includes("변화량")) set.add(String(h)); }));
+    return set;
+  });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { const onKey = e => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [onClose]);
+  const toggle = h => setOff(cur => { const next = new Set(cur); if (next.has(h)) next.delete(h); else next.add(h); return next; });
+  const setMany = (hs, on) => setOff(cur => { const next = new Set(cur); hs.forEach(h => (on ? next.delete(h) : next.add(h))); return next; });
+  const allHeaders = tables.flatMap(t => (t.aoa[0] || []).map(String)).filter(Boolean);
+  const count = allHeaders.filter(h => !off.has(h)).length;
+  const run = async () => {
+    setBusy(true);
+    const deltaHeaders = allHeaders.filter(h => h.includes("변화량"));
+    const remember = [...off].filter(h => !h.includes("변화량"));
+    if (deltaHeaders.length && deltaHeaders.every(h => off.has(h))) remember.push("__delta__");
+    try { localStorage.setItem(XLSX_OFF_KEY, JSON.stringify(remember)); } catch { /* 무시 */ }
+    const picked = tables.map(t => ({ ...t, aoa: pickColumns(t.aoa, (t.aoa[0] || []).filter(h => !off.has(String(h)))) })).filter(t => t.aoa[0]?.length);
+    const ok = await writeWorkbook(picked, fileName, { loadXLSX });
+    setBusy(false);
+    if (!ok) window.alert("고른 항목이 없어요."); else onClose();
+  };
+  return <div className="kd-xlsx-overlay no-print" role="dialog" aria-modal="true" aria-label="엑셀로 받을 항목" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="kd-xlsx-modal"><style dangerouslySetInnerHTML={{ __html: XLSX_DIALOG_CSS }} />
+      <div className="kd-xlsx-head"><div><b>엑셀로 받을 항목</b><span>체크한 항목만 칸을 나눠 숫자로 저장해요. 고른 항목은 다음에도 기억해요.</span></div><button type="button" onClick={onClose} aria-label="닫기">×</button></div>
+      <div className="kd-xlsx-body">
+        {tables.map((t, ti) => <div key={ti} className="kd-xlsx-table">
+          {tables.length > 1 && <h5>{t.title}</h5>}
+          {columnGroups(t.aoa[0] || []).map(g => { const hs = g.items.map(i => i.header); const onCount = hs.filter(h => !off.has(h)).length; return <section key={g.name} className="kd-xlsx-group">
+            <header><b>{g.name}</b><small>{onCount}/{hs.length}</small><button type="button" data-kdn-bare onClick={() => setMany(hs, onCount < hs.length)}>{onCount < hs.length ? "모두 선택" : "모두 빼기"}</button></header>
+            <div>{g.items.map(item => <label key={item.header} className={off.has(item.header) ? "" : "is-on"}><input type="checkbox" checked={!off.has(item.header)} onChange={() => toggle(item.header)} /><span>{item.label}</span></label>)}</div>
+          </section>; })}
+        </div>)}
+      </div>
+      <div className="kd-xlsx-actions"><button type="button" onClick={() => setMany(allHeaders, true)}>전체 선택</button><span style={{ flex: 1 }} /><button type="button" onClick={onClose}>취소</button><button type="button" className="primary" disabled={!count || busy} onClick={run}>{busy ? "만드는 중…" : `엑셀 받기 (${count}개 항목)`}</button></div>
+    </div>
+  </div>;
 }
 // 엑셀용: [직전, 최근, 변화량(+ 상승)]
 function changeParts(trend = []) {
@@ -1708,7 +1758,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
           {(subjectOptions.length > 0 || (view === "class" && examSubjects.length > 0)) && <select data-tour="cg-pick" className={`cg-subject-pick${isSubject || isExam ? " is-on" : ""}`} value={isSubject || isExam ? metric : ""} onChange={event => setMetric(event.target.value || "overall")} aria-label="개별 과목"><option value="">과목별 보기…</option>{SEMESTER_KEYS.map(key => { const list = subjectOptions.filter(item => [...item.keys][0] === key); if (!list.length) return null; const [y, t] = key.split("-"); return <optgroup key={key} label={`${y}학년 ${t}학기`}>{list.map(item => <option key={item.name} value={`${SUBJECT_METRIC}${item.name}`}>{item.name}</option>)}</optgroup>; })}{view === "class" && Array.from(new Set(examSubjects.map(item => item.key))).map(key => { const list = examSubjects.filter(item => item.key === key); return <optgroup key={key} label={`${currentGrade}학년 ${list[0].semester}학기 · ${list[0].title} 정기시험`}>{list.length > 1 && <option value={`${EXAM_METRIC}ALL|${key}`}>전 과목 보기 ({list.length}과목)</option>}{list.map(item => <option key={item.id} value={`${EXAM_METRIC}${item.id}`}>{item.subject} · {item.title}</option>)}</optgroup>; })}</select>}
           {isAdmin && view === "class" && <select data-tour="cg-class" value={classNo} onChange={event => setPickedClass(event.target.value)} aria-label="반 선택"><option value="all">전체 반</option>{classes.map(value => <option key={value} value={value}>{value}반</option>)}</select>}
           <TourButton onClick={() => setTourToken(Date.now())} />
-          <XlsxButton className="cg-ghost no-print" withDelta onExport={async dropDelta => { const ok = await exportVisibleTables(cgRootRef.current, `${currentGrade}학년_${view === "compare" ? "반비교" : allClasses ? "전체반" : `${classNo}반`}_${metricLabel}_${new Date().toISOString().slice(0, 10)}`, { loadXLSX, dropDelta }); if (!ok) window.alert("내보낼 표가 없어요."); }} />
+          <XlsxButton className="cg-ghost no-print" getRoot={() => cgRootRef.current} fileName={() => `${currentGrade}학년_${view === "compare" ? "반비교" : allClasses ? "전체반" : `${classNo}반`}_${metricLabel}_${new Date().toISOString().slice(0, 10)}`} />
           {view === "class" && <button type="button" className="cg-ghost no-print" data-kdn-bare onClick={() => printGradeComparison(ordered, ranked, currentGrade, `${currentGrade}학년 ${allClasses ? "전체 반" : `${classNo}반`} 성적 ·`)} disabled={!rows.length}><Printer size={15} />인쇄·PDF</button>}
         </div>
       </div>
@@ -2108,7 +2158,6 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
   const resetFilters = () => { setClassFilter("all"); setGradeFilter("all"); setSubjectFilter("전체"); setQuery(""); };
   const openSubject = subject => { setSubjectView(subject); setAnalysisView("subjects"); };
   const metricOptions = ["총점", ...MOCK_SUBJECTS];
-  const exportMock = async () => { const tabName = { summary: "한눈에", students: "학생별", subjects: `과목별_${subjectView}`, classes: "반별" }[analysisView] || ""; const ok = await exportVisibleTables(mkRootRef.current, `모의고사_${MOCK_MONTH_LABELS[mockKey] || mockKey}_${tabName}`, { loadXLSX }); if (!ok) window.alert("내보낼 표가 없어요."); };
 
   return (
     <div className="kdn-mock mk" ref={mkRootRef}>
@@ -2116,7 +2165,7 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
       <section className="mk-top">
         <div className="mk-top-row">
           <div className="mk-title"><b>모의고사 분석</b><span>{entryYear}년 입학생 · {MOCK_MONTH_LABELS[mockKey] || ""}</span></div>
-          <button type="button" data-kdn-bare className="mk-xlsx" onClick={exportMock} title="지금 보는 탭의 표를 엑셀 파일로 저장"><FileSpreadsheet size={15} />엑셀</button>
+          <XlsxButton className="mk-xlsx" getRoot={() => mkRootRef.current} fileName={() => `모의고사_${MOCK_MONTH_LABELS[mockKey] || mockKey}_${{ summary: "한눈에", students: "학생별", subjects: `과목별_${subjectView}`, classes: "반별" }[analysisView] || ""}`} />
           <button type="button" data-kdn-bare className="mk-xlsx mk-print" onClick={() => printElement(mkRootRef.current, { title: `모의고사 ${MOCK_MONTH_LABELS[mockKey] || ""}` })} title="지금 보는 화면 그대로 인쇄하거나 PDF로 저장"><Printer size={15} />인쇄·PDF</button>
           {onGradeChange && gradeOptions.length > 1 && <div className="mk-seg" role="group" aria-label="학년 선택">
             {gradeOptions.map(g => <button key={g} type="button" data-kdn-bare aria-pressed={String(g) === String(currentGrade)} onClick={() => onGradeChange(String(g))}>{g}학년</button>)}
