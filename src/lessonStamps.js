@@ -268,3 +268,21 @@ export function slotGroups(sessions) {
   sessions.forEach(s => { const unit = String(s.unit || "").trim(); const last = groups[groups.length - 1]; if (last && last.unit === unit) last.items.push(s); else groups.push({ unit, items: [s] }); });
   return groups;
 }
+
+// 도장 칸 한꺼번에 추가: 한 줄에 하나씩.
+// "이차곡선 4" / "이차곡선 x4" / "이차곡선 4칸" → 단원 '이차곡선' 칸 4개(이차곡선1…4, 이미 있으면 이어서)
+// 그 밖의 줄 → 그 이름으로 칸 1개. 한 번에 최대 200칸.
+export function parseSlotLines(text, sessions = []) {
+  const have = {};
+  (sessions || []).forEach(s => { const u = String(s?.unit || "").trim(); if (u) have[u] = (have[u] || 0) + 1; });
+  const out = [];
+  String(text || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean).forEach(line => {
+    const m = line.match(/^(.*?\S)\s*(?:[x×*]\s*)?(\d{1,3})\s*(?:칸|개)?$/i);
+    if (m && !/^\d+$/.test(m[1]) && !/[x×*]$/i.test(m[1])) {
+      const unit = m[1].trim();
+      const n = Math.min(50, Number(m[2]) || 0);
+      for (let k = 0; k < n; k += 1) { have[unit] = (have[unit] || 0) + 1; out.push({ label: `${unit}${have[unit]}`, unit }); }
+    } else out.push({ label: line, unit: "" });
+  });
+  return out.slice(0, 200);
+}

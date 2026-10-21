@@ -1,14 +1,14 @@
 // 선생님 ZONE › 수업 포트폴리오 (수학 도장노트 기능을 KDTIME으로 옮기고 넓힘) — 휴대폰에서 쓰기 좋게 세로형
 // - 반·분반 명단은 KDTIME 학생 명단(학급 고정 수업)·이동수업 출석부(이동수업)에서 바로 가져옵니다(따로 입력하지 않음).
-// - 탭 3개: 도장(◀ 수업 ▶ 고르기 · 명단에서 한 명씩 / 표로 바꾸면 학생 × 차시 도장판) · 채점 · 현황(학생별 + 최성보)
-// - 설정(차시 미리 만들기 · 채점 기준 · 최성보 기준 · 내보내기), 수업 정보, 학생 상세는 팝업으로 엽니다.
+// - 탭 3개: 도장(◀ 수업 ▶ 고르기 · 명단에서 한 명씩 / 표로 바꾸면 학생 × 차시 도장판) · 채점 · 현황(학생별)
+// - 설정(차시 미리 만들기 · 채점 기준 · 내보내기), 수업 정보, 학생 상세는 팝업으로 엽니다.
 // - 날짜는 오늘, 교시는 지금 시각으로 자동. 도장마다 '찍은 날짜·시각·선생님'을 남깁니다(결석 후 다음 날 찍은 도장 확인).
 // - 저장: 바꾸기마다 기기에 먼저 적어 두고(저장 대기) 서버에 보냅니다. 연결이 끊겨도 기기에 남아 있다가 자동으로 다시 보냅니다.
 //   서버는 도장부마다 kd_stamps__{학년-학기-과목-반}(같은 반 선생님끼리 함께 씀), 덮어쓸 때마다 자동 백업.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Stamp, Plus, Trash2, Copy, Check, Download, CloudOff, Cloud, Loader2, Settings2, Sparkles, ChevronLeft, ChevronRight, X, List, Grid3x3, PencilLine } from "lucide-react";
+import { Stamp, Plus, Trash2, Copy, Check, Download, CloudOff, Cloud, Loader2, Settings2, Sparkles, ChevronLeft, ChevronRight, X, List, Grid3x3, PencilLine, ListPlus } from "lucide-react";
 import { readStorage, updateStorage } from "./storage.js";
-import { CHECK_STATES, checkLabel, slotName, slotGroups, booksForAssignment, emptyBook, normalizeBook, sessionsAsc, sessionHeld, stampStats, stampScore, stampMax, itemScore, itemMax, totalFor, totalMax, csbStatus, nextMark, markOf, markAt, markBy, applyOp, nextSessionFor, periodAt, localIso, presetPortfolio, PERIOD_TIMES, MATH_UNITS, ITEM_TEMPLATES } from "./lessonStamps.js";
+import { CHECK_STATES, checkLabel, parseSlotLines, slotName, slotGroups, booksForAssignment, emptyBook, normalizeBook, sessionsAsc, sessionHeld, stampStats, stampScore, stampMax, itemScore, itemMax, totalFor, totalMax, nextMark, markOf, markAt, markBy, applyOp, nextSessionFor, periodAt, localIso, presetPortfolio, PERIOD_TIMES, MATH_UNITS, ITEM_TEMPLATES } from "./lessonStamps.js";
 
 const storeKey = id => `kd_stamps__${id}`;
 const queueKey = id => `kd_stamps_q__${id}`;
@@ -72,7 +72,7 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
   const meta = books.find(book => book.id === pickedId) || viewBooks.find(book => book.id === pickedId) || books[0] || null;
   const readOnly = !!meta?.readOnly;
   useEffect(() => { if (meta) try { localStorage.setItem(`kd_stamps_last_${teacher?.id || "t"}`, meta.id); } catch { /* 기억 못 해도 됨 */ } }, [meta?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  // 탭 3개: 도장(오늘 수업·도장판) · 채점 · 현황(학생·최성보)
+  // 탭 3개: 도장(오늘 수업·도장판) · 채점 · 현황(학생별)
   const [tab, setTab] = useState(() => { try { const saved = localStorage.getItem("kd_stamps_tab2"); return ["stamp", "score", "status"].includes(saved) ? saved : "stamp"; } catch { return "stamp"; } });
   useEffect(() => { try { localStorage.setItem("kd_stamps_tab2", tab); } catch { /* 무시 */ } }, [tab]);
   const [sessionId, setSessionId] = useState("");
@@ -194,7 +194,7 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
     {readOnly && <div className="ls-note is-info"><b>조회 전용</b> · {meta.subject} {meta.label.split(" · ")[0]} ({meta.owners.join("·")} 선생님 담당). 함께 기록하려면 내 정보에서 이 반을 담당 과목에 넣으면 같은 도장부를 함께 써요. <button type="button" data-kdn-bare onClick={() => setPickedId(books[0]?.id || "")}>내 반으로</button></div>}
     {!readOnly && coTeachers[meta.id]?.length > 0 && <div className="ls-note">이 반은 <b>{coTeachers[meta.id].join("·")} 선생님</b>과 함께 쓰는 도장부예요. 누가 찍든 같은 기록에 모이고, 도장마다 찍은 선생님이 남아요.</div>}
     <div className="ls-nav">
-      <div className="ls-tabs3" role="tablist">{[["stamp", "도장 찍기", <Stamp size={16} key="i" />], ["score", "채점", <Sparkles size={16} key="i" />], ["status", "현황·최성보", <List size={16} key="i" />]].map(([key, label, icon]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={tab === key ? "is-on" : ""} onClick={() => setTab(key)}>{icon}<span>{label}</span></button>)}</div>
+      <div className="ls-tabs3" role="tablist">{[["stamp", "도장 찍기", <Stamp size={16} key="i" />], ["score", "채점", <Sparkles size={16} key="i" />], ["status", "현황", <List size={16} key="i" />]].map(([key, label, icon]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={tab === key ? "is-on" : ""} onClick={() => setTab(key)}>{icon}<span>{label}</span></button>)}</div>
       <div className={`ls-save is-${saveTone}`} role="status" title={save.error || ""}>
         {waiting ? (save.state === "error"
           ? <><CloudOff size={14} /><span>저장 대기 {waiting}건</span><button type="button" data-kdn-bare onClick={() => flush()}>다시</button></>
@@ -205,9 +205,10 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
     </div>
     {waiting > 0 && save.state === "error" && <div className="ls-note is-warn">연결이 안 돼서 이 기기에 {waiting}건을 보관 중이에요. 연결되면 자동으로 저장돼요(창을 닫아도 다음에 열면 이어서 저장).</div>}
     {!book ? <div className="ls-note">불러오는 중…</div>
-      : tab === "stamp" ? <StampTab wide={wide} readOnly={readOnly} book={book} meta={meta} act={act} who={who} sessionId={sessionId} setSessionId={setSessionId} onEditSession={id => setSheet({ type: "session", id })} onOpenSettings={openSettings} />
+      : tab === "stamp" ? <StampTab wide={wide} readOnly={readOnly} book={book} meta={meta} act={act} who={who} sessionId={sessionId} setSessionId={setSessionId} onEditSession={id => setSheet({ type: "session", id })} onOpenSettings={openSettings}  onBulk={() => setSheet({ type: "bulk" })} />
       : tab === "score" ? <ScoreTab wide={wide} book={book} meta={meta} act={act} onOpenSettings={() => openSettings("score")} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />
       : <StatusTab wide={wide} book={book} meta={meta} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />}
+    {book && sheet?.type === "bulk" && <Sheet title="도장 칸 한꺼번에 추가" onClose={() => setSheet(null)}><BulkSlotsBody book={book} meta={meta} act={act} who={who} showToast={showToast} onDone={() => setSheet(null)} onOpenSettings={() => openSettings("plan")} /></Sheet>}
     {book && sheet?.type === "settings" && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsBody book={book} meta={meta} act={act} who={who} section={sheet.section} showToast={showToast} onDownload={downloadBackup} /></Sheet>}
     {book && sheet?.type === "session" && book.sessions[sheet.id] && <Sheet title="수업 정보" onClose={() => setSheet(null)}><SessionBody book={book} meta={meta} act={act} id={sheet.id} onDeleted={() => { setSheet(null); setSessionId(""); }} /></Sheet>}
     {book && sheet?.type === "student" && <Sheet title="학생" onClose={() => setSheet(null)}><StudentBody book={book} meta={meta} act={act} who={who} sid={sheet.id} /></Sheet>}
@@ -254,7 +255,7 @@ function ItemInput({ it, value, onChange, label }) {
 }
 
 // ── 도장: 수업을 고르고(◀ ▶) 명단에서 한 명씩 누르기 · '표'로 바꾸면 학생 × 차시 도장판 ──
-function StampTab({ wide, readOnly, book, meta, act, who, sessionId, setSessionId, onEditSession, onOpenSettings }) {
+function StampTab({ wide, readOnly, book, meta, act, who, sessionId, setSessionId, onEditSession, onOpenSettings, onBulk }) {
   const asc = sessionsAsc(book);
   const indexOf = id => asc.findIndex(s => s.id === id);
   const started = asc.filter(s => s.date || Object.keys(book.marks?.[s.id] || {}).length);
@@ -274,6 +275,7 @@ function StampTab({ wide, readOnly, book, meta, act, who, sessionId, setSessionI
   };
   const todays = started.filter(s => s.date === today);
   const startButton = !readOnly && <button type="button" data-kdn-bare className="ls-primary" onClick={startToday}><Plus size={16} />{todays.length ? "오늘 수업 하나 더" : "오늘 수업 시작"}{nowPeriod ? ` · ${nowPeriod}교시` : ""}</button>;
+  const bulkButton = !readOnly && <button type="button" data-kdn-bare className="ls-chip ls-bulk" onClick={onBulk}><ListPlus size={15} />칸 한꺼번에 추가</button>;
   const viewToggle = <div className="ls-view" role="tablist" aria-label="보기">
     <button type="button" data-kdn-bare className={view === "list" ? "is-on" : ""} onClick={() => setView("list")} title="명단으로 보기"><List size={16} />{wide && <span>명단</span>}</button>
     <button type="button" data-kdn-bare className={view === "board" ? "is-on" : ""} onClick={() => setView("board")} title="학생 × 차시 도장판"><Grid3x3 size={16} />{wide && <span>도장판 표</span>}</button>
@@ -282,13 +284,14 @@ function StampTab({ wide, readOnly, book, meta, act, who, sessionId, setSessionI
     <b>{sessionName(current, indexOf(current.id))}{!readOnly && <PencilLine size={13} />}</b>
     <small>{current.date ? dayLabel(current.date) : "날짜 없음"}{current.period ? ` · ${current.period}교시` : ""}{current.topic ? ` · ${current.topic}` : ""}</small>
   </button> : <div className="ls-cur"><b>수업 없음</b><small>{readOnly ? "아직 기록이 없어요" : "‘오늘 수업 시작’을 눌러 주세요"}</small></div>;
-  const body = view === "board" ? <BoardView book={book} meta={meta} act={act} who={who} current={current} onPick={id => { setSessionId(id); setView("list"); }} onOpenSettings={onOpenSettings} />
+  const body = view === "board" ? <BoardView book={book} meta={meta} act={act} who={who} current={current} onPick={id => { setSessionId(id); setView("list"); }} onOpenSettings={onOpenSettings} bulkButton={bulkButton} />
     : current ? <RollView wide={wide} book={book} meta={meta} act={act} who={who} session={current} index={indexOf(current.id)} readOnly={readOnly} />
     : <div className="ls-card"><div className="ls-note">{readOnly ? "아직 이 반의 수업 기록이 없어요." : "‘오늘 수업 시작’을 누르면 날짜는 오늘, 교시는 지금 시각으로 들어가고 바로 도장을 찍을 수 있어요."}</div></div>;
 
   if (wide) return <div className="ls-pc">
     <aside className="ls-card ls-side">
       {startButton}
+      {bulkButton}
       <div className="ls-side-title">수업 기록 <small>{started.length}회</small></div>
       {!started.length && <p className="ls-mini">아직 수업 기록이 없어요.</p>}
       <ul>{started.slice().reverse().map(s => { const m = book.marks?.[s.id] || {}; const stamped = Object.values(m).filter(v => markOf(v) === "stamp").length; return <li key={s.id}><button type="button" data-kdn-bare className={current?.id === s.id && view === "list" ? "is-on" : ""} onClick={() => { setSessionId(s.id); setView("list"); }}>
@@ -314,6 +317,7 @@ function StampTab({ wide, readOnly, book, meta, act, who, sessionId, setSessionI
         <button type="button" data-kdn-bare className="ls-arrow" disabled={pos < 0 || pos >= started.length - 1} onClick={() => setSessionId(started[pos + 1].id)} aria-label="다음 수업"><ChevronRight size={20} /></button>
       </div>
       <div className="ls-picker-row">{startButton}{viewToggle}</div>
+      {bulkButton && <div className="ls-picker-row">{bulkButton}</div>}
     </div>
     {body}
   </div>;
@@ -338,7 +342,7 @@ function RollView({ wide, book, meta, act, who, session, index, readOnly }) {
   </div>;
 }
 // 표(도장판): 학생 × 차시
-function BoardView({ book, meta, act, who, current, onPick, onOpenSettings }) {
+function BoardView({ book, meta, act, who, current, onPick, onOpenSettings, bulkButton }) {
   const sessions = sessionsAsc(book);
   const [showTime, setShowTime] = useState(false);
   const tap = (s, sid) => act({ t: "mark", s: s.id, sid, v: nextMark(book.marks?.[s.id]?.[sid]), at: new Date().toISOString(), by: who });
@@ -350,7 +354,7 @@ function BoardView({ book, meta, act, who, current, onPick, onOpenSettings }) {
   if (!sessions.length) return <div className="ls-card"><div className="ls-note">아직 도장 칸이 없어요. ‘오늘 수업 시작’을 누르거나, 설정에서 차시(1차시, 2차시…)나 단원별 칸(이차곡선1, 이차곡선2…)을 미리 만들 수 있어요.</div><button type="button" data-kdn-bare className="ls-chip" onClick={() => onOpenSettings("plan")}><Settings2 size={14} />도장 칸 만들기</button></div>;
   return <div className="ls-card">
     <div className="ls-bar"><label className="ls-check"><input type="checkbox" checked={showTime} onChange={e => setShowTime(e.target.checked)} />찍은 날짜 보기</label>
-      <span className="ls-legend"><i className="is-stamp" />도장 <i className="is-absent" />결석 <i className="is-late" />늦게</span></div>
+      <span className="ls-legend"><i className="is-stamp" />도장 <i className="is-absent" />결석 <i className="is-late" />늦게</span>{bulkButton}</div>
     <div className="ls-table-wrap ls-board-wrap"><table className="ls-table ls-board">
       <thead>
         {hasUnits && <tr className="ls-unitrow"><th className="sticky c1" rowSpan={2}>이름</th>{groups.map((g, gi) => <th key={gi} colSpan={g.items.length} className="ls-unit">{g.unit || "단원 없음"}</th>)}<th colSpan={units.length + 1} className="ls-unit sum">단원별 도장</th></tr>}
@@ -405,55 +409,47 @@ function ScoreTab({ wide, book, meta, act, onOpenSettings, onOpenStudent }) {
   </div>;
 }
 
-// ── 현황: 학생별 도장률·점수·최성보 → 누르면 학생 팝업 ──
+// ── 현황: 학생별 도장률·점수 → 누르면 학생 팝업 ──
 function StatusTab({ wide, book, meta, onOpenStudent }) {
-  const [filter, setFilter] = useState("all");
   const [sort, setSort] = useState("seat");
-  const rows = meta.students.map(st => ({ ...st, s: stampStats(book, st.sid), total: totalFor(book, st.sid), csb: csbStatus(book, st.sid) }));
-  const counts = { bad: rows.filter(r => r.csb.level === "bad").length, warn: rows.filter(r => r.csb.level === "warn").length };
-  const shown = rows.filter(r => filter === "all" || r.csb.level === filter).sort((a, b) => sort === "rate" ? a.s.rate - b.s.rate : sort === "score" ? b.total - a.total : 0);
+  const rows = meta.students.map(st => ({ ...st, s: stampStats(book, st.sid), total: totalFor(book, st.sid) }));
+  const shown = rows.slice().sort((a, b) => sort === "rate" ? a.s.rate - b.s.rate : sort === "score" ? b.total - a.total : 0);
   const max = totalMax(book);
   const held = sessionsAsc(book).filter(s => sessionHeld(book, s)).length;
   return <div className="ls-status">
     <div className="ls-card ls-filters">
-      <div className="ls-seg">{[["all", `전체 ${rows.length}`], ["bad", `보충지도 ${counts.bad}`], ["warn", `예방지도 ${counts.warn}`]].map(([key, label]) => <button key={key} type="button" data-kdn-bare className={filter === key ? "is-on" : ""} onClick={() => setFilter(key)}>{label}</button>)}</div>
+      <b className="ls-count">학생 {rows.length}명</b>
       <select className="ls-select" value={sort} onChange={e => setSort(e.target.value)} aria-label="정렬"><option value="seat">번호순</option><option value="rate">도장률 낮은 순</option><option value="score">점수 높은 순</option></select>
       <span className="ls-mini">수업 {held}회 · 만점 {max}점</span>
     </div>
     {wide ? <div className="ls-card ls-tcard"><div className="ls-table-wrap"><table className="ls-table ls-ptable">
-      <thead><tr><th>번호</th><th>학번</th><th className="l">이름</th><th>도장</th><th>결석</th><th>미도장</th><th>도장률</th><th>점수</th><th>학업성취율</th><th>최성보</th><th>지도 기록</th></tr></thead>
+      <thead><tr><th>번호</th><th>학번</th><th className="l">이름</th><th>도장</th><th>결석</th><th>미도장</th><th>도장률</th><th>점수</th></tr></thead>
       <tbody>{shown.map(r => <tr key={r.sid} className="clickable" onClick={() => onOpenStudent(r.sid)}>
         <td className="dim">{seatOf(meta, r)}</td><td className="dim">{r.sid}</td><td className="l"><b>{r.name}</b></td>
         <td>{r.s.stamps}</td><td>{r.s.absent || ""}</td><td>{r.s.missed || ""}</td>
         <td><span className="ls-rate inline"><i style={{ width: `${Math.min(100, r.s.rate)}%` }} /></span>{Math.round(r.s.rate)}%</td>
         <td className="tot">{r.total}<small>/{max}</small></td>
-        <td>{r.csb.info.rate ?? "-"}{r.csb.info.rate != null && r.csb.info.rate !== "" ? "%" : ""}</td>
-        <td><span className={`ls-pill is-${r.csb.level}`}>{r.csb.label}</span></td>
-        <td>{r.csb.logs.length ? `${r.csb.logs.length}건 · ${r.csb.guidedHours}시간` : ""}</td>
       </tr>)}</tbody></table></div></div>
     : <ul className="ls-srows">{shown.map(r => <li key={r.sid}><button type="button" data-kdn-bare className="ls-srow" onClick={() => onOpenStudent(r.sid)}>
       <span className="no">{seatOf(meta, r)}</span>
       <span className="nm"><b>{r.name}</b><small>도장 {r.s.stamps} · 결석 {r.s.absent}{r.s.missed ? ` · 미도장 ${r.s.missed}` : ""}</small></span>
       <span className="rt"><span className="ls-rate"><i style={{ width: `${Math.min(100, r.s.rate)}%` }} /></span><small>{Math.round(r.s.rate)}%</small></span>
       <span className="sc"><b>{r.total}</b><small>/{max}</small></span>
-      <span className={`ls-pill is-${r.csb.level}`}>{r.csb.label}</span>
     </button></li>)}</ul>}
-    <p className="ls-foot">학생을 누르면 차시별 도장(찍은 때)·점수·최성보 기록을 보고 고칠 수 있어요. 엑셀 내보내기는 ⚙ 설정에 있어요.</p>
+    <p className="ls-foot">학생을 누르면 차시별 도장(찍은 때)과 점수를 보고 고칠 수 있어요. 엑셀 내보내기는 ⚙ 설정에 있어요.</p>
   </div>;
 }
 
 // ── 팝업: 학생 한 명 ──
 function StudentBody({ book, meta, act, who, sid }) {
   const st = meta.students.find(x => x.sid === sid);
-  const [form, setForm] = useState({ date: localIso(), kind: "예방지도", hours: 1, content: "", result: "진행 중" });
   if (!st) return null;
   const s = stampStats(book, sid);
-  const c = csbStatus(book, sid);
   const sessions = sessionsAsc(book);
   const items = book.scoring.items;
   const cfg = book.scoring.stamp;
   return <div className="ls-stu">
-    <div className="ls-stu-head"><b>{st.name}</b><small>{seatOf(meta, st)} · {sid}</small><span className={`ls-pill is-${c.level}`}>{c.label}</span></div>
+    <div className="ls-stu-head"><b>{st.name}</b><small>{seatOf(meta, st)} · {sid}</small></div>
     <div className="ls-kpis"><div><b>{s.stamps}</b><small>도장</small></div><div><b>{s.absent}</b><small>결석</small></div><div><b>{Math.round(s.rate)}%</b><small>도장률</small></div><div><b>{totalFor(book, sid)}</b><small>/{totalMax(book)}점</small></div></div>
     <h4>점수</h4>
     <div className="ls-scard-items">
@@ -466,22 +462,45 @@ function StudentBody({ book, meta, act, who, sid }) {
       <b>{m === "stamp" ? "도장" : m === "absent" ? "결석" : "—"}</b>
       <small className={late ? "is-late" : ""}>{markAt(v) ? `${late ? "늦게 " : ""}${stampTime(markAt(v))}${markBy(v) ? ` · ${markBy(v)}` : ""}` : ""}</small>
     </li>; })}</ul>
-    <h4>최소성취수준 보장지도</h4>
-    <div className="ls-form">
-      <label>결석 / 허용<span className={c.left < 0 ? "is-bad" : ""}>{s.absent} / {c.allow}시간 (남음 {Math.max(c.left, 0)})</span></label>
-      <label>학업성취율 (%)<BlurInput className="ls-num" type="number" inputMode="decimal" min="0" max="100" value={c.info.rate ?? ""} onCommit={value => act({ t: "csb", sid, fields: { rate: value === "" ? null : Number(value) } })} /></label>
-      <label className="ls-toggle"><input type="checkbox" checked={!!c.info.done} onChange={e => act({ t: "csb", sid, fields: { done: e.target.checked } })} /><span>지도 끝 · 이수 확인</span></label>
-    </div>
-    {c.reasons.length > 0 && <p className="ls-mini">{c.reasons.join(" · ")}</p>}
-    <ul className="ls-logs">{c.logs.map(l => <li key={l.id}><b>{dayLabel(l.date)} · {l.kind} {l.hours}시간 · {l.result}</b><span>{l.content}</span><button type="button" data-kdn-bare onClick={() => { if (window.confirm("이 지도 기록을 지울까요?")) act({ t: "logDel", id: l.id }); }} aria-label="지도 기록 지우기"><Trash2 size={14} /></button></li>)}</ul>
-    <div className="ls-form ls-logform">
-      <input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} aria-label="날짜" />
-      <select className="ls-select" value={form.kind} onChange={e => setForm({ ...form, kind: e.target.value })}><option>예방지도</option><option>보충지도</option></select>
-      <input className="ls-num" type="number" inputMode="decimal" min="0.5" step="0.5" value={form.hours} onChange={e => setForm({ ...form, hours: Number(e.target.value) })} aria-label="시간" />
-      <select className="ls-select" value={form.result} onChange={e => setForm({ ...form, result: e.target.value })}><option>진행 중</option><option>도달</option><option>미도달</option></select>
-      <input className="wide" placeholder="지도 내용" value={form.content} onChange={e => setForm({ ...form, content: e.target.value })} />
-      <button type="button" data-kdn-bare className="ls-primary" disabled={!form.content.trim()} onClick={() => { act({ t: "logAdd", log: { id: uid("l"), sid, by: who, at: new Date().toISOString(), ...form } }); setForm({ ...form, content: "" }); }}><Plus size={14} />지도 기록 추가</button>
-    </div>
+  </div>;
+}
+
+// ── 팝업: 도장 칸 한꺼번에 추가 ──
+function BulkSlotsBody({ book, meta, act, who, showToast, onDone, onOpenSettings }) {
+  const sessions = sessionsAsc(book);
+  const lastNo = sessions.reduce((max, s) => Math.max(max, Number(s.no) || 0), 0);
+  const [count, setCount] = useState("10");
+  const [text, setText] = useState("");
+  const slots = parseSlotLines(text, sessions);
+  const n = Math.min(200, Math.max(0, Number(count) || 0));
+  const units = (MATH_UNITS[meta.subject] || []).flatMap(([, smalls]) => smalls);
+  const addNumbered = () => {
+    if (!n) return;
+    act({ t: "addSlots", slots: Array.from({ length: n }, () => ({ id: uid("u"), label: "", unit: "" })), at: new Date().toISOString(), by: who });
+    showToast?.(`${lastNo + 1}~${lastNo + n}차시 ${n}칸을 추가했어요.`, "success");
+    onDone();
+  };
+  const addLines = () => {
+    if (!slots.length) return;
+    act({ t: "addSlots", slots: slots.map(slot => ({ id: uid("u"), ...slot })), at: new Date().toISOString(), by: who });
+    showToast?.(`${slots.length}칸을 추가했어요.`, "success");
+    onDone();
+  };
+  return <div className="ls-settings ls-bulkform">
+    <p className="ls-mini">지금 {sessions.length}칸 있어요. 추가한 칸은 맨 뒤에 붙고, 도장판 표에서 바로 찍을 수 있어요.</p>
+    <section><h4>차시 번호로</h4>
+      <div className="ls-line"><span>{lastNo + 1}차시부터</span><input className="ls-num" type="number" inputMode="numeric" min="1" max="200" value={count} onChange={e => setCount(e.target.value)} aria-label="추가할 칸 수" /><span>칸 → {n ? `${lastNo + n}차시까지` : "-"}</span>
+        <button type="button" data-kdn-bare className="ls-primary" disabled={!n} onClick={addNumbered}><Plus size={14} />추가</button></div>
+      <div className="ls-adds">{[5, 10, 17, 34].map(k => <button key={k} type="button" data-kdn-bare className="ls-chip" onClick={() => setCount(String(k))}>{k}칸</button>)}</div>
+    </section>
+    <section><h4>단원·이름으로 <small>한 줄에 하나씩</small></h4>
+      <textarea className="ls-area" rows={5} value={text} onChange={e => setText(e.target.value)} placeholder={"이차곡선 4\n공간벡터 3\n형성평가"} aria-label="칸 목록" />
+      <p className="ls-mini">‘단원 이름 + 숫자’는 그 단원 칸을 숫자만큼(이차곡선1, 이차곡선2…), 숫자가 없으면 그 이름으로 한 칸 만들어요.</p>
+      {units.length > 0 && <div className="ls-adds">{units.slice(0, 12).map(u => <button key={u} type="button" data-kdn-bare className="ls-chip" onClick={() => setText(t => `${t}${t && !t.endsWith("\n") ? "\n" : ""}${u} 4`)}><Plus size={12} />{u}</button>)}</div>}
+      {slots.length > 0 && <div className="ls-preview"><small>미리 보기 · {slots.length}칸</small><div>{slots.slice(0, 60).map((slot, i) => <span key={i}>{slot.label}</span>)}{slots.length > 60 && <span>…</span>}</div></div>}
+      <button type="button" data-kdn-bare className="ls-primary" disabled={!slots.length} onClick={addLines}><Plus size={14} />{slots.length ? `${slots.length}칸 추가` : "추가"}</button>
+    </section>
+    <button type="button" data-kdn-bare className="ls-chip" onClick={onOpenSettings}>칸 이름·순서 고치기·지우기는 ⚙ 설정 › 도장 칸</button>
   </div>;
 }
 
@@ -503,7 +522,7 @@ function SessionBody({ book, meta, act, id, onDeleted }) {
   </div>;
 }
 
-// ── 팝업: 설정(차시 · 채점 기준 · 최성보 기준 · 내보내기) ──
+// ── 팝업: 설정(차시 · 채점 기준 · 내보내기) ──
 const parseLevels = text => String(text || "").split(/[,\n]/).map(part => { const [label, score] = part.split(":").map(x => x.trim()); return label ? { label, score: Number(score) || 0 } : null; }).filter(Boolean);
 function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) {
   const scoring = book.scoring;
@@ -535,12 +554,11 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) 
   const moveSlot = (i, dir) => { const ids = sessions.map(x => x.id); const j = i + dir; [ids[i], ids[j]] = [ids[j], ids[i]]; act({ t: "order", ids }); };
   const makePlan = () => { const n = Math.min(200, Math.max(1, Number(count) || 0)); act({ t: "plan", count: n, at: new Date().toISOString(), by: who }); act({ t: "meta", fields: { planCount: n } }); showToast?.(`${n}차시까지 만들었어요. 도장 탭의 표에서 볼 수 있어요.`, "success"); };
   const max = totalMax(book);
-  const rows = meta.students.map(st => ({ ...st, s: stampStats(book, st.sid), total: totalFor(book, st.sid), csb: csbStatus(book, st.sid) }));
+  const rows = meta.students.map(st => ({ ...st, s: stampStats(book, st.sid), total: totalFor(book, st.sid) }));
   const exports = {
-    status: () => [["번호", "학번", "이름", "도장", "결석", "미도장", "도장률", `점수(/${max})`, "최성보"].join("\t"), ...rows.map(r => [r.number, r.sid, r.name, r.s.stamps, r.s.absent, r.s.missed, `${Math.round(r.s.rate)}%`, r.total, r.csb.label].join("\t"))].join("\n"),
+    status: () => [["번호", "학번", "이름", "도장", "결석", "미도장", "도장률", `점수(/${max})`].join("\t"), ...rows.map(r => [r.number, r.sid, r.name, r.s.stamps, r.s.absent, r.s.missed, `${Math.round(r.s.rate)}%`, r.total].join("\t"))].join("\n"),
     score: () => [["번호", "학번", "이름", ...(cfg.enabled ? [`${cfg.name || "도장판"}(/${stampMax(book)})`] : []), ...items.map(it => `${it.name}(/${itemMax(it)})`), `합계(/${max})`].join("\t"), ...meta.students.map(st => [st.number, st.sid, st.name, ...(cfg.enabled ? [stampScore(book, st.sid)] : []), ...items.map(it => { const v = book.items?.[it.id]?.[st.sid]; const sc = itemScore(book, it, st.sid); return it.type === "check" ? `${sc ?? 0}${v === "late" || v === "poor" ? `(${checkLabel(v)})` : ""}` : sc ?? ""; }), totalFor(book, st.sid)].join("\t"))].join("\n"),
     stamps: () => [["차시", "수업 날짜", "교시", "학번", "이름", "기록", "찍은 때", "찍은 선생님"].join("\t"), ...sessions.flatMap((s, i) => meta.students.map(st => { const v = book.marks?.[s.id]?.[st.sid]; const m = markOf(v); return m ? [sessionName(s, i), s.date || "", s.period || "", st.sid, st.name, m === "stamp" ? "도장" : "결석", stampTime(markAt(v)), markBy(v)].join("\t") : null; }).filter(Boolean))].join("\n"),
-    csb: () => [["번호", "학번", "이름", "결석", "허용", "학업성취율", "판정", "사유", "지도 시간"].join("\t"), ...rows.map(r => [r.number, r.sid, r.name, r.csb.stats.absent, r.csb.allow, r.csb.info.rate ?? "", r.csb.label, r.csb.reasons.join(" / "), r.csb.guidedHours].join("\t"))].join("\n"),
   };
   return <div className="ls-settings">
     <section ref={planRef}><h4>도장 칸 <small>{sessions.length}칸</small></h4>
@@ -589,16 +607,11 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) 
       <div className="ls-adds"><span className="ls-mini">항목 더하기</span>{Object.entries({ check: "제출 항목", wrong: "오답노트", mock: "모의고사 업로드", feedback: "피드백(상중하)", custom: "점수 직접" }).map(([key, label]) => <button key={key} type="button" data-kdn-bare className="ls-chip" onClick={() => addItem(key)}><Plus size={13} />{label}</button>)}</div>
       <button type="button" data-kdn-bare className="ls-chip" onClick={usePreset}><Sparkles size={14} />예시로 바꾸기: 도장판 8 + 오답노트·모의고사 풀이·피드백 1점씩</button>
     </section>
-    <section><h4>최성보 기준</h4>
-      <div className="ls-line"><span>총 시수</span><BlurInput className="ls-num" type="number" inputMode="numeric" value={book.hours} onCommit={value => act({ t: "meta", fields: { hours: Number(value) || 0 } })} /><span>시간 → 결석 허용 {Math.floor((Number(book.hours) || 0) / 3)}시간</span></div>
-      <div className="ls-line"><span>학업성취율 기준</span><BlurInput className="ls-num" type="number" inputMode="numeric" value={book.threshold} onCommit={value => act({ t: "meta", fields: { threshold: Number(value) || 0 } })} /><span>%</span></div>
-    </section>
     <section><h4>내보내기 · 백업</h4>
       <div className="ls-adds">
         <button type="button" data-kdn-bare className="ls-chip" onClick={() => copyText(exports.status(), showToast)}><Copy size={13} />현황 복사</button>
         <button type="button" data-kdn-bare className="ls-chip" onClick={() => copyText(exports.score(), showToast)}><Copy size={13} />채점표 복사</button>
         <button type="button" data-kdn-bare className="ls-chip" onClick={() => copyText(exports.stamps(), showToast)}><Copy size={13} />도장 기록(찍은 때) 복사</button>
-        <button type="button" data-kdn-bare className="ls-chip" onClick={() => copyText(exports.csb(), showToast)}><Copy size={13} />최성보 복사</button>
         <button type="button" data-kdn-bare className="ls-chip" onClick={onDownload}><Download size={13} />백업 파일 받기</button>
       </div>
       <p className="ls-mini">복사한 표는 엑셀에 바로 붙여 넣을 수 있어요. 서버에도 바꿀 때마다 자동 백업이 남아요(관리자 › 백업·복원).</p>
@@ -607,6 +620,14 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload }) 
 }
 
 const LS_CSS = `
+.ls-bulk{width:100%;justify-content:center;margin-top:8px}
+.ls-picker .ls-bulk{margin-top:0}
+.ls-bar .ls-bulk{width:auto;margin:0 0 0 auto}
+.ls-count{font-size:14px}
+.ls-area{width:100%;min-height:110px;padding:10px 12px;border:1px solid var(--kdn-line,#dfe2e8);border-radius:12px;background:var(--kdn-surface,#fff);color:inherit;font:inherit;font-size:14.5px;line-height:1.5;resize:vertical}
+.ls-preview{display:grid;gap:6px;margin:8px 0 10px}.ls-preview small{font-size:12px;color:var(--kdn-muted,#5d6574)}
+.ls-preview>div{display:flex;flex-wrap:wrap;gap:5px;max-height:120px;overflow:auto}
+.ls-preview span{padding:3px 9px;border-radius:999px;background:var(--kdn-surface-2,#f3f4f6);font-size:12.5px;font-weight:700}
 .ls{display:grid;grid-template-columns:minmax(0,1fr);gap:12px;color:var(--kdn-ink,#1f2430);max-width:1280px}
 .ls *{box-sizing:border-box}
 .ls-empty{display:grid;justify-items:center;gap:6px;padding:40px 20px;text-align:center;border:1px dashed var(--kdn-line,#dfe2e8);border-radius:18px;color:var(--kdn-muted,#5d6574)}
