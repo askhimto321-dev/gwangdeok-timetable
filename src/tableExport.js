@@ -46,16 +46,18 @@ const textOf = el => {
 // 한 칸을 엑셀 여러 열로: 머리글 th data-x-sub="등급,원점수" · 본문 td data-x-parts='[2,88]'
 const rowsOf = trs => Array.from(trs).map(tr => Array.from(tr.cells).flatMap(cell => {
   const base = { rowSpan: cell.rowSpan, colSpan: 1 };
+  if (cell.dataset?.xHeads) { try { return JSON.parse(cell.dataset.xHeads).map(text => ({ ...base, text: String(text) })); } catch { /* 아래로 */ } }
   const subs = cell.dataset?.xSub ? cell.dataset.xSub.split(",") : null;
   if (subs) { const text = textOf(cell); return subs.map(sub => ({ ...base, text: `${text} ${sub}`.trim() })); }
   if (cell.dataset?.xParts) { try { return JSON.parse(cell.dataset.xParts).map(v => ({ ...base, text: v == null ? "" : String(v) })); } catch { /* 아래로 */ } }
-  if (cell.dataset?.x != null) return [{ ...base, colSpan: cell.colSpan, text: cell.dataset.x }];
-  return [{ ...base, colSpan: cell.colSpan, text: textOf(cell) }];
+  const span = cell.dataset?.xSpan ? Number(cell.dataset.xSpan) || cell.colSpan : cell.colSpan;
+  if (cell.dataset?.x != null) return [{ ...base, colSpan: span, text: cell.dataset.x }];
+  return [{ ...base, colSpan: span, text: textOf(cell) }];
 }));
 
 // 엑셀용으로 칸 정리: 오르내림 표시(▲0.01·▼0.28·= 0.00)와 '시작'은 빼고, '1위'는 숫자 1로
 export function cleanCell(text) {
-  let t = String(text ?? "").replace(/[▲▼△▽↑↓=]\s*[-+]?\d+(\.\d+)?/g, " ").replace(/(^|\s)시작(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
+  let t = String(text ?? "").replace(/[▲▼△▽↑↓=＝]\s*[-+]?\d+(\.\d+)?/g, " ").replace(/(^|\s)시작(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
   const rank = t.match(/^(\d+)\s*위$/);
   if (rank) t = rank[1];
   return t;
@@ -81,13 +83,19 @@ export function splitPairColumns(header, body) {
   return { header: outHead, body: outBody };
 }
 
-export function tableToAoa(table, { split = true } = {}) {
+export function tableToAoa(table, { split = true, dropDelta = false } = {}) {
   const headTrs = table.tHead ? table.tHead.rows : [];
   const bodyTrs = Array.from(table.tBodies || []).flatMap(tb => Array.from(tb.rows));
   let header = mergeHeader(gridFromRows(rowsOf(headTrs)));
   let rows = gridFromRows(rowsOf(bodyTrs)).map(row => row.map(v => (split ? cleanCell(v) : v)));
   if (split) ({ header, body: rows } = splitPairColumns(header, rows));
-  const body = rows.map(row => row.map(cellValue));
+  let body = rows.map(row => row.map(cellValue));
+  // 변화량 열 빼기(머리글에 '변화량'이 들어간 열)
+  if (dropDelta && header.length) {
+    const keepCol = header.map(h => !String(h).includes("변화량"));
+    header = header.filter((_, i) => keepCol[i]);
+    body = body.map(row => row.filter((_, i) => keepCol[i] !== false));
+  }
   const aoa = header.length ? [header, ...body] : body;
   // 내용이 하나도 없는 열은 뺍니다(아이콘 열 등)
   const keep = (aoa[0] || []).map((_, col) => aoa.some(row => String(row[col] ?? "").trim() !== ""));
@@ -109,7 +117,7 @@ const titleFor = table => {
 };
 
 // root 안의 보이는 표를 시트로 묶어 저장. 표가 없으면 false.
-export async function exportVisibleTables(root, fileName, { loadXLSX } = {}) {
+export async function exportVisibleTables(root, fileName, { loadXLSX, dropDelta = false } = {}) {
   if (!root) return false;
   const tables = Array.from(root.querySelectorAll("table")).filter(t => t.offsetParent !== null && t.rows.length > 1 && !t.closest(".no-export"));
   if (!tables.length) return false;
@@ -117,7 +125,7 @@ export async function exportVisibleTables(root, fileName, { loadXLSX } = {}) {
   const book = XLSX.utils.book_new();
   const used = new Set();
   tables.forEach((table, i) => {
-    const aoa = tableToAoa(table);
+    const aoa = tableToAoa(table, { dropDelta });
     if (!aoa.length) return;
     const sheet = XLSX.utils.aoa_to_sheet(aoa);
     sheet["!cols"] = (aoa[0] || []).map((_, col) => ({ wch: Math.min(40, Math.max(6, ...aoa.slice(0, 200).map(row => String(row[col] ?? "").length * 1.6))) }));
@@ -127,4 +135,27 @@ export async function exportVisibleTables(root, fileName, { loadXLSX } = {}) {
   if (!book.SheetNames.length) return false;
   XLSX.writeFile(book, String(fileName || "성적").replace(/[\\/:*?"<>|\s]+/g, "_").replace(/\.xlsx$/i, "") + ".xlsx");
   return true;
+}
+
+// 화면의 한 부분을 보이는 모습 그대로 인쇄·PDF로(글꼴·색·표 그대로, 버튼은 빼고 스크롤 상자는 펼침)
+export function printElement(el, { title = "인쇄", landscape = true } = {}) {
+  if (typeof document === "undefined" || !el) return;
+  const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]')).map(node => node.outerHTML).join("\n");
+  const htmlAttrs = Array.from(document.documentElement.attributes).map(a => `${a.name}="${String(a.value).replace(/"/g, "&quot;")}"`).join(" ");
+  const bodyClass = document.body.className || "";
+  const extra = `@page{size:A4 ${landscape ? "landscape" : "portrait"};margin:8mm}
+    html,body{background:#fff!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    body{margin:0;padding:0}
+    .no-print,.mk-xlsx,.mk-print,.mk-picks,.mk-reset,button.ls-x,[data-print-hide]{display:none!important}
+    .mk-scroll,.cg-table-wrap,[style*="max-height"],[style*="overflow"]{max-height:none!important;overflow:visible!important}
+    table{page-break-inside:auto}tr{page-break-inside:avoid}thead{display:table-header-group}
+    .mk-table th{position:static!important}`;
+  const html = `<!doctype html><html ${htmlAttrs}><head><meta charset="utf-8"><title>${String(title).replace(/</g, "&lt;")}</title>${styles}<style>${extra}</style></head><body class="${bodyClass}">${el.outerHTML}</body></html>`;
+  const frame = document.createElement("iframe");
+  frame.title = title;
+  frame.style.cssText = "position:fixed;left:-10000px;top:0;width:1200px;height:800px;border:0";
+  frame.onload = () => { window.setTimeout(() => { try { frame.contentWindow?.focus(); frame.contentWindow?.print(); } catch { frame.remove(); } }, 400); };
+  frame.srcdoc = html;
+  document.body.appendChild(frame);
+  window.setTimeout(() => frame.remove(), 300000);
 }
