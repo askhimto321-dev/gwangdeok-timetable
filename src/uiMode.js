@@ -7,10 +7,10 @@
    - .css 파일: 문서에 붙은 스타일시트 규칙을 CSSOM으로 한 번 변환 (나중에 붙는 시트도 감시)
    '기존 UI'(classic)를 고르면 아무것도 바꾸지 않으므로 이전 화면과 완전히 같습니다. */
 
+// 화면 모드: 라이트·다크만 지원합니다(기존 UI는 선택에서 뺐습니다. 예전에 기존 UI를 고른 사람은 라이트로).
 export const UI_MODES = [
-  { key: "classic", label: "기존 UI", short: "기존" },
-  { key: "dark", label: "새 UI · 다크", short: "다크" },
-  { key: "light", label: "새 UI · 라이트", short: "라이트" },
+  { key: "light", label: "라이트 모드", short: "라이트" },
+  { key: "dark", label: "다크 모드", short: "다크" },
 ];
 const STORAGE_KEY = "kd_ui_mode";
 // 처음 방문한 사람에게 보여줄 모드. "다크모드를 기본값으로" 요청에 따라 dark입니다.
@@ -19,6 +19,7 @@ export const DEFAULT_UI_MODE = "dark";
 function readStoredMode() {
   try {
     const value = globalThis.localStorage?.getItem(STORAGE_KEY);
+    if (value === "classic") { globalThis.localStorage?.setItem(STORAGE_KEY, "light"); return "light"; }
     if (UI_MODES.some(mode => mode.key === value)) return value;
   } catch { /* localStorage unavailable */ }
   return DEFAULT_UI_MODE;

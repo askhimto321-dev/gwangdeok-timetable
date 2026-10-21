@@ -25,6 +25,7 @@ const preloadSusiNaviSafely = () => { loadSusiNaviModule().catch(() => {}); };
 const GradesSection = lazy(() => loadGradesModule().then(module => ({ default: module.default })));
 const AdminGradesUpload = lazy(() => loadGradesModule().then(module => ({ default: module.AdminGradesUpload })));
 const ClassGradeOverviewPanel = lazy(() => loadGradesModule().then(module => ({ default: module.ClassGradeOverview })));
+const MockAnalysisPanel = lazy(() => loadGradesModule().then(module => ({ default: module.MockAnalysisDashboard })));
 const AdminStudentAccounts = lazy(() => loadGradesModule().then(module => ({ default: module.AdminStudentAccounts })));
 const TeacherGradeAnalyzer = lazy(() => import("./TeacherGradeAnalyzer.jsx"));
 const MinimumAchievement = lazy(() => import("./MinimumAchievement.jsx"));
@@ -2099,6 +2100,9 @@ export default function App() {
       ) : activeSection === "teacherZone" ? (
         <TeacherZoneWorkspace
           modeRequest={teacherZoneRequest}
+          gdb={gdb}
+          mockGradeOptions={loggedInAdmin ? GRADES : (staffGradeAccessList || []).map(String).sort()}
+          canUseMock={!!(loggedInAdmin || ((loggedInTeacher || loggedInDepartment) && (staffGradeAccessList || []).length && featureAllowed(loggedInTeacher || { ...loggedInDepartment, accountType: "department" }, "mockAnalysis")))}
           onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : undefined}
           onOpenMinimum={canSeeMinimum ? () => switchSection("minimumAchievement") : undefined}
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInDepartment={loggedInDepartment} loggedInMonitor={loggedInMonitor}
@@ -2472,13 +2476,27 @@ function MonitorZoneView({ monitor, db, persist, showToast, scopeKey, onLogout }
   );
 }
 
-function AdminTeacherPicker({ accounts, onSelect }) {
+// 관리자 계정으로 수업 포트폴리오를 열 때: 한 번 고른 '내 선생님 계정'을 기억해 다음부터 바로 엽니다.
+// (관리자 아이디와 같은 아이디의 선생님 계정이 있으면 그것을 씁니다.)
+function AdminOwnTeacher({ accounts, admin, onSelect }) {
+  const key = `kd_admin_teacher_${admin?.id || "admin"}`;
+  const teachers = accounts?.teacher || [];
+  useEffect(() => {
+    let saved = "";
+    try { saved = localStorage.getItem(key) || ""; } catch { saved = ""; }
+    const mine = teachers.find(t => t.id === saved) || teachers.find(t => t.id === admin?.id);
+    if (mine) onSelect(mine);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <AdminTeacherPicker accounts={accounts} title="내 선생님 계정 고르기" note="한 번 고르면 기억해서, 다음부터는 이 화면 없이 바로 열려요." onSelect={teacher => { try { localStorage.setItem(key, teacher.id); } catch { /* 기억 못 해도 이번엔 열림 */ } onSelect(teacher); }} />;
+}
+
+function AdminTeacherPicker({ accounts, onSelect, title = "선생님 화면 보기", note = "" }) {
   const teachers = (accounts.teacher || []).slice().sort((a, b) => a.name.localeCompare(b.name, "ko"));
   return (
     <div style={styles.loginBox}>
       <Users size={22} color="#8a8578" />
-      <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>선생님 화면 보기</div>
-      <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 14px", textAlign: "center" }}>관리자 권한으로, 비밀번호 없이 선생님 계정 화면을 보고 관리할 수 있습니다.</div>
+      <div style={{ fontWeight: 700, marginTop: 10, fontSize: 15 }}>{title}</div>
+      <div style={{ fontSize: 12, color: "#8a8578", margin: "6px 0 14px", textAlign: "center" }}>{note || "관리자 권한으로, 비밀번호 없이 선생님 계정 화면을 보고 관리할 수 있습니다."}</div>
       {teachers.length === 0 ? (
         <div style={{ fontSize: 12.5, color: "#a39d8c" }}>등록된 선생님 계정이 없습니다.</div>
       ) : (
@@ -2865,7 +2883,7 @@ const newBar = {
 };
 
 function TeacherZoneWorkspace({
-  modeRequest, onOpenMinimum, onEditProfile,
+  modeRequest, onOpenMinimum, onEditProfile, gdb, canUseMock = false, mockGradeOptions = [],
   loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor,
   viewedTeacher, setViewedTeacher, db, persist, showToast, accounts, persistAccounts,
   grade, setGrade, semester, scopeKey, roster, allRosters, enrollments, allowedGrades,
@@ -2885,10 +2903,10 @@ function TeacherZoneWorkspace({
       const saved = localStorage.getItem(modeStorageKey);
       // 새 UI는 들어올 때 항상 업무 카드 홈부터 보여 줍니다(마지막 작업은 홈에서 '이어서 하기'로 표시).
       if (isNewUi()) return "home";
-      return ["grades", "stamps", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : "grades";
+      return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : "grades";
     } catch { return isNewUi() ? "home" : "grades"; }
   });
-  const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "stamps", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : ""; } catch { return ""; } });
+  const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : ""; } catch { return ""; } });
   const [visitedWorkspaceModes, setVisitedWorkspaceModes] = useState(() => [workspaceMode]);
   useEffect(() => { if (modeRequest?.mode) setWorkspaceMode(modeRequest.mode); }, [modeRequest?.at]);
   // 홈에서 성적 산출 단계·과목으로 바로 가기: { step, id, nonce }를 성적 산출 화면에 넘깁니다.
@@ -2902,8 +2920,8 @@ function TeacherZoneWorkspace({
     if (["contacts", "records", "gradeData"].includes(workspaceMode)) setLastDepartmentToolView(workspaceMode);
   }, [workspaceMode]);
   useEffect(() => {
-    if ((!canUseNotice && workspaceMode === "notice") || (!canUseGradeDepartmentTools && ["contacts", "records", "gradeData"].includes(workspaceMode))) setWorkspaceMode("grades");
-  }, [canUseNotice, canUseGradeDepartmentTools, workspaceMode]);
+    if ((!canUseNotice && workspaceMode === "notice") || (!canUseMock && workspaceMode === "mock") || (!canUseGradeDepartmentTools && ["contacts", "records", "gradeData"].includes(workspaceMode))) setWorkspaceMode("grades");
+  }, [canUseNotice, canUseMock, canUseGradeDepartmentTools, workspaceMode]);
   useEffect(() => {
     if (workspaceMode === "home") return;
     try { localStorage.setItem(modeStorageKey, workspaceMode); } catch { /* localStorage unavailable */ }
@@ -2930,6 +2948,7 @@ function TeacherZoneWorkspace({
         {isNewUi() && <button type="button" onClick={() => setWorkspaceMode("home")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "home" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 홈</button>}
         <button type="button" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
         {(activeTeacher || loggedInAdmin) && <button type="button" onClick={() => setWorkspaceMode("stamps")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "stamps" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ClipboardList size={15} /> 수업 포트폴리오</button>}
+        {canUseMock && <button type="button" onClick={() => setWorkspaceMode("mock")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "mock" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BarChart3 size={15} /> 모의고사 분석</button>}
         {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무 (Beta)</button>}
@@ -2938,7 +2957,7 @@ function TeacherZoneWorkspace({
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
-    {workspaceMode === "home" && <TeacherZoneHome calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum}  onEditProfile={onEditProfile} onOpenGrade={openGradeAt} workspaces={db?.teacherGradeWorkspaces} semester={semester} />}
+    {workspaceMode === "home" && <TeacherZoneHome calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseMock={canUseMock} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum}  onEditProfile={onEditProfile} onOpenGrade={openGradeAt} workspaces={db?.teacherGradeWorkspaces} semester={semester} />}
     {visitedWorkspaceModes.includes("grades") && <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
       <DeferredPanel label="성적 산출 도구를 불러오는 중입니다."><TeacherGradeAnalyzer key={`tga-${grade}-${semester}`} teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={activeAccessRole}
@@ -2950,7 +2969,12 @@ function TeacherZoneWorkspace({
       {activeTeacher
         ? <DeferredPanel label="수업 포트폴리오를 불러오는 중입니다."><LessonStamps key={`ls-${grade}-${semester}-${activeTeacher.id || ""}`} teacher={activeTeacher} accounts={accounts} db={db} grade={grade} semester={semester} showToast={showToast} /></DeferredPanel>
         // 관리자: 수업 포트폴리오는 선생님 담당 과목별이라, 볼 선생님을 먼저 고릅니다.
-        : <AdminTeacherPicker accounts={accounts} onSelect={setViewedTeacher} />}
+        : <AdminOwnTeacher accounts={accounts} admin={loggedInAdmin} onSelect={setViewedTeacher} />}
+    </div>}
+    {canUseMock && visitedWorkspaceModes.includes("mock") && <div style={{ display: workspaceMode === "mock" ? "block" : "none" }} aria-hidden={workspaceMode !== "mock"}>
+      {gdb
+        ? <DeferredPanel label="모의고사 분석을 불러오는 중입니다."><MockAnalysisPanel gdb={gdb} roster={mergedRoster} currentGrade={mockGradeOptions.includes(String(grade)) ? String(grade) : (mockGradeOptions[0] || String(grade))} onGradeChange={value => setGrade(String(value))} gradeOptions={mockGradeOptions} /></DeferredPanel>
+        : <div style={styles.warnBanner}><Loader2 size={14} /> 성적 자료를 불러오는 중입니다.</div>}
     </div>}
     {canUseNotice && visitedWorkspaceModes.includes("notice") && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
     {canUseGradeDepartmentTools && visitedWorkspaceModes.some(mode => ["contacts", "records", "gradeData"].includes(mode)) && <div style={{ display: ["contacts", "records", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records", "gradeData"].includes(workspaceMode))}>
@@ -3002,7 +3026,7 @@ function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, use
     </div>
   </div>;
 }
-function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum, onEditProfile, onOpenGrade, workspaces, semester }) {
+function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canUseMock = false, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum, onEditProfile, onOpenGrade, workspaces, semester }) {
   const myResults = myGradeWorkspaces(workspaces, activeTeacher, grade, semester, isAdmin).slice(0, 8);
   const resultGroups = groupByGrade(myGradeWorkspaces(workspaces, activeTeacher, null, semester, isAdmin));
   const exam = examPeriodFromCalendar(calendar);
@@ -3012,6 +3036,7 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
   const cards = [
     { key: "grades", icon: <FileSpreadsheet size={20} />, tone: "#c2410c", soft: "#fff0e6", title: "성적 산출", tag: "학기말", text: "NEIS 지필·수행 파일을 올려 반영비율대로 학기말 성적을 계산합니다.", points: ["① 파일 업로드 → ② 산출 기준 → ③ 결과 확인", "개인 임시 저장 · 학교 공동 저장"], primary: "성적 산출 열기", show: true },
     { key: "stamps", icon: <ClipboardList size={20} />, tone: "#c2410c", soft: "#fff0e6", title: "수업 포트폴리오", tag: "수업마다", text: "학생 명단·이동수업 출석부로 차시마다 도장을 찍고, 도장판·오답노트 등 여러 항목으로 포트폴리오를 채점하고 최성보까지 봅니다.", points: ["학생 × 차시 도장판 · 찍은 시각 기록", "포트폴리오 채점 · 최성보 판정"], primary: "도장 찍기", show: !!(activeTeacher || isAdmin) },
+    { key: "mock", icon: <BarChart3 size={20} />, tone: "#1d4ed8", soft: "#e0ecff", title: "모의고사 분석", tag: "회차별", text: "회차별 모의고사 등급 분포와 반별 평균, 학생별 성적을 봅니다.", points: ["과목별 등급 분포 · 반별 평균", "미응시 학생 확인"], primary: "분석 보기", show: canUseMock },
     { key: "notice", icon: <Megaphone size={20} />, tone: "#1d4ed8", soft: "#e0ecff", title: "공지·수업자료", tag: "학생에게 전달", text: "담당 반 학생에게 공지·제출·신청 안내와 수업자료를 보냅니다.", points: ["마감일 · 첨부파일 · 읽음 확인", "과목별 · 반별 대상 선택"], primary: "공지 쓰기", show: canUseNotice },
     { key: "contacts", icon: <Users size={20} />, tone: "#0e7490", soft: "#dff4f7", title: "학생 비상연락망", tag: "2학년부", text: "학교에 반영된 2학년 비상연락망을 반별로 확인합니다.", points: ["반·번호·이름으로 찾기", "자료 관리에서 반영한 최신본"], primary: "연락망 보기", show: canUseDept },
     { key: "records", icon: <BookOpen size={20} />, tone: "#6d28d9", soft: "#ede9fe", title: "생기부 업무", tag: "Beta", text: "진로 활동 배정과 학생 소감문을 반별로 정리합니다.", points: ["소감문 응답 확인", "활동 배정 현황"], primary: "생기부 업무 열기", show: canUseDept },
@@ -3024,7 +3049,7 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
   const today = new Date();
   const todayLabel = `${today.getMonth() + 1}월 ${today.getDate()}일 ${"일월화수목금토"[today.getDay()]}요일`;
   // 카드: 대시보드 바로가기(F안)와 같은 흰 카드 + 제목·태그 한 줄 + 한 줄 설명 + 둥근 도형 그림. 카드 전체가 버튼입니다.
-  const SHORT = { grades: ["NEIS 파일로 학기말 성적 계산", "classGrades", "il-classGrades"], stamps: ["차시별 도장·포트폴리오 채점·최성보", "grades", "il-grades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
+  const SHORT = { grades: ["NEIS 파일로 학기말 성적 계산", "classGrades", "il-classGrades"], stamps: ["차시별 도장·포트폴리오 채점·최성보", "grades", "il-grades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], mock: ["회차별 등급 분포 · 반별 평균", "classGrades", "il-classGrades"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
   const stepIndex = exam ? (exam.phase === "before" ? 0 : exam.phase === "today" ? 1 : 2) : -1;
   const tip = exam ? (exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요." : exam.phase === "today" ? "시험 기간 · 결시자 인정점 입력을 준비하세요." : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요.") : "";
   const openCard = card => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));
@@ -3064,13 +3089,14 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
 }
 
 const teacherZoneWorkspaceStyles = {
-  toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 14, padding: "10px 12px", border: "1px solid #dbe3ef", borderRadius: 14, background: "linear-gradient(135deg,#f7fbff,#faf8ff)", boxShadow: "0 7px 20px rgba(55,72,110,.06)", flexWrap: "wrap" },
-  modeTabs: { display: "flex", gap: 7, flexWrap: "wrap" },
-  modeButton: { display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #d3ddea", borderRadius: 10, padding: "8px 12px", color: "#5d6b7e", background: "#fff", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 12.2, fontWeight: 850, cursor: "pointer" },
-  modeButtonActive: { color: "#fff", background: "#3568a3", borderColor: "#3568a3", boxShadow: "0 6px 15px rgba(53,104,163,.2)" },
-  gradeGroup: { display: "flex", alignItems: "center", gap: 5, color: "#738095", fontSize: 11.5, fontWeight: 850 },
-  gradeButton: { border: "1px solid #d5dfeb", borderRadius: 999, padding: "6px 9px", color: "#5f6f82", background: "#fff", fontWeight: 850, cursor: "pointer" },
-  gradeButtonActive: { color: "#315d90", background: "#e9f2fc", borderColor: "#b8cde5" },
+  // 새 UI 색 변수(라이트·다크 공통)로: 선택한 업무 탭은 강조색으로 분명하게, 글자는 크게
+  toolbar: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, marginBottom: 16, padding: "8px 10px", border: "1px solid var(--kdn-line)", borderRadius: 16, background: "var(--kdn-surface)", flexWrap: "wrap" },
+  modeTabs: { display: "flex", gap: 4, flexWrap: "wrap" },
+  modeButton: { display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid transparent", borderRadius: 11, padding: "10px 15px", color: "var(--kdn-ink-soft)", background: "transparent", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 14.5, fontWeight: 850, cursor: "pointer" },
+  modeButtonActive: { color: "var(--kdn-accent-text)", background: "var(--kdn-accent-soft)", borderColor: "var(--kdn-accent)", boxShadow: "inset 0 -3px 0 var(--kdn-accent)" },
+  gradeGroup: { display: "flex", alignItems: "center", gap: 5, color: "var(--kdn-muted)", fontSize: 13, fontWeight: 850 },
+  gradeButton: { border: "1px solid var(--kdn-control-line)", borderRadius: 999, padding: "7px 12px", color: "var(--kdn-ink-soft)", background: "var(--kdn-surface)", fontSize: 13, fontWeight: 850, cursor: "pointer" },
+  gradeButtonActive: { color: "var(--kdn-accent-ink)", background: "var(--kdn-accent)", borderColor: "var(--kdn-accent)" },
 };
 
 function MegaNav(props) {
