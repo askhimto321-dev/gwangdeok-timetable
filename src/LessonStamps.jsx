@@ -589,6 +589,79 @@ function BulkSlotsBody({ book, meta, act, who, showToast, onDone, onOpenSettings
   </div>;
 }
 
+// ── 묶음(단원) 고르기 메뉴: 지금 있는 묶음 + 새 묶음 + 묶음 없음 ──
+function GroupMenu({ groups, value, onPick, label = "묶음", placeholder = "묶음 없음" }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = e => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [open]);
+  const pick = name => { setOpen(false); onPick(name); };
+  return <span className="ls-gmenu" ref={ref}>
+    <button type="button" data-kdn-bare className={`ls-gbtn${value ? "" : " is-empty"}`} onClick={() => setOpen(v => !v)} aria-haspopup="listbox" aria-expanded={open} title={`${label} 바꾸기`}>
+      <span className="dot" />{value || placeholder}<ChevronRight size={14} style={{ rotate: open ? "-90deg" : "90deg" }} />
+    </button>
+    {open && <div className="ls-gpop" role="listbox">
+      <small>어느 묶음으로?</small>
+      {groups.map(g => <button key={g} type="button" data-kdn-bare role="option" aria-selected={g === value} className={g === value ? "is-on" : ""} onClick={() => pick(g)}>{g}</button>)}
+      <button type="button" data-kdn-bare className="new" onClick={() => { const name = window.prompt("새 묶음 이름 (예: 이차곡선)", ""); if (name && name.trim()) pick(name.trim()); else setOpen(false); }}><Plus size={13} />새 묶음 만들기</button>
+      {value && <button type="button" data-kdn-bare className="none" onClick={() => pick("")}>묶음 없음</button>}
+    </div>}
+  </span>;
+}
+// ── 도장 칸 목록: 묶음별 카드 · 묶음 이름 바꾸기 · 칸을 다른 묶음으로 옮기기(여러 칸 한 번에) ──
+function SlotGroupsEditor({ book, sessions, act, showToast }) {
+  const [picked, setPicked] = useState([]);
+  const groups = slotGroups(sessions);
+  const names = Array.from(new Set(sessions.map(x => unitGroup(x.unit)).filter(Boolean)));
+  const toggle = id => setPicked(list => (list.includes(id) ? list.filter(x => x !== id) : [...list, id]));
+  // 칸들을 그 묶음으로 옮기고, 묶음이 흩어지지 않게 그 묶음 맨 뒤로 순서도 옮깁니다.
+  const moveTo = (ids, name) => {
+    ids.forEach(id => act({ t: "session", id, create: false, fields: { unit: name } }));
+    const rest = sessions.map(x => x.id).filter(id => !ids.includes(id));
+    const lastIdx = name ? rest.reduce((at, id, i) => (unitGroup(book.sessions[id]?.unit) === name ? i : at), -1) : -1;
+    const order = lastIdx >= 0 ? [...rest.slice(0, lastIdx + 1), ...ids, ...rest.slice(lastIdx + 1)] : [...rest, ...ids];
+    act({ t: "order", ids: order });
+    setPicked([]);
+    showToast?.(`${ids.length}칸을 ${name ? `'${name}' 묶음으로` : "묶음 없음으로"} 옮겼어요.`, "success");
+  };
+  const renameGroup = (g, next) => {
+    const name = next.trim();
+    if (!name || name === g.unit) return;
+    if (names.includes(name)) moveTo(g.items.map(x => x.id), name);
+    else g.items.forEach(x => act({ t: "session", id: x.id, create: false, fields: { unit: name } }));
+  };
+  const move = (i, dir) => { const ids = sessions.map(x => x.id); const j = i + dir; if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; act({ t: "order", ids }); };
+  const swapAll = () => { if (!window.confirm("모든 칸의 '칸 이름'과 '묶음'을 서로 바꿀까요? (찍힌 도장은 그대로)")) return; sessions.forEach(x => { if (x.label || x.unit) act({ t: "session", id: x.id, create: false, fields: { label: x.unit || "", unit: x.label || "" } }); }); showToast?.("칸 이름과 묶음을 바꿨어요.", "success"); };
+  return <div className="ls-geditor">
+    {looksSwapped(sessions) && <div className="ls-swapcard"><div><b>칸 이름과 묶음이 바뀐 것 같아요</b><span>같은 ‘칸 이름’(예: 이차곡선)이 여러 칸에 있어요. 서로 바꾸면 이차곡선 묶음 안에 포물선·타원… 칸이 생겨요.</span></div><button type="button" data-kdn-bare className="ls-primary ls-sm" onClick={swapAll}>서로 바꾸기</button></div>}
+    {picked.length > 0 && <div className="ls-movebar"><b>{picked.length}칸 선택</b><GroupMenu groups={names} value="" label="선택한 칸 묶음" placeholder="옮길 묶음 고르기" onPick={name => moveTo(picked, name)} /><button type="button" data-kdn-bare className="ls-chip" onClick={() => setPicked([])}>선택 해제</button></div>}
+    {groups.map((g, gi) => { const allOn = g.items.every(x => picked.includes(x.id)); return <div key={`${gi}-${g.unit}`} className="ls-gcard">
+      <div className="ls-gcard-h">
+        <input type="checkbox" checked={allOn} onChange={() => setPicked(list => (allOn ? list.filter(id => !g.items.some(x => x.id === id)) : Array.from(new Set([...list, ...g.items.map(x => x.id)]))))} aria-label="이 묶음 칸 모두 고르기" />
+        <span className="tag">묶음</span>
+        <BlurInput className="ls-gname" value={g.unit} placeholder="묶음 없음 (이름을 적으면 묶음이 돼요)" onCommit={value => renameGroup(g, value)} aria-label="묶음 이름" />
+        <small>{g.items.length}칸</small>
+      </div>
+      <ul className="ls-grows">{g.items.map(x => { const i = sessions.indexOf(x); const marked = Object.keys(book.marks?.[x.id] || {}).length; return <li key={x.id} className={picked.includes(x.id) ? "is-picked" : ""}>
+        <input type="checkbox" checked={picked.includes(x.id)} onChange={() => toggle(x.id)} aria-label="칸 고르기" />
+        <span className="no">{i + 1}</span>
+        <BlurInput className="ls-text" value={x.label || (x.unit && x.unit !== unitGroup(x.unit) ? x.unit : "")} placeholder={sessionName(x, i)} onCommit={value => act({ t: "session", id: x.id, fields: { label: value.trim() } })} aria-label="칸 이름" />
+        <GroupMenu groups={names} value={unitGroup(x.unit)} onPick={name => moveTo([x.id], name)} />
+        <span className="ls-slotbtns">
+          <button type="button" data-kdn-bare className="ls-x" disabled={i === 0} onClick={() => move(i, -1)} aria-label="위로"><ChevronLeft size={15} style={{ rotate: "90deg" }} /></button>
+          <button type="button" data-kdn-bare className="ls-x" disabled={i === sessions.length - 1} onClick={() => move(i, 1)} aria-label="아래로"><ChevronRight size={15} style={{ rotate: "90deg" }} /></button>
+          <button type="button" data-kdn-bare className="ls-x" onClick={() => { if (window.confirm(`'${sessionName(x, i)}' 칸을 지울까요?${marked ? ` 찍힌 도장·결석 ${marked}건도 함께 지워져요.` : ""}`)) act({ t: "delSession", id: x.id }); }} aria-label="칸 지우기"><Trash2 size={14} /></button>
+        </span>
+      </li>; })}</ul>
+    </div>; })}
+    <p className="ls-mini">칸 오른쪽 ‘묶음’ 버튼을 눌러 다른 묶음으로 옮겨요. 여러 칸은 체크한 뒤 위쪽에서 한 번에 옮길 수 있어요. 묶음 이름을 고치면 그 묶음 칸이 모두 바뀌어요.</p>
+  </div>;
+}
+
 // ── 팝업: 수업 정보 ──
 function SessionBody({ book, meta, act, id, onDeleted }) {
   const s = book.sessions[id];
@@ -627,7 +700,6 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload, si
   const usePreset = () => { if (items.length && !window.confirm("채점 기준을 예시(도장판 8 + 오답노트·모의고사 풀이·모의고사 피드백 1점씩)로 바꿀까요?")) return; const preset = presetPortfolio(); act({ t: "scoring", value: { ...preset, stamp: { ...preset.stamp, excludeAbsent: cfg.excludeAbsent } } }); };
   const sessions = sessionsAsc(book);
   const [picked, setPicked] = useState(() => siblings.map(x => x.id));
-  const moveSlot = (i, dir) => { const ids = sessions.map(x => x.id); const j = i + dir; [ids[i], ids[j]] = [ids[j], ids[i]]; act({ t: "order", ids }); };
   const max = totalMax(book);
   const rows = meta.students.map(st => ({ ...st, s: stampStats(book, st.sid), total: totalFor(book, st.sid) }));
   const exports = {
@@ -636,28 +708,12 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload, si
     stamps: () => [["차시", "수업 날짜", "교시", "학번", "이름", "기록", "찍은 때", "찍은 선생님"].join("\t"), ...sessions.flatMap((s, i) => meta.students.map(st => { const v = book.marks?.[s.id]?.[st.sid]; const m = markOf(v); return m ? [sessionName(s, i), s.date || "", s.period || "", st.sid, st.name, m === "stamp" ? "도장" : "결석", stampTime(markAt(v)), markBy(v)].join("\t") : null; }).filter(Boolean))].join("\n"),
   };
   const tabs = [["plan", "도장 칸"], ["score", "채점 기준"], ...(siblings.length ? [["copy", "다른 반에 맞추기"]] : []), ["export", "내보내기"]];
-  const swapAll = () => { if (!window.confirm("모든 칸의 '단원'과 '칸 이름'을 서로 바꿀까요? (찍힌 도장은 그대로)")) return; sessions.forEach(x => { if (x.label || x.unit) act({ t: "session", id: x.id, create: false, fields: { label: x.unit || "", unit: x.label || "" } }); }); showToast?.("단원과 칸 이름을 바꿨어요.", "success"); };
-  const listGroups = slotGroups(sessions);
   return <div className="ls-settings">
     <div className="ls-stabs" role="tablist">{tabs.map(([key, label]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={stab === key} className={stab === key ? "is-on" : ""} onClick={() => setStab(key)}>{label}</button>)}</div>
     {stab === "plan" && <section ref={planRef}>
       <div className="ls-shead"><h4>도장 칸 <small>{sessions.length}칸</small></h4>{sessions.length > 0 && <button type="button" data-kdn-bare className={adding ? "ls-chip" : "ls-primary ls-sm"} onClick={() => setAdding(v => !v)}>{adding ? <><X size={14} />닫기</> : <><Plus size={15} />칸 추가</>}</button>}</div>
       {(adding || !sessions.length) && <SlotAdder book={book} meta={meta} act={act} who={who} showToast={showToast} onAdded={() => setAdding(false)} />}
-      {looksSwapped(sessions) && <div className="ls-note is-warn">‘칸 이름’ 자리에 단원(예: 이차곡선)을 적으신 것 같아요. 단원 칸에 단원을 적어야 도장판에서 단원별로 묶여요. <button type="button" data-kdn-bare onClick={swapAll}>단원·칸 이름 서로 바꾸기</button></div>}
-      {sessions.length > 0 && <div className="ls-slothead"><span>#</span><span>단원 (묶음)</span><span>칸 이름</span><span>순서·지우기</span></div>}
-      {sessions.length > 0 && <div className="ls-slotlist">{listGroups.map((g, gi) => <div key={gi} className="ls-slotgrp">
-        <div className="ls-slotgrp-h"><b>{g.unit || "단원 없음"}</b><small>{g.items.length}칸</small></div>
-        <ul className="ls-slots">{g.items.map(x => { const i = sessions.indexOf(x); const marked = Object.keys(book.marks?.[x.id] || {}).length; return <li key={x.id}>
-          <span className="no">{i + 1}</span>
-          <BlurInput className="ls-text unit" value={x.unit || ""} placeholder="단원 (예: 이차곡선)" onCommit={value => act({ t: "session", id: x.id, fields: { unit: value.trim() } })} aria-label="단원" />
-          <BlurInput className="ls-text" value={x.label || ""} placeholder={sessionName(x, i)} onCommit={value => act({ t: "session", id: x.id, fields: { label: value.trim() } })} aria-label="칸 이름" />
-          <span className="ls-slotbtns">
-            <button type="button" data-kdn-bare className="ls-x" disabled={i === 0} onClick={() => moveSlot(i, -1)} aria-label="위로"><ChevronLeft size={15} style={{ rotate: "90deg" }} /></button>
-            <button type="button" data-kdn-bare className="ls-x" disabled={i === sessions.length - 1} onClick={() => moveSlot(i, 1)} aria-label="아래로"><ChevronRight size={15} style={{ rotate: "90deg" }} /></button>
-            <button type="button" data-kdn-bare className="ls-x" onClick={() => { if (window.confirm(`'${sessionName(x, i)}' 칸을 지울까요?${marked ? ` 찍힌 도장·결석 ${marked}건도 함께 지워져요.` : ""}`)) act({ t: "delSession", id: x.id }); }} aria-label="칸 지우기"><Trash2 size={14} /></button>
-          </span>
-        </li>; })}</ul>
-      </div>)}</div>}
+      {sessions.length > 0 && <SlotGroupsEditor book={book} sessions={sessions} act={act} showToast={showToast} />}
     </section>}
     {stab === "copy" && siblings.length > 0 && <section><h4>다른 반에도 같은 양식 <small>{meta.subject}</small></h4>
       <p className="ls-mini">이 반의 도장 칸(이름·단원·순서)과 채점 기준을 같은 과목 다른 반에도 똑같이 맞춰요. 그 반에 찍힌 도장·점수·수업 날짜는 그대로예요.</p>
@@ -708,6 +764,33 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload, si
 }
 
 const LS_CSS = `
+.ls-geditor{display:grid;gap:10px;margin-top:10px}
+.ls-swapcard{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border:2px solid #fb923c;border-radius:14px;background:color-mix(in srgb,#ea580c 10%,var(--kdn-surface,#fff))}
+.ls-swapcard>div{flex:1 1 220px;display:grid;gap:3px}.ls-swapcard b{font-size:14.5px;color:var(--kdn-accent-text,#c2410c)}.ls-swapcard span{font-size:13px;color:var(--kdn-ink-soft,#3a404c)}
+.ls-movebar{position:sticky;top:44px;z-index:3;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;border-radius:12px;background:#1f2430;color:#fff;box-shadow:0 6px 18px rgba(15,23,42,.18)}
+.ls-movebar .hint{font-size:12.5px;color:#cbd2dc}.ls-movebar .ls-chip{margin-left:auto;color:var(--kdn-ink,#1f2430)}
+.ls-gcard{border:1px solid var(--kdn-line,#dfe2e8);border-left:4px solid #ea580c;border-radius:12px;padding:8px 10px 10px;background:var(--kdn-surface,#fff)}
+.ls-gcard-h{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.ls-gcard-h .tag{flex:none;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,#ea580c 14%,transparent);color:var(--kdn-accent-text,#c2410c);font-size:11.5px;font-weight:850}
+.ls-gname{flex:1;min-width:0;height:36px;padding:0 10px;border:1px dashed transparent;border-radius:9px;background:transparent;color:var(--kdn-ink,#1f2430);font:inherit;font-size:15.5px;font-weight:850}
+.ls-gname:hover,.ls-gname:focus{border-color:var(--kdn-control-line,#cfd5df);background:var(--kdn-surface-2,#f6f7f9);outline:none}
+.ls-gcard-h small{flex:none;font-size:12px;color:var(--kdn-muted,#5d6574)}
+.ls-grows{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.ls-grows li{display:grid;grid-template-columns:20px 22px minmax(0,1fr) auto auto;gap:6px;align-items:center;padding:3px 4px;border-radius:9px}
+.ls-grows li.is-picked{background:color-mix(in srgb,#ea580c 12%,transparent)}
+.ls-grows .no{font-size:12px;color:var(--kdn-muted,#5d6574);text-align:center}
+.ls-gmenu{position:relative;display:inline-flex}
+.ls-gbtn{display:inline-flex;align-items:center;gap:6px;min-height:36px;max-width:170px;padding:0 10px;border:1px solid color-mix(in srgb,#ea580c 45%,transparent);border-radius:999px;background:color-mix(in srgb,#ea580c 10%,transparent);color:var(--kdn-accent-text,#c2410c);font:inherit;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ls-gbtn .dot{flex:none;width:8px;height:8px;border-radius:99px;background:#ea580c}
+.ls-gbtn.is-empty{border-color:var(--kdn-control-line,#cfd5df);background:var(--kdn-surface,#fff);color:var(--kdn-muted,#5d6574)}.ls-gbtn.is-empty .dot{background:#cbd5e1}
+.ls-movebar .ls-gbtn{background:#ea580c;border-color:#ea580c;color:#fff}.ls-movebar .ls-gbtn .dot{background:#fff}
+.ls-gpop{position:absolute;right:0;top:calc(100% + 4px);z-index:20;display:grid;gap:2px;min-width:180px;max-height:280px;overflow:auto;padding:6px;border:1px solid var(--kdn-line,#dfe2e8);border-radius:12px;background:var(--kdn-surface,#fff);box-shadow:0 12px 30px rgba(15,23,42,.18)}
+.ls-movebar .ls-gpop{left:0;right:auto}
+.ls-gpop small{padding:4px 8px;font-size:11.5px;color:var(--kdn-muted,#5d6574)}
+.ls-gpop button{display:flex;align-items:center;gap:6px;min-height:36px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:var(--kdn-ink,#1f2430);font:inherit;font-size:14px;font-weight:700;text-align:left;cursor:pointer}
+.ls-gpop button:hover{background:var(--kdn-surface-2,#f3f4f6)}.ls-gpop button.is-on{background:color-mix(in srgb,#ea580c 14%,transparent);color:var(--kdn-accent-text,#c2410c)}
+.ls-gpop button.new{color:#c2410c;border-top:1px solid var(--kdn-line,#dfe2e8);border-radius:0 0 8px 8px}.ls-gpop button.none{color:var(--kdn-muted,#5d6574)}
+@media (max-width:640px){.ls-grows li{grid-template-columns:20px 20px minmax(0,1fr) auto;row-gap:4px;padding:6px 4px;border-bottom:1px solid var(--kdn-line,#e5e7eb);border-radius:0}.ls-grows li .ls-text{grid-column:3 / -1}.ls-grows li .ls-gmenu{grid-column:3}.ls-grows li .ls-slotbtns{grid-column:4}.ls-grows li .ls-x{width:34px;height:34px}}
 .ls-strip-row{grid-column:1 / -1;min-width:0;width:100%}
 .ls-mainhead{flex-wrap:wrap}
 .ls-strip{display:flex;gap:10px;overflow-x:auto;padding:4px 2px 6px;scrollbar-width:thin;min-width:0}
@@ -715,7 +798,7 @@ const LS_CSS = `
 .ls-strip-u{flex:none;padding:3px 9px;border-radius:999px;background:var(--kdn-surface-2,#f1f2f5);font-size:12px;font-weight:850;color:var(--kdn-ink-soft,#3a404c)}
 .ls-strip-c{flex:none;display:grid;justify-items:center;gap:1px;min-width:62px;padding:6px 10px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:11px;background:var(--kdn-surface,#fff);color:inherit;font:inherit;cursor:pointer}
 .ls-strip-c b{font-size:13px;font-weight:800;white-space:nowrap}.ls-strip-c small{font-size:11px;color:var(--kdn-muted,#5d6574)}
-.ls-strip-c.has{border-color:#fdba74}.ls-strip-c.full{background:#fff7ed}
+.ls-strip-c.has{border-color:color-mix(in srgb,#ea580c 45%,transparent)}.ls-strip-c.full{background:color-mix(in srgb,#ea580c 10%,transparent)}
 .ls-strip-c.is-on{background:#ea580c;border-color:#ea580c;color:#fff}.ls-strip-c.is-on small{color:#ffe4d1}
 .ls-side-btns{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}.ls-side-btns .ls-bulk{margin:0;font-size:12.5px;padding:0 8px}
 .ls-stabs{position:sticky;top:-1px;z-index:2;display:flex;gap:4px;padding:4px;margin:-4px 0 6px;border-radius:12px;background:var(--kdn-surface-2,#f1f2f5);overflow-x:auto;scrollbar-width:none}

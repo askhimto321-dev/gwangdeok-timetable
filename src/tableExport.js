@@ -53,11 +53,41 @@ const rowsOf = trs => Array.from(trs).map(tr => Array.from(tr.cells).flatMap(cel
   return [{ ...base, colSpan: cell.colSpan, text: textOf(cell) }];
 }));
 
-export function tableToAoa(table) {
+// 엑셀용으로 칸 정리: 오르내림 표시(▲0.01·▼0.28·= 0.00)와 '시작'은 빼고, '1위'는 숫자 1로
+export function cleanCell(text) {
+  let t = String(text ?? "").replace(/[▲▼△▽↑↓=]\s*[-+]?\d+(\.\d+)?/g, " ").replace(/(^|\s)시작(?=\s|$)/g, " ").replace(/\s+/g, " ").trim();
+  const rank = t.match(/^(\d+)\s*위$/);
+  if (rank) t = rank[1];
+  return t;
+}
+const PAIR = /^(-?\d+(?:\.\d+)?)\s*→\s*(-?\d+(?:\.\d+)?)$/;
+// 'A → B' 칸이 많은 열은 두 열로 나눕니다(머리글 '직전 → 최근 학기' → '직전' · '최근 학기')
+export function splitPairColumns(header, body) {
+  const width = Math.max(header.length, ...body.map(row => row.length));
+  const outHead = [], outBody = body.map(() => []);
+  for (let col = 0; col < width; col += 1) {
+    const values = body.map(row => String(row[col] ?? "").trim()).filter(Boolean);
+    const pairs = values.filter(v => PAIR.test(v)).length;
+    if (values.length && pairs / values.length >= 0.5) {
+      const h = String(header[col] ?? "");
+      const [a, b] = h.includes("→") ? h.split("→").map(x => x.trim()) : [`${h} (이전)`, `${h} (최근)`];
+      outHead.push(a || "이전", b || "최근");
+      body.forEach((row, r) => { const m = String(row[col] ?? "").trim().match(PAIR); outBody[r].push(m ? m[1] : "", m ? m[2] : String(row[col] ?? "")); });
+    } else {
+      outHead.push(header[col] ?? "");
+      body.forEach((row, r) => outBody[r].push(row[col] ?? ""));
+    }
+  }
+  return { header: outHead, body: outBody };
+}
+
+export function tableToAoa(table, { split = true } = {}) {
   const headTrs = table.tHead ? table.tHead.rows : [];
   const bodyTrs = Array.from(table.tBodies || []).flatMap(tb => Array.from(tb.rows));
-  const header = mergeHeader(gridFromRows(rowsOf(headTrs)));
-  const body = gridFromRows(rowsOf(bodyTrs)).map(row => row.map(cellValue));
+  let header = mergeHeader(gridFromRows(rowsOf(headTrs)));
+  let rows = gridFromRows(rowsOf(bodyTrs)).map(row => row.map(v => (split ? cleanCell(v) : v)));
+  if (split) ({ header, body: rows } = splitPairColumns(header, rows));
+  const body = rows.map(row => row.map(cellValue));
   const aoa = header.length ? [header, ...body] : body;
   // 내용이 하나도 없는 열은 뺍니다(아이콘 열 등)
   const keep = (aoa[0] || []).map((_, col) => aoa.some(row => String(row[col] ?? "").trim() !== ""));

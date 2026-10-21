@@ -17,3 +17,15 @@ test("numbers become numbers, ids with leading zero and mixed text stay text", (
   assert.equal(cellValue("1.28 → 1.27 ▲ 0.01"), "1.28 → 1.27 ▲ 0.01");
   assert.equal(cellValue("1위"), "1위");
 });
+
+test("change marks are dropped and 'A → B' columns are split", async () => {
+  const { cleanCell, splitPairColumns, cellValue } = await import("../src/tableExport.js");
+  assert.equal(cleanCell("1.28 → 1.27 ▲ 0.01"), "1.28 → 1.27");
+  assert.equal(cleanCell("1.00 시작"), "1.00");
+  assert.equal(cleanCell("1.28 ▼0.28"), "1.28");
+  assert.equal(cleanCell("3.00 = 0.00"), "3.00");
+  assert.equal(cleanCell("1 위"), "1");
+  const { header, body } = splitPairColumns(["순위", "직전 → 최근 학기"], [["1", "1.28 → 1.27"], ["2", "1.5 → 1.4"]]);
+  assert.deepEqual(header, ["순위", "직전", "최근 학기"]);
+  assert.deepEqual(body.map(r => r.map(cellValue)), [[1, 1.28, 1.27], [2, 1.5, 1.4]]);
+});
