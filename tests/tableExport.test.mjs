@@ -37,3 +37,23 @@ test("column groups and picking columns", async () => {
   assert.deepEqual(groups.map(g => [g.name, g.items.map(i => i.label)]), [["기본 항목", ["순위", "이름"]], ["성적 변화량", ["직전 대비", "1학년 1학기"]], ["학기별 전교과 평균", ["1학년 1학기"]]]);
   assert.deepEqual(pickColumns([headers, [1, "가", 0.1, 2.4, ""]], ["이름", "학기별 전교과 평균 · 1학년 1학기"]), [["이름", "학기별 전교과 평균 · 1학년 1학기"], ["가", 2.4]]);
 });
+
+test("column widths follow the longest value, Korean counts double", async () => {
+  const { columnWidths } = await import("../src/tableExport.js");
+  const w = columnWidths([["이름", "학기별 전교과 평균 · 1학년 1학기", "순위"], ["홍길동길동", 1.234, 1]]);
+  assert.equal(w[0].wch, 12);
+  assert.ok(w[1].wch >= 6 && w[1].wch <= 24);
+  assert.equal(w[2].wch, 6);
+});
+
+test("styled workbook keeps values and adds header style", async () => {
+  const XLSX = (await import("xlsx-js-style")).default;
+  const { styleSheet } = await import("../src/tableExport.js");
+  const aoa = [["순위", "이름", "직전 대비 변화량(+ 상승)"], [1, "가", 0.12], [2, "나", -0.3]];
+  const sheet = XLSX.utils.aoa_to_sheet(aoa);
+  styleSheet(XLSX, sheet, aoa);
+  assert.equal(sheet.A1.s.font.bold, true);
+  assert.equal(sheet.C2.z, "+0.00;-0.00;0.00");
+  assert.equal(sheet.C3.s.font.color.rgb, "B91C1C");
+  assert.equal(sheet.B2.v, "가");
+});

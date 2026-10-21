@@ -1256,6 +1256,13 @@ const CLASS_GRADE_CSS = `
 @media (max-width:900px){.cg-row{grid-template-columns:34px 60px minmax(0,1fr)}.cg-row-s{grid-column:3}}
 @media (max-width:900px){.cg-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cg-row{grid-template-columns:34px 92px minmax(0,1fr)}.cg-row-s{grid-column:2 / -1;justify-items:start;grid-auto-flow:column;gap:8px}}
 @media print{.cg-hero-tools{display:none}}
+@media (max-width:640px){
+.cg-seg{max-width:100%;flex-wrap:wrap}.cg-seg button{padding:0 11px;font-size:13px}
+.cg-kpis{gap:8px;padding:12px 12px 4px}.cg-kpi{padding:12px 13px}.cg-kpi:last-child{grid-column:1 / -1}.cg-kpi-v{font-size:24px}
+.cg-hist{padding:12px}.cg-bars,.cg-axis{gap:4px;padding-left:0;padding-right:0}
+.cg-bar b{font-size:13px;text-align:center;line-height:1.15}.cg-bar b small{display:block;margin:0;font-size:10.5px}
+.cg-axis span{font-size:10.5px;white-space:normal;line-height:1.15;word-break:keep-all}
+}
 `;
 // 교과 조합 4개. 개별 과목(공통국어1·문학 등)은 'subj:과목명' 지표로 따로 고릅니다.
 const CLASS_METRICS = [["overall", "전교과"], ["coreAll", "국수영사과"], ["coreSocial", "국수영사"], ["coreScience", "국수영과"]];
@@ -2232,13 +2239,13 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
         </div>
         <div className="mk-split">
           <section className="mk-card">
-            <header className="mk-card-head"><div><b>{subjectView} 등급 분포</b><span>{classFilter === "all" ? "전체 반" : `${classFilter}반`} · 막대 아래 숫자는 등급컷(그 등급 최저 점수)</span></div></header>
+            <header className="mk-card-head"><div><b>{subjectView} 등급 분포</b><span>{classFilter === "all" ? "전체 반" : `${classFilter}반`} </span></div></header>
             <div className="mk-kv">
               <span>평균<b>{selectedSubjectAverage ?? "-"}</b></span>
               <span>최고<b>{Number.isFinite(selectedSubjectBest?.subjectScore) ? selectedSubjectBest.subjectScore : "-"}</b></span>
               <span>1·2등급<b>{(selectedSubjectGradeCounts[0] || 0) + (selectedSubjectGradeCounts[1] || 0)}명</b></span>
             </div>
-            <MockGradeBars counts={selectedSubjectGradeCounts} cuts={selectedSubjectCutoffs} />
+            <MockGradeBarsWrap counts={selectedSubjectGradeCounts} cuts={selectedSubjectCutoffs} />
           </section>
           <section className="mk-card">
             <header className="mk-card-head"><div><b>{subjectView} 학생별</b><span>{selectedSubjectRows.length}명 · 원점수 순</span></div></header>
@@ -2354,10 +2361,13 @@ function MockGradeBars({ counts = [], cuts = [] }) {
     {counts.map((n, i) => <div key={i} className={`col c${i + 1}`}>
       <span className="val">{n}</span>
       <span className="bar"><i style={{ height: `${Math.max(n ? 4 : 0, n / max * 100)}%` }} /></span>
-      <span className="lab">{i + 1}</span>
-      <span className="cut">{cuts[i] ?? "-"}</span>
+      <span className="lab">{i + 1}<small className="u">등급</small></span>
+      <span className={`cut${cuts[i] == null ? " none" : ""}`} title={cuts[i] == null ? "" : `${i + 1}등급 컷 ${cuts[i]}점`}>{cuts[i] ?? "-"}</span>
     </div>)}
   </div>;
+}
+function MockGradeBarsWrap(props) {
+  return <><MockGradeBars {...props} /><div className="mk-bars-legend"><span>막대 위 숫자 = 인원</span><span><b>주황 상자</b> = 등급컷(그 등급이 되는 최저 점수)</span></div></>;
 }
 const MOCK_CHART_CSS = `
 .mk{display:grid;gap:12px;--mk-b1:var(--kdn-accent,#cf4a12);--mk-b2:color-mix(in srgb,var(--kdn-accent,#cf4a12) 55%,var(--kdn-surface,#fff));--mk-b3:color-mix(in srgb,var(--kdn-ink-soft,#5b6170) 30%,var(--kdn-surface,#fff));--mk-b4:color-mix(in srgb,var(--kdn-ink-soft,#5b6170) 14%,var(--kdn-surface,#fff))}
@@ -2426,7 +2436,8 @@ const MOCK_CHART_CSS = `
 .mk-bars .val{font-size:13.5px;font-weight:850;color:var(--kdn-ink)}
 .mk-bars .bar{display:flex;align-items:flex-end;width:100%;max-width:40px;height:120px;border-radius:8px;background:var(--kdn-surface-2);overflow:hidden}
 .mk-bars .bar i{display:block;width:100%;border-radius:8px 8px 0 0}
-.mk-bars .lab{font-size:12.5px;font-weight:800;color:var(--kdn-ink-soft)}.mk-bars .cut{font-size:11px;color:var(--kdn-muted);font-variant-numeric:tabular-nums}
+.mk-bars .lab{font-size:12.5px;font-weight:800;color:var(--kdn-ink-soft)}.mk-bars .cut{display:inline-grid;place-items:center;min-width:34px;padding:3px 6px;border-radius:7px;background:color-mix(in srgb,var(--kdn-accent,#ea580c) 13%,transparent);border:1px solid color-mix(in srgb,var(--kdn-accent,#ea580c) 35%,transparent);color:var(--kdn-accent-text,#c2410c);font-size:13px;font-weight:850;font-variant-numeric:tabular-nums}.mk-bars .cut.none{background:transparent;border-color:transparent;color:var(--kdn-muted)}
+.mk-bars-legend{display:flex;gap:12px;flex-wrap:wrap;margin:8px 2px 0;font-size:12px;color:var(--kdn-muted)}.mk-bars-legend b{color:var(--kdn-accent-text,#c2410c)}
 .mk-classes th.bar,.mk-classes td.bar{min-width:200px;width:30%}
 .mk-inbar{display:grid;grid-template-columns:minmax(0,1fr) 52px;align-items:center;gap:8px}
 .mk-inbar>span{display:block;height:20px;border-radius:6px;background:var(--kdn-surface-2);overflow:hidden}
@@ -2461,6 +2472,7 @@ const MOCK_CHART_CSS = `
 .mk-modal{width:min(980px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:18px;border-radius:18px;background:var(--kdn-surface);color:var(--kdn-ink);box-shadow:0 20px 50px rgba(0,0,0,.25)}
 .mk-empty{margin:0;font-size:13px;color:var(--kdn-muted)}
 @media (max-width:900px){.mk-sum,.mk-split{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){.mk-bars{gap:3px}.mk-bars .lab small.u{display:none}.mk-bars .val{font-size:12.5px}.mk-bars .cut{min-width:0;width:100%;padding:3px 0;font-size:11.5px}.mk-tabs button{padding:0 9px;font-size:14px}.mk-tabs button[aria-selected="true"]::after{left:6px;right:6px}}
 @media (max-width:640px){.mk-top{padding:12px 12px 0}.mk-tabbar{margin:0 -12px;padding:0 12px}.mk-stats{min-height:0;padding-bottom:8px;gap:10px}.mk-card{padding:12px}.mk-ov-row{grid-template-columns:58px minmax(0,1fr) 40px;gap:8px}.mk-bars .bar{height:90px}.mk-minibar{grid-template-columns:34px minmax(0,1fr) 46px}.mk-minibar small{display:none}.mk-picks{width:100%}.mk-pick{flex:1 1 30%;min-width:0}.mk-pick select{flex:1;min-width:0;padding-right:18px}}
 `;
 
