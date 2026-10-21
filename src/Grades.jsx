@@ -2043,7 +2043,11 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
   const selectedSubjectPresentRows = classScopedPresentRows.filter(row => Number.isFinite(Number(row.scores?.[subjectView])));
   const selectedSubjectAverage = avgFor(selectedSubjectPresentRows, subjectView);
   const selectedSubjectGradeCounts = gradeCounts[subjectView] || Array(9).fill(0);
-  const selectedSubjectCutoffs = cutRows.find(row => row.subject === subjectView)?.cuts || Array(9).fill(null);
+  // 저장된 등급컷이 있으면 그것을 씁니다(그 등급 학생이 없어도 컷이 보이도록). 없으면 그 등급 학생 중 최저 점수.
+  const savedCuts = cohortRecord(gdb.mockData, entryYear, mockKey)?.cuts?.[subjectView];
+  const selectedSubjectCutoffs = Array.isArray(savedCuts)
+    ? Array.from({ length: 9 }, (_, i) => (i < 8 && Number.isFinite(Number(savedCuts[i])) ? Number(savedCuts[i]) : null))
+    : (cutRows.find(row => row.subject === subjectView)?.cuts || Array(9).fill(null)).map((value, i) => (i === 8 ? null : value));
   const selectedSubjectBest = selectedSubjectRows.find(row => Number.isFinite(row.subjectScore));
 
   // 반별 표 강조: 열마다 최고(초록 굵게)·최저(빨강) 반을 표시하고, 값 크기에 따라 옅은 초록 바탕을 깝니다.
@@ -2145,7 +2149,7 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
         </div>
         <div className="mk-split">
           <section className="mk-card">
-            <header className="mk-card-head"><div><b>{subjectView} 등급 분포</b><span>{classFilter === "all" ? "전체 반" : `${classFilter}반`} · 막대 아래 숫자는 그 등급 최저 점수</span></div></header>
+            <header className="mk-card-head"><div><b>{subjectView} 등급 분포</b><span>{classFilter === "all" ? "전체 반" : `${classFilter}반`} · 막대 아래 숫자는 등급컷(그 등급 최저 점수)</span></div></header>
             <div className="mk-kv">
               <span>평균<b>{selectedSubjectAverage ?? "-"}</b></span>
               <span>최고<b>{Number.isFinite(selectedSubjectBest?.subjectScore) ? selectedSubjectBest.subjectScore : "-"}</b></span>
@@ -2354,7 +2358,7 @@ const MOCK_CHART_CSS = `
 .mk-gc.g7{background:color-mix(in srgb,#f59e0b 24%,transparent)}.mk-gc.g8{background:color-mix(in srgb,#ef4444 15%,transparent)}.mk-gc.g9{background:color-mix(in srgb,#ef4444 26%,transparent)}
 .mk-table td.mk-gc b{font-size:14px;font-weight:850;color:var(--kdn-ink)}
 .mk-students td.mk-gc,.mk-students td:empty{min-width:58px}
-.mk-students td.mk-gc b{display:inline-block;min-width:14px}.mk-students td.mk-gc small{margin-left:6px;font-size:11.5px;color:var(--kdn-muted);font-weight:600}
+.mk-students td.mk-gc b{display:inline-grid;place-items:center;min-width:20px;height:20px;border-radius:5px;background:color-mix(in srgb,var(--kdn-surface) 70%,transparent);font-size:12.5px}.mk-students td.mk-gc small{margin-left:7px;font-size:14px;color:var(--kdn-ink);font-weight:700;font-variant-numeric:tabular-nums}
 .mk-table tr.is-click{cursor:pointer}
 .mk-legend9{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin:-2px 0 10px;font-size:12px;color:var(--kdn-muted)}
 .mk-legend9 i{display:inline-grid;place-items:center;width:24px;height:20px;border-radius:5px;font-style:normal;font-size:11.5px;font-weight:850;color:var(--kdn-ink);border:1px solid var(--kdn-line)}
