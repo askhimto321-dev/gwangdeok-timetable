@@ -49,6 +49,7 @@ export function parseRawMock(rows, { grade = "" } = {}) {
   const inquiry = [];
   header.forEach((h, i) => { if (/^탐구\d점수$/.test(h)) inquiry.push({ scoreCol: i, nameCol: header[i - 1] === "선택과목" ? i - 1 : -1 }); });
   const students = {};
+  const absent = [];
   const subjects = new Set();
   const maxScores = {};
   for (let r = headerRow + 1; r < rows.length; r += 1) {
@@ -65,13 +66,13 @@ export function parseRawMock(rows, { grade = "" } = {}) {
       const subject = inquirySubject(nameCol >= 0 ? row[nameCol] : "") || (k === 0 ? "통합사회" : "통합과학");
       scores[subject] = v;
     });
-    if (!Object.keys(scores).length) continue; // 결시
+    if (!Object.keys(scores).length) { absent.push(sid); continue; } // 미응시(점수 칸이 모두 비어 있음)
     Object.entries(scores).forEach(([subject, v]) => { subjects.add(subject); maxScores[subject] = Math.max(maxScores[subject] || 0, v); });
     const total = numberOf(row[totalCol]);
     const rank = numberOf(row[rankCol]);
     students[sid] = { _scores: scores, _total: total ?? Object.values(scores).reduce((a, b) => a + b, 0), ...(rank != null ? { _rank: rank } : {}) };
   }
-  return { students, count: Object.keys(students).length, subjects: MOCK_SUBJECTS.filter(s => subjects.has(s)).concat([...subjects].filter(s => !MOCK_SUBJECTS.includes(s))), maxScores };
+  return { students, absent, count: Object.keys(students).length, subjects: MOCK_SUBJECTS.filter(s => subjects.has(s)).concat([...subjects].filter(s => !MOCK_SUBJECTS.includes(s))), maxScores };
 }
 
 // 학교 안 점수 분포로 9등급 컷 추정(동점은 위 등급으로)

@@ -10,6 +10,7 @@ test("원점수 원본 형식: 반·번호로 학번, 탐구는 선택과목 이
   assert.equal(detectMockFormat(rows).format, "raw");
   const out = parseRawMock(rows);
   assert.equal(out.count, 2);
+  assert.deepEqual(out.absent, ["20305"]);
   assert.deepEqual(Object.keys(out.students), ["20101", "20102"]);
   assert.deepEqual(out.students["20102"]._scores, { 국어: 62, 수학: 29, 영어: 66, 한국사: 31, 통합사회: 38.5, 통합과학: 26.5 });
   assert.equal(out.students["20102"]._total, 222);
