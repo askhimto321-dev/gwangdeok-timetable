@@ -200,10 +200,28 @@ export function nextMark(current) {
 // ── 바꾸기 묶음(op): 저장이 실패해도 기기에 남겨 두었다가 다시 보낼 수 있게 '무엇을 바꿀지'를 데이터로 적습니다.
 // 같은 op를 두 번 적용해도 결과가 같습니다(다시 보내도 안전).
 export const closingRevision = book => Number(book?.closure?.revision) || 0;
+export const sessionClosed = (book, id) => !!book?.closure?.closed || !!book?.sessionClosures?.[id]?.closed;
+export const sessionClosingRevision = (book, id) => Number(book?.sessionClosures?.[id]?.revision) || 0;
+const sessionOpId = op => ["mark", "markMany"].includes(op?.t) ? op.s : ["session", "delSession"].includes(op?.t) ? op.id : null;
+export function withClosingVersions(book, op) {
+  const id = sessionOpId(op);
+  return { ...op, revision: closingRevision(book), layoutRevision: book?.layoutRevision || 0,
+    ...(id ? { sessionRevision: sessionClosingRevision(book, id) } : {}) };
+}
 export function canApplyOp(book, op) {
   if (!op || (op.revision ?? 0) !== closingRevision(book)) return false;
   if (op.t === "closure") return typeof op.closed === "boolean" && op.closed !== !!book.closure?.closed;
-  return !book.closure?.closed;
+  if (book.closure?.closed) return false;
+  if (op.t === "sessionClosure") return typeof op.closed === "boolean" && Array.isArray(op.ids) && op.ids.length > 0
+    && op.ids.every(id => book.sessions[id] && (op.sessionRevisions?.[id] ?? 0) === sessionClosingRevision(book, id));
+  const id = sessionOpId(op);
+  if (id && (sessionClosed(book, id) || (op.sessionRevision ?? 0) !== sessionClosingRevision(book, id))) return false;
+  // 전체 재정렬·양식 변경은 마감한 칸도 바꾸므로 부분 마감 중에는 차단합니다.
+  if (["template", "order", "plan"].includes(op.t)) {
+    if ((op.layoutRevision ?? 0) !== (book.layoutRevision || 0)) return false;
+    if (Object.values(book.sessionClosures || {}).some(x => x.closed)) return false;
+  }
+  return true;
 }
 
 export function applyOp(book, op) {
@@ -212,6 +230,14 @@ export function applyOp(book, op) {
   switch (op?.t) {
     case "closure":
       b.closure = { closed: op.closed, revision: closingRevision(b) + 1, at: op.at, by: op.by || "" };
+      return b;
+    case "sessionClosure":
+      b.sessionClosures ||= {};
+      op.ids.forEach(id => {
+        if (!!b.sessionClosures[id]?.closed === op.closed) return;
+        b.sessionClosures[id] = { closed: op.closed, revision: sessionClosingRevision(b, id) + 1, at: op.at, by: op.by || "" };
+      });
+      b.layoutRevision = (b.layoutRevision || 0) + 1;
       return b;
     case "mark": {
       const marks = (b.marks[op.s] ||= {});
@@ -245,7 +271,7 @@ export function applyOp(book, op) {
       // reuse: 아직 안 쓴 빈 칸(이름·단원·도장 없음, 예: '오늘 수업 시작'으로 생긴 1차시)부터 채웁니다.
       let maxNo = Object.values(b.sessions).reduce((max, x) => Math.max(max, Number(x.no) || 0), 0);
       const exists = id => b.sessions[id] || Object.values(b.sessions).some(x => x.slotRef === id);
-      const unused = op.reuse ? sessionsAsc(b).filter(x => isBlankSlot(b, x)) : [];
+      const unused = op.reuse ? sessionsAsc(b).filter(x => !sessionClosed(b, x.id) && isBlankSlot(b, x)) : [];
       (op.slots || []).forEach(slot => {
         if (exists(slot.id)) return;
         const free = unused.shift();
@@ -291,7 +317,7 @@ export function applyOp(book, op) {
       return b;
     }
     case "meta": {
-      const { closure, ...fields } = op.fields || {};
+      const { closure, sessionClosures, layoutRevision, sessions, marks, ...fields } = op.fields || {};
       Object.assign(b, fields);
       return b;
     }
@@ -313,7 +339,7 @@ export function applyOp(book, op) {
 // 다음 차시: 날짜 없는 미리 만든 차시가 있으면 그것, 없으면 새 번호
 export function nextSessionFor(book) {
   const list = sessionsAsc(book);
-  const planned = list.find(s => !s.date && !Object.keys(book.marks?.[s.id] || {}).length);
+  const planned = list.find(s => !sessionClosed(book, s.id) && !s.date && !Object.keys(book.marks?.[s.id] || {}).length);
   if (planned) return { id: planned.id, no: Number(planned.no) || 0, existing: true };
   const maxNo = list.reduce((max, s, index) => Math.max(max, Number(s.no) || index + 1), 0);
   return { id: null, no: maxNo + 1, existing: false };
