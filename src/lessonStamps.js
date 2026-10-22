@@ -199,9 +199,20 @@ export function nextMark(current) {
 
 // ── 바꾸기 묶음(op): 저장이 실패해도 기기에 남겨 두었다가 다시 보낼 수 있게 '무엇을 바꿀지'를 데이터로 적습니다.
 // 같은 op를 두 번 적용해도 결과가 같습니다(다시 보내도 안전).
+export const closingRevision = book => Number(book?.closure?.revision) || 0;
+export function canApplyOp(book, op) {
+  if (!op || (op.revision ?? 0) !== closingRevision(book)) return false;
+  if (op.t === "closure") return typeof op.closed === "boolean" && op.closed !== !!book.closure?.closed;
+  return !book.closure?.closed;
+}
+
 export function applyOp(book, op) {
+  if (!canApplyOp(book, op)) return book;
   const b = book;
   switch (op?.t) {
+    case "closure":
+      b.closure = { closed: op.closed, revision: closingRevision(b) + 1, at: op.at, by: op.by || "" };
+      return b;
     case "mark": {
       const marks = (b.marks[op.s] ||= {});
       if (!op.v) delete marks[op.sid];
@@ -279,7 +290,11 @@ export function applyOp(book, op) {
       [...ids, ...rest].forEach((id, index) => { b.sessions[id] = { ...b.sessions[id], no: index + 1 }; });
       return b;
     }
-    case "meta": Object.assign(b, op.fields || {}); return b;
+    case "meta": {
+      const { closure, ...fields } = op.fields || {};
+      Object.assign(b, fields);
+      return b;
+    }
     case "scoring": b.scoring = op.value; return b;
     case "item": {
       (b.items[op.item] ||= {});
