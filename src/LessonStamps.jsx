@@ -8,10 +8,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Stamp, Plus, Trash2, Copy, Check, Download, CloudOff, Cloud, Loader2, Settings2, Sparkles, ChevronLeft, ChevronRight, X, List, Grid3x3, PencilLine, ListPlus } from "lucide-react";
 import { readStorage, updateStorage } from "./storage.js";
-import { CHECK_STATES, checkLabel, parseSlotLines, templateOp, unitGroup, bigUnitName, looksSwapped, slotName, slotGroups, booksForAssignment, emptyBook, normalizeBook, sessionsAsc, sessionHeld, stampStats, stampScore, stampMax, itemScore, itemMax, totalFor, totalMax, nextMark, markOf, markAt, markBy, applyOp, nextSessionFor, periodAt, localIso, presetPortfolio, PERIOD_TIMES, MATH_UNITS, ITEM_TEMPLATES } from "./lessonStamps.js";
+import { closingRevision, canApplyOp, CHECK_STATES, checkLabel, parseSlotLines, templateOp, unitGroup, bigUnitName, looksSwapped, slotName, slotGroups, booksForAssignment, emptyBook, normalizeBook, sessionsAsc, sessionHeld, stampStats, stampScore, stampMax, itemScore, itemMax, totalFor, totalMax, nextMark, markOf, markAt, markBy, applyOp, nextSessionFor, periodAt, localIso, presetPortfolio, PERIOD_TIMES, MATH_UNITS, ITEM_TEMPLATES } from "./lessonStamps.js";
 
 const storeKey = id => `kd_stamps__${id}`;
 const queueKey = id => `kd_stamps_q__${id}`;
+const conflictKey = id => `kd_stamps_conflicts__${id}`;
 const copyKey = id => `kd_stamps_copy__${id}`;
 const readLocal = (key, fallback) => { try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; } };
 const writeLocal = (key, value) => { try { if (value == null || (Array.isArray(value) && !value.length)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(value)); } catch { /* 기기 저장 공간 부족 등 */ } };
@@ -82,6 +83,8 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
   const info = meta ? { id: meta.id, subject: meta.subject, target: meta.target, grade, semester } : null;
   const [serverBook, setServerBook] = useState(null);
   const [pending, setPending] = useState([]);
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
   const [save, setSave] = useState({ state: "idle", at: "", error: "", offline: false });
   const flushing = useRef(false);
   const again = useRef(false);
@@ -98,10 +101,18 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
     if (!batch.length) return;
     flushing.current = true;
     setSave(current => ({ ...current, state: "saving" }));
-    const result = await withTimeout(updateStorage(storeKey(id), emptyBook(info), current => batch.reduce((book, op) => applyOp(book, op), clone(normalizeBook(current, info)))), 20000);
+    let rejected = [];
+    const result = await withTimeout(updateStorage(storeKey(id), emptyBook(info), current => {
+      rejected = [];
+      return batch.reduce((book, op) => { if (!canApplyOp(book, op)) rejected.push(op); return applyOp(book, op); }, clone(normalizeBook(current, info)));
+    }), 20000);
     flushing.current = false;
     if (idRef.current !== id) return;
     if (result.ok) {
+      if (rejected.length) {
+        writeLocal(conflictKey(id), [...readLocal(conflictKey(id), []), ...rejected]);
+        showToast?.(`마감 상태가 변경되어 대기 중 수정 ${rejected.length}건을 반영하지 않았어요. 기기에 별도 보관했습니다.`, "info");
+      }
       const rest = readLocal(queueKey(id), []).slice(batch.length);
       writeLocal(queueKey(id), rest);
       setPending(rest);
@@ -121,7 +132,15 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
   const sendOther = async id => {
     const batch = readLocal(queueKey(id), []);
     if (!batch.length) return;
-    const result = await withTimeout(updateStorage(storeKey(id), emptyBook({ id }), current => batch.reduce((acc, op) => applyOp(acc, op), clone(normalizeBook(current, { id })))), 20000);
+    let rejected = [];
+    const result = await withTimeout(updateStorage(storeKey(id), emptyBook({ id }), current => {
+      rejected = [];
+      return batch.reduce((acc, op) => { if (!canApplyOp(acc, op)) rejected.push(op); return applyOp(acc, op); }, clone(normalizeBook(current, { id })));
+    }), 20000);
+    if (result.ok && rejected.length) {
+      writeLocal(conflictKey(id), [...readLocal(conflictKey(id), []), ...rejected]);
+      showToast?.("다른 반의 마감 상태가 변경되어 일부 양식·대기 기록을 반영하지 않았어요.", "info");
+    }
     if (result.ok) { writeLocal(queueKey(id), readLocal(queueKey(id), []).slice(batch.length)); writeLocal(copyKey(id), normalizeBook(result.value, { id })); }
   };
 
@@ -158,12 +177,18 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
   const bookRef = useRef(null);
   const syncTimer = useRef(0);
   const pushTemplate = (ids, source = bookRef.current) => {
-    if (!source) return 0;
+    if (!source || source.closure?.closed || readOnly || closingRef.current) return 0;
     const op = templateOp(source, { at: new Date().toISOString(), by: teacher?.name || teacher?.id || "" });
-    ids.forEach(id => { writeLocal(queueKey(id), [...readLocal(queueKey(id), []), op]); sendOther(id); });
+    ids.forEach(id => {
+      // 반드시 대상 반의 최신 마감 회차를 사용합니다(원본 반의 회차와 다를 수 있음).
+      readStorage(storeKey(id), null, { throwOnError: true }).then(target => {
+        if (target?.closure?.closed) { showToast?.("마감된 반은 양식 맞추기에서 제외했어요.", "info"); return; }
+        writeLocal(queueKey(id), [...readLocal(queueKey(id), []), { ...op, revision: closingRevision(target) }]); sendOther(id);
+      }).catch(() => showToast?.("다른 반의 마감 상태를 확인하지 못해 양식을 보내지 않았어요. 연결 후 다시 시도하세요.", "error"));
+    });
     return ids.length;
   };
-  const setSyncOn = value => { setSyncOnState(value); writeLocal(syncKey, value || null); if (value && siblings.length) { pushTemplate(siblings.map(x => x.id)); showToast?.(`${siblings.length}개 반을 이 반 양식으로 맞췄어요. 앞으로 바꾸는 것도 자동으로 맞춰요.`, "success"); } };
+  const setSyncOn = value => { setSyncOnState(value); writeLocal(syncKey, value || null); if (value && siblings.length) { pushTemplate(siblings.map(x => x.id)); showToast?.(`${siblings.length}개 반에 양식 맞추기를 요청했어요. 마감된 반은 제외합니다.`, "success"); } };
 
   // 페이지를 닫으려는데 저장 대기분이 있으면 한 번 묻습니다(기기에는 남아 있어 다음에 열면 다시 보냄).
   useEffect(() => {
@@ -174,11 +199,38 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
 
   const book = useMemo(() => (serverBook ? pending.reduce((acc, op) => applyOp(acc, op), clone(serverBook)) : null), [serverBook, pending]);
   bookRef.current = book;
+  const locked = readOnly || !!book?.closure?.closed || closing;
+  useEffect(() => { if (book?.closure?.closed) window.clearTimeout(syncTimer.current); }, [book?.closure?.closed]);
+  const toggleClosing = async () => {
+    if (!book || readOnly || closingRef.current) return;
+    if (save.offline || navigator.onLine === false || flushing.current || readLocal(queueKey(meta.id), []).length) {
+      showToast?.("인터넷 연결과 저장 완료를 확인한 뒤 마감 상태를 변경해 주세요.", "info"); return;
+    }
+    const closed = !book.closure?.closed;
+    if (!window.confirm(closed
+      ? `${meta.subject} ${meta.label} 도장부를 마감할까요? 공동 담당 교사를 포함해 도장·결석·차시·채점 기록을 수정할 수 없게 됩니다.`
+      : `${meta.subject} ${meta.label} 마감을 해제하고 다시 수정할 수 있게 할까요?`)) return;
+    const id = meta.id;
+    const op = { t: "closure", closed, revision: closingRevision(book), at: new Date().toISOString(), by: teacher?.name || teacher?.id || "" };
+    closingRef.current = true; setClosing(true); window.clearTimeout(syncTimer.current);
+    try {
+      const result = await updateStorage(storeKey(id), emptyBook(info), current => {
+        const latest = normalizeBook(current, info);
+        if (!canApplyOp(latest, op)) throw new Error("다른 기기에서 마감 상태가 변경됐어요. 최신 상태를 확인한 뒤 다시 시도하세요.");
+        return applyOp(clone(latest), op);
+      });
+      if (!result.ok) { showToast?.(result.error || "마감 상태를 저장하지 못했어요.", "error"); return; }
+      writeLocal(copyKey(id), result.value);
+      if (idRef.current === id) { setServerBook(normalizeBook(result.value, info)); setSheet(null); }
+      showToast?.(closed ? "도장을 마감했어요. 마감 해제 전까지 수정할 수 없습니다." : "마감을 해제했어요. 다시 수정할 수 있습니다.", "success");
+    } finally { closingRef.current = false; setClosing(false); }
+  };
   const SHAPE_OPS = ["addSlots", "delSession", "order", "scoring", "dropItem", "plan", "template"];
   const act = op => {
     if (!meta) return;
     if (readOnly) { showToast?.("조회 전용이에요. 함께 기록하려면 내 정보에서 이 반을 담당 과목에 넣어 주세요.", "info"); return; }
-    const next = [...readLocal(queueKey(meta.id), []), op];
+    if (!book || book.closure?.closed || closingRef.current) { showToast?.("마감된 도장부예요. 마감 해제 후 수정해 주세요.", "info"); return; }
+    const next = [...readLocal(queueKey(meta.id), []), { ...op, revision: closingRevision(book) }];
     writeLocal(queueKey(meta.id), next);
     setPending(next);
     flush();
@@ -189,7 +241,7 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
   const who = teacher?.name || teacher?.id || "";
   const downloadBackup = () => {
     if (!book) return;
-    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), key: storeKey(meta.id), subject: meta.subject, target: meta.label, students: meta.students.map(st => ({ sid: st.sid, name: st.name })), book }, null, 1)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), key: storeKey(meta.id), subject: meta.subject, target: meta.label, unappliedChanges: readLocal(conflictKey(meta.id), []), students: meta.students.map(st => ({ sid: st.sid, name: st.name })), book }, null, 1)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `수업포트폴리오-${meta.subject}-${meta.target}-${localIso()}.json`; a.click();
@@ -214,6 +266,11 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
     </div>
     {readOnly && <div className="ls-note is-info"><b>조회 전용</b> · {meta.subject} {meta.label.split(" · ")[0]} ({meta.owners.join("·")} 선생님 담당). 함께 기록하려면 내 정보에서 이 반을 담당 과목에 넣으면 같은 도장부를 함께 써요. <button type="button" data-kdn-bare onClick={() => setPickedId(books[0]?.id || "")}>내 반으로</button></div>}
     {!readOnly && coTeachers[meta.id]?.length > 0 && <div className="ls-note">이 반은 <b>{coTeachers[meta.id].join("·")} 선생님</b>과 함께 쓰는 도장부예요. 누가 찍든 같은 기록에 모이고, 도장마다 찍은 선생님이 남아요.</div>}
+    {book && <div className={`ls-closing ${book.closure?.closed ? "is-closed" : ""}`} role="status">
+      <div><b>{book.closure?.closed ? "도장 마감 완료 · 수정 잠금" : "도장 기록 중"}</b>
+        <small>{book.closure?.closed ? `이 반의 기록은 마감 해제 후 수정할 수 있어요. ${book.closure.by || ""} · ${stampTime(book.closure.at)}` : "반·분반별로 마감하며, 마감 후에도 조회·내보내기는 가능합니다."}</small></div>
+      {!readOnly && <button type="button" data-kdn-bare className="ls-chip" disabled={closing || !!pending.length || save.offline} onClick={toggleClosing}>{closing ? "저장 중…" : book.closure?.closed ? "마감 해제" : "도장 마감"}</button>}
+    </div>}
     <div className="ls-nav">
       <div className="ls-tabs3" role="tablist">{[["stamp", "도장 찍기", <Stamp size={16} key="i" />], ["score", "채점", <Sparkles size={16} key="i" />], ["status", "현황", <List size={16} key="i" />]].map(([key, label, icon]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={tab === key ? "is-on" : ""} onClick={() => setTab(key)}>{icon}<span>{label}</span></button>)}</div>
       <div className={`ls-save is-${saveTone}`} role="status" title={save.error || ""}>
@@ -224,16 +281,16 @@ export default function LessonStamps({ teacher, accounts = {}, db = {}, grade = 
           : <><Cloud size={14} /><span>{save.at ? `저장됨 ${stampTime(save.at).split(" ")[1]}` : "자동 저장"}</span></>}
       </div>
     </div>
-    {book && !readOnly && !Object.keys(book.sessions || {}).length && (() => { const src = siblings.map(x => ({ x, copy: readLocal(copyKey(x.id), null) })).find(item => item.copy && Object.keys(item.copy.sessions || {}).length); return src ? <div className="ls-note is-info">이 반은 아직 도장 칸이 없어요. <b>{src.x.label.split(" · ")[0]}</b> 양식({Object.keys(src.copy.sessions).length}칸·채점 기준)을 그대로 불러올까요? <button type="button" data-kdn-bare onClick={() => { act(templateOp(normalizeBook(src.copy, { id: src.x.id }), { at: new Date().toISOString(), by: who })); showToast?.("양식을 불러왔어요.", "success"); }}>불러오기</button></div> : null; })()}
+    {book && !locked && !Object.keys(book.sessions || {}).length && (() => { const src = siblings.map(x => ({ x, copy: readLocal(copyKey(x.id), null) })).find(item => item.copy && Object.keys(item.copy.sessions || {}).length); return src ? <div className="ls-note is-info">이 반은 아직 도장 칸이 없어요. <b>{src.x.label.split(" · ")[0]}</b> 양식({Object.keys(src.copy.sessions).length}칸·채점 기준)을 그대로 불러올까요? <button type="button" data-kdn-bare onClick={() => { act(templateOp(normalizeBook(src.copy, { id: src.x.id }), { at: new Date().toISOString(), by: who })); showToast?.("양식을 불러왔어요.", "success"); }}>불러오기</button></div> : null; })()}
     {waiting > 0 && save.state === "error" && <div className="ls-note is-warn">연결이 안 돼서 이 기기에 {waiting}건을 보관 중이에요. 연결되면 자동으로 저장돼요(창을 닫아도 다음에 열면 이어서 저장).</div>}
     {!book ? <div className="ls-note">불러오는 중…</div>
-      : tab === "stamp" ? <StampTab wide={wide} readOnly={readOnly} book={book} meta={meta} act={act} who={who} sessionId={sessionId} setSessionId={setSessionId} onEditSession={id => setSheet({ type: "session", id })} onOpenSettings={openSettings}  onBulk={() => setSheet({ type: "bulk" })} />
-      : tab === "score" ? <ScoreTab wide={wide} book={book} meta={meta} act={act} onOpenSettings={() => openSettings("score")} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />
+      : tab === "stamp" ? <StampTab wide={wide} readOnly={locked} book={book} meta={meta} act={act} who={who} sessionId={sessionId} setSessionId={setSessionId} onEditSession={id => setSheet({ type: "session", id })} onOpenSettings={openSettings}  onBulk={() => setSheet({ type: "bulk" })} />
+      : tab === "score" ? <fieldset className="ls-lock-fields" disabled={locked}><ScoreTab wide={wide} book={book} meta={meta} act={act} onOpenSettings={() => openSettings("score")} onOpenStudent={sid => setSheet({ type: "student", id: sid })} /></fieldset>
       : <StatusTab wide={wide} book={book} meta={meta} onOpenStudent={sid => setSheet({ type: "student", id: sid })} />}
-    {book && sheet?.type === "bulk" && <Sheet title="도장 칸 한꺼번에 추가" onClose={() => setSheet(null)}><BulkSlotsBody book={book} meta={meta} act={act} who={who} showToast={showToast} onDone={() => setSheet(null)} onOpenSettings={() => openSettings("plan")} /></Sheet>}
-    {book && sheet?.type === "settings" && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsBody book={book} meta={meta} act={act} who={who} section={sheet.section} showToast={showToast} onDownload={downloadBackup} siblings={siblings} syncOn={syncOn} setSyncOn={setSyncOn} onPushTemplate={ids => { const n = pushTemplate(ids, book); if (n) showToast?.(`${n}개 반에 이 반 양식을 맞췄어요. 그 반의 도장·점수 기록은 그대로예요.`, "success"); }} /></Sheet>}
-    {book && sheet?.type === "session" && book.sessions[sheet.id] && <Sheet title="수업 정보" onClose={() => setSheet(null)}><SessionBody book={book} meta={meta} act={act} id={sheet.id} onDeleted={() => { setSheet(null); setSessionId(""); }} /></Sheet>}
-    {book && sheet?.type === "student" && <Sheet title="학생" onClose={() => setSheet(null)}><StudentBody book={book} meta={meta} act={act} who={who} sid={sheet.id} /></Sheet>}
+    {book && sheet?.type === "bulk" && <Sheet title="도장 칸 한꺼번에 추가" onClose={() => setSheet(null)}><fieldset className="ls-lock-fields" disabled={locked}><BulkSlotsBody book={book} meta={meta} act={act} who={who} showToast={showToast} onDone={() => setSheet(null)} onOpenSettings={() => openSettings("plan")} /></fieldset></Sheet>}
+    {book && sheet?.type === "settings" && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsBody readOnly={locked} book={book} meta={meta} act={act} who={who} section={sheet.section} showToast={showToast} onDownload={downloadBackup} siblings={siblings} syncOn={syncOn} setSyncOn={setSyncOn} onPushTemplate={ids => { const n = pushTemplate(ids, book); if (n) showToast?.(`${n}개 반에 양식 맞추기를 요청했어요. 마감된 반은 제외합니다.`, "success"); }} /></Sheet>}
+    {book && sheet?.type === "session" && book.sessions[sheet.id] && <Sheet title="수업 정보" onClose={() => setSheet(null)}><fieldset className="ls-lock-fields" disabled={locked}><SessionBody book={book} meta={meta} act={act} id={sheet.id} onDeleted={() => { setSheet(null); setSessionId(""); }} /></fieldset></Sheet>}
+    {book && sheet?.type === "student" && <Sheet title="학생" onClose={() => setSheet(null)}><fieldset className="ls-lock-fields" disabled={locked}><StudentBody book={book} meta={meta} act={act} who={who} sid={sheet.id} /></fieldset></Sheet>}
   </div>;
 }
 
@@ -309,7 +366,7 @@ function StampTab({ wide, readOnly, book, meta, act, who, sessionId, setSessionI
     <b>{sessionName(current, indexOf(current.id))}{!readOnly && <PencilLine size={13} />}</b>
     <small>{current.date ? dayLabel(current.date) : "날짜 없음"}{current.period ? ` · ${current.period}교시` : ""}{current.topic ? ` · ${current.topic}` : ""}</small>
   </button> : <div className="ls-cur"><b>수업 없음</b><small>{readOnly ? "아직 기록이 없어요" : "‘오늘 수업 시작’을 눌러 주세요"}</small></div>;
-  const body = view === "board" ? <BoardView book={book} meta={meta} act={act} who={who} current={current} onPick={id => { setSessionId(id); setView("list"); }} onOpenSettings={onOpenSettings} bulkButton={bulkButton} />
+  const body = view === "board" ? <BoardView readOnly={readOnly} book={book} meta={meta} act={act} who={who} current={current} onPick={id => { setSessionId(id); setView("list"); }} onOpenSettings={onOpenSettings} bulkButton={bulkButton} />
     : current ? <RollView wide={wide} book={book} meta={meta} act={act} who={who} session={current} index={indexOf(current.id)} readOnly={readOnly} />
     : <div className="ls-card"><div className="ls-note">{readOnly ? "아직 이 반의 수업 기록이 없어요." : "‘오늘 수업 시작’을 누르면 날짜는 오늘, 교시는 지금 시각으로 들어가고 바로 도장을 찍을 수 있어요."}</div></div>;
 
@@ -374,16 +431,16 @@ function RollView({ wide, book, meta, act, who, session, index, readOnly }) {
     <div className="ls-count"><span><b className="c-stamp">{count("stamp")}</b>도장</span><span><b>{count("absent")}</b>결석</span><span><b>{left}</b>남음</span>
       {left > 0 && !readOnly && <button type="button" data-kdn-bare onClick={stampAll}><Check size={14} />남은 학생 모두 도장</button>}</div>
     <ul className={`ls-rows ${wide ? "is-wide" : ""}`}>{meta.students.map(st => { const value = marks[st.sid]; const state = markOf(value); const late = isLate(session, value); return <li key={st.sid}>
-      <button type="button" data-kdn-bare className={`ls-row ${state ? `is-${state}` : ""}`} onClick={() => tap(st.sid)} aria-label={markTitle(st, session, value, index)}>
+      <button type="button" data-kdn-bare className={`ls-row ${state ? `is-${state}` : ""}`} disabled={readOnly} onClick={() => tap(st.sid)} aria-label={markTitle(st, session, value, index)}>
         <span className="no">{meta.kind === "common" ? st.number : `${st.class}-${st.number}`}</span>
         <span className="nm"><b>{st.name || st.sid}</b>{state && markAt(value) ? <small className={late ? "is-late" : ""}>{late ? "늦게 · " : ""}{stampTime(markAt(value))}</small> : null}</span>
         <span className="mk">{state === "stamp" ? <i className="ls-seal">도장</i> : state === "absent" ? <i className="ls-abs">결석</i> : <i className="ls-empty-dot" />}</span>
       </button></li>; })}</ul>
-    <p className="ls-foot">누를 때마다 도장 → 결석 → 비움 · 찍은 날짜·시각이 남아요(수업 날짜 뒤에 찍으면 ‘늦게’)</p>
+    <p className="ls-foot">{readOnly ? "조회 전용 · 기록을 수정할 수 없습니다." : "누를 때마다 도장 → 결석 → 비움 · 찍은 날짜·시각이 남아요(수업 날짜 뒤에 찍으면 ‘늦게’)"}</p>
   </div>;
 }
 // 표(도장판): 학생 × 차시
-function BoardView({ book, meta, act, who, current, onPick, onOpenSettings, bulkButton }) {
+function BoardView({ readOnly, book, meta, act, who, current, onPick, onOpenSettings, bulkButton }) {
   const allSessions = sessionsAsc(book);
   const [showTime, setShowTime] = useState(false);
   const tap = (s, sid) => act({ t: "mark", s: s.id, sid, v: nextMark(book.marks?.[s.id]?.[sid]), at: new Date().toISOString(), by: who });
@@ -397,7 +454,7 @@ function BoardView({ book, meta, act, who, current, onPick, onOpenSettings, bulk
   const units = Array.from(new Set(sessions.map(s => unitGroup(s.unit)).filter(Boolean)));
   const hasUnits = units.length > 0;
   const groupStart = new Set(groups.slice(1).map(g => g.items[0].id));
-  if (!sessions.length) return <div className="ls-card"><div className="ls-note">아직 도장 칸이 없어요. ‘오늘 수업 시작’을 누르거나, 설정에서 차시(1차시, 2차시…)나 단원별 칸(이차곡선1, 이차곡선2…)을 미리 만들 수 있어요.</div><button type="button" data-kdn-bare className="ls-chip" onClick={() => onOpenSettings("plan")}><Settings2 size={14} />도장 칸 만들기</button></div>;
+  if (!sessions.length) return <div className="ls-card"><div className="ls-note">아직 도장 칸이 없어요. ‘오늘 수업 시작’을 누르거나, 설정에서 차시(1차시, 2차시…)나 단원별 칸(이차곡선1, 이차곡선2…)을 미리 만들 수 있어요.</div><button type="button" data-kdn-bare className="ls-chip" disabled={readOnly} onClick={() => onOpenSettings("plan")}><Settings2 size={14} />도장 칸 만들기</button></div>;
   return <div className="ls-card">
     <div className="ls-bar"><label className="ls-check"><input type="checkbox" checked={showTime} onChange={e => setShowTime(e.target.checked)} />찍은 날짜 보기</label>
       <span className="ls-legend"><i className="is-stamp" />도장 <i className="is-absent" />결석 <i className="is-late" />늦게</span>{bulkButton}</div>
@@ -416,7 +473,7 @@ function BoardView({ book, meta, act, who, current, onPick, onOpenSettings, bulk
       <tbody>{meta.students.map(st => { const stat = stampStats(book, st.sid); return <tr key={st.sid}>
         <td className="sticky c1"><b>{st.name}</b><small>{seatOf(meta, st)}</small></td>
         {sessions.map((s, i) => { const value = book.marks?.[s.id]?.[st.sid]; const state = markOf(value); const late = isLate(s, value); return <td key={s.id} className={`ls-bcell ${groupStart.has(s.id) ? "gstart" : ""}`}>
-          <button type="button" data-kdn-bare className={`${state ? `is-${state}` : ""} ${late ? "is-late" : ""}`} onClick={() => tap(s, st.sid)} title={markTitle(st, s, value, i)} aria-label={markTitle(st, s, value, i)}>
+          <button type="button" data-kdn-bare className={`${state ? `is-${state}` : ""} ${late ? "is-late" : ""}`} disabled={readOnly} onClick={() => tap(s, st.sid)} title={markTitle(st, s, value, i)} aria-label={markTitle(st, s, value, i)}>
             {state === "stamp" ? "●" : state === "absent" ? "결" : ""}{showTime && state && markAt(value) ? <small>{shortDay(stampDay(markAt(value)))}</small> : null}
           </button></td>; })}
         {hasUnits && units.map(u => { const items = sessions.filter(s => unitGroup(s.unit) === u); const got = items.filter(s => markOf(book.marks?.[s.id]?.[st.sid]) === "stamp").length; return <td key={u} className={`usum ${got === items.length ? "full" : ""}`}>{got}<small>/{items.length}</small></td>; })}
@@ -682,7 +739,7 @@ function SessionBody({ book, meta, act, id, onDeleted }) {
 
 // ── 팝업: 설정(차시 · 채점 기준 · 내보내기) ──
 const parseLevels = text => String(text || "").split(/[,\n]/).map(part => { const [label, score] = part.split(":").map(x => x.trim()); return label ? { label, score: Number(score) || 0 } : null; }).filter(Boolean);
-function SettingsBody({ book, meta, act, who, section, showToast, onDownload, siblings = [], syncOn = false, setSyncOn, onPushTemplate }) {
+function SettingsBody({ readOnly, book, meta, act, who, section, showToast, onDownload, siblings = [], syncOn = false, setSyncOn, onPushTemplate }) {
   const scoring = book.scoring;
   const cfg = scoring.stamp;
   const items = scoring.items;
@@ -710,6 +767,7 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload, si
   const tabs = [["plan", "도장 칸"], ["score", "채점 기준"], ...(siblings.length ? [["copy", "다른 반에 맞추기"]] : []), ["export", "내보내기"]];
   return <div className="ls-settings">
     <div className="ls-stabs" role="tablist">{tabs.map(([key, label]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={stab === key} className={stab === key ? "is-on" : ""} onClick={() => setStab(key)}>{label}</button>)}</div>
+    <fieldset className="ls-lock-fields" disabled={readOnly}>
     {stab === "plan" && <section ref={planRef}>
       <div className="ls-shead"><h4>도장 칸 <small>{sessions.length}칸</small></h4>{sessions.length > 0 && <button type="button" data-kdn-bare className={adding ? "ls-chip" : "ls-primary ls-sm"} onClick={() => setAdding(v => !v)}>{adding ? <><X size={14} />닫기</> : <><Plus size={15} />칸 추가</>}</button>}</div>
       {(adding || !sessions.length) && <SlotAdder book={book} meta={meta} act={act} who={who} showToast={showToast} onAdded={() => setAdding(false)} />}
@@ -751,6 +809,7 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload, si
       <div className="ls-adds"><span className="ls-mini">항목 더하기</span>{Object.entries({ check: "제출 항목", wrong: "오답노트", mock: "모의고사 업로드", feedback: "피드백(상중하)", custom: "점수 직접" }).map(([key, label]) => <button key={key} type="button" data-kdn-bare className="ls-chip" onClick={() => addItem(key)}><Plus size={13} />{label}</button>)}</div>
       <button type="button" data-kdn-bare className="ls-chip" onClick={usePreset}><Sparkles size={14} />예시로 바꾸기: 도장판 8 + 오답노트·모의고사 풀이·피드백 1점씩</button>
     </section>}
+    </fieldset>
     {stab === "export" && <section><h4>내보내기 · 백업</h4>
       <div className="ls-adds">
         <button type="button" data-kdn-bare className="ls-chip" onClick={() => copyText(exports.status(), showToast)}><Copy size={13} />현황 복사</button>
@@ -764,6 +823,13 @@ function SettingsBody({ book, meta, act, who, section, showToast, onDownload, si
 }
 
 const LS_CSS = `
+.ls-lock-fields{border:0;padding:0;margin:0;min-width:0}
+.ls-closing{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;margin:10px 0;border:1px solid #cbd5e1;border-radius:14px;background:#f8fafc;color:#334155}
+.ls-closing.is-closed{background:#fff7ed;border-color:#fdba74;color:#9a3412}
+.ls-closing b,.ls-closing small{display:block}.ls-closing small{margin-top:4px;line-height:1.5}.ls-closing button{flex-shrink:0}
+.ls button:disabled{cursor:default}.ls-lock-fields:disabled input,.ls-lock-fields:disabled select{opacity:.7}
+@media(max-width:540px){.ls-closing{align-items:flex-start;flex-wrap:wrap}}
+
 .ls-geditor{display:grid;gap:10px;margin-top:10px}
 .ls-swapcard{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border:2px solid #fb923c;border-radius:14px;background:color-mix(in srgb,#ea580c 10%,var(--kdn-surface,#fff))}
 .ls-swapcard>div{flex:1 1 220px;display:grid;gap:3px}.ls-swapcard b{font-size:14.5px;color:var(--kdn-accent-text,#c2410c)}.ls-swapcard span{font-size:13px;color:var(--kdn-ink-soft,#3a404c)}
