@@ -32,6 +32,7 @@ import { buildClassExamCompare, examSubjectScores, examGrades } from "./classExa
 import TourGuide, { TourButton } from "./TourGuide.jsx";
 import { SURVEY_FIELDS, SURVEY_GROUPS, parseCounselSurvey, mergeCounselSurveys, splitChoice } from "./counselSurvey.js";
 import { mergeDuplicateTracks } from "./trackDedupe.js";
+import { pickUnitRecords, collapseCutRows } from "./naviCutAudit.js";
 import { featureAllowed } from "./staffPermissions.js";
 import { parseNeisClassReport } from "./neisClassReport.js";
 import { admissionEligibilityInfo } from "./admissionMetrics.js";
@@ -91,6 +92,8 @@ const COMBINATION_META = {
 
 const REPORT_BETA_GROUPS = ["전교과", "국수영사과", "국수영과", "국수영사"];
 const EMPTY_FAVORITES = Object.freeze([]);
+// 시간표에서 읽은 학생별 수강 과목(App.jsx collectEnrolledSubjectsByStudent). 성적 시뮬레이터가 남은 학기 과목을 자동으로 채웁니다.
+const EnrolledSubjectsContext = React.createContext({});
 let susiNaviViewPromise;
 const loadSusiNaviView = () => susiNaviViewPromise || (susiNaviViewPromise = import("./SusiNaviBeta.jsx").catch(error => { susiNaviViewPromise = null; throw error; }));
 const preloadSusiNaviView = () => { loadSusiNaviView().catch(() => {}); };
@@ -847,7 +850,7 @@ export default function GradesSection({
   if (!gdb) return <div style={{ padding: 40, textAlign: "center" }}><Loader2 className="spin" size={20} /></div>;
 
   return (
-    <div>
+    <EnrolledSubjectsContext.Provider value={enrolledSubjectsByStudent}><div>
       <style>{GRADES_UI_CSS}</style>
       <div className="kd-legacy-section-header" style={{ padding: "16px 20px", borderBottom: "1px solid #e6e1d3", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div>
@@ -982,7 +985,7 @@ export default function GradesSection({
           <ClassStudentAccounts homeroomClass={loggedInTeacher.homeroomClass} accounts={accounts} roster={roster} />
         )}
       </div>
-    </div>
+    </div></EnrolledSubjectsContext.Provider>
   );
 }
 
@@ -2579,7 +2582,7 @@ const STUDENT_GRADE_PRINT_PAPER_CSS = `
   .student-grade-print-sheet-clone .report-trend-head{display:flex;align-items:center;justify-content:space-between;gap:2mm;padding:1.2mm 1.7mm;background:#f4f7fb;border-bottom:1px solid #d8e1eb}
   .student-grade-print-sheet-clone .report-trend-head b{font-size:7.4px;color:#2c4c70}.student-grade-print-sheet-clone .report-trend-head span{font-size:5.9px;color:#78899b;font-weight:800}
   .student-grade-print-sheet-clone .report-trend-chart,.student-grade-print-sheet-clone .mock-trend-chart{display:block;width:100%;height:calc(100% - 7mm);min-height:0;padding:.2mm .8mm .4mm;overflow:visible}
-  .student-grade-print-sheet-clone .report-category-head{padding:1.2mm 1.7mm;background:#f4f7fb;border-bottom:1px solid #d8e1eb;font-size:7.4px;font-weight:950;color:#2c4c70}.student-grade-print-sheet-clone .report-category-card table{height:calc(100% - 7mm)}.student-grade-print-sheet-clone .report-category-card th{font-size:6px;padding:1mm .5mm;background:#eef3fa}.student-grade-print-sheet-clone .report-category-card td{font-size:6.2px;padding:1mm .5mm}.student-grade-print-sheet-clone .category-average{font-weight:950;color:#315f92;background:#f4f8fd}.student-grade-print-sheet-clone .mock-table th{font-size:6.2px;padding:1.15mm .65mm;background:#eef3fa}
+  .student-grade-print-sheet-clone .report-category-head{padding:1.2mm 1.7mm;background:#f4f7fb;border-bottom:1px solid #d8e1eb;font-size:7.4px;font-weight:950;color:#2c4c70}.student-grade-print-sheet-clone .report-category-card table{height:calc(100% - 7mm)}.student-grade-print-sheet-clone .report-category-card th{font-size:6px;padding:1mm .5mm;background:#eef3fa}.student-grade-print-sheet-clone .report-category-card td{font-size:7.2px;padding:1mm .5mm}.student-grade-print-sheet-clone .category-average{font-weight:950;color:#315f92;background:#f4f8fd}.student-grade-print-sheet-clone .mock-table th{font-size:6.2px;padding:1.15mm .65mm;background:#eef3fa}
   .student-grade-print-sheet-clone .pt-rows{display:grid;grid-auto-rows:minmax(0,1fr);align-content:center;gap:1mm;height:calc(100% - 7mm);padding:1.4mm 2.4mm;overflow:hidden}
   .student-grade-print-sheet-clone .pt-row{display:grid;grid-template-columns:16mm minmax(0,1fr) 15mm 10mm;gap:1.8mm;align-items:center;min-height:0;max-height:6mm}
   .student-grade-print-sheet-clone .pt-sem{font-size:6.6px;font-weight:900;color:#4a5f77;white-space:nowrap}
@@ -2595,11 +2598,15 @@ const STUDENT_GRADE_PRINT_PAPER_CSS = `
   .student-grade-print-sheet-clone .pm-table td.pm-round{font-size:6.3px;font-weight:880;color:#273c56;white-space:nowrap;overflow:visible}
   .student-grade-print-sheet-clone .pm-table td.ok{background:#e6f4ea;color:#15803d}.student-grade-print-sheet-clone .pm-table td.no{color:#b6c0cc}
   .student-grade-print-sheet-clone .pm-table .grp-start{border-left:1.2px solid #b9c7d8}
-  .student-grade-print-sheet-clone .mock-table table{height:100%}.student-grade-print-sheet-clone .mock-table thead{height:7mm}.student-grade-print-sheet-clone .mock-table tbody tr{height:calc((100% - 7mm)/var(--mock-row-count,6))}.student-grade-print-sheet-clone .mock-table td{font-size:6.2px;padding:.55mm .55mm;vertical-align:middle}
+  .student-grade-print-sheet-clone .mock-table table{height:calc(100% - 7mm)}.student-grade-print-sheet-clone .mock-table thead{height:7mm}.student-grade-print-sheet-clone .mock-table tbody tr{height:calc((100% - 7mm)/var(--mock-row-count,6))}.student-grade-print-sheet-clone .mock-table td{font-size:7.2px;padding:.55mm .55mm;vertical-align:middle}
   .student-grade-print-sheet-clone .sum-cell{font-weight:950;color:#315f92;background:#f4f8fd}
 .student-grade-print-sheet-clone[data-print-category="false"] .report-category-card{display:none!important}.student-grade-print-sheet-clone[data-print-trend="false"] .report-trend-card{display:none!important}.student-grade-print-sheet-clone[data-print-mock-chart="false"] .mock-trend-card{display:none!important}.student-grade-print-sheet-clone[data-print-mock="false"] .mock-table{display:none!important}
-  .student-grade-print-sheet-clone{height:198mm!important;max-height:198mm!important;display:flex!important;flex-direction:column!important;overflow:hidden!important}
-  .student-grade-print-sheet-clone[data-semester-count="1"] .report-lower-grid,.student-grade-print-sheet-clone[data-semester-count="2"] .report-lower-grid,.student-grade-print-sheet-clone[data-semester-count="3"] .report-lower-grid{flex:none!important}
+  body.print-student-grade-report>.student-grade-print-sheet-clone{height:198mm!important;max-height:198mm!important;display:flex!important;flex-direction:column!important;overflow:hidden!important;padding:0 .6mm!important;box-sizing:border-box!important}
+  .student-grade-print-sheet-clone[data-semester-count="1"] .report-lower-grid,.student-grade-print-sheet-clone[data-semester-count="2"] .report-lower-grid,.student-grade-print-sheet-clone[data-semester-count="3"] .report-lower-grid{flex:1 1 auto!important;max-height:118mm}
+  /* 학기 표가 짧으면 아래 그래프·표 칸이 남은 종이를 채워 빈 공간 없이 인쇄됩니다. */
+  .student-grade-print-sheet-clone .report-lower-grid{flex:1 1 auto}.student-grade-print-sheet-clone .report-footer{margin-top:auto!important}
+  .student-grade-print-sheet-clone[data-lower-count="4"] .report-lower-grid{max-height:112mm!important}.student-grade-print-sheet-clone[data-lower-count="3"] .report-lower-grid{max-height:62mm!important}
+  .student-grade-print-sheet-clone[data-lower-count="2"] .report-lower-grid{max-height:68mm!important}.student-grade-print-sheet-clone[data-lower-count="1"] .report-lower-grid{max-height:72mm!important}
   .student-grade-print-sheet-clone[data-semester-count="4"] .report-lower-grid{height:58mm}.student-grade-print-sheet-clone[data-semester-count="5"] .report-lower-grid{height:52mm}
   .student-grade-print-sheet-clone[data-lower-count="4"] .report-category-card{grid-column:1;grid-row:1}.student-grade-print-sheet-clone[data-lower-count="4"] .report-trend-card{grid-column:2;grid-row:1}.student-grade-print-sheet-clone[data-lower-count="4"] .mock-trend-card{grid-column:1;grid-row:2}.student-grade-print-sheet-clone[data-lower-count="4"] .mock-table{grid-column:2;grid-row:2}
   .student-grade-print-sheet-clone .report-footer{display:flex;justify-content:space-between;gap:8mm;margin-top:2mm;padding-top:1.4mm;border-top:1px solid #dbe2ea;font-size:6px;color:#7d8997;font-weight:700}
@@ -2607,7 +2614,7 @@ const STUDENT_GRADE_PRINT_PAPER_CSS = `
   .student-grade-print-sheet-clone[data-semester-count="5"] th{font-size:5.4px;padding:.78mm .5mm}
   .student-grade-print-sheet-clone[data-semester-count="5"] td{font-size:5.5px;padding:.68mm .5mm}
   .student-grade-print-sheet-clone[data-semester-count="5"] .report-trend-chart,.student-grade-print-sheet-clone[data-semester-count="5"] .mock-trend-chart{height:calc(100% - 7mm)}
-  .student-grade-print-sheet-clone[data-paper="B4"]{height:236mm!important;max-height:236mm!important;padding:2mm 3mm!important}
+  body.print-student-grade-report>.student-grade-print-sheet-clone[data-paper="B4"]{height:236mm!important;max-height:236mm!important;padding:2mm 3mm!important}
   .student-grade-print-sheet-clone[data-paper="B4"] .report-title{font-size:21px!important}
   .student-grade-print-sheet-clone[data-paper="B4"] .report-student{font-size:10.2px!important}
   .student-grade-print-sheet-clone[data-paper="B4"] .report-summary b{font-size:14.5px!important}
@@ -2680,8 +2687,8 @@ function StudentGradePrintCategoryTable({ semesterKeys, groups, gradeSystem, ent
   const categories = ["국어", "영어", "수학", "사회", "과학"];
   const field = gradeSystem === 5 ? "perSemester9" : "perSemester9";
   return rawColors(() => <article className="report-category-card">
-    <div className="report-category-head">교과별 평균 등급</div>
-    <table><thead><tr><th>교과</th>{semesterKeys.map(key=><th key={key}>{key}</th>)}<th>평균</th></tr></thead><tbody>{categories.map(category=>{
+    <div className="report-category-head">교과별 평균 등급{gradeSystem === 5 ? " · 9등급 환산" : ""}</div>
+    <table><thead><tr><th>교과</th>{semesterKeys.map(key=><th key={key}>{semesterCalendarLabel(key, entryYear).replace(/^\d{4}년\s*/, "")}</th>)}<th>평균</th></tr></thead><tbody>{categories.map(category=>{
       const values = semesterKeys.map(key=>groups?.[category]?.[field]?.[SEMESTER_KEYS.indexOf(key)] ?? null);
       const valid = values.filter(value=>value!=null);
       const average = valid.length ? Math.round(valid.reduce((sum,value)=>sum+Number(value),0)/valid.length*100)/100 : null;
@@ -2757,7 +2764,7 @@ function StudentGradePrintSheet({
       <StudentGradePrintCategoryTable semesterKeys={displaySemesterKeys || []} groups={groups} gradeSystem={gradeSystem} entryYear={entryYear} />
       <StudentGradePrintTrend semesterKeys={displaySemesterKeys || []} groups={groups} gradeSystem={gradeSystem} entryYear={entryYear} grade9Label={grade9Label} />
       <StudentGradePrintMockTrend mockRows={mockRows} entryYear={entryYear} />
-      <div className="mock-table"><table><colgroup><col style={{width:"16%"}}/>{MOCK_SUBJECTS.map(subject => <col key={subject} style={{width:"9.5%"}}/>)}<col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/></colgroup><thead><tr><th>회차</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}<th>2합</th><th>3합</th><th>4합</th></tr></thead><tbody>{mockRows.length ? mockRows.map(({key,result,sums,absent}) => <tr key={key}><td className="mock-round" title={mockCalendarLabel(key,entryYear)}>{(() => { const [g, m] = key.split("-"); return `${g}학년 ${m}월`; })()}</td>{absent ? <td colSpan={MOCK_SUBJECTS.length} style={{color:"#9a493c",fontWeight:700}}>미응시</td> : MOCK_SUBJECTS.map(subject => <td key={subject}>{result?.[subject] ?? "-"}</td>)}<td className="sum-cell">{sums.sum2 ?? "-"}</td><td className="sum-cell">{sums.sum3 ?? "-"}</td><td className="sum-cell">{sums.sum4 ?? "-"}</td></tr>) : <tr><td colSpan={10}>등록된 모의고사 성적 없음</td></tr>}</tbody></table></div>
+      <div className="mock-table"><div className="report-trend-head"><b>모의고사 등급</b><span>과목별 등급 · 2·3·4합은 가장 좋은 조합</span></div><table><colgroup><col style={{width:"16%"}}/>{MOCK_SUBJECTS.map(subject => <col key={subject} style={{width:"9.5%"}}/>)}<col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/><col style={{width:"9.3%"}}/></colgroup><thead><tr><th>회차</th>{MOCK_SUBJECTS.map(subject => <th key={subject}>{subject}</th>)}<th>2합</th><th>3합</th><th>4합</th></tr></thead><tbody>{mockRows.length ? mockRows.map(({key,result,sums,absent}) => <tr key={key}><td className="mock-round" title={mockCalendarLabel(key,entryYear)}>{(() => { const [g, m] = key.split("-"); return `${g}학년 ${m}월`; })()}</td>{absent ? <td colSpan={MOCK_SUBJECTS.length} style={{color:"#9a493c",fontWeight:700}}>미응시</td> : MOCK_SUBJECTS.map(subject => <td key={subject}>{result?.[subject] ?? "-"}</td>)}<td className="sum-cell">{sums.sum2 ?? "-"}</td><td className="sum-cell">{sums.sum3 ?? "-"}</td><td className="sum-cell">{sums.sum4 ?? "-"}</td></tr>) : <tr><td colSpan={10}>등록된 모의고사 성적 없음</td></tr>}</tbody></table></div>
     </div>
     <footer className="report-footer"><span>본 자료는 학생 상담을 위한 참고 자료입니다.</span><span>광덕고등학교 성적·시간표 시스템</span></footer>
   </section>);
@@ -2789,6 +2796,17 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
     : studentAccounts?.[sid];
   const initialEntryYear = inferEntryYear({ studentInfo, metaRecord, sid, latestSemesterRecord: legacyLatestSemesterRecord, cohortSettings });
   const semesterRecords = SEMESTER_KEYS.map(key => semesterStudentRecord(semesterData, initialEntryYear, key, sid));
+  const enrolledBySid = React.useContext(EnrolledSubjectsContext);
+  // 시간표 수강 과목을 학기별로 묶어 성적 시뮬레이터에 넘깁니다(성적이 아직 없는 학기만 자동 채움).
+  const plannedBySemester = useMemo(() => {
+    const out = {};
+    (enrolledBySid?.[String(sid)] || []).forEach(item => {
+      const key = String(item?.semesterKey || "");
+      if (!SEMESTER_KEYS.includes(key) || !item?.subject) return;
+      (out[key] = out[key] || []).push({ subject: item.subject, category: item.category || "", weeklyHours: item.weeklyHours || null });
+    });
+    return out;
+  }, [enrolledBySid, sid]);
   const latestSemesterRecord = semesterRecords.slice().reverse().find(Boolean) || legacyLatestSemesterRecord;
 
   const inferredGrade = asNumber(studentInfo?.grade)
@@ -3274,7 +3292,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
           {trendTab === "insight" && <GradeInsights groups={displayGroups} groupField={displayGradeScale === 9 ? "perSemester9" : "perSemester5"} semesterKeys={availableSemesters} allKeys={SEMESTER_KEYS}
             labels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))} scale={displayGradeScale} gradeLabel={gradeDisplayLabel} studentName={studentName}
             overallAverage={displayGradeScale === 9 ? displayGroups["전과목"]?.avg9 : displayGroups["전과목"]?.avg5} />}
-          {trendTab === "sim" && <GradeSimulator sid={sid} studentName={studentName} gradeSystem={gradeSystem} subjectLists={subjectLists} semesterKeys={SEMESTER_KEYS} labelOf={key => semesterCalendarLabel(key, entryYear)} />}
+          {trendTab === "sim" && <GradeSimulator plannedBySemester={plannedBySemester} sid={sid} studentName={studentName} gradeSystem={gradeSystem} subjectLists={subjectLists} semesterKeys={SEMESTER_KEYS} labelOf={key => semesterCalendarLabel(key, entryYear)} />}
           {trendTab === "heatmap" && <GradeHeatmap subjectLists={subjectLists} semesterKeys={availableSemesters} allKeys={SEMESTER_KEYS}
             labels={availableSemesters.map(key => semesterCalendarLabel(key, entryYear, true))} gradeSystem={gradeSystem} groups={groups} groupField={gradeSystem === 9 ? "perSemester9" : "perSemester5"} />}
 
@@ -5250,31 +5268,33 @@ export function favoriteNaviCutRows(betaData, university, region = "", departmen
   const targetUniversity = universityKey(university);
   const targetCampus = admissionCampusLabel(university, region);
   const targetDepartment = normalizeAdmissionLookupKey(department);
-  const targetType = normalizeAdmissionLookupKey(favoriteCaseAdmissionType({ admissionType }));
   if (!targetUniversity || !targetDepartment) return [];
-  const records = (betaData?.records || []).filter(row => {
+  const campusRecords = (betaData?.records || []).filter(row => {
     if (universityKey(row?.[3]) !== targetUniversity) return false;
     const rowCampus = admissionCampusLabel(row?.[3], row?.[1]);
-    if (targetCampus && rowCampus && targetCampus !== rowCampus) return false;
-    const unit = normalizeAdmissionLookupKey(row?.[5] || row?.[4]);
-    return Boolean(unit && (unit === targetDepartment || unit.includes(targetDepartment) || targetDepartment.includes(unit)));
+    return !(targetCampus && rowCampus && targetCampus !== rowCampus);
   });
+  // 학과명이 정확히 같은 모집단위가 있으면 그것만 씁니다. 예전에는 이름 일부만 겹쳐도 함께 가져와
+  // 같은 전형이 다른 학과 컷으로 두 번 보이는 문제가 있었습니다.
+  const records = pickUnitRecords(campusRecords, department);
+  const multiUnit = new Set(records.map(row => normalizeAdmissionLookupKey(row?.[5] || row?.[4]))).size > 1;
   const rows = [];
   records.forEach(row => {
     [["교과", row?.[7] || []], ["종합", row?.[8] || []]].forEach(([kind, items]) => {
       items.forEach(item => {
         const typeName = String(item?.[0] || kind);
-        const normalizedType = normalizeAdmissionLookupKey(typeName);
         const cut50 = asNumber(item?.[1]);
         const cut70 = asNumber(item?.[2]);
         if (cut50 == null && cut70 == null) return;
         rows.push({
           kind,
           name: typeName,
-          normalizedType,
+          normalizedType: normalizeAdmissionLookupKey(typeName),
           cut50,
           cut70,
           department: row?.[5] || department,
+          unitLabel: multiUnit ? (row?.[5] || "") : "",
+          source: item?.[5] || "",
         });
       });
     });
@@ -5282,13 +5302,8 @@ export function favoriteNaviCutRows(betaData, university, region = "", departmen
   const selection=favoriteAdmissionSelection({admissionType});
   const sourceRows = rows.filter(item => (!selection.type || item.kind===selection.type)
     && (!selection.track || favoriteTrackKey(item.name)===favoriteTrackKey(selection.track)));
-  const seen = new Set();
-  return sourceRows.filter(item => {
-    const key = `${item.kind}|${normalizeAdmissionLookupKey(item.name)}|${item.cut50 ?? ""}|${item.cut70 ?? ""}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // 같은 모집단위·같은 전형이 컷이 다르게 여러 번 들어온 경우(2026 모집단위 여러 곳 통합)는 한 줄로 묶고 가운데값을 씁니다.
+  return collapseCutRows(sourceRows);
 }
 function naviCutText(item) {
   if (!item) return "";
@@ -5865,7 +5880,7 @@ function FavoriteExplorerDetail({ sid, studentName, university, region, items = 
         const c = basis(row), band = bands[index], margin = hasGrade && c != null ? c - Number(studentGrade) : null;
         const ev = minFor(row)?.evaluation, ml = explorerMinLabel(ev);
         return <tr key={`${row.kind}-${row.name}-${index}`}>
-          <td><span className={`kdx-kind ${/종합/.test(row.kind) ? "hol" : "sub"}`}>{/종합/.test(row.kind) ? "종합" : "교과"}</span><b className="nm" title={row.name}>{row.name}</b></td>
+          <td><span className={`kdx-kind ${/종합/.test(row.kind) ? "hol" : "sub"}`}>{/종합/.test(row.kind) ? "종합" : "교과"}</span><b className="nm" title={row.name}>{row.name}</b>{row.unitLabel && <small className="kdx-unit">{row.unitLabel}</small>}{row.variants?.length > 1 && <small className="kdx-var" title={row.variants.map(v => `${fmt2(v.cut50)} / ${fmt2(v.cut70)}${v.source ? ` (${v.source})` : ""}`).join("\n")}>2026 모집단위 {row.variants.length}곳 가운데값 · {row.variants.map(v => `${fmt2(v.cut50)}/${fmt2(v.cut70)}`).join(", ")}</small>}{row.inverted && <small className="kdx-warn">50%컷이 70%컷보다 낮게 공개됨 · 원자료 확인</small>}</td>
           <td className="n">{fmt2(row.cut50)}</td><td className="n"><b>{fmt2(row.cut70)}</b></td>
           <td>{c != null && <div className="kdx-scale"><i className="ln" />{hasGrade && <i className={`gap ${margin >= 0 ? "ok" : "bad"}`} style={{ left: `${Math.min(pos(c), pos(Number(studentGrade)))}%`, width: `${Math.abs(pos(c) - pos(Number(studentGrade)))}%` }} />}<i className="cut" style={{ left: `${pos(c)}%` }} />{hasGrade && <i className="me" style={{ left: `${pos(Number(studentGrade))}%` }} />}</div>}</td>
           <td className={`n df ${margin == null ? "" : margin >= 0 ? "ok" : "bad"}`}>{margin == null ? "-" : `${Math.abs(margin).toFixed(2)} ${margin >= 0 ? "여유" : "부족"}`}</td>
