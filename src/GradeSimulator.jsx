@@ -5,6 +5,8 @@ import { Plus, Trash2, Copy, Save, RotateCcw } from "lucide-react";
 import { normalizeCategory, getSubjectGrade } from "./gradeEngine.js";
 import { conversionDetails, loadSusiNaviBetaData } from "./susiNaviData.js";
 import { simulatedGroupAverages, saveGradeSimPreset, deleteGradeSimPreset, useGradeSimPresets } from "./gradeSimStore.js";
+import { plannedSimSubjects } from "./gradeSimPlan.js";
+import { CalendarDays } from "lucide-react";
 
 const CATEGORIES = ["국어", "수학", "영어", "사회", "한국사", "과학", "기술가정/정보", "제2외국어/한문", "기타"];
 const ACHIEVEMENTS = ["", "A", "B", "C", "D", "E"];
@@ -20,6 +22,7 @@ function rowsFromSubjects(list = []) {
     credit: String(subject?.credit ?? ""),
     grade: getSubjectGrade(subject) != null ? String(getSubjectGrade(subject)) : "",
     achievement: subject?.achievement || subject?.achievementLevel || "",
+    fromTimetable: !!subject?.fromTimetable,
   }));
 }
 function rowsToSubjects(rows = []) {
@@ -32,7 +35,7 @@ function rowsToSubjects(rows = []) {
   }));
 }
 
-export default function GradeSimulator({ sid, studentName = "", gradeSystem = 5, subjectLists = [], semesterKeys = [], labelOf = key => key }) {
+export default function GradeSimulator({ sid, studentName = "", gradeSystem = 5, subjectLists = [], semesterKeys = [], labelOf = key => key, plannedBySemester = {} }) {
   const scale = Number(gradeSystem) === 9 ? 9 : 5;
   const lastFilled = subjectLists.reduce((last, list, index) => (list?.length ? index : last), -1);
   const remaining = semesterKeys.filter((_, index) => index > lastFilled);
@@ -46,6 +49,20 @@ export default function GradeSimulator({ sid, studentName = "", gradeSystem = 5,
   const { presets, status } = useGradeSimPresets(sid);
 
   React.useEffect(() => { setSims({}); setActive(remaining[0] || ""); setMessage(""); }, [sid]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 시간표에 있는 남은 학기 수강 과목을 자동으로 채웁니다(이미 손댄 학기는 그대로 둡니다).
+  const plannedKeys = remaining.filter(key => plannedBySemester?.[key]?.length);
+  const plannedSig = plannedKeys.map(key => `${key}:${plannedBySemester[key].map(item => item.subject).join(",")}`).join("|");
+  const plannedRowsFor = key => rowsFromSubjects(plannedSimSubjects(plannedBySemester?.[key] || [], subjectLists, scale));
+  React.useEffect(() => {
+    if (!plannedKeys.length) return;
+    setSims(current => {
+      const next = { ...current };
+      let changed = false;
+      plannedKeys.forEach(key => { if (!next[key]) { next[key] = plannedRowsFor(key); changed = true; } });
+      return changed ? next : current;
+    });
+    setActive(current => (current && plannedBySemester?.[current]?.length ? current : plannedKeys[0]));
+  }, [sid, plannedSig]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => {
     if (scale !== 5) return;
     let alive = true;
@@ -138,11 +155,13 @@ export default function GradeSimulator({ sid, studentName = "", gradeSystem = 5,
           {remaining.map(key => { const count = rowsToSubjects(sims[key] || []).length; const off = excludeLast && key === "3-2"; return <button key={key} type="button" role="tab" data-kdn-bare aria-selected={active === key} className={active === key ? "is-on" : ""} onClick={() => setActive(key)}><b>{labelOf(key)}</b><small>{off ? "수시 미반영" : count ? `${count}과목 입력` : "비어 있음"}</small></button>; })}
         </div>
         <div className="kdn-sim-tools">
+          {plannedBySemester?.[active]?.length > 0 && <button type="button" onClick={() => { setRows(plannedRowsFor(active)); setMessage(`${labelOf(active)} 시간표 과목을 다시 불러왔습니다.`); }}><CalendarDays size={15} />시간표 과목 다시 불러오기</button>}
           <button type="button" onClick={copyLast}><Copy size={15} />지난 학기 과목 복사</button>
           <label>모든 과목 등급 <select value="" onChange={event => event.target.value && setAll(event.target.value)} disabled={!rows.length}><option value="">일괄 선택</option>{Array.from({ length: scale }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1}등급</option>)}</select></label>
           {remaining.includes("3-2") && <label className="kdn-sim-check"><input type="checkbox" checked={excludeLast} onChange={event => setExcludeLast(event.target.checked)} />3학년 2학기는 수시 계산에서 제외</label>}
           <button type="button" onClick={() => setRows([])} disabled={!rows.length}><RotateCcw size={15} />이 학기 비우기</button>
         </div>
+        {plannedBySemester?.[active]?.length > 0 && rows.some(row => row.fromTimetable) && <p className="kdn-sim-auto"><CalendarDays size={14} /><span><b>{labelOf(active)} 시간표 과목 {plannedBySemester[active].length}개를 자동으로 넣었어요.</b> 학점은 주당 시수(없으면 지난 학기 학점), 석차등급은 지난 학기 같은 교과 등급으로 채웠습니다. 바꿔 보며 예상 내신을 확인하세요.</span></p>}
         <div className="kdn-sim-table" role="table" aria-label={`${labelOf(active)} 시뮬레이션 과목`}>
           <div className="kdn-sim-row is-head" role="row"><span>과목명</span><span>교과</span><span>학점</span><span>석차등급</span><span>성취도</span><span /></div>
           {rows.map(row => <div key={row.id} className="kdn-sim-row" role="row">

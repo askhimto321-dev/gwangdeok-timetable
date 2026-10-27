@@ -5,6 +5,7 @@
 // 다크 모드 변환은 uiMode.js가 렌더 시점에 일괄 처리합니다.
 import React from "react";
 import { SUPPORT_BAND_META, supportBandValue, validGrade, median } from "./admissionMetrics.js";
+import { naviNameKey, cutsInverted } from "./naviCutAudit.js";
 
 // 위치 막대 눈금 범위(9등급 환산 기준). 대부분의 수시 컷이 1~6 사이라 이 범위로 고정해
 // 카드끼리 막대 위치를 바로 비교할 수 있게 합니다. 범위를 벗어난 값은 양 끝에 붙습니다.
@@ -61,7 +62,7 @@ export function MarginBar({ margin }) {
 export function groupCutItems(items = [], cutoffBasis = "70") {
   const map = new Map();
   items.filter(item => validGrade(item.cut50) != null || validGrade(item.cut70) != null).forEach(item => {
-    const key = `${item.kind}|${item.name}`;
+    const key = `${item.kind}|${naviNameKey(item.name) || item.name}`;
     if (!map.has(key)) map.set(key, { kind: item.kind, name: item.name, list: [] });
     map.get(key).list.push(item);
   });
@@ -71,6 +72,7 @@ export function groupCutItems(items = [], cutoffBasis = "70") {
       kind: group.kind, name: group.name, count: group.list.length,
       cut50: median(group.list.map(item => item.cut50)), cut70: median(group.list.map(item => item.cut70)),
       range: basis.length > 1 ? [Math.min(...basis), Math.max(...basis)] : null,
+      inverted: group.list.some(item => cutsInverted(item.cut50, item.cut70)),
     };
   });
 }
@@ -95,7 +97,7 @@ export function CutStrip({ items = [], studentGrade, cutoffBasis = "70", limit =
         const margin = band ? -band.diff : null;
         return (
           <div key={`${item.kind}-${item.name}-${index}`} className="kdn-cutstrip-row" style={{ ...cut.row, ...(index % 2 ? cut.rowAlt : {}) }}>
-            <span style={strip.name}><TrackChip kind={item.kind} /><span style={{ display: "grid", minWidth: 0 }}><b style={strip.nameText} title={item.name}>{item.name || item.kind}</b>{item.count > 1 && <small style={strip.groupHint}>모집단위 {item.count}곳{item.range ? ` · ${cutoffBasis}%컷 ${fmt(item.range[0])}~${fmt(item.range[1])}` : ""} · 가운데값</small>}</span></span>
+            <span style={strip.name}><TrackChip kind={item.kind} /><span style={{ display: "grid", minWidth: 0 }}><b style={strip.nameText} title={item.name}>{item.name || item.kind}</b>{item.count > 1 && <small style={strip.groupHint}>모집단위 {item.count}곳{item.range ? ` · ${cutoffBasis}%컷 ${fmt(item.range[0])}~${fmt(item.range[1])}` : ""} · 가운데값</small>}{item.inverted && <small style={strip.warnHint}>50%컷이 70%컷보다 낮게 공개됨 · 원자료 확인</small>}</span></span>
             <span style={{ ...cut.num, ...(cutoffBasis === "50" ? cut.numOn : {}) }}>{fmt(item.cut50)}</span>
             <span style={{ ...cut.num, ...(cutoffBasis !== "50" ? cut.numOn : {}) }}>{fmt(item.cut70)}</span>
             {hasStudent && <span style={cut.diffCell}>
@@ -176,6 +178,7 @@ const strip = {
   name: { display: "flex", alignItems: "center", gap: 6, minWidth: 0 },
   nameText: { fontSize: 13.5, fontWeight: 900, color: "#1f2430", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   groupHint: { fontSize: 11.5, fontWeight: 600, color: "#6b7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  warnHint: { fontSize: 11.5, fontWeight: 700, color: "#b45309" },
   barCell: { display: "grid", gap: 2, minWidth: 0 },
   numbers: { fontSize: 11.5, fontWeight: 700, color: "#4a5262" },
   band: { display: "flex", justifyContent: "flex-end" },

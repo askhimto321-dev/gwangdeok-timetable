@@ -151,7 +151,10 @@ export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevM
       const sid = normalizedSid(rawSid);
       const grade = scope.grade || (/^[1-3]/.test(sid) ? sid.charAt(0) : "");
       const classKey = String(student?.class ?? "").trim();
-      (fixedSubjectsByClass.get(classKey) || []).forEach(subject => appendSubject(sid, subject, grade, scope.semesterKey, { timetableKind: "fixed", hostClass: classKey }));
+      // 같은 과목이 주에 몇 번 있는지(주당 시수)를 함께 넘겨 성적 시뮬레이터의 학점 기본값으로 씁니다.
+      const counts = new Map();
+      (fixedSubjectsByClass.get(classKey) || []).forEach(subject => counts.set(subject, (counts.get(subject) || 0) + 1));
+      counts.forEach((weeklyHours, subject) => appendSubject(sid, subject, grade, scope.semesterKey, { timetableKind: "fixed", hostClass: classKey, weeklyHours }));
     });
   });
   return result;
