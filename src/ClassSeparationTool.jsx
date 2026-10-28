@@ -25,14 +25,20 @@ const CSS = `
 .kcs-seg button{min-height:38px;padding:0 16px;border:0;border-radius:9px;background:transparent;font:inherit;font-size:14.5px;font-weight:700;color:var(--kdn-muted,#64748b);cursor:pointer}
 .kcs-seg button.is-on{background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);box-shadow:0 1px 4px rgba(15,23,42,.14)}
 .kcs-btn{display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2937);font:inherit;font-size:14px;font-weight:700;cursor:pointer}
-.kcs-btn.pri{background:var(--kdn-accent,#2563eb);border-color:var(--kdn-accent,#2563eb);color:#fff}.kcs-btn:disabled{opacity:.5;cursor:default}.kcs-btn.ghost{background:transparent}.kcs-btn.sm{min-height:32px;padding:0 10px;font-size:13px}
+.kcs-btn.pri{background:var(--kdn-accent,#2563eb);border-color:var(--kdn-accent,#2563eb);color:#fff}.kcs-btn:disabled{opacity:.5;cursor:default}.kcs-btn.pri:disabled{opacity:1;background:var(--kdn-surface-2,#eef2f7);border-color:var(--kdn-line,#d5dbe3);color:var(--kdn-muted,#94a3b8)}.kcs-btn.ghost{background:transparent}.kcs-btn.sm{min-height:32px;padding:0 10px;font-size:13px}
 .kcs-classbar{display:grid;gap:8px;padding:12px 14px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
 .kcs-classbar>small{font-size:12.5px;font-weight:700;color:var(--kdn-muted,#64748b)}
-.kcs-classes{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:8px}
-.kcs-classes button{display:grid;gap:2px;justify-items:start;min-height:66px;padding:9px 12px;border-radius:12px;border:1.5px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface-2,#f8fafc);font:inherit;color:var(--kdn-ink,#1f2937);cursor:pointer;text-align:left}
-.kcs-classes button b{font-size:16px;font-weight:800;margin-bottom:2px}.kcs-classes button small{font-size:12px;line-height:1.4;color:var(--kdn-muted,#64748b);font-weight:600}
-.kcs-classes button.is-on{border-color:var(--kdn-accent,#2563eb);background:color-mix(in srgb,var(--kdn-accent,#2563eb) 12%,transparent)}
-.kcs-classes button.is-on b{color:var(--kdn-accent,#1d4ed8)}
+.kcs-classes{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:10px}
+.kcs-classes button{display:grid;gap:7px;min-height:76px;padding:11px 13px;border-radius:14px;border:1.5px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);font:inherit;color:var(--kdn-ink,#1f2937);cursor:pointer;text-align:left}
+.kcs-classes button:hover{border-color:color-mix(in srgb,var(--kdn-accent,#2563eb) 45%,var(--kdn-line,#d5dbe3))}
+.kcs-classes .top{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.kcs-classes .top b{font-size:17px;font-weight:800;line-height:1.1}
+.kcs-classes .rel{padding:1px 8px;border-radius:999px;font-size:12px;font-weight:800;font-style:normal;background:color-mix(in srgb,#dc2626 13%,transparent);color:#b91c1c;white-space:nowrap}
+[data-kd-ui="dark"] .kcs-classes .rel{color:#fca5a5}
+.kcs-classes .prog{display:block;height:6px;border-radius:99px;background:var(--kdn-surface-2,#eef2f7);overflow:hidden}.kcs-classes .prog i{display:block;height:100%;border-radius:99px;background:#16a34a}
+.kcs-classes .sub{font-size:12.5px;font-weight:600;color:var(--kdn-muted,#64748b);line-height:1.2}
+.kcs-classes button.is-on{border-color:var(--kdn-accent,#2563eb);background:color-mix(in srgb,var(--kdn-accent,#2563eb) 9%,var(--kdn-surface,#fff));box-shadow:0 0 0 3px color-mix(in srgb,var(--kdn-accent,#2563eb) 15%,transparent)}
+.kcs-classes button.is-on .top b{color:var(--kdn-accent,#1d4ed8)}
 .kcs-split{display:grid;grid-template-columns:minmax(230px,300px) minmax(0,1fr);gap:14px;align-items:start}
 .kcs-list{display:grid;gap:2px;max-height:680px;overflow:auto;padding:8px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
 .kcs-list-find{position:sticky;top:-8px;z-index:2;margin:-8px -8px 4px;padding:8px;background:var(--kdn-surface,#fff);border-bottom:1px solid var(--kdn-line,#e2e8f0)}
@@ -49,13 +55,15 @@ const CSS = `
 .kcs-pane{display:grid;gap:18px;padding:20px 22px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
 .kcs-pane-hd{display:grid;gap:8px}.kcs-pane-hd>b{font-size:22px;font-weight:800;line-height:1.2}
 .kcs-pane-hd .meta{display:flex;flex-wrap:wrap;gap:6px}.kcs-pane-hd .meta em{font-style:normal;padding:3px 10px;border-radius:999px;background:var(--kdn-surface-2,#f1f5f9);font-size:13px;font-weight:700;color:var(--kdn-ink-soft,#334155)}.kcs-pane-hd .meta em.soft{font-weight:600;color:var(--kdn-muted,#64748b)}
-.kcs-tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.kcs-tabs button{position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:54px;padding:10px 16px;border-radius:14px;border:1.5px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);font:inherit;color:var(--kdn-ink-soft,#334155);cursor:pointer;text-align:left}
-.kcs-tabs button b{font-size:15px;font-weight:800}.kcs-tabs button span{font-size:15px;font-weight:800;padding:2px 10px;border-radius:999px;background:var(--kdn-surface-2,#f1f5f9)}
-.kcs-tabs button.is-on{border-color:var(--kdn-accent,#2563eb);background:color-mix(in srgb,var(--kdn-accent,#2563eb) 10%,var(--kdn-surface,#fff));color:var(--kdn-ink,#111827)}
-.kcs-tabs button.has{border-color:#f59e0b;background:color-mix(in srgb,#f59e0b 12%,var(--kdn-surface,#fff))}.kcs-tabs button.has span{background:#f59e0b;color:#fff}
-.kcs-tabs button.has.is-on{border-color:#d97706;box-shadow:0 0 0 3px color-mix(in srgb,#f59e0b 25%,transparent)}
-.kcs-tabs .dot{position:absolute;top:-4px;right:-4px;width:12px;height:12px;border-radius:99px;background:#ef4444;border:2px solid var(--kdn-surface,#fff)}
+.kcs-tabs{display:flex;gap:4px;border-bottom:1.5px solid var(--kdn-line,#e2e8f0)}
+.kcs-tabs button{position:relative;flex:1 1 0;display:flex;align-items:center;justify-content:center;gap:10px;min-height:50px;padding:10px 14px;margin-bottom:-1.5px;border:0;border-bottom:3px solid transparent;border-radius:10px 10px 0 0;background:transparent;font:inherit;color:var(--kdn-muted,#64748b);cursor:pointer}
+.kcs-tabs button:hover{background:var(--kdn-surface-2,#f8fafc)}
+.kcs-tabs button b{font-size:15px;font-weight:800}
+.kcs-tabs button span{min-width:28px;padding:1px 9px;border-radius:999px;background:var(--kdn-surface-2,#eef2f7);font-size:13.5px;font-weight:800;color:var(--kdn-ink-soft,#334155);text-align:center}
+.kcs-tabs button.is-on{color:var(--kdn-ink,#111827);border-bottom-color:var(--kdn-accent,#2563eb)}
+.kcs-tabs button.is-on span{background:var(--kdn-accent,#2563eb);color:#fff}
+.kcs-tabs button.has span{background:#f59e0b;color:#fff}
+.kcs-tabs .dot{position:absolute;top:8px;right:10px;width:9px;height:9px;border-radius:99px;background:#ef4444}
 .kcs-recv{display:grid;gap:12px}.kcs-recv .kcs-note b{color:var(--kdn-ink,#111827)}
 .kcs-recv-card{display:grid;grid-template-columns:minmax(150px,1fr) minmax(200px,2fr) auto;gap:10px 18px;align-items:center;padding:16px 18px;border-radius:14px;border:1px solid var(--kdn-line,#e2e8f0);border-left:5px solid var(--c,#94a3b8);background:var(--kdn-surface,#fff)}
 .kcs-recv-card.tone-must{--c:#dc2626}.kcs-recv-card.tone-high{--c:#ea580c}.kcs-recv-card.tone-mid{--c:#ca8a04}.kcs-recv-card.tone-low{--c:#94a3b8}
@@ -94,7 +102,7 @@ const CSS = `
 .kcs-empty{padding:28px;text-align:center;color:var(--kdn-muted,#64748b);font-size:14px}
 .kcs-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 .kcs-kpi{display:grid;gap:4px;padding:16px 18px;border-radius:14px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);text-align:left;font:inherit;color:inherit;cursor:pointer}
-.kcs-kpi small{font-size:13.5px;font-weight:800;color:var(--kdn-muted,#64748b)}.kcs-kpi b{font-size:30px;font-weight:800;line-height:1.1;margin:4px 0}.kcs-kpi b span{font-size:15px;font-weight:700;margin-left:2px}.kcs-kpi em{font-style:normal;font-size:12px;color:var(--kdn-muted,#64748b)}
+.kcs-kpi small{font-size:13.5px;font-weight:800;color:var(--kdn-muted,#64748b)}.kcs-kpi b{font-size:30px;font-weight:800;line-height:1.1;margin:4px 0}.kcs-kpi b span{font-size:15px;font-weight:700;margin-left:3px;color:var(--kdn-muted,#64748b)}.kcs-kpi em{font-style:normal;font-size:12px;color:var(--kdn-muted,#64748b)}
 .kcs-kpi.is-on{outline:2.5px solid var(--kdn-accent,#2563eb);outline-offset:-1px}
 .kcs-kpi.t-must{background:color-mix(in srgb,#dc2626 14%,var(--kdn-surface,#fff))}.kcs-kpi.t-high{background:color-mix(in srgb,#ea580c 14%,var(--kdn-surface,#fff))}.kcs-kpi.t-mid{background:color-mix(in srgb,#ca8a04 16%,var(--kdn-surface,#fff))}.kcs-kpi.t-low{background:color-mix(in srgb,#64748b 14%,var(--kdn-surface,#fff))}
 .kcs-kpi.t-must,.kcs-kpi.t-high,.kcs-kpi.t-mid,.kcs-kpi.t-low{border-color:transparent}.kcs-kpi.t-must small,.kcs-kpi.t-high small,.kcs-kpi.t-mid small,.kcs-kpi.t-low small{color:inherit}
@@ -110,7 +118,7 @@ const CSS = `
 .kcs-who{display:inline-grid;gap:1px;border:0;background:none;font:inherit;color:inherit;cursor:pointer;text-align:center}.kcs-who b{font-weight:800}.kcs-who small{font-size:12px;color:var(--kdn-muted,#64748b)}
 .kcs-bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--kdn-surface-2,#eef2f7)}.kcs-bar i{display:block;height:100%}
 @media (max-width:900px){.kcs-split,.kcs-grid2{grid-template-columns:minmax(0,1fr)}.kcs-list{max-height:280px}.kcs-scale ol{grid-template-columns:repeat(2,minmax(0,1fr))}.kcs-scale-hd small{display:none}.kcs-scale li:nth-child(3){border-left:0}
-  .kcs-row{grid-template-columns:24px minmax(0,1fr) 38px;grid-template-areas:"i pick del" "i lv lv" "i rs rs"}.kcs-recv-card{grid-template-columns:minmax(0,1fr)}.kcs-recv-card .by{justify-items:start;text-align:left}.kcs-tabs button{min-height:58px;padding:8px 12px}.kcs-tabs button b{font-size:13.5px}}
+  .kcs-row{grid-template-columns:24px minmax(0,1fr) 38px;grid-template-areas:"i pick del" "i lv lv" "i rs rs"}.kcs-recv-card{grid-template-columns:minmax(0,1fr)}.kcs-recv-card .by{justify-items:start;text-align:left}.kcs-tabs button{min-height:54px;padding:8px 8px;flex-direction:column;gap:4px}.kcs-tabs button b{font-size:13.5px}.kcs-classes{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}}
 `;
 const BAR_COLORS = { must: "#dc2626", high: "#ea580c", mid: "#ca8a04", low: "#94a3b8" };
 
@@ -288,7 +296,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
   const classStats = tabs.map(c => {
     const related = pairs.filter(p => inClass(p.a, c) || inClass(p.b, c));
     const byLevel = Object.fromEntries(SEPARATION_LEVELS.map(level => [level, related.filter(p => p.level === level).length]));
-    return { c, filled: Object.keys(data[c]?.entries || {}).length, total: related.length, byLevel };
+    return { c, filled: Object.keys(data[c]?.entries || {}).length, total: related.length, byLevel, size: Object.values(roster || {}).filter(st => classOf(st) === c).length };
   });
   const maxTotal = Math.max(1, ...classStats.map(s => s.total));
   const totalFilled = classStats.reduce((sum, s) => sum + s.filled, 0);
@@ -310,7 +318,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
     </section>
 
     {loading ? <div className="kcs-empty"><Loader2 size={16} className="spin" /> 불러오는 중입니다.</div> : mode === "edit" ? <>
-      {tabs.length > 1 && <section className="kcs-classbar"><small>반 선택</small><div className="kcs-classes" role="tablist" aria-label="반 선택">{classStats.map(s => <button key={s.c} type="button" data-kdn-bare role="tab" aria-selected={s.c === viewClass} className={s.c === viewClass ? "is-on" : ""} onClick={() => changeClass(s.c)}><b>{s.c}반</b><small>{s.filled ? `입력 ${s.filled}명` : "입력 전"}</small><small>{s.total ? `분리 관계 ${s.total}건` : "\u00a0"}</small></button>)}</div></section>}
+      {tabs.length > 1 && <section className="kcs-classbar"><small>반 선택 · 초록 막대 = 입력한 학생 비율 · 빨간 표시 = 그 반 학생이 들어간 분리 관계 수</small><div className="kcs-classes" role="tablist" aria-label="반 선택">{classStats.map(s => <button key={s.c} type="button" data-kdn-bare role="tab" aria-selected={s.c === viewClass} className={s.c === viewClass ? "is-on" : ""} onClick={() => changeClass(s.c)}><span className="top"><b>{s.c}반</b>{s.total > 0 && <em className="rel" title="이 반 학생이 들어간 분리 관계">관계 {s.total}</em>}</span><span className="prog" aria-hidden="true"><i style={{ width: `${s.size ? Math.min(100, (s.filled / s.size) * 100) : 0}%` }} /></span><span className="sub">{s.filled ? `입력 ${s.filled} / ${s.size}명` : `입력 전 · ${s.size}명`}</span></button>)}</div></section>}
       <div className="kcs-split">
         <nav className="kcs-list" aria-label={`${viewClass}반 학생`}>
           <div className="kcs-list-find"><input value={findText} placeholder={`${viewClass}반에서 이름·학번 찾기`} aria-label="학생 찾기" onChange={event => setFindText(event.target.value)} /></div>
