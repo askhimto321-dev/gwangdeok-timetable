@@ -954,7 +954,7 @@ export default function GradesSection({
             persistGrades={persistGrades}
             canEdit
             authorName={loggedInAdmin ? "관리자" : (loggedInTeacher?.name || loggedInTeacher?.id || "선생님")}
-          /> : <EmptyBox text="상단 학생 통합 검색에서 상담할 학생을 선택하세요." />}
+          /> : <EmptyBox text="상담할 학생을 먼저 골라 주세요. 이름·학번으로 찾거나 Ctrl+K로 어디서나 찾을 수 있어요." action={{ label: "학생 찾기", onClick: () => window.dispatchEvent(new CustomEvent("kd:search")) }} />}
         </div>}
         {keepTabMounted("gradeCompare") && (loggedInAdmin || (loggedInTeacher && teacherHasGradeAccess && staffFeature("gradeCompare"))) && <div style={{display:tab === "gradeCompare" ? "block" : "none"}}>
           <StudentGradeComparison gdb={gdb} roster={roster} currentGrade={currentGrade} />
@@ -6047,7 +6047,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
   }, [visibleFavorites]);
 
   const favoriteContent = !(favorites || []).length
-    ? <EmptyBox text="아직 저장한 관심 대학·학과가 없습니다. 대학 탐색이나 NAVI에서 별 아이콘을 눌러 상담 후보를 저장하세요." />
+    ? <EmptyBox text="아직 저장한 관심 대학·학과가 없어요. 대학 탐색이나 NAVI에서 별 아이콘을 누르면 여기에 상담 후보로 모여요." action={onOpenAdmission ? { label: "대학 탐색 열기", onClick: () => onOpenAdmission("") } : null} />
     : <div className="favorite-print-section" style={card}>
         <div className={explorer ? "kdn-print-only" : undefined}><SectionHeading title="관심 대학·학과" description="저장한 관심 대학을 중심으로 대학 지원 기준, NAVI 컷, 광덕고 실제 사례를 한 카드에서 연결해 상담할 수 있습니다." /></div>
         {favoriteNaviStatus !== 'ready' && <div className="no-print" role="status" style={{fontSize:12,color:'#49617b',marginBottom:10}}>{favoriteNaviStatus === 'loading' ? 'NAVI 컷 자료 연결 중…' : <>NAVI 컷 자료를 불러오지 못했습니다. <button type="button" onClick={()=>setFavoriteRetry(value=>value+1)}>다시 불러오기</button></>}</div>}
@@ -8703,8 +8703,18 @@ function AdmissionPdfManager({ gdb, persistGrades, showToast, currentGrade = "2"
   );
 }
 
-function EmptyBox({ text }) {
-  return <div style={{ ...card, textAlign: "center", color: "#a39d8c", fontSize: 13 }}>{text}</div>;
+// 빈 화면 안내(시안 3): "없습니다"만 두지 않고, 첫 문장은 제목처럼 · 나머지는 할 일 설명 · 필요하면 버튼 하나.
+function EmptyBox({ text, action = null }) {
+  const parts = String(text || "").match(/^(.+?[.!?。])\s+(.+)$/);
+  const title = parts ? parts[1] : text;
+  const hint = parts ? parts[2] : "";
+  if (!isNewUi()) return <div style={{ ...card, textAlign: "center", color: "#a39d8c", fontSize: 13 }}>{text}</div>;
+  return <div className="kdn-empty-box" role="status">
+    <span className="ic" aria-hidden="true"><Search size={22} /></span>
+    <b>{title}</b>
+    {hint && <p>{hint}</p>}
+    {action && <button type="button" onClick={action.onClick}>{action.label}</button>}
+  </div>;
 }
 
 /* ---------- 스타일 (기존 시간표 앱의 차분한 톤 유지) ---------- */

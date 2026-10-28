@@ -81,3 +81,13 @@ test("반복 일정의 지난 날짜는 '지남'으로 쌓지 않는다", () => 
   assert.deepEqual(todayItems(items, now).map(i => i.date), []);
   assert.deepEqual(todayItems(items, new Date(2026, 9, 22)).map(i => i.date), ["2026-10-22"]);
 });
+
+import { parseQuickTodo } from "../src/teacherPlanner.js";
+test("빠른 입력에서 날짜·시간·제목 찾기", () => {
+  assert.deepEqual(parseQuickTodo("11/5 협의회", now), { date: "2026-11-05", time: "", title: "협의회" });
+  assert.deepEqual(parseQuickTodo("11월 5일(수) 오후 3시 30분 학부모 상담", now), { date: "2026-11-05", time: "15:30", title: "학부모 상담" });
+  assert.deepEqual(parseQuickTodo("내일 15:00 출결 확인", now), { date: "2026-10-29", time: "15:00", title: "출결 확인" });
+  assert.equal(parseQuickTodo("1/5 방학식", now).date, "2027-01-05");
+  assert.equal(parseQuickTodo("김선아", now), null);
+  assert.equal(parseQuickTodo("11/5", now), null);
+});
