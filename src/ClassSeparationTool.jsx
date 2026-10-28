@@ -1,9 +1,9 @@
 // 2027 반편성 '분리희망학생' 입력 (2학년 학급담임 전용).
 // 담임: 자기 반 학생마다 함께 반이 되면 안 되는 학생(최대 10명)·분리 등급(4단계)·사유를 적고 저장합니다.
 // 다른 반 담임이 우리 반 학생을 적은 경우도 그 학생 화면에 보여 줍니다(양쪽 확인).
-// 관리자·2학년부: 전체 현황(등급별·반별·분리 쌍)을 한눈에 보고, 학교 양식 그대로 엑셀로 받습니다.
+// 관리자·2학년부: 전체 현황(등급별·반별·분리 관계)을 한눈에 보고, 학교 양식 그대로 엑셀로 받습니다.
 import React from "react";
-import { Download, Plus, Save, Trash2, Users, X, Loader2, Search, ArrowLeftRight, CornerDownLeft } from "lucide-react";
+import { Download, Plus, Save, Trash2, Users, X, Loader2, Search, ArrowLeftRight, ArrowRight } from "lucide-react";
 import { readStorage, updateStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { MAX_TARGETS, SEPARATION_LEVELS, LEVEL_INFO, REASON_PRESETS, CUSTOM_REASON, SHEET_TITLE, SEPARATION_COL_WIDTHS, levelRank, separationKey, normalizeTargets, searchStudents, separationRows, separationHeader, separationPairs, reverseTargets } from "./classSeparation.js";
@@ -17,7 +17,7 @@ const toneOf = level => LEVEL_INFO[level]?.tone || "low";
 const newTarget = () => ({ sid: "", level: SEPARATION_LEVELS[0], reason: "" });
 
 const CSS = `
-.kcs{display:grid;gap:14px;color:var(--kdn-ink,#1f2937)}
+.kcs{display:grid;gap:16px;color:var(--kdn-ink,#1f2937);line-height:1.55}
 .kcs-head{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:16px 18px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
 .kcs-head .t{display:grid;gap:3px;flex:1 1 260px}.kcs-head .t b{font-size:19px;font-weight:800}.kcs-head .t small{font-size:13.5px;color:var(--kdn-muted,#64748b);line-height:1.5}
 .kcs-head .acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -29,25 +29,39 @@ const CSS = `
 .kcs-classbar{display:grid;gap:8px;padding:12px 14px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
 .kcs-classbar>small{font-size:12.5px;font-weight:700;color:var(--kdn-muted,#64748b)}
 .kcs-classes{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:8px}
-.kcs-classes button{display:grid;gap:2px;justify-items:start;min-height:56px;padding:8px 12px;border-radius:12px;border:1.5px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface-2,#f8fafc);font:inherit;color:var(--kdn-ink,#1f2937);cursor:pointer;text-align:left}
-.kcs-classes button b{font-size:16px;font-weight:800}.kcs-classes button small{font-size:12px;color:var(--kdn-muted,#64748b);font-weight:600}
+.kcs-classes button{display:grid;gap:2px;justify-items:start;min-height:66px;padding:9px 12px;border-radius:12px;border:1.5px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface-2,#f8fafc);font:inherit;color:var(--kdn-ink,#1f2937);cursor:pointer;text-align:left}
+.kcs-classes button b{font-size:16px;font-weight:800;margin-bottom:2px}.kcs-classes button small{font-size:12px;line-height:1.4;color:var(--kdn-muted,#64748b);font-weight:600}
 .kcs-classes button.is-on{border-color:var(--kdn-accent,#2563eb);background:color-mix(in srgb,var(--kdn-accent,#2563eb) 12%,transparent)}
 .kcs-classes button.is-on b{color:var(--kdn-accent,#1d4ed8)}
 .kcs-split{display:grid;grid-template-columns:minmax(230px,300px) minmax(0,1fr);gap:14px;align-items:start}
 .kcs-list{display:grid;gap:2px;max-height:680px;overflow:auto;padding:8px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
 .kcs-list-find{position:sticky;top:-8px;z-index:2;margin:-8px -8px 4px;padding:8px;background:var(--kdn-surface,#fff);border-bottom:1px solid var(--kdn-line,#e2e8f0)}
 .kcs-list-find input{width:100%;min-height:36px;padding:0 10px;border-radius:9px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface-2,#f8fafc);color:var(--kdn-ink,#1f2937);font:inherit;font-size:14px;box-sizing:border-box}
-.kcs-list button{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:44px;padding:0 10px;border-radius:10px;border:1.5px solid transparent;background:transparent;font:inherit;font-size:14.5px;color:var(--kdn-ink,#1f2937);text-align:left;cursor:pointer}
+.kcs-list button{display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:8px;min-height:48px;padding:0 10px;border-radius:10px;border:1.5px solid transparent;background:transparent;font:inherit;font-size:14.5px;color:var(--kdn-ink,#1f2937);text-align:left;cursor:pointer}
 .kcs-list button:hover{background:var(--kdn-surface-2,#f1f5f9)}.kcs-list button.is-on{border-color:var(--kdn-accent,#2563eb);background:color-mix(in srgb,var(--kdn-accent,#2563eb) 10%,transparent)}
 .kcs-list .no{font-size:13px;color:var(--kdn-muted,#64748b);font-variant-numeric:tabular-nums;text-align:center}.kcs-list .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kcs-list .nm small{font-weight:600;color:var(--kdn-muted,#64748b);margin-left:5px}
 .kcs-marks{display:flex;gap:4px;align-items:center}
-.kcs-badge{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:24px;height:22px;padding:0 7px;border-radius:999px;font-size:12px;font-weight:800}
+.kcs-badge{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:24px;height:23px;padding:0 8px;white-space:nowrap;border-radius:999px;font-size:12px;font-weight:800}
 .kcs-badge.rev{background:transparent;border:1.5px dashed currentColor}
 .t-must{background:color-mix(in srgb,#dc2626 16%,transparent);color:#b91c1c}.t-high{background:color-mix(in srgb,#ea580c 16%,transparent);color:#c2410c}
 .t-mid{background:color-mix(in srgb,#ca8a04 18%,transparent);color:#a16207}.t-low{background:color-mix(in srgb,#64748b 16%,transparent);color:#475569}
 [data-kd-ui="dark"] .t-must{color:#fca5a5}[data-kd-ui="dark"] .t-high{color:#fdba74}[data-kd-ui="dark"] .t-mid{color:#fde047}[data-kd-ui="dark"] .t-low{color:#cbd5e1}
-.kcs-pane{display:grid;gap:12px;padding:16px 18px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
-.kcs-pane-hd{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}.kcs-pane-hd b{font-size:19px;font-weight:800}.kcs-pane-hd small{font-size:13px;color:var(--kdn-muted,#64748b)}
+.kcs-pane{display:grid;gap:18px;padding:20px 22px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
+.kcs-pane-hd{display:grid;gap:8px}.kcs-pane-hd>b{font-size:22px;font-weight:800;line-height:1.2}
+.kcs-pane-hd .meta{display:flex;flex-wrap:wrap;gap:6px}.kcs-pane-hd .meta em{font-style:normal;padding:3px 10px;border-radius:999px;background:var(--kdn-surface-2,#f1f5f9);font-size:13px;font-weight:700;color:var(--kdn-ink-soft,#334155)}.kcs-pane-hd .meta em.soft{font-weight:600;color:var(--kdn-muted,#64748b)}
+.kcs-tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kcs-tabs button{position:relative;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:54px;padding:10px 16px;border-radius:14px;border:1.5px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);font:inherit;color:var(--kdn-ink-soft,#334155);cursor:pointer;text-align:left}
+.kcs-tabs button b{font-size:15px;font-weight:800}.kcs-tabs button span{font-size:15px;font-weight:800;padding:2px 10px;border-radius:999px;background:var(--kdn-surface-2,#f1f5f9)}
+.kcs-tabs button.is-on{border-color:var(--kdn-accent,#2563eb);background:color-mix(in srgb,var(--kdn-accent,#2563eb) 10%,var(--kdn-surface,#fff));color:var(--kdn-ink,#111827)}
+.kcs-tabs button.has{border-color:#f59e0b;background:color-mix(in srgb,#f59e0b 12%,var(--kdn-surface,#fff))}.kcs-tabs button.has span{background:#f59e0b;color:#fff}
+.kcs-tabs button.has.is-on{border-color:#d97706;box-shadow:0 0 0 3px color-mix(in srgb,#f59e0b 25%,transparent)}
+.kcs-tabs .dot{position:absolute;top:-4px;right:-4px;width:12px;height:12px;border-radius:99px;background:#ef4444;border:2px solid var(--kdn-surface,#fff)}
+.kcs-recv{display:grid;gap:12px}.kcs-recv .kcs-note b{color:var(--kdn-ink,#111827)}
+.kcs-recv-card{display:grid;grid-template-columns:minmax(150px,1fr) minmax(200px,2fr) auto;gap:10px 18px;align-items:center;padding:16px 18px;border-radius:14px;border:1px solid var(--kdn-line,#e2e8f0);border-left:5px solid var(--c,#94a3b8);background:var(--kdn-surface,#fff)}
+.kcs-recv-card.tone-must{--c:#dc2626}.kcs-recv-card.tone-high{--c:#ea580c}.kcs-recv-card.tone-mid{--c:#ca8a04}.kcs-recv-card.tone-low{--c:#94a3b8}
+.kcs-recv-card .who{display:grid;gap:2px}.kcs-recv-card .who b{font-size:16px;font-weight:800}.kcs-recv-card .who small{font-size:13px;color:var(--kdn-muted,#64748b)}
+.kcs-recv-card .what{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;font-size:14.5px}
+.kcs-recv-card .by{display:grid;gap:6px;justify-items:end;text-align:right}.kcs-recv-card .by small{font-size:12.5px;color:var(--kdn-muted,#64748b)}.kcs-recv-card .ok{font-size:13px;font-weight:700;color:#15803d}
 .kcs-scale{display:grid;gap:8px;padding:12px 14px;border-radius:14px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface-2,#f8fafc)}
 .kcs-scale-hd{display:flex;align-items:center;gap:8px}.kcs-scale-hd b{font-size:13.5px;font-weight:800}.kcs-scale-hd small{font-size:12px;color:var(--kdn-muted,#64748b)}.kcs-scale-hd .sp{flex:1}
 .kcs-scale-hd button{min-height:28px;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft,#334155);cursor:pointer}
@@ -58,8 +72,8 @@ const CSS = `
 .kcs-scale li b{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:800;color:var(--kdn-ink,#111827)}.kcs-scale li b i{width:9px;height:9px;border-radius:99px;background:var(--c)}
 .kcs-scale li span{font-size:12.5px;color:var(--kdn-ink-soft,#334155)}.kcs-scale li small{font-size:12px;line-height:1.45;color:var(--kdn-muted,#64748b)}
 .kcs-sec{display:grid;gap:8px}.kcs-sec>h4{margin:0;display:flex;align-items:center;gap:6px;font-size:14.5px;font-weight:800}.kcs-sec>h4 small{font-weight:600;color:var(--kdn-muted,#64748b)}
-.kcs-rows{display:grid;gap:10px}
-.kcs-row{display:grid;grid-template-columns:26px minmax(210px,1fr) auto;grid-template-areas:"i pick lv" "i rs del";gap:8px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f8fafc);border:1px solid var(--kdn-line,#e2e8f0)}
+.kcs-rows{display:grid;gap:12px}
+.kcs-row{display:grid;grid-template-columns:26px minmax(210px,1fr) auto;grid-template-areas:"i pick lv" "i rs del";gap:10px 12px;align-items:center;padding:14px 16px;border-radius:14px;background:var(--kdn-surface-2,#f8fafc);border:1px solid var(--kdn-line,#e2e8f0)}
 .kcs-row .i{grid-area:i;align-self:start;margin-top:10px;font-size:13px;font-weight:800;color:var(--kdn-muted,#64748b);text-align:center}
 .kcs-row .pick{grid-area:pick}.kcs-row .kcs-level{grid-area:lv}.kcs-row .rs{grid-area:rs;display:flex;flex-wrap:wrap;gap:8px}.kcs-row .kcs-del{grid-area:del;justify-self:end}
 .kcs-pick{position:relative}.kcs-pick input,.kcs-row input.reason,.kcs-row select{min-height:38px;padding:0 10px;border-radius:9px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2937);font:inherit;font-size:14px;box-sizing:border-box}
@@ -71,7 +85,7 @@ const CSS = `
 .kcs-level{display:flex;flex-wrap:wrap;gap:4px}.kcs-level button{min-height:36px;padding:0 10px;border-radius:9px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:700;color:var(--kdn-ink-soft,#334155);cursor:pointer;white-space:nowrap}
 .kcs-level button.is-on.must{background:#dc2626;border-color:#dc2626;color:#fff}.kcs-level button.is-on.high{background:#ea580c;border-color:#ea580c;color:#fff}.kcs-level button.is-on.mid{background:#ca8a04;border-color:#ca8a04;color:#fff}.kcs-level button.is-on.low{background:#64748b;border-color:#64748b;color:#fff}
 .kcs-del{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:#b91c1c;cursor:pointer}
-.kcs-rev{display:grid;grid-template-columns:minmax(150px,1fr) auto minmax(120px,1.4fr) auto;gap:8px 12px;align-items:center;padding:10px 12px;border-radius:12px;border:1.5px dashed var(--kdn-line,#cbd5e1);font-size:14px}
+.kcs-rev-old{display:grid;grid-template-columns:minmax(150px,1fr) auto minmax(120px,1.4fr) auto;gap:8px 12px;align-items:center;padding:10px 12px;border-radius:12px;border:1.5px dashed var(--kdn-line,#cbd5e1);font-size:14px}
 .kcs-rev b{font-weight:800}.kcs-rev small{color:var(--kdn-muted,#64748b)}
 .kcs-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.kcs-foot .sp{flex:1}
 .kcs-note{margin:0;font-size:13px;line-height:1.55;color:var(--kdn-muted,#64748b)}
@@ -79,24 +93,24 @@ const CSS = `
 .kcs-guide>ol{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:8px}.kcs-guide>ol>li{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--kdn-surface-2,#f1f5f9);font-size:13.5px;font-weight:700}.kcs-guide>ol>li>i{display:grid;place-items:center;width:20px;height:20px;border-radius:99px;background:var(--kdn-accent,#2563eb);color:#fff;font-style:normal;font-size:12px}
 .kcs-empty{padding:28px;text-align:center;color:var(--kdn-muted,#64748b);font-size:14px}
 .kcs-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
-.kcs-kpi{display:grid;gap:4px;padding:14px 16px;border-radius:14px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);text-align:left;font:inherit;color:inherit;cursor:pointer}
-.kcs-kpi small{font-size:13px;font-weight:700;color:var(--kdn-muted,#64748b)}.kcs-kpi b{font-size:28px;font-weight:800;line-height:1}.kcs-kpi em{font-style:normal;font-size:12px;color:var(--kdn-muted,#64748b)}
+.kcs-kpi{display:grid;gap:4px;padding:16px 18px;border-radius:14px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);text-align:left;font:inherit;color:inherit;cursor:pointer}
+.kcs-kpi small{font-size:13.5px;font-weight:800;color:var(--kdn-muted,#64748b)}.kcs-kpi b{font-size:30px;font-weight:800;line-height:1.1;margin:4px 0}.kcs-kpi b span{font-size:15px;font-weight:700;margin-left:2px}.kcs-kpi em{font-style:normal;font-size:12px;color:var(--kdn-muted,#64748b)}
 .kcs-kpi.is-on{outline:2.5px solid var(--kdn-accent,#2563eb);outline-offset:-1px}
 .kcs-kpi.t-must{background:color-mix(in srgb,#dc2626 14%,var(--kdn-surface,#fff))}.kcs-kpi.t-high{background:color-mix(in srgb,#ea580c 14%,var(--kdn-surface,#fff))}.kcs-kpi.t-mid{background:color-mix(in srgb,#ca8a04 16%,var(--kdn-surface,#fff))}.kcs-kpi.t-low{background:color-mix(in srgb,#64748b 14%,var(--kdn-surface,#fff))}
 .kcs-kpi.t-must,.kcs-kpi.t-high,.kcs-kpi.t-mid,.kcs-kpi.t-low{border-color:transparent}.kcs-kpi.t-must small,.kcs-kpi.t-high small,.kcs-kpi.t-mid small,.kcs-kpi.t-low small{color:inherit}
 .kcs-grid2{display:grid;grid-template-columns:minmax(260px,.8fr) minmax(0,2fr);gap:14px;align-items:start}
-.kcs-card{display:grid;gap:10px;padding:14px 16px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);min-width:0}
-.kcs-card>h4{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:15px;font-weight:800}.kcs-card>h4 small{font-weight:600;color:var(--kdn-muted,#64748b)}.kcs-card>h4 .sp{flex:1}
+.kcs-card{display:grid;gap:12px;padding:18px 20px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);min-width:0}
+.kcs-card>h4{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font-size:15px;font-weight:800}.kcs-card>h4 small{font-weight:600;color:var(--kdn-muted,#64748b)}.kcs-card>h4 .sp{flex:1}.kcs-card>h4 .cnt{padding:1px 10px;border-radius:999px;background:var(--kdn-surface-2,#f1f5f9);font-size:13px}
 .kcs-filter{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.kcs-filter input,.kcs-filter select{min-height:34px;padding:0 10px;border-radius:9px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2937);font:inherit;font-size:13.5px}
 .kcs-table-wrap{overflow:auto;max-height:620px;border-radius:12px;border:1px solid var(--kdn-line,#e2e8f0)}
 .kcs-table{width:100%;min-width:640px;border-collapse:collapse;font-size:13.5px}.kcs-table.narrow{min-width:0}.kcs-table th{position:sticky;top:0;z-index:1;background:var(--kdn-surface-2,#f1f5f9);padding:9px 10px;font-weight:800;color:var(--kdn-muted,#475569);text-align:center;white-space:nowrap}
-.kcs-table td{padding:8px 10px;border-top:1px solid var(--kdn-line,#e2e8f0);vertical-align:middle}.kcs-table td.c{text-align:center;white-space:nowrap}.kcs-table td small{color:var(--kdn-muted,#64748b)}
+.kcs-table td{padding:12px 12px;border-top:1px solid var(--kdn-line,#e2e8f0);vertical-align:middle}.kcs-table td.c{text-align:center;white-space:nowrap}.kcs-table td small{color:var(--kdn-muted,#64748b)}
 .kcs-table tr.click{cursor:pointer}.kcs-table tr.click:hover td{background:var(--kdn-surface-2,#f8fafc)}.kcs-table tr.is-on td{background:color-mix(in srgb,var(--kdn-accent,#2563eb) 10%,transparent)}
 .kcs-pill{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap}
 .kcs-who{display:inline-grid;gap:1px;border:0;background:none;font:inherit;color:inherit;cursor:pointer;text-align:center}.kcs-who b{font-weight:800}.kcs-who small{font-size:12px;color:var(--kdn-muted,#64748b)}
 .kcs-bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--kdn-surface-2,#eef2f7)}.kcs-bar i{display:block;height:100%}
 @media (max-width:900px){.kcs-split,.kcs-grid2{grid-template-columns:minmax(0,1fr)}.kcs-list{max-height:280px}.kcs-scale ol{grid-template-columns:repeat(2,minmax(0,1fr))}.kcs-scale-hd small{display:none}.kcs-scale li:nth-child(3){border-left:0}
-  .kcs-row{grid-template-columns:24px minmax(0,1fr) 38px;grid-template-areas:"i pick del" "i lv lv" "i rs rs"}.kcs-rev{grid-template-columns:minmax(0,1fr) auto}}
+  .kcs-row{grid-template-columns:24px minmax(0,1fr) 38px;grid-template-areas:"i pick del" "i lv lv" "i rs rs"}.kcs-recv-card{grid-template-columns:minmax(0,1fr)}.kcs-recv-card .by{justify-items:start;text-align:left}.kcs-tabs button{min-height:58px;padding:8px 12px}.kcs-tabs button b{font-size:13.5px}}
 `;
 const BAR_COLORS = { must: "#dc2626", high: "#ea580c", mid: "#ca8a04", low: "#94a3b8" };
 
@@ -131,10 +145,10 @@ function ReasonPicker({ value, disabled, onChange }) {
 
 // 분리 등급 기준: 강한 등급부터 색 띠로 이어 보여 주고, 예시는 필요할 때 펼칩니다(이 브라우저에 기억).
 function LevelScale() {
-  const [open, setOpen] = React.useState(() => { try { return localStorage.getItem("kd_sep_scale_open") !== "0"; } catch { return true; } });
+  const [open, setOpen] = React.useState(() => { try { return localStorage.getItem("kd_sep_scale_open") === "1"; } catch { return false; } });
   const toggle = () => setOpen(value => { try { localStorage.setItem("kd_sep_scale_open", value ? "0" : "1"); } catch { /* ignore */ } return !value; });
   return <div className="kcs-scale" aria-label="분리 등급 기준">
-    <div className="kcs-scale-hd"><b>분리 등급 기준</b><small>왼쪽일수록 강하게 분리</small><span className="sp" /><button type="button" data-kdn-bare onClick={toggle} aria-expanded={open}>{open ? "예시 접기" : "예시 보기"}</button></div>
+    <div className="kcs-scale-hd"><b>분리 등급 기준</b><small>왼쪽일수록 강하게 분리</small><span className="sp" /><button type="button" data-kdn-bare onClick={toggle} aria-expanded={open}>{open ? "예시 접기" : "등급별 예시 보기"}</button></div>
     <ol>{SEPARATION_LEVELS.map(level => <li key={level} style={{ "--c": BAR_COLORS[toneOf(level)] }}><b><i />{level}</b><span>{LEVEL_INFO[level].hint}</span>{open && <small>예: {LEVEL_INFO[level].example}</small>}</li>)}</ol>
   </div>;
 }
@@ -159,6 +173,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
   const [levelFilter, setLevelFilter] = React.useState("");
   const [classFilter, setClassFilter] = React.useState("");
   const [pairQuery, setPairQuery] = React.useState("");
+  const [paneTab, setPaneTab] = React.useState("mine");
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -186,6 +201,9 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
 
   const loadDraft = (c, id) => {
     const saved = normalizeTargets(data[c]?.entries?.[id]?.targets, id);
+    // 다른 학생이 적었는데 이 학생 쪽엔 아직 없으면 '이 학생을 적은 학생'부터 보여 줍니다.
+    const received = reverseTargets(data, id).filter(r => !saved.some(t => t.sid === r.sid));
+    setPaneTab(received.length && !saved.length ? "recv" : "mine");
     setDraft(saved.length ? saved : (editableClass(c) ? [newTarget()] : []));
     setDirty(false);
   };
@@ -280,7 +298,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
   return <div className="kcs">
     <style dangerouslySetInnerHTML={{ __html: CSS }} />
     <section className="kcs-head">
-      <div className="t"><b>{year + 1} 반편성 · 분리희망학생</b><small>{canViewAll ? `2학년 ${tabs.length}개 반 · 입력한 반 ${startedClasses}개 · 등록 학생 ${totalFilled}명 · 분리 쌍 ${pairs.length}개` : `${ownClass}반 담임 · 등록 ${classStats[0]?.filled || 0}명 · 우리 반 관련 분리 쌍 ${scopePairs.length}개`}</small></div>
+      <div className="t"><b>{year + 1} 반편성 · 분리희망학생</b><small>{canViewAll ? `2학년 ${tabs.length}개 반 · 입력한 반 ${startedClasses}개 · 입력한 학생 ${totalFilled}명 · 분리 관계 ${pairs.length}건` : `${ownClass}반 담임 · 입력한 학생 ${classStats[0]?.filled || 0}명 · 우리 반 관련 분리 관계 ${scopePairs.length}건`}</small></div>
       <div className="kcs-seg" role="tablist" aria-label="화면 선택">
         <button type="button" data-kdn-bare role="tab" aria-selected={mode === "edit"} className={mode === "edit" ? "is-on" : ""} onClick={() => setMode("edit")}>학생별 입력</button>
         <button type="button" data-kdn-bare role="tab" aria-selected={mode === "summary"} className={mode === "summary" ? "is-on" : ""} onClick={() => setMode("summary")}>{canViewAll ? "전체 현황" : "우리 반 현황"}</button>
@@ -292,13 +310,13 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
     </section>
 
     {loading ? <div className="kcs-empty"><Loader2 size={16} className="spin" /> 불러오는 중입니다.</div> : mode === "edit" ? <>
-      {tabs.length > 1 && <section className="kcs-classbar"><small>반 선택 · 입력한 학생 수 / 그 반 학생이 들어간 분리 쌍 수</small><div className="kcs-classes" role="tablist" aria-label="반 선택">{classStats.map(s => <button key={s.c} type="button" data-kdn-bare role="tab" aria-selected={s.c === viewClass} className={s.c === viewClass ? "is-on" : ""} onClick={() => changeClass(s.c)}><b>{s.c}반</b><small>{s.filled ? `입력 ${s.filled}명 · 쌍 ${s.total}` : s.total ? `쌍 ${s.total}` : "아직 없음"}</small></button>)}</div></section>}
+      {tabs.length > 1 && <section className="kcs-classbar"><small>반 선택</small><div className="kcs-classes" role="tablist" aria-label="반 선택">{classStats.map(s => <button key={s.c} type="button" data-kdn-bare role="tab" aria-selected={s.c === viewClass} className={s.c === viewClass ? "is-on" : ""} onClick={() => changeClass(s.c)}><b>{s.c}반</b><small>{s.filled ? `입력 ${s.filled}명` : "입력 전"}</small><small>{s.total ? `분리 관계 ${s.total}건` : "\u00a0"}</small></button>)}</div></section>}
       <div className="kcs-split">
         <nav className="kcs-list" aria-label={`${viewClass}반 학생`}>
           <div className="kcs-list-find"><input value={findText} placeholder={`${viewClass}반에서 이름·학번 찾기`} aria-label="학생 찾기" onChange={event => setFindText(event.target.value)} /></div>
           {shownStudents.map(([id, s]) => { const own = ownTargets(id); const rev = (reverseMap[id] || []).filter(r => !own.some(t => t.sid === r.sid)); return <button key={id} type="button" data-kdn-bare className={id === sid ? "is-on" : ""} onClick={() => pick(id)}>
             <span className="no">{s?.number || id.slice(-2)}</span><span className="nm">{s?.name || id}<small>{s?.gender || ""}</small></span>
-            <span className="kcs-marks">{own.length > 0 && <span className={`kcs-badge t-${toneOf(strongest(own))}`} title="이 학생에게 등록한 분리희망학생 수">{own.length}</span>}{rev.length > 0 && <span className={`kcs-badge rev t-${toneOf(strongest(rev))}`} title="다른 학생이 이 학생을 적은 수(이 학생 쪽에는 아직 없음)"><CornerDownLeft size={11} />{rev.length}</span>}</span>
+            <span className="kcs-marks">{own.length > 0 && <span className={`kcs-badge t-${toneOf(strongest(own))}`} title="이 학생이 적은 분리희망학생 수">적음 {own.length}</span>}{rev.length > 0 && <span className={`kcs-badge rev t-${toneOf(strongest(rev))}`} title="다른 학생이 이 학생을 적은 수(이 학생 쪽에는 아직 없음)">받음 {rev.length}</span>}</span>
           </button>; })}
           {!shownStudents.length && <div className="kcs-empty">{students.length ? "찾는 학생이 없습니다." : `${viewClass}반 명단이 없습니다.`}</div>}
         </nav>
@@ -306,20 +324,30 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
           {!sid ? <div className="kcs-guide">
             <b><Users size={18} /> 왼쪽 명단에서 학생을 고르세요</b>
             <ol><li><i>1</i>학생 고르기</li><li><i>2</i>분리할 학생 · 등급 · 사유 입력</li><li><i>3</i>저장</li></ol>
-            <small><span className="kcs-badge t-must">2</span> 이 학생에게 등록한 수(색 = 가장 강한 등급) · <span className="kcs-badge rev t-high"><CornerDownLeft size={11} />1</span> 다른 학생이 이 학생을 적은 수</small>
+            <small><span className="kcs-badge t-must">적음 2</span> 이 학생이 적은 분리희망학생 수 <span className="kcs-badge rev t-high">받음 1</span> 다른 학생이 이 학생을 적은 수 · 색은 가장 강한 등급</small>
             <LevelScale />
           </div> : <>
-            <div className="kcs-pane-hd"><b>{label(sid, roster)}</b><small>{viewClass}반 · {roster?.[sid]?.gender || ""} · 분리희망학생 {normalizeTargets(draft, sid).length}/{MAX_TARGETS}명{entries[sid]?.updatedAt ? ` · 마지막 저장 ${new Date(entries[sid].updatedAt).toLocaleString("ko-KR")}${entries[sid].by ? ` (${entries[sid].by})` : ""}` : ""}</small></div>
-            <LevelScale />
-            {reverse.length > 0 && <div className="kcs-sec"><h4><CornerDownLeft size={15} />이 학생을 분리 희망으로 적은 학생 <small>{reverse.length}명 · 상대 학생 쪽에서 입력한 내용</small></h4>
-              {reverse.map(item => <div key={item.sid} className="kcs-rev">
-                <span><b>{label(item.sid, roster)}</b> <small>{classOf(roster?.[item.sid])}반{item.by ? ` · ${item.by} 입력` : ""}</small></span>
-                <LevelPill level={item.level} />
-                <span>{item.reason || <small>사유 없음</small>}</span>
-                {canEdit ? (draftIds.has(item.sid) ? <small>이 학생에도 등록됨</small> : <button type="button" className="kcs-btn sm" disabled={draft.filter(t => t.sid).length >= MAX_TARGETS} onClick={() => addFromReverse(item)}><ArrowLeftRight size={14} />이 학생에도 추가</button>) : <span />}
-              </div>)}
-            </div>}
-            <div className="kcs-sec"><h4>분리희망학생 <small>같은 반이 되면 안 되는 학생 · 최대 {MAX_TARGETS}명</small></h4>
+            <div className="kcs-pane-hd">
+              <b>{nameOf(sid, roster) || sid}</b>
+              <span className="meta"><em>{sid}</em><em>{viewClass}반</em>{roster?.[sid]?.gender && <em>{roster[sid].gender}</em>}{entries[sid]?.updatedAt && <em className="soft">마지막 저장 {new Date(entries[sid].updatedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}{entries[sid].by ? ` · ${entries[sid].by}` : ""}</em>}</span>
+            </div>
+            <div className="kcs-tabs" role="tablist" aria-label="이 학생의 분리희망">
+              <button type="button" data-kdn-bare role="tab" aria-selected={paneTab === "mine"} className={paneTab === "mine" ? "is-on" : ""} onClick={() => setPaneTab("mine")}><b>이 학생이 적은 분리희망</b><span>{normalizeTargets(draft, sid).length}명</span></button>
+              <button type="button" data-kdn-bare role="tab" aria-selected={paneTab === "recv"} className={`${paneTab === "recv" ? "is-on " : ""}${reverse.length ? "has" : ""}`} onClick={() => setPaneTab("recv")}><b>이 학생을 적은 학생</b><span>{reverse.length}명</span>{reverse.length > 0 && <i className="dot" aria-hidden="true" />}</button>
+            </div>
+            {paneTab === "recv" ? <div className="kcs-recv">
+              {reverse.length ? <>
+                <p className="kcs-note">다른 학생 쪽(다른 반 담임 포함)에서 <b>{nameOf(sid, roster) || sid}</b> 학생과 같은 반이 되지 않게 해 달라고 적었어요. 한쪽만 적어도 반편성 자료에는 분리 관계로 들어갑니다.</p>
+                {reverse.map(item => <article key={item.sid} className={`kcs-recv-card tone-${toneOf(item.level)}`}>
+                  <div className="who"><b>{nameOf(item.sid, roster) || item.sid}</b><small>{classOf(roster?.[item.sid])}반 · {item.sid}</small></div>
+                  <div className="what"><LevelPill level={item.level} /><span>{item.reason || "사유 없음"}</span></div>
+                  <div className="by"><small>{item.by ? `${item.by} 입력` : ""}{item.updatedAt ? ` · ${new Date(item.updatedAt).toLocaleDateString("ko-KR")}` : ""}</small>
+                    {canEdit && (draftIds.has(item.sid) ? <span className="ok">이 학생 쪽에도 등록됨</span> : <button type="button" className="kcs-btn sm" disabled={draft.filter(t => t.sid).length >= MAX_TARGETS} onClick={() => { addFromReverse(item); setPaneTab("mine"); }}><ArrowLeftRight size={14} />이 학생 쪽에도 적기</button>)}</div>
+                </article>)}
+              </> : <div className="kcs-empty">이 학생을 분리 희망으로 적은 다른 학생은 없습니다.</div>}
+            </div> : <>
+            <div className="kcs-sec">
+              <p className="kcs-note">같은 반이 되면 안 되는 학생을 최대 {MAX_TARGETS}명까지 적어 주세요. 등급과 사유를 고른 뒤 저장을 누르면 됩니다.</p>
               <div className="kcs-rows">{draft.map((item, index) => <div key={index} className="kcs-row">
                 <span className="i">{index + 1}</span>
                 {canEdit ? <TargetPicker value={item.sid} roster={roster} exclude={[sid, ...draft.map(t => t.sid).filter(Boolean)]} onChange={value => edit(index, { sid: value })} /> : <div className="kcs-chosen pick">{label(item.sid, roster)} <small>{classOf(roster?.[item.sid])}반</small></div>}
@@ -336,37 +364,40 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
               <button type="button" className="kcs-btn pri" disabled={busy || !dirty} onClick={save}>{busy ? <Loader2 size={15} className="spin" /> : <Save size={15} />}저장</button>
             </div>}
             {!canEdit && <p className="kcs-note">이 반은 보기만 할 수 있습니다. 입력은 해당 반 담임 선생님이 합니다.</p>}
+            <LevelScale />
+            </>}
           </>}
         </section>
       </div>
     </> : <>
       <div className="kcs-kpis">
-        <button type="button" data-kdn-bare className={`kcs-kpi${!levelFilter ? " is-on" : ""}`} onClick={() => setLevelFilter("")}><small>분리 쌍 전체</small><b>{scopePairs.length}</b><em>양쪽에서 적은 쌍 {scopePairs.filter(p => p.mutual).length}개</em></button>
-        {SEPARATION_LEVELS.map(level => <button key={level} type="button" data-kdn-bare className={`kcs-kpi t-${toneOf(level)}${levelFilter === level ? " is-on" : ""}`} onClick={() => setLevelFilter(levelFilter === level ? "" : level)}><small>{level}</small><b>{levelCounts[level]}</b><em>{LEVEL_INFO[level].hint}</em></button>)}
+        <button type="button" data-kdn-bare className={`kcs-kpi${!levelFilter ? " is-on" : ""}`} onClick={() => setLevelFilter("")}><small>분리 관계 전체</small><b>{scopePairs.length}<span>건</span></b><em>두 학생 모두 서로 적은 관계 {scopePairs.filter(p => p.mutual).length}건</em></button>
+        {SEPARATION_LEVELS.map(level => <button key={level} type="button" data-kdn-bare className={`kcs-kpi t-${toneOf(level)}${levelFilter === level ? " is-on" : ""}`} onClick={() => setLevelFilter(levelFilter === level ? "" : level)}><small>{level}</small><b>{levelCounts[level]}<span>건</span></b><em>{LEVEL_INFO[level].hint}</em></button>)}
       </div>
       <div className={canViewAll ? "kcs-grid2" : ""}>
         {canViewAll && <section className="kcs-card"><h4>반별 입력 현황<span className="sp" /><small>누르면 그 반만</small></h4>
-          <div className="kcs-table-wrap"><table className="kcs-table narrow"><thead><tr><th>반</th><th>입력</th><th>관련 쌍</th><th style={{ width: "40%" }}>등급 분포</th></tr></thead>
+          <div className="kcs-table-wrap"><table className="kcs-table narrow"><thead><tr><th>반</th><th>입력</th><th>분리 관계</th><th style={{ width: "40%" }}>등급 분포</th></tr></thead>
             <tbody>{classStats.map(s => <tr key={s.c} className={`click${classFilter === String(s.c) ? " is-on" : ""}`} onClick={() => setClassFilter(classFilter === String(s.c) ? "" : String(s.c))}>
               <td className="c"><b>{s.c}반</b></td><td className="c">{s.filled ? `${s.filled}명` : <small>미입력</small>}</td><td className="c">{s.total}</td>
               <td>{s.total ? <div className="kcs-bar" style={{ width: `${Math.max(14, (s.total / maxTotal) * 100)}%` }} title={SEPARATION_LEVELS.map(level => `${level} ${s.byLevel[level]}`).join(" · ")}>{SEPARATION_LEVELS.map(level => s.byLevel[level] ? <i key={level} style={{ width: `${(s.byLevel[level] / s.total) * 100}%`, background: BAR_COLORS[toneOf(level)] }} /> : null)}</div> : <small>-</small>}</td>
             </tr>)}</tbody></table></div>
         </section>}
-        <section className="kcs-card"><h4>분리 쌍 목록 <small>{shownPairs.length}쌍 · A가 B를 적었든 B가 A를 적었든 한 줄 · 더 강한 등급 기준 · 이름을 누르면 입력 화면</small></h4>
+        <section className="kcs-card"><h4>분리 관계 목록 <span className="cnt">{shownPairs.length}건</span></h4>
+          <p className="kcs-note">왼쪽 학생이 오른쪽 학생과 같은 반이 되지 않게 해 달라고 적은 관계예요. 두 학생이 서로 적었으면 한 줄로 묶고 더 강한 등급을 보여 줍니다. 이름을 누르면 그 학생 입력 화면으로 갑니다.</p>
           <div className="kcs-filter">
-            <Search size={15} /><input value={pairQuery} placeholder="이름·학번 찾기" aria-label="분리 쌍 찾기" onChange={event => setPairQuery(event.target.value)} />
+            <Search size={15} /><input value={pairQuery} placeholder="이름·학번 찾기" aria-label="분리 관계 찾기" onChange={event => setPairQuery(event.target.value)} />
             {canViewAll && <select value={classFilter} aria-label="반으로 좁히기" onChange={event => setClassFilter(event.target.value)}><option value="">모든 반</option>{tabs.map(c => <option key={c} value={c}>{c}반 관련</option>)}</select>}
             <select value={levelFilter} aria-label="등급으로 좁히기" onChange={event => setLevelFilter(event.target.value)}><option value="">모든 등급</option>{SEPARATION_LEVELS.map(level => <option key={level} value={level}>{level}</option>)}</select>
           </div>
-          {shownPairs.length ? <div className="kcs-table-wrap"><table className="kcs-table"><thead><tr><th>등급</th><th>학생 A</th><th /><th>학생 B</th><th>사유</th><th>입력</th></tr></thead>
+          {shownPairs.length ? <div className="kcs-table-wrap"><table className="kcs-table"><thead><tr><th>분리 등급</th><th>적은 학생</th><th /><th>분리할 학생</th><th>사유</th><th>서로 적음</th></tr></thead>
             <tbody>{shownPairs.map(p => <tr key={`${p.a}-${p.b}`}>
               <td className="c"><LevelPill level={p.level} /></td>
-              <td className="c"><Who id={p.a} /></td>
-              <td className="c"><ArrowLeftRight size={14} /></td>
-              <td className="c"><Who id={p.b} /></td>
+              <td className="c"><Who id={p.mutual ? p.a : p.from[0]} /></td>
+              <td className="c">{p.mutual ? <ArrowLeftRight size={15} /> : <ArrowRight size={15} />}</td>
+              <td className="c"><Who id={p.mutual ? p.b : (p.from[0] === p.a ? p.b : p.a)} /></td>
               <td>{p.reasons.length ? p.reasons.join(" / ") : <small>사유 없음</small>}</td>
-              <td className="c"><small>{p.mutual ? "양쪽" : `${nameOf(p.from[0], roster) || p.from[0]} 쪽`}</small></td>
-            </tr>)}</tbody></table></div> : <div className="kcs-empty"><Search size={16} /> {scopePairs.length ? "조건에 맞는 분리 쌍이 없습니다." : "아직 등록된 분리희망학생이 없습니다."}</div>}
+              <td className="c">{p.mutual ? <span className="kcs-pill t-low">서로 적음</span> : <small>-</small>}</td>
+            </tr>)}</tbody></table></div> : <div className="kcs-empty"><Search size={16} /> {scopePairs.length ? "조건에 맞는 분리 관계이 없습니다." : "아직 등록된 분리희망학생이 없습니다."}</div>}
         </section>
       </div>
     </>}

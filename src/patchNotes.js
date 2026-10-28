@@ -5,6 +5,15 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-10-28-d",
+    date: "2026-10-28",
+    title: "분리희망학생 화면 정리",
+    items: [
+      { audience: "staff", text: "학생 화면을 '이 학생이 적은 분리희망'과 '이 학생을 적은 학생' 두 탭으로 나눴습니다. 다른 학생이 적은 내용이 있으면 주황색으로 표시돼요." },
+      { audience: "staff", text: "'분리 쌍'을 '분리 관계'로 바꾸고, 현황 목록은 '적은 학생 → 분리할 학생' 순서로 보여 줍니다." },
+    ],
+  },
+  {
     id: "2026-10-28-c",
     date: "2026-10-28",
     title: "선생님 ZONE 정리",
