@@ -26,3 +26,13 @@ test("양식 행: 학번순, 학생마다 10칸 × 4", () => {
   assert.equal(header.merges.length, 4 + 30);
   assert.equal(separationKey(2026, 2, "03"), "kd_class_separation_v1:2026:2:3");
 });
+
+test("분리 쌍은 양쪽 입력을 하나로 묶고 강한 등급을 쓴다", async () => {
+  const { separationPairs, reverseTargets } = await import("../src/classSeparation.js");
+  const data = { 1: { entries: { "20101": { targets: [{ sid: "20301", level: "가능하면 분리", reason: "교우관계 불편" }] } } }, 3: { entries: { "20301": { targets: [{ sid: "20101", level: "반드시 분리", reason: "학교폭력 가해·피해" }, { sid: "20102", level: "참고" }] } } } };
+  const pairs = separationPairs(data);
+  assert.equal(pairs.length, 2);
+  assert.deepEqual([pairs[0].a, pairs[0].b, pairs[0].level, pairs[0].mutual], ["20101", "20301", "반드시 분리", true]);
+  assert.equal(pairs[0].reasons.length, 2);
+  assert.deepEqual(reverseTargets(data, "20101").map(r => [r.sid, r.level]), [["20301", "반드시 분리"]]);
+});

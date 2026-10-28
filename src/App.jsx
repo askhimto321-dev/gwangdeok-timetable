@@ -3074,7 +3074,13 @@ function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, use
   if (!exam || exam.phase !== "after" || exam.d < -6 || hidden || closed || doneHidden) return null;
   const mineAll = myGradeWorkspaces(workspaces, teacher, null, semester, isAdmin);
   // 담당 과목을 모두 시험 뒤에 저장했으면(성적 산출 끝) 띄우지 않습니다.
-  if (!isAdmin && gradeCheckDone((teacher?.assignments || []).map(item => item?.subject), mineAll, exam.endDate || exam.date)) return null;
+  // 성적을 직접 산출하는 선생님에게만 띄웁니다(관리자·부서 계정은 담당 과목이 없어 '산출 끝'을 알 수 없으므로 띄우지 않음).
+  if (!teacher) return null;
+  const ownSubjects = (teacher.assignments || []).map(item => item?.subject).filter(Boolean);
+  const ownWorkspaces = mineAll.filter(ws => ws.ownerId === teacher.id || (ws.editorIds || []).includes(teacher.id));
+  const checkSubjects = ownSubjects.length ? ownSubjects : ownWorkspaces.map(ws => ws.subject);
+  if (!checkSubjects.length) return null;
+  if (gradeCheckDone(checkSubjects, mineAll, exam.endDate || exam.date)) return null;
   const groups = groupByGrade(mineAll);
   const markDone = () => { try { localStorage.setItem(doneKey, "1"); } catch { /* 저장 못 해도 이번엔 닫힘 */ } setDoneHidden(true); };
   // 학급담임: 우리 반 정기시험 결과(반별 성적 › 정기시험 전 과목)로 바로
