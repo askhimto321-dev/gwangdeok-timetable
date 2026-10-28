@@ -13,10 +13,9 @@ function LeftRail({ recent = [], menus = [], onPickStudent, canSearch }) {
   return <aside className="kdn-rail is-left no-print" aria-label="찾기와 바로가기">
     {canSearch && <section className="kdn-rail-card">
       <b className="hd">찾기</b>
-      <label className="kdn-rail-find"><Search size={16} aria-hidden="true" /><input value={text} placeholder="학생 이름·학번·메뉴" aria-label="학생·메뉴 찾기"
+      <label className="kdn-rail-find"><Search size={16} aria-hidden="true" /><input value={text} placeholder="학생·메뉴·할 일" title="'11/5 협의회'처럼 적으면 내 일정에 바로 추가돼요" aria-label="학생·메뉴 찾기"
         onChange={event => { const value = event.target.value; setText(""); openSearch(value); }}
         onFocus={event => { if (event.target.value) openSearch(event.target.value); }} /><kbd>Ctrl K</kbd></label>
-      <small className="tip">'11/5 협의회'처럼 적으면 내 일정에 바로 추가돼요</small>
     </section>}
     {recent.length > 0 && <section className="kdn-rail-card">
       <b className="hd">최근 본 학생</b>

@@ -669,7 +669,7 @@ const SHARED_NEW_CSS = `
   .kdn-sumb-cta{min-height:42px;padding:0 18px;border-radius:12px;border:0!important;background:#ff7a3d!important;color:#1b1006!important;font:inherit;font-size:14px;font-weight:800;cursor:pointer}
   .kdn-sumb-scale{display:flex;flex-direction:column;gap:10px}
   .kdn-sumb-scale-head{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:13.5px;color:#cfccc5}
-  .kdn-sumb-track{position:relative;height:56px}
+  .kdn-sumb-track{position:relative;height:50px}
   .kdn-sumb-track i{position:absolute;display:block}
   .kdn-sumb-track .bar{left:0;right:0;top:26px;height:12px;border-radius:999px;background:linear-gradient(90deg,#ff7a3d 0%,#f6c37a 30%,#5a5e6b 60%,#3a3d47 100%)}
   .kdn-sumb-track .band{top:21px;height:22px;min-width:8px;border-radius:6px;background:rgba(255,255,255,.26);border:1px solid rgba(255,255,255,.6);box-sizing:border-box}
@@ -679,7 +679,7 @@ const SHARED_NEW_CSS = `
   .kdn-sumb-track .tick{top:40px;width:1px;height:5px;margin-left:-.5px;background:rgba(255,255,255,.28)}
   .kdn-sumb-track .tick.major{top:38px;height:9px;width:1.5px;margin-left:-.75px;background:rgba(255,255,255,.55)}
   .kdn-sumb-track .tip.is-start{transform:none;margin-left:-4px}.kdn-sumb-track .tip.is-end{transform:translateX(-100%);margin-left:4px}
-  .kdn-sumb-axis{position:relative;height:16px;font-size:12px;color:#9aa0ab;font-variant-numeric:tabular-nums}
+  .kdn-sumb-axis{position:relative;height:16px;margin-top:-6px;font-size:12px;color:#9aa0ab;font-variant-numeric:tabular-nums}
   .kdn-sumb-axis span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
 
   .kdn-sumb-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border-top:1px solid rgba(255,255,255,.14);padding-top:18px}
@@ -2775,6 +2775,9 @@ const SHARED_NEW_CSS = `
   :root[data-kd-rails="on"] .kdn-rail.is-left{left:20px}
   :root[data-kd-rails="on"] .kdn-rail.is-right{right:20px}
   :root[data-kd-rails="on"] .kdp-dock{display:none!important}
+  /* 패널이 켜지면: 위쪽 '최근 본 학생' 줄은 왼쪽 패널과 겹치므로 숨기고, 학생 작업 줄은 바탕과 섞여 떠 보이지 않게 */
+  :root[data-kd-rails="on"] .kdn-recent-students{display:none!important}
+  :root[data-kd-rails="on"] .kdn-work-bar{background:color-mix(in srgb,var(--kdn-bg) 86%,transparent)!important;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
   @media print{.kdn-rail{display:none!important}:root[data-kd-rails="on"] .kdn-app{padding-left:0!important;padding-right:0!important}}
   .kdn-rail-card{display:grid;gap:10px;padding:16px;border-radius:18px;border:1px solid var(--kdn-line);background:var(--kdn-surface)}
   .kdn-rail-card .hd{display:flex;align-items:center;gap:6px;font-size:14.5px;font-weight:850;color:var(--kdn-ink)}
@@ -3111,8 +3114,6 @@ const SHARED_NEW_CSS = `
   .kdn-substeps button.is-active>b{color:var(--kdn-surface)!important}
   .kdn-substeps button.is-active>small{color:var(--kdn-surface)!important;opacity:.75}
   .kdn-substeps button.is-active>span{background:var(--kdn-accent)!important;color:var(--kdn-accent-ink)!important}
-  .kdn-substeps button+button::before{content:"›";position:absolute;left:-9px;top:50%;transform:translateY(-50%);color:var(--kdn-muted);font-size:16px;font-weight:700}
-  @media (max-width:760px){.kdn-substeps button+button::before{display:none}}
   .kdn-accent-panel{position:relative;overflow:hidden}
   .kdn-accent-panel::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,#ff8a4c,#d9480f 60%,transparent)}
   .kdn-step-badge{background:linear-gradient(135deg,#ff8a4c,#d9480f)!important;color:#ffffff!important;border-radius:999px!important;box-shadow:0 3px 8px rgba(217,72,15,.3)}
