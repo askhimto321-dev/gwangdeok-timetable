@@ -90,11 +90,13 @@ function CounselSummaryReport({ student, identity, favoriteCount = 0, planCount,
         <div className="kdn-sumb-scale-head"><span>9등급 기준 위치 · {methodText}{range && ` · 예상 ${range[0].toFixed(2)} – ${range[1].toFixed(2)}`}</span>{ok(legacy) && <span>회색 선: 기존 환산 {fmt(legacy)}</span>}</div>
         <div className="kdn-sumb-track" aria-hidden="true">
           <i className="bar" />
+          {/* 눈금: 정수 등급은 긴 선, 0.5는 짧은 선 — 숫자와 같은 위치(1~9를 8칸으로) */}
+          {Array.from({ length: 17 }, (_, i) => 1 + i * 0.5).map(v => <i key={v} className={`tick${Number.isInteger(v) ? " major" : ""}`} style={{ left: pos(v) }} />)}
           {range && <i className="band" style={{ left: pos(range[0]), width: `calc(${pos(range[1])} - ${pos(range[0])})` }} />}
           {ok(legacy) && <i className="ghost" style={{ left: pos(legacy) }} />}
-          {ok(grade9) && <><i className="mark" style={{ left: pos(grade9) }} /><b className="tip" style={{ left: pos(grade9) }}>{fmt(grade9)}</b></>}
+          {ok(grade9) && <><i className="mark" style={{ left: pos(grade9) }} /><b className={`tip${Number(grade9) < 1.4 ? " is-start" : Number(grade9) > 8.6 ? " is-end" : ""}`} style={{ left: pos(grade9) }}>{fmt(grade9)}</b></>}
         </div>
-        <div className="kdn-sumb-axis" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <span key={i}>{i + 1}{i === 8 ? "등급" : ""}</span>)}</div>
+        <div className="kdn-sumb-axis" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <span key={i} style={{ left: pos(i + 1) }}>{i + 1}</span>)}</div>
       </div>
       <div className="kdn-sumb-stats">
         <div><span>전교과 내신</span><b>{fmt(total)}<small>{isFiveScale ? " 5등급제" : " 등급"}</small></b></div>

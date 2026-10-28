@@ -13,6 +13,9 @@ const emptyData = () => ({ entries: {} });
 const classOf = student => Number(student?.class) || 0;
 const nameOf = (sid, roster) => roster?.[sid]?.name || "";
 const label = (sid, roster) => `${sid} ${nameOf(sid, roster)}`.trim();
+// 성별 표시: 남 파랑 · 여 분홍 작은 배지(명단에서 한눈에 구분)
+const genderTone = g => (/^(남|m|male)/i.test(String(g || "")) ? "m" : /^(여|f|female)/i.test(String(g || "")) ? "f" : "");
+const GenderTag = ({ g }) => (g ? <small className={`kcs-g ${genderTone(g)}`}>{String(g).slice(0, 1)}</small> : null);
 const toneOf = level => LEVEL_INFO[level]?.tone || "low";
 const newTarget = () => ({ sid: "", level: SEPARATION_LEVELS[0], reason: "" });
 
@@ -47,6 +50,11 @@ const CSS = `
 .kcs-list button:hover{background:var(--kdn-surface-2,#f1f5f9)}.kcs-list button.is-on{border-color:var(--kdn-accent,#2563eb);background:color-mix(in srgb,var(--kdn-accent,#2563eb) 10%,transparent)}
 .kcs-list .no{font-size:13px;color:var(--kdn-muted,#64748b);font-variant-numeric:tabular-nums;text-align:center}.kcs-list .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kcs-list .nm small{font-weight:600;color:var(--kdn-muted,#64748b);margin-left:5px}
 .kcs-marks{display:flex;gap:4px;align-items:center}
+.kcs-g{display:inline-grid!important;place-items:center;width:20px;height:20px;margin-left:6px!important;border-radius:6px;font-size:11.5px!important;font-weight:800!important;vertical-align:1px;background:var(--kdn-surface-2,#eef2f7);color:var(--kdn-muted,#64748b)!important}
+.kcs-g.m{background:color-mix(in srgb,#2563eb 14%,transparent);color:#1d4ed8!important}.kcs-g.f{background:color-mix(in srgb,#db2777 14%,transparent);color:#be185d!important}
+[data-kd-ui="dark"] .kcs-g.m{color:#93c5fd!important}[data-kd-ui="dark"] .kcs-g.f{color:#f9a8d4!important}
+.kcs-pane-hd .meta em.g-m{background:color-mix(in srgb,#2563eb 14%,transparent);color:#1d4ed8}.kcs-pane-hd .meta em.g-f{background:color-mix(in srgb,#db2777 14%,transparent);color:#be185d}
+[data-kd-ui="dark"] .kcs-pane-hd .meta em.g-m{color:#93c5fd}[data-kd-ui="dark"] .kcs-pane-hd .meta em.g-f{color:#f9a8d4}
 .kcs-badge{display:inline-flex;align-items:center;justify-content:center;gap:2px;min-width:24px;height:23px;padding:0 8px;white-space:nowrap;border-radius:999px;font-size:12px;font-weight:800}
 .kcs-badge.rev{background:transparent;border:1.5px dashed currentColor}
 .t-must{background:color-mix(in srgb,#dc2626 16%,transparent);color:#b91c1c}.t-high{background:color-mix(in srgb,#ea580c 16%,transparent);color:#c2410c}
@@ -152,11 +160,11 @@ function TargetPicker({ value, roster, exclude, onChange }) {
   const results = searchStudents(roster, query, { exclude });
   if (value) {
     const s = roster?.[value];
-    return <div className="kcs-chosen pick"><span>{value} {s?.name || "(명단에 없음)"}</span>{s && <small>{classOf(s)}반 {s.gender || ""}</small>}<button type="button" data-kdn-bare aria-label="학생 다시 고르기" onClick={() => onChange("")}><X size={15} /></button></div>;
+    return <div className="kcs-chosen pick"><span>{value} {s?.name || "(명단에 없음)"}</span>{s && <small>{classOf(s)}반</small>}{s && <GenderTag g={s.gender} />}<button type="button" data-kdn-bare aria-label="학생 다시 고르기" onClick={() => onChange("")}><X size={15} /></button></div>;
   }
   return <div className="kcs-pick pick">
     <input value={query} placeholder="분리할 학생: 학번 또는 이름" aria-label="분리희망학생 찾기" onChange={event => { setQuery(event.target.value); setOpen(true); }} onFocus={() => setOpen(true)} onBlur={() => setTimeout(() => setOpen(false), 150)} />
-    {open && results.length > 0 && <div className="kcs-results">{results.map(item => <button key={item.sid} type="button" data-kdn-bare onMouseDown={event => event.preventDefault()} onClick={() => { onChange(item.sid); setQuery(""); setOpen(false); }}><b>{item.sid}</b>{item.name}<small>{item.class}반 {item.gender}</small></button>)}</div>}
+    {open && results.length > 0 && <div className="kcs-results">{results.map(item => <button key={item.sid} type="button" data-kdn-bare onMouseDown={event => event.preventDefault()} onClick={() => { onChange(item.sid); setQuery(""); setOpen(false); }}><b>{item.sid}</b>{item.name}<GenderTag g={item.gender} /><small>{item.class}반</small></button>)}</div>}
   </div>;
 }
 
@@ -392,7 +400,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
     doc.close();
     window.setTimeout(() => { try { frame.contentWindow.focus(); frame.contentWindow.print(); } catch { /* 인쇄 창 열기 실패 */ } window.setTimeout(() => frame.remove(), 60000); }, 300);
   };
-  const Who = ({ id }) => <button type="button" data-kdn-bare className="kcs-who" onClick={() => openStudent(id)} title={tabs.includes(classOf(roster?.[id])) ? "이 학생 입력 화면으로" : ""}><b>{nameOf(id, roster) || id}</b><small>{classOf(roster?.[id])}반 · {id}</small></button>;
+  const Who = ({ id }) => <button type="button" data-kdn-bare className="kcs-who" onClick={() => openStudent(id)} title={tabs.includes(classOf(roster?.[id])) ? "이 학생 입력 화면으로" : ""}><b>{nameOf(id, roster) || id}<GenderTag g={roster?.[id]?.gender} /></b><small>{classOf(roster?.[id])}반 · {id}</small></button>;
 
   return <div className="kcs">
     <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -416,7 +424,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
         <nav className="kcs-list" aria-label={`${viewClass}반 학생`}>
           <div className="kcs-list-find"><input value={findText} placeholder={`${viewClass}반에서 이름·학번 찾기`} aria-label="학생 찾기" onChange={event => setFindText(event.target.value)} /></div>
           {shownStudents.map(([id, s]) => { const own = ownTargets(id); const rev = (reverseMap[id] || []).filter(r => !own.some(t => t.sid === r.sid)); return <button key={id} type="button" data-kdn-bare className={id === sid ? "is-on" : ""} onClick={() => pick(id)}>
-            <span className="no">{s?.number || id.slice(-2)}</span><span className="nm">{s?.name || id}<small>{s?.gender || ""}</small></span>
+            <span className="no">{s?.number || id.slice(-2)}</span><span className="nm">{s?.name || id}<GenderTag g={s?.gender} /></span>
             <span className="kcs-marks">{own.length > 0 && <span className={`kcs-badge t-${toneOf(strongest(own))}`} title="이 학생 기준으로 등록한 분리 대상 수">분리 {own.length}</span>}{rev.length > 0 && <span className={`kcs-badge rev t-${toneOf(strongest(rev))}`} title="다른 학생 쪽에서 이 학생을 분리 대상으로 등록한 수(이 학생 쪽에는 아직 없음)">지목 {rev.length}</span>}</span>
           </button>; })}
           {!shownStudents.length && <div className="kcs-empty">{students.length ? "찾는 학생이 없습니다." : `${viewClass}반 명단이 없습니다.`}</div>}
@@ -430,7 +438,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
           </div> : <>
             <div className="kcs-pane-hd">
               <b>{nameOf(sid, roster) || sid}</b>
-              <span className="meta"><em>{sid}</em><em>{viewClass}반</em>{roster?.[sid]?.gender && <em>{roster[sid].gender}</em>}{entries[sid]?.updatedAt && <em className="soft">마지막 저장 {new Date(entries[sid].updatedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}{entries[sid].by ? ` · ${entries[sid].by}` : ""}</em>}</span>
+              <span className="meta"><em>{sid}</em><em>{viewClass}반</em>{roster?.[sid]?.gender && <em className={`g-${genderTone(roster[sid].gender)}`}>{roster[sid].gender}</em>}{entries[sid]?.updatedAt && <em className="soft">마지막 저장 {new Date(entries[sid].updatedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}{entries[sid].by ? ` · ${entries[sid].by}` : ""}</em>}</span>
             </div>
             <div className="kcs-tabs" role="tablist" aria-label="이 학생의 분리희망">
               <button type="button" data-kdn-bare role="tab" aria-selected={paneTab === "mine"} className={paneTab === "mine" ? "is-on" : ""} onClick={() => setPaneTab("mine")}><b>이 학생의 분리 대상</b><span>{normalizeTargets(draft, sid).length}명</span></button>
