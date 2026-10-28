@@ -5,6 +5,15 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-10-29-a",
+    date: "2026-10-29",
+    title: "성별 색 표시 · 등급 눈금 정리",
+    items: [
+      { audience: "staff", text: "분리희망학생 명단에 성별을 색 배지로 표시해요(남 파랑 · 여 분홍)." },
+      { audience: "staff", text: "학생 요약의 9등급 위치 막대에서 숫자와 눈금이 정확한 위치에 오도록 고치고, 0.5 단위 작은 눈금을 넣었어요." },
+    ],
+  },
+  {
     id: "2026-10-28-g",
     date: "2026-10-28",
     title: "내 일정 업그레이드 · 성적 리포트 요약 칸",

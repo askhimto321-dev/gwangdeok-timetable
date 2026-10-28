@@ -676,8 +676,12 @@ const SHARED_NEW_CSS = `
   .kdn-sumb-track .ghost{top:18px;width:3px;height:28px;margin-left:-1.5px;border-radius:2px;background:#9aa0ab}
   .kdn-sumb-track .mark{top:14px;width:4px;height:36px;margin-left:-2px;border-radius:2px;background:#ffffff;box-shadow:0 0 0 3px rgba(255,122,61,.45)}
   .kdn-sumb-track .tip{position:absolute;top:-8px;transform:translateX(-50%);font-family:var(--kdn-num-font);font-size:18px;font-weight:800;color:#ffffff;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .kdn-sumb-axis{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));font-size:12px;color:#9aa0ab}
-  .kdn-sumb-axis span:last-child{text-align:right}
+  .kdn-sumb-track .tick{top:40px;width:1px;height:5px;margin-left:-.5px;background:rgba(255,255,255,.28)}
+  .kdn-sumb-track .tick.major{top:38px;height:9px;width:1.5px;margin-left:-.75px;background:rgba(255,255,255,.55)}
+  .kdn-sumb-track .tip.is-start{transform:none;margin-left:-4px}.kdn-sumb-track .tip.is-end{transform:translateX(-100%);margin-left:4px}
+  .kdn-sumb-axis{position:relative;height:16px;font-size:12px;color:#9aa0ab;font-variant-numeric:tabular-nums}
+  .kdn-sumb-axis span{position:absolute;top:0;transform:translateX(-50%);white-space:nowrap}
+
   .kdn-sumb-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border-top:1px solid rgba(255,255,255,.14);padding-top:18px}
   .kdn-sumb-stats>div{display:flex;flex-direction:column;gap:6px;padding:0 18px;border-left:1px solid rgba(255,255,255,.14)}
   .kdn-sumb-stats>div:first-child{padding-left:0;border-left:0}
