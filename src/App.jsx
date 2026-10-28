@@ -2919,7 +2919,7 @@ function TeacherZoneWorkspace({
       const saved = localStorage.getItem(modeStorageKey);
       // 새 UI는 들어올 때 항상 업무 카드 홈부터 보여 줍니다(마지막 작업은 홈에서 '이어서 하기'로 표시).
       if (isNewUi()) return "home";
-      return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData", "separation"].includes(saved) ? saved : "grades";
+      return saved === "gradeData" ? "contacts" : ["grades", "stamps", "mock", "notice", "contacts", "records", "separation"].includes(saved) ? saved : "grades";
     } catch { return isNewUi() ? "home" : "grades"; }
   });
   const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData", "separation"].includes(saved) ? saved : ""; } catch { return ""; } });
@@ -2963,14 +2963,13 @@ function TeacherZoneWorkspace({
       <div style={teacherZoneWorkspaceStyles.modeTabs}>
         {isNewUi() && <button type="button" onClick={() => setWorkspaceMode("home")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "home" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 홈</button>}
         <button type="button" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
+        {onOpenMinimum && <button type="button" onClick={onOpenMinimum} title="최소성취수준 화면으로 이동" style={{ ...teacherZoneWorkspaceStyles.modeButton, marginLeft: -2 }}><ShieldCheck size={15} /> 최성보 ↗</button>}
         {(activeTeacher || loggedInAdmin) && <button type="button" onClick={() => setWorkspaceMode("stamps")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "stamps" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ClipboardList size={15} /> 수업 포트폴리오</button>}
         {canUseMock && <button type="button" onClick={() => setWorkspaceMode("mock")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "mock" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BarChart3 size={15} /> 모의고사 분석</button>}
         {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
         {canUseSeparation && <button type="button" onClick={() => setWorkspaceMode("separation")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "separation" ? teacherZoneWorkspaceStyles.modeButtonActive : { color: "#b91c1c", borderColor: "#f3b4b4" }) }}><UserX size={15} /> 분리희망학생</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무 (Beta)</button>}
-        {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("gradeData")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "gradeData" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Database size={15} /> 자료 관리</button>}
-        {onOpenMinimum && <button type="button" onClick={onOpenMinimum} title="최소성취수준 화면으로 이동" style={{ ...teacherZoneWorkspaceStyles.modeButton, marginLeft: 6 }}><ShieldCheck size={15} /> 최성보 현황 ↗</button>}
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
@@ -3108,15 +3107,13 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
   const callName = !rawName || /선생님$/.test(rawName) ? "선생님" : `${rawName} 선생님`;
   const homeroom = activeTeacher?.homeroomClass ? `${grade}학년 ${activeTeacher.homeroomClass}반 담임` : isAdmin ? "관리자" : `${grade}학년`;
   const cards = [
-    { key: "grades", icon: <FileSpreadsheet size={20} />, tone: "#c2410c", soft: "#fff0e6", title: "성적 산출", tag: "학기말", text: "NEIS 지필·수행 파일을 올려 반영비율대로 학기말 성적을 계산합니다.", points: ["① 파일 업로드 → ② 산출 기준 → ③ 결과 확인", "개인 임시 저장 · 학교 공동 저장"], primary: "성적 산출 열기", show: true },
+    { key: "grades", icon: <FileSpreadsheet size={20} />, tone: "#c2410c", soft: "#fff0e6", title: "성적 산출 · 최성보", tag: "학기말", text: "NEIS 지필·수행 파일을 올려 반영비율대로 학기말 성적을 계산합니다.", points: ["① 파일 업로드 → ② 산출 기준 → ③ 결과 확인", "개인 임시 저장 · 학교 공동 저장"], primary: "성적 산출 열기", show: true },
     { key: "stamps", icon: <ClipboardList size={20} />, tone: "#c2410c", soft: "#fff0e6", title: "수업 포트폴리오", tag: "수업마다", text: "학생 명단·이동수업 출석부로 차시마다 도장을 찍고, 도장판·오답노트 등 여러 항목으로 포트폴리오를 채점하고 최성보까지 봅니다.", points: ["학생 × 차시 도장판 · 찍은 시각 기록", "포트폴리오 채점 · 최성보 판정"], primary: "도장 찍기", show: !!(activeTeacher || isAdmin) },
     { key: "mock", icon: <BarChart3 size={20} />, tone: "#1d4ed8", soft: "#e0ecff", title: "모의고사 분석", tag: "회차별", text: "회차별 모의고사 등급 분포와 반별 평균, 학생별 성적을 봅니다.", points: ["과목별 등급 분포 · 반별 평균", "미응시 학생 확인"], primary: "분석 보기", show: canUseMock },
     { key: "notice", icon: <Megaphone size={20} />, tone: "#1d4ed8", soft: "#e0ecff", title: "공지·수업자료", tag: "학생에게 전달", text: "담당 반 학생에게 공지·제출·신청 안내와 수업자료를 보냅니다.", points: ["마감일 · 첨부파일 · 읽음 확인", "과목별 · 반별 대상 선택"], primary: "공지 쓰기", show: canUseNotice },
     { key: "contacts", icon: <Users size={20} />, tone: "#0e7490", soft: "#dff4f7", title: "학생 비상연락망", tag: "2학년부", text: "학교에 반영된 2학년 비상연락망을 반별로 확인합니다.", points: ["반·번호·이름으로 찾기", "자료 관리에서 반영한 최신본"], primary: "연락망 보기", show: canUseDept },
     { key: "separation", icon: <UserX size={20} />, tone: "#b91c1c", soft: "#fdecea", title: "분리희망학생", tag: "반편성", text: "내년 반편성을 위해 우리 반 학생마다 같은 반이 되면 안 되는 학생을 적습니다.", points: ["학생마다 최대 10명 · 분리 등급 · 사유", "학교 양식 그대로 엑셀 내보내기"], primary: "입력하기", show: canUseSeparation },
     { key: "records", icon: <BookOpen size={20} />, tone: "#6d28d9", soft: "#ede9fe", title: "생기부 업무", tag: "Beta", text: "진로 활동 배정과 학생 소감문을 반별로 정리합니다.", points: ["소감문 응답 확인", "활동 배정 현황"], primary: "생기부 업무 열기", show: canUseDept },
-    { key: "gradeData", icon: <Database size={20} />, tone: "#92400e", soft: "#fff1d6", title: "자료 관리", tag: "학교 반영", text: "2학년부 업무 파일과 소감문 파일을 올리고 학교 자료로 반영합니다.", points: ["임시 저장 → 학교 자료로 반영", "같은 이름 파일은 교체"], primary: "자료 관리 열기", show: canUseDept },
-    { key: "minimum", icon: <ShieldCheck size={20} />, tone: "#b42318", soft: "#fdecea", title: "최성보 현황", tag: "다른 메뉴", text: "학급·과목별 최소성취수준 주의 대상과 미도달 학생을 확인합니다.", points: ["공통과목: 출석 2/3 + 성취율 40%", "선택과목: 출석 2/3"], primary: "현황 보기 ↗", show: !!onOpenMinimum },
   ].filter(card => card.show);
   // 정기시험 기간: 성적 산출을 맨 앞(크게), 최성보 현황을 바로 옆에 둡니다.
   if (exam) { const rank = key => key === "grades" ? 0 : key === "minimum" ? 1 : 2; cards.sort((a, b) => rank(a.key) - rank(b.key)); }
@@ -3124,7 +3121,7 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
   const today = new Date();
   const todayLabel = `${today.getMonth() + 1}월 ${today.getDate()}일 ${"일월화수목금토"[today.getDay()]}요일`;
   // 카드: 대시보드 바로가기(F안)와 같은 흰 카드 + 제목·태그 한 줄 + 한 줄 설명 + 둥근 도형 그림. 카드 전체가 버튼입니다.
-  const SHORT = { grades: ["NEIS 파일로 학기말 성적 계산", "classGrades", "il-classGrades"], stamps: ["차시별 도장·포트폴리오 채점·최성보", "grades", "il-grades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], mock: ["회차별 등급 분포 · 반별 평균", "classGrades", "il-classGrades"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], separation: ["반편성 분리희망학생 입력", "contacts", "il-minimumAchievement"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
+  const SHORT = { grades: ["학기말 성적 계산 · 최소성취수준 점검", "classGrades", "il-classGrades"], stamps: ["차시별 도장·포트폴리오 채점·최성보", "grades", "il-grades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], mock: ["회차별 등급 분포 · 반별 평균", "classGrades", "il-classGrades"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], separation: ["반편성 분리희망학생 입력", "contacts", "il-minimumAchievement"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
   const stepIndex = exam ? (exam.phase === "before" ? 0 : exam.phase === "today" ? 1 : 2) : -1;
   const tip = exam ? (exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요." : exam.phase === "today" ? "시험 기간 · 결시자 인정점 입력을 준비하세요." : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요.") : "";
   const openCard = card => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));
@@ -3159,6 +3156,12 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
         <ol className="kdn-tz2-steps">{[["산출 기준 확인", () => onOpenGrade?.(2, myResults[0]?.id || "")], ["파일 업로드", () => onOpenGrade?.(1)], ["등급·결과 확인", () => onOpenGrade?.(3, myResults[0]?.id || "")], ["최성보 점검", () => (onOpenMinimum ? onOpenMinimum() : onOpenGrade?.(3, myResults[0]?.id || ""))]].map(([label, go], index) => <li key={label} className={index === stepIndex ? "is-on" : index < stepIndex ? "is-done" : ""}><button type="button" data-kdn-bare onClick={go}><i>{index + 1}</i>{label}</button></li>)}</ol>
         <button type="button" className="go" onClick={() => onOpen("grades")}>성적 산출 열기 <ArrowRight size={16} /></button>
       </section>;
+      if (card.key === "grades" && onOpenMinimum) return <div key={card.key} className={`kdn-sc kdn-tz2-card kdn-tz2-duo ${palette}${isLast ? " is-last" : ""}`}>
+        <span className="kdn-sc-head"><b className="kdn-sc-title">{card.title}</b><span className="kdn-tz2-tag">{isLast ? "최근 작업" : card.tag}</span></span>
+        <span className="kdn-sc-desc">{short}</span>
+        <span className="kdn-tz2-duo-acts"><button type="button" data-kdn-bare onClick={() => onOpen("grades")}>성적 산출 <ArrowRight size={15} /></button><button type="button" data-kdn-bare className="sub" onClick={() => onOpenMinimum?.()}>최성보 현황 <ArrowRight size={15} /></button></span>
+        <span className="kdn-sc-illo" aria-hidden="true" dangerouslySetInnerHTML={{ __html: SHORTCUT_ILLOS[illo] }} />
+      </div>;
       return <button key={card.key} type="button" onClick={() => openCard(card)} className={`kdn-sc kdn-tz2-card ${palette}${isLast ? " is-last" : ""}`}>
         <span className="kdn-sc-head"><b className="kdn-sc-title">{card.title}</b><span className="kdn-tz2-tag">{isLast ? "최근 작업" : card.tag}</span></span>
         <span className="kdn-sc-desc">{short}</span>

@@ -21,6 +21,7 @@ import GradeSimulator, { GradeSimPresetChips } from './GradeSimulator.jsx';
 import { CompareOverview, SemesterChips, printGradeComparison, COMPARE_COLORS } from './gradeCompareVisuals.jsx';
 import { collectVisibleTables, columnGroups, pickColumns, writeWorkbook, printElement } from './tableExport.js';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
+import { PlanSummaryPage, PLAN_SUMMARY_CSS } from './planSummaryPrint.jsx';
 import { isNewUi, getUiMode, rawColors } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
@@ -35,7 +36,7 @@ import { mergeDuplicateTracks } from "./trackDedupe.js";
 import { pickUnitRecords, collapseCutRows } from "./naviCutAudit.js";
 import { featureAllowed } from "./staffPermissions.js";
 import { parseNeisClassReport } from "./neisClassReport.js";
-import { admissionEligibilityInfo } from "./admissionMetrics.js";
+import { admissionEligibilityInfo, SUPPORT_BAND_META } from "./admissionMetrics.js";
 import {
   parseSemesterSheet,
   computeAllGroupAverages,
@@ -5357,7 +5358,7 @@ function compactFavoritePrintCard(card) {
     const dept = pcText(item.querySelector(".favorite-print-department-line b"));
     const kind = pcText(item.querySelector(".favorite-print-kind"));
     const track = pcText(item.querySelector(".favorite-print-track-line b"));
-    const cuts = Array.from(item.querySelectorAll(".favorite-print-item-navi-cuts small")).map(pcText).filter(Boolean);
+    const cuts = Array.from(item.querySelectorAll(".favorite-print-item-navi-cuts small")).map(node => ({ text: pcText(node), band: node.dataset?.band || "" })).filter(cut => cut.text);
     const rows = [];
     item.querySelectorAll(".kd-counsel-type").forEach(type => {
       const kindName = pcText(type.querySelector(":scope>summary>b"));
@@ -5401,8 +5402,19 @@ function compactFavoritePrintCard(card) {
     h.appendChild(pcEl("b", null, item.dept || "학과 미지정"));
     const meta = [item.kind, item.track && !/기준 보기/.test(item.track) ? item.track : ""].filter(Boolean).join(" · ");
     if (meta) h.appendChild(pcEl("small", null, meta));
-    if (item.cuts.length) h.appendChild(pcEl("span", "pc-cut", `NAVI ${item.cuts.join("  |  ")}`));
     sec.appendChild(h);
+    // 전형별 NAVI 컷마다 상향·소신·적정·안정·하향 판정을 색 배지로 붙입니다.
+    if (item.cuts.length) {
+      const strip = pcEl("div", "pc-bands");
+      strip.appendChild(pcEl("em", null, "NAVI 컷 판정"));
+      item.cuts.forEach(cut => {
+        const chip = pcEl("span", `pc-band is-${SUPPORT_BAND_META[cut.band]?.key || "none"}`);
+        chip.appendChild(pcEl("b", null, cut.band || "판정 없음"));
+        chip.appendChild(pcEl("span", null, cut.text));
+        strip.appendChild(chip);
+      });
+      sec.appendChild(strip);
+    }
     if (item.rows.length) {
       const table = pcEl("table", "pc-min");
       const years = Array.from(new Set(item.rows.map(row => row.year).filter(Boolean)));
@@ -5445,8 +5457,10 @@ export function printCounselingHistory(options = {}) {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   const includeNotes = options.notes !== false;
   const includeFavorites = Boolean(options.favorites);
+  const includeSurvey = Boolean(options.survey);
+  const includeSummary = Boolean(options.summary);
   const paper = String(options.paper || "A4").toUpperCase() === "B4" ? "B4" : "A4";
-  if (!includeNotes && !includeFavorites) return;
+  if (!includeNotes && !includeFavorites && !includeSurvey && !includeSummary) return;
   const source = document.querySelector(".counseling-print-root");
   if (!source) return;
 
@@ -5469,10 +5483,13 @@ export function printCounselingHistory(options = {}) {
   });
   if (!includeNotes) clone.querySelectorAll(".counseling-print-notes").forEach(node => node.remove());
   if (!includeFavorites) clone.querySelectorAll(".counseling-print-favorites").forEach(node => node.remove());
-  const noteSection = clone.querySelector('.counseling-print-notes');
-  const favoriteSection = clone.querySelector('.counseling-print-favorites');
-  if (noteSection) clone.appendChild(noteSection);
-  if (favoriteSection) clone.appendChild(favoriteSection);
+  if (!includeSurvey) clone.querySelectorAll(".counseling-print-survey").forEach(node => node.remove());
+  if (!includeSummary) clone.querySelectorAll(".counseling-print-summary").forEach(node => node.remove());
+  clone.querySelectorAll(".counseling-print-survey [hidden],.counseling-print-summary").forEach(node => node.removeAttribute("hidden"));
+  // 인쇄 순서: 사전 설문 → 상담 기록 → 관심 대학 → 지원 구성 요약. 첫 묶음 다음부터는 묶음마다 새 쪽에서 시작합니다.
+  const sections = [".counseling-print-survey", ".counseling-print-notes", ".counseling-print-favorites", ".counseling-print-summary"].map(selector => clone.querySelector(selector)).filter(Boolean);
+  sections.forEach((node, index) => { clone.appendChild(node); node.classList.toggle("pk-new-page", index > 0); });
+  clone.querySelectorAll(".kd-consult-body").forEach(node => { if (!node.textContent.trim()) node.remove(); });
   if (!includeNotes) clone.classList.add('is-favorites-only');
   // 관심 대학 카드는 화면 구조를 그대로 찍지 않고, 한눈에 보이는 인쇄 전용 요약으로 다시 짭니다.
   clone.querySelectorAll('.favorite-print-card').forEach(compactFavoritePrintCard);
@@ -5502,7 +5519,7 @@ export function printCounselingHistory(options = {}) {
 
   try {
     printDocument.open();
-    const counselingPrintCss = (themeCss + supportDecisionCss + COUNSELING_PRINT_CSS + counselingCss + COUNSELING_PRINT_SKIN).replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
+    const counselingPrintCss = (themeCss + supportDecisionCss + COUNSELING_PRINT_CSS + counselingCss + SURVEY_CSS + PLAN_SUMMARY_CSS + COUNSELING_PRINT_SKIN).replace("@page{size:A4 portrait;margin:9mm 9mm 10mm}", `@page{size:${paper} portrait;margin:${paper === "B4" ? "11mm 12mm 12mm" : "9mm 9mm 10mm"}}`);
     printDocument.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css"><meta name="viewport" content="width=device-width,initial-scale=1"><title>상담 기록</title><style>${counselingPrintCss}</style></head><body class="print-counseling-history ${paper === "B4" ? "counseling-paper-b4" : ""}">${clone.outerHTML}</body></html>`);
     printDocument.close();
   } catch { cleanup(); return; }
@@ -5668,6 +5685,41 @@ html body.print-counseling-history .counseling-print-root-clone .pc-src.n2{grid-
 html body.print-counseling-history .counseling-print-root-clone .pc-src.n1{grid-template-columns:1fr}
 html body.print-counseling-history .counseling-print-root-clone article.pc-card .counseling-print-card-student{margin:0 0 1mm!important;padding:0!important;font-size:7.6pt!important}
 html body.print-counseling-history .counseling-print-root-clone .pc-head{margin-top:0!important}
+/* 묶음(사전 설문·상담 기록·관심 대학·요약)마다 새 쪽에서 시작 */
+html body.print-counseling-history .counseling-print-root-clone {display:block!important}
+html body.print-counseling-history .counseling-print-root-clone >.pk-new-page{break-before:page!important;page-break-before:always!important;margin-top:0!important}
+html body.print-counseling-history .counseling-print-root-clone >:is(.counseling-print-survey,.counseling-print-notes,.counseling-print-favorites,.counseling-print-summary){margin-top:5mm}
+/* 상담 기록: 긴 기록이 잘리지 않게 블록 흐름으로, 날짜 머리는 본문과 떨어지지 않게 */
+html body.print-counseling-history .counseling-print-root-clone :is(.counseling-print-notes,.kdn-note-timeline){display:block!important;overflow:visible!important;height:auto!important;max-height:none!important}
+html body.print-counseling-history .counseling-print-root-clone .kdn-note-timeline{margin:3mm 0 0!important;padding:0!important;border:0!important}
+html body.print-counseling-history .counseling-print-root-clone .kdn-note-timeline>.counseling-print-note::before{display:none!important}
+html body.print-counseling-history .counseling-print-root-clone .counseling-print-note{display:block!important;margin:0 0 3mm!important;overflow:visible!important;height:auto!important;max-height:none!important;break-inside:auto!important;page-break-inside:auto!important}
+html body.print-counseling-history .counseling-print-root-clone .counseling-print-note>div:first-child{break-after:avoid!important;page-break-after:avoid!important;margin-bottom:1.5mm!important;padding-bottom:1.5mm!important;border-bottom:.25mm dashed var(--pk-line)!important}
+html body.print-counseling-history .counseling-print-root-clone .counseling-print-note>div:first-child b{font-size:11pt!important;font-weight:900!important}
+html body.print-counseling-history .counseling-print-root-clone .counseling-print-note-text{white-space:pre-wrap!important;orphans:3;widows:3;overflow:visible!important}
+html body.print-counseling-history .counseling-print-root-clone .counseling-print-notes .section-heading-title,html body.print-counseling-history .counseling-print-root-clone .counseling-print-notes>div:first-child{break-after:avoid!important;page-break-after:avoid!important}
+/* 사전 설문: 묶음 제목 + 질문/답 표 */
+html body.print-counseling-history .counseling-print-root-clone .kd-survey{display:block!important;padding:0!important;border:0!important;border-radius:0!important;background:none!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-head{display:flex!important;align-items:baseline;gap:3mm;margin:0 0 3mm!important;padding:0 0 2mm!important;border-bottom:.5mm solid var(--pk-ink)!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-head>b{display:flex;align-items:center;gap:2mm;font-size:13pt!important;font-weight:900!important;color:var(--pk-ink)!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-head>b::before{content:"";width:1.2mm;height:4.6mm;border-radius:1mm;background:var(--pk-acc)}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-head>span{font-size:8.5pt!important;color:var(--pk-muted)!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-links{display:none!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-grid{display:block!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-group{display:block!important;margin:0 0 3.5mm!important;padding:0!important;border-radius:0!important;background:none!important;break-inside:avoid;page-break-inside:avoid}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-group>small{display:block;margin:0 0 1.2mm;padding:1mm 2.5mm;border-radius:1.5mm;background:var(--pk-acc-soft)!important;color:var(--pk-acc)!important;font-size:9.5pt!important;font-weight:900!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-group dl{display:grid!important;grid-template-columns:38mm minmax(0,1fr)!important;gap:0!important;margin:0!important;border-top:.25mm solid var(--pk-line)!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-group :is(dt,dd){padding:1.6mm 2.4mm!important;border-bottom:.25mm solid var(--pk-line)!important;line-height:1.5!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-group dt{background:var(--pk-bg)!important;font-size:8.8pt!important;font-weight:800!important;color:var(--pk-soft)!important}
+html body.print-counseling-history .counseling-print-root-clone .kd-survey-group dd{margin:0!important;font-size:10pt!important;color:var(--pk-ink)!important;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere}
+/* 관심 대학 전형별 판정 배지 */
+html body.print-counseling-history .counseling-print-root-clone .pc-bands{display:flex;flex-wrap:wrap;align-items:center;gap:1.2mm 1.6mm;margin:0 0 1.6mm}
+html body.print-counseling-history .counseling-print-root-clone .pc-bands>em{font-style:normal;font-size:7.8pt;font-weight:800;color:var(--pk-muted);margin-right:.6mm}
+html body.print-counseling-history .counseling-print-root-clone .pc-band{display:inline-flex;align-items:center;gap:1.4mm;padding:.5mm 2mm .5mm .6mm;border:.3mm solid var(--bl);border-radius:99px;background:#fff;font-size:8.2pt;color:var(--pk-soft)}
+html body.print-counseling-history .counseling-print-root-clone .pc-band>b{padding:.2mm 2mm;border-radius:99px;background:var(--b);color:#fff;font-size:8.4pt;font-weight:900}
+html body.print-counseling-history .counseling-print-root-clone .pc-band.is-up{--b:#b3413a;--bl:#eeb9b3}html body.print-counseling-history .counseling-print-root-clone .pc-band.is-reach{--b:#c2742a;--bl:#eecb96}html body.print-counseling-history .counseling-print-root-clone .pc-band.is-fit{--b:#a88a12;--bl:#e3cd63}html body.print-counseling-history .counseling-print-root-clone .pc-band.is-safe{--b:#2f8a5a;--bl:#aedcc0}html body.print-counseling-history .counseling-print-root-clone .pc-band.is-down{--b:#2b5588;--bl:#b7cfe9}html body.print-counseling-history .counseling-print-root-clone .pc-band.is-none{--b:#8a94a2;--bl:#d7dee6}
+/* 마지막 장 요약 */
+html body.print-counseling-history .counseling-print-root-clone .counseling-print-summary .kd-plan-summary{break-before:auto;page-break-before:auto}
 }
 `;
 
@@ -6045,7 +6097,7 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
               const kind=item.favoriteKind==="개별사례"?"개별":favoriteCategory(item);
               const schoolOnly=!item.department || /^(전체|대학 전체)$/.test(item.department);
               const coursePreview=(facts?.progress?.courseGroups||[]).filter(([label])=>/핵심|권장/.test(label)).flatMap(([label,courses])=>courses.map(course=>({label,course}))).slice(0,6);
-              return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><details className="favorite-print-item-detail" open={itemIndex===0 || undefined}><summary><span className="favorite-print-department-number">{itemIndex+1}</span><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-department-line"><span className="favorite-print-department-label">{schoolOnly?'대학':'학과'}</span><b>{item.department||"대학 전체"}</b><span className="favorite-print-kind" style={favoriteView.kindBadge}>{kind}</span></span><span className="favorite-print-track-line"><span className="favorite-print-track-label">전형</span><b>{item.admissionType|| (types.length===1?types[0]:'전형별 기준 보기')}</b></span>{item.department&&isNewUi()&&<span className="no-print" style={{display:"block",marginTop:6}}>{itemNaviCuts.length?<CutStrip compact limit={3} items={itemNaviCuts} studentGrade={naviGrade.value} cutoffBasis={naviGrade.cutoffBasis}/>:<small style={{color:"#5d6574",fontWeight:700}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "해당 전형 공개컷 연결 없음"}</small>}</span>}{item.department&&<span className={`favorite-print-item-navi-cuts${isNewUi()?" kdn-print-only":""}`} style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "해당 전형 공개컷 연결 없음"}</small>}</span>}</span>{coursePreview.length>0&&<span className="favorite-print-course-preview"><em>핵심·권장과목</em>{coursePreview.map(({label,course})=><small title={label} key={`${label}-${course}`}>{recommendedCourseDisplayName(course)}</small>)}</span>}</summary><div className="favorite-print-item-body"><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span>{schoolOnly?<p className="favorite-school-hint">학과를 추가하면 해당 모집단위의 전형별 수능최저와 권장과목을 연결합니다. 위 대학 공통 자료와 사례는 지금 확인할 수 있습니다.</p>:<CounselingAdmissionFacts facts={facts} student={factStudent} status={factsStatus} minimumStatus={favoriteNaviStatus} recommendationStatus={recommendationStatus} onRetry={()=>setFavoriteRetry(value=>value+1)}/>}</div></details></div>;
+              return <div className="favorite-print-item" key={item.id} style={favoriteView.item}><details className="favorite-print-item-detail" open={itemIndex===0 || undefined}><summary><span className="favorite-print-department-number">{itemIndex+1}</span><span className="favorite-print-item-text" style={favoriteView.itemText}><span className="favorite-print-department-line"><span className="favorite-print-department-label">{schoolOnly?'대학':'학과'}</span><b>{item.department||"대학 전체"}</b><span className="favorite-print-kind" style={favoriteView.kindBadge}>{kind}</span></span><span className="favorite-print-track-line"><span className="favorite-print-track-label">전형</span><b>{item.admissionType|| (types.length===1?types[0]:'전형별 기준 보기')}</b></span>{item.department&&isNewUi()&&<span className="no-print" style={{display:"block",marginTop:6}}>{itemNaviCuts.length?<CutStrip compact limit={3} items={itemNaviCuts} studentGrade={naviGrade.value} cutoffBasis={naviGrade.cutoffBasis}/>:<small style={{color:"#5d6574",fontWeight:700}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "해당 전형 공개컷 연결 없음"}</small>}</span>}{item.department&&<span className={`favorite-print-item-navi-cuts${isNewUi()?" kdn-print-only":""}`} style={favoriteView.itemNaviCuts}>{itemNaviCuts.length?<><em style={{fontStyle:"normal",fontWeight:950,color:"#315f91"}}>NAVI 컷</em>{itemNaviCuts.map((cut,index)=><small key={`${cut.kind}-${cut.name}-${index}`} data-band={supportBandFor(naviGrade.value,naviGrade.cutoffBasis==="50"?cut.cut50:cut.cut70)?.label||""} style={{padding:"2px 6px",borderRadius:999,background:"#edf4fc",color:"#315f91",fontWeight:850}}>{naviCutText(cut)}</small>)}</>:<small style={{color:"#8a94a2"}}>{favoriteNaviStatus === "loading" ? "NAVI 컷 자료 연결 중…" : favoriteNaviStatus === "error" ? "NAVI 자료 연결 실패" : "해당 전형 공개컷 연결 없음"}</small>}</span>}</span>{coursePreview.length>0&&<span className="favorite-print-course-preview"><em>핵심·권장과목</em>{coursePreview.map(({label,course})=><small title={label} key={`${label}-${course}`}>{recommendedCourseDisplayName(course)}</small>)}</span>}</summary><div className="favorite-print-item-body"><span className="no-print" style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"flex-end"}}><FavoritePlanPicker sid={sid} item={item} data={favoriteNaviData} onOpenNavi={onOpenSusiNavi} onOpenPlan={onOpenSupportPlan}/>{onOpenCases&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenCases(resolvedUniversity,item.department||"",favoriteCaseAdmissionType(item))}>광덕고 사례 <ExternalLink size={10}/></button>}{onOpenSusiNavi&&<button type="button" style={favoriteView.itemLink} onClick={()=>onOpenSusiNavi(resolvedUniversity,item.department||"")}>NAVI <ExternalLink size={10}/></button>}<button type="button" style={favoriteView.remove} onClick={()=>onToggleFavorite?.(item)}>삭제</button></span>{schoolOnly?<p className="favorite-school-hint">학과를 추가하면 해당 모집단위의 전형별 수능최저와 권장과목을 연결합니다. 위 대학 공통 자료와 사례는 지금 확인할 수 있습니다.</p>:<CounselingAdmissionFacts facts={facts} student={factStudent} status={factsStatus} minimumStatus={favoriteNaviStatus} recommendationStatus={recommendationStatus} onRetry={()=>setFavoriteRetry(value=>value+1)}/>}</div></details></div>;
             })}</div>
           </article>
           </React.Fragment>
@@ -6152,6 +6204,23 @@ const CONSULT_TOUR = [
   { target: "cs-links", title: "다른 화면으로 바로", body: "대학 탐색·NAVI 분석·수시 지원 구성·광덕고 사례로 이 학생을 그대로 데리고 이동합니다." },
   { target: "cs-notes", title: "상담 기록", body: "상담일과 내용을 적고 파일을 붙여 저장하세요. 담임·진학 선생님이 함께 볼 수 있어요.", staff: true },
 ];
+// 상담 인쇄 마지막 장: 수시 지원 구성(저장된 6장)을 구간 분포 + 컷 위치 그래프로 요약합니다. 화면에는 안 보이고 인쇄 복제본에서만 펼칩니다.
+function CounselPlanPrintSummary({ sid, student, studentLabel, onCount }) {
+  const planItems = useSupportPlanItems(sid);
+  const [naviData, setNaviData] = useState(null);
+  useEffect(() => { let active = true; loadSusiNaviBetaData().then(value => { if (active) setNaviData(value || null); }).catch(() => {}); return () => { active = false; }; }, []);
+  const grade = useMemo(() => studentNaviGrade(naviData, student || { sid: String(sid) }), [naviData, student, sid]);
+  const rows = useMemo(() => (planItems || []).map((item, index) => {
+    const cuts = naviData ? favoriteNaviCutRows(naviData, item.university, item.region || "", item.department || "", item.admissionType || "") : [];
+    const track = normalizeAdmissionLookupKey(item.track || "");
+    const sameKind = cuts.filter(row => !item.admissionType || row.kind === item.admissionType);
+    const match = sameKind.find(row => normalizeAdmissionLookupKey(row.name) === track) || (sameKind.length === 1 ? sameKind[0] : null);
+    return { no: index + 1, university: item.university || "", department: item.department || "", kind: item.admissionType || "", track: item.track || "", cut: match ? (grade.cutoffBasis === "50" ? match.cut50 : match.cut70) : null };
+  }), [planItems, naviData, grade.cutoffBasis]);
+  useEffect(() => { onCount?.(rows.length); }, [rows.length, onCount]);
+  if (!rows.length) return null;
+  return <div className="counseling-print-summary" hidden><PlanSummaryPage rows={rows} studentGrade={grade.value} cutoffBasis={grade.cutoffBasis} studentLabel={studentLabel} /></div>;
+}
 // 진학상담 사전 설문 카드: 묶음(기본·희망·지원·학습·상담)별로 학생 답을 보여 주고, 희망 대학은 NAVI·대학 탐색으로 바로 엽니다.
 function CounselSurveyCard({ entry, onOpenSusiNavi, onOpenAdmission }) {
   const [open, setOpen] = useState(true);
@@ -6160,13 +6229,13 @@ function CounselSurveyCard({ entry, onOpenSusiNavi, onOpenAdmission }) {
   const when = entry?.submittedAt ? new Date(entry.submittedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "";
   const groups = SURVEY_GROUPS.map(group => [group, SURVEY_FIELDS.filter(([key, , , g]) => g === group && key !== "sid" && key !== "name" && answers[key])]).filter(([, list]) => list.length);
   const GROUP_LABEL = { 기본: "진로 목표", 희망: "희망 학과·대학", 지원: "지원 범위·계획", 학습: "학습·학교생활", 상담: "이번 상담에서" };
-  return <section className="kd-survey">
+  return <section className="kd-survey counseling-print-survey">
     <div className="kd-survey-head">
       <b>진학상담 사전 설문</b><span>{when ? `${when} 제출` : "제출"}</span>
       {choice && <span className="kd-survey-links">{(choice.university || choice.department) && onOpenSusiNavi && <button type="button" data-kdn-bare onClick={() => onOpenSusiNavi(choice.university, choice.department)}>희망 대학 NAVI ›</button>}{choice.university && onOpenAdmission && <button type="button" data-kdn-bare onClick={() => onOpenAdmission(choice.university)}>대학 탐색 ›</button>}</span>}
       <button type="button" data-kdn-bare className="kd-survey-toggle no-print" onClick={() => setOpen(value => !value)}>{open ? "접기" : "펼치기"}</button>
     </div>
-    {open && <div className="kd-survey-grid">{groups.map(([group, list]) => <div key={group} className="kd-survey-group">
+    {<div className="kd-survey-grid" hidden={!open}>{groups.map(([group, list]) => <div key={group} className="kd-survey-group">
       <small>{GROUP_LABEL[group] || group}</small>
       <dl>{list.map(([key, label]) => <React.Fragment key={key}><dt>{label}</dt><dd>{answers[key]}</dd></React.Fragment>)}</dl>
     </div>)}</div>}
@@ -6216,6 +6285,9 @@ export function StudentConsultationView({
   const [printFavorites, setPrintFavorites] = useState(favorites.length > 0);
   const [cardFocus, setCardFocus] = useState(false);
   const [printPaper, setPrintPaper] = useState("A4");
+  const [printSurvey, setPrintSurvey] = useState(true);
+  const [printSummary, setPrintSummary] = useState(true);
+  const [planPrintCount, setPlanPrintCount] = useState(0);
   const supportPlanCount = useSupportPlanCount(sid);
   const newUi = isNewUi();
   // 진학상담 사전 설문(구글 폼 응답): 학번별로 저장된 응답과 올리기
@@ -6361,16 +6433,19 @@ export function StudentConsultationView({
       </div>
     </div>
     </div>
+    <CounselPlanPrintSummary sid={sid} student={selectedStudent?.sid===String(sid)?selectedStudent:null} studentLabel={`${identity.name || ""} · ${new Date().toLocaleDateString("ko-KR")}`} onCount={setPlanPrintCount} />
     </div>
     {printOptionsOpen&&<div className="counseling-print-option-overlay no-print" role="dialog" aria-modal="true" aria-label="상담 인쇄 항목 선택">
       <div className="counseling-print-option-modal">
-        <div className="counseling-print-option-head"><div><b>상담 인쇄 항목 선택</b><span>상담 기록과 관심 대학·학과 중 PDF에 넣을 항목을 선택하세요.</span></div><button type="button" onClick={()=>setPrintOptionsOpen(false)} aria-label="닫기"><X size={15}/></button></div>
+        <div className="counseling-print-option-head"><div><b>상담 인쇄 항목 선택</b><span>PDF에 넣을 항목을 고르세요. 항목마다 새 쪽에서 시작합니다.</span></div><button type="button" onClick={()=>setPrintOptionsOpen(false)} aria-label="닫기"><X size={15}/></button></div>
         <div className="counseling-print-option-body">
           <div className="counseling-print-paper-row"><span><b>인쇄 용지</b><small>관심 대학은 카드별 페이지, 상담 기록은 내용 길이에 맞춰 출력합니다.</small></span><div><button type="button" className={printPaper==="A4"?"is-active":""} onClick={()=>setPrintPaper("A4")}>A4</button><button type="button" className={printPaper==="B4"?"is-active":""} onClick={()=>setPrintPaper("B4")}>B4</button></div></div>
+          {survey && canEdit && <label><input type="checkbox" checked={printSurvey} onChange={event=>setPrintSurvey(event.target.checked)}/><span><b>사전 설문</b><span>학생이 낸 진학상담 사전 설문을 묶음별 표로 인쇄합니다.</span></span></label>}
           <label><input type="checkbox" checked={printNotes} onChange={event=>setPrintNotes(event.target.checked)}/><span><b>상담 기록</b><span>상담일·작성자·상담 내용을 인쇄합니다.</span></span></label>
           <label className={!favorites.length?"is-disabled":""}><input type="checkbox" checked={printFavorites} disabled={!favorites.length} onChange={event=>setPrintFavorites(event.target.checked)}/><span><b>관심 대학·학과</b><span>{favorites.length?`현재 분류에 표시된 관심 대학 카드와 지원 기준·광덕고 사례·NAVI 컷을 인쇄합니다. 전체 항목은 분류에서 ‘전체’를 선택하세요.`:"저장된 관심 대학·학과가 없습니다."}</span></span></label>
+          <label className={!planPrintCount?"is-disabled":""}><input type="checkbox" checked={printSummary&&planPrintCount>0} disabled={!planPrintCount} onChange={event=>setPrintSummary(event.target.checked)}/><span><b>지원 구성 요약 그래프</b><span>{planPrintCount?`마지막 장에 수시 지원 구성 ${planPrintCount}개의 상향·소신·적정·안정 분포와 컷 위치를 그래프로 넣습니다.`:"저장된 수시 지원 구성이 없습니다."}</span></span></label>
         </div>
-        <div className="counseling-print-option-actions"><button type="button" onClick={()=>setPrintOptionsOpen(false)}>취소</button><button type="button" className="primary" disabled={!printNotes&&!printFavorites} onClick={()=>{setPrintOptionsOpen(false);window.setTimeout(()=>printCounselingHistory({notes:printNotes,favorites:printFavorites,paper:printPaper}),40)}}><Printer size={12}/>선택 항목 인쇄·PDF</button></div>
+        <div className="counseling-print-option-actions"><button type="button" onClick={()=>setPrintOptionsOpen(false)}>취소</button><button type="button" className="primary" disabled={!printNotes&&!printFavorites&&!(printSurvey&&survey&&canEdit)&&!(printSummary&&planPrintCount)} onClick={()=>{setPrintOptionsOpen(false);window.setTimeout(()=>printCounselingHistory({notes:printNotes,favorites:printFavorites,survey:printSurvey&&Boolean(survey&&canEdit),summary:printSummary&&planPrintCount>0,paper:printPaper}),40)}}><Printer size={12}/>선택 항목 인쇄·PDF</button></div>
       </div>
     </div>}
   </div>;

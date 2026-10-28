@@ -2861,6 +2861,9 @@ const SHARED_NEW_CSS = `
   .kdn-tz2-hero .chips em{font-style:normal;padding:4px 11px;border-radius:99px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);font-size:13px;font-weight:700;color:#e7e2d8}
   .kdn-tz2-hero .chips em.ex{background:#e2531a;border-color:#e2531a;color:#fff}
   .kdn-tz2-hero button{min-height:42px;padding:0 18px;border-radius:12px;border:0!important;background:#e2531a!important;color:#fff!important;font:inherit;font-size:14.5px;font-weight:800;cursor:pointer}
+  .kdn-tz2-duo{cursor:default}.kdn-tz2-duo-acts{display:flex;flex-wrap:wrap;gap:8px;margin-top:auto;position:relative;z-index:1}
+  .kdn-tz2-duo-acts button{display:inline-flex;align-items:center;gap:5px;min-height:36px;padding:0 13px;border-radius:10px;border:0!important;background:#c2410c!important;color:#fff!important;font:inherit;font-size:14px;font-weight:800;cursor:pointer}
+  .kdn-tz2-duo-acts button.sub{background:color-mix(in srgb,#b42318 12%,var(--kdn-surface))!important;color:#b42318!important}
   .kdn-tz2-sep{display:flex;align-items:center;flex-wrap:wrap;gap:14px 18px;padding:18px 22px;border-radius:22px;border:1.5px solid color-mix(in srgb,#dc2626 34%,var(--kdn-line));background:linear-gradient(120deg,color-mix(in srgb,#dc2626 9%,var(--kdn-surface)),var(--kdn-surface) 70%)}
   .kdn-tz2-sep .ic{display:grid;place-items:center;flex:none;width:52px;height:52px;border-radius:16px;background:color-mix(in srgb,#dc2626 14%,var(--kdn-surface));color:#dc2626}
   .kdn-tz2-sep .tx{flex:1 1 360px;display:grid;gap:4px;min-width:0}.kdn-tz2-sep em{font-style:normal;font-size:12.5px;font-weight:800;color:#b91c1c;letter-spacing:.02em}[data-kd-ui="dark"] .kdn-tz2-sep em{color:#fca5a5}
