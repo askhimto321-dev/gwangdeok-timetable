@@ -2070,7 +2070,7 @@ export default function App() {
       {isNewUi() ? <>
         <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
         {overlayUserKey && <SideRails owner={canSeeTeacherZone && !loggedInStudent ? plannerOwnerOf({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin }) : ""} calendar={db.academicCalendar}
-          canSearch={staffWorkspaceEnabled}
+          canSearch={staffWorkspaceEnabled} onClearRecent={() => forgetRecentStudents()}
           recent={staffWorkspaceEnabled ? readRecentStudents().map(sid => paletteStudents.find(student => String(student.sid) === sid)).filter(Boolean).slice(0, 5) : []}
           menus={paletteMenus.filter(item => item.group !== "할 일" && item.key !== "home").slice(0, 6)}
           onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }}
@@ -2724,10 +2724,10 @@ function StaffStudentWorkspaceBar({
   const labelFor = view => STUDENT_WORKSPACE_VIEWS.find(([key]) => key === view)?.[1] || view;
   const newUi = isNewUi();
   const searchInputRef = useRef(null);
-  const [recentSids, setRecentSids] = useState(() => readRecentStudents());
+  // 최근 본 학생은 왼쪽 패널과 Ctrl+K 찾기에서 보여 주므로 여기서는 기록만 합니다.
   useEffect(() => {
     if (!newUi || !selectedSid) return;
-    setRecentSids(rememberRecentStudent(selectedSid));
+    rememberRecentStudent(selectedSid);
   }, [newUi, selectedSid]);
   useEffect(() => {
     if (!newUi) return undefined;
@@ -2746,7 +2746,6 @@ function StaffStudentWorkspaceBar({
   const pickStudent = sid => { setDraftQuery(String(sid)); setQueryEditing(false); onQueryChange?.(String(sid)); onSelect?.(String(sid)); };
   if (newUi) {
     const selected = selectedSid ? studentBySid.get(String(selectedSid)) : null;
-    const recent = recentSids.filter(sid => sid !== String(selectedSid || "")).map(sid => studentBySid.get(sid)).filter(Boolean).slice(0, 5);
     return <div className="no-print kdn-work-bar" style={newBar.wrap}>
       <div style={newBar.inner}>
         <div style={newBar.topRow}>
@@ -2760,7 +2759,7 @@ function StaffStudentWorkspaceBar({
             <Search size={18} color="currentColor" />
             <input id="kdn-student-search" ref={searchInputRef} value={draftQuery} onFocus={() => setQueryEditing(true)} onChange={event => setDraftQuery(event.target.value)} onBlur={() => { setQueryEditing(false); onQueryChange?.(draftQuery); }}
               onKeyDown={event => { if (event.key === "Enter" && matches[0]) { event.preventDefault(); pickStudent(matches[0].sid); } if (event.key === "Escape") event.currentTarget.blur(); }}
-              placeholder="학생 이름 · 학번 · 반번호로 검색" aria-label="학생 검색" style={newBar.input} />
+              placeholder="이름·학번 검색" title="이름, 학번, 반-번호(예: 4-5)로 찾을 수 있어요" aria-label="학생 검색" style={newBar.input} />
             {draftQuery ? <button type="button" aria-label="검색어 지우기" onMouseDown={event => event.preventDefault()} onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={newBar.clear}><X size={15} /></button>
               : <kbd style={newBar.kbd} title="어디서든 / 키를 누르면 검색창으로 이동">/</kbd>}
             {matches.length > 0 && <div role="listbox" style={newBar.matches}>{matches.map((student, index) => <button key={student.sid} type="button" role="option" aria-selected={index === 0} onMouseDown={event => event.preventDefault()} onClick={() => pickStudent(student.sid)} style={{ ...newBar.match, ...(index === 0 ? newBar.matchFirst : {}) }}>
@@ -2768,29 +2767,14 @@ function StaffStudentWorkspaceBar({
             </button>)}</div>}
           </div>
           {/* 현재 학생: 대시보드 카드처럼 아바타 + 이름(굵게) + 학년·반·번호(보통 굵기) 두 줄. 오른쪽 ✕로 선택 해제 */}
-          {selected ? <div className="kdn-current-student" style={newBar.selected}>
+          {selected ? <div className="kdn-current-student" style={newBar.selected} title="현재 학생">
             <span style={newBar.selectedAvatar} aria-hidden="true">{String(selected.name || "?").charAt(0)}</span>
             <span style={newBar.selectedText}>
-              <small style={newBar.selectedEyebrow}>현재 학생</small>
               <b style={newBar.selectedName}>{selected.name}<span style={newBar.selectedSid}>{selected.sid}</span></b>
               <small style={newBar.selectedMeta}>{selected.grade || String(selected.sid || "").charAt(0)}학년 {selected.class}반 {selected.number}번</small>
             </span>
             <button type="button" data-kdn-bare aria-label="학생 선택 해제" title="학생 선택 해제" onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={newBar.selectedClear}><X size={15} /></button>
           </div> : null}
-          {recent.length > 0 && <div className="kdn-recent-students" style={newBar.recent}>
-            <span style={newBar.recentLabel}>최근 본 학생</span>
-            {recent.map((student, index) => {
-              const tone = RECENT_TONES[index % RECENT_TONES.length];
-              return <span key={student.sid} className="kdn-recent-chip" style={{ display: "inline-flex", alignItems: "center" }}>
-                <button type="button" data-kdn-bare onClick={() => pickStudent(student.sid)} title={`${student.name} · ${student.sid}`} style={newBar.recentChip}>
-                  <span aria-hidden="true" style={{ ...newBar.recentAvatar, background: tone.bg, color: tone.ink }}>{String(student.name || "?").charAt(0)}</span>
-                  <span style={newBar.recentName}>{student.name}</span><small style={newBar.recentSid}>{student.sid}</small>
-                </button>
-                <button type="button" data-kdn-bare className="kdn-recent-x" aria-label={`${student.name} 최근 목록에서 지우기`} title="목록에서 지우기" onClick={() => setRecentSids(forgetRecentStudents(student.sid))}><X size={12} /></button>
-              </span>;
-            })}
-            <button type="button" data-kdn-bare className="kdn-recent-clear" onClick={() => setRecentSids(forgetRecentStudents())}>지우기</button>
-          </div>}
         </div>
         <div role="tablist" aria-label="학생 화면" style={newBar.tabs}>
           {/* 학생 조회 / 진학 상담을 색이 다른 묶음(알약 모양 그룹)으로 나눠, 어떤 탭이 어느 일에 속하는지 한눈에 보이게 합니다. */}
@@ -2894,19 +2878,16 @@ function rememberRecentStudent(sid) {
   return next;
 }
 
-const RECENT_TONES = [
-  { bg: "#d6e5ff", ink: "#1c4aa8" }, { bg: "#ccefe5", ink: "#09645a" }, { bg: "#ebe3fb", ink: "#5a32a6" }, { bg: "#ffefc9", ink: "#855405" }, { bg: "#ffe6d6", ink: "#ad3b0a" },
-];
 const newBar = {
   wrap: { position: "sticky", top: 68, zIndex: 35, background: "var(--kdn-bg)", borderBottom: "1px solid var(--kdn-line)" },
   inner: { maxWidth: 1240, margin: "0 auto", padding: "14px 24px 0", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 10 },
   topRow: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" },
-  gradePick: { display: "inline-flex", alignItems: "center", gap: 4, minHeight: 48, padding: "0 6px 0 12px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)" },
+  gradePick: { display: "inline-flex", alignItems: "center", gap: 4, minHeight: 46, padding: "0 5px 0 12px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)" },
   gradePickLabel: { fontSize: 12.5, fontWeight: 800, color: "var(--kdn-muted)", marginRight: 4 },
-  gradePickBtn: { height: 36, padding: "0 12px", borderRadius: 10, border: 0, background: "transparent", color: "var(--kdn-ink-soft)", font: "inherit", fontSize: 14, fontWeight: 800, cursor: "pointer" },
+  gradePickBtn: { height: 34, padding: "0 12px", borderRadius: 10, border: 0, background: "transparent", color: "var(--kdn-ink-soft)", font: "inherit", fontSize: 14, fontWeight: 800, cursor: "pointer" },
   gradePickOn: { background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)" },
-  search: { position: "relative", flex: "1 1 340px", maxWidth: 480, display: "flex", alignItems: "center", gap: 10, minHeight: 48, padding: "0 12px 0 16px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", color: "var(--kdn-muted)" },
-  input: { flex: 1, minWidth: 0, border: 0, outline: "none", background: "transparent", color: "var(--kdn-ink)", fontSize: 16, fontWeight: 600 },
+  search: { position: "relative", flex: "0 1 300px", maxWidth: 300, display: "flex", alignItems: "center", gap: 8, minHeight: 46, padding: "0 10px 0 14px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", color: "var(--kdn-muted)" },
+  input: { flex: 1, minWidth: 0, border: 0, outline: "none", background: "transparent", color: "var(--kdn-ink)", fontSize: 15, fontWeight: 600 },
   kbd: { minWidth: 24, height: 24, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 7, border: "1px solid var(--kdn-line)", fontSize: 13, fontWeight: 800, color: "var(--kdn-muted)", fontFamily: "inherit" },
   clear: { width: 30, height: 30, border: 0, borderRadius: 9, background: "var(--kdn-surface-2)", color: "var(--kdn-ink-soft)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer" },
   matches: { position: "absolute", left: 0, right: 0, top: "calc(100% + 6px)", zIndex: 50, padding: 6, borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 18px 40px rgba(0,0,0,.3)", display: "grid", gap: 2 },
@@ -2915,11 +2896,10 @@ const newBar = {
   matchName: { fontSize: 15, fontWeight: 800 },
   matchMeta: { fontSize: 13.5, fontWeight: 600, color: "var(--kdn-muted)" },
   matchHint: { marginLeft: "auto", fontSize: 12, fontWeight: 800, color: "var(--kdn-muted)" },
-  selected: { display: "flex", alignItems: "center", gap: 12, minHeight: 52, padding: "6px 8px 6px 6px", borderRadius: 16, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 1px 2px rgba(20,24,33,.05), 0 6px 18px rgba(20,24,33,.06)" },
-  selectedAvatar: { width: 40, height: 40, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #ff9a5c, #e2531a)", color: "#ffffff", fontSize: 17, fontWeight: 800, flex: "none" },
+  selected: { display: "flex", alignItems: "center", gap: 10, minHeight: 46, padding: "4px 6px 4px 5px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxSizing: "border-box" },
+  selectedAvatar: { width: 34, height: 34, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #ff9a5c, #e2531a)", color: "#ffffff", fontSize: 15, fontWeight: 800, flex: "none" },
   selectedText: { display: "grid", lineHeight: 1.25, gap: 1, minWidth: 0 },
-  selectedEyebrow: { fontSize: 11.5, fontWeight: 600, color: "var(--kdn-accent-text)", letterSpacing: ".02em" },
-  selectedName: { display: "flex", alignItems: "baseline", gap: 8, fontSize: 17, fontWeight: 800, color: "var(--kdn-ink)", letterSpacing: "-.01em" },
+  selectedName: { display: "flex", alignItems: "baseline", gap: 8, fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)", letterSpacing: "-.01em" },
   selectedSid: { fontSize: 13, fontWeight: 500, color: "var(--kdn-muted)", fontVariantNumeric: "tabular-nums" },
   selectedMeta: { fontSize: 12.5, fontWeight: 500, color: "var(--kdn-muted)" },
   selectedClear: { width: 30, height: 30, marginLeft: 4, border: 0, borderRadius: 999, background: "var(--kdn-surface-2)", color: "var(--kdn-ink-soft)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flex: "none" },
@@ -2935,7 +2915,7 @@ const newBar = {
   groupCounsel: { bg: "var(--kdn-surface-2)", border: "var(--kdn-line)", label: "#ad3b0a" },
   groupTeacher: { bg: "var(--kdn-surface-2)", border: "var(--kdn-line)", label: "#17663a" },
   groupLabel: { display: "inline-flex", alignItems: "center", gap: 5, padding: "0 10px 0 8px", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" },
-  tab: { flex: "none", minHeight: 38, padding: "0 14px", border: 0, borderRadius: 10, background: "transparent", color: "var(--kdn-ink-soft)", fontSize: 15, fontWeight: 700, cursor: "pointer" },
+  tab: { flex: "none", minHeight: 36, padding: "0 12px", border: 0, borderRadius: 10, background: "transparent", color: "var(--kdn-ink-soft)", fontSize: 14.5, fontWeight: 700, cursor: "pointer" },
   tabActive: { background: "var(--kdn-surface)", fontWeight: 850, boxShadow: "0 1px 3px rgba(20,24,33,.14), 0 0 0 1px rgba(20,24,33,.06)" },
 };
 
