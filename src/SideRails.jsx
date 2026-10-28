@@ -59,7 +59,34 @@ function RightRail({ owner, calendar, onOpenPlanner }) {
   </aside>;
 }
 
+// 패널을 켤지(남는 폭이 충분할 때만)와 위쪽 메뉴 높이를 재서 html에 표시합니다.
+// 켜지면 CSS가 가운데 내용을 좌우로 비켜 놓아(패딩) 패널과 겹치지 않게 하고, 패널은 메뉴 바로 아래에서 시작합니다.
+const RAIL_MIN_WIDTH = 1860;
+function useRailLayout() {
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const zoomOf = () => ({ large: 1.08, xlarge: 1.16 })[root.dataset.kdFont] || 1;
+    const update = () => {
+      const zoom = zoomOf();
+      const on = window.innerWidth / zoom >= RAIL_MIN_WIDTH;
+      root.dataset.kdRails = on ? "on" : "off";
+      const nav = document.querySelector(".kdn-top-nav");
+      const navBottom = nav ? nav.getBoundingClientRect().height / zoom : 68;
+      root.style.setProperty("--kdn-rail-top", `${Math.round(navBottom + 16)}px`);
+    };
+    update();
+    window.addEventListener("resize", update);
+    const nav = document.querySelector(".kdn-top-nav");
+    const resize = typeof ResizeObserver !== "undefined" && nav ? new ResizeObserver(update) : null;
+    resize?.observe(nav);
+    const attrs = new MutationObserver(update);
+    attrs.observe(root, { attributes: true, attributeFilter: ["data-kd-font"] });
+    return () => { window.removeEventListener("resize", update); resize?.disconnect(); attrs.disconnect(); delete root.dataset.kdRails; };
+  }, []);
+}
+
 export default function SideRails({ owner = "", calendar, recent = [], menus = [], onPickStudent, onOpenPlanner, canSearch = false }) {
+  useRailLayout();
   return <>
     <LeftRail recent={recent} menus={menus} onPickStudent={onPickStudent} canSearch={canSearch} />
     <RightRail owner={owner} calendar={calendar} onOpenPlanner={onOpenPlanner} />
