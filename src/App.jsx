@@ -31,6 +31,7 @@ const AdminGradesUpload = lazy(() => loadGradesModule().then(module => ({ defaul
 const ClassGradeOverviewPanel = lazy(() => loadGradesModule().then(module => ({ default: module.ClassGradeOverview })));
 const ClassSeparationTool = lazy(() => import("./ClassSeparationTool.jsx"));
 import TeacherPlanner, { PlannerHomeStrip, PlannerReminders } from "./TeacherPlanner.jsx";
+import SideRails from "./SideRails.jsx";
 // 내 일정 주인 키: 로그인한 본인(관리자가 다른 선생님 화면을 볼 때도 본인 것)
 const plannerOwnerOf = ({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin }) => { const user = loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin; return user ? `${loggedInTeacher ? "teacher" : loggedInDepartment ? "dept" : loggedInMonitor ? "monitor" : "admin"}.${user.id || user.name || ""}` : ""; };
 const MockAnalysisPanel = lazy(() => loadGradesModule().then(module => ({ default: module.MockAnalysisDashboard })));
@@ -2068,6 +2069,12 @@ export default function App() {
       <InstallPrompt />
       {isNewUi() ? <>
         <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
+        {overlayUserKey && <SideRails owner={canSeeTeacherZone && !loggedInStudent ? plannerOwnerOf({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin }) : ""} calendar={db.academicCalendar}
+          canSearch={staffWorkspaceEnabled}
+          recent={staffWorkspaceEnabled ? readRecentStudents().map(sid => paletteStudents.find(student => String(student.sid) === sid)).filter(Boolean).slice(0, 5) : []}
+          menus={paletteMenus.filter(item => item.group !== "할 일" && item.key !== "home").slice(0, 6)}
+          onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }}
+          onOpenPlanner={canSeeTeacherZone ? () => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); } : undefined} />}
         {overlayUserKey && <MobileTabBar items={[
           { key: "home", label: "홈", icon: <HomeIcon size={22} />, active: section === "home", onClick: () => switchSection("home") },
           ...(loggedInStudent && !staffWorkspaceEnabled ? [
@@ -3304,7 +3311,8 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
           {accountSwitcher}
           {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile} title="내 정보 · 담당 과목 · 비밀번호">내 정보·과목</button>}
           <button type="button" style={newUiNavStyles.ghost} onClick={onLogout}>로그아웃</button>
-          {primaryAction && <button type="button" onClick={primaryAction.onClick} style={{ ...newUiNavStyles.ghost, border: 0, background: "var(--kdn-accent)", color: "var(--kdn-accent-ink)", padding: "0 18px", fontSize: 14 }}><Search size={15} />{primaryAction.label}</button>}
+          {/* 눈에 보이는 찾기 칸: 누르면 Ctrl+K 찾기 창이 열립니다(학생·메뉴·할 일). */}
+          {primaryAction && <button type="button" className="kdn-nav-find" onClick={() => fireOverlay("kd:search")} aria-label="학생·메뉴 찾기 (Ctrl+K)"><Search size={16} /><span>학생·메뉴 찾기</span><kbd>Ctrl K</kbd></button>}
         </div>
       </div>
     </nav>

@@ -69,7 +69,7 @@ const hostOf = url => { try { return new URL(url).hostname.replace(/^www\./, "")
 const colorOf = item => (item.shared ? SHARED_COLOR : COLOR_HEX[item.color] || COLOR_HEX.orange);
 
 // 일정 한 줄(오늘 할 일 창·팝업·날짜 목록 공통)
-function ItemRow({ item, onToggle, onOpen, compact = false, showDate = false }) {
+export function ItemRow({ item, onToggle, onOpen, compact = false, showDate = false }) {
   const [busyFile, setBusyFile] = React.useState("");
   return <article className={`kdp-item${item.done ? " done" : ""}${compact ? " compact" : ""}`} style={{ "--c": colorOf(item) }}>
     <button type="button" data-kdn-bare className="chk" aria-pressed={item.done} aria-label={item.done ? "끝냄 취소" : "끝냄으로 표시"} title={item.done ? "끝냄 취소" : "끝냈어요"} onClick={() => onToggle?.(item)}>{item.done && <Check size={14} strokeWidth={3} />}</button>

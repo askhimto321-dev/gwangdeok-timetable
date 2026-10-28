@@ -13,7 +13,7 @@ const ymd = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(dat
 const parseDay = value => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "")); return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null; };
 const mdw = date => `${date.getMonth() + 1}.${date.getDate()}(${WEEK[date.getDay()]})`;
 
-export const fireOverlay = name => window.dispatchEvent(new CustomEvent(name));
+export const fireOverlay = (name, detail) => window.dispatchEvent(new CustomEvent(name, detail ? { detail } : undefined));
 
 export function FabHub({ depth = 0, maxDepth = 0, hasQuickLinks = false, hasSearch = false }) {
   const [open, setOpen] = useState(false);
@@ -55,16 +55,18 @@ export function CommandPalette({ students = [], menus = [], recentSids = [], onP
   const [cursor, setCursor] = useState(0);
   const [tab, setTab] = useState("all");
   const inputRef = useRef(null);
+  const startQuery = useRef("");
   useEffect(() => {
     const onKey = event => {
-      if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === "k") { event.preventDefault(); setOpen(value => !value); }
+      if ((event.ctrlKey || event.metaKey) && String(event.key).toLowerCase() === "k") { event.preventDefault(); startQuery.current = ""; setOpen(value => !value); }
     };
-    const onOpen = () => setOpen(true);
+    // 옆 패널·위쪽 찾기 칸에서 글자를 치기 시작하면 그 글자를 넣은 채로 엽니다.
+    const onOpen = event => { startQuery.current = String(event?.detail?.query || ""); setOpen(true); };
     window.addEventListener("keydown", onKey);
     window.addEventListener("kd:search", onOpen);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("kd:search", onOpen); };
   }, []);
-  useEffect(() => { if (open) { setQuery(""); setCursor(0); setTab("all"); window.setTimeout(() => inputRef.current?.focus(), 20); } }, [open]);
+  useEffect(() => { if (open) { setQuery(startQuery.current); startQuery.current = ""; setCursor(0); setTab("all"); window.setTimeout(() => inputRef.current?.focus(), 20); } }, [open]);
   const bySid = useMemo(() => new Map(students.map(student => [String(student.sid), student])), [students]);
   const results = useMemo(() => {
     const q = query.trim().replace(/\s+/g, "");
