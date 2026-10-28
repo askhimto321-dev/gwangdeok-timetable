@@ -637,13 +637,8 @@ const SHARED_NEW_CSS = `
   .kdn-hero-clock-chips em:first-child{background:#ff7a3d;color:#1b1006}
   .kdn-hero-clock-chips em.is-dday{background:#ffffff;color:#1b1006}
   @media (prefers-reduced-motion:reduce){.kdn-nav-clock-time i,.kdn-hero-clock-time i{animation:none}}
-  /* 현재 학생 · 상담 요약 이름 칸: KDTIME 머리 줄과 같은 진한 그라데이션 패널 */
-  .kdn-current-student{background:linear-gradient(135deg,#1c1d24 0%,#2b2621 100%)!important;border:1px solid #3a2d24!important;box-shadow:0 10px 26px rgba(20,12,6,.22)!important}
-  .kdn-current-student b{color:#ffffff!important}
-  .kdn-current-student>span:first-child{box-shadow:0 0 0 3px rgba(255,122,61,.35)}
-  .kdn-current-student>span:nth-child(2) small:first-child{color:#ffb089!important}
-  .kdn-current-student>span:nth-child(2) small,.kdn-current-student b span{color:#cfccc5!important}
-  .kdn-current-student>button{background:rgba(255,255,255,.12)!important;color:#ffffff!important}
+  /* 현재 학생 칸: 옆의 학년·검색 칸과 같은 흰 바탕(아래 학생 요약 카드만 진한 색) */
+  .kdn-current-student{border-color:color-mix(in srgb,var(--kdn-accent) 35%,var(--kdn-line))!important}
   @media (max-width:900px){.kdn-sum{grid-template-columns:minmax(0,1fr)!important}.kdn-sum>div:first-child{border-right:0!important;padding-right:0!important}}
   @media (max-width:560px){.kdn-sum>div:last-child{grid-template-columns:minmax(0,1fr)!important}}
   /* NAVI 기준 설정 ① 계산기형(시안 A) */
@@ -2776,8 +2771,8 @@ const SHARED_NEW_CSS = `
   :root[data-kd-rails="on"] .kdn-rail.is-right{right:20px}
   :root[data-kd-rails="on"] .kdp-dock{display:none!important}
   /* 패널이 켜지면: 위쪽 '최근 본 학생' 줄은 왼쪽 패널과 겹치므로 숨기고, 학생 작업 줄은 바탕과 섞여 떠 보이지 않게 */
-  :root[data-kd-rails="on"] .kdn-recent-students{display:none!important}
-  :root[data-kd-rails="on"] .kdn-work-bar{background:color-mix(in srgb,var(--kdn-bg) 86%,transparent)!important;-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+  .kdn-rail-clear{border:0;background:transparent;padding:2px 4px;font:inherit;font-size:12px;font-weight:700;color:var(--kdn-muted);cursor:pointer;text-decoration:underline;text-underline-offset:3px}.kdn-rail-clear:hover{color:var(--kdn-ink)}
+  :root[data-kd-rails="on"] .kdn-work-bar{background:color-mix(in srgb,var(--kdn-bg) 45%,transparent)!important;border-bottom-color:transparent!important;-webkit-backdrop-filter:blur(16px) saturate(1.2);backdrop-filter:blur(16px) saturate(1.2)}
   @media print{.kdn-rail{display:none!important}:root[data-kd-rails="on"] .kdn-app{padding-left:0!important;padding-right:0!important}}
   .kdn-rail-card{display:grid;gap:10px;padding:16px;border-radius:18px;border:1px solid var(--kdn-line);background:var(--kdn-surface)}
   .kdn-rail-card .hd{display:flex;align-items:center;gap:6px;font-size:14.5px;font-weight:850;color:var(--kdn-ink)}

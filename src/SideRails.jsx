@@ -8,8 +8,11 @@ import { todayItems, expandOccurrences, dateKey, shiftKey, dayNo, dLabel, school
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const openSearch = query => window.dispatchEvent(new CustomEvent("kd:search", { detail: { query } }));
 
-function LeftRail({ recent = [], menus = [], onPickStudent, canSearch }) {
+function LeftRail({ recent = [], menus = [], onPickStudent, canSearch, onClearRecent }) {
   const [text, setText] = React.useState("");
+  // 지우기를 누르면 지금 목록을 숨기고, 새 학생을 열어 목록이 바뀌면 다시 보여 줍니다.
+  const recentKey = recent.map(student => student.sid).join(",");
+  const [clearedKey, setClearedKey] = React.useState(null);
   return <aside className="kdn-rail is-left no-print" aria-label="찾기와 바로가기">
     {canSearch && <section className="kdn-rail-card">
       <b className="hd">찾기</b>
@@ -17,8 +20,8 @@ function LeftRail({ recent = [], menus = [], onPickStudent, canSearch }) {
         onChange={event => { const value = event.target.value; setText(""); openSearch(value); }}
         onFocus={event => { if (event.target.value) openSearch(event.target.value); }} /><kbd>Ctrl K</kbd></label>
     </section>}
-    {recent.length > 0 && <section className="kdn-rail-card">
-      <b className="hd">최근 본 학생</b>
+    {recent.length > 0 && clearedKey !== recentKey && <section className="kdn-rail-card">
+      <div className="hd-row"><b className="hd">최근 본 학생</b>{onClearRecent && <button type="button" data-kdn-bare className="kdn-rail-clear" onClick={() => { onClearRecent(); setClearedKey(recentKey); }}>지우기</button>}</div>
       <div className="kdn-rail-list">{recent.map(student => <button key={student.sid} type="button" data-kdn-bare onClick={() => onPickStudent?.(student.sid)}><i aria-hidden="true">{String(student.name || "?").charAt(0)}</i><span><b>{student.name}</b><small>{student.sid} · {student.class}반 {student.number}번</small></span></button>)}</div>
     </section>}
     {menus.length > 0 && <section className="kdn-rail-card">
@@ -84,10 +87,10 @@ function useRailLayout() {
   }, []);
 }
 
-export default function SideRails({ owner = "", calendar, recent = [], menus = [], onPickStudent, onOpenPlanner, canSearch = false }) {
+export default function SideRails({ owner = "", calendar, recent = [], menus = [], onPickStudent, onOpenPlanner, canSearch = false, onClearRecent }) {
   useRailLayout();
   return <>
-    <LeftRail recent={recent} menus={menus} onPickStudent={onPickStudent} canSearch={canSearch} />
+    <LeftRail recent={recent} menus={menus} onPickStudent={onPickStudent} canSearch={canSearch} onClearRecent={onClearRecent} />
     <RightRail owner={owner} calendar={calendar} onOpenPlanner={onOpenPlanner} />
   </>;
 }

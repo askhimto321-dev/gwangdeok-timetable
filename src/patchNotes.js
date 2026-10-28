@@ -5,6 +5,15 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-10-29-f",
+    date: "2026-10-29",
+    title: "학생 찾기 줄 정리",
+    items: [
+      { audience: "staff", text: "위쪽 '최근 본 학생' 줄을 없앴어요. 최근 본 학생은 넓은 화면의 왼쪽 패널과 Ctrl+K 찾기에서 볼 수 있고, 왼쪽 패널의 '지우기'로 목록을 비울 수 있어요." },
+      { audience: "staff", text: "학번·이름 검색칸을 짧게 줄이고, 현재 학생 칸을 다른 칸과 같은 흰 바탕·같은 높이로 맞췄어요." },
+    ],
+  },
+  {
     id: "2026-10-29-e",
     date: "2026-10-29",
     title: "성적 화면 정리",
