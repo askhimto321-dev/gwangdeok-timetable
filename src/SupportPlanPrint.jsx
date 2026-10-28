@@ -3,6 +3,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {Printer} from 'lucide-react';
 import {validGrade} from './admissionMetrics.js';
 import SupportDecisionCard from './SupportDecisionCard.jsx';
+import { PlanSummaryPage, rowsFromDecisionItems, PLAN_SUMMARY_CSS } from './planSummaryPrint.jsx';
 // 3번 요청: "인쇄했을 때 수시카드가 홈페이지 UI 그대로 나오게" — 예전에는 이 파일이 직접 만든
 // 별도 카드 마크업(<article><h2>...)과 별도 CSS(supportPlanPrintCss)를 써서, 실제 화면의
 // SupportDecisionCard와 생김새가 달랐습니다. 이제는 화면에서 쓰는 카드 컴포넌트와 실제 CSS
@@ -29,7 +30,10 @@ export function SupportPlanReport({items,student,studentGrade,cutoffBasis,layout
       <div className="susi-beta-plan-grid">{page.map(({item,index})=><SupportDecisionCard key={index} item={item} index={index} studentGrade={studentGrade} cutoffBasis={cutoffBasis} student={student} printMode compactPrint={layout==='six'}/>)}</div>
     </div>
     <footer className="kd-print-foot">상담 참고용 · 공개 컷 2026 / 권장과목 2028 / 최저 연도는 각 카드 표시. NAVI 사례는 대학·전형·계열 기준이며 연도 미제공. 미확인은 미이수 확정이 아닙니다. 모평 충족은 실제 수능 충족이나 합격을 보장하지 않습니다. 최종 모집요강 확인이 필요합니다.</footer>
-  </main>)}</>;
+  </main>)}
+  {/* 마지막 장: 지원 구성 전체를 한눈에 보는 구간 분포 + 컷 위치 그래프 */}
+  {printedCount>0 && <main className="kd-print-doc kd-print-summary-doc"><PlanSummaryPage rows={rowsFromDecisionItems(items,cutoffBasis)} studentGrade={studentGrade} cutoffBasis={cutoffBasis} studentLabel={`${student?.sid||''} ${student?.name||''} · ${student?.latestMockLabel || '모평 미선택'} · ${new Date().toLocaleDateString('ko-KR')}`}/></main>}
+  </>;
 }
 
 // A separate same-origin print document avoids existing whole-app print CSS.
@@ -37,6 +41,7 @@ export function SupportPlanReport({items,student,studentGrade,cutoffBasis,layout
 // 그 위에 인쇄 전용 레이아웃(A4 가로, 2열 카드, 페이지 나눔 방지)만 추가합니다.
 export const supportPlanPrintCss=`${themeCss}
 ${supportDecisionCss}
+${PLAN_SUMMARY_CSS}
 .susi-beta-plan-card{box-sizing:border-box;min-width:0}
 .susi-beta-plan-card b,.susi-beta-plan-card span,.susi-beta-plan-card small{min-width:0;overflow-wrap:anywhere;word-break:keep-all}
 .kd-print-doc .susi-beta-plan-grid{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:3mm!important;align-items:stretch;height:166mm}
@@ -143,7 +148,23 @@ html,body{height:auto!important;overflow:visible!important}
 .kd-print-doc .kd-decision-card.is-fit-2 .kd-course-group-title{margin:.6mm 0 .4mm!important}
 /* 3단계: 권장과목 칩 촘촘하게 */
 .kd-print-doc .kd-decision-card.is-fit-3 .kd-course-chips span{font-size:6.6pt!important;padding:.3mm .8mm!important}
-.kd-print-doc .kd-decision-card.is-fit-3 .kd-decision-band-row{margin:.5mm 0 0!important}`;
+.kd-print-doc .kd-decision-card.is-fit-3 .kd-decision-band-row{margin:.5mm 0 0!important}
+/* 안정/소신/상향이 종이에서도 바로 보이게: 카드 위 띠 색 + 판정 배지 크게 */
+.kd-print-doc .kd-decision-card{border-top-width:1.6mm!important;border-top-style:solid!important}
+.kd-print-doc .kd-decision-card.is-band-up{border-top-color:#b3413a!important}
+.kd-print-doc .kd-decision-card.is-band-reach{border-top-color:#c9822f!important}
+.kd-print-doc .kd-decision-card.is-band-fit{border-top-color:#c9a923!important}
+.kd-print-doc .kd-decision-card.is-band-safe{border-top-color:#2f8a5a!important}
+.kd-print-doc .kd-decision-card.is-band-down{border-top-color:#2b5588!important}
+.kd-print-doc .kd-decision-card.is-band-none{border-top-color:#c4cad3!important}
+.kd-print-doc .kd-decision-band-row .kd-band-pill{font-size:9pt!important;font-weight:900!important;padding:.6mm 2.6mm!important;border-width:.4mm!important}
+.kd-print-doc .kd-decision-diff{font-weight:800!important}
+/* 요약 장 */
+.kd-print-summary-doc{display:block!important;height:auto!important;max-height:none!important;overflow:visible!important}
+.kd-print-summary-doc .kd-plan-summary{break-before:auto;page-break-before:auto;gap:3mm}
+.kd-print-summary-doc .kps-row{min-height:9.5mm}
+.kd-print-summary-doc .kps-row:not(.kps-axis-row):not(.kps-ticks-row){grid-template-columns:62mm minmax(0,1fr) 34mm}
+.kd-print-summary-doc .kps-axis-row,.kd-print-summary-doc .kps-ticks-row{grid-template-columns:62mm minmax(0,1fr) 34mm}`;
 
 // 1번 요청: 수능최저 상자가 길어지는 대학(반영 과목·판정값·기준까지 표시)은 카드 아래 권장과목이 칸 밖으로 밀려
 // 다음 카드와 겹치거나 잘렸습니다. 인쇄 직전에 카드마다 실제 높이를 재서, 넘치는 카드만 단계적으로
