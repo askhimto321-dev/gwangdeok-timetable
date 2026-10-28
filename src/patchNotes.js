@@ -5,6 +5,16 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-10-29-g",
+    date: "2026-10-29",
+    title: "왼쪽 패널·현재 학생 표시 정리",
+    items: [
+      { audience: "staff", text: "넓은 화면 왼쪽 패널에는 찾기 칸만 남겼어요. 최근 본 학생은 찾기 창(Ctrl+K)을 열면 맨 위에 보이고, 거기서 '지우기'로 비울 수 있어요." },
+      { audience: "staff", text: "검색칸 옆 현재 학생 표시를 한 줄짜리 알약 모양(이름 · 학번 · 학년반번호 · ✕)으로 바꿨어요." },
+      { audience: "staff", text: "성적 화면인데 위쪽 탭은 '개인 시간표'로 켜져 있던 문제를 고쳤어요." },
+    ],
+  },
+  {
     id: "2026-10-29-f",
     date: "2026-10-29",
     title: "학생 찾기 줄 정리",

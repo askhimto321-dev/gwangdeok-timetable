@@ -1868,6 +1868,8 @@ export default function App() {
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
   };
   const activeSection = section || (isNewUi() ? "home" : "grades");
+  // 탭 표시용 학생 화면: 시간표 화면에서만 '개인 시간표'를 켜고, 성적 화면인데 저장된 값이 시간표면 '성적 리포트'로 보여 줍니다.
+  const shownWorkspaceView = activeSection === "timetable" ? "timetable" : studentWorkspaceView === "timetable" ? "grades" : studentWorkspaceView;
   const staffWorkspaceEnabled = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
   const staffToolAccess = !!loggedInAdmin || ((loggedInTeacher || loggedInDepartment) && (staffGradeAccessList || []).map(String).includes(String(grade)));
   // 기능 권한(staffPermissions): 역할 기본값 + 관리자가 계정별로 켜고 끈 값
@@ -2004,7 +2006,7 @@ export default function App() {
     ...(SECTION_LABELS[activeSection] ? [{ key: activeSection, label: SECTION_LABELS[activeSection], onClick: activeSection === "teacherZone" ? () => setTeacherZoneRequest({ mode: "home", at: Date.now() }) : () => switchSection(activeSection) }] : []),
     ...(activeSection === "teacherZone" && teacherZoneMode && teacherZoneMode !== "home" ? [{ key: "tz", label: TEACHER_ZONE_MODE_LABELS[teacherZoneMode] || teacherZoneMode }] : []),
     ...(activeSection === "grades" && teacherTool ? [{ key: "tool", label: teacherTools.find(tool => tool.key === teacherTool)?.label || "선생님 도구" }] : []),
-    ...(activeSection === "grades" && !teacherTool && staffWorkspaceEnabled && trailStudent ? [{ key: "student", label: trailStudent, onClick: () => changeStudentWorkspaceView("grades") }, { key: "view", label: (STUDENT_WORKSPACE_VIEWS.find(([view]) => view === studentWorkspaceView) || [, "성적 리포트"])[1] }] : []),
+    ...(activeSection === "grades" && !teacherTool && staffWorkspaceEnabled && trailStudent ? [{ key: "student", label: trailStudent, onClick: () => changeStudentWorkspaceView("grades") }, { key: "view", label: (STUDENT_WORKSPACE_VIEWS.find(([view]) => view === shownWorkspaceView) || [, "성적 리포트"])[1] }] : []),
   ];
   const dashboardProps = {
     semester,
@@ -2070,10 +2072,7 @@ export default function App() {
       {isNewUi() ? <>
         <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
         {overlayUserKey && <SideRails owner={canSeeTeacherZone && !loggedInStudent ? plannerOwnerOf({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin }) : ""} calendar={db.academicCalendar}
-          canSearch={staffWorkspaceEnabled} onClearRecent={() => forgetRecentStudents()}
-          recent={staffWorkspaceEnabled ? readRecentStudents().map(sid => paletteStudents.find(student => String(student.sid) === sid)).filter(Boolean).slice(0, 5) : []}
-          menus={paletteMenus.filter(item => item.group !== "할 일" && item.key !== "home").slice(0, 6)}
-          onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }}
+          canSearch={staffWorkspaceEnabled}
           onOpenPlanner={canSeeTeacherZone ? () => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); } : undefined} />}
         {overlayUserKey && <MobileTabBar items={[
           { key: "home", label: "홈", icon: <HomeIcon size={22} />, active: section === "home", onClick: () => switchSection("home") },
@@ -2087,7 +2086,7 @@ export default function App() {
             { key: "search", label: "찾기", icon: <Search size={22} />, active: false, onClick: () => fireOverlay("kd:search") },
           ]),
         ]} />}
-        {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} recentSids={readRecentStudents()} onPickStudent={(sid, view = "grades") => { updateSelectedStudentSid(sid); changeStudentWorkspaceView(view); }}
+        {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} recentSids={readRecentStudents()} onClearRecent={() => forgetRecentStudents()} onPickStudent={(sid, view = "grades") => { updateSelectedStudentSid(sid); changeStudentWorkspaceView(view); }}
           parseTodo={canSeeTeacherZone ? parseQuickTodo : undefined} onQuickTodo={canSeeTeacherZone ? draft => { setTeacherZoneRequest({ mode: "planner", draft, at: Date.now() }); switchSection("teacherZone"); } : undefined} />}
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
         {overlayUserKey && <PatchNotesPopup userKey={overlayUserKey} audience={loggedInStudent ? "student" : "staff"} onDone={() => setPatchPopupDone(true)} />}
@@ -2114,7 +2113,7 @@ export default function App() {
         query={selectedStudentQuery}
         onQueryChange={updateSelectedStudentQuery}
         onSelect={updateSelectedStudentSid}
-        activeView={studentWorkspaceView}
+        activeView={shownWorkspaceView}
         onViewChange={changeStudentWorkspaceView}
         openTabs={studentWorkspaceTabs}
         onCloseTab={closeStudentWorkspaceTab}
@@ -2766,14 +2765,13 @@ function StaffStudentWorkspaceBar({
               <b style={newBar.matchName}>{student.name || "이름 없음"}</b><span style={newBar.matchMeta}>{student.sid} · {student.class}반 {student.number}번</span>{index === 0 && <small style={newBar.matchHint}>Enter</small>}
             </button>)}</div>}
           </div>
-          {/* 현재 학생: 대시보드 카드처럼 아바타 + 이름(굵게) + 학년·반·번호(보통 굵기) 두 줄. 오른쪽 ✕로 선택 해제 */}
+          {/* 현재 학생: 검색칸 옆의 한 줄 알약(아바타 · 이름 · 학번 · 학년반번호 · ✕). 아래 요약 카드가 자세한 정보를 보여 줍니다. */}
           {selected ? <div className="kdn-current-student" style={newBar.selected} title="현재 학생">
             <span style={newBar.selectedAvatar} aria-hidden="true">{String(selected.name || "?").charAt(0)}</span>
-            <span style={newBar.selectedText}>
-              <b style={newBar.selectedName}>{selected.name}<span style={newBar.selectedSid}>{selected.sid}</span></b>
-              <small style={newBar.selectedMeta}>{selected.grade || String(selected.sid || "").charAt(0)}학년 {selected.class}반 {selected.number}번</small>
-            </span>
-            <button type="button" data-kdn-bare aria-label="학생 선택 해제" title="학생 선택 해제" onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={newBar.selectedClear}><X size={15} /></button>
+            <b style={newBar.selectedName}>{selected.name}</b>
+            <span style={newBar.selectedSid}>{selected.sid}</span>
+            <small className="kdn-current-meta" style={newBar.selectedMeta}>{selected.grade || String(selected.sid || "").charAt(0)}학년 {selected.class}반 {selected.number}번</small>
+            <button type="button" data-kdn-bare aria-label="학생 선택 해제" title="학생 선택 해제" onClick={() => { setDraftQuery(""); setQueryEditing(false); onQueryChange?.(""); onSelect?.(null); }} style={newBar.selectedClear}><X size={14} /></button>
           </div> : null}
         </div>
         <div role="tablist" aria-label="학생 화면" style={newBar.tabs}>
@@ -2896,19 +2894,12 @@ const newBar = {
   matchName: { fontSize: 15, fontWeight: 800 },
   matchMeta: { fontSize: 13.5, fontWeight: 600, color: "var(--kdn-muted)" },
   matchHint: { marginLeft: "auto", fontSize: 12, fontWeight: 800, color: "var(--kdn-muted)" },
-  selected: { display: "flex", alignItems: "center", gap: 10, minHeight: 46, padding: "4px 6px 4px 5px", borderRadius: 14, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxSizing: "border-box" },
-  selectedAvatar: { width: 34, height: 34, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #ff9a5c, #e2531a)", color: "#ffffff", fontSize: 15, fontWeight: 800, flex: "none" },
-  selectedText: { display: "grid", lineHeight: 1.25, gap: 1, minWidth: 0 },
-  selectedName: { display: "flex", alignItems: "baseline", gap: 8, fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)", letterSpacing: "-.01em" },
-  selectedSid: { fontSize: 13, fontWeight: 500, color: "var(--kdn-muted)", fontVariantNumeric: "tabular-nums" },
-  selectedMeta: { fontSize: 12.5, fontWeight: 500, color: "var(--kdn-muted)" },
-  selectedClear: { width: 30, height: 30, marginLeft: 4, border: 0, borderRadius: 999, background: "var(--kdn-surface-2)", color: "var(--kdn-ink-soft)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flex: "none" },
-  recent: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", paddingLeft: 14, borderLeft: "1px solid var(--kdn-line)" },
-  recentLabel: { fontSize: 12.5, fontWeight: 500, color: "var(--kdn-muted)", marginRight: 4 },
-  recentChip: { display: "inline-flex", alignItems: "center", gap: 7, minHeight: 36, padding: "0 12px 0 4px", borderRadius: 999, border: "1px solid var(--kdn-line)", background: "var(--kdn-surface)", color: "var(--kdn-ink)", cursor: "pointer" },
-  recentAvatar: { width: 28, height: 28, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, flex: "none" },
-  recentName: { fontSize: 14, fontWeight: 650 },
-  recentSid: { fontSize: 12, fontWeight: 500, color: "var(--kdn-muted)", fontVariantNumeric: "tabular-nums" },
+  selected: { display: "flex", alignItems: "center", gap: 8, minHeight: 46, padding: "0 6px 0 6px", borderRadius: 999, background: "color-mix(in srgb, var(--kdn-accent) 8%, var(--kdn-surface))", border: "1px solid color-mix(in srgb, var(--kdn-accent) 28%, var(--kdn-line))", boxSizing: "border-box", whiteSpace: "nowrap" },
+  selectedAvatar: { width: 32, height: 32, borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #ff9a5c, #e2531a)", color: "#ffffff", fontSize: 14, fontWeight: 800, flex: "none" },
+  selectedName: { fontSize: 15.5, fontWeight: 800, color: "var(--kdn-ink)", letterSpacing: "-.01em" },
+  selectedSid: { fontSize: 13.5, fontWeight: 600, color: "var(--kdn-ink-soft)", fontVariantNumeric: "tabular-nums" },
+  selectedMeta: { fontSize: 13, fontWeight: 500, color: "var(--kdn-muted)", paddingLeft: 8, borderLeft: "1px solid var(--kdn-line)" },
+  selectedClear: { width: 30, height: 30, marginLeft: "auto", border: 0, borderRadius: 999, background: "transparent", color: "var(--kdn-muted)", display: "inline-flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flex: "none" },
   tabs: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", rowGap: 8, paddingBottom: 12 },
   group: { flex: "none", display: "flex", alignItems: "center", gap: 2, padding: 4, borderRadius: 14, borderWidth: 1, borderStyle: "solid", maxWidth: "100%", boxSizing: "border-box", overflowX: "auto", scrollbarWidth: "none" },
   groupLookup: { bg: "var(--kdn-surface-2)", border: "var(--kdn-line)", label: "#1c4aa8" },

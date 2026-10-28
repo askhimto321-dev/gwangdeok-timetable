@@ -49,7 +49,11 @@ export function FabHub({ depth = 0, maxDepth = 0, hasQuickLinks = false, hasSear
 // 시안 1 '어디서나 찾기': 최근 본 학생 먼저 · 분류 탭(전체/학생/메뉴/할 일, Tab으로 바꾸기)
 // · 학생 줄에서 바로 '성적 리포트/상담' · "11/5 협의회"처럼 적으면 내 일정에 바로 추가
 const PALETTE_TABS = [["all", "전체"], ["student", "학생"], ["menu", "메뉴"], ["todo", "할 일"]];
-export function CommandPalette({ students = [], menus = [], recentSids = [], onPickStudent, onQuickTodo, parseTodo }) {
+export function CommandPalette({ students = [], menus = [], recentSids: recentProp = [], onPickStudent, onQuickTodo, parseTodo, onClearRecent }) {
+  // '지우기'를 누르면 지금 목록을 숨기고, 새 학생을 열어 목록이 바뀌면 다시 보여 줍니다.
+  const recentKey = recentProp.join(",");
+  const [clearedKey, setClearedKey] = useState(null);
+  const recentSids = clearedKey === recentKey ? [] : recentProp;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -115,7 +119,7 @@ export function CommandPalette({ students = [], menus = [], recentSids = [], onP
           const head = entry.type !== lastType ? groupName(entry) : null;
           lastType = entry.type;
           return <React.Fragment key={entry.key}>
-            {head && <small className="kdn-cmdk-group">{head}</small>}
+            {head && <small className="kdn-cmdk-group">{head}{head === "최근 본 학생" && onClearRecent && <button type="button" data-kdn-bare className="kdn-cmdk-clear" onClick={() => { onClearRecent(); setClearedKey(recentKey); inputRef.current?.focus(); }}>지우기</button>}</small>}
             <div className={`kdn-cmdk-row${index === cursor ? " is-on" : ""}`} onMouseEnter={() => setCursor(index)}>
               <button type="button" data-kdn-bare className="main" onClick={() => choose(entry)}>
                 <i className={`t-${entry.type}`}>{entry.type === "student" ? String(entry.title).charAt(0) : entry.type === "todo" ? <Plus size={16} /> : <LayoutGrid size={16} />}</i>
