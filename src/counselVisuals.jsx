@@ -100,7 +100,8 @@ function CounselSummaryReport({ student, identity, favoriteCount = 0, planCount,
       </div>
       <div className="kdn-sumb-stats">
         <div><span>전교과 내신</span><b>{fmt(total)}<small>{isFiveScale ? " 5등급제" : " 등급"}</small></b></div>
-        {isFiveScale && <div><span>9등급 환산</span><b>{fmt(naviGrade?.value)}</b></div>}
+        {/* 9등급 환산은 위 눈금에 큰 숫자로 이미 보이므로 여기서는 뺍니다(눈금에 값이 없을 때만 표시). */}
+        {isFiveScale && !ok(grade9) && <div><span>9등급 환산</span><b>-</b></div>}
         <div><span>최근 모의고사 3합</span><b>{mock?.sum3 ?? "-"}</b></div>
         <div><span>관심 대학</span><b>{favoriteCount}<small> 곳</small></b></div>
         <div><span>수시 지원 구성</span><b className="is-accent">{planCount == null ? "-" : planCount}<small> / {PLAN_LIMIT}</small></b></div>
