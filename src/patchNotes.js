@@ -5,6 +5,16 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-10-28-c",
+    date: "2026-10-28",
+    title: "선생님 ZONE 정리",
+    items: [
+      { audience: "staff", text: "정기시험 강조(성적 산출 큰 카드·시험 안내)는 시험이 끝나고 6일까지만 보입니다." },
+      { audience: "staff", text: "2학년 담임 선생님 홈에 '반편성 분리희망학생' 입력 안내를 크게 보여 줍니다." },
+      { audience: "staff", text: "분리 등급 기준을 색 띠 하나로 정리하고, 예시는 펼치거나 접을 수 있게 했습니다." },
+    ],
+  },
+  {
     id: "2026-10-28-b",
     date: "2026-10-28",
     title: "분리희망학생 개선 · 성적 확인 팝업 수정",

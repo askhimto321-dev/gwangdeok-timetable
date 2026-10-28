@@ -48,8 +48,15 @@ const CSS = `
 [data-kd-ui="dark"] .t-must{color:#fca5a5}[data-kd-ui="dark"] .t-high{color:#fdba74}[data-kd-ui="dark"] .t-mid{color:#fde047}[data-kd-ui="dark"] .t-low{color:#cbd5e1}
 .kcs-pane{display:grid;gap:12px;padding:16px 18px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
 .kcs-pane-hd{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px}.kcs-pane-hd b{font-size:19px;font-weight:800}.kcs-pane-hd small{font-size:13px;color:var(--kdn-muted,#64748b)}
-.kcs-levels{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-.kcs-levels div{display:grid;gap:2px;padding:8px 10px;border-radius:10px}.kcs-levels b{font-size:13.5px}.kcs-levels span{font-size:12px;line-height:1.4;opacity:.9}
+.kcs-scale{display:grid;gap:8px;padding:12px 14px;border-radius:14px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface-2,#f8fafc)}
+.kcs-scale-hd{display:flex;align-items:center;gap:8px}.kcs-scale-hd b{font-size:13.5px;font-weight:800}.kcs-scale-hd small{font-size:12px;color:var(--kdn-muted,#64748b)}.kcs-scale-hd .sp{flex:1}
+.kcs-scale-hd button{min-height:28px;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft,#334155);cursor:pointer}
+.kcs-scale ol{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0}
+.kcs-scale li{display:grid;gap:3px;align-content:start;padding:9px 12px 2px;border-top:4px solid var(--c);position:relative}
+.kcs-scale li+li{border-left:1px solid var(--kdn-line,#e2e8f0)}
+.kcs-scale li:first-child{border-top-left-radius:4px}.kcs-scale li:last-child{border-top-right-radius:4px}
+.kcs-scale li b{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:800;color:var(--kdn-ink,#111827)}.kcs-scale li b i{width:9px;height:9px;border-radius:99px;background:var(--c)}
+.kcs-scale li span{font-size:12.5px;color:var(--kdn-ink-soft,#334155)}.kcs-scale li small{font-size:12px;line-height:1.45;color:var(--kdn-muted,#64748b)}
 .kcs-sec{display:grid;gap:8px}.kcs-sec>h4{margin:0;display:flex;align-items:center;gap:6px;font-size:14.5px;font-weight:800}.kcs-sec>h4 small{font-weight:600;color:var(--kdn-muted,#64748b)}
 .kcs-rows{display:grid;gap:10px}
 .kcs-row{display:grid;grid-template-columns:26px minmax(210px,1fr) auto;grid-template-areas:"i pick lv" "i rs del";gap:8px;align-items:center;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f8fafc);border:1px solid var(--kdn-line,#e2e8f0)}
@@ -68,6 +75,8 @@ const CSS = `
 .kcs-rev b{font-weight:800}.kcs-rev small{color:var(--kdn-muted,#64748b)}
 .kcs-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.kcs-foot .sp{flex:1}
 .kcs-note{margin:0;font-size:13px;line-height:1.55;color:var(--kdn-muted,#64748b)}
+.kcs-guide{display:grid;gap:14px;justify-items:center;padding:22px 8px;text-align:center}.kcs-guide>b{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:800}.kcs-guide>small{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;font-size:12.5px;color:var(--kdn-muted,#64748b)}.kcs-guide .kcs-scale{width:100%;text-align:left}
+.kcs-guide>ol{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;justify-content:center;gap:8px}.kcs-guide>ol>li{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--kdn-surface-2,#f1f5f9);font-size:13.5px;font-weight:700}.kcs-guide>ol>li>i{display:grid;place-items:center;width:20px;height:20px;border-radius:99px;background:var(--kdn-accent,#2563eb);color:#fff;font-style:normal;font-size:12px}
 .kcs-empty{padding:28px;text-align:center;color:var(--kdn-muted,#64748b);font-size:14px}
 .kcs-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 .kcs-kpi{display:grid;gap:4px;padding:14px 16px;border-radius:14px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);text-align:left;font:inherit;color:inherit;cursor:pointer}
@@ -86,7 +95,7 @@ const CSS = `
 .kcs-pill{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:800;white-space:nowrap}
 .kcs-who{display:inline-grid;gap:1px;border:0;background:none;font:inherit;color:inherit;cursor:pointer;text-align:center}.kcs-who b{font-weight:800}.kcs-who small{font-size:12px;color:var(--kdn-muted,#64748b)}
 .kcs-bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--kdn-surface-2,#eef2f7)}.kcs-bar i{display:block;height:100%}
-@media (max-width:900px){.kcs-split,.kcs-grid2{grid-template-columns:minmax(0,1fr)}.kcs-list{max-height:280px}.kcs-levels{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:900px){.kcs-split,.kcs-grid2{grid-template-columns:minmax(0,1fr)}.kcs-list{max-height:280px}.kcs-scale ol{grid-template-columns:repeat(2,minmax(0,1fr))}.kcs-scale-hd small{display:none}.kcs-scale li:nth-child(3){border-left:0}
   .kcs-row{grid-template-columns:24px minmax(0,1fr) 38px;grid-template-areas:"i pick del" "i lv lv" "i rs rs"}.kcs-rev{grid-template-columns:minmax(0,1fr) auto}}
 `;
 const BAR_COLORS = { must: "#dc2626", high: "#ea580c", mid: "#ca8a04", low: "#94a3b8" };
@@ -118,6 +127,16 @@ function ReasonPicker({ value, disabled, onChange }) {
     </select>
     {showInput && <input className="reason" value={isPreset ? "" : value} disabled={disabled} placeholder="사유를 직접 적어 주세요" aria-label="사유 직접 입력" maxLength={200} onChange={event => onChange(event.target.value)} />}
   </>;
+}
+
+// 분리 등급 기준: 강한 등급부터 색 띠로 이어 보여 주고, 예시는 필요할 때 펼칩니다(이 브라우저에 기억).
+function LevelScale() {
+  const [open, setOpen] = React.useState(() => { try { return localStorage.getItem("kd_sep_scale_open") !== "0"; } catch { return true; } });
+  const toggle = () => setOpen(value => { try { localStorage.setItem("kd_sep_scale_open", value ? "0" : "1"); } catch { /* ignore */ } return !value; });
+  return <div className="kcs-scale" aria-label="분리 등급 기준">
+    <div className="kcs-scale-hd"><b>분리 등급 기준</b><small>왼쪽일수록 강하게 분리</small><span className="sp" /><button type="button" data-kdn-bare onClick={toggle} aria-expanded={open}>{open ? "예시 접기" : "예시 보기"}</button></div>
+    <ol>{SEPARATION_LEVELS.map(level => <li key={level} style={{ "--c": BAR_COLORS[toneOf(level)] }}><b><i />{level}</b><span>{LEVEL_INFO[level].hint}</span>{open && <small>예: {LEVEL_INFO[level].example}</small>}</li>)}</ol>
+  </div>;
 }
 
 const LevelPill = ({ level }) => <span className={`kcs-pill t-${toneOf(level)}`}>{level}</span>;
@@ -284,9 +303,14 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
           {!shownStudents.length && <div className="kcs-empty">{students.length ? "찾는 학생이 없습니다." : `${viewClass}반 명단이 없습니다.`}</div>}
         </nav>
         <section className="kcs-pane">
-          {!sid ? <div className="kcs-empty"><Users size={18} /> 왼쪽에서 학생을 고르세요.<br /><small>색 숫자 = 이 학생에게 등록한 분리희망학생 수(색은 가장 강한 등급) · 점선 숫자 = 다른 학생이 이 학생을 적은 수</small></div> : <>
+          {!sid ? <div className="kcs-guide">
+            <b><Users size={18} /> 왼쪽 명단에서 학생을 고르세요</b>
+            <ol><li><i>1</i>학생 고르기</li><li><i>2</i>분리할 학생 · 등급 · 사유 입력</li><li><i>3</i>저장</li></ol>
+            <small><span className="kcs-badge t-must">2</span> 이 학생에게 등록한 수(색 = 가장 강한 등급) · <span className="kcs-badge rev t-high"><CornerDownLeft size={11} />1</span> 다른 학생이 이 학생을 적은 수</small>
+            <LevelScale />
+          </div> : <>
             <div className="kcs-pane-hd"><b>{label(sid, roster)}</b><small>{viewClass}반 · {roster?.[sid]?.gender || ""} · 분리희망학생 {normalizeTargets(draft, sid).length}/{MAX_TARGETS}명{entries[sid]?.updatedAt ? ` · 마지막 저장 ${new Date(entries[sid].updatedAt).toLocaleString("ko-KR")}${entries[sid].by ? ` (${entries[sid].by})` : ""}` : ""}</small></div>
-            <div className="kcs-levels" aria-label="분리 등급 안내">{SEPARATION_LEVELS.map(level => <div key={level} className={`t-${toneOf(level)}`}><b>{level}</b><span>{LEVEL_INFO[level].hint} · 예: {LEVEL_INFO[level].example}</span></div>)}</div>
+            <LevelScale />
             {reverse.length > 0 && <div className="kcs-sec"><h4><CornerDownLeft size={15} />이 학생을 분리 희망으로 적은 학생 <small>{reverse.length}명 · 상대 학생 쪽에서 입력한 내용</small></h4>
               {reverse.map(item => <div key={item.sid} className="kcs-rev">
                 <span><b>{label(item.sid, roster)}</b> <small>{classOf(roster?.[item.sid])}반{item.by ? ` · ${item.by} 입력` : ""}</small></span>
@@ -306,7 +330,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
               {!draft.length && <p className="kcs-note">등록된 분리희망학생이 없습니다.</p>}
             </div>
             {canEdit && <div className="kcs-foot">
-              <button type="button" className="kcs-btn ghost" disabled={draft.length >= MAX_TARGETS} onClick={() => setDraft(list => [...list, newTarget()])}><Plus size={15} />학생 추가 ({draft.length}/{MAX_TARGETS})</button>
+              <button type="button" className="kcs-btn ghost" disabled={draft.length >= MAX_TARGETS} onClick={() => setDraft(list => [...list, newTarget()])}><Plus size={15} />학생 추가 ({draft.filter(t => t.sid).length}/{MAX_TARGETS})</button>
               <span className="sp" />
               {dirty && <small className="kcs-note">저장하지 않은 변경이 있어요</small>}
               <button type="button" className="kcs-btn pri" disabled={busy || !dirty} onClick={save}>{busy ? <Loader2 size={15} className="spin" /> : <Save size={15} />}저장</button>

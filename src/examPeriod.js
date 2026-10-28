@@ -26,7 +26,8 @@ export function examPeriods(calendar) {
   });
 }
 
-// 정기시험 기간: 관리자 학사일정의 시험 일정 7일 전부터 21일 뒤(채점·성적 처리)까지.
+// 정기시험 기간: 관리자 학사일정의 시험 일정 7일 전부터 끝난 뒤 6일(성적 확인 기간)까지만 강조합니다.
+export const EXAM_AFTER_DAYS = 6;
 export function examPeriodFromCalendar(calendar, now = new Date()) {
   const today = Math.round(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
   const items = examPeriods(calendar)
@@ -36,7 +37,7 @@ export function examPeriodFromCalendar(calendar, now = new Date()) {
       // 시작 전엔 시작일 기준, 시험 중엔 D-day, 끝난 뒤엔 마지막 날 기준으로 셉니다.
       return { ...period, d: dStart > 0 ? dStart : dEnd < 0 ? dEnd : 0 };
     })
-    .filter(event => Number.isFinite(event.d) && event.d >= -21 && event.d <= 7)
+    .filter(event => Number.isFinite(event.d) && event.d >= -EXAM_AFTER_DAYS && event.d <= 7)
     .sort((a, b) => Math.abs(a.d) - Math.abs(b.d));
   if (!items.length) return null;
   const { start, end, ...event } = items[0];
