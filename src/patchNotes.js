@@ -1,0 +1,50 @@
+// 업데이트(패치) 안내: 배포할 때마다 맨 앞에 한 건씩 추가합니다.
+// date(배포일)부터 SHOW_DAYS일 동안, 로그인한 사람에게 팝업으로 한 번 보여 주고 '확인했어요'를 누르면 다시 띄우지 않습니다.
+// items의 audience: "all"(모두) · "staff"(선생님·관리자) · "student"(학생)
+export const SHOW_DAYS = 2;
+
+export const PATCH_NOTES = [
+  {
+    id: "2026-10-28-a",
+    date: "2026-10-28",
+    title: "2학년 반편성 분리희망학생 입력",
+    items: [
+      { audience: "staff", text: "선생님 ZONE에 '분리희망학생' 탭이 생겼습니다. 2학년 담임 선생님은 우리 반 학생마다 같은 반이 되면 안 되는 학생(최대 10명)·분리 등급·사유를 적어 저장해 주세요." },
+      { audience: "staff", text: "2학년부·관리자는 전체 현황을 보고 학교 양식(분리희망학생(2학년부)) 그대로 엑셀로 받을 수 있습니다." },
+    ],
+  },
+  {
+    id: "2026-10-27-b",
+    date: "2026-10-27",
+    title: "성적 시뮬레이터·팝업 개선",
+    items: [
+      { audience: "all", text: "성적 시뮬레이터가 시간표 과목을 교육과정 편제표 이름(예: 미창 → 미술 창작)으로 바꿔 넣고, 체육·예술·창체처럼 석차등급이 없는 과목은 빼고 계산합니다." },
+      { audience: "staff", text: "성적 확인 기간 팝업: 담당 과목을 시험 뒤에 모두 저장했으면 더 이상 뜨지 않고, '산출 끝났어요'로 이번 시험 동안 끌 수 있습니다." },
+      { audience: "all", text: "업데이트가 있을 때 이렇게 바뀐 점을 2일 동안 알려 드립니다." },
+    ],
+  },
+  {
+    id: "2026-10-27-a",
+    date: "2026-10-27",
+    title: "NAVI·성적표 인쇄 개선",
+    items: [
+      { audience: "staff", text: "NAVI·상담: 같은 전형이 컷이 다르게 두 번 보이던 문제를 고쳤습니다. 합쳐진 학과 컷은 가운데값으로 묶고 원래 값을 함께 보여 줍니다." },
+      { audience: "staff", text: "NAVI 표에서 상세 카드로 간 뒤 '표로 돌아가기'로 보던 자리로 돌아올 수 있습니다." },
+      { audience: "all", text: "성적표 인쇄가 종이를 빈 공간 없이 채우도록 고쳤습니다." },
+    ],
+  },
+];
+
+const dayStart = value => { const d = new Date(`${value}T00:00:00`); return Number.isFinite(d.getTime()) ? d.getTime() : NaN; };
+
+// 지금 보여 줄 안내(최신순). audience: "staff" | "student", seen: 이미 확인한 id 목록
+export function activePatchNotes({ notes = PATCH_NOTES, now = new Date(), audience = "staff", seen = [], days = SHOW_DAYS } = {}) {
+  const time = now.getTime();
+  return notes
+    .filter(note => {
+      const start = dayStart(note.date);
+      return Number.isFinite(start) && time >= start && time < start + days * 86400000 && !seen.includes(note.id);
+    })
+    .map(note => ({ ...note, items: (note.items || []).filter(item => !item.audience || item.audience === "all" || item.audience === audience) }))
+    .filter(note => note.items.length);
+}

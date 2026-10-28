@@ -2892,6 +2892,7 @@ const SHARED_NEW_CSS = `
   .kdn-gcp-head{display:grid;gap:4px}
   .kdn-gcp-head em{justify-self:start;font-style:normal;padding:3px 10px;border-radius:99px;background:#ea580c;color:#fff;font-size:12px;font-weight:850}
   .kdn-gcp-head b{font-size:19px;font-weight:900}
+  .kdn-patch-list{display:grid;gap:12px;max-height:min(52vh,420px);overflow:auto}.kdn-patch-list section{display:grid;gap:6px;padding:12px 14px;border-radius:12px;background:var(--kdn-surface-2)}.kdn-patch-list b{font-size:14.5px;color:var(--kdn-ink)}.kdn-patch-list ul{margin:0;padding-left:18px;display:grid;gap:5px}.kdn-patch-list li{font-size:13.5px;line-height:1.55;color:var(--kdn-ink-soft)}
   .kdn-gcp-head span,.kdn-gcp-empty{font-size:13.5px;color:var(--kdn-muted);margin:0}
   .kdn-gcp-groups{display:grid;gap:10px}
   .kdn-gcp-class{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-radius:14px;background:color-mix(in srgb,#ea580c 10%,transparent);border:1px solid color-mix(in srgb,#ea580c 35%,transparent)}

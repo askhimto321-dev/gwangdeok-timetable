@@ -5,10 +5,11 @@ import { latestMockUpload } from "./mockImport.js";
 import { featureAllowed, STAFF_FEATURES, featureDefault, toggleFeature, staffRoleOf } from "./staffPermissions.js";
 import { mergeAccounts } from "./accountsMerge.js";
 import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, curriculumColumn, curriculumSubjects, ALTERNATE_PAIRS, subjectCategory } from "./curriculum.js";
-import { examPeriodFromCalendar } from "./examPeriod.js";
+import { examPeriodFromCalendar, gradeCheckDone } from "./examPeriod.js";
+import { activePatchNotes } from "./patchNotes.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
 import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay } from "./AppOverlays.jsx";
-import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid } from "lucide-react";
+import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid, UserX } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck, Archive } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi, rawColors } from "./uiMode.js";
@@ -26,6 +27,7 @@ const preloadSusiNaviSafely = () => { loadSusiNaviModule().catch(() => {}); };
 const GradesSection = lazy(() => loadGradesModule().then(module => ({ default: module.default })));
 const AdminGradesUpload = lazy(() => loadGradesModule().then(module => ({ default: module.AdminGradesUpload })));
 const ClassGradeOverviewPanel = lazy(() => loadGradesModule().then(module => ({ default: module.ClassGradeOverview })));
+const ClassSeparationTool = lazy(() => import("./ClassSeparationTool.jsx"));
 const MockAnalysisPanel = lazy(() => loadGradesModule().then(module => ({ default: module.MockAnalysisDashboard })));
 const AdminStudentAccounts = lazy(() => loadGradesModule().then(module => ({ default: module.AdminStudentAccounts })));
 const TeacherGradeAnalyzer = lazy(() => import("./TeacherGradeAnalyzer.jsx"));
@@ -1151,6 +1153,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [grade, setGrade] = useState("2");
   const [semester, setSemester] = useState(() => semesterForDate());
+  // 업데이트 안내 팝업이 닫힌 뒤에 다른 안내 팝업(모의고사·성적 확인)을 띄웁니다.
+  const [patchPopupDone, setPatchPopupDone] = useState(false);
   const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], siteAnnouncements: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {}, gradeDepartmentData: {} });
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
@@ -2044,9 +2048,10 @@ export default function App() {
         <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
         {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }} />}
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
-        {canSeeTeacherZone && !loggedInStudent && !loggedInAdmin && canUseMockAnalysis && gdb?.mockData && <MockUploadPopup mockData={gdb.mockData} userKey={overlayUserKey}
+        {overlayUserKey && <PatchNotesPopup userKey={overlayUserKey} audience={loggedInStudent ? "student" : "staff"} onDone={() => setPatchPopupDone(true)} />}
+        {patchPopupDone && canSeeTeacherZone && !loggedInStudent && !loggedInAdmin && canUseMockAnalysis && gdb?.mockData && <MockUploadPopup mockData={gdb.mockData} userKey={overlayUserKey}
           onOpen={latest => { const year = new Date().getFullYear(); const g = latest.entryYear ? String(year - latest.entryYear + 1) : ""; if (["1", "2", "3"].includes(g)) setGrade(g); setTeacherZoneRequest({ mode: "mock", at: Date.now() }); switchSection("teacherZone"); }} />}
-        {canSeeTeacherZone && !loggedInStudent && <GradeCheckPopup calendar={db.academicCalendar} workspaces={db.teacherGradeWorkspaces} teacher={loggedInTeacher || viewedTeacher} isAdmin={!!loggedInAdmin} semester={semester} userKey={overlayUserKey}
+        {patchPopupDone && canSeeTeacherZone && !loggedInStudent && <GradeCheckPopup calendar={db.academicCalendar} workspaces={db.teacherGradeWorkspaces} teacher={loggedInTeacher || viewedTeacher} isAdmin={!!loggedInAdmin} semester={semester} userKey={overlayUserKey}
           homeroomClass={loggedInTeacher?.homeroomClass && canUseFeature("classGrades") ? loggedInTeacher.homeroomClass : ""} homeroomGrade={loggedInTeacher?.homeroomClass ? (teacherRoleGrade(loggedInTeacher) || grade) : ""}
           onOpenClassExam={() => { const g = teacherRoleGrade(loggedInTeacher); if (g) setGrade(String(g)); openTeacherTool("classGrades", "examAll"); }}
           onOpen={(step, id, toGrade) => { if (toGrade) setGrade(String(toGrade)); setTeacherZoneRequest({ mode: "grades", step, id, at: Date.now() }); switchSection("teacherZone"); }} />}
@@ -2904,16 +2909,20 @@ function TeacherZoneWorkspace({
   const departmentGrades = loggedInDepartment ? departmentGradeAccess(loggedInDepartment) : [];
   const departmentCanUseSecondGradeTools = !!(loggedInDepartment && (!departmentGrades.length || departmentGrades.includes("2")));
   const canUseGradeDepartmentTools = String(grade) === "2" && !!(loggedInAdmin || departmentCanUseSecondGradeTools || activeTeacherIsSecondGradeStaff);
+  // 반편성 분리희망학생: 2학년 학급담임(자기 반 입력)·2학년부장·2학년부 부서 계정(전체 보기)·관리자(전체 보기·입력)만
+  const separationViewAll = !!(loggedInAdmin || departmentCanUseSecondGradeTools || (activeTeacher && teacherRoleGrade(activeTeacher) === "2" && normalizedTeacherRole(activeTeacher) === "gradeHead"));
+  const separationHomeroom = activeTeacher && teacherRoleGrade(activeTeacher) === "2" && normalizedTeacherRole(activeTeacher) === "homeroom" && activeTeacher.homeroomClass ? String(activeTeacher.homeroomClass) : "";
+  const canUseSeparation = String(grade) === "2" && !!(separationViewAll || separationHomeroom);
   const modeStorageKey = `kd_teacher_zone_mode_${actor?.id || actor?.name || "shared"}`;
   const [workspaceMode, setWorkspaceMode] = useState(() => {
     try {
       const saved = localStorage.getItem(modeStorageKey);
       // 새 UI는 들어올 때 항상 업무 카드 홈부터 보여 줍니다(마지막 작업은 홈에서 '이어서 하기'로 표시).
       if (isNewUi()) return "home";
-      return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : "grades";
+      return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData", "separation"].includes(saved) ? saved : "grades";
     } catch { return isNewUi() ? "home" : "grades"; }
   });
-  const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData"].includes(saved) ? saved : ""; } catch { return ""; } });
+  const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData", "separation"].includes(saved) ? saved : ""; } catch { return ""; } });
   const [visitedWorkspaceModes, setVisitedWorkspaceModes] = useState(() => [workspaceMode]);
   useEffect(() => { if (modeRequest?.mode) setWorkspaceMode(modeRequest.mode); }, [modeRequest?.at]);
   // 홈에서 성적 산출 단계·과목으로 바로 가기: { step, id, nonce }를 성적 산출 화면에 넘깁니다.
@@ -2927,8 +2936,8 @@ function TeacherZoneWorkspace({
     if (["contacts", "records", "gradeData"].includes(workspaceMode)) setLastDepartmentToolView(workspaceMode);
   }, [workspaceMode]);
   useEffect(() => {
-    if ((!canUseNotice && workspaceMode === "notice") || (!canUseMock && workspaceMode === "mock") || (!canUseGradeDepartmentTools && ["contacts", "records", "gradeData"].includes(workspaceMode))) setWorkspaceMode("grades");
-  }, [canUseNotice, canUseMock, canUseGradeDepartmentTools, workspaceMode]);
+    if ((!canUseNotice && workspaceMode === "notice") || (!canUseMock && workspaceMode === "mock") || (!canUseGradeDepartmentTools && ["contacts", "records", "gradeData"].includes(workspaceMode)) || (!canUseSeparation && workspaceMode === "separation")) setWorkspaceMode("grades");
+  }, [canUseNotice, canUseMock, canUseGradeDepartmentTools, canUseSeparation, workspaceMode]);
   useEffect(() => {
     if (workspaceMode === "home") return;
     try { localStorage.setItem(modeStorageKey, workspaceMode); } catch { /* localStorage unavailable */ }
@@ -2958,13 +2967,14 @@ function TeacherZoneWorkspace({
         {canUseMock && <button type="button" onClick={() => setWorkspaceMode("mock")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "mock" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BarChart3 size={15} /> 모의고사 분석</button>}
         {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
+        {canUseSeparation && <button type="button" onClick={() => setWorkspaceMode("separation")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "separation" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><UserX size={15} /> 분리희망학생</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무 (Beta)</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("gradeData")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "gradeData" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Database size={15} /> 자료 관리</button>}
         {onOpenMinimum && <button type="button" onClick={onOpenMinimum} title="최소성취수준 화면으로 이동" style={{ ...teacherZoneWorkspaceStyles.modeButton, marginLeft: 6 }}><ShieldCheck size={15} /> 최성보 현황 ↗</button>}
       </div>
       <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
     </div>
-    {workspaceMode === "home" && <TeacherZoneHome calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseMock={canUseMock} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum}  onEditProfile={onEditProfile} onOpenGrade={openGradeAt} workspaces={db?.teacherGradeWorkspaces} semester={semester} />}
+    {workspaceMode === "home" && <TeacherZoneHome calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseMock={canUseMock} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} canUseSeparation={canUseSeparation} isAdmin={!!loggedInAdmin} onOpen={setWorkspaceMode} onOpenMinimum={onOpenMinimum}  onEditProfile={onEditProfile} onOpenGrade={openGradeAt} workspaces={db?.teacherGradeWorkspaces} semester={semester} />}
     {visitedWorkspaceModes.includes("grades") && <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
       <DeferredPanel label="성적 산출 도구를 불러오는 중입니다."><TeacherGradeAnalyzer key={`tga-${grade}-${semester}`} teacher={actor} teacherAccounts={accounts?.teacher || []} roster={mergedRoster} grade={grade} semester={semester} showToast={showToast} db={db} persist={persist}
         accessRole={activeAccessRole}
@@ -2984,6 +2994,9 @@ function TeacherZoneWorkspace({
         : <div style={styles.warnBanner}><Loader2 size={14} /> 성적 자료를 불러오는 중입니다.</div>}
     </div>}
     {canUseNotice && visitedWorkspaceModes.includes("notice") && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
+    {canUseSeparation && visitedWorkspaceModes.includes("separation") && <div style={{ display: workspaceMode === "separation" ? "block" : "none" }} aria-hidden={workspaceMode !== "separation"}>
+      <DeferredPanel label="분리희망학생 화면을 불러오는 중입니다."><ClassSeparationTool roster={roster} homeroomClass={separationHomeroom} canViewAll={separationViewAll} canEditAll={!!loggedInAdmin} actor={actor} showToast={showToast} /></DeferredPanel>
+    </div>}
     {canUseGradeDepartmentTools && visitedWorkspaceModes.some(mode => ["contacts", "records", "gradeData"].includes(mode)) && <div style={{ display: ["contacts", "records", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "records", "gradeData"].includes(workspaceMode))}>
       <DeferredPanel label="학년부 도구를 불러오는 중입니다."><GradeDepartmentTools view={lastDepartmentToolView} db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} /></DeferredPanel>
     </div>}
@@ -3006,6 +3019,28 @@ function myGradeWorkspaces(workspaces, teacher, grade, semester, isAdmin) {
 }
 // 학년별로 묶기: [[학년, [작업…]], …] (학년 순)
 const groupByGrade = list => Array.from(list.reduce((map, ws) => { const g = String(ws.grade || ""); if (!map.has(g)) map.set(g, []); map.get(g).push(ws); return map; }, new Map())).sort((a, b) => Number(a[0]) - Number(b[0]));
+
+// 업데이트 안내 팝업: patchNotes.js에 적은 안내를 배포일부터 2일 동안 보여 줍니다. '확인했어요'를 누르면 다시 띄우지 않아요.
+function PatchNotesPopup({ userKey, audience, onDone }) {
+  const seenKey = `kd_patch_seen_${userKey || "anon"}`;
+  const [seen, setSeen] = useState(() => { try { return JSON.parse(localStorage.getItem(seenKey) || "[]"); } catch { return []; } });
+  const [closed, setClosed] = useState(false);
+  const notes = activePatchNotes({ audience, seen: Array.isArray(seen) ? seen : [] });
+  useEffect(() => { if (!notes.length || closed) onDone?.(); }, [notes.length, closed]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!userKey || !notes.length || closed) return null;
+  const confirm = () => {
+    const next = Array.from(new Set([...(Array.isArray(seen) ? seen : []), ...notes.map(note => note.id)])).slice(-40);
+    try { localStorage.setItem(seenKey, JSON.stringify(next)); } catch { /* 저장 못 해도 이번엔 닫힘 */ }
+    setSeen(next);
+  };
+  return <div className="kdn-gcp-back no-print" role="dialog" aria-modal="true" aria-label="업데이트 안내" onClick={event => { if (event.target === event.currentTarget) setClosed(true); }}>
+    <div className="kdn-gcp kdn-patch">
+      <div className="kdn-gcp-head"><em>업데이트</em><b>새로 바뀐 점이 있어요</b><span>{notes[0].date.replace(/^(\d{4})-(\d{2})-(\d{2})$/, (_, y, m, d) => `${Number(m)}월 ${Number(d)}일`)} 업데이트</span></div>
+      <div className="kdn-patch-list">{notes.map(note => <section key={note.id}><b>{note.title}</b><ul>{note.items.map((item, index) => <li key={index}>{item.text}</li>)}</ul></section>)}</div>
+      <div className="kdn-gcp-foot"><span style={{ flex: 1 }} /><button type="button" data-kdn-bare className="ghost" onClick={() => setClosed(true)}>나중에 보기</button><button type="button" data-kdn-bare className="go" onClick={confirm}>확인했어요</button></div>
+    </div>
+  </div>;
+}
 
 // 모의고사 성적이 새로 올라오면(7일 안) 선생님에게 한 번 알려 줍니다. 회차·저장 시각마다 한 번만 떠요.
 function MockUploadPopup({ mockData, userKey, onOpen }) {
@@ -3032,9 +3067,16 @@ function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, use
   const dayKey = `kd_grade_check_popup_${userKey || "staff"}_${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`;
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(dayKey) === "1"; } catch { return false; } });
   const [closed, setClosed] = useState(false);
+  // '산출 끝났어요'를 누르면 이번 시험(시작일 기준) 동안은 다시 띄우지 않습니다.
+  const doneKey = `kd_grade_check_done_${userKey || "staff"}_${exam?.date || ""}`;
+  const [doneHidden, setDoneHidden] = useState(() => { try { return !!exam?.date && localStorage.getItem(doneKey) === "1"; } catch { return false; } });
   // 성적 확인 기간 팝업은 시험이 끝난 날부터 D+6까지만 띄웁니다.
-  if (!exam || exam.phase !== "after" || exam.d < -6 || hidden || closed) return null;
-  const groups = groupByGrade(myGradeWorkspaces(workspaces, teacher, null, semester, isAdmin));
+  if (!exam || exam.phase !== "after" || exam.d < -6 || hidden || closed || doneHidden) return null;
+  const mineAll = myGradeWorkspaces(workspaces, teacher, null, semester, isAdmin);
+  // 담당 과목을 모두 시험 뒤에 저장했으면(성적 산출 끝) 띄우지 않습니다.
+  if (!isAdmin && gradeCheckDone((teacher?.assignments || []).map(item => item?.subject), mineAll, exam.endDate || exam.date)) return null;
+  const groups = groupByGrade(mineAll);
+  const markDone = () => { try { localStorage.setItem(doneKey, "1"); } catch { /* 저장 못 해도 이번엔 닫힘 */ } setDoneHidden(true); };
   // 학급담임: 우리 반 정기시험 결과(반별 성적 › 정기시험 전 과목)로 바로
   const classExamCount = homeroomClass && homeroomGrade ? myGradeWorkspaces(workspaces, null, homeroomGrade, semester, true).length : 0;
   const hideToday = () => { try { localStorage.setItem(dayKey, "1"); } catch { /* 저장 못 해도 이번엔 닫힘 */ } setHidden(true); };
@@ -3048,11 +3090,11 @@ function GradeCheckPopup({ calendar, workspaces, teacher, isAdmin, semester, use
       </div>}
       {!(homeroomClass && !groups.length) && (groups.length ? <div className="kdn-gcp-groups">{groups.map(([grade, list]) => <div key={grade} className="kdn-gcp-row"><small>{grade}학년</small><div>{list.slice(0, 8).map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => go(3, ws.id, grade)}>{ws.subject}<ArrowRight size={13} /></button>)}</div></div>)}</div>
         : <p className="kdn-gcp-empty">이번 학기 학교 공동 저장한 과목이 아직 없어요. 성적 산출에서 지필 파일을 올려 주세요.</p>)}
-      <div className="kdn-gcp-foot"><button type="button" data-kdn-bare className="ghost" onClick={hideToday}>오늘 그만 보기</button><span style={{ flex: 1 }} /><button type="button" data-kdn-bare className="ghost" onClick={() => setClosed(true)}>닫기</button><button type="button" data-kdn-bare className="go" onClick={() => go(groups.length ? 3 : 1, groups[0]?.[1]?.[0]?.id || "", groups[0]?.[0] || "")}>성적 산출 열기 <ArrowRight size={14} /></button></div>
+      <div className="kdn-gcp-foot"><button type="button" data-kdn-bare className="ghost" onClick={markDone} title="이번 시험 기간에는 다시 띄우지 않습니다">산출 끝났어요</button><button type="button" data-kdn-bare className="ghost" onClick={hideToday}>오늘 그만 보기</button><span style={{ flex: 1 }} /><button type="button" data-kdn-bare className="ghost" onClick={() => setClosed(true)}>닫기</button><button type="button" data-kdn-bare className="go" onClick={() => go(groups.length ? 3 : 1, groups[0]?.[1]?.[0]?.id || "", groups[0]?.[0] || "")}>성적 산출 열기 <ArrowRight size={14} /></button></div>
     </div>
   </div>;
 }
-function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canUseMock = false, canUseNotice, canUseDept, isAdmin, onOpen, onOpenMinimum, onEditProfile, onOpenGrade, workspaces, semester }) {
+function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canUseMock = false, canUseNotice, canUseDept, canUseSeparation = false, isAdmin, onOpen, onOpenMinimum, onEditProfile, onOpenGrade, workspaces, semester }) {
   const myResults = myGradeWorkspaces(workspaces, activeTeacher, grade, semester, isAdmin).slice(0, 8);
   const resultGroups = groupByGrade(myGradeWorkspaces(workspaces, activeTeacher, null, semester, isAdmin));
   const exam = examPeriodFromCalendar(calendar);
@@ -3065,6 +3107,7 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
     { key: "mock", icon: <BarChart3 size={20} />, tone: "#1d4ed8", soft: "#e0ecff", title: "모의고사 분석", tag: "회차별", text: "회차별 모의고사 등급 분포와 반별 평균, 학생별 성적을 봅니다.", points: ["과목별 등급 분포 · 반별 평균", "미응시 학생 확인"], primary: "분석 보기", show: canUseMock },
     { key: "notice", icon: <Megaphone size={20} />, tone: "#1d4ed8", soft: "#e0ecff", title: "공지·수업자료", tag: "학생에게 전달", text: "담당 반 학생에게 공지·제출·신청 안내와 수업자료를 보냅니다.", points: ["마감일 · 첨부파일 · 읽음 확인", "과목별 · 반별 대상 선택"], primary: "공지 쓰기", show: canUseNotice },
     { key: "contacts", icon: <Users size={20} />, tone: "#0e7490", soft: "#dff4f7", title: "학생 비상연락망", tag: "2학년부", text: "학교에 반영된 2학년 비상연락망을 반별로 확인합니다.", points: ["반·번호·이름으로 찾기", "자료 관리에서 반영한 최신본"], primary: "연락망 보기", show: canUseDept },
+    { key: "separation", icon: <UserX size={20} />, tone: "#b91c1c", soft: "#fdecea", title: "분리희망학생", tag: "반편성", text: "내년 반편성을 위해 우리 반 학생마다 같은 반이 되면 안 되는 학생을 적습니다.", points: ["학생마다 최대 10명 · 분리 등급 · 사유", "학교 양식 그대로 엑셀 내보내기"], primary: "입력하기", show: canUseSeparation },
     { key: "records", icon: <BookOpen size={20} />, tone: "#6d28d9", soft: "#ede9fe", title: "생기부 업무", tag: "Beta", text: "진로 활동 배정과 학생 소감문을 반별로 정리합니다.", points: ["소감문 응답 확인", "활동 배정 현황"], primary: "생기부 업무 열기", show: canUseDept },
     { key: "gradeData", icon: <Database size={20} />, tone: "#92400e", soft: "#fff1d6", title: "자료 관리", tag: "학교 반영", text: "2학년부 업무 파일과 소감문 파일을 올리고 학교 자료로 반영합니다.", points: ["임시 저장 → 학교 자료로 반영", "같은 이름 파일은 교체"], primary: "자료 관리 열기", show: canUseDept },
     { key: "minimum", icon: <ShieldCheck size={20} />, tone: "#b42318", soft: "#fdecea", title: "최성보 현황", tag: "다른 메뉴", text: "학급·과목별 최소성취수준 주의 대상과 미도달 학생을 확인합니다.", points: ["공통과목: 출석 2/3 + 성취율 40%", "선택과목: 출석 2/3"], primary: "현황 보기 ↗", show: !!onOpenMinimum },
@@ -3075,7 +3118,7 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
   const today = new Date();
   const todayLabel = `${today.getMonth() + 1}월 ${today.getDate()}일 ${"일월화수목금토"[today.getDay()]}요일`;
   // 카드: 대시보드 바로가기(F안)와 같은 흰 카드 + 제목·태그 한 줄 + 한 줄 설명 + 둥근 도형 그림. 카드 전체가 버튼입니다.
-  const SHORT = { grades: ["NEIS 파일로 학기말 성적 계산", "classGrades", "il-classGrades"], stamps: ["차시별 도장·포트폴리오 채점·최성보", "grades", "il-grades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], mock: ["회차별 등급 분포 · 반별 평균", "classGrades", "il-classGrades"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
+  const SHORT = { grades: ["NEIS 파일로 학기말 성적 계산", "classGrades", "il-classGrades"], stamps: ["차시별 도장·포트폴리오 채점·최성보", "grades", "il-grades"], notice: ["학생에게 공지·수업자료 보내기", "notice", "il-grades"], contacts: ["반별 비상연락망 확인", "contacts", "il-timetable"], mock: ["회차별 등급 분포 · 반별 평균", "classGrades", "il-classGrades"], records: ["진로 활동 배정 · 소감문 정리", "records", "il-teacherZone"], separation: ["반편성 분리희망학생 입력", "contacts", "il-minimumAchievement"], gradeData: ["업무 파일을 학교 자료로 반영", "folder", "il-admin"], minimum: ["주의·미도달 학생 확인", "minimum", "il-minimumAchievement"] };
   const stepIndex = exam ? (exam.phase === "before" ? 0 : exam.phase === "today" ? 1 : 2) : -1;
   const tip = exam ? (exam.phase === "before" ? "시험 전 · 반영비율과 산출 기준을 미리 확인해 두세요." : exam.phase === "today" ? "시험 기간 · 결시자 인정점 입력을 준비하세요." : "시험 후 · 지필 파일을 올려 등급과 학기말 성적을 산출하세요.") : "";
   const openCard = card => (card.key === "minimum" ? onOpenMinimum?.() : onOpen(card.key));

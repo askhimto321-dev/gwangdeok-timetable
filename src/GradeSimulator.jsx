@@ -52,7 +52,7 @@ export default function GradeSimulator({ sid, studentName = "", gradeSystem = 5,
   // 시간표에 있는 남은 학기 수강 과목을 자동으로 채웁니다(이미 손댄 학기는 그대로 둡니다).
   const plannedKeys = remaining.filter(key => plannedBySemester?.[key]?.length);
   const plannedSig = plannedKeys.map(key => `${key}:${plannedBySemester[key].map(item => item.subject).join(",")}`).join("|");
-  const plannedRowsFor = key => rowsFromSubjects(plannedSimSubjects(plannedBySemester?.[key] || [], subjectLists, scale));
+  const plannedRowsFor = key => rowsFromSubjects(plannedSimSubjects(plannedBySemester?.[key] || [], subjectLists, scale, key));
   React.useEffect(() => {
     if (!plannedKeys.length) return;
     setSims(current => {
@@ -161,7 +161,7 @@ export default function GradeSimulator({ sid, studentName = "", gradeSystem = 5,
           {remaining.includes("3-2") && <label className="kdn-sim-check"><input type="checkbox" checked={excludeLast} onChange={event => setExcludeLast(event.target.checked)} />3학년 2학기는 수시 계산에서 제외</label>}
           <button type="button" onClick={() => setRows([])} disabled={!rows.length}><RotateCcw size={15} />이 학기 비우기</button>
         </div>
-        {plannedBySemester?.[active]?.length > 0 && rows.some(row => row.fromTimetable) && <p className="kdn-sim-auto"><CalendarDays size={14} /><span><b>{labelOf(active)} 시간표 과목 {plannedBySemester[active].length}개를 자동으로 넣었어요.</b> 학점은 주당 시수(없으면 지난 학기 학점), 석차등급은 지난 학기 같은 교과 등급으로 채웠습니다. 바꿔 보며 예상 내신을 확인하세요.</span></p>}
+        {plannedBySemester?.[active]?.length > 0 && rows.some(row => row.fromTimetable) && <p className="kdn-sim-auto"><CalendarDays size={14} /><span><b>{labelOf(active)} 시간표 과목 {rows.filter(row => row.fromTimetable).length}개를 자동으로 넣었어요.</b> 시간표 약칭은 교육과정 편제표 이름으로 바꾸고, 체육·예술·창체·교양처럼 석차등급이 없는 과목은 뺐습니다. 학점은 편제표 학점, 석차등급은 지난 학기 같은 교과 등급으로 채웠어요. 바꿔 보며 예상 내신을 확인하세요.</span></p>}
         <div className="kdn-sim-table" role="table" aria-label={`${labelOf(active)} 시뮬레이션 과목`}>
           <div className="kdn-sim-row is-head" role="row"><span>과목명</span><span>교과</span><span>학점</span><span>석차등급</span><span>성취도</span><span /></div>
           {rows.map(row => <div key={row.id} className="kdn-sim-row" role="row">
