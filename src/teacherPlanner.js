@@ -170,3 +170,34 @@ export function schoolEventsByDate(calendar) {
   });
   return map;
 }
+
+// 빠른 입력: "11/5 협의회", "11월 5일 15:30 학부모 상담", "내일 출결 확인" → { date, time, title }
+// 날짜를 못 찾으면 null. 연도는 지난 날짜면 내년으로 봅니다(예: 12월에 "1/5" → 다음 해).
+export function parseQuickTodo(text, now = new Date()) {
+  let rest = String(text || "").trim();
+  if (!rest) return null;
+  let date = null;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const rel = /^(오늘|내일|모레)\s*/.exec(rest);
+  if (rel) { date = new Date(today); date.setDate(date.getDate() + ({ 오늘: 0, 내일: 1, 모레: 2 })[rel[1]]); rest = rest.slice(rel[0].length); }
+  else {
+    const md = /^(\d{1,2})\s*(?:\/|\.|월)\s*(\d{1,2})\s*일?\s*(?:\([^)]*\))?\s*/.exec(rest);
+    if (!md) return null;
+    const m = Number(md[1]), d = Number(md[2]);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return null;
+    date = new Date(now.getFullYear(), m - 1, d);
+    if (date.getMonth() !== m - 1) return null;
+    if (date < new Date(today.getFullYear(), today.getMonth() - 1, today.getDate())) date = new Date(now.getFullYear() + 1, m - 1, d);
+    rest = rest.slice(md[0].length);
+  }
+  let time = "";
+  const tm = /^(오전|오후)?\s*(\d{1,2})(?::(\d{2})|시\s*(?:(\d{1,2})분)?)\s*/.exec(rest);
+  if (tm) {
+    let h = Number(tm[2]); const min = Number(tm[3] || tm[4] || 0);
+    if (tm[1] === "오후" && h < 12) h += 12;
+    if (h <= 23 && min <= 59) { time = `${pad(h)}:${pad(min)}`; rest = rest.slice(tm[0].length); }
+  }
+  const title = rest.replace(/^[-·:,\s]+/, "").trim();
+  if (!title) return null;
+  return { date: dateKey(date), time, title: title.slice(0, 80) };
+}

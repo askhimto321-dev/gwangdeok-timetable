@@ -8,8 +8,10 @@ import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, cu
 import { examPeriodFromCalendar, gradeCheckDone } from "./examPeriod.js";
 import { activePatchNotes } from "./patchNotes.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
-import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay } from "./AppOverlays.jsx";
-import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid, UserX, CalendarDays } from "lucide-react";
+import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay, SaveStatus, MobileTabBar } from "./AppOverlays.jsx";
+import { parseQuickTodo } from "./teacherPlanner.js";
+import { readViewPrefs, saveViewPrefs, FONT_SCALES, DENSITIES } from "./viewPrefs.js";
+import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid, UserX, CalendarDays, Home as HomeIcon, User as UserIcon, Clock as ClockIcon } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck, Archive } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi, rawColors } from "./uiMode.js";
@@ -1188,7 +1190,9 @@ export default function App() {
   const [showMyProfile, setShowMyProfile] = useState(false);
   const sessionRestoredRef = useRef(false);
   const [toast, setToast] = useState(null);
-  const showToast = useCallback((msg, type = "info") => { setToast({ msg, type }); setTimeout(() => setToast(null), 4200); }, []);
+  // action: { label, onClick } — 알림 안에 '되돌리기' 같은 버튼 하나(시안 3). 버튼이 있으면 조금 더 오래(7초) 보여 줍니다.
+  const toastTimer = useRef(null);
+  const showToast = useCallback((msg, type = "info", action = null) => { setToast({ msg, type, action }); window.clearTimeout(toastTimer.current); toastTimer.current = window.setTimeout(() => setToast(null), action ? 7000 : 4200); }, []);
   const historyApplyingRef = useRef(false);
   const [historyMeta, setHistoryMeta] = useState({ depth: 0, maxDepth: 0 });
   const workspaceScrollPositionsRef = useRef({});
@@ -1985,6 +1989,10 @@ export default function App() {
     { key: "calendar", label: "학사일정", sub: "달력 · 내 일정", run: () => fireOverlay("kd:calendar") },
     ...(!loggedInStudent ? [{ key: "links", label: "업무 바로가기", sub: "나이스 · 에듀파인", run: () => fireOverlay("kd:quicklinks") }] : []),
     { key: "feedback", label: "건의 · 버그 보내기", sub: "관리자에게", run: () => fireOverlay("kd:feedback") },
+    ...(canSeeTeacherZone ? [
+      { key: "planner", group: "할 일", label: "내 일정 열기", sub: "선생님 ZONE › 내 일정", run: () => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); } },
+      { key: "planner-add", group: "할 일", label: "일정 추가", sub: "검색 칸에 '11/5 협의회'처럼 적으면 날짜까지 채워요", run: () => { setTeacherZoneRequest({ mode: "planner", draft: { date: "", title: "" }, at: Date.now() }); switchSection("teacherZone"); } },
+    ] : []),
   ];
   const dashboardProps = {
     semester,
@@ -2049,7 +2057,20 @@ export default function App() {
       <InstallPrompt />
       {isNewUi() ? <>
         <FabHub depth={historyMeta.depth} maxDepth={historyMeta.maxDepth} hasQuickLinks={!loggedInStudent} hasSearch={staffWorkspaceEnabled} />
-        {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} onPickStudent={sid => { updateSelectedStudentSid(sid); changeStudentWorkspaceView("grades"); }} />}
+        {overlayUserKey && <MobileTabBar items={[
+          { key: "home", label: "홈", icon: <HomeIcon size={22} />, active: section === "home", onClick: () => switchSection("home") },
+          ...(loggedInStudent && !staffWorkspaceEnabled ? [
+            { key: "timetable", label: "시간표", icon: <ClockIcon size={22} />, active: section === "timetable", onClick: () => switchSection("timetable") },
+            { key: "grades", label: "성적", icon: <BarChart3 size={22} />, active: section === "grades", onClick: () => switchSection("grades") },
+            { key: "calendar", label: "학사일정", icon: <CalendarDays size={22} />, active: false, onClick: () => fireOverlay("kd:calendar") },
+          ] : [
+            { key: "grades", label: "학생", icon: <UserIcon size={22} />, active: section === "grades", onClick: () => switchSection("grades") },
+            ...(canSeeTeacherZone ? [{ key: "planner", label: "내 일정", icon: <CalendarDays size={22} />, active: section === "teacherZone", onClick: () => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); } }] : [{ key: "timetable", label: "시간표", icon: <ClockIcon size={22} />, active: section === "timetable", onClick: () => switchSection("timetable") }]),
+            { key: "search", label: "찾기", icon: <Search size={22} />, active: false, onClick: () => fireOverlay("kd:search") },
+          ]),
+        ]} />}
+        {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} recentSids={readRecentStudents()} onPickStudent={(sid, view = "grades") => { updateSelectedStudentSid(sid); changeStudentWorkspaceView(view); }}
+          parseTodo={canSeeTeacherZone ? parseQuickTodo : undefined} onQuickTodo={canSeeTeacherZone ? draft => { setTeacherZoneRequest({ mode: "planner", draft, at: Date.now() }); switchSection("teacherZone"); } : undefined} />}
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />
         {overlayUserKey && <PatchNotesPopup userKey={overlayUserKey} audience={loggedInStudent ? "student" : "staff"} onDone={() => setPatchPopupDone(true)} />}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && !loggedInAdmin && canUseMockAnalysis && gdb?.mockData && <MockUploadPopup mockData={gdb.mockData} userKey={overlayUserKey}
@@ -2221,7 +2242,7 @@ export default function App() {
         reporter={feedbackReporter}
         context={{ section: activeSection, tab, grade, semester }}
       />
-      {toast && <div style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620" }}>{toast.msg}</div>}
+      {toast && <div role="status" style={{ ...styles.toast, background: toast.type === "error" ? "#b3401f" : toast.type === "success" ? "#3d5c3a" : "#2b2620", display: "flex", alignItems: "center", gap: 12 }}><span>{toast.msg}</span>{toast.action && <button type="button" data-kdn-bare onClick={() => { setToast(null); toast.action.onClick?.(); }} style={{ border: 0, background: "transparent", color: "#fdba74", font: "inherit", fontWeight: 800, cursor: "pointer", minHeight: 32, padding: "0 4px" }}>{toast.action.label}</button>}</div>}
     </div>
   );
 }
@@ -3004,7 +3025,7 @@ function TeacherZoneWorkspace({
         : <div style={styles.warnBanner}><Loader2 size={14} /> 성적 자료를 불러오는 중입니다.</div>}
     </div>}
     {canUseNotice && visitedWorkspaceModes.includes("notice") && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
-    {plannerOwner && workspaceMode === "planner" && <TeacherPlanner owner={plannerOwner} ownerName={plannerUser?.name || ""} calendar={db?.academicCalendar} showToast={showToast} canAssign={canAssignPlanner} recipients={plannerRecipients} />}
+    {plannerOwner && workspaceMode === "planner" && <TeacherPlanner initialDraft={modeRequest?.draft ? { ...modeRequest.draft, nonce: modeRequest.at } : null} owner={plannerOwner} ownerName={plannerUser?.name || ""} calendar={db?.academicCalendar} showToast={showToast} canAssign={canAssignPlanner} recipients={plannerRecipients} />}
     {canUseSeparation && visitedWorkspaceModes.includes("separation") && <div style={{ display: workspaceMode === "separation" ? "block" : "none" }} aria-hidden={workspaceMode !== "separation"}>
       <DeferredPanel label="분리희망학생 화면을 불러오는 중입니다."><ClassSeparationTool roster={roster} homeroomClass={separationHomeroom} canViewAll={separationViewAll} canEditAll={!!loggedInAdmin} actor={actor} showToast={showToast} /></DeferredPanel>
     </div>}
@@ -3262,6 +3283,7 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
           ))}
         </div>
         <div className="kdn-nav-actions" style={newUiNavStyles.actions}>
+          <SaveStatus />
           <UiModeMenu />
           {accountSwitcher}
           {onEditProfile && <button type="button" style={newUiNavStyles.ghost} onClick={onEditProfile} title="내 정보 · 담당 과목 · 비밀번호">내 정보·과목</button>}
@@ -3276,6 +3298,8 @@ function NewUiMegaNav({ active, onSwitch, onLogout, onEditProfile, showAdmin, sh
 // 새 UI 상단 오른쪽 톱니바퀴: 화면 모드(기존 / 다크 / 라이트)를 고르는 작은 메뉴.
 function UiModeMenu() {
   const [open, setOpen] = useState(false);
+  const [prefs, setPrefs] = useState(readViewPrefs);
+  const setPref = patch => setPrefs(current => saveViewPrefs({ ...current, ...patch }));
   const ref = useRef(null);
   const current = getUiMode();
   useEffect(() => {
@@ -3293,13 +3317,22 @@ function UiModeMenu() {
         <span className="kdn-mode-long">{current === "dark" ? "다크 모드" : current === "light" ? "라이트 모드" : "기존 UI"}</span>
         <ChevronDown size={15} />
       </button>
-      {open && <div role="menu" aria-label="화면 모드" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 60, width: 220, padding: 8, borderRadius: 16, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 18px 40px rgba(0,0,0,.35)" }}>
+      {open && <div role="menu" aria-label="화면 모드" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 60, width: 280, padding: 8, borderRadius: 16, background: "var(--kdn-surface)", border: "1px solid var(--kdn-line)", boxShadow: "0 18px 40px rgba(0,0,0,.35)" }}>
         <div style={{ padding: "6px 10px 8px", fontSize: 13, fontWeight: 800, color: "var(--kdn-muted)" }}>화면 모드</div>
         {UI_MODES.map(mode => (
           <button key={mode.key} type="button" role="menuitemradio" aria-checked={current === mode.key} onClick={() => setUiMode(mode.key)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", minHeight: 42, padding: "0 12px", border: 0, borderRadius: 11, cursor: "pointer", fontSize: 14.5, fontWeight: 800, background: current === mode.key ? "var(--kdn-accent-soft)" : "transparent", color: current === mode.key ? "var(--kdn-accent-text)" : "var(--kdn-ink)" }}>
             {mode.label}{current === mode.key && <Check size={16} />}
           </button>
         ))}
+        {/* 보기 설정(이 기기에만 저장, 인쇄물은 그대로) */}
+        <div className="kdn-viewprefs">
+          <div className="hd">글자 크기</div>
+          <div className="seg">{FONT_SCALES.map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={prefs.font === key} onClick={() => setPref({ font: key })} className={`f-${key}`}>{label}</button>)}</div>
+          <div className="hd">표 줄 간격</div>
+          <div className="seg">{DENSITIES.map(([key, label, hint]) => <button key={key} type="button" data-kdn-bare aria-pressed={prefs.density === key} title={hint} onClick={() => setPref({ density: key })}>{label}</button>)}</div>
+          <button type="button" data-kdn-bare role="switch" aria-checked={prefs.contrast} className="sw" onClick={() => setPref({ contrast: !prefs.contrast })}><span>글자 대비 높이기</span><i aria-hidden="true" /></button>
+          <small>이 기기에만 저장돼요 · 인쇄물은 그대로예요</small>
+        </div>
       </div>}
     </div>
   );

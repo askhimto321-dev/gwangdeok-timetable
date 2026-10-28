@@ -205,7 +205,7 @@ export function PlannerReminders({ owner, onOpen }) {
   </>;
 }
 
-export default function TeacherPlanner({ owner, ownerName = "", calendar, showToast, canAssign = false, recipients = [] }) {
+export default function TeacherPlanner({ owner, ownerName = "", calendar, showToast, canAssign = false, recipients = [], initialDraft = null }) {
   const { items, assigns, received, all, savePersonal, saveShared, toggleDone } = usePlannerData(owner);
   const now = new Date();
   const todayKey = dateKey(now);
@@ -224,6 +224,8 @@ export default function TeacherPlanner({ owner, ownerName = "", calendar, showTo
   const nameOf = React.useMemo(() => Object.fromEntries(recipients.map(r => [r.owner, r.name])), [recipients]);
   const switchView = value => { setView(value); try { localStorage.setItem("kd_planner_view", value); } catch { /* ignore */ } };
 
+  // Ctrl+K에서 "11/5 협의회"처럼 적어 들어오면 그 내용으로 추가 창을 바로 엽니다.
+  React.useEffect(() => { if (initialDraft?.nonce) { const d = initialDraft; setForm({ date: d.date || todayKey, time: d.time || "", title: d.title || "", memo: "", remind: 1, color: "orange", repeat: "none", links: [], files: [], important: false }); if (d.date) setSelected(d.date); } }, [initialDraft?.nonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const newItem = (date, assign = false) => setForm({ date: date || selected, time: "", title: "", memo: "", remind: 1, color: "orange", repeat: "none", links: [], files: [], important: false, ...(assign ? { assign: true, to: [] } : {}) });
   const editItem = item => {
     if (item.shared) { if (item.from.owner === owner) setForm({ ...assigns.find(a => a.id === item.id), assign: true }); return; }
@@ -247,11 +249,16 @@ export default function TeacherPlanner({ owner, ownerName = "", calendar, showTo
     setSelected(form.date); setForm(null);
   };
   const remove = async () => {
-    if (!window.confirm(form.assign ? "보낸 일정을 취소할까요? 받은 선생님 달력에서도 사라져요." : "이 일정을 지울까요?")) return;
+    // 내 일정: 바로 지우고 알림의 '되돌리기'로 살립니다. 보낸 일정은 받은 사람 달력에서도 사라지니 한 번 묻습니다.
+    if (form.assign && !window.confirm("보낸 일정을 취소할까요? 받은 선생님 달력에서도 사라져요.")) return;
     setBusy(true);
+    const removed = form.assign ? null : (items || []).find(e => e.id === form.id);
     const ok = form.assign ? await saveShared(list => list.filter(a => a.id !== form.id)) : await savePersonal(list => list.filter(e => e.id !== form.id));
     setBusy(false);
-    if (ok) { (form.files || []).forEach(file => deleteClassroomAttachment(file.path || file.dataKey)?.catch?.(() => {})); setForm(null); }
+    if (!ok) return;
+    if (form.assign) (form.files || []).forEach(file => deleteClassroomAttachment(file.path || file.dataKey)?.catch?.(() => {}));
+    setForm(null);
+    showToast?.(form.assign ? "보낸 일정을 취소했어요." : `'${form.title}' 일정을 지웠어요.`, "success", removed ? { label: "되돌리기", onClick: () => savePersonal(list => [...list.filter(e => e.id !== removed.id), removed]) } : null);
   };
   const exportIcs = () => {
     const blob = new Blob([plannerIcs([...(items || []), ...received], `KDTIME ${ownerName || "내"} 일정`)], { type: "text/calendar;charset=utf-8" });
@@ -403,7 +410,7 @@ const CSS = `
 .kdp-recip .names label{display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer}.kdp-recip .names label.is-on{background:color-mix(in srgb,#7c3aed 12%,transparent)}.kdp-recip .names small{font-size:11px;color:var(--kdn-muted,#64748b);font-weight:600}.kdp-recip .none,.kdp-recip .cnt{font-size:12px;color:var(--kdn-muted,#64748b)}
 .kdp-pop{width:min(460px,100%)}.kdp-pop .bell{display:grid;place-items:center;width:36px;height:36px;border-radius:11px;background:color-mix(in srgb,#ea580c 14%,transparent);color:#ea580c}
 .kdp-pop .sub{margin:0;font-size:13px;color:var(--kdn-muted,#64748b)}.kdp-pop .kdp-list{overflow:auto}
-.kdp-dock{position:fixed;right:18px;bottom:18px;z-index:70;width:min(340px,calc(100vw - 24px));border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2937);box-shadow:0 14px 40px rgba(15,23,42,.22);overflow:hidden}
+.kdp-dock{position:fixed;right:92px;bottom:22px;z-index:70;width:min(340px,calc(100vw - 24px));border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2937);box-shadow:0 14px 40px rgba(15,23,42,.22);overflow:hidden}
 .kdp-dock-hd{display:flex;align-items:center;gap:8px;width:100%;min-height:46px;padding:0 14px;border:0;background:linear-gradient(135deg,#ea580c,#f97316);color:#fff;font:inherit;cursor:pointer;text-align:left}
 .kdp-dock-hd b{font-size:14.5px;font-weight:850}.kdp-dock-hd em{font-style:normal;padding:1px 8px;border-radius:99px;background:rgba(255,255,255,.22);font-size:12px;font-weight:800}.kdp-dock-hd em.ok{background:rgba(255,255,255,.35)}.kdp-dock-hd .sp{flex:1}
 .kdp-dock-body{display:grid;gap:8px;padding:10px;max-height:min(360px,50vh);overflow:auto}
@@ -417,5 +424,5 @@ const CSS = `
 .kdp-strip>button{min-height:40px;padding:0 16px;border-radius:11px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2937);font:inherit;font-size:14px;font-weight:800;cursor:pointer}
 [data-kd-ui="dark"] .kdp-strip .list em i,[data-kd-ui="dark"] .kdp-strip .ic,[data-kd-ui="dark"] .kdp-agenda .gh em{color:#93c5fd}[data-kd-ui="dark"] .kdp-item .tags em.from{color:#c4b5fd}
 @media print{.kdp-dock{display:none!important}}
-@media (max-width:900px){.kdp-main{grid-template-columns:minmax(0,1fr)}.kdp-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.kdp-grid .cell{min-height:58px}.kdp-grid .cell .sch,.kdp-grid .cell .me{font-size:10px;padding:0 3px}.kdp-dock{right:12px;bottom:12px}}
+@media (max-width:900px){.kdp-main{grid-template-columns:minmax(0,1fr)}.kdp-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.kdp-grid .cell{min-height:58px}.kdp-grid .cell .sch,.kdp-grid .cell .me{font-size:10px;padding:0 3px}}
 `;

@@ -208,7 +208,7 @@ export async function readStorage(key, fallback, options = {}) {
   }
 }
 
-export async function writeStorage(key, value) {
+async function writeStorageRaw(key, value) {
   if (failedReadKeys.has(key)) return { ok: false, error: "자료를 불러오지 못한 상태에서는 저장할 수 없습니다. 새로고침 후 다시 시도해주세요." };
   let previousManifest = null;
   try {
@@ -268,7 +268,7 @@ export async function writeStorage(key, value) {
 }
 
 // Small shared lists are merged against the server version, never a stale screen copy.
-export async function updateStorage(key, fallback, updater) {
+async function updateStorageRaw(key, fallback, updater) {
   try {
     const result = await runTransaction(db, async transaction => {
       const target = doc(db, COLLECTION, key);
@@ -292,6 +292,21 @@ export async function updateStorage(key, fallback, updater) {
     return { ok: false, error: error?.message || error?.code || "목록 저장 실패" };
   }
 }
+
+// 저장 상태 알림(시안 3): 화면 위쪽 '저장 중… / 저장됨 · 방금'이 듣는 신호. 접속 표시 같은 자동 기록은 빼고 알립니다.
+const QUIET_SAVE = /^(__|kd_tgw_presence)/;
+function announceSave(key, state, error = "") {
+  if (typeof window === "undefined" || QUIET_SAVE.test(String(key || ""))) return;
+  try { window.dispatchEvent(new CustomEvent("kd:save", { detail: { key: String(key), state, error } })); } catch { /* 알림 실패는 저장과 무관 */ }
+}
+async function withSaveSignal(key, run) {
+  announceSave(key, "start");
+  const result = await run();
+  announceSave(key, result?.ok === false ? "error" : "ok", result?.error || "");
+  return result;
+}
+export const writeStorage = (key, value) => withSaveSignal(key, () => writeStorageRaw(key, value));
+export const updateStorage = (key, fallback, updater) => withSaveSignal(key, () => updateStorageRaw(key, fallback, updater));
 
 function safeFilePart(value) {
   return String(value || "file")

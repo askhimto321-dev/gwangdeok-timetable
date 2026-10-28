@@ -46,10 +46,14 @@ export function FabHub({ depth = 0, maxDepth = 0, hasQuickLinks = false, hasSear
 }
 
 // students: [{ sid, name, class, number }], menus: [{ key, label, sub, group, run }]
-export function CommandPalette({ students = [], menus = [], onPickStudent }) {
+// 시안 1 '어디서나 찾기': 최근 본 학생 먼저 · 분류 탭(전체/학생/메뉴/할 일, Tab으로 바꾸기)
+// · 학생 줄에서 바로 '성적 리포트/상담' · "11/5 협의회"처럼 적으면 내 일정에 바로 추가
+const PALETTE_TABS = [["all", "전체"], ["student", "학생"], ["menu", "메뉴"], ["todo", "할 일"]];
+export function CommandPalette({ students = [], menus = [], recentSids = [], onPickStudent, onQuickTodo, parseTodo }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  const [tab, setTab] = useState("all");
   const inputRef = useRef(null);
   useEffect(() => {
     const onKey = event => {
@@ -60,50 +64,68 @@ export function CommandPalette({ students = [], menus = [], onPickStudent }) {
     window.addEventListener("kd:search", onOpen);
     return () => { window.removeEventListener("keydown", onKey); window.removeEventListener("kd:search", onOpen); };
   }, []);
-  useEffect(() => { if (open) { setQuery(""); setCursor(0); window.setTimeout(() => inputRef.current?.focus(), 20); } }, [open]);
+  useEffect(() => { if (open) { setQuery(""); setCursor(0); setTab("all"); window.setTimeout(() => inputRef.current?.focus(), 20); } }, [open]);
+  const bySid = useMemo(() => new Map(students.map(student => [String(student.sid), student])), [students]);
   const results = useMemo(() => {
     const q = query.trim().replace(/\s+/g, "");
-    const studentHits = !q ? [] : students.filter(student => {
+    const studentEntry = (student, recent) => ({ type: "student", key: `s-${student.sid}`, title: student.name || "이름 없음", sub: `${student.sid} · ${student.class}반 ${student.number}번${recent ? " · 최근 본 학생" : ""}`, student });
+    const recentList = recentSids.map(sid => bySid.get(String(sid))).filter(Boolean);
+    const studentHits = !q ? recentList.slice(0, 5).map(student => studentEntry(student, true)) : students.filter(student => {
       const classNo = `${student.class}-${student.number}`;
       return String(student.name || "").replace(/\s+/g, "").includes(q) || String(student.sid || "").startsWith(q) || classNo === q || `${student.class}반${student.number}번` === q;
-    }).slice(0, 6).map(student => ({ type: "student", key: `s-${student.sid}`, title: student.name || "이름 없음", sub: `${student.sid} · ${student.class}반 ${student.number}번`, student }));
-    const menuHits = menus.filter(item => !q || `${item.label}${item.sub || ""}${item.group || ""}`.replace(/\s+/g, "").includes(q)).slice(0, q ? 8 : 10).map(item => ({ type: "menu", key: `m-${item.key}`, title: item.label, sub: item.sub, item }));
-    return [...studentHits, ...menuHits];
-  }, [query, students, menus]);
-  useEffect(() => { setCursor(0); }, [query]);
+    }).sort((a, b) => (recentSids.includes(String(b.sid)) ? 1 : 0) - (recentSids.includes(String(a.sid)) ? 1 : 0)).slice(0, tab === "student" ? 20 : 6).map(student => studentEntry(student, recentSids.includes(String(student.sid))));
+    const menuHits = menus.filter(item => item.group !== "할 일" && (!q || `${item.label}${item.sub || ""}${item.group || ""}`.replace(/\s+/g, "").includes(q))).slice(0, q ? 8 : 7).map(item => ({ type: "menu", key: `m-${item.key}`, title: item.label, sub: item.sub, item }));
+    const quick = query.trim() && parseTodo ? parseTodo(query) : null;
+    const todoHits = [
+      ...(quick && onQuickTodo ? [{ type: "todo", key: "quick", title: `내 일정에 추가: ${quick.title}`, sub: `${Number(quick.date.slice(5, 7))}월 ${Number(quick.date.slice(8))}일${quick.time ? ` ${quick.time}` : ""} · Enter로 바로 추가`, quick }] : []),
+      ...menus.filter(item => item.group === "할 일" && (!q || `${item.label}${item.sub || ""}`.replace(/\s+/g, "").includes(q))).map(item => ({ type: "todo", key: `t-${item.key}`, title: item.label, sub: item.sub, item })),
+    ];
+    const pick = { student: studentHits, menu: menuHits, todo: todoHits }[tab];
+    // 날짜로 시작하면 '할 일'을 맨 위로
+    return pick || (quick ? [...todoHits, ...studentHits, ...menuHits] : [...studentHits, ...menuHits, ...todoHits]);
+  }, [query, students, menus, recentSids, bySid, tab, parseTodo, onQuickTodo]);
+  useEffect(() => { setCursor(0); }, [query, tab]);
   if (!open) return null;
-  const choose = entry => {
+  const choose = (entry, view = "grades") => {
     if (!entry) return;
     setOpen(false);
-    if (entry.type === "student") onPickStudent?.(entry.student.sid);
-    else entry.item.run?.();
+    if (entry.type === "student") onPickStudent?.(entry.student.sid, view);
+    else if (entry.quick) onQuickTodo?.(entry.quick);
+    else entry.item?.run?.();
   };
   const onKeyDown = event => {
     if (event.key === "Escape") { setOpen(false); return; }
+    if (event.key === "Tab") { event.preventDefault(); const index = PALETTE_TABS.findIndex(([key]) => key === tab); setTab(PALETTE_TABS[(index + (event.shiftKey ? PALETTE_TABS.length - 1 : 1)) % PALETTE_TABS.length][0]); return; }
     if (event.key === "ArrowDown") { event.preventDefault(); setCursor(value => Math.min(results.length - 1, value + 1)); }
     if (event.key === "ArrowUp") { event.preventDefault(); setCursor(value => Math.max(0, value - 1)); }
     if (event.key === "Enter") { event.preventDefault(); choose(results[cursor]); }
   };
+  const groupName = entry => entry.type === "student" ? (query ? "학생" : "최근 본 학생") : entry.type === "todo" ? "할 일" : query ? "메뉴" : "자주 쓰는 메뉴";
+  const mac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform || "");
   let lastType = "";
   return <div className="kdn-cmdk-overlay no-print" onMouseDown={event => { if (event.target === event.currentTarget) setOpen(false); }}>
-    <div className="kdn-cmdk" role="dialog" aria-label="검색">
-      <label className="kdn-cmdk-input"><Search size={19} /><input ref={inputRef} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={onKeyDown} placeholder="학생 이름 · 학번 · 반-번호 · 메뉴 이름" /><kbd>Esc</kbd></label>
+    <div className="kdn-cmdk" role="dialog" aria-label="찾기">
+      <label className="kdn-cmdk-input"><Search size={19} /><input ref={inputRef} value={query} onChange={event => setQuery(event.target.value)} onKeyDown={onKeyDown} placeholder="학생 이름·학번 · 메뉴 · '11/5 협의회'로 일정 추가" aria-label="학생·메뉴·할 일 찾기" /><kbd>Esc</kbd></label>
+      <div className="kdn-cmdk-tabs" role="tablist" aria-label="분류">{PALETTE_TABS.map(([key, label]) => <button key={key} type="button" role="tab" data-kdn-bare aria-selected={tab === key} onClick={() => { setTab(key); inputRef.current?.focus(); }}>{label}</button>)}</div>
       <div className="kdn-cmdk-list">
-        {!results.length && <p className="kdn-cmdk-empty">찾는 결과가 없어요.</p>}
+        {!results.length && <p className="kdn-cmdk-empty">{query ? "찾는 결과가 없어요. 이름 대신 학번이나 '2-5'(반-번호)로도 찾을 수 있어요." : "최근 본 학생이 없어요. 이름이나 학번을 적어 보세요."}</p>}
         {results.map((entry, index) => {
-          const head = entry.type !== lastType ? (entry.type === "student" ? "학생" : query ? "메뉴" : "자주 쓰는 메뉴") : null;
+          const head = entry.type !== lastType ? groupName(entry) : null;
           lastType = entry.type;
           return <React.Fragment key={entry.key}>
             {head && <small className="kdn-cmdk-group">{head}</small>}
-            <button type="button" data-kdn-bare className={index === cursor ? "is-on" : ""} onMouseEnter={() => setCursor(index)} onClick={() => choose(entry)}>
-              <i>{entry.type === "student" ? <User size={16} /> : <LayoutGrid size={16} />}</i>
-              <span><b>{entry.title}</b>{entry.sub && <small>{entry.sub}</small>}</span>
-              {index === cursor && <em>{entry.type === "student" ? "성적 리포트 ↵" : "열기 ↵"}</em>}
-            </button>
+            <div className={`kdn-cmdk-row${index === cursor ? " is-on" : ""}`} onMouseEnter={() => setCursor(index)}>
+              <button type="button" data-kdn-bare className="main" onClick={() => choose(entry)}>
+                <i className={`t-${entry.type}`}>{entry.type === "student" ? String(entry.title).charAt(0) : entry.type === "todo" ? <Plus size={16} /> : <LayoutGrid size={16} />}</i>
+                <span><b>{entry.title}</b>{entry.sub && <small>{entry.sub}</small>}</span>
+              </button>
+              {entry.type === "student" && <span className="quick"><button type="button" data-kdn-bare onClick={() => choose(entry, "grades")}>성적 리포트</button><button type="button" data-kdn-bare onClick={() => choose(entry, "consultation")}>상담</button></span>}
+              {index === cursor && entry.type !== "student" && <em>{entry.type === "todo" ? "추가 ↵" : "열기 ↵"}</em>}
+            </div>
           </React.Fragment>;
         })}
       </div>
-      <div className="kdn-cmdk-foot"><span>↑↓ 이동</span><span>↵ 열기</span><span>Esc 닫기</span></div>
+      <div className="kdn-cmdk-foot"><span><b>↑↓</b> 고르기</span><span><b>Enter</b> 열기</span><span><b>Tab</b> 분류 바꾸기</span><span className="sp">어느 화면에서나 <b>{mac ? "⌘" : "Ctrl"} + K</b></span></div>
     </div>
   </div>;
 }
@@ -213,4 +235,36 @@ export function AcademicCalendarModal({ calendar = {}, userKey = "", canEditScho
       </div>
     </section>
   </div>;
+}
+
+// 시안 3 저장 상태: 저장하는 동안 '저장 중…', 끝나면 '저장됨 · 방금/n분 전', 실패하면 빨간 '저장 실패'.
+// 이번 접속에서 한 번이라도 저장한 뒤에만 보입니다.
+export function SaveStatus() {
+  const [state, setState] = useState({ pending: 0, at: 0, error: "" });
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const onSave = event => {
+      const detail = event.detail || {};
+      setState(current => detail.state === "start" ? { ...current, pending: current.pending + 1 }
+        : { pending: Math.max(0, current.pending - 1), at: detail.state === "ok" ? Date.now() : current.at, error: detail.state === "error" ? (detail.error || "저장하지 못했어요") : "" });
+    };
+    window.addEventListener("kd:save", onSave);
+    const timer = window.setInterval(() => setTick(value => value + 1), 20000);
+    return () => { window.removeEventListener("kd:save", onSave); window.clearInterval(timer); };
+  }, []);
+  if (!state.pending && !state.at && !state.error) return null;
+  const minutes = Math.floor((Date.now() - state.at) / 60000);
+  const label = state.pending ? "저장 중…" : state.error ? "저장 실패" : `저장됨 · ${minutes < 1 ? "방금" : minutes < 60 ? `${minutes}분 전` : `${Math.floor(minutes / 60)}시간 전`}`;
+  return <span className={`kdn-savestate no-print ${state.pending ? "is-busy" : state.error ? "is-error" : "is-ok"}`} role="status" aria-live="polite" title={state.error || "학교 저장소에 저장한 상태예요"}>
+    <i aria-hidden="true" />{label}
+  </span>;
+}
+
+// 시안 5 휴대폰 하단 탭: 화면 폭이 좁을 때만 아래쪽에 자주 쓰는 4개를 둡니다(엄지가 닿는 곳).
+// items: [{ key, label, icon, active, onClick }]
+export function MobileTabBar({ items = [] }) {
+  if (!items.length) return null;
+  return <nav className="kdn-tabbar no-print" aria-label="주요 메뉴">
+    {items.map(item => <button key={item.key} type="button" data-kdn-bare aria-current={item.active ? "page" : undefined} className={item.active ? "is-on" : ""} onClick={item.onClick}>{item.icon}<span>{item.label}</span></button>)}
+  </nav>;
 }
