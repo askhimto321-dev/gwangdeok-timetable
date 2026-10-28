@@ -2967,7 +2967,7 @@ function TeacherZoneWorkspace({
         {canUseMock && <button type="button" onClick={() => setWorkspaceMode("mock")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "mock" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BarChart3 size={15} /> 모의고사 분석</button>}
         {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
-        {canUseSeparation && <button type="button" onClick={() => setWorkspaceMode("separation")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "separation" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><UserX size={15} /> 분리희망학생</button>}
+        {canUseSeparation && <button type="button" onClick={() => setWorkspaceMode("separation")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "separation" ? teacherZoneWorkspaceStyles.modeButtonActive : { color: "#b91c1c", borderColor: "#f3b4b4" }) }}><UserX size={15} /> 분리희망학생</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무 (Beta)</button>}
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("gradeData")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "gradeData" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Database size={15} /> 자료 관리</button>}
         {onOpenMinimum && <button type="button" onClick={onOpenMinimum} title="최소성취수준 화면으로 이동" style={{ ...teacherZoneWorkspaceStyles.modeButton, marginLeft: 6 }}><ShieldCheck size={15} /> 최성보 현황 ↗</button>}
@@ -3142,7 +3142,13 @@ function TeacherZoneHome({ calendar, actor, activeTeacher, grade, lastMode, canU
       <b>최근 작업 과목</b>
       {resultGroups.map(([g, list]) => <div key={g} className="kdn-tz2-quick-row"><small>{g}학년</small>{list.slice(0, 8).map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => onOpenGrade?.(3, ws.id, g)} title={`${g}학년 ${ws.subject} 결과 확인으로 바로 가기`}>{ws.subject}<ArrowRight size={13} /></button>)}</div>)}
     </section>}
-    <div className="kdn-tz2-grid">{cards.map(card => {
+    {canUseSeparation && <section className="kdn-tz2-sep" aria-label="반편성 분리희망학생 입력">
+      <span className="ic" aria-hidden="true"><UserX size={26} /></span>
+      <div className="tx"><em>반편성 · 지금 입력할 일</em><b>{new Date().getFullYear() + (new Date().getMonth() + 1 >= 3 ? 1 : 0)} 반편성 분리희망학생</b><span>{activeTeacher?.homeroomClass ? `${activeTeacher.homeroomClass}반 학생마다` : "학생마다"} 같은 반이 되면 안 되는 학생을 적어 주세요. 다른 반에서 적은 내용도 함께 보입니다.</span>
+        <i className="lv"><s className="must">반드시</s><s className="high">되도록</s><s className="mid">가능하면</s><s className="low">참고</s></i></div>
+      <button type="button" data-kdn-bare onClick={() => onOpen("separation")}>입력하기 <ArrowRight size={16} /></button>
+    </section>}
+    <div className="kdn-tz2-grid">{cards.filter(card => card.key !== "separation").map(card => {
       const [short, illo, palette] = SHORT[card.key] || [card.text, "grades", "il-admin"];
       const isLast = card.key === lastMode;
       if (exam && card.key === "grades") return <section key={card.key} className={`kdn-tz2-feature ${palette}`}>
@@ -3288,7 +3294,7 @@ function UiModeMenu() {
 function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], examZone = [], semester, academicCalendar }) {
   const now = useNow(1000);
   const student = kind === "student";
-  // 정기시험 7일 전 ~ 끝난 뒤 3주: 상단 D-day 띠 + 바로가기 맨 앞에 성적 ZONE 묶음.
+  // 정기시험 7일 전 ~ 끝난 뒤 6일: 상단 D-day 띠 + 바로가기 맨 앞에 성적 ZONE 묶음.
   const exam = !student && examZone.length ? examPeriodFromCalendar(academicCalendar, now) : null;
   const zoneKeys = new Set(["classGrades", "gradeLookup"]);
   const listedShortcuts = exam ? shortcuts.filter(item => !zoneKeys.has(item.key)) : shortcuts;
@@ -3389,7 +3395,7 @@ function DashboardExamStrip({ exam, now, onStart }) {
   const title = exam.phase === "before" ? (exam.d === 1 ? "내일부터 시험 기간이에요" : `시험까지 ${exam.d}일 남았어요`)
     : exam.phase === "today" ? (dayIndex >= 0 ? `오늘은 시험 ${dayIndex + 1}일차예요` : "시험 기간이에요")
     : "시험이 끝났어요 · 성적 처리 기간";
-  const sub = exam.phase === "after" ? "성적 산출과 결과 확인을 이어서 하세요" : "시험 후 3주간 성적 메뉴를 먼저 보여줘요";
+  const sub = exam.phase === "after" ? "성적 산출과 결과 확인을 이어서 하세요" : "시험이 끝나고 6일 동안 성적 메뉴를 먼저 보여줘요";
   return <section className="kdn-dash-exam" aria-label="정기시험 일정">
     <div className="kdn-dash-exam-dd"><small>정기시험</small><b>{exam.dLabel === "D-day" ? "D-DAY" : exam.dLabel}</b></div>
     <div className="kdn-dash-exam-text">
