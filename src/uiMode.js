@@ -2766,14 +2766,16 @@ const SHARED_NEW_CSS = `
   .kdn-trail li button:hover{background:var(--kdn-surface-2);color:var(--kdn-ink)}
   .kdn-trail li span[aria-current]{padding:0 2px;color:var(--kdn-ink);font-weight:850}
   @media (max-width:760px){.kdn-trail{padding:10px 14px 0}.kdn-trail li{font-size:12.5px}}
-  /* 넓은 화면 좌우 패널(가로 1860px 이상에서만) */
+  /* 넓은 화면 좌우 패널: SideRails가 남는 폭(글자 크기 배율 반영)을 재서 :root[data-kd-rails="on"]을 답니다.
+     켜지면 가운데 내용을 좌우 296px씩 비켜 놓아 패널과 절대 겹치지 않고, 위쪽 메뉴는 화면 끝까지 그대로 둡니다. */
   .kdn-rail{display:none}
-  @media (min-width:1860px){
-    .kdn-rail{position:fixed;top:92px;z-index:30;display:flex;flex-direction:column;gap:12px;width:260px;max-height:calc(100vh - 116px);overflow:auto;padding-bottom:12px}
-    .kdn-rail.is-left{left:calc((100vw - 1280px) / 2 - 284px)}
-    .kdn-rail.is-right{right:calc((100vw - 1280px) / 2 - 284px)}
-    .kdp-dock{display:none!important}
-  }
+  :root[data-kd-rails="on"] .kdn-app{padding-left:296px!important;padding-right:296px!important}
+  :root[data-kd-rails="on"] .kdn-app>.kdn-top-nav{margin-left:-296px;margin-right:-296px}
+  :root[data-kd-rails="on"] .kdn-rail{position:fixed;top:var(--kdn-rail-top,92px);z-index:30;display:flex;flex-direction:column;gap:12px;width:260px;max-height:calc(100vh - var(--kdn-rail-top,92px) - 24px);overflow:auto;padding-bottom:12px;box-sizing:border-box}
+  :root[data-kd-rails="on"] .kdn-rail.is-left{left:20px}
+  :root[data-kd-rails="on"] .kdn-rail.is-right{right:20px}
+  :root[data-kd-rails="on"] .kdp-dock{display:none!important}
+  @media print{.kdn-rail{display:none!important}:root[data-kd-rails="on"] .kdn-app{padding-left:0!important;padding-right:0!important}}
   .kdn-rail-card{display:grid;gap:10px;padding:16px;border-radius:18px;border:1px solid var(--kdn-line);background:var(--kdn-surface)}
   .kdn-rail-card .hd{display:flex;align-items:center;gap:6px;font-size:14.5px;font-weight:850;color:var(--kdn-ink)}
   .kdn-rail-card .hd.sub{margin-top:4px;font-size:13px;color:var(--kdn-muted)}
