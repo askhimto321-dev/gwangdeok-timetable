@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Link2, MessageSquare, ArrowLeft, ArrowRight, Calendar, Search, X, Trash2, User, LayoutGrid } from "lucide-react";
+import { Plus, Link2, MessageSquare, ArrowLeft, ArrowRight, Calendar, Search, X, Trash2, User, LayoutGrid, ChevronRight } from "lucide-react";
 import { readStorage, writeStorage } from "./storage.js";
 
 // 새 UI 전용 화면 위 요소 세 가지
@@ -266,5 +266,21 @@ export function MobileTabBar({ items = [] }) {
   if (!items.length) return null;
   return <nav className="kdn-tabbar no-print" aria-label="주요 메뉴">
     {items.map(item => <button key={item.key} type="button" data-kdn-bare aria-current={item.active ? "page" : undefined} className={item.active ? "is-on" : ""} onClick={item.onClick}>{item.icon}<span>{item.label}</span></button>)}
+  </nav>;
+}
+
+// 시안 3 화면 머리 '경로': 지금 어디에 있는지 한 줄로(홈 › 선생님 ZONE › 내 일정). 앞쪽 칸은 눌러서 그 화면으로 갑니다.
+// items: [{ key, label, onClick? }] — 마지막 칸이 지금 화면입니다.
+export function PageTrail({ items = [], right = null }) {
+  if (items.length < 2) return null;
+  return <nav className="kdn-trail no-print" aria-label="현재 위치">
+    <ol>{items.map((item, index) => {
+      const last = index === items.length - 1;
+      return <li key={item.key || index}>
+        {last || !item.onClick ? <span aria-current={last ? "page" : undefined}>{item.label}</span> : <button type="button" data-kdn-bare onClick={item.onClick}>{item.label}</button>}
+        {!last && <ChevronRight size={14} aria-hidden="true" />}
+      </li>;
+    })}</ol>
+    {right}
   </nav>;
 }

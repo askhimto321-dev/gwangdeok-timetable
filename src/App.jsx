@@ -8,7 +8,7 @@ import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, cu
 import { examPeriodFromCalendar, gradeCheckDone } from "./examPeriod.js";
 import { activePatchNotes } from "./patchNotes.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
-import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay, SaveStatus, MobileTabBar } from "./AppOverlays.jsx";
+import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay, SaveStatus, MobileTabBar, PageTrail } from "./AppOverlays.jsx";
 import { parseQuickTodo } from "./teacherPlanner.js";
 import { readViewPrefs, saveViewPrefs, FONT_SCALES, DENSITIES } from "./viewPrefs.js";
 import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid, UserX, CalendarDays, Home as HomeIcon, User as UserIcon, Clock as ClockIcon } from "lucide-react";
@@ -1797,6 +1797,7 @@ export default function App() {
   }, [dashboardActive, selectedStudentSid, db.roster]);
 
   const [teacherZoneRequest, setTeacherZoneRequest] = useState(null);
+  const [teacherZoneMode, setTeacherZoneMode] = useState("home");
   // 날짜로 고른 학기에 아직 시간표가 없고 다른 학기에는 있으면(예: 2학기 시간표 업로드 전) 처음 한 번만 자료가 있는 학기로 맞춥니다.
   const semesterAutoCheckedRef = useRef(false);
   useEffect(() => {
@@ -1994,6 +1995,16 @@ export default function App() {
       { key: "planner-add", group: "할 일", label: "일정 추가", sub: "검색 칸에 '11/5 협의회'처럼 적으면 날짜까지 채워요", run: () => { setTeacherZoneRequest({ mode: "planner", draft: { date: "", title: "" }, at: Date.now() }); switchSection("teacherZone"); } },
     ] : []),
   ];
+  // 시안 3 경로 표시: 홈 › 큰 메뉴 › (선생님 ZONE 업무 | 선생님 도구 | 학생 작업 탭 · 학생)
+  const SECTION_LABELS = { grades: "성적 · 진학", timetable: "시간표", teacherZone: "선생님 ZONE", minimumAchievement: "최소성취수준", admin: "관리자" };
+  const trailStudent = selectedStudentSid ? (roster?.[selectedStudentSid]?.name ? `${roster[selectedStudentSid].name} (${selectedStudentSid})` : String(selectedStudentSid)) : "";
+  const pageTrailItems = [
+    { key: "home", label: "홈", onClick: () => switchSection("home") },
+    ...(SECTION_LABELS[activeSection] ? [{ key: activeSection, label: SECTION_LABELS[activeSection], onClick: activeSection === "teacherZone" ? () => setTeacherZoneRequest({ mode: "home", at: Date.now() }) : () => switchSection(activeSection) }] : []),
+    ...(activeSection === "teacherZone" && teacherZoneMode && teacherZoneMode !== "home" ? [{ key: "tz", label: TEACHER_ZONE_MODE_LABELS[teacherZoneMode] || teacherZoneMode }] : []),
+    ...(activeSection === "grades" && teacherTool ? [{ key: "tool", label: teacherTools.find(tool => tool.key === teacherTool)?.label || "선생님 도구" }] : []),
+    ...(activeSection === "grades" && !teacherTool && staffWorkspaceEnabled && trailStudent ? [{ key: "student", label: trailStudent, onClick: () => changeStudentWorkspaceView("grades") }, { key: "view", label: (STUDENT_WORKSPACE_VIEWS.find(([view]) => view === studentWorkspaceView) || [, "성적 리포트"])[1] }] : []),
+  ];
   const dashboardProps = {
     semester,
     academicCalendar: db.academicCalendar,
@@ -2086,6 +2097,7 @@ export default function App() {
       <MegaNav accountSwitcher={loggedInAdmin ? <AccountSwitcher accounts={accounts} onPick={viewAsAccount} /> : null} semester={semester} primaryAction={staffWorkspaceEnabled ? { label: "학생 검색", onClick: () => dashboardNavigate("grades", { focusSearch: true }) } : null} active={activeSection} onSwitch={switchSection} onLogout={impersonation ? returnToAdmin : globalLogout} onEditProfile={loggedInTeacher ? () => setShowMyProfile(true) : null} showAdmin={!!loggedInAdmin} showTeacherZone={!!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)} showMinimumAchievement={canSeeMinimum} />
       {showMyProfile && loggedInTeacher && <div className="no-print" style={styles.profileOverlay}><div style={styles.profileModal}><TeacherProfileEditor teacher={loggedInTeacher} db={db} grade={grade} scopeKey={scopeKey} accounts={accounts} persistAccounts={persistAccounts} showToast={showToast} onDone={(updated)=>{if(updated)setLoggedInTeacher(updated);setShowMyProfile(false)}} /></div></div>}
       <SiteAnnouncementModal announcements={db.siteAnnouncements || []} viewer={loggedInAdmin?{...loggedInAdmin,role:"admin"}:loggedInTeacher?{...loggedInTeacher,role:"teacher"}:loggedInDepartment?{...loggedInDepartment,role:"department"}:loggedInMonitor?{...loggedInMonitor,role:"monitor"}:loggedInStudent?{...loggedInStudent,role:"student"}:null} />
+      {isNewUi() && activeSection !== "home" && <PageTrail items={pageTrailItems} />}
       {staffWorkspaceEnabled && activeSection !== "home" && activeSection !== "admin" && activeSection !== "teacherZone" && activeSection !== "minimumAchievement" && <StaffStudentWorkspaceBar
         allRosters={db.roster}
         allowedGrades={workspaceAllowedGrades}
@@ -2136,6 +2148,7 @@ export default function App() {
         />
       ) : activeSection === "teacherZone" ? (
         <TeacherZoneWorkspace
+          onModeChange={setTeacherZoneMode}
           modeRequest={teacherZoneRequest}
           gdb={gdb}
           mockGradeOptions={loggedInAdmin ? GRADES : (staffGradeAccessList || []).map(String).sort()}
@@ -2919,8 +2932,10 @@ const newBar = {
   tabActive: { background: "var(--kdn-surface)", fontWeight: 850, boxShadow: "0 1px 3px rgba(20,24,33,.14), 0 0 0 1px rgba(20,24,33,.06)" },
 };
 
+// 선생님 ZONE 안의 업무 이름(경로 표시용)
+const TEACHER_ZONE_MODE_LABELS = { home: "홈", grades: "성적 산출", stamps: "수업 포트폴리오", mock: "모의고사 분석", notice: "공지·수업자료", contacts: "학생 비상연락망", separation: "분리희망학생", records: "생기부 업무", planner: "내 일정" };
 function TeacherZoneWorkspace({
-  modeRequest, onOpenMinimum, onEditProfile, gdb, canUseMock = false, mockGradeOptions = [],
+  onModeChange, modeRequest, onOpenMinimum, onEditProfile, gdb, canUseMock = false, mockGradeOptions = [],
   loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor,
   viewedTeacher, setViewedTeacher, db, persist, showToast, accounts, persistAccounts,
   grade, setGrade, semester, scopeKey, roster, allRosters, enrollments, allowedGrades,
@@ -2970,9 +2985,10 @@ function TeacherZoneWorkspace({
     if ((!canUseNotice && workspaceMode === "notice") || (!canUseMock && workspaceMode === "mock") || (!canUseGradeDepartmentTools && ["contacts", "records", "gradeData"].includes(workspaceMode)) || (!canUseSeparation && workspaceMode === "separation")) setWorkspaceMode("grades");
   }, [canUseNotice, canUseMock, canUseGradeDepartmentTools, canUseSeparation, workspaceMode]);
   useEffect(() => {
+    onModeChange?.(workspaceMode);
     if (workspaceMode === "home") return;
     try { localStorage.setItem(modeStorageKey, workspaceMode); } catch { /* localStorage unavailable */ }
-  }, [modeStorageKey, workspaceMode]);
+  }, [modeStorageKey, workspaceMode]); // eslint-disable-line react-hooks/exhaustive-deps
   const mergedRoster = useMemo(() => {
     const output = {};
     Object.values(allRosters || {}).forEach(value => Object.assign(output, value || {}));

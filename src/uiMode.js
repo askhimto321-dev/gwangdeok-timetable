@@ -2758,6 +2758,14 @@ const SHARED_NEW_CSS = `
   .kdn-empty-box b{font-size:17px;font-weight:850;color:var(--kdn-ink)}
   .kdn-empty-box p{margin:0;max-width:560px;font-size:14.5px;line-height:1.6;color:var(--kdn-muted)}
   .kdn-empty-box button{margin-top:4px;min-height:42px;padding:0 18px;border-radius:11px;border:0;background:var(--kdn-accent);color:var(--kdn-accent-ink,#fff);font:inherit;font-size:14.5px;font-weight:800;cursor:pointer}
+  /* 경로 표시 */
+  .kdn-trail{display:flex;align-items:center;gap:12px;max-width:1280px;margin:0 auto;padding:12px 24px 0;box-sizing:border-box}
+  .kdn-trail ol{display:flex;flex-wrap:wrap;align-items:center;gap:2px 6px;margin:0;padding:0;list-style:none;min-width:0}
+  .kdn-trail li{display:inline-flex;align-items:center;gap:6px;color:var(--kdn-muted);font-size:13.5px;font-weight:700}
+  .kdn-trail li button{min-height:30px;padding:0 6px;border:0;border-radius:8px;background:transparent;color:var(--kdn-muted);font:inherit;cursor:pointer}
+  .kdn-trail li button:hover{background:var(--kdn-surface-2);color:var(--kdn-ink)}
+  .kdn-trail li span[aria-current]{padding:0 2px;color:var(--kdn-ink);font-weight:850}
+  @media (max-width:760px){.kdn-trail{padding:10px 14px 0}.kdn-trail li{font-size:12.5px}}
   /* 휴대폰 하단 탭 */
   .kdn-tabbar{display:none}
   @media (max-width:760px){

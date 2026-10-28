@@ -5,6 +5,15 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-10-29-c",
+    date: "2026-10-29",
+    title: "지금 있는 곳 표시",
+    items: [
+      { audience: "all", text: "화면 위쪽에 '홈 › 선생님 ZONE › 내 일정'처럼 지금 위치가 보여요. 앞쪽 이름을 누르면 그 화면으로 바로 돌아가요." },
+      { audience: "staff", text: "학생을 보고 있을 때는 '성적 · 진학 › 학생 이름(학번) › 성적 리포트'처럼 어느 학생의 어느 탭인지 함께 보여 줘요." },
+    ],
+  },
+  {
     id: "2026-10-29-b",
     date: "2026-10-29",
     title: "더 편하게 찾고, 더 크게 읽기",
