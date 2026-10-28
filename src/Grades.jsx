@@ -22,6 +22,7 @@ import { CompareOverview, SemesterChips, printGradeComparison, COMPARE_COLORS } 
 import { collectVisibleTables, columnGroups, pickColumns, writeWorkbook, printElement } from './tableExport.js';
 import { CounselStudentSummary, SupportPlanSlots, useSupportPlanItems, toneTileStyle } from './counselVisuals.jsx';
 import { PlanSummaryPage, PLAN_SUMMARY_CSS } from './planSummaryPrint.jsx';
+import { SURVEY_FORM_KEY, formCopyUrl, surveyFormScript } from './counselSurveyForm.js';
 import { isNewUi, getUiMode, rawColors } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
@@ -6221,6 +6222,66 @@ function CounselPlanPrintSummary({ sid, student, studentLabel, onCount }) {
   if (!rows.length) return null;
   return <div className="counseling-print-summary" hidden><PlanSummaryPage rows={rows} studentGrade={grade.value} cutoffBasis={grade.cutoffBasis} studentLabel={studentLabel} /></div>;
 }
+// 사전 설문 구글폼 만들기: 원본 폼 사본 열기 / 원본 없이 Apps Script로 새로 만들기.
+function SurveyFormDialog({ onClose }) {
+  const [saved, setSaved] = useState("");
+  const [draft, setDraft] = useState("");
+  const [msg, setMsg] = useState("");
+  useEffect(() => { let on = true; readStorage(SURVEY_FORM_KEY, null).then(value => { if (!on) return; const url = value?.editUrl || ""; setSaved(url); setDraft(url); }).catch(() => {}); return () => { on = false; }; }, []);
+  const savedCopy = formCopyUrl(saved);
+  const draftCheck = formCopyUrl(draft);
+  const saveUrl = async () => {
+    if (!draftCheck.ok) return;
+    const result = await updateStorage(SURVEY_FORM_KEY, {}, current => ({ ...(current || {}), editUrl: draft.trim(), updatedAt: new Date().toISOString() }));
+    if (result?.ok === false) { setMsg("저장하지 못했어요. 다시 시도해 주세요."); return; }
+    setSaved(draft.trim()); setMsg("원본 폼 주소를 저장했어요. 이제 모든 선생님이 사본을 바로 만들 수 있어요.");
+  };
+  const copyScript = async () => {
+    try { await navigator.clipboard.writeText(surveyFormScript()); setMsg("코드를 복사했어요. script.google.com 새 프로젝트에 붙여 넣고 실행하세요."); }
+    catch { setMsg("복사하지 못했어요. 브라우저의 클립보드 권한을 확인해 주세요."); }
+  };
+  return <div className="counseling-print-option-overlay no-print" role="dialog" aria-modal="true" aria-label="사전 설문 구글폼 만들기" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="counseling-print-option-modal kd-sform">
+      <div className="counseling-print-option-head"><div><b>사전 설문 구글폼 만들기</b><span>우리 반용 진학상담 사전 설문 폼을 내 구글 드라이브에 만듭니다. 질문은 이 화면의 ‘사전 설문 올리기’가 그대로 읽을 수 있게 맞춰져 있어요.</span></div><button type="button" onClick={onClose} aria-label="닫기"><X size={15}/></button></div>
+      <div className="counseling-print-option-body">
+        <section className="kd-sform-box">
+          <b>① 학교 원본 폼 사본 만들기 <small>가장 간단</small></b>
+          {savedCopy.ok ? <a className="kd-sform-go" href={savedCopy.url} target="_blank" rel="noopener noreferrer"><ExternalLink size={15}/>내 드라이브에 사본 만들기</a> : <p>아직 원본 폼 주소가 없어요. 원본을 가진 선생님이 아래에 편집 주소를 한 번 넣어 주세요.</p>}
+          <details><summary>{saved ? "원본 폼 주소 바꾸기" : "원본 폼 주소 넣기"}</summary>
+            <div className="kd-sform-url"><input value={draft} placeholder="https://docs.google.com/forms/d/…/edit" onChange={event => setDraft(event.target.value)} aria-label="원본 구글폼 편집 주소"/><button type="button" className="primary" disabled={!draftCheck.ok || draft.trim() === saved} onClick={saveUrl}>저장</button></div>
+            {draft && !draftCheck.ok && <small className="kd-sform-err">{draftCheck.error}</small>}
+            <small>원본 폼의 공유를 ‘링크가 있는 모든 사용자 · 뷰어’로 해 두어야 다른 선생님이 사본을 만들 수 있어요.</small>
+          </details>
+        </section>
+        <section className="kd-sform-box">
+          <b>② 원본 없이 새로 만들기 <small>약 1분</small></b>
+          <ol><li><button type="button" onClick={copyScript}>폼 만들기 코드 복사</button></li><li><a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener noreferrer">script.google.com 새 프로젝트 열기 <ExternalLink size={11}/></a>에 붙여 넣고 저장</li><li>위쪽 ‘실행’ → 권한 허용 → 실행 로그에 학생용 주소·응답 시트가 나와요</li></ol>
+        </section>
+        <section className="kd-sform-box is-soft">
+          <b>응답 받은 뒤</b>
+          <p>응답 시트에서 ‘파일 → 다운로드 → Microsoft Excel(.xlsx)’로 받은 다음, 상담 화면의 ‘사전 설문 올리기’로 올리면 학번별로 붙어요.</p>
+        </section>
+        {msg && <div className="kd-sform-msg" role="status">{msg}</div>}
+      </div>
+    </div>
+  </div>;
+}
+const SURVEY_FORM_CSS = `
+.kd-sform{width:min(560px,100%)}
+.kd-sform-box{display:grid;gap:8px;padding:14px 16px;border:1px solid var(--kdn-line,#dfe2e8);border-radius:14px;background:var(--kdn-surface,#fff)}
+.kd-sform-box.is-soft{background:var(--kdn-surface-2,#f6f8fb)}
+.kd-sform-box>b{display:flex;align-items:baseline;gap:8px;font-size:15px;font-weight:850;color:var(--kdn-ink,#1f2430)}.kd-sform-box>b small{font-size:12px;font-weight:700;color:var(--kdn-muted,#5d6574)}
+.kd-sform-box p,.kd-sform-box small,.kd-sform-box li{margin:0;font-size:13px;line-height:1.55;color:var(--kdn-ink-soft,#3a4150)}
+.kd-sform-box ol{margin:0;padding-left:20px;display:grid;gap:6px}
+.kd-sform-box ol button,.kd-sform-url button{height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--kdn-control-line,#cfd5df);background:var(--kdn-surface-2,#f6f8fb);color:var(--kdn-ink,#1f2430);font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.kd-sform-box a{color:var(--kdn-accent,#c2410c);font-weight:800;text-decoration:none}
+.kd-sform-go{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 16px;border-radius:11px;background:var(--kdn-accent,#c2410c);color:#fff!important;font-size:14.5px}
+.kd-sform-box details{display:grid;gap:6px}.kd-sform-box summary{cursor:pointer;font-size:13px;font-weight:800;color:var(--kdn-muted,#5d6574)}
+.kd-sform-url{display:flex;gap:6px;margin:6px 0 4px}.kd-sform-url input{flex:1;min-width:0;height:34px;padding:0 10px;border-radius:9px;border:1px solid var(--kdn-control-line,#cfd5df);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#1f2430);font:inherit;font-size:13px}
+.kd-sform-url button.primary{background:var(--kdn-accent,#c2410c);border-color:var(--kdn-accent,#c2410c);color:#fff}.kd-sform-url button:disabled{opacity:.5;cursor:default}
+.kd-sform-err{color:#b91c1c!important;font-weight:700}
+.kd-sform-msg{padding:10px 12px;border-radius:10px;background:color-mix(in srgb,#16a34a 12%,transparent);font-size:13px;font-weight:700;color:var(--kdn-ink,#1f2430)}
+`;
 // 진학상담 사전 설문 카드: 묶음(기본·희망·지원·학습·상담)별로 학생 답을 보여 주고, 희망 대학은 NAVI·대학 탐색으로 바로 엽니다.
 function CounselSurveyCard({ entry, onOpenSusiNavi, onOpenAdmission }) {
   const [open, setOpen] = useState(true);
@@ -6296,6 +6357,7 @@ export function StudentConsultationView({
   const [surveyBusy, setSurveyBusy] = useState(false);
   const [consultTour, setConsultTour] = useState(0);
   const [surveyMsg, setSurveyMsg] = useState("");
+  const [surveyFormOpen, setSurveyFormOpen] = useState(false);
   const importSurvey = async file => {
     if (!file || !persistGrades) return;
     setSurveyBusy(true); setSurveyMsg("");
@@ -6380,7 +6442,8 @@ export function StudentConsultationView({
   return <div className={`kd-consultation-ui${cardFocus ? ' is-card-focus' : ''}`} style={{display:"grid",gap:14}}>
     <style>{COUNSELING_PRINT_CSS}</style>
     <style>{counselingCss}</style>
-    <style>{SURVEY_CSS}</style>
+    <style>{SURVEY_CSS + SURVEY_FORM_CSS}</style>
+    {surveyFormOpen && <SurveyFormDialog onClose={()=>setSurveyFormOpen(false)} />}
     <TourGuide id="consultation" startToken={consultTour} steps={CONSULT_TOUR.filter(step => canEdit || !step.staff)} />
     <div className="kd-consult-toolbar no-print" data-tour="cs-toolbar">
       <div><h3>관심 대학·상담</h3><p>관심 대학 카드와 상담 기록을 함께 확인합니다.</p></div>
@@ -6388,6 +6451,7 @@ export function StudentConsultationView({
       <button type="button" className="kd-consult-action" aria-pressed={cardFocus} onClick={()=>setCardFocus(value=>!value)}><LayoutGrid size={16}/>{cardFocus ? '상세 보기' : '대학 요약 보기'}</button>
       <button type="button" className="kd-consult-action is-print" onClick={()=>setPrintOptionsOpen(true)}><Printer size={16}/>상담 인쇄·PDF 저장</button>
       {canEdit && persistGrades && <label className="kd-consult-action" title="구글 시트 응답을 '파일 → 다운로드 → .xlsx 또는 .csv'로 받아 올리면 학번별로 들어갑니다"><Upload size={16}/>{surveyBusy ? "설문 읽는 중…" : "사전 설문 올리기"}<input hidden type="file" accept=".xlsx,.xls,.csv" disabled={surveyBusy} onChange={event=>{ importSurvey(event.target.files?.[0]); event.target.value=""; }}/></label>}
+      {canEdit && <button type="button" className="kd-consult-action" onClick={()=>setSurveyFormOpen(true)} title="진학상담 사전 설문 구글폼을 내 드라이브에 만듭니다"><FileText size={16}/>설문 폼 만들기</button>}
     </div>
     {surveyMsg && <div className="kd-survey-msg no-print" role="status">{surveyMsg}<button type="button" data-kdn-bare onClick={()=>setSurveyMsg("")} aria-label="닫기">✕</button></div>}
     {newUi && <div className="kdn-case-layout-switch no-print" data-tour="cs-layout"><span>화면 구성</span><div>{CONSULT_LAYOUTS.map(([key,label])=><button key={key} type="button" className={consultLayout===key?"is-on":""} aria-pressed={consultLayout===key} onClick={()=>setConsultLayout(key)}>{label}</button>)}</div></div>}
