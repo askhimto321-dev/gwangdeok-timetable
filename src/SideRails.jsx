@@ -1,4 +1,4 @@
-// 넓은 화면(가로 1640px 이상)의 좌우 빈 공간: 왼쪽 = 찾기 칸 · 최근 본 학생 · 자주 쓰는 메뉴, 오른쪽 = 오늘 할 일 · 다가오는 일정.
+// 넓은 화면의 좌우 빈 공간: 왼쪽 = 찾기 칸, 오른쪽 = 오늘 할 일 · 다가오는 일정.
 // 화면이 좁으면 CSS로 숨기고, 그때는 오른쪽 아래 [오늘 할 일] 창과 위쪽 찾기 칸을 그대로 씁니다.
 import React from "react";
 import { Search, CalendarDays, ChevronRight, Clock } from "lucide-react";
@@ -8,25 +8,16 @@ import { todayItems, expandOccurrences, dateKey, shiftKey, dayNo, dLabel, school
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 const openSearch = query => window.dispatchEvent(new CustomEvent("kd:search", { detail: { query } }));
 
-function LeftRail({ recent = [], menus = [], onPickStudent, canSearch, onClearRecent }) {
+// 왼쪽은 찾기 칸 하나만 둡니다. 최근 본 학생은 Ctrl+K 찾기에서, 메뉴는 위쪽 메뉴에서 바로 보이므로 겹쳐 두지 않습니다.
+function LeftRail({ canSearch }) {
   const [text, setText] = React.useState("");
-  // 지우기를 누르면 지금 목록을 숨기고, 새 학생을 열어 목록이 바뀌면 다시 보여 줍니다.
-  const recentKey = recent.map(student => student.sid).join(",");
-  const [clearedKey, setClearedKey] = React.useState(null);
-  return <aside className="kdn-rail is-left no-print" aria-label="찾기와 바로가기">
+  return <aside className="kdn-rail is-left no-print" aria-label="찾기">
     {canSearch && <section className="kdn-rail-card">
       <b className="hd">찾기</b>
       <label className="kdn-rail-find"><Search size={16} aria-hidden="true" /><input value={text} placeholder="학생·메뉴·할 일" title="'11/5 협의회'처럼 적으면 내 일정에 바로 추가돼요" aria-label="학생·메뉴 찾기"
         onChange={event => { const value = event.target.value; setText(""); openSearch(value); }}
         onFocus={event => { if (event.target.value) openSearch(event.target.value); }} /><kbd>Ctrl K</kbd></label>
-    </section>}
-    {recent.length > 0 && clearedKey !== recentKey && <section className="kdn-rail-card">
-      <div className="hd-row"><b className="hd">최근 본 학생</b>{onClearRecent && <button type="button" data-kdn-bare className="kdn-rail-clear" onClick={() => { onClearRecent(); setClearedKey(recentKey); }}>지우기</button>}</div>
-      <div className="kdn-rail-list">{recent.map(student => <button key={student.sid} type="button" data-kdn-bare onClick={() => onPickStudent?.(student.sid)}><i aria-hidden="true">{String(student.name || "?").charAt(0)}</i><span><b>{student.name}</b><small>{student.sid} · {student.class}반 {student.number}번</small></span></button>)}</div>
-    </section>}
-    {menus.length > 0 && <section className="kdn-rail-card">
-      <b className="hd">자주 쓰는 메뉴</b>
-      <div className="kdn-rail-menu">{menus.map(item => <button key={item.key} type="button" data-kdn-bare onClick={item.run}><span>{item.label}</span><ChevronRight size={15} aria-hidden="true" /></button>)}</div>
+      <small className="tip">최근 본 학생은 찾기 창을 열면 맨 위에 보여요</small>
     </section>}
   </aside>;
 }
@@ -87,10 +78,10 @@ function useRailLayout() {
   }, []);
 }
 
-export default function SideRails({ owner = "", calendar, recent = [], menus = [], onPickStudent, onOpenPlanner, canSearch = false, onClearRecent }) {
+export default function SideRails({ owner = "", calendar, onOpenPlanner, canSearch = false }) {
   useRailLayout();
   return <>
-    <LeftRail recent={recent} menus={menus} onPickStudent={onPickStudent} canSearch={canSearch} onClearRecent={onClearRecent} />
+    <LeftRail canSearch={canSearch} />
     <RightRail owner={owner} calendar={calendar} onOpenPlanner={onOpenPlanner} />
   </>;
 }

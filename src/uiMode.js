@@ -1545,7 +1545,8 @@ const SHARED_NEW_CSS = `
   .kdn-cmdk-input input{flex:1;min-width:0;border:0;outline:none;background:transparent;font:inherit;font-size:17px;font-weight:700;color:var(--kdn-ink)}
   .kdn-cmdk-input kbd{padding:2px 8px;border-radius:7px;border:1px solid var(--kdn-line);font:inherit;font-size:12px;color:var(--kdn-muted)}
   .kdn-cmdk-list{display:grid;gap:2px;max-height:min(60vh,460px);overflow:auto;padding:8px}
-  .kdn-cmdk-group{padding:8px 10px 4px;font-size:12px;font-weight:800;color:var(--kdn-muted)}
+  .kdn-cmdk-group{display:flex;align-items:center;justify-content:space-between;padding:8px 10px 4px;font-size:12px;font-weight:800;color:var(--kdn-muted)}
+  .kdn-cmdk-clear{border:0;background:transparent;padding:0 2px;font:inherit;font-size:12px;font-weight:700;color:var(--kdn-muted);cursor:pointer;text-decoration:underline;text-underline-offset:3px}.kdn-cmdk-clear:hover{color:var(--kdn-ink)}
   .kdn-cmdk-tabs{display:flex;gap:6px;padding:10px 18px 2px}
   .kdn-cmdk-tabs button{min-height:32px;padding:0 13px;border:1px solid var(--kdn-line);border-radius:999px;background:var(--kdn-surface);color:var(--kdn-ink-soft);font:inherit;font-size:13px;font-weight:800;cursor:pointer}
   .kdn-cmdk-tabs button[aria-selected="true"]{background:var(--kdn-ink);border-color:var(--kdn-ink);color:var(--kdn-surface)}
@@ -2771,7 +2772,6 @@ const SHARED_NEW_CSS = `
   :root[data-kd-rails="on"] .kdn-rail.is-right{right:20px}
   :root[data-kd-rails="on"] .kdp-dock{display:none!important}
   /* 패널이 켜지면: 위쪽 '최근 본 학생' 줄은 왼쪽 패널과 겹치므로 숨기고, 학생 작업 줄은 바탕과 섞여 떠 보이지 않게 */
-  .kdn-rail-clear{border:0;background:transparent;padding:2px 4px;font:inherit;font-size:12px;font-weight:700;color:var(--kdn-muted);cursor:pointer;text-decoration:underline;text-underline-offset:3px}.kdn-rail-clear:hover{color:var(--kdn-ink)}
   :root[data-kd-rails="on"] .kdn-work-bar{background:color-mix(in srgb,var(--kdn-bg) 45%,transparent)!important;border-bottom-color:transparent!important;-webkit-backdrop-filter:blur(16px) saturate(1.2);backdrop-filter:blur(16px) saturate(1.2)}
   @media print{.kdn-rail{display:none!important}:root[data-kd-rails="on"] .kdn-app{padding-left:0!important;padding-right:0!important}}
   .kdn-rail-card{display:grid;gap:10px;padding:16px;border-radius:18px;border:1px solid var(--kdn-line);background:var(--kdn-surface)}
@@ -2785,13 +2785,6 @@ const SHARED_NEW_CSS = `
   .kdn-rail-find:focus-within{border-color:var(--kdn-accent)}
   .kdn-rail-find input{flex:1;min-width:0!important;width:0;border:0;outline:0;background:transparent;color:var(--kdn-ink);font:inherit;font-size:14px;font-weight:700}
   .kdn-rail-find kbd,.kdn-nav-find kbd{padding:1px 6px;border-radius:6px;border:1px solid var(--kdn-line);font:inherit;font-size:11px;font-weight:800;color:var(--kdn-muted);white-space:nowrap}
-  .kdn-rail-list{display:grid;gap:2px}
-  .kdn-rail-list button{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 6px;border:0;border-radius:10px;background:transparent;color:var(--kdn-ink);font:inherit;text-align:left;cursor:pointer}
-  .kdn-rail-list button:hover,.kdn-rail-menu button:hover{background:var(--kdn-surface-2)}
-  .kdn-rail-list i{flex:none;width:32px;height:32px;display:grid;place-items:center;border-radius:10px;background:var(--kdn-accent-soft);color:var(--kdn-accent-text);font-style:normal;font-weight:900}
-  .kdn-rail-list span{display:grid;min-width:0}.kdn-rail-list b{font-size:14px;font-weight:800}.kdn-rail-list small{font-size:12px;color:var(--kdn-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .kdn-rail-menu{display:grid;gap:2px}
-  .kdn-rail-menu button{display:flex;align-items:center;justify-content:space-between;min-height:40px;padding:0 8px;border:0;border-radius:10px;background:transparent;color:var(--kdn-ink-soft);font:inherit;font-size:14px;font-weight:700;cursor:pointer;text-align:left}
   .kdn-rail-up{display:grid;gap:6px}
   .kdn-rail-up span{display:flex;align-items:center;gap:8px;min-width:0;font-size:13.5px}
   .kdn-rail-up em{flex:none;padding:1px 8px;border-radius:99px;background:color-mix(in srgb,#2563eb 13%,transparent);color:#1d4ed8;font-style:normal;font-size:12px;font-weight:800}
