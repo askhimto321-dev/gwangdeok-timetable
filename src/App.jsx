@@ -28,7 +28,9 @@ const GradesSection = lazy(() => loadGradesModule().then(module => ({ default: m
 const AdminGradesUpload = lazy(() => loadGradesModule().then(module => ({ default: module.AdminGradesUpload })));
 const ClassGradeOverviewPanel = lazy(() => loadGradesModule().then(module => ({ default: module.ClassGradeOverview })));
 const ClassSeparationTool = lazy(() => import("./ClassSeparationTool.jsx"));
-import TeacherPlanner, { PlannerHomeStrip } from "./TeacherPlanner.jsx";
+import TeacherPlanner, { PlannerHomeStrip, PlannerReminders } from "./TeacherPlanner.jsx";
+// 내 일정 주인 키: 로그인한 본인(관리자가 다른 선생님 화면을 볼 때도 본인 것)
+const plannerOwnerOf = ({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin }) => { const user = loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin; return user ? `${loggedInTeacher ? "teacher" : loggedInDepartment ? "dept" : loggedInMonitor ? "monitor" : "admin"}.${user.id || user.name || ""}` : ""; };
 const MockAnalysisPanel = lazy(() => loadGradesModule().then(module => ({ default: module.MockAnalysisDashboard })));
 const AdminStudentAccounts = lazy(() => loadGradesModule().then(module => ({ default: module.AdminStudentAccounts })));
 const TeacherGradeAnalyzer = lazy(() => import("./TeacherGradeAnalyzer.jsx"));
@@ -2052,6 +2054,7 @@ export default function App() {
         {overlayUserKey && <PatchNotesPopup userKey={overlayUserKey} audience={loggedInStudent ? "student" : "staff"} onDone={() => setPatchPopupDone(true)} />}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && !loggedInAdmin && canUseMockAnalysis && gdb?.mockData && <MockUploadPopup mockData={gdb.mockData} userKey={overlayUserKey}
           onOpen={latest => { const year = new Date().getFullYear(); const g = latest.entryYear ? String(year - latest.entryYear + 1) : ""; if (["1", "2", "3"].includes(g)) setGrade(g); setTeacherZoneRequest({ mode: "mock", at: Date.now() }); switchSection("teacherZone"); }} />}
+        {patchPopupDone && canSeeTeacherZone && !loggedInStudent && <PlannerReminders owner={plannerOwnerOf({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin })} onOpen={() => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); }} />}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && <GradeCheckPopup calendar={db.academicCalendar} workspaces={db.teacherGradeWorkspaces} teacher={loggedInTeacher || viewedTeacher} isAdmin={!!loggedInAdmin} semester={semester} userKey={overlayUserKey}
           homeroomClass={loggedInTeacher?.homeroomClass && canUseFeature("classGrades") ? loggedInTeacher.homeroomClass : ""} homeroomGrade={loggedInTeacher?.homeroomClass ? (teacherRoleGrade(loggedInTeacher) || grade) : ""}
           onOpenClassExam={() => { const g = teacherRoleGrade(loggedInTeacher); if (g) setGrade(String(g)); openTeacherTool("classGrades", "examAll"); }}
@@ -2917,7 +2920,10 @@ function TeacherZoneWorkspace({
   const modeStorageKey = `kd_teacher_zone_mode_${actor?.id || actor?.name || "shared"}`;
   // 내 일정: 로그인한 본인 것만(관리자가 다른 선생님 화면을 볼 때도 관리자 본인 일정).
   const plannerUser = loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin || null;
-  const plannerOwner = plannerUser ? `${loggedInTeacher ? "teacher" : loggedInDepartment ? "dept" : loggedInMonitor ? "monitor" : "admin"}.${plannerUser.id || plannerUser.name || ""}` : "";
+  const plannerOwner = plannerOwnerOf({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin });
+  // 일정 보내기: 관리자·부서 계정·학년부장. 받는 사람은 선생님 계정 목록.
+  const canAssignPlanner = !!(loggedInAdmin || loggedInDepartment || (loggedInTeacher && normalizedTeacherRole(loggedInTeacher) === "gradeHead"));
+  const plannerRecipients = useMemo(() => (accounts?.teacher || []).filter(t => t?.id && t?.name).map(t => { const role = normalizedTeacherRole(t); const g = teacherRoleGrade(t); return { owner: `teacher.${t.id}`, name: String(t.name), grade: role === "other" ? "" : g, role, label: role === "homeroom" ? `${g}-${t.homeroomClass} 담임` : role === "gradeHead" ? `${g}학년부장` : "" }; }).sort((a, b) => a.name.localeCompare(b.name, "ko")), [accounts?.teacher]);
   const [workspaceMode, setWorkspaceMode] = useState(() => {
     try {
       const saved = localStorage.getItem(modeStorageKey);
@@ -2998,7 +3004,7 @@ function TeacherZoneWorkspace({
         : <div style={styles.warnBanner}><Loader2 size={14} /> 성적 자료를 불러오는 중입니다.</div>}
     </div>}
     {canUseNotice && visitedWorkspaceModes.includes("notice") && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
-    {plannerOwner && workspaceMode === "planner" && <TeacherPlanner owner={plannerOwner} ownerName={plannerUser?.name || ""} calendar={db?.academicCalendar} showToast={showToast} />}
+    {plannerOwner && workspaceMode === "planner" && <TeacherPlanner owner={plannerOwner} ownerName={plannerUser?.name || ""} calendar={db?.academicCalendar} showToast={showToast} canAssign={canAssignPlanner} recipients={plannerRecipients} />}
     {canUseSeparation && visitedWorkspaceModes.includes("separation") && <div style={{ display: workspaceMode === "separation" ? "block" : "none" }} aria-hidden={workspaceMode !== "separation"}>
       <DeferredPanel label="분리희망학생 화면을 불러오는 중입니다."><ClassSeparationTool roster={roster} homeroomClass={separationHomeroom} canViewAll={separationViewAll} canEditAll={!!loggedInAdmin} actor={actor} showToast={showToast} /></DeferredPanel>
     </div>}

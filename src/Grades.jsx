@@ -2773,14 +2773,31 @@ function StudentGradePrintSheet({
 }
 
 // 새 UI 성적 리포트 상단 요약 숫자 칸(화면 전용).
-function ReportSummaryTiles({ items = [] }) {
-  return <div className="no-print" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 10, margin: "12px 0" }}>
+// 성적 리포트 맨 위 요약 칸: 흰 카드 + 위쪽 색 띠 + 작은 표시 + 큰 숫자 + 한 줄 설명(라이트·다크 공통 변수).
+const REPORT_TILE_TONES = { blue: "#2563eb", teal: "#0d9488", purple: "#7c3aed", amber: "#d97706" };
+const REPORT_TILE_CSS = `
+.kd-rtiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:12px 0}
+@media (max-width:520px){.kd-rtiles{gap:8px}.kd-rtile{padding:13px 13px 11px}.kd-rtile b{font-size:26px}.kd-rtile-hd span{font-size:13px}}
+.kd-rtile{position:relative;display:grid;gap:6px;align-content:start;padding:16px 18px 14px;border-radius:16px;border:1px solid var(--kdn-line,#e3e6ec);background:var(--kdn-surface,#fff);overflow:hidden;min-width:0}
+.kd-rtile::before{content:"";position:absolute;inset:0 0 auto 0;height:4px;background:var(--c)}
+.kd-rtile-hd{display:flex;align-items:center;gap:8px;min-width:0}
+.kd-rtile-hd i{flex:0 0 auto;display:grid;place-items:center;width:28px;height:28px;border-radius:9px;background:color-mix(in srgb,var(--c) 14%,transparent);color:var(--c);font-style:normal;font-size:14px;font-weight:900}
+.kd-rtile-hd span{font-size:14px;font-weight:800;color:var(--kdn-ink-soft,#3a4150);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kd-rtile b{display:flex;align-items:baseline;gap:5px;font-size:32px;font-weight:850;line-height:1.05;color:var(--kdn-ink,#141821);font-variant-numeric:tabular-nums}
+.kd-rtile b small{font-size:13.5px;font-weight:700;color:var(--kdn-muted,#5d6574)}
+.kd-rtile em{font-style:normal;font-size:12.5px;line-height:1.4;color:var(--kdn-muted,#5d6574);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kd-rtile.is-empty b{color:var(--kdn-muted,#9aa1ad)}
+`;
+export function ReportSummaryTiles({ items = [] }) {
+  return <div className="kd-rtiles no-print">
+    <style dangerouslySetInnerHTML={{ __html: REPORT_TILE_CSS }} />
     {items.map(item => {
-      const value = item.value == null || !Number.isFinite(Number(item.value)) ? "-" : Number(item.value).toFixed(item.digits ?? 2);
-      const tone = toneTileStyle(item.tone);
-      return <div key={item.label} style={{ display: "grid", gap: 8, padding: "16px 18px", borderRadius: 18, ...tone.tile }}>
-        <span style={{ fontSize: 14, fontWeight: 700, ...tone.label }}>{item.label}</span>
-        <b style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: "#141821", whiteSpace: "nowrap" }}>{value}{item.unit && <small style={{ fontSize: 13, fontWeight: 700, color: "#5d6574" }}> {item.unit}</small>}</b>
+      const empty = item.value == null || !Number.isFinite(Number(item.value));
+      const value = empty ? "-" : Number(item.value).toFixed(item.digits ?? 2);
+      return <div key={item.label} className={`kd-rtile${empty ? " is-empty" : ""}`} style={{ "--c": REPORT_TILE_TONES[item.tone] || REPORT_TILE_TONES.blue }}>
+        <div className="kd-rtile-hd"><i aria-hidden="true">{item.mark || item.label.slice(0, 1)}</i><span>{item.label}</span></div>
+        <b>{value}{item.unit && !empty && <small>{item.unit}</small>}</b>
+        {item.sub && <em title={item.sub}>{item.sub}</em>}
       </div>;
     })}
   </div>;
@@ -3021,10 +3038,10 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
         actions={showGrades ? <button type="button" className="no-print" onClick={()=>setShowGradePrintOptions(true)} style={{display:"inline-flex",alignItems:"center",gap:6,border:"1px solid rgba(255,255,255,.5)",borderRadius:9,padding:"8px 11px",background:"rgba(255,255,255,.13)",color:"#fff",fontSize:11.5,fontWeight:900,cursor:"pointer",whiteSpace:"nowrap"}} title="학기별 내신과 모의고사 성적을 한 장으로 인쇄하거나 PDF로 저장합니다."><Printer size={14}/>성적표 인쇄·PDF</button> : null}
       />
       {isNewUi() && showGrades && <ReportSummaryTiles items={[
-        { label: "전과목 평균", value: overallAverage, unit: gradeSystem === 5 ? "5등급제" : "9등급제", tone: "blue" },
-        { label: "국영수과 평균", value: gradeSystem === 5 ? groups["국영수과"]?.avg5 : groups["국영수과"]?.avg9, tone: "teal" },
-        { label: activeMockKey ? `모의고사 3합 · ${mockCalendarLabel(activeMockKey, entryYear)}` : "모의고사 3합", value: sums.sum3, digits: 0, tone: "purple" },
-        { label: "수능최저 충족 대학", value: matchedUniversities.length, unit: "곳", digits: 0, tone: "amber" },
+        { label: "전과목 평균", mark: "전", value: overallAverage, unit: "등급", sub: `내신 · ${gradeSystem === 5 ? "5등급제" : "9등급제"} 기준`, tone: "blue" },
+        { label: "국영수과 평균", mark: "국", value: gradeSystem === 5 ? groups["국영수과"]?.avg5 : groups["국영수과"]?.avg9, unit: "등급", sub: "국어·영어·수학·과학 교과", tone: "teal" },
+        { label: "모의고사 3합", mark: "모", value: sums.sum3, digits: 0, sub: activeMockKey ? mockCalendarLabel(activeMockKey, entryYear) : "모의고사 성적 없음", tone: "purple" },
+        { label: "수능최저 충족", mark: "최", value: matchedUniversities.length, unit: "곳", digits: 0, sub: "최근 모의고사로 충족하는 대학", tone: "amber" },
       ]} />}
       {paged && hasAnyData && <div ref={reportPagerRef} className="kdn-search-steps kdn-substeps kdn-report-pages no-print" role="tablist" aria-label="성적 리포트 페이지">
         {REPORT_PAGES.map(([key, label, note], index) => <button key={key} type="button" role="tab" aria-selected={reportPage === key} className={reportPage === key ? "is-active" : ""} onClick={() => goReportPage(key)}><span>{index + 1}</span><b>{label}</b><small>{note}</small></button>)}
