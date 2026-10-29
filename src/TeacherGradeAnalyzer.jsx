@@ -1684,6 +1684,7 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
   return (
     <div className="teacher-grade-analyzer" style={ui.root}>
       <style>{gradeAnalyzerCss}</style>
+      {isNewUi() && <p className="kdm-pc-note">성적 산출은 표가 넓어서 PC나 휴대폰 가로 화면을 권장해요. 결과 확인은 휴대폰에서도 할 수 있어요.</p>}
       <div className="teacher-grade-hero" style={ui.hero}>
         <div className="teacher-grade-hero-copy">
           <div style={ui.eyebrow}>선생님 ZONE · 성적 산출</div>

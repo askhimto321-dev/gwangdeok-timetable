@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { useIsMobile } from "./useMobile.js";
 import {
   Upload, Search, Copy, ExternalLink, UsersRound, BookOpenCheck, ClipboardCheck,
   CalendarDays, Link2, FileSpreadsheet, Check, AlertTriangle, X, GraduationCap,
   ListChecks, Database, Save, RefreshCw, Trash2, Pencil, MessageSquareText,
-  FileText, UserRound, Filter, CheckCircle2, CircleDashed, Printer,
+  FileText, UserRound, Filter, CheckCircle2, CircleDashed, Printer, Phone, MessageSquare,
 } from "lucide-react";
 
 const FONT = '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif';
@@ -740,6 +741,7 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
   const [editingSid, setEditingSid] = useState("");
   const [editRow, setEditRow] = useState(null);
   const [bulkLeadershipRole, setBulkLeadershipRole] = useState("없음");
+  const mobile = useIsMobile();
   const dataRevision = cleanText(data?.appliedAt || data?.updatedAt || data?.sourceName || "shared").replace(/[^0-9A-Za-z가-힣_-]/g, "_").slice(-48);
   const roleDraftKey = `kd_contact_role_draft_v32_${actor?.id || actor?.name || "shared"}_${dataRevision}`;
   const [leadershipDraft, setLeadershipDraft] = useState(() => {
@@ -896,6 +898,7 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
         <button type="button" onClick={saveRoleDraft} disabled={!dirtyRoleCount}><Save size={14}/>임시 저장{dirtyRoleCount ? ` ${dirtyRoleCount}` : ""}</button><button type="button" className="pri" onClick={applyRoleDraft} disabled={!dirtyRoleCount}><Save size={14}/>학교 자료에 저장{dirtyRoleCount ? ` ${dirtyRoleCount}` : ""}</button></div>
       {roleFilter !== "전체" && <small className="note">필터: {LEADERSHIP_ROLE_FILTERS.find(([value])=>value===roleFilter)?.[1]}</small>}
     </section>
+    {mobile ? <MobileContactList items={filtered}/> : <>
     <div className="gdt-table-wrap"><table className="gdt-table contacts"><thead><tr><th>선택</th><th>반</th><th>번호</th><th>학번</th><th>성명</th><th>학적</th><th>학급/학생 자치</th><th>학생 연락처</th><th>보호자 연락처</th><th>비고</th><th>수정</th></tr></thead><tbody>
       {editingSid === "__new__" && editRow && <tr className="editing add-row">{renderEditorCells()}</tr>}
       {filtered.map(item => {
@@ -925,8 +928,34 @@ function ContactWorkspace({ data, accessRole, homeroomClass, showToast, onUpdate
           </>}
         </tr>;
       })}
-    </tbody></table></div>
+    </tbody></table></div></>}
   </div>;
+}
+
+// 휴대폰 비상연락망: 번호는 가려 두고, 전화·문자 버튼을 누를 때만 실제 번호로 연결합니다.
+function maskPhone(value) {
+  const formatted = formatPhone(value);
+  if (!formatted) return "";
+  const parts = formatted.split("-");
+  if (parts.length !== 3) return formatted.replace(/\d(?=\d{2})/g, "•");
+  return `${parts[0]}-${"•".repeat(parts[1].length)}-••${parts[2].slice(-2)}`;
+}
+function MobileContactList({ items }) {
+  if (!items.length) return <p className="gdm-empty">조건에 맞는 학생이 없어요.</p>;
+  return <>
+    <p className="gdm-lock">번호는 가려져 있어요 · 전화·문자 버튼을 누를 때만 연결돼요</p>
+    <ul className="gdm-contacts">{items.map(item => {
+      const guardian = normalizePhone(item.guardianPhone), student = normalizePhone(item.studentPhone);
+      return <li key={item.sid}>
+        <span className="no">{item.number}</span>
+        <div className="who"><b>{item.name}</b><small>{item.classNumber}반 · {guardian ? `보호자 ${maskPhone(guardian)}` : "보호자 연락처 미입력"}</small></div>
+        {student && <a className="st" href={`tel:${student}`} aria-label={`${item.name} 학생에게 전화`}>학생</a>}
+        {guardian && <a className="sms" href={`sms:${guardian}`} aria-label={`${item.name} 보호자에게 문자`}><MessageSquare size={18}/></a>}
+        {guardian && <a className="call" href={`tel:${guardian}`} aria-label={`${item.name} 보호자에게 전화`}><Phone size={18}/></a>}
+      </li>;
+    })}</ul>
+    <p className="gdm-empty">수정·자치 역할 바꾸기는 PC나 휴대폰 가로 화면에서 할 수 있어요.</p>
+  </>;
 }
 
 function ContactCell({ value, label, showToast }) {
@@ -1184,4 +1213,19 @@ const GDT_NEW_CSS = `
 .grade-department-tools .gdt-link-manager,.grade-department-tools .gdt-activity-link-editor{border-radius:16px;font-size:14px}
 .grade-department-tools .gdt-empty b{font-size:16px}.grade-department-tools .gdt-empty span{font-size:13.5px}
 @media (max-width:720px){.gdx-head .stats{width:100%}.gdx-head .stats span{flex:1}.gdx-head .acts{width:100%}.gdx-head .acts>*{flex:1;justify-content:center}.gdx-tabs button{padding:0 12px}.gdx-tabs button b{font-size:14px}}
+@media (max-width:760px) and (orientation:portrait){.grade-department-tools .gdx-bulk,.grade-department-tools .gdx-head .stats{display:none}.grade-department-tools .gdx-head .t small{display:none}.grade-department-tools .gdx-head .acts>*{white-space:nowrap;padding-left:8px;padding-right:8px}}
+.gdm-lock{display:flex;align-items:center;gap:8px;margin:0;padding:10px 14px;border-radius:16px;background:rgba(23,24,29,.05);font-size:12px;color:var(--kdn-ink-soft,#5b606b)}
+.gdm-empty{margin:4px;font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.gdm-contacts{list-style:none;margin:0;padding:4px 0;border-radius:22px;background:var(--kdn-surface,#fff);box-shadow:0 1px 2px rgba(20,24,33,.04),0 10px 26px rgba(20,24,33,.06)}
+.gdm-contacts li{display:flex;align-items:center;gap:8px;min-height:68px;padding:0 12px 0 16px}
+.gdm-contacts li+li{border-top:1px solid color-mix(in srgb,var(--kdn-ink,#17181d) 7%,transparent)}
+.gdm-contacts .no{width:22px;font-size:13px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}
+.gdm-contacts .who{flex:1;min-width:0;display:flex;flex-direction:column}
+.gdm-contacts .who b{font-size:15px;font-weight:700;color:var(--kdn-ink,#17181d)}
+.gdm-contacts .who small{font-size:12px;color:var(--kdn-muted,#8a8f99);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+.gdm-contacts a{display:grid;place-items:center;width:44px;height:44px;flex:none;border-radius:99px;text-decoration:none}
+.gdm-contacts a.st{width:auto;padding:0 10px;height:34px;background:var(--kdn-surface-2,#f3f2ef);color:var(--kdn-ink-soft,#5b606b);font-size:12px;font-weight:700}
+.gdm-contacts a.sms{background:var(--kdn-surface-2,#f3f2ef);color:var(--kdn-ink,#17181d)}
+.gdm-contacts a.call{background:#17181d;color:#ff9a5c}
+[data-kd-ui="dark"] .gdm-contacts a.call{background:#ff7a3d;color:#1b1006}
 `;

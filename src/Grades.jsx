@@ -2932,7 +2932,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
 
   const [selSemKey, setSelSemKey] = useState(null);
   // 휴대폰 세로 화면: 내신은 과목 카드, 모의고사는 과목 칸으로(가로로 돌리면 PC 표)
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobile() && isNewUi();
   const [schoolCards, setSchoolCards] = useState(true);
   const activeSemKey = selSemKey && availableSemesters.includes(selSemKey)
     ? selSemKey
