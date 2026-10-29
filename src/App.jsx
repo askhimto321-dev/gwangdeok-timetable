@@ -2928,7 +2928,8 @@ function TeacherZoneWorkspace({
   const departmentCanUseSecondGradeTools = !!(loggedInDepartment && (!departmentGrades.length || departmentGrades.includes("2")));
   const canUseGradeDepartmentTools = String(grade) === "2" && !!(loggedInAdmin || departmentCanUseSecondGradeTools || activeTeacherIsSecondGradeStaff);
   // 반편성 분리희망학생: 2학년 학급담임(자기 반 입력)·2학년부장·2학년부 부서 계정(전체 보기)·관리자(전체 보기·입력)만
-  const separationViewAll = !!(loggedInAdmin || departmentCanUseSecondGradeTools || (activeTeacher && teacherRoleGrade(activeTeacher) === "2" && normalizedTeacherRole(activeTeacher) === "gradeHead"));
+  // 모든 반 보기: 관리자·2학년 부서·2학년 부장, 그리고 2학년 담임(보기만 전체, 입력·수정은 자기 반만).
+  const separationViewAll = !!(loggedInAdmin || departmentCanUseSecondGradeTools || (activeTeacher && teacherRoleGrade(activeTeacher) === "2" && ["gradeHead", "homeroom"].includes(normalizedTeacherRole(activeTeacher))));
   const separationHomeroom = activeTeacher && teacherRoleGrade(activeTeacher) === "2" && normalizedTeacherRole(activeTeacher) === "homeroom" && activeTeacher.homeroomClass ? String(activeTeacher.homeroomClass) : "";
   const canUseSeparation = String(grade) === "2" && !!(separationViewAll || separationHomeroom);
   const modeStorageKey = `kd_teacher_zone_mode_${actor?.id || actor?.name || "shared"}`;

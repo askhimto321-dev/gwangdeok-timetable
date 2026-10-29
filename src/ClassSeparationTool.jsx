@@ -405,7 +405,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
   return <div className="kcs">
     <style dangerouslySetInnerHTML={{ __html: CSS }} />
     <section className="kcs-head">
-      <div className="t"><b>{year + 1} 반편성 · 분리희망학생</b><small>{canViewAll ? `2학년 ${tabs.length}개 반 · 입력한 반 ${startedClasses}개 · 입력한 학생 ${totalFilled}명 · 분리 관계 ${pairs.length}건` : `${ownClass}반 담임 · 입력한 학생 ${classStats[0]?.filled || 0}명 · 우리 반 관련 분리 관계 ${scopePairs.length}건`}</small></div>
+      <div className="t"><b>{year + 1} 반편성 · 분리희망학생</b><small>{canViewAll ? `${ownClass && !canEditAll ? `${ownClass}반 담임(우리 반만 입력) · ` : ""}2학년 ${tabs.length}개 반 · 입력한 반 ${startedClasses}개 · 입력한 학생 ${totalFilled}명 · 분리 관계 ${pairs.length}건` : `${ownClass}반 담임 · 입력한 학생 ${classStats[0]?.filled || 0}명 · 우리 반 관련 분리 관계 ${scopePairs.length}건`}</small></div>
       <div className="kcs-seg" role="tablist" aria-label="화면 선택">
         <button type="button" data-kdn-bare role="tab" aria-selected={mode === "edit"} className={mode === "edit" ? "is-on" : ""} onClick={() => setMode("edit")}>학생별 입력</button>
         <button type="button" data-kdn-bare role="tab" aria-selected={mode === "summary"} className={mode === "summary" ? "is-on" : ""} onClick={() => setMode("summary")}>{canViewAll ? "전체 현황" : "우리 반 현황"}</button>
