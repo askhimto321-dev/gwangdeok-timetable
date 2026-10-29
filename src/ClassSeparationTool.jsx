@@ -149,6 +149,8 @@ const CSS = `
 .kcs-modal-check{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:12px;background:var(--kdn-surface-2,#f8fafc);cursor:pointer}.kcs-modal-check span{display:grid;gap:2px}.kcs-modal-check b{font-size:14px}.kcs-modal-check small{font-size:12.5px;color:var(--kdn-muted,#64748b)}
 .kcs-modal-ft{display:flex;justify-content:flex-end;gap:8px}
 .kcs-bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:var(--kdn-surface-2,#eef2f7)}.kcs-bar i{display:block;height:100%}
+.kcs-back{display:none}
+@media (max-width:640px){.kcs-list{max-height:none!important}.kcs-split:not(.has-sel) .kcs-pane,.kcs-split.has-sel .kcs-list{display:none}.kcs-back{display:inline-flex;align-items:center;min-height:40px;margin:0 0 6px;padding:0 4px;border:0;background:transparent;font:inherit;font-size:14px;font-weight:800;color:var(--kdn-accent-text,#c2410c);cursor:pointer}.kcs-list>button{min-height:52px}}
 @media (max-width:900px){.kcs-split,.kcs-grid2{grid-template-columns:minmax(0,1fr)}.kcs-list{max-height:280px}.kcs-scale ol{grid-template-columns:repeat(2,minmax(0,1fr))}.kcs-scale-hd small{display:none}.kcs-scale li:nth-child(3){border-left:0}
   .kcs-row{grid-template-columns:24px minmax(0,1fr) 38px;grid-template-areas:"i pick del" "i lv lv" "i rs rs"}.kcs-recv-card{grid-template-columns:minmax(0,1fr)}.kcs-recv-card .by{justify-items:start;text-align:left}.kcs-tabs button{min-height:54px;padding:8px 8px;flex-direction:column;gap:4px}.kcs-tabs button b{font-size:13.5px}.kcs-classes{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}}
 `;
@@ -420,7 +422,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
 
     {loading ? <div className="kcs-empty"><Loader2 size={16} className="spin" /> 불러오는 중입니다.</div> : mode === "edit" ? <>
       {tabs.length > 1 && <section className="kcs-classbar"><small>반 선택 · 초록 막대 = 입력한 학생 비율 · 빨간 표시 = 그 반 학생이 들어간 분리 관계 수</small><div className="kcs-classes" role="tablist" aria-label="반 선택">{classStats.map(s => <button key={s.c} type="button" data-kdn-bare role="tab" aria-selected={s.c === viewClass} className={s.c === viewClass ? "is-on" : ""} onClick={() => changeClass(s.c)}><span className="top"><b>{s.c}반</b>{s.total > 0 && <em className="rel" title="이 반 학생이 들어간 분리 관계">관계 {s.total}</em>}</span><span className="prog" aria-hidden="true"><i style={{ width: `${s.size ? Math.min(100, (s.filled / s.size) * 100) : 0}%` }} /></span><span className="sub">{s.filled ? `입력 ${s.filled} / ${s.size}명` : `입력 전 · ${s.size}명`}</span></button>)}</div></section>}
-      <div className="kcs-split">
+      <div className={`kcs-split${sid ? " has-sel" : ""}`}>
         <nav className="kcs-list" aria-label={`${viewClass}반 학생`}>
           <div className="kcs-list-find"><input value={findText} placeholder={`${viewClass}반에서 이름·학번 찾기`} aria-label="학생 찾기" onChange={event => setFindText(event.target.value)} /></div>
           {shownStudents.map(([id, s]) => { const own = ownTargets(id); const rev = (reverseMap[id] || []).filter(r => !own.some(t => t.sid === r.sid)); return <button key={id} type="button" data-kdn-bare className={id === sid ? "is-on" : ""} onClick={() => pick(id)}>
@@ -436,6 +438,7 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
             <small><span className="kcs-badge t-must">분리 2</span> 이 학생의 분리 대상 수 <span className="kcs-badge rev t-high">지목 1</span> 다른 학생 쪽에서 이 학생을 분리 대상으로 등록한 수 · 색은 가장 강한 등급</small>
             <LevelScale />
           </div> : <>
+            <button type="button" data-kdn-bare className="kcs-back" onClick={() => { if (!confirmLeave()) return; setSid(""); setDraft([]); setDirty(false); }}>← {viewClass}반 명단</button>
             <div className="kcs-pane-hd">
               <b>{nameOf(sid, roster) || sid}</b>
               <span className="meta"><em>{sid}</em><em>{viewClass}반</em>{roster?.[sid]?.gender && <em className={`g-${genderTone(roster[sid].gender)}`}>{roster[sid].gender}</em>}{entries[sid]?.updatedAt && <em className="soft">마지막 저장 {new Date(entries[sid].updatedAt).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}{entries[sid].by ? ` · ${entries[sid].by}` : ""}</em>}</span>
