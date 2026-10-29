@@ -8,6 +8,7 @@ import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, cu
 import { examPeriodFromCalendar, gradeCheckDone } from "./examPeriod.js";
 import { activePatchNotes } from "./patchNotes.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
+import { useIsMobile } from "./useMobile.js";
 import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay, SaveStatus, MobileTabBar, MobileMoreSheet, PageTrail } from "./AppOverlays.jsx";
 import { parseQuickTodo } from "./teacherPlanner.js";
 import { readViewPrefs, saveViewPrefs, FONT_SCALES, DENSITIES } from "./viewPrefs.js";
@@ -3195,7 +3196,7 @@ function TeacherZoneHome({ plannerOwner = "", onOpenPlanner, calendar, actor, ac
       {resultGroups.map(([g, list]) => <div key={g} className="kdn-tz2-quick-row"><small>{g}학년</small>{list.slice(0, 8).map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => onOpenGrade?.(3, ws.id, g)} title={`${g}학년 ${ws.subject} 결과 확인으로 바로 가기`}>{ws.subject}<ArrowRight size={13} /></button>)}</div>)}
     </section>}
     {canUseSeparation && <section className="kdn-tz2-sep" aria-label="반편성 분리희망학생 입력">
-      <span className="ic" aria-hidden="true"><UserX size={26} /></span>
+      <span className={`ic il-${SHORTCUT_ILLOS[item.key] ? item.key : "grades"}`} aria-hidden="true"><UserX size={26} /></span>
       <div className="tx"><em>반편성 · 지금 입력할 일</em><b>{new Date().getFullYear() + (new Date().getMonth() + 1 >= 3 ? 1 : 0)} 반편성 분리희망학생</b><span>{activeTeacher?.homeroomClass ? `${activeTeacher.homeroomClass}반 학생마다` : "학생마다"} 같은 반이 되면 안 되는 학생을 적어 주세요. 다른 반에서 적은 내용도 함께 보입니다.</span>
         <i className="lv"><s className="must">반드시</s><s className="high">되도록</s><s className="mid">가능하면</s><s className="low">참고</s></i></div>
       <button type="button" data-kdn-bare onClick={() => onOpen("separation")}>입력하기 <ArrowRight size={16} /></button>
@@ -3365,10 +3366,14 @@ function UiModeMenu() {
 function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], examZone = [], semester, academicCalendar }) {
   const now = useNow(1000);
   const student = kind === "student";
+  const mobileDash = useIsMobile("(max-width: 760px)");
   // 정기시험 7일 전 ~ 끝난 뒤 6일: 상단 D-day 띠 + 바로가기 맨 앞에 성적 ZONE 묶음.
   const exam = !student && examZone.length ? examPeriodFromCalendar(academicCalendar, now) : null;
   const zoneKeys = new Set(["classGrades", "gradeLookup"]);
   const listedShortcuts = exam ? shortcuts.filter(item => !zoneKeys.has(item.key)) : shortcuts;
+  // 휴대폰: 인사 + 진한 카드(다음 수업 / 최근 학생) + 바로가기 칸 + 다가오는 일정으로 짧게
+  if (mobileDash) return <MobileDashboard student={student} name={name} lesson={lesson} openStudent={openStudent} onNavigate={onNavigate} onOpenStudentView={onOpenStudentView}
+    shortcuts={listedShortcuts} exam={exam} examZone={examZone} now={now} academicCalendar={academicCalendar} />;
   const headline = student
     ? [`${name || ""} 학생,`, "오늘 수업과 공지를", "한 번에 확인해요."]
     : ["성적 확인부터", "지원 전략까지,", "한 흐름으로."];
@@ -3431,6 +3436,26 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
       </section>}
     </main>
   );
+}
+
+const WEEK_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+function MobileDashboard({ student, name, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], exam, examZone = [], now, academicCalendar }) {
+  const date = `${WEEK_EN[now.getDay()]} · ${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`;
+  return <main className="kdm-dash">
+    <header className="kdm-dash-head"><small>{date}</small><b>{student ? `${name || ""}님, 안녕하세요` : `안녕하세요${name ? `, ${name}` : ""}`}</b></header>
+    {exam && <DashboardExamStrip exam={exam} now={now} onStart={examZone[0]?.onClick} />}
+    <section className="kdm-hero">
+      {student ? <DashboardLessonCard lesson={lesson} onOpen={() => onNavigate("timetable")} />
+        : <DashboardStudentCard student={openStudent} onSearch={() => onNavigate("grades", { focusSearch: true })} onOpenStudentView={onOpenStudentView} />}
+    </section>
+    {shortcuts.length > 0 && <section className="kdm-quick" aria-label="바로가기">
+      {shortcuts.slice(0, 8).map(item => <button key={item.key} type="button" onClick={item.onClick} title={item.text}>
+        <span className="ic" aria-hidden="true" dangerouslySetInnerHTML={{ __html: SHORTCUT_ILLOS[item.key] || SHORTCUT_ILLOS.grades }} />
+        <span className="lb">{item.title}</span>
+      </button>)}
+    </section>}
+    {upcomingAcademicEvents(academicCalendar, now).length > 0 && <section className="kdm-upcoming"><DashboardUpcoming calendar={academicCalendar} now={now} /></section>}
+  </main>;
 }
 
 // 대시보드 바로가기 카드 오른쪽 아래의 둥근 도형 그림. 색은 CSS 변수(--i1 옅은 면, --i2 진한 면, --i3 주황 점)로 모드별로 바꿉니다.
