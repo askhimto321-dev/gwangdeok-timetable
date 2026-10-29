@@ -1515,6 +1515,17 @@ function changeParts(trend = []) {
   const prev = trend[trend.length - 2], last = trend[trend.length - 1];
   return [fmt2(prev.value), fmt2(last.value), Number((prev.value - last.value).toFixed(2))];
 }
+// 휴대폰 세로 반별 성적: 순위 · 학생 · 누적 · 직전 대비 변화만 한 줄로. 학기별 표는 가로 화면에서.
+function ClassRankList({ rows, ranked, val, delta, isSubject, onOpenStudent }) {
+  return <div className="kdm-rank">
+    <div className="kdm-rank-hd"><span>순위</span><span>학생</span><span>누적</span><span>변화</span></div>
+    {rows.map(row => { const v = val(row); const rank = ranked.get(row.sid); const d = delta(row);
+      const body = <><span className={`r${rank && rank <= 3 ? " top" : ""}`}>{rank || "-"}</span><span className="nm"><b>{row.name}</b><small>{row.number ? `${row.number}번` : row.sid}</small></span><b className="v">{v == null ? (isSubject ? "미수강" : "-") : v.toFixed(2)}</b><em className={d == null ? "" : d > 0.004 ? "up" : d < -0.004 ? "down" : ""}>{d == null ? "–" : Math.abs(d) <= 0.004 ? "–" : `${d > 0 ? "▲" : "▼"}${Math.abs(d).toFixed(2)}`}</em></>;
+      return onOpenStudent ? <button key={row.sid} type="button" data-kdn-bare onClick={() => onOpenStudent(row.sid)}>{body}</button> : <div key={row.sid}>{body}</div>; })}
+    <p className="kdm-hint">줄을 누르면 그 학생 성적으로 · 학기별 표는 휴대폰을 가로로 돌려서 봐요</p>
+  </div>;
+}
+
 function SemesterChange({ trend = [] }) {
   if (trend.length < 2) return trend.length ? <span className="cg-sub">최근 {fmt2(trend[0].value)} · 비교 없음</span> : <span className="cg-sub">-</span>;
   const prev = trend[trend.length - 2], last = trend[trend.length - 1];
@@ -1553,6 +1564,7 @@ const CLASS_GRADES_TOUR = [
 ];
 export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = "", isAdmin = false, onOpenStudent, examWorkspaces = null, preset = "", presetNonce = 0 }) {
   const [tourToken, setTourToken] = useState(0);
+  const mobileList = useIsMobile() && isNewUi();
   const classes = useMemo(() => Array.from(new Set(Object.values(roster || {}).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
   const [pickedClass, setPickedClass] = useState(String(homeroomClass || ""));
   const [view, setView] = useState("class");
@@ -1796,7 +1808,7 @@ export function ClassGradeOverview({ gdb, roster, currentGrade, homeroomClass = 
     {view === "class" && isExam && examPick && <ClassExamStudents exam={examPick} rosterRows={rosterRows} allClasses={allClasses} classNo={classNo} tableSort={tableSort} onSort={setTableSort} onOpenStudent={onOpenStudent} part="table" />}
     {view === "class" && !isExam && (!rows.length ? <EmptyBox text={isSubject && takersOnly && rosterRows.length ? `${allClasses ? "전체 반" : `${classNo}반`}에 ${subjectName} 수강자가 없습니다.` : `${classNo}반 학생 명단이 없습니다.`} /> : <section className="cg-card">
       <div className="cg-tablebar"><b>{metricLabel} 기준</b>{isSubject && <button type="button" data-kdn-bare className={`cg-takers${takersOnly ? " is-on" : ""}`} aria-pressed={takersOnly} onClick={() => setTakersOnly(value => !value)}>{takersOnly ? "✓ " : ""}수강자만 <small>{rosterRows.filter(row => val(row) != null).length}/{rosterRows.length}명</small></button>}<span>정렬</span><div className="cg-seg">{[["rank", "순위순"], ["sid", "학번순"]].map(([key, label]) => <button key={key} type="button" className={tableSort === key ? "is-on" : ""} onClick={() => setTableSort(key)}>{label}</button>)}</div></div>
-      {isSubject ? <div className="cg-table-wrap is-sticky"><table className="cg-table cg-sjt"><colgroup><col style={{ width: 64 }} /><col style={{ width: 84 }} /><col style={{ width: 170 }} />{semCols.map(key => <React.Fragment key={key}><col /><col /><col /><col /></React.Fragment>)}</colgroup>
+      {mobileList ? <ClassRankList rows={ordered} ranked={ranked} val={val} delta={delta} isSubject={isSubject} onOpenStudent={onOpenStudent} /> : isSubject ? <div className="cg-table-wrap is-sticky"><table className="cg-table cg-sjt"><colgroup><col style={{ width: 64 }} /><col style={{ width: 84 }} /><col style={{ width: 170 }} />{semCols.map(key => <React.Fragment key={key}><col /><col /><col /><col /></React.Fragment>)}</colgroup>
       <thead><tr className="h1"><th rowSpan={2}>순위</th><th rowSpan={2}>학번</th><th rowSpan={2}>이름</th>{semCols.map(key => { const [y, t] = key.split("-"); return <th key={key} colSpan={4} className="sem"><span>{y}학년 {t}학기</span><b>{subjectName}</b></th>; })}</tr>
       <tr className="h2">{semCols.map(key => ["원점수", "석차", "등급", "성취도"].map((label, col) => <th key={`${key}-${label}`} className={col ? "" : "gstart"}>{label}</th>))}</tr></thead>
       <tbody>{ordered.map(row => { const rank = ranked.get(row.sid); return <tr key={row.sid}>
@@ -2298,6 +2310,8 @@ export function MockAnalysisDashboard({ gdb, roster, currentGrade, onGradeChange
 // 모의고사: 과목 × 1~9등급 표(인원 / 비율 / 등급컷). 과목 줄을 누르면 과목별로 이동합니다.
 function MockGradeTable({ rows, cuts = {}, mode = "count", onMode, onPick }) {
   const present = rows.filter(row => !row.isAbsent);
+  const mobile = useIsMobile() && isNewUi();
+  const [mobileSubject, setMobileSubject] = useState("");
   const subjects = MOCK_SUBJECTS.filter(subject => present.some(row => Number(row.grades?.[subject])));
   const data = subjects.map(subject => {
     const counts = Array(9).fill(0), mins = Array(9).fill(null);
@@ -2315,7 +2329,17 @@ function MockGradeTable({ rows, cuts = {}, mode = "count", onMode, onPick }) {
   return <section className="mk-card">
     <header className="mk-card-head"><div><b>과목별 등급 분포</b><span>과목을 누르면 자세히 볼 수 있어요</span></div>
       <div className="mk-seg" role="group" aria-label="보기 선택">{modes.map(([key, label]) => <button key={key} type="button" data-kdn-bare aria-pressed={mode === key} onClick={() => onMode(key)}>{label}</button>)}</div></header>
-    {!data.length ? <p className="mk-empty">등급 자료가 없어요.</p> : <div className="mk-scroll is-auto"><table className="mk-table mk-gradetable">
+    {data.length > 0 && mobile && mode !== "cut" ? (() => {
+      const item = data.find(entry => entry.subject === mobileSubject) || data[0];
+      const peak = Math.max(1, ...item.counts);
+      const avg = item.total ? item.counts.reduce((sum, n, i) => sum + n * (i + 1), 0) / item.total : null;
+      return <div className="kdm-mkdist">
+        <div className="kdm-mkdist-subj" role="group" aria-label="과목">{data.map(entry => <button key={entry.subject} type="button" data-kdn-bare aria-pressed={entry.subject === item.subject} onClick={() => setMobileSubject(entry.subject)}>{entry.subject}</button>)}</div>
+        <div className="kdm-mkdist-hd"><b>{item.subject} 등급 분포</b><span>{avg != null ? `평균 ${avg.toFixed(1)} · ` : ""}{item.total}명</span></div>
+        <div className="kdm-mkdist-bars">{item.counts.map((n, i) => <div key={i} className={`g${i + 1}`}><small>{mode === "rate" ? `${Math.round(n / (item.total || 1) * 100)}%` : n}</small><i style={{ height: `${Math.max(3, Math.round(n / peak * 100))}%` }} /><span>{i + 1}</span></div>)}</div>
+        <button type="button" data-kdn-bare className="kdm-mkdist-go" onClick={() => onPick(item.subject)}>{item.subject} 자세히 보기 →</button>
+      </div>;
+    })() : !data.length ? <p className="mk-empty">등급 자료가 없어요.</p> : <div className="mk-scroll is-auto"><table className="mk-table mk-gradetable">
       <thead><tr><th className="l">과목</th>{Array.from({ length: 9 }, (_, i) => <th key={i}>{i + 1}등급</th>)}<th>{mode === "cut" ? "기준" : "응시"}</th></tr></thead>
       <tbody>{data.map(item => <tr key={item.subject} className="is-click" onClick={() => onPick(item.subject)}>
         <td className="l strong">{item.subject}</td>
