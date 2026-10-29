@@ -27,6 +27,7 @@ import { isNewUi, getUiMode, rawColors } from './uiMode.js';
 import {recommendedCourseDisplayName} from './recommendationPresentation.js';
 import {resolveAdmissionMinimum} from './admissionMinimumLink.js';
 import { LayoutGrid } from 'lucide-react';
+import { useIsMobile } from './useMobile.js';
 import { loadSupportPlan, subscribeSupportPlanChanges } from './supportPlanStore.js';
 import { evaluateStoredMinimum, minimumImprovementAdvice, minimumHistorySummary, improvementAdviceText } from "./naviMinimum.js";
 import MinimumCalcStrip from "./MinimumCalcStrip.jsx";
@@ -2797,6 +2798,28 @@ export function ReportHeadBar({ facts = [], onPrint }) {
   </div>;
 }
 
+// 휴대폰 세로 화면용 내신 과목 카드: 과목·계열 색·유형, 오른쪽에 등급(없으면 성취도), 아래 한 줄에 원점수·석차.
+function MobileSubjectCards({ subjects = [], gradeSystem = 5 }) {
+  if (!subjects.length) return <p className="kdm-empty">이 학기 과목이 없어요.</p>;
+  return <div className="kdm-subjects">
+    {subjects.map((subject, index) => {
+      const meta = categoryMeta(subject.category, subject.subject);
+      const typeMeta = subjectTypeMeta(subject);
+      const grade = getSubjectGrade(subject);
+      const converted = grade == null || gradeSystem !== 5 ? null : Math.round(grade5to9(grade) * 100) / 100;
+      const rank = asNumber(subject.rank);
+      const size = asNumber(subject.classSize);
+      const top = rank != null && size ? Math.round((rank / size) * 1000) / 10 : null;
+      return <div key={`${subject.subject}-${index}`} className="kdm-subj" style={{ "--cat": meta.color }}>
+        <div className="nm"><b>{subject.subject}</b><span>{meta.label || meta.key}{typeMeta?.short ? ` · ${typeMeta.short}` : ""}{subject.credit ? ` · ${subject.credit}학점` : ""}</span></div>
+        <div className="gr">{grade != null ? <><b>{grade}</b>{converted != null && <small>9등급 {converted}</small>}</> : <><b className="ach">{subject.achievement ?? "-"}</b><small>성취도</small></>}</div>
+        <div className="ft"><span>원점수 <em>{formatRawScore(subject)}</em></span>{grade != null && <span>성취도 <em>{subject.achievement ?? "-"}</em></span>}{rank != null && <span>석차 <em>{rank}{size ? `/${size}` : ""}</em>{top != null && top <= 10 ? <i>상위 {top}%</i> : null}</span>}</div>
+      </div>;
+    })}
+    <p className="kdm-hint">휴대폰을 가로로 돌리면 전체 표로 볼 수 있어요</p>
+  </div>;
+}
+
 function showGradesForPaging(mode) { return mode === "grades" || mode === "both"; }
 
 function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
@@ -2908,6 +2931,9 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
   ), [groups, printStatisticalMode, reportBetaData, gradePrintOptions.betaGroup]);
 
   const [selSemKey, setSelSemKey] = useState(null);
+  // 휴대폰 세로 화면: 내신은 과목 카드, 모의고사는 과목 칸으로(가로로 돌리면 PC 표)
+  const isMobile = useIsMobile();
+  const [schoolCards, setSchoolCards] = useState(true);
   const activeSemKey = selSemKey && availableSemesters.includes(selSemKey)
     ? selSemKey
     : availableSemesters[availableSemesters.length - 1];
@@ -3092,6 +3118,11 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                   </button>
                 ))}
               </div>
+              {isMobile && <div className="kdm-viewtoggle" role="group" aria-label="내신 보기">
+                <button type="button" data-kdn-bare aria-pressed={schoolCards} onClick={() => setSchoolCards(true)}>카드</button>
+                <button type="button" data-kdn-bare aria-pressed={!schoolCards} onClick={() => setSchoolCards(false)}>표</button>
+              </div>}
+              {isMobile && schoolCards ? <MobileSubjectCards subjects={activeSemSubjects || []} gradeSystem={gradeSystem} /> : <>
               <div style={categoryGuide.box}>
                 <div style={categoryGuide.group}>
                   <strong style={categoryGuide.title}>교과계열</strong>
@@ -3200,6 +3231,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                   </tbody>
                 </table>
               </div>
+              </>}
             </>
           )}
         </div>
@@ -3270,6 +3302,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                   </button>
                 ))}
               </div>
+              {isMobile ? <div className="kdm-mock-tiles">{mockTaken(activeMockKey) ? MOCK_SUBJECTS.map(subject => <div key={subject} className={mockGrades[subject] === 1 ? "is-top" : ""}><small>{subject}</small><b>{mockGrades[subject] ?? "-"}</b></div>) : <p>미응시 — 이 회차 점수가 없어요</p>}</div> : <>
               <div style={table.scroll}>
                 <table style={table.base}>
                   <thead><tr>{MOCK_SUBJECTS.map(subject => <th key={subject} style={table.th}>{subject}</th>)}</tr></thead>
@@ -3284,6 +3317,7 @@ function StudentGradeReport({ sid, gdb, mode = "both", studentInfo = null }) {
                   </tbody>
                 </table>
               </div>
+              </>}
               <MockSumCards sums={sums} />
             </>
           )}

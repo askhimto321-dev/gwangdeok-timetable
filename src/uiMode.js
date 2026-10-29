@@ -2863,6 +2863,56 @@ const SHARED_NEW_CSS = `
     .counseling-print-option-overlay,.grade-print-option-overlay{align-items:flex-end!important;padding:0!important}
     .counseling-print-option-modal,.grade-print-option-modal{width:100%!important;max-width:none!important;max-height:88vh!important;border-radius:28px 28px 0 0!important;margin:0!important}
   }
+  /* 모바일 2단계: 홈 · 학생 작업 줄 · 내신 카드 · 모의고사 칸 */
+  .kdm-viewtoggle,.kdm-mock-tiles,.kdm-subjects{display:none}
+  @media (max-width:760px){
+    .kdm-dash{display:flex;flex-direction:column;gap:14px;padding:18px 16px 24px;color:var(--kdn-ink)}
+    .kdm-dash-head{display:flex;flex-direction:column;gap:4px;padding:4px 4px 0}
+    .kdm-dash-head small{font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--kdn-muted)}
+    .kdm-dash-head b{font-size:24px;font-weight:800;letter-spacing:-.02em}
+    .kdm-hero{position:relative;overflow:hidden;display:flex;flex-direction:column;gap:6px;padding:20px;border-radius:26px;background:linear-gradient(135deg,#1c1d24 0%,#2b2621 100%);color:#fff;box-shadow:0 14px 34px rgba(20,12,6,.22)}
+    .kdm-hero::before{content:"";position:absolute;right:-60px;top:-80px;width:230px;height:230px;border-radius:99px;background:radial-gradient(circle,rgba(255,122,61,.38),rgba(255,122,61,0) 70%);pointer-events:none}
+    .kdm-hero>*{position:relative}
+    .kdm-hero span,.kdm-hero b,.kdm-hero div{color:inherit!important}
+    .kdm-hero>span:first-child{color:#ffb089!important;font-size:12px!important;font-weight:700!important}
+    .kdm-hero b{color:#fff!important}
+    .kdm-hero button{background:rgba(255,255,255,.1)!important;color:#fff!important;border:0!important;border-radius:14px!important;min-height:44px}
+    .kdm-hero button:last-child{background:#ff7a3d!important;color:#1b1006!important}
+    .kdm-quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 8px}
+    .kdm-quick button{display:flex;flex-direction:column;align-items:center;gap:8px;border:0;background:transparent;font:inherit;color:var(--kdn-ink);cursor:pointer}
+    :where(.kdm-quick) .ic{--i1:#e6e8ee;--i2:#cfd4de;--i3:#ff9a5c;width:60px;height:60px;padding:12px;box-sizing:border-box;border-radius:20px;background:var(--kdn-surface);box-shadow:0 1px 2px rgba(20,24,33,.04),0 8px 20px rgba(20,24,33,.06)}
+    [data-kd-ui="dark"] :where(.kdm-quick) .ic{--i1:rgba(255,255,255,.1);--i2:rgba(255,255,255,.2)}
+    .kdm-quick .ic svg{width:100%;height:100%}
+    .kdm-quick .lb{font-size:12px;font-weight:700;text-align:center;line-height:1.3;word-break:keep-all}
+    .kdm-upcoming{padding:14px 16px;border-radius:22px;background:color-mix(in srgb,var(--kdn-surface) 60%,transparent)}
+    /* 학생 작업 줄: 학년·검색·현재 학생은 한 줄씩, 탭 묶음은 한 줄로 옆으로 밀기 */
+    .kdn-work-bar [role="tablist"]{flex-wrap:nowrap!important;overflow-x:auto;scrollbar-width:none;padding-bottom:10px!important}
+    .kdn-work-bar [role="tablist"]::-webkit-scrollbar{display:none}
+    .kdn-work-bar [role="tablist"]>div{flex:none!important;max-width:none!important}
+    /* 내신 카드 · 모의고사 칸 */
+    .kdm-viewtoggle{display:inline-grid;grid-auto-flow:column;gap:2px;padding:4px;margin:0 0 12px;border-radius:12px;background:var(--kdn-surface-2)}
+    .kdm-viewtoggle button{min-height:34px;padding:0 16px;border:0;border-radius:9px;background:transparent;font:inherit;font-size:13px;font-weight:700;color:var(--kdn-muted);cursor:pointer}
+    .kdm-viewtoggle button[aria-pressed="true"]{background:var(--kdn-surface);color:var(--kdn-ink);box-shadow:0 1px 2px rgba(20,24,33,.1)}
+    .kdm-subjects{display:flex;flex-direction:column;gap:8px}
+    .kdm-subj{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:12px 14px 12px 16px;border-radius:18px;background:var(--kdn-surface);box-shadow:0 1px 2px rgba(20,24,33,.04),0 6px 16px rgba(20,24,33,.05);border-left:4px solid var(--cat,#9aa0ab)}
+    .kdm-subj .nm{display:flex;flex-direction:column;gap:2px;min-width:0}
+    .kdm-subj .nm b{font-size:15px;font-weight:800;color:var(--kdn-ink)}
+    .kdm-subj .nm span{font-size:12px;color:var(--kdn-muted)}
+    .kdm-subj .gr{display:flex;flex-direction:column;align-items:flex-end;justify-content:center}
+    .kdm-subj .gr b{font-size:24px;font-weight:800;line-height:1;color:var(--kdn-ink);font-variant-numeric:tabular-nums}
+    .kdm-subj .gr b.ach{font-size:20px}
+    .kdm-subj .gr small{font-size:11px;color:var(--kdn-muted)}
+    .kdm-subj .ft{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--kdn-muted)}
+    .kdm-subj .ft em{font-style:normal;font-weight:700;color:var(--kdn-ink-soft)}
+    .kdm-subj .ft i{font-style:normal;margin-left:4px;padding:1px 6px;border-radius:99px;background:color-mix(in srgb,#16a34a 14%,transparent);color:#15803d;font-weight:700}
+    .kdm-hint,.kdm-empty{margin:6px 4px 0;font-size:12px;color:var(--kdn-muted)}
+    .kdm-mock-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:10px}
+    .kdm-mock-tiles>div{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 0;border-radius:16px;background:var(--kdn-surface-2)}
+    .kdm-mock-tiles small{font-size:11px;color:var(--kdn-muted)}
+    .kdm-mock-tiles b{font-size:24px;font-weight:800;color:var(--kdn-ink);font-variant-numeric:tabular-nums}
+    .kdm-mock-tiles>div.is-top{background:linear-gradient(135deg,#1c1d24,#2b2621)}.kdm-mock-tiles>div.is-top small{color:#ffd2b8}.kdm-mock-tiles>div.is-top b{color:#ff9a5c}
+    .kdm-mock-tiles p{grid-column:1/-1;margin:0;padding:14px;font-weight:800;color:#9a493c}
+  }
   /* 저장 상태 표시 */
   .kdn-savestate{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:800;white-space:nowrap}
   .kdn-savestate i{width:8px;height:8px;border-radius:99px;background:currentColor}
