@@ -2912,6 +2912,41 @@ const SHARED_NEW_CSS = `
     .kdm-mock-tiles b{font-size:24px;font-weight:800;color:var(--kdn-ink);font-variant-numeric:tabular-nums}
     .kdm-mock-tiles>div.is-top{background:linear-gradient(135deg,#1c1d24,#2b2621)}.kdm-mock-tiles>div.is-top small{color:#ffd2b8}.kdm-mock-tiles>div.is-top b{color:#ff9a5c}
     .kdm-mock-tiles p{grid-column:1/-1;margin:0;padding:14px;font-weight:800;color:#9a493c}
+    /* 시간표: 요일 고르기 + 하루 목록 */
+    .kdn-ttb-layout{display:block!important}
+    .kdn-ttb-side .kdn-ttl,.kdn-ttb-side .kdn-ttr{display:none!important}
+    .kdn-ttb-side{margin-top:14px}
+    .kdm-tt{display:flex;flex-direction:column;gap:14px}
+    .kdm-tt-days{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px}
+    .kdm-tt-days button{min-height:58px;border:0;border-radius:18px;background:transparent;font:inherit;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;color:var(--kdn-muted);cursor:pointer}
+    .kdm-tt-days button span{font-size:12px}
+    .kdm-tt-days button b{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+    .kdm-tt-days button.is-today{color:var(--kdn-ink)}
+    .kdm-tt-days button[aria-pressed="true"]{background:#17181d;color:#fff;box-shadow:0 8px 20px rgba(20,24,33,.22)}
+    .kdm-tt-days button[aria-pressed="true"] span{color:#ff9a5c}
+    [data-kd-ui="dark"] .kdm-tt-days button[aria-pressed="true"]{background:#f4f3f0;color:#17181d}
+    [data-kd-ui="dark"] .kdm-tt-days button[aria-pressed="true"] span{color:#c2410c}
+    .kdm-tt-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+    .kdm-tt-list li{display:grid;grid-template-columns:46px minmax(0,1fr);align-items:center;gap:8px}
+    .kdm-tt-list time{font-size:13px;font-weight:600;color:var(--kdn-muted);font-variant-numeric:tabular-nums}
+    .kdm-tt-list .cell{position:relative;overflow:hidden;min-height:54px;box-sizing:border-box;padding:8px 14px;border-radius:18px;background:var(--kdn-surface);box-shadow:0 1px 2px rgba(20,24,33,.04),0 6px 16px rgba(20,24,33,.05);display:flex;align-items:center;gap:12px;border-left:4px solid var(--fg,transparent)}
+    .kdm-tt-list .cell>b{font-size:13px;color:var(--kdn-muted);font-variant-numeric:tabular-nums}
+    .kdm-tt-list .cell .tx{display:flex;flex-direction:column;min-width:0}
+    .kdm-tt-list .cell strong{font-size:15px;font-weight:700;color:var(--kdn-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .kdm-tt-list .cell small{font-size:12px;color:var(--kdn-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .kdm-tt-list .cell i{margin-left:auto;padding:2px 8px;border-radius:99px;background:rgba(255,122,61,.12);color:#c2410c;font-style:normal;font-size:11px;font-weight:800}
+    .kdm-tt-list .cell.is-empty{background:transparent;box-shadow:none;border:1.5px dashed var(--kdn-line);color:var(--kdn-muted)}
+    .kdm-tt-list .cell.is-empty span{font-size:14px}
+    .kdm-tt-list li.is-past{opacity:.45}
+    .kdm-tt-list li.is-lunch span{padding:0 14px;font-size:13px;color:var(--kdn-muted)}
+    .kdm-tt-list li.is-focus time{color:#c2410c;font-weight:700}
+    .kdm-tt-list li.is-focus .cell{min-height:76px;border-left:0;border-radius:22px;background:linear-gradient(135deg,#1c1d24,#2b2621);box-shadow:0 12px 28px rgba(20,12,6,.22)}
+    .kdm-tt-list li.is-focus .cell::before{content:"";position:absolute;right:-40px;top:-50px;width:150px;height:150px;border-radius:99px;background:radial-gradient(circle,rgba(255,122,61,.4),rgba(255,122,61,0) 70%)}
+    .kdm-tt-list li.is-focus .cell>*{position:relative}
+    .kdm-tt-list li.is-focus .cell>b{color:#ff9a5c}
+    .kdm-tt-list li.is-focus .cell strong{font-size:17px;font-weight:800;color:#fff}
+    .kdm-tt-list li.is-focus .cell small{color:#cfccc5}
+    .kdm-tt-list li.is-focus .cell em{margin-left:auto;padding:4px 10px;border-radius:99px;background:#ff7a3d;color:#1b1006;font-style:normal;font-size:12px;font-weight:800;white-space:nowrap}
   }
   /* 저장 상태 표시 */
   .kdn-savestate{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:800;white-space:nowrap}
