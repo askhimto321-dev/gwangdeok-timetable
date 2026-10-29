@@ -2874,11 +2874,21 @@ const SHARED_NEW_CSS = `
     .kdm-hero{position:relative;overflow:hidden;display:flex;flex-direction:column;gap:6px;padding:20px;border-radius:26px;background:linear-gradient(135deg,#1c1d24 0%,#2b2621 100%);color:#fff;box-shadow:0 14px 34px rgba(20,12,6,.22)}
     .kdm-hero::before{content:"";position:absolute;right:-60px;top:-80px;width:230px;height:230px;border-radius:99px;background:radial-gradient(circle,rgba(255,122,61,.38),rgba(255,122,61,0) 70%);pointer-events:none}
     .kdm-hero>*{position:relative}
-    .kdm-hero span,.kdm-hero b,.kdm-hero div{color:inherit!important}
-    .kdm-hero>span:first-child{color:#ffb089!important;font-size:12px!important;font-weight:700!important}
-    .kdm-hero b{color:#fff!important}
-    .kdm-hero button{background:rgba(255,255,255,.1)!important;color:#fff!important;border:0!important;border-radius:14px!important;min-height:44px}
-    .kdm-hero button:last-child{background:#ff7a3d!important;color:#1b1006!important}
+    .kdm-hero:not(.is-lesson) span,.kdm-hero:not(.is-lesson) b,.kdm-hero:not(.is-lesson) div{color:inherit!important}
+    .kdm-hero:not(.is-lesson)>span:first-child{color:#ffb089!important;font-size:12px!important;font-weight:700!important}
+    .kdm-hero:not(.is-lesson) b{color:#fff!important}
+    .kdm-hero:not(.is-lesson) button{background:rgba(255,255,255,.1)!important;color:#fff!important;border:0!important;border-radius:14px!important;min-height:44px}
+    .kdm-hero:not(.is-lesson) button:last-child{background:#ff7a3d!important;color:#1b1006!important}
+    .kdm-lesson{display:flex;flex-direction:column;gap:4px;width:100%;padding:0;border:0;background:transparent;color:#fff;font:inherit;text-align:left;cursor:pointer}
+    .kdm-lesson .k{display:flex;align-items:baseline;justify-content:space-between}
+    .kdm-lesson .k b{font-size:12px;font-weight:700;color:#ffb089!important}
+    .kdm-lesson .k time{font-size:13px;color:#cfccc5;font-variant-numeric:tabular-nums}
+    .kdm-lesson strong{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px;font-size:26px;font-weight:800;color:#fff;line-height:1.25}
+    .kdm-lesson strong small{font-size:14px;font-weight:500;color:#cfccc5}
+    .kdm-lesson .strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:12px}
+    .kdm-lesson .strip i{padding:6px 0;border-radius:10px;background:rgba(255,255,255,.12);font-style:normal;text-align:center;font-size:11px;color:#fff;overflow:hidden;white-space:nowrap}
+    .kdm-lesson .strip i.past{background:rgba(255,255,255,.06);color:#8f939c}
+    .kdm-lesson .strip i.on{background:#ff7a3d;color:#1b1006;font-weight:800}
     .kdm-quick{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px 8px}
     .kdm-quick button{display:flex;flex-direction:column;align-items:center;gap:8px;border:0;background:transparent;font:inherit;color:var(--kdn-ink);cursor:pointer}
     :where(.kdm-quick) .ic{--i1:#e6e8ee;--i2:#cfd4de;--i3:#ff9a5c;width:60px;height:60px;padding:12px;box-sizing:border-box;border-radius:20px;background:var(--kdn-surface);box-shadow:0 1px 2px rgba(20,24,33,.04),0 8px 20px rgba(20,24,33,.06)}
@@ -2913,6 +2923,8 @@ const SHARED_NEW_CSS = `
     .kdm-mock-tiles b{font-size:24px;font-weight:800;color:var(--kdn-ink);font-variant-numeric:tabular-nums}
     .kdm-mock-tiles>div.is-top{background:linear-gradient(135deg,#1c1d24,#2b2621)}.kdm-mock-tiles>div.is-top small{color:#ffd2b8}.kdm-mock-tiles>div.is-top b{color:#ff9a5c}
     .kdm-mock-tiles p{grid-column:1/-1;margin:0;padding:14px;font-weight:800;color:#9a493c}
+    /* 입력칸이 폭 100%일 때 테두리만큼 삐져나가지 않게 */
+    :where(.kdn-app) :where(input:not([type=checkbox]):not([type=radio]),textarea,select){box-sizing:border-box;max-width:100%}
     /* 진학 상담: 화면 구성 줄을 작게 */
     .kdn-case-layout-switch>span{display:none}
     .kdn-case-layout-switch{width:100%;overflow-x:auto}

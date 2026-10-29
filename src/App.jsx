@@ -3444,8 +3444,8 @@ function MobileDashboard({ student, name, lesson, openStudent, onNavigate, onOpe
   return <main className="kdm-dash">
     <header className="kdm-dash-head"><small>{date}</small><b>{student ? `${name || ""}님, 안녕하세요` : `안녕하세요${name ? `, ${name}` : ""}`}</b></header>
     {exam && <DashboardExamStrip exam={exam} now={now} onStart={examZone[0]?.onClick} />}
-    <section className="kdm-hero">
-      {student ? <DashboardLessonCard lesson={lesson} onOpen={() => onNavigate("timetable")} />
+    <section className={`kdm-hero${student ? " is-lesson" : ""}`}>
+      {student ? <MobileLessonHero lesson={lesson} now={now} onOpen={() => onNavigate("timetable")} />
         : <DashboardStudentCard student={openStudent} onSearch={() => onNavigate("grades", { focusSearch: true })} onOpenStudentView={onOpenStudentView} />}
     </section>
     {shortcuts.length > 0 && <section className="kdm-quick" aria-label="바로가기">
@@ -3456,6 +3456,21 @@ function MobileDashboard({ student, name, lesson, openStudent, onNavigate, onOpe
     </section>}
     {upcomingAcademicEvents(academicCalendar, now).length > 0 && <section className="kdm-upcoming"><DashboardUpcoming calendar={academicCalendar} now={now} /></section>}
   </main>;
+}
+
+// 휴대폰 학생 홈 진한 카드: 다음(지금) 수업을 크게, 아래에 오늘 수업 띠.
+function MobileLessonHero({ lesson, now, onOpen }) {
+  const slot = lesson?.slot;
+  const dayIdx = now.getDay() - 1;
+  const day = slot?.day || (dayIdx >= 0 && dayIdx <= 4 ? DAYS[dayIdx] : null);
+  const cells = day ? PERIODS.map((p, pi) => ({ p, pi, c: lesson?.grid?.[day]?.[pi] })) : [];
+  const cell = slot ? lesson.grid?.[slot.day]?.[slot.pi] : null;
+  const place = !cell ? "" : cell.type === "move" ? (cell.roomLabel || (cell.group ? `이동수업 ${cell.group}` : "")) : (cell.location || "우리 반 교실");
+  return <button type="button" className="kdm-lesson" onClick={onOpen}>
+    <span className="k"><b>{!slot ? "오늘 수업" : slot.state === "now" ? `지금 수업 · ${slot.period}교시` : `다음 수업 · ${slot.period}교시`}</b>{slot && <time>{clockText(slot.start)}</time>}</span>
+    <strong>{slot ? (cell ? (cell.displaySubject || cell.subject) : "수업 없음") : lesson?.hasTimetable === false ? "등록된 시간표가 없어요" : "오늘 남은 수업이 없어요"}{place && <small>{place}</small>}</strong>
+    {cells.length > 0 && <span className="strip">{cells.map(item => <i key={item.p} className={slot && item.pi === slot.pi ? "on" : slot && day === slot.day && item.pi < slot.pi ? "past" : ""}>{item.c ? String(item.c.displaySubject || item.c.subject).slice(0, 3) : "-"}</i>)}</span>}
+  </button>;
 }
 
 // 대시보드 바로가기 카드 오른쪽 아래의 둥근 도형 그림. 색은 CSS 변수(--i1 옅은 면, --i2 진한 면, --i3 주황 점)로 모드별로 바꿉니다.
@@ -7873,7 +7888,7 @@ const styles = {
   teacherUploadGuide: { display: "flex", flexDirection: "column", gap: 7, padding: "9px 10px", borderRadius: 9, background: "#f3f1eb", color: "#746d61", fontSize: 9.7, lineHeight: 1.45 },
   teacherComposerFooter: { position: "sticky", bottom: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "11px 16px", background: "rgba(255,255,255,.96)", borderTop: `1px solid ${COLORS.line}`, backdropFilter: "blur(10px)" },
   teacherComposerFooterText: { fontSize: 10.5, color: "#8a8578", lineHeight: 1.45 },
-  noticeOptionGrid: { display: "grid", gridTemplateColumns: "minmax(160px, 220px) minmax(180px, 1fr)", gap: 10, alignItems: "end", marginTop: 10 },
+  noticeOptionGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, alignItems: "end", marginTop: 10 },
   noticeOptionField: { display: "grid", gap: 5, fontSize: 11, color: "#766f63", fontWeight: 800 },
   teacherNoticeManageRow: { border: `1px solid ${COLORS.line}`, borderRadius: 10, padding: 9, background: "#fbfaf6" },
   teacherNoticeManageMeta: { display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap", marginBottom: 6, fontSize: 10.5, color: "#756e62", fontWeight: 800 },
