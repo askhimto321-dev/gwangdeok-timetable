@@ -1691,7 +1691,7 @@ const SHARED_NEW_CSS = `
   .kd-consult-modes button:hover{background:var(--kdn-surface)}
   .kd-consult-modes button.is-on{background:var(--kdn-surface);color:var(--kdn-ink);box-shadow:0 1px 3px rgba(20,24,33,.12),0 0 0 1px var(--kdn-line)}
   .kd-consult-modes button.is-on b{color:var(--kdn-accent-text)}
-  @media (max-width:640px){.kd-consult-modes{grid-template-columns:minmax(0,1fr)}}
+  @media (max-width:640px){.kd-consult-modes{gap:2px;padding:4px}.kd-consult-modes button{justify-items:center;padding:8px 4px;text-align:center}.kd-consult-modes button b{font-size:13px}.kd-consult-modes button small{display:none}}
   /* 위 학생 요약 카드가 있으므로 화면에서는 학생 배너를 숨깁니다(인쇄에는 그대로) */
   @media screen{.kd-consultation-ui .counseling-print-student-banner{display:none}}
   .kd-consult-side{display:grid;gap:12px}
@@ -2912,6 +2912,9 @@ const SHARED_NEW_CSS = `
     .kdm-mock-tiles b{font-size:24px;font-weight:800;color:var(--kdn-ink);font-variant-numeric:tabular-nums}
     .kdm-mock-tiles>div.is-top{background:linear-gradient(135deg,#1c1d24,#2b2621)}.kdm-mock-tiles>div.is-top small{color:#ffd2b8}.kdm-mock-tiles>div.is-top b{color:#ff9a5c}
     .kdm-mock-tiles p{grid-column:1/-1;margin:0;padding:14px;font-weight:800;color:#9a493c}
+    /* 진학 상담: 화면 구성 줄을 작게 */
+    .kdn-case-layout-switch>span{display:none}
+    .kdn-case-layout-switch{width:100%;overflow-x:auto}
     /* 시간표: 요일 고르기 + 하루 목록 */
     .kdn-ttb-layout{display:block!important}
     .kdn-ttb-side .kdn-ttl,.kdn-ttb-side .kdn-ttr{display:none!important}

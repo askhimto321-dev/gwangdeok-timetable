@@ -9093,7 +9093,7 @@ const curriculumMethodBadge = {
   other: { background: "#eff1f2", color: "#515a61", border: "1px solid #d8dcde" },
 };
 const admissionSummary = {
-  grid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(110px, 1fr))", gap: 8, marginTop: 12 },
+  grid: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 12 },
   card: { display: "flex", alignItems: "baseline", justifyContent: "center", gap: 7, borderRadius: 11, padding: "10px 12px", fontSize: 11.5, fontWeight: 800 },
   success: { background: "#eaf6ec", color: "#2d6238", border: "1px solid #c8e2cd" },
   danger: { background: "#fff0f0", color: "#963f3f", border: "1px solid #edcccc" },
