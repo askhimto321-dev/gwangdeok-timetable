@@ -154,6 +154,7 @@ const TOUR_CSS = `
 .kd-tour-dots i{width:7px;height:7px;border-radius:99px;background:var(--kdn-line,#dfe2e8);transition:width .25s}
 .kd-tour-dots i.is-done{background:#fdba74}
 .kd-tour-dots i.is-on{width:18px;background:#ea580c}
+@media (max-width:760px){.kd-tour-card{left:12px!important;right:12px!important;width:auto!important;max-width:none!important;top:auto!important;bottom:calc(96px + env(safe-area-inset-bottom))!important;border-radius:22px;padding:16px}}
 .kd-tour-prev,.kd-tour-next{height:34px;padding:0 14px;border-radius:10px;font:inherit;font-size:13.5px;font-weight:850;cursor:pointer}
 .kd-tour-prev{border:1px solid var(--kdn-control-line,#cfd5df);background:transparent;color:var(--kdn-ink,#1f2430)}
 .kd-tour-next{border:0;background:#ea580c;color:#fff}
