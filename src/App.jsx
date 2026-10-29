@@ -5063,6 +5063,8 @@ function ttPlace(c) {
   return c.location || "";
 }
 function TimetableBoard({ grid, slot, homeroomLabel, print = false }) {
+  const mobile = useIsMobile();
+  if (mobile && !print) return <MobileDayTimetable grid={grid} slot={slot} homeroomLabel={homeroomLabel} />;
   if (print) slot = null;
   const todayIdx = print ? -1 : slot ? DAYS.indexOf(slot.day) : (() => { const d = new Date().getDay() - 1; return d >= 0 && d <= 4 ? d : -1; })();
   const nowPi = slot?.state === "now" ? slot.pi : -1;
@@ -5091,6 +5093,44 @@ function TimetableBoard({ grid, slot, homeroomLabel, print = false }) {
       </React.Fragment>)}
     </div>
     <div className="kdn-ttb-legend"><span><i style={{ background: "#dff4f7", borderColor: "#0e7490" }} />과학</span><span><i style={{ background: "#e0ecff", borderColor: "#1d4ed8" }} />수학</span><span><i style={{ background: "#fde8e8", borderColor: "#b42318" }} />국어</span><span><i style={{ background: "#e6f6ec", borderColor: "#15803d" }} />영어</span><span className="em">이동 = 교실 이동 수업</span>{print ? <span className="r">→ 표시 = 그 교실로 이동 · 빗금 = 수업 없음</span> : <span className="r">흐린 칸 = 지난 수업 · 빗금 = 수업 없음</span>}</div>
+  </div>);
+}
+// 휴대폰 세로 시간표: 요일을 고르고 그날 수업을 위에서 아래로 봅니다. 가로로 돌리면 주간 표가 나옵니다.
+function MobileDayTimetable({ grid, slot, homeroomLabel }) {
+  const now = new Date();
+  const todayIdx = (() => { const d = now.getDay() - 1; return d >= 0 && d <= 4 ? d : -1; })();
+  const [dayIdx, setDayIdx] = useState(todayIdx >= 0 ? todayIdx : 0);
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7) + (todayIdx < 0 ? 7 : 0));
+  const day = DAYS[dayIdx];
+  const isToday = dayIdx === todayIdx;
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const focusPi = isToday && slot ? slot.pi : -1;
+  return rawColors(() => <div className="kdm-tt">
+    <div className="kdm-tt-days" role="group" aria-label="요일">
+      {DAYS.map((d, di) => { const date = new Date(monday); date.setDate(monday.getDate() + di);
+        return <button key={d} type="button" aria-pressed={di === dayIdx} className={di === todayIdx ? "is-today" : undefined} onClick={() => setDayIdx(di)}><span>{d}</span><b>{date.getDate()}</b></button>; })}
+    </div>
+    <ol className="kdm-tt-list">
+      {PERIODS.map((p, pi) => {
+        const c = grid?.[day]?.[pi];
+        const start = (() => { const [h, m] = String(PERIOD_TIME[p]).split(":").map(Number); return h * 60 + m; })();
+        const focus = pi === focusPi;
+        const past = !focus && isToday && minutes >= start + LESSON_MINUTES;
+        const place = c ? (ttPlace(c) || (c.type === "move" ? "교실 확인" : homeroomLabel)) : "";
+        const tone = c ? ttTone(c.subject) : null;
+        const row = <li key={p} className={`${past ? "is-past" : ""}${focus ? " is-focus" : ""}`}>
+          <time>{PERIOD_TIME[p]}</time>
+          {!c ? <div className="cell is-empty"><b>{p}</b><span>수업 없음</span></div>
+            : <div className="cell" style={{ "--fg": tone.fg, "--bg": tone.bg }}>
+              <b>{p}</b>
+              <div className="tx"><strong>{c.displaySubject || c.subject}</strong><small>{c.type === "move" && c.group ? `${c.group}반 · ` : ""}{c.type === "move" && c.moved ? "→ " : ""}{place}{focus ? ` · ~${clockText(start + LESSON_MINUTES)}` : ""}</small></div>
+              {focus ? <em>{slot.state === "now" ? "지금" : `${Math.max(0, start - minutes)}분 뒤`}</em> : c.type === "move" && c.moved ? <i>이동</i> : null}
+            </div>}
+        </li>;
+        return p === 5 ? [<li key="lunch" className="is-lunch"><time>12:30</time><span>점심</span></li>, row] : row;
+      })}
+    </ol>
+    <p className="kdm-hint">휴대폰을 가로로 돌리면 한 주 전체 표로 볼 수 있어요</p>
   </div>);
 }
 function LiveLessonCard({ grid, slot }) {
