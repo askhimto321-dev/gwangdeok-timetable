@@ -6124,8 +6124,16 @@ function StudentFavoritesView({ sid, gdb, studentInfo, selectedStudent, favorite
 
 // 새 UI 관심대학·상담 화면 구성: D 목록+상세(기본) · A 2단 작업대 · B 상담 타임라인 · C 수시 6장 보드. 브라우저마다 기억합니다.
 const CONSULT_LAYOUT_KEY = "kd_consult_layout";
-const CONSULT_LAYOUTS = [["explorer", "목록 + 상세"], ["workbench", "2단 작업대"], ["timeline", "상담 타임라인"], ["board", "수시 6장 보드"]];
-function readConsultLayout() { try { const value = localStorage.getItem(CONSULT_LAYOUT_KEY); return CONSULT_LAYOUTS.some(([key]) => key === value) ? value : "explorer"; } catch { return "explorer"; } }
+// 상담 화면 구성은 하는 일 기준 세 가지: 대학을 고르며 보기 · 상담 기록 중심 · 수시 6장 채우기.
+// 세 구성 모두 관심 대학은 '목록 + 상세'로 보여 주고(긴 카드 나열 없음), 바뀌는 건 함께 놓는 칸뿐입니다.
+const CONSULT_LAYOUTS = [["explorer", "목록 + 상세", "대학을 고르며 상담"], ["workbench", "상담 기록 중심", "기록·확인할 일을 크게"], ["board", "수시 6장 보드", "지원 구성 채우기"]];
+function readConsultLayout() {
+  try {
+    const value = localStorage.getItem(CONSULT_LAYOUT_KEY);
+    if (value === "timeline") return "workbench"; // 예전 '상담 타임라인'은 '상담 기록 중심'으로 합쳤습니다.
+    return CONSULT_LAYOUTS.some(([key]) => key === value) ? value : "explorer";
+  } catch { return "explorer"; }
+}
 function useConsultPlanState(sid) {
   const [state, setState] = useState({ items: [], status: "loading" });
   useEffect(() => {
@@ -6177,8 +6185,7 @@ function ConsultSideSummary({ sid, canEdit = false, favorites = [], planItems = 
     <section><b>지금 지원 구성 {planItems.length}/6</b><div className="slots">{Array.from({ length: 6 }, (_, index) => <i key={index} className={planItems[index] ? (/종합/.test(planItems[index].admissionType || "") ? "is-h" : "is-on") : ""} title={planItems[index] ? `${planItems[index].university} ${planItems[index].department}` : "빈 칸"} />)}</div><small>{Object.entries(types).map(([key, value]) => `${key} ${value}`).join(" · ") || "아직 담은 전형이 없습니다."}</small>{onOpenSupportPlan && <button type="button" onClick={onOpenSupportPlan}>지원 구성 열기 ›</button>}</section>
     <ConsultTodoList sid={sid} canEdit={canEdit} />
     <section><b>최근 상담</b>{latest ? <><small className="dt">{latest.date || "날짜 미입력"} · {latest.author || "작성자"}</small><p>{String(latest.text || "").slice(0, 120)}{String(latest.text || "").length > 120 ? "…" : ""}</p></> : <small>아직 상담 기록이 없습니다.</small>}<small>총 {notes.length}회</small></section>
-    <section><b>관심 대학 {favorites.length}</b><div className="chips">{favorites.slice(0, 10).map((item, index) => <span key={`${item.university}-${index}`}>{item.university}{item.department ? ` · ${item.department}` : ""}</span>)}{favorites.length > 10 && <span>+{favorites.length - 10}</span>}</div>
-      <div className="links">{onOpenAdmission && <button type="button" onClick={() => onOpenAdmission("")}>대학 탐색</button>}{onOpenSusiNavi && <button type="button" onClick={() => onOpenSusiNavi("")}>NAVI 분석</button>}</div></section>
+    {/* 관심 대학은 아래 목록+상세에 있으므로 여기서는 빼고, 이동은 위쪽 상담 연결 줄을 씁니다. */}
   </aside>;
 }
 function ConsultPlanBoard({ sid, planItems = [], status, favorites = [], onOpenSupportPlan }) {
@@ -6212,7 +6219,7 @@ function ConsultPlanBoard({ sid, planItems = [], status, favorites = [], onOpenS
 
 const CONSULT_TOUR = [
   { target: "cs-toolbar", title: "상담 준비 도구", body: "대학 요약 보기, 상담 인쇄·PDF, 그리고 구글 폼 ‘사전 설문 올리기’가 여기 있어요. 설문은 학번별로 이 학생 화면에 붙습니다.", staff: true },
-  { target: "cs-layout", title: "화면 구성 고르기", body: "목록+상세, 2단 작업대, 상담 타임라인, 수시 6장 보드 중 상담 방식에 맞는 구성을 고르세요. 고른 구성은 기억돼요." },
+  { target: "cs-layout", title: "화면 구성 고르기", body: "목록+상세(대학을 고르며 상담), 상담 기록 중심, 수시 6장 보드 중 지금 하는 일에 맞는 구성을 고르세요. 고른 구성은 기억돼요." },
   { target: "cs-links", title: "다른 화면으로 바로", body: "대학 탐색·NAVI 분석·수시 지원 구성·광덕고 사례로 이 학생을 그대로 데리고 이동합니다." },
   { target: "cs-notes", title: "상담 기록", body: "상담일과 내용을 적고 파일을 붙여 저장하세요. 담임·진학 선생님이 함께 볼 수 있어요.", staff: true },
 ];
@@ -6294,8 +6301,11 @@ const SURVEY_FORM_CSS = `
 .kd-sform-msg{padding:10px 12px;border-radius:10px;background:color-mix(in srgb,#16a34a 12%,transparent);font-size:13px;font-weight:700;color:var(--kdn-ink,#1f2430)}
 `;
 // 진학상담 사전 설문 카드: 묶음(기본·희망·지원·학습·상담)별로 학생 답을 보여 주고, 희망 대학은 NAVI·대학 탐색으로 바로 엽니다.
+const SURVEY_OPEN_KEY = "kd_counsel_survey_open";
 function CounselSurveyCard({ entry, onOpenSusiNavi, onOpenAdmission }) {
-  const [open, setOpen] = useState(true);
+  // 접기/펼치기는 이 브라우저에 기억합니다(학생을 바꿔도 같은 상태).
+  const [open, setOpenState] = useState(() => { try { return localStorage.getItem(SURVEY_OPEN_KEY) !== "0"; } catch { return true; } });
+  const setOpen = update => setOpenState(current => { const next = typeof update === "function" ? update(current) : update; try { localStorage.setItem(SURVEY_OPEN_KEY, next ? "1" : "0"); } catch { /* 저장 못 해도 화면은 바뀜 */ } return next; });
   const answers = entry?.answers || {};
   const choice = splitChoice(answers.topChoice);
   const when = entry?.submittedAt ? new Date(entry.submittedAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "";
@@ -6305,7 +6315,7 @@ function CounselSurveyCard({ entry, onOpenSusiNavi, onOpenAdmission }) {
     <div className="kd-survey-head">
       <b>진학상담 사전 설문</b><span>{when ? `${when} 제출` : "제출"}</span>
       {choice && <span className="kd-survey-links">{(choice.university || choice.department) && onOpenSusiNavi && <button type="button" data-kdn-bare onClick={() => onOpenSusiNavi(choice.university, choice.department)}>희망 대학 NAVI ›</button>}{choice.university && onOpenAdmission && <button type="button" data-kdn-bare onClick={() => onOpenAdmission(choice.university)}>대학 탐색 ›</button>}</span>}
-      <button type="button" data-kdn-bare className="kd-survey-toggle no-print" onClick={() => setOpen(value => !value)}>{open ? "접기" : "펼치기"}</button>
+      <button type="button" data-kdn-bare className="kd-survey-toggle no-print" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? "접기" : "펼치기"}</button>
     </div>
     {<div className="kd-survey-grid" hidden={!open}>{groups.map(([group, list]) => <div key={group} className="kd-survey-group">
       <small>{GROUP_LABEL[group] || group}</small>
@@ -6322,6 +6332,7 @@ const SURVEY_CSS = `
 .kd-survey-links button,.kd-survey-toggle{height:28px;padding:0 10px;border:1px solid var(--kdn-control-line,#cfd5df);border-radius:8px;background:var(--kdn-surface-2,#f6f8fb);color:var(--kdn-ink,#1f2430);font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
 .kd-survey-toggle{margin-left:auto}
 .kd-survey-grid{display:grid;align-items:start;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+.kd-survey-grid[hidden]{display:none}
 .kd-survey-group{display:grid;align-content:start;gap:6px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f8fb)}
 .kd-survey-group>small{font-size:12px;font-weight:850;color:var(--kdn-muted,#5d6574)}
 .kd-survey-group dl{display:grid;align-content:start;grid-template-columns:110px 1fr;gap:5px 10px;margin:0}
@@ -6465,22 +6476,22 @@ export function StudentConsultationView({
       {canEdit && <button type="button" className="kd-consult-action" onClick={()=>setSurveyFormOpen(true)} title="진학상담 사전 설문 구글폼을 내 드라이브에 만듭니다"><FileText size={16}/>설문 폼 만들기</button>}
     </div>
     {surveyMsg && <div className="kd-survey-msg no-print" role="status">{surveyMsg}<button type="button" data-kdn-bare onClick={()=>setSurveyMsg("")} aria-label="닫기">✕</button></div>}
-    {newUi && <div className="kdn-case-layout-switch no-print" data-tour="cs-layout"><span>화면 구성</span><div>{CONSULT_LAYOUTS.map(([key,label])=><button key={key} type="button" className={consultLayout===key?"is-on":""} aria-pressed={consultLayout===key} onClick={()=>setConsultLayout(key)}>{label}</button>)}</div></div>}
+    {newUi && <div className="kd-consult-modes no-print" role="group" aria-label="화면 구성" data-tour="cs-layout">{CONSULT_LAYOUTS.map(([key,label,hint])=><button key={key} type="button" data-kdn-bare className={consultLayout===key?"is-on":""} aria-pressed={consultLayout===key} onClick={()=>setConsultLayout(key)}><b>{label}</b><small>{hint}</small></button>)}</div>}
     <div className="counseling-print-root" style={{display:"grid",gap:14}}>
     <div className="counseling-print-student-banner"><StudentIdentityBanner sid={sid} name={identity.name} grade={identity.grade} classNumber={identity.classNumber} number={identity.number} entryYear={identity.entryYear} gradeSystem={identity.gradeSystem} viewType="favorites" /></div>
     {/* 목록+상세 보기에서도 상담 연결(대학 탐색·NAVI·지원 구성·광덕고 사례)은 보이게 하고 설명 글만 줄입니다. */}
-    <div className={`kd-consult-linkhub no-print${layout==="explorer"?" is-compact":""}`} style={consultationView.linkHub} data-tour="cs-links">
-      <div style={consultationView.linkHubCopy} className={layout==="explorer"?"kdn-hide-new":undefined}><span>상담 연결</span><b>관심 대학과 NAVI·광덕고 사례를 함께 확인하세요.</b><small>대학 탐색에서 저장한 관심 항목은 아래 카드에 모이고, 같은 대학을 NAVI와 광덕고 실제 사례로 바로 이어서 볼 수 있습니다.</small></div>
+    <div className={`kd-consult-linkhub no-print${layout!=="classic"?" is-compact":""}`} style={consultationView.linkHub} data-tour="cs-links">
+      <div style={consultationView.linkHubCopy} className={layout!=="classic"?"kdn-hide-new":undefined}><span>상담 연결</span><b>관심 대학과 NAVI·광덕고 사례를 함께 확인하세요.</b><small>대학 탐색에서 저장한 관심 항목은 아래 카드에 모이고, 같은 대학을 NAVI와 광덕고 실제 사례로 바로 이어서 볼 수 있습니다.</small></div>
       <div className="kd-consult-linkhub-stats" style={consultationView.linkHubStats}><span><small>관심 항목</small><b>{favorites.length}개</b></span><span><small>지원 구성</small><b>{supportPlanCount == null ? "확인 필요" : `${supportPlanCount}/6`}</b></span><span><small>상담 기록</small><b>{notes.length}건</b></span></div>
       <div style={consultationView.linkHubActions}>{onOpenAdmission&&<button type="button" onClick={()=>onOpenAdmission("")} style={consultationView.linkHubButton}><GraduationCap size={13}/>대학 탐색</button>}{onOpenSusiNavi&&<button type="button" onClick={()=>onOpenSusiNavi("","")} style={consultationView.linkHubButton}><BookOpen size={13}/>NAVI 분석</button>}{onOpenSupportPlan&&<SupportPlanButton onClick={onOpenSupportPlan} count={supportPlanCount}/>}{onOpenCases&&<button type="button" onClick={()=>onOpenCases("","","")} style={consultationView.linkHubButton}><BarChart3 size={13}/>광덕고 사례</button>}</div>
     </div>
     {survey && canEdit ? <CounselSurveyCard entry={survey} onOpenSusiNavi={onOpenSusiNavi} onOpenAdmission={onOpenAdmission} />
       : canEdit && surveyTotal > 0 && <div className="kd-survey-none no-print">진학상담 사전 설문: 이 학생 응답이 아직 없어요 (전체 {surveyTotal}명 제출)</div>}
     {layout==="board" && <ConsultPlanBoard sid={sid} planItems={planState.items} status={planState.status} favorites={favorites} onOpenSupportPlan={onOpenSupportPlan}/>}
-    {layout!=="timeline" && layout!=="classic" && <div className="kd-consult-todo-row no-print"><ConsultTodoList sid={sid} canEdit={canEdit} /></div>}
-    <div className={`kd-consult-body is-${layout}`}>
-    {layout==="timeline" && <ConsultSideSummary sid={sid} canEdit={canEdit} favorites={favorites} planItems={planState.items} notes={notes} onOpenAdmission={onOpenAdmission} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan}/>}
-    <div className="counseling-print-favorites"><StudentFavoritesView explorer={layout==="explorer"} sid={sid} gdb={gdb} selectedStudent={selectedStudent} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
+    {(layout==="explorer" || layout==="board") && <div className="kd-consult-todo-row no-print"><ConsultTodoList sid={sid} canEdit={canEdit} /></div>}
+    <div className={`kd-consult-body is-${layout}${layout==="board"?" is-explorer":""}`}>
+    {layout==="workbench" && <ConsultSideSummary sid={sid} canEdit={canEdit} favorites={favorites} planItems={planState.items} notes={notes} onOpenAdmission={onOpenAdmission} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan}/>}
+    <div className="counseling-print-favorites"><StudentFavoritesView explorer={layout!=="classic"} sid={sid} gdb={gdb} selectedStudent={selectedStudent} studentInfo={studentInfo} favorites={favorites} onToggleFavorite={onToggleFavorite} onOpenAdmission={onOpenAdmission} onOpenCases={onOpenCases} onOpenSusiNavi={onOpenSusiNavi} onOpenSupportPlan={onOpenSupportPlan} hideBanner /></div>
     <div className="counseling-print-notes" style={consultationView.card}>
       <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:12}}><SectionHeading title="상담 기록" description="담임·관리자가 작성한 진학 상담 내용을 날짜별로 저장합니다. 관심 대학 정보와 함께 유지됩니다." /><button type="button" className="no-print" onClick={()=>setPrintOptionsOpen(true)} style={{...btn.secondary,display:"inline-flex",alignItems:"center",gap:5,flex:"0 0 auto"}} title="상담 기록과 관심 대학·학과의 포함 여부를 선택해 인쇄합니다."><Printer size={13}/>인쇄·PDF</button></div>
       {canEdit && <div className="no-print" style={consultationView.editor} data-tour="cs-notes">

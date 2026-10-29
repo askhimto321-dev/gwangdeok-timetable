@@ -1660,14 +1660,40 @@ const SHARED_NEW_CSS = `
   @media (max-width:900px){.kdn-minb-row .line{grid-template-columns:30px minmax(0,1fr) auto;row-gap:6px}.kdn-minb-row .subj,.kdn-minb-row .cmp{grid-column:2/-1}.kdn-minb-row .act{grid-column:2/-1;justify-content:flex-start}.kdn-minb-row .detail{padding-left:16px}}
   .kd-consult-body{display:grid;gap:14px;align-items:start}
   .kd-consult-body>*{min-width:0;margin:0!important}
-  .kd-consult-body.is-workbench{grid-template-columns:minmax(0,1.45fr) minmax(360px,1fr)}
-  .kd-consult-body.is-workbench>.counseling-print-notes{position:sticky;top:76px;max-height:calc(100vh - 96px);overflow:auto}
-  .kd-consult-body.is-timeline{grid-template-columns:280px minmax(0,1fr);grid-template-areas:"side notes" "fav fav"}
-  .kd-consult-body.is-timeline>.kd-consult-side{grid-area:side;position:sticky;top:76px}
-  .kd-consult-body.is-timeline>.counseling-print-notes{grid-area:notes}
-  .kd-consult-body.is-timeline>.counseling-print-favorites{grid-area:fav}
-  .kd-consult-body.is-board{grid-template-columns:minmax(0,1.45fr) minmax(340px,1fr)}
-  @media (max-width:1000px){.kd-consult-body.is-workbench,.kd-consult-body.is-board{grid-template-columns:minmax(0,1fr)}.kd-consult-body.is-workbench>.counseling-print-notes{position:static;max-height:none}.kd-consult-body.is-timeline{grid-template-columns:minmax(0,1fr);grid-template-areas:"side" "notes" "fav"}.kd-consult-body.is-timeline>.kd-consult-side{position:static}}
+  /* 상담 기록 중심: 왼쪽 요약(지원 구성·확인할 일·최근 상담·관심 대학) | 가운데 상담 기록(크게), 아래 관심 대학 목록+상세 */
+  .kd-consult-body.is-workbench{grid-template-columns:280px minmax(0,1fr);grid-template-areas:"side notes" "fav fav"}
+  .kd-consult-body.is-workbench>.kd-consult-side{grid-area:side;position:sticky;top:80px}
+  .kd-consult-body.is-workbench>.counseling-print-notes{grid-area:notes;padding:0!important;background:#fbf7f0!important;border:1px solid #eadfcd!important;border-radius:18px!important}
+  .kd-consult-body.is-workbench>.counseling-print-notes>div:first-child{align-items:center!important;padding:12px 16px;background:#3b3226;border-radius:17px 17px 0 0}
+  .kd-consult-body.is-workbench>.counseling-print-notes>div:first-child .section-heading{margin:0!important}
+  .kd-consult-body.is-workbench>.counseling-print-notes>div:first-child .section-heading-title{color:#fff!important}
+  .kd-consult-body.is-workbench>.counseling-print-notes>div:first-child .section-heading-description{display:none}
+  .kd-consult-body.is-workbench>.counseling-print-notes>div:first-child button{background:rgba(255,255,255,.12)!important;border-color:rgba(255,255,255,.25)!important;color:#fff!important}
+  .kd-consult-body.is-workbench>.counseling-print-notes>*:not(:first-child){margin-left:14px!important;margin-right:14px!important}
+  .kd-consult-body.is-workbench>.counseling-print-notes>*:last-child{margin-bottom:14px!important}
+  .kd-consult-body.is-workbench>.counseling-print-notes textarea{min-height:120px}
+  [data-kd-ui="dark"] .kd-consult-body.is-workbench>.counseling-print-notes{background:#221d16!important;border-color:#3d3427!important}
+  .kd-consult-body.is-workbench>.counseling-print-favorites{grid-area:fav}
+  .kd-consult-body.is-workbench .favorite-print-section{background:transparent!important;border:0!important;padding:0!important;box-shadow:none!important}
+  @media (max-width:1000px){.kd-consult-body.is-workbench{grid-template-columns:minmax(0,1fr);grid-template-areas:"notes" "side" "fav"}.kd-consult-body.is-workbench>.kd-consult-side{position:static}}
+  /* 상담 연결 줄(새 UI): 숫자 세 개는 알약 한 줄, 이동 버튼은 오른쪽 */
+  .kd-consult-linkhub.is-compact{display:flex!important;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px!important}
+  .kd-consult-linkhub.is-compact .kd-consult-linkhub-stats{display:flex!important;gap:6px;flex-wrap:wrap;width:auto!important;max-width:100%}
+  .kd-consult-linkhub.is-compact .kd-consult-linkhub-stats>span{display:inline-flex!important;align-items:baseline;gap:6px;min-width:0!important;padding:6px 12px!important;border-radius:999px!important;border:1px solid var(--kdn-line)!important;background:var(--kdn-surface)!important}
+  .kd-consult-linkhub.is-compact .kd-consult-linkhub-stats small{font-size:12.5px!important;color:var(--kdn-muted)!important}
+  .kd-consult-linkhub.is-compact .kd-consult-linkhub-stats b{font-size:15px!important;color:var(--kdn-ink)!important}
+  .kd-consult-linkhub.is-compact>div:last-child{margin-left:auto}
+  /* 화면 구성 고르기: 이름 + 한 줄 설명 */
+  .kd-consult-modes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:5px;border-radius:14px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line)}
+  .kd-consult-modes button{display:grid;gap:1px;justify-items:start;padding:8px 14px;border:0;border-radius:10px;background:transparent;font:inherit;text-align:left;cursor:pointer;color:var(--kdn-ink-soft)}
+  .kd-consult-modes button b{font-size:14px;font-weight:800}
+  .kd-consult-modes button small{font-size:12px;color:var(--kdn-muted)}
+  .kd-consult-modes button:hover{background:var(--kdn-surface)}
+  .kd-consult-modes button.is-on{background:var(--kdn-surface);color:var(--kdn-ink);box-shadow:0 1px 3px rgba(20,24,33,.12),0 0 0 1px var(--kdn-line)}
+  .kd-consult-modes button.is-on b{color:var(--kdn-accent-text)}
+  @media (max-width:640px){.kd-consult-modes{grid-template-columns:minmax(0,1fr)}}
+  /* 위 학생 요약 카드가 있으므로 화면에서는 학생 배너를 숨깁니다(인쇄에는 그대로) */
+  @media screen{.kd-consultation-ui .counseling-print-student-banner{display:none}}
   .kd-consult-side{display:grid;gap:12px}
   .kd-consult-side>section{display:grid;gap:8px;padding:14px;border-radius:16px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
   .kd-consult-side b{font-size:14.5px;color:var(--kdn-ink)}
