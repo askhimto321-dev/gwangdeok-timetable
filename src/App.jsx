@@ -8,10 +8,10 @@ import { officialSubjectName, checkClassAgainstCurriculum, curriculumApplies, cu
 import { examPeriodFromCalendar, gradeCheckDone } from "./examPeriod.js";
 import { activePatchNotes } from "./patchNotes.js";
 import { parseCalendarRows, semesterStartsFromEvents } from "./academicCalendarImport.js";
-import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay, SaveStatus, MobileTabBar, PageTrail } from "./AppOverlays.jsx";
+import { FabHub, CommandPalette, AcademicCalendarModal, fireOverlay, SaveStatus, MobileTabBar, MobileMoreSheet, PageTrail } from "./AppOverlays.jsx";
 import { parseQuickTodo } from "./teacherPlanner.js";
 import { readViewPrefs, saveViewPrefs, FONT_SCALES, DENSITIES } from "./viewPrefs.js";
-import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid, UserX, CalendarDays, Home as HomeIcon, User as UserIcon, Clock as ClockIcon } from "lucide-react";
+import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid, UserX, CalendarDays, Home as HomeIcon, User as UserIcon, Clock as ClockIcon, MoreHorizontal } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck, Archive } from "lucide-react";
 import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi, rawColors } from "./uiMode.js";
@@ -1782,6 +1782,8 @@ export default function App() {
 
   // 대시보드 바로가기에서 성적·진학의 특정 탭(예: 반별 성적)을 바로 열 때 씁니다(훅이므로 loading 조기 반환보다 먼저).
   const [gradeTabRequest, setGradeTabRequest] = useState({ tab: "", nonce: 0, preset: "" });
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [studentGradeTabHint, setStudentGradeTabHint] = useState("grades");
   // 상단 탭 바의 '교사용 분석' 묶음에서 연 도구(학생 탭을 누르면 비웁니다).
   const [teacherTool, setTeacherTool] = useState("");
   // 새 UI 대시보드용 값(훅이라 아래 loading 조기 반환보다 먼저 호출합니다).
@@ -1998,6 +2000,25 @@ export default function App() {
       { key: "planner-add", group: "할 일", label: "일정 추가", sub: "검색 칸에 '11/5 협의회'처럼 적으면 날짜까지 채워요", run: () => { setTeacherZoneRequest({ mode: "planner", draft: { date: "", title: "" }, at: Date.now() }); switchSection("teacherZone"); } },
     ] : []),
   ];
+  // 모바일 '더보기' 창 묶음: 아래 탭에 없는 메뉴(진학 상담·교사용 분석·선생님 ZONE·그 밖)
+  const zoneGo = mode => () => { setTeacherZoneRequest({ mode, at: Date.now() }); switchSection("teacherZone"); };
+  const mobileMoreSections = [
+    ...(loggedInStudent && !staffWorkspaceEnabled ? [
+      { title: "진학", items: [["consultation", "관심대학 · 상담"]].map(([tab, label]) => ({ key: `st-${tab}`, label, run: () => { setStudentGradeTabHint(tab); setGradeTabRequest(current => ({ tab, nonce: current.nonce + 1, preset: "" })); switchSection("grades"); } })) },
+    ] : []),
+    { title: "진학 상담", items: paletteMenus.filter(item => item.key.startsWith("view-")).map(item => ({ key: item.key, label: item.label, run: item.run })) },
+    { title: "교사용 분석", items: paletteMenus.filter(item => item.key.startsWith("tool-")).map(item => ({ key: item.key, label: item.label, run: item.run })) },
+    ...(canSeeTeacherZone ? [{ title: "선생님 ZONE", grid: true, items: [
+      { key: "z-home", label: "ZONE 홈", run: zoneGo("home") },
+      { key: "z-grades", label: "성적 산출", run: zoneGo("grades") },
+      { key: "z-notice", label: "공지·자료", run: zoneGo("notice") },
+      { key: "z-contacts", label: "비상연락망", run: zoneGo("contacts") },
+      { key: "z-records", label: "생기부 업무", run: zoneGo("records") },
+      { key: "z-stamps", label: "수업 포트폴리오", run: zoneGo("stamps") },
+    ] }] : []),
+    { title: "그 밖", items: paletteMenus.filter(item => ["minimum", "calendar", "links", "feedback"].includes(item.key)).map(item => ({ key: item.key, label: item.label, run: item.run }))
+      .concat(loggedInAdmin ? [{ key: "admin", label: "관리자", badge: "PC 권장", run: () => switchSection("admin") }] : []) },
+  ];
   // 시안 3 경로 표시: 홈 › 큰 메뉴 › (선생님 ZONE 업무 | 선생님 도구 | 학생 작업 탭 · 학생)
   const SECTION_LABELS = { grades: "성적 · 진학", timetable: "시간표", teacherZone: "선생님 ZONE", minimumAchievement: "최소성취수준", admin: "관리자" };
   const trailStudent = selectedStudentSid ? (roster?.[selectedStudentSid]?.name ? `${roster[selectedStudentSid].name} (${selectedStudentSid})` : String(selectedStudentSid)) : "";
@@ -2075,17 +2096,22 @@ export default function App() {
           canSearch={staffWorkspaceEnabled}
           onOpenPlanner={canSeeTeacherZone ? () => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); } : undefined} />}
         {overlayUserKey && <MobileTabBar items={[
-          { key: "home", label: "홈", icon: <HomeIcon size={22} />, active: section === "home", onClick: () => switchSection("home") },
+          { key: "home", label: "홈", icon: <HomeIcon size={21} />, active: section === "home" && !mobileMoreOpen, onClick: () => switchSection("home") },
           ...(loggedInStudent && !staffWorkspaceEnabled ? [
-            { key: "timetable", label: "시간표", icon: <ClockIcon size={22} />, active: section === "timetable", onClick: () => switchSection("timetable") },
-            { key: "grades", label: "성적", icon: <BarChart3 size={22} />, active: section === "grades", onClick: () => switchSection("grades") },
-            { key: "calendar", label: "학사일정", icon: <CalendarDays size={22} />, active: false, onClick: () => fireOverlay("kd:calendar") },
+            { key: "timetable", label: "시간표", icon: <ClockIcon size={21} />, active: section === "timetable" && !mobileMoreOpen, onClick: () => switchSection("timetable") },
+            { key: "grades", label: "내 성적", icon: <BarChart3 size={21} />, active: section === "grades" && studentGradeTabHint !== "admission" && !mobileMoreOpen, onClick: () => { setStudentGradeTabHint("grades"); setGradeTabRequest(current => ({ tab: "grades", nonce: current.nonce + 1, preset: "" })); switchSection("grades"); } },
+            { key: "admission", label: "진학", icon: <GraduationCap size={21} />, active: section === "grades" && studentGradeTabHint === "admission" && !mobileMoreOpen, onClick: () => { setStudentGradeTabHint("admission"); setGradeTabRequest(current => ({ tab: "admission", nonce: current.nonce + 1, preset: "" })); switchSection("grades"); } },
           ] : [
-            { key: "grades", label: "학생", icon: <UserIcon size={22} />, active: section === "grades", onClick: () => switchSection("grades") },
-            ...(canSeeTeacherZone ? [{ key: "planner", label: "내 일정", icon: <CalendarDays size={22} />, active: section === "teacherZone", onClick: () => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); } }] : [{ key: "timetable", label: "시간표", icon: <ClockIcon size={22} />, active: section === "timetable", onClick: () => switchSection("timetable") }]),
-            { key: "search", label: "찾기", icon: <Search size={22} />, active: false, onClick: () => fireOverlay("kd:search") },
+            { key: "grades", label: "학생", icon: <UserIcon size={21} />, active: section === "grades" && !mobileMoreOpen, onClick: () => switchSection("grades") },
+            { key: "timetable", label: "시간표", icon: <ClockIcon size={21} />, active: section === "timetable" && !mobileMoreOpen, onClick: () => switchSection("timetable") },
+            ...(canSeeTeacherZone ? [{ key: "planner", label: "내 일정", icon: <CalendarDays size={21} />, active: section === "teacherZone" && teacherZoneMode === "planner" && !mobileMoreOpen, onClick: () => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); } }] : []),
           ]),
+          { key: "more", label: "더보기", icon: <MoreHorizontal size={21} />, active: mobileMoreOpen || (!["home", "grades", "timetable"].includes(section) && !(section === "teacherZone" && teacherZoneMode === "planner")), onClick: () => setMobileMoreOpen(true) },
         ]} />}
+        {overlayUserKey && <MobileMoreSheet open={mobileMoreOpen} onClose={() => setMobileMoreOpen(false)}
+          profile={{ name: loggedInStudent?.name || loggedInTeacher?.name || loggedInDepartment?.name || (loggedInAdmin ? "관리자" : "") || "사용자", role: dashboardProps.roleLabel || "" }}
+          sections={mobileMoreSections}
+          footer={[{ key: "logout", label: impersonation ? "관리자 화면으로 돌아가기" : "로그아웃", danger: !impersonation, run: impersonation ? returnToAdmin : globalLogout }]} />}
         {staffWorkspaceEnabled && <CommandPalette students={paletteStudents} menus={paletteMenus} recentSids={readRecentStudents()} onClearRecent={() => forgetRecentStudents()} onPickStudent={(sid, view = "grades") => { updateSelectedStudentSid(sid); changeStudentWorkspaceView(view); }}
           parseTodo={canSeeTeacherZone ? parseQuickTodo : undefined} onQuickTodo={canSeeTeacherZone ? draft => { setTeacherZoneRequest({ mode: "planner", draft, at: Date.now() }); switchSection("teacherZone"); } : undefined} />}
         <AcademicCalendarModal calendar={db.academicCalendar || {}} userKey={overlayUserKey} canEditSchool={!!loggedInAdmin} onOpenSchoolEditor={() => switchSection("admin")} />

@@ -831,6 +831,8 @@ export default function GradesSection({
     if (requestedGradeTab === "classGrades" && canClassGrades) navigateGradeTab("classGrades", { replace: true });
     else if (["gradeCompare", "mockAnalysis"].includes(requestedGradeTab) && staffOk && staffFeature(requestedGradeTab)) navigateGradeTab(requestedGradeTab, { replace: true });
     else if (requestedGradeTab === "class" && loggedInTeacher?.homeroomClass) navigateGradeTab("class", { replace: true });
+    // 모바일 학생 아래 탭('내 성적'·'진학')과 더보기의 '관심대학·상담'
+    else if (loggedInStudent && ["grades", "admission", "consultation"].includes(requestedGradeTab)) navigateGradeTab(requestedGradeTab, { replace: true });
   }, [requestedGradeTab, requestedGradeTabNonce]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const counselingFlowItems = loggedInStudent
