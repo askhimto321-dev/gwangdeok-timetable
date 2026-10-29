@@ -2864,7 +2864,8 @@ const SHARED_NEW_CSS = `
     .counseling-print-option-modal,.grade-print-option-modal{width:100%!important;max-width:none!important;max-height:88vh!important;border-radius:28px 28px 0 0!important;margin:0!important}
   }
   /* 모바일 2단계: 홈 · 학생 작업 줄 · 내신 카드 · 모의고사 칸 */
-  .kdm-viewtoggle,.kdm-mock-tiles,.kdm-subjects{display:none}
+  .kdm-viewtoggle,.kdm-mock-tiles,.kdm-subjects,.kdm-pc-note{display:none}
+  @media (max-width:760px) and (orientation:portrait){.kdm-pc-note{display:block;margin:0 0 12px;padding:12px 14px;border-radius:16px;background:color-mix(in srgb,#ff7a3d 10%,var(--kdn-surface));color:var(--kdn-ink-soft);font-size:13px;line-height:1.5}}
   @media (max-width:760px){
     .kdm-dash{display:flex;flex-direction:column;gap:14px;padding:18px 16px 24px;color:var(--kdn-ink)}
     .kdm-dash-head{display:flex;flex-direction:column;gap:4px;padding:4px 4px 0}
@@ -3177,6 +3178,7 @@ const SHARED_NEW_CSS = `
   .kdn-sc-illo.is-feature{right:16px;bottom:12px;width:110px;height:92px}
   @media (max-width:1100px){.kdn-tz2.is-exam .kdn-tz2-grid,.kdn-tz2-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.kdn-tz2-feature{grid-column:span 2}.kdn-tz2-steps{grid-template-columns:repeat(2,minmax(0,1fr));padding-right:0}}
   @media (max-width:640px){.kdn-tz2.is-exam .kdn-tz2-grid,.kdn-tz2-grid{grid-template-columns:minmax(0,1fr)}.kdn-tz2-feature{grid-column:auto}.kdn-sc-illo.is-feature{display:none}}
+  @media (max-width:640px){.kdn-tz2-grid{grid-auto-rows:auto!important;gap:10px}.kdn-tz2-card{min-height:0!important;padding:14px 16px;border-radius:20px;gap:4px}.kdn-tz2-card .kdn-sc-illo{width:56px;height:46px}.kdn-tz2-card .kdn-sc-desc{padding-right:60px}.kdn-tz2-card .kdn-tz2-go,.kdn-tz2-card .kdn-tz2-duo-acts{margin-top:6px}}
   @media (max-height:860px){.kdn-tz2{gap:12px}.kdn-tz2-hero{padding:14px 22px}.kdn-tz2-grid{gap:12px;grid-auto-rows:minmax(160px,auto)}.kdn-tz2-card{min-height:160px}}
   /* 성적 산출 저장 상태 줄 */
   .kdn-save-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;padding:10px 16px;border-radius:14px;background:color-mix(in srgb,#f59e0b 9%,var(--kdn-surface));border:1px solid color-mix(in srgb,#f59e0b 35%,var(--kdn-line));font-size:13.5px;color:var(--kdn-ink-soft)}
