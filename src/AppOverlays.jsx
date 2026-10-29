@@ -271,8 +271,35 @@ export function SaveStatus() {
 export function MobileTabBar({ items = [] }) {
   if (!items.length) return null;
   return <nav className="kdn-tabbar no-print" aria-label="주요 메뉴">
-    {items.map(item => <button key={item.key} type="button" data-kdn-bare aria-current={item.active ? "page" : undefined} className={item.active ? "is-on" : ""} onClick={item.onClick}>{item.icon}<span>{item.label}</span></button>)}
+    {items.map(item => <button key={item.key} type="button" data-kdn-bare aria-current={item.active ? "page" : undefined} className={item.active ? "is-on" : ""} onClick={item.onClick}>{item.icon}<span>{item.label}</span><i aria-hidden="true" /></button>)}
   </nav>;
+}
+
+// 모바일 '더보기' 창: 아래 탭에 없는 메뉴를 묶음별로 보여 주는 아래에서 올라오는 창.
+// sections: [{ title, grid?: true, items: [{ key, label, run, badge? }] }], footer: [{ key, label, run, danger? }]
+export function MobileMoreSheet({ open, onClose, profile = null, sections = [], footer = [] }) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = event => { if (event.key === "Escape") onClose?.(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+  const pick = item => { onClose?.(); item.run?.(); };
+  return <div className="kdn-more-overlay no-print" onMouseDown={event => { if (event.target === event.currentTarget) onClose?.(); }}>
+    <section className="kdn-more" role="dialog" aria-label="더보기">
+      <span className="grab" aria-hidden="true" />
+      <div className="kdn-more-head"><b>더보기</b><button type="button" data-kdn-bare aria-label="닫기" onClick={onClose}><X size={16} /></button></div>
+      {profile && <div className="kdn-more-profile"><span aria-hidden="true">{String(profile.name || "?").charAt(0)}</span><div><b>{profile.name}</b>{profile.role && <small>{profile.role}</small>}</div></div>}
+      {sections.filter(section => section.items?.length).map(section => <div key={section.title} className="kdn-more-sec">
+        <small>{section.title}</small>
+        <div className={section.grid ? "grid" : "list"}>{section.items.map(item => <button key={item.key} type="button" data-kdn-bare onClick={() => pick(item)}>
+          <span>{item.label}</span>{item.badge ? <em>{item.badge}</em> : !section.grid && <ChevronRight size={16} aria-hidden="true" />}
+        </button>)}</div>
+      </div>)}
+      {footer.length > 0 && <div className="kdn-more-foot">{footer.map(item => <button key={item.key} type="button" data-kdn-bare className={item.danger ? "is-danger" : ""} onClick={() => pick(item)}>{item.label}</button>)}</div>}
+    </section>
+  </div>;
 }
 
 // 시안 3 화면 머리 '경로': 지금 어디에 있는지 한 줄로(홈 › 선생님 ZONE › 내 일정). 앞쪽 칸은 눌러서 그 화면으로 갑니다.
