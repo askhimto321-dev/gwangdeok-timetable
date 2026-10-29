@@ -1423,7 +1423,7 @@ const SHARED_NEW_CSS = `
   [data-kd-ui="dark"] .kd-minx-verdict.is-unsatisfied{background:rgba(239,68,68,.16);border-color:rgba(239,68,68,.38);color:#fca5a5}
   [data-kd-ui="dark"] .kd-minx-verdict.is-manual{background:rgba(245,158,11,.16);border-color:rgba(245,158,11,.35);color:#fcd27a}
   .kdn-nrd{display:grid;gap:10px;padding-top:4px;text-align:left}
-  .kdn-nrd-more{justify-self:start;min-height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font:inherit;font-size:13px;font-weight:700;color:var(--kdn-ink-soft);cursor:pointer}
+  .kdn-nrd-more{justify-self:start;min-height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font:inherit;font-size:13px!important;font-weight:700;color:var(--kdn-ink-soft);cursor:pointer}
   .kdn-nrd-min{display:grid;gap:8px;padding:12px 14px;border-radius:14px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
   .kdn-nrd-min .hd{font-size:13px;font-weight:900;color:var(--kdn-ink)}
   .kdn-nrd-min .list{display:grid;align-items:start;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
@@ -1467,7 +1467,7 @@ const SHARED_NEW_CSS = `
   .kdn-conn-second{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;padding:10px 14px;border-radius:14px;background:var(--kdn-surface);border:1px solid var(--kdn-line)}
   .kdn-conn-second .lb{font-size:13px;font-weight:800;color:var(--kdn-ink-soft)}
   .kdn-conn-second .chips{display:flex;flex-wrap:wrap;gap:6px;flex:1 1 100%}
-  .kdn-conn-second .chips button{display:inline-flex;align-items:baseline;gap:5px;min-height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font:inherit;font-size:13px;font-weight:700;color:var(--kdn-ink-soft);cursor:pointer}
+  .kdn-conn-second .chips button{display:inline-flex;align-items:baseline;gap:5px;min-height:30px;padding:0 11px;border-radius:999px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font:inherit;font-size:13px!important;font-weight:700;color:var(--kdn-ink-soft);cursor:pointer}
   .kdn-conn-second .chips button small{font-size:11.5px;color:var(--kdn-muted);font-weight:700}
   .kdn-conn-second .chips button.is-on{background:var(--kdn-ink);border-color:var(--kdn-ink);color:var(--kdn-surface)}.kdn-conn-second .chips button.is-on small{color:inherit;opacity:.75}
   .kdn-conn-second .chips button.clear{border-style:dashed;color:var(--kdn-muted)}
@@ -2574,7 +2574,7 @@ const SHARED_NEW_CSS = `
   .kdx-head .acts .kd-favorite-plan-picker{position:relative}
   .kdx-head .acts .kd-favorite-plan-picker>button{min-height:34px;padding:0 13px;border-radius:10px;border:1px solid var(--kdn-accent)!important;background:var(--kdn-accent)!important;color:var(--kdn-accent-ink,#fff)!important;font:inherit;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap}
   .kdx-depts{display:flex;gap:6px;flex-wrap:wrap}
-  .kdx-depts button{padding:6px 12px;border-radius:99px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font:inherit;font-size:13px;font-weight:700;color:var(--kdn-ink-soft);cursor:pointer}
+  .kdx-depts button{padding:6px 12px;border-radius:99px;border:1px solid var(--kdn-line);background:var(--kdn-surface);font:inherit;font-size:13px!important;font-weight:700;color:var(--kdn-ink-soft);cursor:pointer}
   .kdx-depts button small{font-weight:500;color:var(--kdn-muted)}
   .kdx-depts button.is-on{background:var(--kdn-ink);border-color:var(--kdn-ink);color:var(--kdn-surface)}.kdx-depts button.is-on small{color:inherit;opacity:.75}
   .kdx-kpi{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--kdn-line);border-radius:14px;overflow:hidden}
@@ -2928,6 +2928,46 @@ const SHARED_NEW_CSS = `
     /* 진학 상담: 화면 구성 줄을 작게 */
     .kdn-case-layout-switch>span{display:none}
     .kdn-case-layout-switch{width:100%;overflow-x:auto}
+    /* 성적 리포트 4단계 버튼: 한 줄 알약으로 */
+    .kdn-substeps.kdn-report-pages{display:flex!important;margin:12px 0 14px!important;flex-wrap:nowrap!important;gap:6px!important;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px!important;grid-template-columns:none!important}
+    .kdn-report-pages::-webkit-scrollbar{display:none}
+    .kdn-substeps.kdn-report-pages>button{flex:none!important;display:inline-flex!important;align-items:center;gap:6px;min-height:40px!important;padding:0 14px!important;border-radius:99px!important;width:auto!important}
+    .kdn-substeps.kdn-report-pages>button small{display:none!important}
+    .kdn-substeps.kdn-report-pages>button>span{width:20px!important;height:20px!important;min-width:0!important;font-size:11px!important}
+    .kdn-substeps.kdn-report-pages>button b{font-size:13px!important;white-space:nowrap}
+    /* 모의고사 등급 분포: 과목 고르기 + 1~9등급 막대 */
+    .kdm-mkdist{display:flex;flex-direction:column;gap:12px}
+    .kdm-mkdist-subj{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none}
+    .kdm-mkdist-subj::-webkit-scrollbar{display:none}
+    .kdm-mkdist-subj button{flex:none;min-height:34px;padding:0 14px;border:0;border-radius:99px;background:var(--kdn-surface-2);font:inherit;font-size:13px!important;font-weight:700;color:var(--kdn-ink-soft);cursor:pointer}
+    .kdm-mkdist-subj button[aria-pressed="true"]{background:#17181d;color:#fff}
+    [data-kd-ui="dark"] .kdm-mkdist-subj button[aria-pressed="true"]{background:#f4f3f0;color:#17181d}
+    .kdm-mkdist-hd{display:flex;align-items:baseline;justify-content:space-between}
+    .kdm-mkdist-hd b{font-size:15px;font-weight:800}
+    .kdm-mkdist-hd span{font-size:12px;color:var(--kdn-muted)}
+    .kdm-mkdist-bars{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:6px;height:150px;align-items:end}
+    .kdm-mkdist-bars>div{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:100%}
+    .kdm-mkdist-bars small{font-size:11px;font-weight:700;color:var(--kdn-ink-soft);font-variant-numeric:tabular-nums}
+    .kdm-mkdist-bars i{display:block;width:100%;max-height:calc(100% - 38px);border-radius:8px 8px 4px 4px;background:color-mix(in srgb,var(--kdn-ink) 18%,transparent)}
+    .kdm-mkdist-bars .g1 i,.kdm-mkdist-bars .g2 i{background:#ff7a3d}.kdm-mkdist-bars .g3 i{background:#ffb089}
+    .kdm-mkdist-bars span{font-size:12px;color:var(--kdn-muted);font-variant-numeric:tabular-nums}
+    .kdm-mkdist-go{align-self:flex-start;min-height:40px;padding:0;border:0;background:transparent;font:inherit;font-size:13px!important;font-weight:800;color:var(--kdn-accent-text);cursor:pointer}
+    /* 반별 성적 순위 목록 */
+    .kdm-rank{display:flex;flex-direction:column;padding:4px 0;border-radius:22px;background:var(--kdn-surface);box-shadow:0 1px 2px rgba(20,24,33,.04),0 10px 26px rgba(20,24,33,.06);overflow:hidden}
+    .kdm-rank-hd,.kdm-rank>button,.kdm-rank>div{display:grid;grid-template-columns:40px minmax(0,1fr) 60px 62px;align-items:center;gap:6px;padding:0 14px}
+    .kdm-rank-hd{min-height:36px;font-size:11px;font-weight:700;color:var(--kdn-muted)}
+    .kdm-rank-hd span:nth-child(n+3){text-align:right}
+    .kdm-rank>button,.kdm-rank>div:not(.kdm-rank-hd){min-height:56px;border:0;border-top:1px solid color-mix(in srgb,var(--kdn-ink) 6%,transparent);background:transparent;font:inherit;color:var(--kdn-ink);text-align:left;cursor:pointer}
+    .kdm-rank .r{display:grid;place-items:center;width:28px;height:28px;border-radius:10px;background:var(--kdn-surface-2);font-size:13px;font-weight:800;font-variant-numeric:tabular-nums}
+    .kdm-rank .r.top{background:#17181d;color:#ff9a5c}
+    [data-kd-ui="dark"] .kdm-rank .r.top{background:#ff7a3d;color:#1b1006}
+    .kdm-rank .nm{display:flex;flex-direction:column;min-width:0}
+    .kdm-rank .nm b{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .kdm-rank .nm small{font-size:12px;color:var(--kdn-muted)}
+    .kdm-rank .v{text-align:right;font-size:17px;font-weight:800;font-variant-numeric:tabular-nums}
+    .kdm-rank em{text-align:right;font-style:normal;font-size:12px;font-weight:700;color:var(--kdn-muted);font-variant-numeric:tabular-nums}
+    .kdm-rank em.up{color:#15803d}.kdm-rank em.down{color:#c0262d}
+    .kdm-rank .kdm-hint{padding:10px 14px 6px;margin:0}
     /* 시간표: 요일 고르기 + 하루 목록 */
     .kdn-ttb-layout{display:block!important}
     .kdn-ttb-side .kdn-ttl,.kdn-ttb-side .kdn-ttr{display:none!important}
