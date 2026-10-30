@@ -6,7 +6,7 @@ import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPas
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { booksForAssignment } from "./lessonStamps.js";
-import { loadStandards, matchStandardSubject, findStandards, standardLine } from "./standards2022.js";
+import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
 import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
 
@@ -300,10 +300,11 @@ function useStandards(enabled = true) {
 }
 
 // 성취기준 찾아보기·고르기 창: picked가 있으면 체크해서 활동에 연결, 없으면 찾아보기만
-function StandardsModal({ subjectName = "", picked = null, title = "", onSave, onClose }) {
+function StandardsModal({ subjectName = "", grade = "", semester = "", picked = null, title = "", chosen = false, onSave, onClose }) {
   const { data, error } = useStandards(true);
   const subjects = data?.subjects || [];
-  const matched = useMemo(() => matchStandardSubject(subjectName, subjects), [subjectName, subjects]);
+  const resolved = useMemo(() => resolveStandardSubject(subjectName, grade, semester, subjects), [subjectName, grade, semester, subjects]);
+  const matched = resolved.subject;
   const [subj, setSubj] = useState("");
   const [domain, setDomain] = useState("__all");
   const [q, setQ] = useState("");
@@ -329,7 +330,8 @@ function StandardsModal({ subjectName = "", picked = null, title = "", onSave, o
             </select>
             <label className="krw-find is-inline"><Search size={14} /><input value={q} onChange={event => setQ(event.target.value)} placeholder="낱말·코드로 찾기" />{q && <button type="button" data-kdn-bare onClick={() => setQ("")} aria-label="지우기"><X size={13} /></button>}</label>
           </div>
-          {subjectName && !matched && <p className="krw-side-note">'{subjectName}'과 이름이 같은 과목을 찾지 못했어요. 위에서 과목을 골라 주세요.</p>}
+          {subjectName && !matched && <p className="krw-side-note">'{subjectName}'과 맞는 과목을 편제표에서 찾지 못했어요. 위에서 과목을 골라 주세요.</p>}
+          {matched && <p className="krw-std-auto">{chosen ? <>이 활동은 <b>{matched.n}</b>(으)로 정해 두었어요.</> : resolved.via ? <>담당 과목 '<b>{subjectName}</b>'을 우리 학교 편제표의 <b>{matched.n}</b>(으)로 맞췄어요.</> : <>담당 과목 <b>{matched.n}</b>(으)로 열었어요.</>} 다른 과목이면 위에서 바꿔 주세요{onSave ? "(이 활동에만 적용)" : ""}.</p>}
           {subject && subject.d.length > 1 && <div className="krw-std-doms" role="group" aria-label="영역"><button type="button" data-kdn-bare aria-pressed={domain === "__all"} onClick={() => setDomain("__all")}>전체</button>{subject.d.map(([name, items]) => <button key={name} type="button" data-kdn-bare aria-pressed={domain === name} onClick={() => setDomain(name)}>{name}<em>{items.filter(([code]) => sel.has(code)).length || ""}</em></button>)}</div>}
           <div className="krw-std-list">
             {!subject ? <p className="krw-side-empty">과목을 고르면 영역별 성취기준이 보여요.</p>
@@ -703,7 +705,7 @@ function ActivityManager({ activities, onChange, sources = [], onImport, onApply
   </div>;
 }
 
-function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
+function SubjectWriter({ year, books, by, view, setView, check, showToast, grade = "", semester = "" }) {
   const [bookId, setBookId] = useState(() => books[0]?.id || "");
   useEffect(() => { if (!books.some(book => book.id === bookId)) setBookId(books[0]?.id || ""); }, [books.map(b => b.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const book = books.find(item => item.id === bookId);
@@ -722,7 +724,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
   const [stdFor, setStdFor] = useState(null); // 성취기준 고르는 활동 id
   const std = useStandards(!!book);
   const stdSubjects = std.data?.subjects || [];
-  const stdMatched = useMemo(() => matchStandardSubject(book?.subject, stdSubjects), [book?.subject, stdSubjects]);
+  const stdMatched = useMemo(() => resolveStandardSubject(book?.subject, grade, semester, stdSubjects).subject, [book?.subject, grade, semester, stdSubjects]);
   const standardsFor = useCallback(actKey => { const act = acts.find(a => a.id === actKey); return act?.std?.length ? findStandards(act.std, stdSubjects, act.stdSub || stdMatched?.n) : []; }, [acts, stdSubjects, stdMatched]);
   const saveStandards = (codes, subjectName) => { rec.edit("acts", rec.activities.map(a => a.id === stdFor ? { ...a, std: codes, stdSub: subjectName } : a)); showToast?.(codes.length ? `성취기준 ${codes.length}개를 연결했어요.` : "성취기준 연결을 풀었어요.", "success"); setStdFor(null); };
   useEffect(() => { if (!students.some(s => s.sid === sid)) setSid(students[0]?.sid || ""); }, [students]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -820,7 +822,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {dupOpen && <DuplicateModal title={`${book?.subject} ${book?.label}`} entries={students.map(s => ({ sid: s.sid, label: book?.kind === "common" ? `${s.number}번` : `${s.class}-${s.number}`, text: totalOf(s) }))} onPick={setSid} onClose={() => setDupOpen(false)} />}
     {rec.loaded && <ActivityManager activities={rec.activities} onChange={list => rec.edit("acts", list)} sources={sources} onImport={importFrom} onApplyAll={books.some(b => b.id !== book?.id && b.subject === book?.subject) ? applyAll : null} onStandards={setStdFor} standardsCount={act => act.std?.length || 0} />}
-    {stdFor && <StandardsModal subjectName={acts.find(a => a.id === stdFor)?.stdSub || book?.subject || ""} picked={acts.find(a => a.id === stdFor)?.std || []} title={acts.find(a => a.id === stdFor)?.name || "활동"} onSave={saveStandards} onClose={() => setStdFor(null)} />}
+    {stdFor && <StandardsModal chosen={!!acts.find(a => a.id === stdFor)?.stdSub} grade={grade} semester={semester} subjectName={acts.find(a => a.id === stdFor)?.stdSub || book?.subject || ""} picked={acts.find(a => a.id === stdFor)?.std || []} title={acts.find(a => a.id === stdFor)?.name || "활동"} onSave={saveStandards} onClose={() => setStdFor(null)} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{acts.map(act => <col key={act.id} />)}<col className="c-tot" /></colgroup>
@@ -891,7 +893,7 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
       <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
     </header>
     {tab !== "legacy" && <TourGuide id="records-v2" steps={TOUR_STEPS} startToken={tourToken} />}
-    {stdOpen && <StandardsModal subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
+    {stdOpen && <StandardsModal grade={grade} semester={semester} subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
     {tab !== "legacy" && <div className="krw-opts">
       <div className="krw-views" role="group" aria-label="보는 형태" data-tour="rw-views">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => setView(key)}><Icon size={15} /> {label}</button>)}</div>
@@ -902,7 +904,7 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
     </div>}
     {tab === "homeroom" && <HomeroomWriter year={year} grade={hrGrade} classOptions={classOptions} rosterFor={rosterFor} by={by} view={view} setView={setView} check={check} showToast={showToast} />}
     {tab === "subject" && (isAdmin && !teacher && !subjectTeacher ? <div className="krw-empty"><Users size={20} /><b>세특을 볼 선생님을 골라 주세요.</b></div>
-      : <SubjectWriter year={year} books={books} by={by} view={view} setView={setView} check={check} showToast={showToast} />)}
+      : <SubjectWriter year={year} books={books} by={by} view={view} setView={setView} check={check} showToast={showToast} grade={grade} semester={semester} />)}
     {tab === "legacy" && legacy}
   </div>;
 }
@@ -1175,16 +1177,17 @@ const CSS = `
 .krw-std-btn{display:inline-flex;align-items:center;gap:6px;min-height:38px;margin-left:auto;padding:0 14px 0 11px;border-radius:99px;border:1px solid #c9d6ea;background:#f2f6fc;font:inherit;font-size:13.5px;font-weight:800;color:#2f4b7c;cursor:pointer}
 .krw-std-btn:hover{border-color:#5b7fbd;background:#e7eefa}
 .krw-std-btn+.krw-help-btn{margin-left:0}
-.krw-std{width:min(860px,100%);max-height:calc(100vh - 32px);grid-template-rows:auto auto auto auto minmax(0,1fr) auto;overflow:hidden}
+.krw-std{display:flex;flex-direction:column;width:min(860px,100%);max-height:calc(100vh - 32px);overflow:hidden}.krw-std>*{flex:none}
 .krw-std>header{display:flex;align-items:center;gap:8px}.krw-std>header b{display:inline-flex;align-items:center;gap:7px;font-size:16px}.krw-std>header .x{margin-left:auto;display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:10px;background:var(--kdn-surface-2,#f3f2ef);color:inherit;cursor:pointer}
 .krw-std-note{margin:0;padding:9px 12px;border-radius:12px;background:#f2f6fc;color:#2f4b7c;font-size:12.5px;line-height:1.6}
+.krw-std-auto{margin:0;font-size:12.5px;color:var(--kdn-ink-soft,#5b606b)}.krw-std-auto b{color:#2f4b7c}
 .krw-std-bar{display:flex;flex-wrap:wrap;gap:8px}.krw-std-bar select{flex:1 1 240px;min-height:40px;padding:0 12px;border-radius:12px;border:1.5px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:inherit;font:inherit;font-size:14px;font-weight:700}
 .krw-std-bar .krw-find.is-inline{flex:1 1 200px;max-width:none;min-height:40px}
 .krw-std-doms{display:flex;flex-wrap:wrap;gap:5px}
 .krw-std-doms button{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 11px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}
 .krw-std-doms button[aria-pressed="true"]{background:#2f4b7c;border-color:#2f4b7c;color:#fff}
 .krw-std-doms button em{font-style:normal;font-size:11px;font-weight:800;color:#c2410c}.krw-std-doms button[aria-pressed="true"] em{color:#ffd8bf}
-.krw-std-list{min-height:120px;overflow:auto;padding-right:2px}
+.krw-std>.krw-std-list{flex:1 1 auto;min-height:120px;overflow:auto;padding-right:2px}
 .krw-std-list section+section{margin-top:12px}
 .krw-std-list h4{position:sticky;top:0;z-index:1;margin:0 0 6px;padding:6px 2px;background:var(--kdn-surface,#fff);font-size:13px;font-weight:800;color:#2f4b7c}
 .krw-std-list ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}

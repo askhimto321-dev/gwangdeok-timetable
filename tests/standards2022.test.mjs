@@ -24,3 +24,10 @@ test("코드로 성취기준 찾기", () => {
   assert.equal(found.length, 1);
   assert.equal(found[0].domain, "경우의 수");
 });
+test("학교 약칭을 편제표로 맞춰 성취기준 과목 찾기", async () => {
+  const { resolveStandardSubject } = await import("../src/standards2022.js");
+  assert.equal(resolveStandardSubject("미적", "2", "sem2", subjects).subject?.n, "미적분Ⅰ");
+  assert.equal(resolveStandardSubject("미적", "2", "sem1", subjects).subject?.n, "미적분Ⅰ");
+  assert.equal(resolveStandardSubject("독작", "2", "sem2", subjects).subject?.n, "독서와 작문");
+  assert.equal(resolveStandardSubject("문학", "2", "sem1", subjects).via, "");
+});
