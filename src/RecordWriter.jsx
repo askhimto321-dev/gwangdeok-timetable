@@ -214,10 +214,16 @@ const ACT_COLORS = ["#d0612a", "#4a6fa5", "#4f8a6b", "#8a6aa8", "#b3794b", "#4d8
 const actColor = (acts, id) => ACT_COLORS[Math.max(0, acts.findIndex(act => act.id === id)) % ACT_COLORS.length];
 const todayLabel = () => { const d = new Date(); return `${d.getMonth() + 1}.${d.getDate()}`; };
 
+function CopyBtn({ text, label = "복사" }) {
+  const [done, setDone] = useState(false);
+  return <button type="button" data-kdn-bare className="krw-mini" title="이 칸 글 복사" onClick={async () => { try { await navigator.clipboard.writeText(String(text || "").trim()); setDone(true); window.setTimeout(() => setDone(false), 1400); } catch { /* 복사 권한이 없으면 무시 */ } }}>{done ? <Check size={12} /> : <Copy size={12} />} {done ? "복사됨" : label}</button>;
+}
+
 function Field({ label, text, limit, onChange, check, rows = 6, readOnly = false, meta, hint = "", color = "#ea580c", tag = "", share = null }) {
   const fixed = autoFixRecordText(text);
   return <div className="krw-field" style={{ "--c": color }}>
     <div className="krw-field-hd">{tag && <span className="krw-chip">{tag}</span>}<b>{label}</b>{meta?.at && <small>{meta.by ? `${meta.by} · ` : ""}{new Date(meta.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small>}
+      {text.trim() && <CopyBtn text={text} />}
       {!readOnly && fixed !== text && <button type="button" data-kdn-bare className="krw-fix" title="가운데점·둥근 따옴표·물결·대괄호·겹친 띄어쓰기를 기재요령대로 바꿔요" onClick={() => onChange?.(fixed)}><Wand2 size={13} /> 기호 자동 고치기</button>}
       {share ? <span className="krw-part" title="이 활동 바이트 (한도는 총합본 기준)"><b>{neisBytes(text).toLocaleString()}</b> byte{share.total ? ` · 합계의 ${Math.round((neisBytes(text) / share.total) * 100)}%` : ""}</span> : <ByteMeter text={text} limit={limit} />}</div>
     <textarea value={text} rows={rows} readOnly={readOnly} spellCheck={false} onChange={event => onChange?.(event.target.value)} placeholder={readOnly ? "" : `${hint || label} 내용을 적어 주세요. 자동으로 저장돼요.`} />
@@ -290,6 +296,7 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
   const memoRef = useRef(null);
   const cats = memoCats(targets);
   const [catKey, setCatKey] = useState("memo");
+  const showAll = catKey === "__all";
   const cat = cats.find(item => item.key === catKey) || cats[0];
   const [target, setTarget] = useState("");
   const targetKey = targets.some(t => t.key === target) ? target : cat.target || targets[0]?.key || "";
@@ -334,11 +341,15 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
       <button type="button" data-kdn-bare aria-pressed={tab === "files"} onClick={() => setTab("files")}><Paperclip size={14} /> 활동지 {files.length > 0 && <em>{files.length}</em>}</button>
     </div><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="자료 칸 닫기"><PanelRightClose size={16} /></button></header>
     {tab === "memo" ? <div className="krw-memo">
-      <div className="krw-memo-cats" role="group" aria-label="누가기록 갈래">{cats.map(item => <button key={item.key} type="button" data-kdn-bare aria-pressed={item.key === cat.key} onClick={() => setCatKey(item.key)}>{item.label}{rec.textOf(sid, item.key).trim() && <i />}</button>)}</div>
+      <div className="krw-memo-cats" role="group" aria-label="누가기록 갈래"><button type="button" data-kdn-bare className="all" aria-pressed={catKey === "__all"} onClick={() => setCatKey("__all")}>전체 보기</button>{cats.map(item => <button key={item.key} type="button" data-kdn-bare aria-pressed={!showAll && item.key === cat.key} onClick={() => setCatKey(item.key)}>{item.label}{rec.textOf(sid, item.key).trim() && <i />}</button>)}</div>
+      {showAll ? <div className="krw-memo-all">{cats.filter(item => rec.textOf(sid, item.key).trim()).length ? cats.filter(item => rec.textOf(sid, item.key).trim()).map(item => <section key={item.key}>
+        <header><b>{item.label}</b><button type="button" data-kdn-bare className="krw-mini" onClick={() => setCatKey(item.key)}>고치기</button><CopyBtn text={rec.textOf(sid, item.key)} />{item.target && <button type="button" data-kdn-bare className="krw-mini" onClick={() => putText(rec.textOf(sid, item.key), "append", item.target)}><ChevronLeft size={12} /> 칸에 넣기</button>}</header>
+        <p>{rec.textOf(sid, item.key)}</p>
+      </section>) : <p className="krw-side-empty">{studentLabel} 누가기록이 아직 없어요.</p>}</div> : <>
       <p className="krw-side-note">{studentLabel} · <b>{cat.label}</b> 기록이에요. 생기부에 들어가지 않아요. 문장을 드래그하고 '칸에 넣기'를 누르면 그 칸 끝에 붙어요.</p>
       <textarea ref={memoRef} value={memo} spellCheck={false} placeholder={cat.key === "memo_att" ? "예)\n9.5 발표 때 친구 의견을 메모하며 경청\n9.19 모둠 과제에서 자료 정리를 먼저 맡음\n10.2 질문을 자주 하며 개념을 확인" : cat.target ? `'${cat.label}' 활동 관찰을 날짜별로 적어요.\n예)\n9.12 주제 선정 이유를 구체적으로 설명\n10.3 자료 출처를 비교하며 근거 보완\n\n(AI가 써 준 초안을 붙여 두고 고쳐 써도 좋아요)` : "예)\n9.12 모둠 토론에서 반대 측 근거를 정리해 발표\n10.3 실험 보고서 오차 원인을 스스로 분석\n\n(AI가 써 준 초안을 붙여 두고 고쳐 써도 좋아요)"} onChange={event => rec.edit(`s|${sid}|${cat.key}`, event.target.value)} />
       <div className="krw-put">{targets.length > 0 && <><select value={targetKey} onChange={event => setTarget(event.target.value)} aria-label="넣을 칸">{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select><button type="button" data-kdn-bare className="krw-btn pri" onClick={putIntoField} title="드래그한 글(없으면 전체)을 고른 칸 끝에 붙여요"><ChevronLeft size={14} /> 칸에 넣기</button></>}</div>
-      <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|${cat.key}`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button>
+      <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|${cat.key}`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button></>}
     </div> : tab === "ai" ? <AiHelper rec={rec} sid={sid} studentName={studentName} targets={targets} targetKey={targetKey} setTarget={setTarget} budgetFor={budgetFor} aiContext={aiContext} cats={cats} putText={putText} showToast={showToast} />
     : <div className="krw-files">
       <div className="up"><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "class"; inputRef.current.click(); }}>{uploading ? <Loader2 size={14} className="spin" /> : <Paperclip size={14} />} 반 공용 활동지 올리기</button><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "student"; inputRef.current.click(); }}><Paperclip size={14} /> 이 학생 자료</button>
@@ -359,11 +370,15 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const target = targets.find(t => t.key === targetKey);
   const budget = Math.max(0, budgetFor(targetKey));
   const current = rec.textOf(sid, targetKey);
-  const notes = [
-    ...cats.filter(c => c.target === targetKey).map(c => [`${c.label} 관찰`, rec.textOf(sid, c.key)]),
-    ["수업 태도", rec.textOf(sid, "memo_att")],
-    ["공통 메모", rec.textOf(sid, "memo")],
-  ];
+  const filledCats = cats.filter(c => rec.textOf(sid, c.key).trim());
+  const [picked, setPicked] = useState(null); // null = 기본(이 칸 활동 · 수업 태도 · 공통)
+  useEffect(() => { setPicked(null); }, [targetKey, sid]);
+  const isPicked = c => picked ? picked.includes(c.key) : (c.target === targetKey || c.key === "memo_att" || c.key === "memo");
+  const notes = filledCats.filter(isPicked).sort((a, b) => (b.target === targetKey) - (a.target === targetKey)).map(c => [c.target ? `${c.label} 관찰` : c.label, rec.textOf(sid, c.key)]);
+  const togglePick = key => setPicked(list => { const base = list || filledCats.filter(isPicked).map(c => c.key); return base.includes(key) ? base.filter(k => k !== key) : [...base, key]; });
+  const [loadKey, setLoadKey] = useState("");
+  const defaultLoad = filledCats.find(c => c.target === targetKey)?.key || filledCats[0]?.key || "";
+  useEffect(() => { setLoadKey(""); }, [targetKey, sid]);
   const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes, existing: refine ? current : "", studentName });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
   const sentences = splitSentences(current);
@@ -374,13 +389,15 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     <div className="krw-ai-steps" role="tablist">{[["prompt", "① 요청문"], ["answer", "② AI 답 점검"], ["trim", "③ 바이트 맞추기"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={step === key} onClick={() => setStep(key)}>{label}</button>)}</div>
     {step === "prompt" && <div className="krw-ai-body">
       <p className="krw-side-note">누가기록(이 칸 관찰 · 수업 태도 · 공통)과 기재요령, 남은 바이트를 담은 요청문이에요. <b>학생 이름은 빠져요.</b> 복사해서 쓰시는 AI에 붙여넣고, 받은 답은 ②에서 점검해요.</p>
+      <div className="krw-ai-notes"><span>요청문에 넣을 누가기록</span>{filledCats.length ? filledCats.map(c => <label key={c.key}><input type="checkbox" checked={isPicked(c)} onChange={() => togglePick(c.key)} /> {c.label}</label>) : <em>아직 누가기록이 없어요</em>}</div>
       <label className="krw-ai-chk"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /> 지금 칸에 쓴 글도 함께 다듬어 달라고 하기</label>
       <pre className="krw-ai-prompt">{prompt}</pre>
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={copy}><Copy size={14} /> 요청문 복사</button>
     </div>}
     {step === "answer" && <div className="krw-ai-body">
       <p className="krw-side-note">AI가 써 준 글을 붙여넣으면 바이트와 기재요령을 바로 점검해요. 관찰하지 않은 내용이 들어가지 않았는지 꼭 읽어 보세요.</p>
-      <textarea value={answer} spellCheck={false} onChange={event => setAnswer(event.target.value)} placeholder="AI 답을 여기에 붙여넣기" />
+      {filledCats.length > 0 && <div className="krw-ai-load"><select value={loadKey || defaultLoad} onChange={event => setLoadKey(event.target.value)} aria-label="가져올 누가기록">{filledCats.map(c => <option key={c.key} value={c.key}>{c.label} 누가기록</option>)}</select><button type="button" data-kdn-bare className="krw-btn" onClick={() => { const text = rec.textOf(sid, loadKey || defaultLoad); setAnswer(value => value.trim() ? `${value.trim()}\n${text}` : text); }}><ClipboardPaste size={14} /> 누가기록 가져오기</button></div>}
+      <textarea value={answer} spellCheck={false} onChange={event => setAnswer(event.target.value)} placeholder="AI 답을 붙여넣거나, 위에서 누가기록(보관해 둔 AI 초안 등)을 가져와 다듬어요" />
       <div className="krw-ai-meter"><ByteMeter text={answer} limit={budget || 1} />{autoFixRecordText(answer) !== answer && <button type="button" data-kdn-bare className="krw-fix" onClick={() => setAnswer(autoFixRecordText(answer))}><Wand2 size={13} /> 기호 자동 고치기</button>}</div>
       {answer && <IssueList text={answer} />}
       <div className="krw-ai-acts"><button type="button" data-kdn-bare className="krw-btn pri" disabled={!answer.trim()} onClick={() => { if (!current.trim() || window.confirm(`'${target?.label}' 칸의 지금 글을 이 글로 바꿀까요?`)) putText(answer, "replace"); }}>칸을 이 글로 바꾸기</button><button type="button" data-kdn-bare className="krw-btn" disabled={!answer.trim()} onClick={() => putText(answer, "append")}>칸 끝에 덧붙이기</button><button type="button" data-kdn-bare className="krw-btn ghost" disabled={!answer.trim()} onClick={() => { const key = cats.find(c => c.target === targetKey)?.key || "memo"; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev ? "\n\n" : ""}[AI 초안 ${todayLabel()}]\n${answer.trim()}`); showToast?.("누가기록에 보관했어요.", "success"); }}>누가기록에 보관</button></div>
@@ -498,7 +515,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table"><thead><tr><th className="n">번호</th><th className="nm">이름</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}>{RECORD_AREAS[key].label}</th>)}</tr></thead>
-        <tbody>{shown.map(s => <tr key={s.sid}><td className="n">{s.number}</td><td className="nm">{s.name}</td>{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <td key={key} style={{ "--c": AREA_COLOR[key] }}><textarea rows={5} value={text} spellCheck={false} onChange={event => rec.edit(`s|${s.sid}|${key}`, event.target.value)} /><div className="cellft"><ByteMeter text={text} limit={RECORD_AREAS[key].limit} />{check && <IssueDot text={text} />}</div></td>; })}</tr>)}</tbody></table></div>
+        <tbody>{shown.map(s => <tr key={s.sid}><td className="n">{s.number}</td><td className="nm">{s.name}</td>{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <td key={key} style={{ "--c": AREA_COLOR[key] }}><textarea rows={5} value={text} spellCheck={false} onChange={event => rec.edit(`s|${s.sid}|${key}`, event.target.value)} /><div className="cellft"><ByteMeter text={text} limit={RECORD_AREAS[key].limit} />{check && <IssueDot text={text} />}{text.trim() && <CopyBtn text={text} />}</div></td>; })}</tr>)}</tbody></table></div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{HOMEROOM_AREAS.map(key => <button key={key} type="button" data-kdn-bare aria-pressed={area === key} style={{ "--c": AREA_COLOR[key] }} onClick={() => setArea(key)}>{RECORD_AREAS[key].label}<em>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => <Field key={s.sid} label={`${s.number}번 ${s.name}`} hint={RECORD_AREAS[area].label} color={AREA_COLOR[area]} text={rec.textOf(s.sid, area)} limit={RECORD_AREAS[area].limit} check={check} rows={4} meta={rec.metaOf(s.sid, area)} onChange={value => rec.edit(`s|${s.sid}|${area}`, value)} />)}
@@ -647,8 +664,8 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table"><thead><tr><th className="nm">학생</th>{acts.map(act => <th key={act.id} style={{ "--c": actColor(acts, act.id) }}>{act.name}</th>)}<th className="tot">총합본</th></tr></thead>
-        <tbody>{shown.map(s => { const total = totalOf(s); return <tr key={s.sid}><td className="nm">{who(s)}</td>{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <td key={act.id} style={{ "--c": actColor(acts, act.id) }}><textarea rows={5} value={text} spellCheck={false} onChange={event => rec.edit(`s|${s.sid}|${act.id}`, event.target.value)} /><div className="cellft"><span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span></div></td>; })}
-          <td className="tot"><div className="cellhd"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact />{check && <IssueDot text={total} />}</div><div className={`krw-total-sm${total ? "" : " is-empty"}`}>{total || "활동 칸에 쓰면 합쳐져요"}</div></td></tr>; })}</tbody></table></div>
+        <tbody>{shown.map(s => { const total = totalOf(s); return <tr key={s.sid}><td className="nm">{who(s)}</td>{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <td key={act.id} style={{ "--c": actColor(acts, act.id) }}><textarea rows={5} value={text} spellCheck={false} onChange={event => rec.edit(`s|${s.sid}|${act.id}`, event.target.value)} /><div className="cellft"><span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span>{text.trim() && <CopyBtn text={text} />}</div></td>; })}
+          <td className="tot"><div className="cellhd"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact />{check && <IssueDot text={total} />}{total && <CopyBtn text={total} />}</div><div className={`krw-total-sm${total ? "" : " is-empty"}`}>{total || "활동 칸에 쓰면 합쳐져요"}</div></td></tr>; })}</tbody></table></div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{acts.map(act => <button key={act.id} type="button" data-kdn-bare aria-pressed={actId === act.id} style={{ "--c": actColor(acts, act.id) }} onClick={() => setActId(act.id)}>{act.name}<em>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => { const total = totalOf(s); return <div key={s.sid} className="krw-areacard"><Field label={who(s)} hint={acts.find(a => a.id === actId)?.name || "활동"} color={actColor(acts, actId)} text={rec.textOf(s.sid, actId)} limit={limit} share={{ total: neisBytes(total) }} check={check} rows={3} meta={rec.metaOf(s.sid, actId)} onChange={value => rec.edit(`s|${s.sid}|${actId}`, value)} /><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /></div>; })}
@@ -699,7 +716,7 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
   const canHomeroom = isAdmin || !!teacher?.homeroomClass;
   const tabs = [canHomeroom && ["homeroom", "학급담임", "자율·자치 · 진로 · 행발"], ["subject", "교과담임", "반·분반별 과세특"], legacy && ["legacy", "2학년부 자료", "활동 배정 · 소감문"]].filter(Boolean);
   const [tab, setTab] = useState(() => { try { const saved = localStorage.getItem("kd_rec_tab_v1"); return tabs.some(t => t[0] === saved) ? saved : tabs[0][0]; } catch { return tabs[0][0]; } });
-  const [view, setView] = useState(() => { try { return VIEWS.some(v => v[0] === localStorage.getItem(VIEW_KEY)) ? localStorage.getItem(VIEW_KEY) : "student"; } catch { return "student"; } });
+  const [view, setView] = useState("student"); // 들어올 때는 늘 학생별 보기로 시작
   const [check, setCheck] = useState(true);
   const [helpOpen, setHelpOpen] = useState(false);
   const [tourToken, setTourToken] = useState(0);
@@ -714,7 +731,7 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
     {tab !== "legacy" && <TourGuide id="records-v2" steps={TOUR_STEPS} startToken={tourToken} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
     {tab !== "legacy" && <div className="krw-opts">
-      <div className="krw-views" role="group" aria-label="보는 형태" data-tour="rw-views">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => pick(setView, VIEW_KEY)(key)}><Icon size={15} /> {label}</button>)}</div>
+      <div className="krw-views" role="group" aria-label="보는 형태" data-tour="rw-views">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => setView(key)}><Icon size={15} /> {label}</button>)}</div>
       <button type="button" data-kdn-bare data-tour="rw-check" className={`krw-check${check ? " is-on" : ""}`} aria-pressed={check} onClick={() => setCheck(value => !value)}>{check ? <Eye size={15} /> : <EyeOff size={15} />} 기재요령 점검 {check ? "켜짐" : "꺼짐"}</button>
       <button type="button" data-kdn-bare data-tour="rw-help" className="krw-help-btn" onClick={() => setHelpOpen(true)} title="생기부 작성 가이드라인 · 단계별 안내" aria-label="가이드라인"><HelpCircle size={18} /><span>가이드라인</span></button>
       {tab === "subject" && isAdmin && !teacher && <select className="krw-teacher" value={pickedTeacherId} onChange={event => setPickedTeacherId(event.target.value)} aria-label="선생님"><option value="">선생님 고르기</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
@@ -850,6 +867,17 @@ const CSS = `
 .krw-btn.ghost{border-style:dashed}
 [data-kd-ui="dark"] .krw-memo textarea{background:var(--kdn-surface-2,#22232a)}
 .krw-memo-cats{display:flex;flex-wrap:wrap;gap:4px}
+.krw-memo-cats button.all{border-style:dashed}
+.krw-mini{display:inline-flex;align-items:center;gap:3px;min-height:26px;padding:0 9px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:11.5px;font-weight:700;color:#3d4048;cursor:pointer;white-space:nowrap}
+.krw-mini:hover{border-color:#d0612a;color:#c2410c}
+.krw-memo-all{display:grid;gap:8px;max-height:560px;overflow:auto}
+.krw-memo-all section{display:grid;gap:4px;padding:10px 12px;border-radius:12px;background:#fbfaf7;border:1px solid var(--kdn-line,#e7e5e0)}
+[data-kd-ui="dark"] .krw-memo-all section{background:var(--kdn-surface-2,#22232a)}
+.krw-memo-all header{display:flex;flex-wrap:wrap;align-items:center;gap:4px}.krw-memo-all header b{flex:1;font-size:13px;font-weight:800}
+.krw-memo-all p{margin:0;white-space:pre-wrap;font-size:13px;line-height:1.65;color:var(--kdn-ink,#17181d)}
+.krw-ai-notes{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:8px 10px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3);font-size:12.5px}
+.krw-ai-notes span{width:100%;font-weight:800}.krw-ai-notes label{display:inline-flex;align-items:center;gap:4px;font-weight:600;cursor:pointer}.krw-ai-notes em{font-style:normal;color:var(--kdn-muted,#8a8f99)}
+.krw-ai-load{display:flex;gap:6px}.krw-ai-load select{flex:1;min-width:0;min-height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:700;color:inherit}
 .krw-memo-cats button{position:relative;min-height:30px;padding:0 11px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}
 .krw-memo-cats button[aria-pressed="true"]{background:#17181d;border-color:#17181d;color:#fff}
 .krw-memo-cats button i{position:absolute;top:3px;right:4px;width:6px;height:6px;border-radius:99px;background:#d0612a}
