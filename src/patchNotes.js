@@ -5,6 +5,15 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-10-30-i",
+    date: "2026-10-30",
+    title: "메인에 생기부 마감 안내",
+    items: [
+      { audience: "staff", text: "메인 화면 맨 위에 '생기부 입력 완료 12.4(금) · 제출 12.7(월)' 마감 띠가 D-day와 함께 보여요. 마감이 3일 안이면 빨갛게 바뀌어요." },
+      { audience: "staff", text: "띠의 '생기부 업무 열기'를 누르면 바로 생기부 업무로 가요. 선생님 ZONE 홈에도 같이 보여요." },
+    ],
+  },
+  {
     id: "2026-10-30-h",
     date: "2026-10-30",
     title: "생기부 '한눈에 표' 읽기 쉽게",
