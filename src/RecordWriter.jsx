@@ -6,6 +6,7 @@ import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPas
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { booksForAssignment } from "./lessonStamps.js";
+import TourGuide from "./TourGuide.jsx";
 import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, RECORD_GUIDE } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
@@ -208,8 +209,8 @@ function PrintMenu({ onPick, scopes, busy }) {
   </div>;
 }
 
-const AREA_COLOR = { autonomy: "#2563eb", career: "#059669", behavior: "#7c3aed", subject: "#ea580c" };
-const ACT_COLORS = ["#ea580c", "#2563eb", "#059669", "#7c3aed", "#db2777", "#0891b2", "#ca8a04", "#4f46e5"];
+const AREA_COLOR = { autonomy: "#4a6fa5", career: "#4f8a6b", behavior: "#8a6aa8", subject: "#d0612a" };
+const ACT_COLORS = ["#d0612a", "#4a6fa5", "#4f8a6b", "#8a6aa8", "#b3794b", "#4d8a94", "#a08a3c", "#6b6fa8"];
 const actColor = (acts, id) => ACT_COLORS[Math.max(0, acts.findIndex(act => act.id === id)) % ACT_COLORS.length];
 const todayLabel = () => { const d = new Date(); return `${d.getMonth() + 1}.${d.getDate()}`; };
 
@@ -226,18 +227,29 @@ function Field({ label, text, limit, onChange, check, rows = 6, readOnly = false
 
 const VIEWS = [["student", "학생별", "명단에서 학생을 골라 한 명씩", Rows3], ["table", "한눈에 표", "반 전체를 표로 보며 바로 고치기", Table2], ["area", "영역별 몰아쓰기", "한 영역을 반 전체 학생 차례로", LayoutGrid]];
 
-// ── 처음 쓰는 분께 ─────────────────────────────────────────────────────────
-const GUIDE_KEY = "kd_rec_guide_seen_v1";
-function Guide({ onClose }) {
-  return <section className="krw-guide">
-    <header><b><HelpCircle size={17} /> 생기부 업무 처음 쓰는 방법</b><button type="button" data-kdn-bare onClick={onClose}><X size={15} /> 닫기</button></header>
-    <ol className="steps">{RECORD_GUIDE.steps.map(([title, body], index) => <li key={title}><i>{index + 1}</i><b>{title}</b><span>{body}</span></li>)}</ol>
-    <div className="cols">
-      <div><b>꼭 지킬 기재요령 (2026 연수 자료)</b><ul>{RECORD_GUIDE.rules.map(rule => <li key={rule}>{rule}</li>)}</ul></div>
-      <div><b>교사 입장 맺음말 예시</b><div className="ends">{RECORD_GUIDE.endings.map(item => <span key={item}>{item}</span>)}</div></div>
+// ── 사용법: 처음엔 단계별 스포트라이트 안내(모의고사 분석과 같은 방식), '?'를 누르면 가이드라인 창 ──
+const TOUR_STEPS = [
+  { target: "rw-tabs", title: "학급담임 · 교과담임", body: "학급담임은 자율·자치 · 진로 · 행발을, 교과담임은 담당 반(이동수업은 출석부 기준 분반)마다 과세특을 써요." },
+  { target: "rw-views", title: "보는 형태 고르기", body: "학생별(한 명씩) · 한눈에 표(반 전체) · 영역별 몰아쓰기(한 영역을 반 전체 차례로) 중 편한 방식으로 써요. 고른 방식은 기억돼요." },
+  { target: "rw-acts", title: "수행평가 활동 만들기(교과)", body: "활동을 추가해 활동별로 나눠 쓰면 총합본이 줄을 바꿔 자동으로 합쳐져요. 다른 반 목록은 '가져오기'로 복사해요." },
+  { target: "rw-pane", title: "쓰기 · 자동 저장", body: "칸에 쓰면 1초 뒤 저장돼요. 칸마다 나이스 바이트가 보이고, 넘으면 빨갛게 바뀌어요. Alt+↓/↑로 다음·이전 학생으로 가요." },
+  { target: "rw-side", title: "누가기록 · 활동지", body: "관찰 메모나 AI가 써 준 세특 초안을 누가기록에 붙여 두고, 고친 문장만 골라 '칸에 넣기'로 옮겨 써요. 활동지(PDF·사진)를 올려 띄워 볼 수도 있어요." },
+  { target: "rw-total", title: "총합본 · 복사", body: "활동별 글이 줄을 바꿔 합쳐진 최종본이에요. '복사'를 눌러 나이스에 그대로 붙여넣어요." },
+  { target: "rw-check", title: "기재요령 점검", body: "빨간 '기재 불가'(특수기호·대학명·상호명·대회 등)는 꼭 고치고, 주황 '고치기 권장'(과거형·학생 입장 표현)도 살펴요." },
+  { target: "rw-bar", title: "저장 · 인쇄 · 백업", body: "저장 상태는 여기서 봐요. 인쇄·PDF·엑셀은 학생 · 반 · 담당 반 전체 중 골라 뽑고, '백업 파일'로 반 자료를 따로 보관해요." },
+  { target: "rw-help", title: "가이드라인은 언제든 '?'에서", body: "기재요령 요약, 교사 입장 맺음말 예시, 쓰기 팁을 다시 볼 수 있어요." },
+];
+function HelpDialog({ onClose, onTour }) {
+  useEffect(() => { const onKey = event => { if (event.key === "Escape") onClose(); }; window.addEventListener("keydown", onKey); return () => window.removeEventListener("keydown", onKey); }, [onClose]);
+  return <div className="krw-modal" role="dialog" aria-modal="true" aria-label="생기부 작성 가이드라인" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="krw-modal-box krw-help">
+      <header><b><HelpCircle size={18} /> 생기부 작성 가이드라인</b><div className="acts"><button type="button" data-kdn-bare className="krw-btn" onClick={onTour}>단계별 안내 다시 보기</button><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={18} /></button></div></header>
+      <section><h4>꼭 지킬 기재요령 <small>2026.05.08 광덕고 연수 자료</small></h4><ul>{RECORD_GUIDE.rules.map(rule => <li key={rule}>{rule}</li>)}</ul></section>
+      <section><h4>교사 입장 맺음말 예시 <small>눌러서 복사</small></h4><div className="ends">{RECORD_GUIDE.endings.map(item => <button key={item} type="button" data-kdn-bare onClick={() => navigator.clipboard?.writeText(item.replace(/^~/, ""))}>{item}</button>)}</div></section>
+      <section><h4>쓰기 팁</h4><ul className="tips">{RECORD_GUIDE.tips.map(tip => <li key={tip}>{tip}</li>)}</ul></section>
+      <p className="keys">단축키 <kbd>Alt</kbd>+<kbd>↓</kbd>/<kbd>↑</kbd> 다음·이전 학생 · <kbd>Ctrl</kbd>+<kbd>S</kbd> 바로 저장 · <kbd>Esc</kbd> 창 닫기</p>
     </div>
-    <p className="keys">단축키: <kbd>Alt</kbd>+<kbd>↓</kbd>/<kbd>↑</kbd> 다음·이전 학생 · <kbd>Ctrl</kbd>+<kbd>S</kbd> 바로 저장</p>
-  </section>;
+  </div>;
 }
 
 // ── 자료 칸: 누가기록 · 활동지 ────────────────────────────────────────────
@@ -249,11 +261,23 @@ async function fileUrl(file) {
   const blob = await (await fetch(stored.dataUrl)).blob();
   return URL.createObjectURL(blob);
 }
-function SidePanel({ rec, sid, studentLabel, scopeLabel, by, showToast, onClose }) {
+function SidePanel({ rec, sid, studentLabel, scopeLabel, by, showToast, onClose, targets = [] }) {
   const [tab, setTab] = useState("memo");
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
   const inputRef = useRef(null);
+  const memoRef = useRef(null);
+  const [target, setTarget] = useState("");
+  const targetKey = targets.some(t => t.key === target) ? target : targets[0]?.key || "";
+  const putIntoField = () => {
+    const el = memoRef.current;
+    const picked = el && el.selectionEnd > el.selectionStart ? el.value.slice(el.selectionStart, el.selectionEnd) : (el?.value || "");
+    const text = picked.trim();
+    if (!text || !targetKey) return showToast?.("누가기록에서 넣을 글을 먼저 골라(드래그) 주세요.", "error");
+    const before = rec.textOf(sid, targetKey).trim();
+    rec.edit(`s|${sid}|${targetKey}`, before ? `${before} ${text}` : text);
+    showToast?.(`'${targets.find(t => t.key === targetKey)?.label}' 칸에 넣었어요.`, "success");
+  };
   const files = rec.files.filter(file => !file.removed && (!file.sid || file.sid === sid));
   const memo = rec.textOf(sid, "memo");
   const upload = async (list, forStudent) => {
@@ -274,12 +298,13 @@ function SidePanel({ rec, sid, studentLabel, scopeLabel, by, showToast, onClose 
       else { const a = document.createElement("a"); a.href = url; a.download = file.name; document.body.appendChild(a); a.click(); a.remove(); }
     } catch (error) { showToast?.(error?.message || "열지 못했어요.", "error"); }
   };
-  return <aside className="krw-side">
+  return <aside className="krw-side" data-tour="rw-side">
     <header><div className="krw-side-tabs"><button type="button" data-kdn-bare aria-pressed={tab === "memo"} onClick={() => setTab("memo")}><FileText size={14} /> 누가기록</button><button type="button" data-kdn-bare aria-pressed={tab === "files"} onClick={() => setTab("files")}><Paperclip size={14} /> 활동지 {files.length > 0 && <em>{files.length}</em>}</button></div><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="자료 칸 닫기"><PanelRightClose size={16} /></button></header>
     {tab === "memo" ? <div className="krw-memo">
-      <p className="krw-side-note">{studentLabel} 관찰 메모예요. 생기부에 들어가지 않고 이 반 선생님만 봐요.</p>
-      <textarea value={memo} spellCheck={false} placeholder={"예)\n9.12 모둠 토론에서 반대 측 근거를 정리해 발표\n10.3 실험 보고서 오차 원인을 스스로 분석"} onChange={event => rec.edit(`s|${sid}|memo`, event.target.value)} />
-      <button type="button" data-kdn-bare className="krw-btn" onClick={() => rec.edit(`s|${sid}|memo`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button>
+      <p className="krw-side-note">{studentLabel} 관찰 메모·AI 초안 보관용이에요. 생기부에 들어가지 않아요. 문장을 드래그하고 '칸에 넣기'를 누르면 그 칸 끝에 붙어요.</p>
+      <textarea ref={memoRef} value={memo} spellCheck={false} placeholder={"예)\n9.12 모둠 토론에서 반대 측 근거를 정리해 발표\n10.3 실험 보고서 오차 원인을 스스로 분석\n\n(AI가 써 준 초안을 여기에 붙여 두고 고쳐 써도 좋아요)"} onChange={event => rec.edit(`s|${sid}|memo`, event.target.value)} />
+      <div className="krw-put">{targets.length > 0 && <><select value={targetKey} onChange={event => setTarget(event.target.value)} aria-label="넣을 칸">{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select><button type="button" data-kdn-bare className="krw-btn pri" onClick={putIntoField} title="누가기록에서 드래그한 글(없으면 전체)을 고른 칸 끝에 붙여요"><ChevronLeft size={14} /> 칸에 넣기</button></>}</div>
+      <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|memo`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button>
     </div> : <div className="krw-files">
       <div className="up"><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "class"; inputRef.current.click(); }}>{uploading ? <Loader2 size={14} className="spin" /> : <Paperclip size={14} />} 반 공용 활동지 올리기</button><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "student"; inputRef.current.click(); }}><Paperclip size={14} /> 이 학생 자료</button>
         <input ref={inputRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.hwp,.hwpx,.doc,.docx,.xlsx,.xls,.ppt,.pptx" onChange={event => { upload(event.target.files, event.target.dataset.mode === "student"); event.target.value = ""; }} /></div>
@@ -366,7 +391,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
 
   if (!classOptions.length) return <div className="krw-empty"><Users size={20} /><b>담임 반 정보가 없어요.</b><span>내 정보에서 담임 학년·반을 확인해 주세요.</span></div>;
   return <div className="krw-body">
-    <div className="krw-bar">
+    <div className="krw-bar" data-tour="rw-bar">
       {classOptions.length > 1 ? <select value={cls} onChange={event => setCls(event.target.value)} aria-label="반">{classOptions.map(c => <option key={c} value={c}>{grade}학년 {c}반</option>)}</select> : <b className="krw-scope">{grade}학년 {cls}반 담임</b>}
       {rec.loaded && students.length > 0 && <Progress done={students.filter(s => filled(s) === HOMEROOM_AREAS.length).length} total={students.length} onlyEmpty={onlyEmpty} setOnlyEmpty={setOnlyEmpty} />}
       <span className="sp" />
@@ -388,11 +413,11 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
       : <div className={`krw-split${side ? " has-side" : ""}`}>
         <StudentList items={shown.map(s => ({ ...s, label: s.number }))} current={sid} onPick={setSid} find={find} setFind={setFind}
           renderRight={s => <><span className="fill">{HOMEROOM_AREAS.map(key => <i key={key} style={{ "--c": AREA_COLOR[key] }} className={rec.textOf(s.sid, key).trim() ? "on" : ""} />)}</span>{check && <IssueDot text={HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n")} />}</>} />
-        {current && <section className="krw-pane">
+        {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           {HOMEROOM_AREAS.map(key => <Field key={key} label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={RECORD_AREAS[key].limit} check={check} rows={key === "career" ? 8 : 6} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />)}
         </section>}
-        {current && side && <SidePanel rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -403,7 +428,7 @@ function ActivityManager({ activities, onChange, sources = [], onImport, onApply
   const live = activities.filter(act => !act.removed);
   const hidden = activities.filter(act => act.removed);
   const add = () => { const value = name.trim(); if (!value) return; onChange([...activities, { id: uid(), name: value }]); setName(""); };
-  return <div className="krw-acts">
+  return <div className="krw-acts" data-tour="rw-acts">
     <div className="hd"><b>수행평가 영역(활동)</b><small>활동별로 나눠 쓰면 총합본이 줄을 바꿔 합쳐져요</small><span className="sp" />
       {sources.length > 0 && <select value="" onChange={event => { if (event.target.value) onImport(event.target.value); }} aria-label="다른 반 활동 가져오기"><option value="">다른 반 활동 가져오기…</option>{sources.map(src => <option key={src.id} value={src.id}>{src.subject} · {src.label}</option>)}</select>}
       {onApplyAll && live.length > 0 && <button type="button" data-kdn-bare className="krw-btn" onClick={onApplyAll} title="같은 과목 내 다른 반에 이 활동 목록을 똑같이 넣어요(이미 있는 이름은 건너뜀)"><Copy size={13} /> 같은 과목 다른 반에도 적용</button>}
@@ -510,7 +535,7 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
 
   if (!books.length) return <div className="krw-empty"><BookOpen size={20} /><b>이 학년·학기 담당 과목이 없어요.</b><span>내 정보에서 담당 과목·반(이동수업은 분반)을 고르면 반별로 과세특을 쓸 수 있어요.</span></div>;
   return <div className="krw-body">
-    <div className="krw-bar">
+    <div className="krw-bar" data-tour="rw-bar">
       <select value={bookId} onChange={event => setBookId(event.target.value)} aria-label="과목·반">{books.map(b => <option key={b.id} value={b.id}>{b.subject} · {b.label} ({b.students.length}명)</option>)}</select>
       {book?.kind !== "common" && <small className="krw-tag">이동수업 · 출석부 기준</small>}
       {rec.loaded && acts.length > 0 && <Progress done={students.filter(doneOf).length} total={students.length} onlyEmpty={onlyEmpty} setOnlyEmpty={setOnlyEmpty} />}
@@ -526,7 +551,7 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table"><thead><tr><th className="nm">학생</th>{acts.map(act => <th key={act.id} style={{ "--c": actColor(acts, act.id) }}>{act.name}</th>)}<th className="tot">총합본</th></tr></thead>
         <tbody>{shown.map(s => { const total = totalOf(s); return <tr key={s.sid}><td className="nm">{who(s)}</td>{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <td key={act.id} style={{ "--c": actColor(acts, act.id) }}><textarea rows={5} value={text} spellCheck={false} onChange={event => rec.edit(`s|${s.sid}|${act.id}`, event.target.value)} /><div className="cellft"><span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span></div></td>; })}
-          <td className="tot"><div className="krw-total-sm">{total || <i>비어 있음</i>}</div><div className="cellft"><ByteMeter text={total} limit={limit} />{check && <IssueDot text={total} />}</div></td></tr>; })}</tbody></table></div>
+          <td className="tot"><div className="cellhd"><ByteMeter text={total} limit={limit} />{check && <IssueDot text={total} />}</div><div className={`krw-total-sm${total ? "" : " is-empty"}`}>{total || "활동 칸에 쓰면 합쳐져요"}</div></td></tr>; })}</tbody></table></div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{acts.map(act => <button key={act.id} type="button" data-kdn-bare aria-pressed={actId === act.id} style={{ "--c": actColor(acts, act.id) }} onClick={() => setActId(act.id)}>{act.name}<em>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => { const total = totalOf(s); return <div key={s.sid} className="krw-areacard"><Field label={who(s)} hint={acts.find(a => a.id === actId)?.name || "활동"} color={actColor(acts, actId)} text={rec.textOf(s.sid, actId)} limit={limit} check={check} rows={3} meta={rec.metaOf(s.sid, actId)} onChange={value => rec.edit(`s|${s.sid}|${actId}`, value)} /><p className="krw-total-line">이 학생 총합본 <ByteMeter text={total} limit={limit} /></p></div>; })}
@@ -535,16 +560,16 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
       : <div className={`krw-split${side ? " has-side" : ""}`}>
         <StudentList items={shown.map(s => ({ ...s, label: book.kind === "common" ? s.number : `${s.class}-${s.number}` }))} current={sid} onPick={setSid} find={find} setFind={setFind}
           renderRight={s => { const total = totalOf(s); const b = neisBytes(total); return <><span className="fill">{acts.slice(0, 6).map(act => <i key={act.id} style={{ "--c": actColor(acts, act.id) }} className={rec.textOf(s.sid, act.id).trim() ? "on" : ""} />)}</span><span className={`b${b > limit ? " over" : ""}`}>{b ? b.toLocaleString() : "-"}</span>{check && <IssueDot text={total} />}</>; }} />
-        {current && <section className="krw-pane">
+        {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{who(current)}</b><small>{current.sid} · {book.subject}</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           {acts.map((act, index) => <Field key={act.id} tag={`활동 ${index + 1}`} label={act.name} color={actColor(acts, act.id)} text={rec.textOf(current.sid, act.id)} limit={limit} check={check} rows={4} meta={rec.metaOf(current.sid, act.id)} onChange={value => rec.edit(`s|${current.sid}|${act.id}`, value)} />)}
-          {(() => { const total = totalOf(current); return <div className="krw-total">
-            <div className="krw-field-hd"><span className="krw-chip">합본</span><b>과세특 총합본</b><small>활동마다 줄을 바꿔 합쳐요 · 나이스에 그대로 붙여넣기</small><ByteMeter text={total} limit={limit} /><button type="button" data-kdn-bare className="krw-copy" onClick={async () => { try { await navigator.clipboard.writeText(total); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { showToast?.("복사하지 못했어요.", "error"); } }}><Copy size={13} /> {copied ? "복사됨" : "복사"}</button></div>
-            <div className="krw-total-tx">{total || <i>활동별 글을 쓰면 여기에 합쳐져요.</i>}</div>
+          {(() => { const total = totalOf(current); return <div className="krw-total" data-tour="rw-total">
+            <div className="krw-total-hd"><div><b>과세특 총합본</b><small>활동마다 줄을 바꿔 자동으로 합쳐요</small></div><ByteMeter text={total} limit={limit} /><button type="button" data-kdn-bare className="krw-copy" disabled={!total} onClick={async () => { try { await navigator.clipboard.writeText(total); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { showToast?.("복사하지 못했어요.", "error"); } }}><Copy size={14} /> {copied ? "복사됨" : "나이스용 복사"}</button></div>
+            <div className={`krw-total-tx${total ? "" : " is-empty"}`}>{total || "위 활동 칸에 글을 쓰면 여기에 합쳐져요."}</div>
             {check && <IssueList text={total} />}
           </div>; })()}
         </section>}
-        {current && side && <SidePanel rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -578,21 +603,22 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
   const [tab, setTab] = useState(() => { try { const saved = localStorage.getItem("kd_rec_tab_v1"); return tabs.some(t => t[0] === saved) ? saved : tabs[0][0]; } catch { return tabs[0][0]; } });
   const [view, setView] = useState(() => { try { return VIEWS.some(v => v[0] === localStorage.getItem(VIEW_KEY)) ? localStorage.getItem(VIEW_KEY) : "student"; } catch { return "student"; } });
   const [check, setCheck] = useState(true);
-  const [guide, setGuide] = useState(() => { try { return !localStorage.getItem(GUIDE_KEY); } catch { return true; } });
-  const closeGuide = () => { setGuide(false); try { localStorage.setItem(GUIDE_KEY, "1"); } catch { /* 안내 숨김 기억은 편의 기능 */ } };
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [tourToken, setTourToken] = useState(0);
   const pick = (setter, storageKey) => value => { setter(value); try { localStorage.setItem(storageKey, value); } catch { /* 선택 기억은 편의 기능 */ } };
 
   return <div className="krw">
     <style>{CSS}</style>
     <header className="krw-head">
       <div className="t"><b>생기부 업무</b><small>칸마다 자동 저장 · 나이스 바이트 계산 · 2026 기재요령 점검</small></div>
-      <div className="krw-tabs" role="tablist">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
+      <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
     </header>
-    {guide && tab !== "legacy" && <Guide onClose={closeGuide} />}
+    {tab !== "legacy" && <TourGuide id="records-v2" steps={TOUR_STEPS} startToken={tourToken} />}
+    {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
     {tab !== "legacy" && <div className="krw-opts">
-      <div className="krw-views" role="group" aria-label="보는 형태">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => pick(setView, VIEW_KEY)(key)}><Icon size={15} /> {label}</button>)}</div>
-      <button type="button" data-kdn-bare className={`krw-check${check ? " is-on" : ""}`} aria-pressed={check} onClick={() => setCheck(value => !value)}>{check ? <Eye size={15} /> : <EyeOff size={15} />} 기재요령 점검 {check ? "켜짐" : "꺼짐"}</button>
-      {!guide && <button type="button" data-kdn-bare className="krw-btn" onClick={() => setGuide(true)}><HelpCircle size={15} /> 사용법·기재요령</button>}
+      <div className="krw-views" role="group" aria-label="보는 형태" data-tour="rw-views">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => pick(setView, VIEW_KEY)(key)}><Icon size={15} /> {label}</button>)}</div>
+      <button type="button" data-kdn-bare data-tour="rw-check" className={`krw-check${check ? " is-on" : ""}`} aria-pressed={check} onClick={() => setCheck(value => !value)}>{check ? <Eye size={15} /> : <EyeOff size={15} />} 기재요령 점검 {check ? "켜짐" : "꺼짐"}</button>
+      <button type="button" data-kdn-bare data-tour="rw-help" className="krw-help-btn" onClick={() => setHelpOpen(true)} title="생기부 작성 가이드라인 · 단계별 안내" aria-label="가이드라인"><HelpCircle size={18} /><span>가이드라인</span></button>
       {tab === "subject" && isAdmin && !teacher && <select className="krw-teacher" value={pickedTeacherId} onChange={event => setPickedTeacherId(event.target.value)} aria-label="선생님"><option value="">선생님 고르기</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
     </div>}
     {tab === "homeroom" && <HomeroomWriter year={year} grade={hrGrade} classOptions={classOptions} rosterFor={rosterFor} by={by} view={view} check={check} showToast={showToast} />}
@@ -611,35 +637,32 @@ const CSS = `
 .krw-tabs{display:flex;gap:4px;padding:4px;border-radius:16px;background:rgba(255,255,255,.08)}
 .krw-tabs button{display:grid;gap:1px;justify-items:start;padding:9px 18px;border:0;border-radius:12px;background:transparent;font:inherit;color:#cfccc5;cursor:pointer;text-align:left}
 .krw-tabs button b{font-size:15px;font-weight:800}.krw-tabs button small{font-size:11.5px;opacity:.85}
-.krw-tabs button[aria-selected="true"]{background:#ff7a3d;color:#1b1006;box-shadow:0 6px 18px rgba(255,122,61,.35)}
-.krw-tabs button.t-homeroom[aria-selected="true"]{background:#60a5fa;color:#0b1b33;box-shadow:0 6px 18px rgba(96,165,250,.35)}
-.krw-tabs button.t-legacy[aria-selected="true"]{background:#f4f3f0;color:#17181d}
-.krw-guide{display:grid;gap:12px;padding:16px 18px;border-radius:20px;background:color-mix(in srgb,#2563eb 6%,var(--kdn-surface,#fff));border:1.5px solid color-mix(in srgb,#2563eb 30%,transparent)}
-.krw-guide>header{display:flex;align-items:center;justify-content:space-between}.krw-guide>header b{display:inline-flex;align-items:center;gap:6px;font-size:16px;font-weight:800;color:#1d4ed8}
-.krw-guide>header button{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:0 10px;border:0;border-radius:9px;background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer}
-.krw-guide .steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
-.krw-guide .steps li{display:grid;gap:4px;padding:12px;border-radius:14px;background:var(--kdn-surface,#fff)}
-.krw-guide .steps i{display:grid;place-items:center;width:24px;height:24px;border-radius:99px;background:#2563eb;color:#fff;font-style:normal;font-size:12px;font-weight:800}
-.krw-guide .steps b{font-size:14px}.krw-guide .steps span{font-size:12.5px;line-height:1.55;color:var(--kdn-ink-soft,#5b606b)}
-.krw-guide .cols{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:10px}
-.krw-guide .cols>div{padding:12px 14px;border-radius:14px;background:var(--kdn-surface,#fff)}.krw-guide .cols b{font-size:13.5px;font-weight:800}
-.krw-guide ul{margin:6px 0 0;padding-left:18px;display:grid;gap:3px;font-size:12.5px;line-height:1.55;color:var(--kdn-ink-soft,#5b606b)}
-.krw-guide .ends{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.krw-guide .ends span{padding:3px 9px;border-radius:99px;background:color-mix(in srgb,#059669 10%,transparent);color:#047857;font-size:12px;font-weight:700}
-.krw-guide .keys{margin:0;font-size:12px;color:var(--kdn-muted,#8a8f99)}.krw-guide kbd{padding:1px 6px;border-radius:5px;border:1px solid var(--kdn-line,#d8d5ce);background:var(--kdn-surface,#fff);font:inherit;font-size:11px}
+.krw-tabs button[aria-selected="true"]{background:#fff;color:#17181d;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.krw-tabs button[aria-selected="true"] b{color:#c2410c}.krw-tabs button[aria-selected="true"] small{color:#5b606b;opacity:1}
+.krw-tabs button:not([aria-selected="true"]):hover{background:rgba(255,255,255,.08);color:#fff}
 .krw-opts{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.krw-views{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--kdn-surface-2,#ecebe7)}
+.krw-help-btn{display:inline-flex;align-items:center;gap:6px;min-height:38px;margin-left:auto;padding:0 14px 0 10px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:13.5px;font-weight:800;color:#3d4048;cursor:pointer}
+.krw-help-btn svg{color:#d0612a}.krw-help-btn:hover{border-color:#d0612a;color:#c2410c}
+.krw-help{width:min(760px,100%);max-height:calc(100vh - 40px);overflow:auto;gap:14px}
+.krw-help header .acts{display:flex;gap:6px;align-items:center;flex:none}.krw-help header .acts .krw-btn{white-space:nowrap}.krw-help header .x{display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:10px;background:var(--kdn-surface-2,#f3f2ef);cursor:pointer;color:inherit}
+.krw-help section{display:grid;gap:6px;padding:14px 16px;border-radius:16px;background:var(--kdn-surface-2,#f6f5f3)}
+.krw-help h4{margin:0;font-size:14.5px;font-weight:800}.krw-help h4 small{margin-left:6px;font-size:12px;font-weight:600;color:var(--kdn-muted,#8a8f99)}
+.krw-help ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:13.5px;line-height:1.6;color:#3d4048}
+.krw-help .ends{display:flex;flex-wrap:wrap;gap:6px}.krw-help .ends button{padding:5px 11px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:600;color:var(--kdn-ink,#17181d);cursor:pointer}.krw-help .ends button:hover{border-color:#d0612a}
+.krw-help .keys{margin:0;font-size:12.5px;color:var(--kdn-muted,#8a8f99)}.krw-help kbd{padding:1px 6px;border-radius:5px;border:1px solid var(--kdn-line,#d8d5ce);background:var(--kdn-surface,#fff);font:inherit;font-size:11.5px}
+.krw-views{display:flex;gap:2px;padding:4px;border-radius:14px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e2dfd8);box-shadow:0 1px 2px rgba(20,24,33,.04)}
 .krw-views button,.krw-check,.krw-btn,.krw-menu>button{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 13px;border:0;border-radius:10px;background:transparent;font:inherit;font-size:13.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer;white-space:nowrap}
-.krw-views button[aria-pressed="true"]{background:#ff7a3d;color:#1b1006;box-shadow:0 2px 8px rgba(255,122,61,.3)}
+.krw-views button{color:#3d4048}.krw-views button:hover{background:var(--kdn-surface-2,#f3f2ef)}.krw-views button[aria-pressed="true"]{background:#17181d;color:#fff;box-shadow:0 2px 8px rgba(20,24,33,.2)}
 .krw-check{border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff)}.krw-check.is-on{border-color:color-mix(in srgb,#16a34a 40%,transparent);color:#15803d;background:color-mix(in srgb,#16a34a 8%,var(--kdn-surface,#fff))}
 .krw-teacher,.krw-bar select,.krw-acts select{min-height:38px;padding:0 12px;border-radius:10px;border:1.5px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:inherit;font:inherit;font-size:14px;font-weight:700;max-width:100%}
 .krw-body{display:grid;gap:12px}
 .krw-bar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-radius:16px;background:color-mix(in srgb,var(--kdn-surface,#fff) 94%,transparent);backdrop-filter:blur(8px);border:1px solid var(--kdn-line,#e7e5e0);box-shadow:0 6px 18px rgba(20,24,33,.05)}
-.krw-bar .sp,.krw-seg .sp,.krw-acts .sp{flex:1}.krw-scope{font-size:15px;font-weight:800;color:#1d4ed8}
+.krw-bar .sp,.krw-seg .sp,.krw-acts .sp{flex:1}.krw-scope{font-size:15px;font-weight:800}
 .krw-tag{padding:3px 9px;border-radius:99px;background:color-mix(in srgb,#2563eb 10%,transparent);color:#1d4ed8;font-size:12px;font-weight:700}
 .krw-progress{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--kdn-ink-soft,#5b606b)}.krw-progress b{color:var(--kdn-ink,#17181d)}
-.krw-progress i{display:block;width:90px;height:6px;border-radius:99px;background:var(--kdn-surface-2,#ecebe7);overflow:hidden}.krw-progress em{display:block;height:100%;background:linear-gradient(90deg,#ff7a3d,#16a34a)}
-.krw-progress button{min-height:30px;padding:0 10px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12px;font-weight:700;color:inherit;cursor:pointer}.krw-progress button[aria-pressed="true"]{background:#fff4ec;border-color:#ff7a3d;color:#c2410c}
-.krw-btn{border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff)}.krw-btn.pri{border-color:transparent;background:#ff7a3d;color:#1b1006}.krw-btn:disabled{opacity:.45;cursor:default}
+.krw-progress i{display:block;width:90px;height:6px;border-radius:99px;background:var(--kdn-surface-2,#ecebe7);overflow:hidden}.krw-progress em{display:block;height:100%;background:#4f8a6b}
+.krw-progress button{min-height:30px;padding:0 10px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12px;font-weight:700;color:inherit;cursor:pointer}.krw-progress button[aria-pressed="true"]{background:#17181d;border-color:#17181d;color:#fff}
+.krw-btn{border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff)}.krw-btn.pri{border-color:transparent;background:#17181d;color:#fff}.krw-btn:disabled{opacity:.4;cursor:default}
 .krw-menu{position:relative}.krw-menu>button{border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff)}
 .krw-menu-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;display:grid;gap:6px;min-width:300px;padding:12px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0);box-shadow:0 18px 40px rgba(20,24,33,.18)}
 .krw-menu-pop .row{display:flex;align-items:center;gap:6px}.krw-menu-pop .row span{flex:1;font-size:13.5px;font-weight:700}
@@ -655,8 +678,8 @@ const CSS = `
 .krw-find{display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:0 10px;border-radius:12px;background:var(--kdn-surface-2,#f3f2ef);color:var(--kdn-muted,#8a8f99)}
 .krw-find input{flex:1;min-width:0;min-height:36px;border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#17181d)}
 .krw-list>button{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 10px;border:0;border-radius:12px;background:transparent;font:inherit;color:inherit;text-align:left;cursor:pointer}
-.krw-list>button:hover{background:var(--kdn-surface-2,#f6f5f3)}.krw-list>button.is-on{background:#fff4ec;box-shadow:inset 3px 0 0 #ff7a3d}
-.krw-list .no{width:34px;font-size:12.5px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list>button.is-on .no{color:#c2410c;font-weight:800}
+.krw-list>button:hover{background:var(--kdn-surface-2,#f6f5f3)}.krw-list>button.is-on{background:#17181d;color:#fff}.krw-list>button.is-on .fill i:not(.on){background:rgba(255,255,255,.25)}
+.krw-list .no{width:34px;font-size:12.5px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list>button.is-on .no,.krw-list>button.is-on .b{color:#ffb089;font-weight:800}
 .krw-list .nm{flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .krw-list .fill{display:flex;gap:3px}.krw-list .fill i{width:7px;height:7px;border-radius:99px;background:var(--kdn-line,#dcd9d2)}.krw-list .fill i.on{background:var(--c,#ff7a3d)}
 .krw-list .b{min-width:34px;text-align:right;font-size:12px;font-weight:700;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list .b.over{color:#dc2626}
@@ -666,12 +689,12 @@ const CSS = `
 .krw-pane-hd div{flex:1;display:grid}.krw-pane-hd b{font-size:18px;font-weight:800}.krw-pane-hd small{font-size:12px;color:#cfccc5}
 .krw-pane-hd button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:38px;height:38px;padding:0 8px;border-radius:12px;border:0;background:rgba(255,255,255,.1);color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.krw-pane-hd button:disabled{opacity:.3}
 .krw-field,.krw-total{position:relative;display:grid;gap:8px;padding:14px 16px 14px 20px;border-radius:18px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0);box-shadow:0 1px 2px rgba(20,24,33,.04),0 6px 16px rgba(20,24,33,.04)}
-.krw-field::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:5px;border-radius:0 6px 6px 0;background:var(--c,#ff7a3d)}
+.krw-field::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 3px 3px 0;background:var(--c,#d0612a)}
 .krw-field:focus-within{border-color:color-mix(in srgb,var(--c,#ff7a3d) 55%,transparent);box-shadow:0 0 0 4px color-mix(in srgb,var(--c,#ff7a3d) 14%,transparent)}
-.krw-field-hd{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}.krw-field-hd b{font-size:15.5px;font-weight:800;color:color-mix(in srgb,var(--c,#17181d) 70%,var(--kdn-ink,#17181d))}.krw-field-hd small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-field-hd{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}.krw-field-hd b{font-size:15.5px;font-weight:800;color:var(--kdn-ink,#17181d)}.krw-field-hd small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .krw-field-hd .krw-bytes{margin-left:auto}
-.krw-chip{padding:2px 8px;border-radius:99px;background:color-mix(in srgb,var(--c,#ff7a3d) 14%,transparent);color:color-mix(in srgb,var(--c,#ff7a3d) 80%,#000);font-size:11.5px;font-weight:800}
-.krw-fix{display:inline-flex;align-items:center;gap:4px;min-height:28px;padding:0 10px;border-radius:99px;border:1px solid color-mix(in srgb,#7c3aed 35%,transparent);background:color-mix(in srgb,#7c3aed 8%,var(--kdn-surface,#fff));color:#6d28d9;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.krw-chip{padding:2px 8px;border-radius:6px;background:color-mix(in srgb,var(--c,#d0612a) 12%,transparent);color:color-mix(in srgb,var(--c,#d0612a) 85%,#000);font-size:11.5px;font-weight:800}
+.krw-fix{display:inline-flex;align-items:center;gap:4px;min-height:28px;padding:0 10px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:#3d4048;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 .krw-field textarea,.krw-table textarea{width:100%;box-sizing:border-box;resize:vertical;padding:12px 14px;border-radius:12px;border:1.5px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:15px;line-height:1.8;word-break:keep-all}
 .krw-field textarea::placeholder,.krw-table textarea::placeholder{color:#a3a7b0}
 .krw-field textarea:focus,.krw-table textarea:focus{outline:0;border-color:var(--c,#ff7a3d)}
@@ -685,18 +708,19 @@ const CSS = `
 .krw-issues b{font-size:11px;padding:1px 7px;border-radius:99px;color:#fff}.krw-issues .is-block b{background:#dc2626}.krw-issues .is-warn b{background:#d97706}
 .krw-issues .k{font-weight:700}.krw-issues code{padding:0 5px;border-radius:5px;background:var(--kdn-surface,#fff);font-family:inherit;font-weight:800}.krw-issues em{font-style:normal;font-weight:700}.krw-issues small{color:var(--kdn-ink-soft,#5b606b)}
 .krw-ok{display:flex;align-items:center;gap:5px;margin:0;font-size:12.5px;font-weight:700;color:#15803d}
-.krw-total{border:1.5px solid color-mix(in srgb,#ff7a3d 50%,var(--kdn-line,#e7e5e0));background:color-mix(in srgb,#ff7a3d 5%,var(--kdn-surface,#fff));--c:#ea580c}
-.krw-total-tx{white-space:pre-wrap;padding:12px 14px;border-radius:12px;background:var(--kdn-surface,#fff);border:1px dashed color-mix(in srgb,#ff7a3d 40%,transparent);font-size:15px;line-height:1.85;word-break:keep-all}.krw-total-tx i{color:var(--kdn-muted,#8a8f99)}
-.krw-copy{display:inline-flex;align-items:center;gap:4px;min-height:30px;padding:0 12px;border-radius:9px;border:0;background:#17181d;color:#fff;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.krw-total{border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff);--c:#d0612a;padding:16px 18px}
+.krw-total-hd{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding-bottom:10px;border-bottom:1px solid var(--kdn-line,#eeece7)}.krw-total-hd>div{flex:1;min-width:160px;display:grid;gap:1px}.krw-total-hd b{font-size:16px;font-weight:800}.krw-total-hd small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-total-tx{white-space:pre-wrap;min-height:5.5em;padding:4px 2px 0;font-size:15px;line-height:1.9;word-break:keep-all;color:var(--kdn-ink,#17181d)}.krw-total-tx.is-empty{color:var(--kdn-muted,#a3a7b0);font-size:14px}
+.krw-copy{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 14px;border-radius:10px;border:0;background:#17181d;color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer}.krw-copy:disabled{opacity:.35;cursor:default}
 .krw-acts{display:grid;gap:10px;padding:12px 14px;border-radius:18px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
 .krw-acts .hd{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}.krw-acts .hd b{font-size:14.5px;font-weight:800}.krw-acts .hd small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .krw-acts .list{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.krw-acts .chip{display:inline-flex;align-items:center;gap:2px;padding:3px 4px 3px 8px;border-radius:99px;background:color-mix(in srgb,var(--c) 10%,var(--kdn-surface,#fff));border:1.5px solid color-mix(in srgb,var(--c) 40%,transparent)}
+.krw-acts .chip{display:inline-flex;align-items:center;gap:2px;padding:3px 4px 3px 10px;border-radius:99px;background:var(--kdn-surface-2,#f3f2ef);border:1px solid var(--kdn-line,#e2dfd8)}
 .krw-acts .chip>i{width:8px;height:8px;border-radius:99px;background:var(--c);margin-right:4px}
-.krw-acts .chip input{min-width:4em;border:0;background:transparent;font:inherit;font-size:13.5px;font-weight:800;color:color-mix(in srgb,var(--c) 75%,var(--kdn-ink,#000));outline:0}
+.krw-acts .chip input{min-width:4em;border:0;background:transparent;font:inherit;font-size:13.5px;font-weight:700;color:var(--kdn-ink,#17181d);outline:0}
 .krw-acts .chip button,.krw-acts .hidden button{display:inline-grid;place-items:center;min-width:26px;height:26px;border:0;border-radius:99px;background:transparent;color:var(--kdn-muted,#8a8f99);font:inherit;cursor:pointer}
 .krw-acts .add{display:inline-flex;gap:4px}.krw-acts .add input{min-height:34px;padding:0 12px;border-radius:99px;border:1.5px dashed var(--kdn-line,#d8d5ce);background:transparent;font:inherit;font-size:13px;color:inherit}
-.krw-acts .add button{display:inline-flex;align-items:center;gap:3px;min-height:34px;padding:0 14px;border:0;border-radius:99px;background:#ff7a3d;color:#1b1006;font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.krw-acts .add button{display:inline-flex;align-items:center;gap:3px;min-height:34px;padding:0 14px;border:0;border-radius:99px;background:#17181d;color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
 .krw-acts .hidden{font-size:12px;color:var(--kdn-muted,#8a8f99)}.krw-acts .hidden button{display:inline-flex;gap:3px;width:auto;padding:0 8px;font-size:12px}
 .krw-side{position:sticky;top:70px;display:grid;gap:10px;align-content:start;max-height:calc(100vh - 90px);overflow:auto;padding:12px;border-radius:20px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
 .krw-side>header{display:flex;align-items:center;gap:6px}.krw-side .x{display:grid;place-items:center;width:32px;height:32px;margin-left:auto;border:0;border-radius:9px;background:var(--kdn-surface-2,#f3f2ef);color:var(--kdn-ink-soft,#5b606b);cursor:pointer}
@@ -705,8 +729,10 @@ const CSS = `
 .krw-side-tabs button[aria-pressed="true"]{background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);box-shadow:0 1px 2px rgba(20,24,33,.12)}
 .krw-side-tabs em{font-style:normal;padding:0 6px;border-radius:99px;background:#ff7a3d;color:#1b1006;font-size:11px}
 .krw-side-note{margin:0;font-size:12px;line-height:1.5;color:var(--kdn-muted,#8a8f99)}.krw-side-empty{margin:6px 4px;font-size:12.5px;color:var(--kdn-muted,#8a8f99)}
-.krw-memo{display:grid;gap:8px}.krw-memo textarea{width:100%;min-height:280px;box-sizing:border-box;resize:vertical;padding:12px;border-radius:12px;border:1.5px solid color-mix(in srgb,#ca8a04 35%,transparent);background:#fffbeb;color:#3f2d00;font:inherit;font-size:14px;line-height:1.75}
-[data-kd-ui="dark"] .krw-memo textarea{background:#2a2414;color:#f5e7c0}
+.krw-memo{display:grid;gap:8px}.krw-memo textarea{width:100%;min-height:300px;box-sizing:border-box;resize:vertical;padding:12px;border-radius:12px;border:1px solid var(--kdn-line,#dcd9d2);background:#fbfaf7;color:var(--kdn-ink,#17181d);font:inherit;font-size:14px;line-height:1.75}
+.krw-put{display:flex;gap:6px}.krw-put select{flex:1;min-width:0;min-height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:700;color:inherit}
+.krw-btn.ghost{border-style:dashed}
+[data-kd-ui="dark"] .krw-memo textarea{background:var(--kdn-surface-2,#22232a)}
 .krw-files{display:grid;gap:8px}.krw-files .up{display:flex;flex-wrap:wrap;gap:6px}
 .krw-files ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}.krw-files li{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3)}
 .krw-files li .nm{flex:1;min-width:0;display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:#1d4ed8;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -717,8 +743,8 @@ const CSS = `
 .krw-preview iframe{width:100%;height:62vh;border:0;background:#fff}.krw-preview img{width:100%;height:auto;display:block}
 .krw-table-wrap{overflow:auto;border-radius:18px;border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff);max-height:calc(100vh - 220px)}
 .krw-table{width:100%;min-width:900px;border-collapse:separate;border-spacing:0}
-.krw-table th{position:sticky;top:0;z-index:2;padding:11px 8px;background:var(--kdn-surface,#fff);font-size:13.5px;font-weight:800;text-align:center;border-bottom:3px solid var(--c,var(--kdn-line,#e7e5e0));color:color-mix(in srgb,var(--c,#17181d) 75%,var(--kdn-ink,#000))}
-.krw-table td{padding:8px;vertical-align:top;border-bottom:1px solid var(--kdn-line,#eeece7);min-width:240px}
+.krw-table th{position:sticky;top:0;z-index:2;padding:11px 8px;background:var(--kdn-surface,#fff);font-size:13.5px;font-weight:800;text-align:center;border-bottom:2px solid var(--c,var(--kdn-line,#e2dfd8));color:var(--kdn-ink,#17181d)}
+.krw-table td{padding:8px;vertical-align:top!important;text-align:left;border-bottom:1px solid var(--kdn-line,#eeece7);min-width:240px}
 .krw-table tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--kdn-surface-2,#f6f5f3) 55%,var(--kdn-surface,#fff))}
 .krw-table tbody tr:nth-child(even) td.nm{background:color-mix(in srgb,var(--kdn-surface-2,#f6f5f3) 55%,var(--kdn-surface,#fff))!important}
 .krw-table td.n,.krw-table th.n{min-width:0;width:44px;text-align:center;font-variant-numeric:tabular-nums}
@@ -726,25 +752,25 @@ const CSS = `
 .krw-table th.nm{z-index:3}
 .krw-table textarea{font-size:13.5px;line-height:1.65;padding:9px 10px}
 .krw-table .cellft{display:flex;align-items:center;gap:6px;margin-top:4px}
-.krw-table th.tot{--c:#ea580c}.krw-table td.tot{min-width:320px;background:color-mix(in srgb,#ff7a3d 5%,var(--kdn-surface,#fff))!important}
-.krw-total-sm{white-space:pre-wrap;font-size:13px;line-height:1.7;max-height:12em;overflow:auto}.krw-total-sm i{color:var(--kdn-muted,#8a8f99)}
+.krw-table th.tot{--c:#d0612a}.krw-table td.tot{min-width:320px;background:var(--kdn-surface,#fff)!important;border-left:1px solid var(--kdn-line,#e7e5e0)}
+.krw-total-sm{text-align:left!important;white-space:pre-wrap;font-size:13px;line-height:1.75;max-height:14em;overflow:auto;padding-top:6px}.krw-total-sm.is-empty{color:var(--kdn-muted,#a3a7b0);font-size:12.5px}
+.krw-table .cellhd{display:flex;align-items:center;gap:6px;padding-bottom:6px;border-bottom:1px dashed var(--kdn-line,#e2dfd8)}
 .krw-area{display:grid;gap:10px}
 .krw-seg{position:sticky;top:64px;z-index:4;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px;border-radius:16px;background:color-mix(in srgb,var(--kdn-surface,#fff) 94%,transparent);backdrop-filter:blur(8px);border:1px solid var(--kdn-line,#e7e5e0)}
-.krw-seg>button:not(.krw-btn){display:inline-flex;align-items:center;gap:6px;min-height:38px;padding:0 14px;border-radius:99px;border:1.5px solid color-mix(in srgb,var(--c,#888) 35%,transparent);background:color-mix(in srgb,var(--c,#888) 7%,var(--kdn-surface,#fff));font:inherit;font-size:13.5px;font-weight:800;color:color-mix(in srgb,var(--c,#555) 80%,#000);cursor:pointer}
+.krw-seg>button:not(.krw-btn){display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:0 14px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:13.5px;font-weight:700;color:#3d4048;cursor:pointer}.krw-seg>button:not(.krw-btn)::before{content:"";width:8px;height:8px;border-radius:99px;background:var(--c,#999)}
 .krw-seg>button:not(.krw-btn) em{font-style:normal;font-size:11.5px;font-weight:700;opacity:.75}
-.krw-seg>button[aria-pressed="true"]{background:var(--c,#ff7a3d);border-color:var(--c,#ff7a3d);color:#fff}.krw-seg>button[aria-pressed="true"] em{opacity:.9}
+.krw-seg>button[aria-pressed="true"]{background:#17181d;border-color:#17181d;color:#fff}.krw-seg>button[aria-pressed="true"] em{opacity:.8}
 .krw-areacard{display:grid;gap:4px}.krw-total-line{display:flex;align-items:center;gap:8px;margin:0 6px;font-size:12.5px;font-weight:700;color:var(--kdn-muted,#8a8f99)}
 .krw-modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:16px;background:rgba(15,18,26,.45)}
 .krw-modal-box{display:grid;gap:10px;width:min(640px,100%);padding:18px;border-radius:20px;background:var(--kdn-surface,#fff);box-shadow:0 24px 60px rgba(15,23,42,.3)}
 .krw-modal-box header{display:flex;align-items:center;justify-content:space-between}.krw-modal-box header b{display:inline-flex;align-items:center;gap:6px;font-size:16px;font-weight:800}
-.krw-modal-box header button{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:9px;background:var(--kdn-surface-2,#f3f2ef);cursor:pointer;color:inherit}
+.krw-modal-box header>button{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:9px;background:var(--kdn-surface-2,#f3f2ef);cursor:pointer;color:inherit}
 .krw-modal-box p{margin:0;font-size:13px;line-height:1.6;color:var(--kdn-ink-soft,#5b606b)}
 .krw-modal-box textarea{min-height:220px;padding:12px;border-radius:12px;border:1.5px solid var(--kdn-line,#dcd9d2);font:inherit;font-size:13.5px;line-height:1.6;resize:vertical;background:var(--kdn-surface,#fff);color:inherit}
 .krw-modal-box .ft{display:flex;align-items:center;gap:8px}.krw-modal-box .ft span{flex:1;font-size:13px}
 [data-kd-ui="dark"] .krw-list>button.is-on{background:color-mix(in srgb,#ff7a3d 18%,transparent)}
 [data-kd-ui="dark"] .krw-copy{background:#f4f3f0;color:#17181d}
 @media (max-width:1280px){.krw-split.has-side{grid-template-columns:minmax(200px,230px) minmax(0,1fr)}.krw-split.has-side .krw-side{grid-column:1/-1;position:static;max-height:none}}
-@media (max-width:980px){.krw-guide .steps{grid-template-columns:repeat(2,minmax(0,1fr))}.krw-guide .cols{grid-template-columns:minmax(0,1fr)}}
-@media (max-width:860px){.krw-split,.krw-split.has-side{grid-template-columns:minmax(0,1fr)}.krw-list{position:static;max-height:240px}.krw-side{position:static}.krw-head{padding:14px}.krw-tabs{width:100%}.krw-tabs button{flex:1}.krw-tabs button small{display:none}.krw-bar{position:static}.krw-seg{top:0}.krw-guide .steps{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:860px){.krw-split,.krw-split.has-side{grid-template-columns:minmax(0,1fr)}.krw-list{position:static;max-height:240px}.krw-side{position:static}.krw-head{padding:14px}.krw-tabs{width:100%}.krw-tabs button{flex:1}.krw-tabs button small{display:none}.krw-bar{position:static}.krw-seg{top:0}}
 @media print{.krw{display:none}}
 `;
