@@ -67,3 +67,24 @@ test("오타 의심: 자음·모음만, 같은 낱말 반복, 마침표 겹침",
   assert.ok(typos.includes(".."));
   assert.equal(checkRecordText("현대 사회의 다양한 문제를 탐구함.").filter(i => i.kind === "오타 의심").length, 0);
 });
+test("중복 문장: 짧은 문장(5자 이상)도 같은 문장으로", () => {
+  const dup = findDuplicateSentences([
+    { sid: "1", label: "1번", text: "도레미파솔라시도." },
+    { sid: "2", label: "2번", text: "도레미파솔라시도." },
+    { sid: "3", label: "3번", text: "도레미파솔라시도." },
+    { sid: "4", label: "4번", text: "성실함." },
+    { sid: "5", label: "5번", text: "성실함." },
+  ]);
+  assert.equal(dup.length, 1);
+  assert.equal(dup[0].people.length, 3);
+});
+test("중복 문장: 조사·어미만 바꾼 문장은 '비슷한 문장'으로 묶음", () => {
+  const dup = findDuplicateSentences([
+    { sid: "1", label: "1번", text: "소설의 갈등 구조를 분석한 보고서를 논리적으로 작성함." },
+    { sid: "2", label: "2번", text: "소설의 갈등 구조를 분석하는 보고서를 논리적으로 작성하였음." },
+    { sid: "3", label: "3번", text: "기후 변화가 해양 생태계에 미치는 영향을 조사하여 발표함." },
+  ]);
+  assert.equal(dup.length, 1);
+  assert.equal(dup[0].similar, true);
+  assert.deepEqual(dup[0].people.map(p => p.label).sort(), ["1번", "2번"]);
+});

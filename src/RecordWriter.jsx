@@ -417,8 +417,8 @@ function DuplicateModal({ entries, title, onClose, onPick }) {
   return <div className="krw-modal" role="dialog" aria-modal="true" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="krw-modal-box krw-dup">
       <header><b><Search size={17} /> 같은 문장 점검 · {title}</b><button type="button" data-kdn-bare onClick={onClose}><X size={16} /></button></header>
-      <p>여러 학생에게 똑같이 들어간 문장이에요(띄어쓰기·기호는 무시). 학생마다 다른 관찰 내용으로 바꾸면 좋아요. 학생을 누르면 그 학생으로 가요.</p>
-      {dups.length ? <ul>{dups.map((item, index) => <li key={index}><q>{item.sentence}</q><div>{item.people.map(p => <button key={p.sid} type="button" data-kdn-bare onClick={() => { onPick(p.sid); onClose(); }}>{p.label}</button>)}</div><em>{item.people.length}명</em></li>)}</ul> : <p className="krw-side-empty">겹치는 문장이 없어요.</p>}
+      <p>여러 학생에게 <b>똑같이</b> 들어간 문장(띄어쓰기·기호 무시, 5자 이상)과, 조사·어미만 바꾼 <b>거의 같은</b> 문장(15자 이상)을 찾아요. 학생마다 다른 관찰 내용으로 바꾸면 좋아요. 학생을 누르면 그 학생으로 가요.</p>
+      {dups.length ? <ul>{dups.map((item, index) => <li key={index} className={item.similar ? "is-similar" : ""}><div className="q"><span className="tag">{item.similar ? "비슷한 문장" : "같은 문장"}</span><q>{item.sentence}</q>{item.variants?.map((v, i) => <q key={i} className="v">{v}</q>)}</div><em>{item.people.length}명</em><div className="who">{item.people.map(p => <button key={p.sid} type="button" data-kdn-bare className={p.similar ? "is-sim" : ""} title={p.similar ? "비슷한 문장" : "같은 문장"} onClick={() => { onPick(p.sid); onClose(); }}>{p.label}</button>)}</div></li>)}</ul> : <p className="krw-side-empty">겹치는 문장이 없어요.</p>}
     </div>
   </div>;
 }
@@ -958,7 +958,8 @@ const CSS = `
 .krw-dup ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .krw-dup li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f3)}
 .krw-dup q{font-size:13.5px;line-height:1.6}.krw-dup li em{font-style:normal;font-size:12px;font-weight:800;color:#b45309;align-self:start}
-.krw-dup li div{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px}.krw-dup li div button{padding:2px 9px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12px;font-weight:700;cursor:pointer;color:inherit}
+.krw-dup li .q{display:grid;gap:4px;min-width:0}.krw-dup li .tag{justify-self:start;padding:1px 8px;border-radius:99px;background:#17181d;color:#fff;font-size:11px;font-weight:800}.krw-dup li.is-similar .tag{background:#b45309}.krw-dup q.v{color:var(--kdn-ink-soft,#5b606b);font-size:12.5px}.krw-dup q.v::before{content:"≈ "}.krw-dup li .who button.is-sim{border-style:dashed}
+.krw-dup li div.who{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px}.krw-dup li div button{padding:2px 9px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12px;font-weight:700;cursor:pointer;color:inherit}
 .krw-files{display:grid;gap:8px}.krw-files .up{display:flex;flex-wrap:wrap;gap:6px}
 .krw-files ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}.krw-files li{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3)}
 .krw-files li .nm{flex:1;min-width:0;display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:#1d4ed8;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
