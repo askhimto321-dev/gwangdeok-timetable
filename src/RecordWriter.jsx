@@ -473,18 +473,37 @@ function StudentList({ items, current, onPick, find, setFind, renderRight }) {
   </nav>;
 }
 
-// 한눈에 표의 학생 칸: 번호·이름·작성 점·(과세특) 합계 바이트, 누르면 학생별 보기로
-function StudentCell({ no, name, done, total, dots = [], bytes = null, limit = 0, onOpen }) {
+// 한눈에 표의 학생 칸: 번호·이름만 크게, 다 쓰면 초록 번호. '자세히'는 줄에 마우스를 올리거나 쓰는 중일 때만 보여요.
+function StudentCell({ no, name, done, total, onOpen }) {
   const full = total > 0 && done === total;
   return <th className="nm" scope="row">
     <div className="nm-in">
-      <span className={`no${full ? " is-full" : ""}`}>{full ? <Check size={12} /> : null}{no}</span>
+      <span className={`no${full ? " is-full" : ""}`} title={`${done}/${total}칸 작성`}>{full ? <Check size={12} /> : null}{no}</span>
       <b>{name}</b>
-      <span className="dots" title={`${done}/${total}칸 작성`}>{dots.map(dot => <i key={dot.key} className={dot.on ? "on" : ""} style={{ "--c": dot.color }} />)}</span>
-      {bytes !== null && <span className={`tb${bytes > limit ? " is-over" : ""}`}>{bytes ? bytes.toLocaleString() : "-"}<small> / {limit.toLocaleString()}</small></span>}
       {onOpen && <button type="button" data-kdn-bare className="open" onClick={onOpen} title="학생별 보기에서 이 학생 열기(자료·AI 도우미)">자세히 <ChevronRight size={12} /></button>}
     </div>
   </th>;
+}
+
+// 한눈에 표의 글 칸: 비어 있으면 입력칸만, 글이 있으면 바이트·복사, 점검에 걸리면 무엇이 걸렸는지 바로 아래에 적어요.
+function GridCell({ color, text, check, label, placeholder, onChange, meter }) {
+  const issues = useMemo(() => (check && text.trim() ? checkRecordText(text) : []), [check, text]);
+  const tone = issues.some(item => item.level === "block") ? "has-block" : issues.length ? "has-warn" : "";
+  return <td style={{ "--c": color }}>
+    <textarea rows={2} value={text} spellCheck={false} aria-label={label} placeholder={placeholder} className={tone} onChange={event => onChange(event.target.value)} />
+    {text.trim() && <div className="cellft">{meter}<CopyBtn text={text} /></div>}
+    {issues.length > 0 && <IssueMini issues={issues} />}
+  </td>;
+}
+function IssueMini({ issues }) {
+  const merged = [];
+  issues.forEach(item => { const found = merged.find(x => x.kind === item.kind && x.match === item.match); if (found) found.count += 1; else merged.push({ ...item, count: 1 }); });
+  merged.sort((a, b) => (a.level === "block" ? 0 : 1) - (b.level === "block" ? 0 : 1));
+  const head = merged.slice(0, 3);
+  const rest = merged.slice(3);
+  return <ul className="krw-iss-mini">{head.map((item, index) => <li key={index} className={item.level === "block" ? "is-block" : "is-warn"} title={item.fix}>
+    <b>{item.level === "block" ? "불가" : "권장"}</b><span>{item.kind}</span><code>{item.match}</code>{item.count > 1 && <em>×{item.count}</em>}
+  </li>)}{rest.length > 0 && <li className="more" title={rest.map(item => `${item.kind}: ${item.match}`).join("\n")}>외 {rest.length}건</li>}</ul>;
 }
 
 // ── 학급담임 ───────────────────────────────────────────────────────────────
@@ -544,7 +563,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{HOMEROOM_AREAS.map(key => <col key={key} />)}</colgroup>
         <thead><tr><th className="nm">학생</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}><span className="h"><i />{RECORD_AREAS[key].label}<small>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}명 · 한도 {RECORD_AREAS[key].limit.toLocaleString()}</small></span></th>)}</tr></thead>
-        <tbody>{shown.map((s, i) => <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${isOver(s) ? " is-over" : ""}`}><StudentCell no={s.number} name={s.name} done={filled(s)} total={HOMEROOM_AREAS.length} dots={HOMEROOM_AREAS.map(key => ({ key, color: AREA_COLOR[key], on: !!rec.textOf(s.sid, key).trim() }))} onOpen={() => openStudent(s.sid)} />{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <td key={key} style={{ "--c": AREA_COLOR[key] }}><textarea rows={2} value={text} spellCheck={false} aria-label={`${s.number}번 ${RECORD_AREAS[key].label}`} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={event => rec.edit(`s|${s.sid}|${key}`, event.target.value)} /><div className="cellft"><ByteMeter text={text} limit={RECORD_AREAS[key].limit} />{check && <IssueDot text={text} />}<CopyBtn text={text} /></div></td>; })}</tr>)}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
+        <tbody>{shown.map((s, i) => <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${isOver(s) ? " is-over" : ""}`}><StudentCell no={s.number} name={s.name} done={filled(s)} total={HOMEROOM_AREAS.length} onOpen={() => openStudent(s.sid)} />{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <GridCell key={key} color={AREA_COLOR[key]} text={text} check={check} label={`${s.number}번 ${RECORD_AREAS[key].label}`} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={value => rec.edit(`s|${s.sid}|${key}`, value)} meter={<ByteMeter text={text} limit={RECORD_AREAS[key].limit} />} />; })}</tr>)}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{HOMEROOM_AREAS.map(key => <button key={key} type="button" data-kdn-bare aria-pressed={area === key} style={{ "--c": AREA_COLOR[key] }} onClick={() => setArea(key)}>{RECORD_AREAS[key].label}<em>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => <Field key={s.sid} label={`${s.number}번 ${s.name}`} hint={RECORD_AREAS[area].label} color={AREA_COLOR[area]} text={rec.textOf(s.sid, area)} limit={RECORD_AREAS[area].limit} check={check} rows={4} meta={rec.metaOf(s.sid, area)} onChange={value => rec.edit(`s|${s.sid}|${area}`, value)} />)}
@@ -700,8 +719,8 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{acts.map(act => <col key={act.id} />)}<col className="c-tot" /></colgroup>
         <thead><tr><th className="nm">학생</th>{acts.map(act => <th key={act.id} style={{ "--c": actColor(acts, act.id) }}><span className="h"><i />{act.name}<small>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}명 작성</small></span></th>)}<th className="tot"><span className="h">과세특 총합본<small>활동 순서대로 줄바꿈 · 한도 {limit.toLocaleString()}</small></span></th></tr></thead>
-        <tbody>{shown.map((s, i) => { const total = totalOf(s); const tb = neisBytes(total); return <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${tb > limit ? " is-over" : ""}`}><StudentCell no={book.kind === "common" ? s.number : `${s.class}-${s.number}`} name={s.name} done={acts.filter(act => rec.textOf(s.sid, act.id).trim()).length} total={acts.length} bytes={tb} limit={limit} dots={acts.slice(0, 8).map(act => ({ key: act.id, color: actColor(acts, act.id), on: !!rec.textOf(s.sid, act.id).trim() }))} onOpen={() => openStudent(s.sid)} />{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <td key={act.id} style={{ "--c": actColor(acts, act.id) }}><textarea rows={2} value={text} spellCheck={false} aria-label={act.name} placeholder={`${act.name} 쓰기`} onChange={event => rec.edit(`s|${s.sid}|${act.id}`, event.target.value)} /><div className="cellft"><span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span>{check && <IssueDot text={text} />}<CopyBtn text={text} /></div></td>; })}
-          <td className="tot"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /><div className={`krw-total-sm${total ? "" : " is-empty"}`}>{total || "활동 칸에 쓰면 여기에 합쳐져요"}</div><div className="cellft">{check && <IssueDot text={total} />}<CopyBtn text={total} label="총합본 복사" /></div></td></tr>; })}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
+        <tbody>{shown.map((s, i) => { const total = totalOf(s); const tb = neisBytes(total); return <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${tb > limit ? " is-over" : ""}`}><StudentCell no={book.kind === "common" ? s.number : `${s.class}-${s.number}`} name={s.name} done={acts.filter(act => rec.textOf(s.sid, act.id).trim()).length} total={acts.length} onOpen={() => openStudent(s.sid)} />{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <GridCell key={act.id} color={actColor(acts, act.id)} text={text} check={check} label={act.name} placeholder={`${act.name} 쓰기`} onChange={value => rec.edit(`s|${s.sid}|${act.id}`, value)} meter={<span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span>} />; })}
+          <td className="tot"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact />{total && <><div className="krw-total-sm">{total}</div><div className="cellft"><CopyBtn text={total} label="총합본 복사" /></div></>}</td></tr>; })}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{acts.map(act => <button key={act.id} type="button" data-kdn-bare aria-pressed={actId === act.id} style={{ "--c": actColor(acts, act.id) }} onClick={() => setActId(act.id)}>{act.name}<em>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => { const total = totalOf(s); return <div key={s.sid} className="krw-areacard"><Field label={who(s)} hint={acts.find(a => a.id === actId)?.name || "활동"} color={actColor(acts, actId)} text={rec.textOf(s.sid, actId)} limit={limit} share={{ total: neisBytes(total) }} check={check} rows={3} meta={rec.metaOf(s.sid, actId)} onChange={value => rec.edit(`s|${s.sid}|${actId}`, value)} /><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /></div>; })}
@@ -998,13 +1017,20 @@ const CSS = `
 .krw-grid tbody th.nm .no{display:inline-flex;align-items:center;justify-content:center;gap:3px;margin:0;min-width:30px;height:24px;font-size:12.5px;background:#17181d;color:#fff}
 .krw-grid tbody th.nm .no.is-full{background:#4f8a6b}
 .krw-grid tbody th.nm b{font-size:15.5px;line-height:1.3}
-.krw-grid tbody th.nm .dots{display:flex;flex-wrap:wrap;gap:3px}
-.krw-grid tbody th.nm .dots i{width:8px;height:8px;border-radius:99px;border:1.5px solid var(--c);background:transparent}
-.krw-grid tbody th.nm .dots i.on{background:var(--c)}
-.krw-grid tbody th.nm .tb{font-size:12px;font-weight:800;color:#3d4048;font-variant-numeric:tabular-nums}.krw-grid tbody th.nm .tb small{font-weight:600;color:var(--kdn-muted,#8a8f99)}
-.krw-grid tbody th.nm .tb.is-over{color:#c2410c}
-.krw-grid tbody th.nm .open{display:inline-flex;align-items:center;gap:1px;margin-top:2px;padding:3px 7px 3px 8px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:11.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer}
+.krw-grid tbody th.nm .open{display:inline-flex;transition:opacity .15s;align-items:center;gap:1px;margin-top:2px;padding:3px 7px 3px 8px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:11.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer}
 .krw-grid tbody th.nm .open:hover{border-color:#d0612a;color:#c2410c}
+@media (hover:hover){.krw-grid tbody th.nm .open{opacity:0}.krw-grid tbody tr:hover th.nm .open,.krw-grid tbody tr:focus-within th.nm .open{opacity:1}}
+.krw-grid textarea.has-block{border-color:#ef4444;box-shadow:inset 3px 0 0 #ef4444}
+.krw-grid textarea.has-warn{border-color:#f59e0b;box-shadow:inset 3px 0 0 #f59e0b}
+.krw-iss-mini{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:3px}
+.krw-iss-mini li{display:flex;align-items:center;gap:6px;min-width:0;padding:4px 8px;border-radius:8px;font-size:12px;line-height:1.35}
+.krw-iss-mini li.is-block{background:#fef2f2;color:#991b1b}.krw-iss-mini li.is-warn{background:#fffbeb;color:#92400e}
+.krw-iss-mini li b{flex:none;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:800;color:#fff;background:#dc2626}.krw-iss-mini li.is-warn b{background:#d97706}
+.krw-iss-mini li span{flex:none;font-weight:700}
+.krw-iss-mini li code{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 5px;border-radius:4px;background:rgba(255,255,255,.75);font-family:inherit;font-weight:800;color:inherit}
+.krw-iss-mini li em{flex:none;font-style:normal;font-weight:800}
+.krw-iss-mini li.more{padding:2px 8px;color:var(--kdn-muted,#8a8f99);font-weight:700}
+[data-kd-ui="dark"] .krw-iss-mini li.is-block{background:rgba(239,68,68,.14);color:#fca5a5}[data-kd-ui="dark"] .krw-iss-mini li.is-warn{background:rgba(245,158,11,.14);color:#fcd34d}[data-kd-ui="dark"] .krw-iss-mini li code{background:rgba(0,0,0,.25)}
 .krw-filter{display:inline-flex;flex-wrap:wrap;gap:4px}
 .krw-progress .krw-filter button{display:inline-flex;align-items:center;gap:5px}
 .krw-filter button .n{line-height:18px;font-size:11px;font-weight:800;padding:0 6px;border-radius:99px;background:var(--kdn-surface-2,#f1efea);color:#3d4048}
@@ -1016,7 +1042,6 @@ const CSS = `
 [data-kd-ui="dark"] .krw-grid tbody tr.is-alt td,[data-kd-ui="dark"] .krw-grid tbody tr.is-alt th.nm,[data-kd-ui="dark"] .krw-grid tbody tr.is-alt td.tot{background:color-mix(in srgb,#fff 4%,var(--kdn-surface,#1b1c22))!important}
 [data-kd-ui="dark"] .krw-grid tbody tr.is-alt textarea{background:var(--kdn-surface-2,#24252c);border-color:transparent}
 [data-kd-ui="dark"] .krw-grid tbody th.nm .no{background:#f1efea;color:#17181d}
-[data-kd-ui="dark"] .krw-grid tbody th.nm .tb{color:#d6d8dd}
 [data-kd-ui="dark"] .krw-grid tbody tr:hover td,[data-kd-ui="dark"] .krw-grid tbody tr:hover th.nm,[data-kd-ui="dark"] .krw-grid td.tot{background:var(--kdn-surface,#1b1c22)!important}
 [data-kd-ui="dark"] .krw-grid tbody tr:focus-within td,[data-kd-ui="dark"] .krw-grid tbody tr:focus-within th.nm{background:color-mix(in srgb,#d0612a 8%,var(--kdn-surface,#1b1c22))!important}
 .krw-total-sm{text-align:left!important;white-space:pre-wrap;font-size:13px;line-height:1.75;max-height:14em;overflow:auto;padding-top:6px}.krw-total-sm.is-empty{color:var(--kdn-muted,#a3a7b0);font-size:12.5px}
