@@ -2,10 +2,11 @@
 // 저장은 학생·칸 하나씩 서버 기록에 합쳐 넣어(동시에 여러 선생님이 써도 서로 덮어쓰지 않게) 하고,
 // 저장 전 글은 이 브라우저에도 바로 보관해 새로고침·끊김에도 남게 합니다. 서버는 덮어쓸 때 이전 본을 자동 백업합니다.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPaste, CloudOff, Copy, Download, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileText, HelpCircle, LayoutGrid, Loader2, Sparkles, PanelRightClose, PanelRightOpen, Paperclip, Plus, Printer, RotateCcw, Rows3, Save, Search, Table2, Trash2, Users, Wand2, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPaste, CloudOff, Copy, Download, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileText, HelpCircle, LayoutGrid, ListChecks, Loader2, Sparkles, PanelRightClose, PanelRightOpen, Paperclip, Plus, Printer, RotateCcw, Rows3, Save, Search, Table2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { booksForAssignment } from "./lessonStamps.js";
+import { loadStandards, matchStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
 import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
 
@@ -286,9 +287,81 @@ async function fileUrl(file) {
   return URL.createObjectURL(blob);
 }
 // 누가기록 갈래: 공통 · 수업 태도 · 활동(영역)별. 예전 '누가기록'은 공통(memo)으로 그대로 보여요.
+// ── 2022 개정 교육과정 성취기준 ─────────────────────────────────────────────
+function useStandards(enabled = true) {
+  const [state, setState] = useState({ data: null, error: "" });
+  useEffect(() => {
+    if (!enabled || state.data) return undefined;
+    let alive = true;
+    loadStandards().then(data => { if (alive) setState({ data, error: "" }); }).catch(error => { if (alive) setState({ data: null, error: error?.message || "불러오지 못했어요." }); });
+    return () => { alive = false; };
+  }, [enabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  return state;
+}
+
+// 성취기준 찾아보기·고르기 창: picked가 있으면 체크해서 활동에 연결, 없으면 찾아보기만
+function StandardsModal({ subjectName = "", picked = null, title = "", onSave, onClose }) {
+  const { data, error } = useStandards(true);
+  const subjects = data?.subjects || [];
+  const matched = useMemo(() => matchStandardSubject(subjectName, subjects), [subjectName, subjects]);
+  const [subj, setSubj] = useState("");
+  const [domain, setDomain] = useState("__all");
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(() => new Set(picked || []));
+  useEffect(() => { if (!subj && matched) setSubj(matched.n); }, [matched]); // eslint-disable-line react-hooks/exhaustive-deps
+  const subject = subjects.find(item => item.n === subj);
+  const query = q.trim().replace(/\s+/g, "");
+  const hit = (code, text) => !query || `${code}${text}`.replace(/\s+/g, "").includes(query);
+  const groups = subject ? subject.d.filter(([name]) => domain === "__all" || name === domain).map(([name, items]) => [name, items.filter(([code, text]) => hit(code, text))]).filter(([, items]) => items.length) : [];
+  const toggle = code => setSel(prev => { const next = new Set(prev); if (next.has(code)) next.delete(code); else next.add(code); return next; });
+  const pickMode = !!onSave;
+  return <div className="krw-modal" role="dialog" aria-modal="true" aria-label="2022 개정 교육과정 성취기준" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="krw-modal-box krw-std">
+      <header><b><ListChecks size={18} /> {pickMode ? `성취기준 고르기 · ${title}` : "2022 개정 교육과정 성취기준"}</b><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={18} /></button></header>
+      <p className="krw-std-note">성취기준은 수업이 겨냥한 <b>목표</b>예요. 문장을 그대로 세특에 옮기지 말고, 이 목표와 이어지는 학생의 구체적인 행동을 써 주세요.{pickMode ? " 고른 성취기준은 이 활동의 누가기록·AI 요청문에서 바로 쓸 수 있어요." : ""}</p>
+      {error ? <p className="krw-alert"><AlertTriangle size={15} /> 성취기준 자료를 불러오지 못했어요. ({error})</p>
+        : !data ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 성취기준을 불러오는 중이에요.</div>
+        : <>
+          <div className="krw-std-bar">
+            <select value={subj} onChange={event => { setSubj(event.target.value); setDomain("__all"); }} aria-label="과목">
+              <option value="">과목 고르기 ({subjects.length}과목)</option>
+              {subjects.map(item => <option key={item.n} value={item.n}>{item.n}{matched?.n === item.n ? " · 내 과목" : ""}</option>)}
+            </select>
+            <label className="krw-find is-inline"><Search size={14} /><input value={q} onChange={event => setQ(event.target.value)} placeholder="낱말·코드로 찾기" />{q && <button type="button" data-kdn-bare onClick={() => setQ("")} aria-label="지우기"><X size={13} /></button>}</label>
+          </div>
+          {subjectName && !matched && <p className="krw-side-note">'{subjectName}'과 이름이 같은 과목을 찾지 못했어요. 위에서 과목을 골라 주세요.</p>}
+          {subject && subject.d.length > 1 && <div className="krw-std-doms" role="group" aria-label="영역"><button type="button" data-kdn-bare aria-pressed={domain === "__all"} onClick={() => setDomain("__all")}>전체</button>{subject.d.map(([name, items]) => <button key={name} type="button" data-kdn-bare aria-pressed={domain === name} onClick={() => setDomain(name)}>{name}<em>{items.filter(([code]) => sel.has(code)).length || ""}</em></button>)}</div>}
+          <div className="krw-std-list">
+            {!subject ? <p className="krw-side-empty">과목을 고르면 영역별 성취기준이 보여요.</p>
+              : !groups.length ? <p className="krw-side-empty">찾는 성취기준이 없어요.</p>
+              : groups.map(([name, items]) => <section key={name}><h4>{name}</h4><ul>{items.map(([code, text]) => <li key={code} className={sel.has(code) ? "is-on" : ""}>
+                {pickMode ? <label><input type="checkbox" checked={sel.has(code)} onChange={() => toggle(code)} /><code>{code}</code><span>{text}</span></label> : <div className="ro"><code>{code}</code><span>{text}</span></div>}
+                <CopyBtn text={`${code} ${text}`} />
+              </li>)}</ul></section>)}
+          </div>
+          <footer className="krw-std-ft"><small>{data.source} PDF에서 옮긴 자료라 띄어쓰기가 어색한 곳이 있을 수 있어요.</small>
+            {pickMode && <><span className="n">{sel.size}개 고름</span>{sel.size > 0 && <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => setSel(new Set())}>모두 풀기</button>}<button type="button" data-kdn-bare className="krw-btn pri" onClick={() => onSave(Array.from(sel), subj)}><Check size={15} /> 이 활동에 연결</button></>}
+          </footer>
+        </>}
+    </div>
+  </div>;
+}
+
+// 자료 칸 '성취기준' 탭: 이 활동에 연결한 성취기준을 누가기록에 넣거나 복사
+function StandardsTab({ targets, targetKey, setTarget, standardsFor, onPick, addToMemo }) {
+  const list = standardsFor(targetKey);
+  return <div className="krw-stdtab">
+    <label className="krw-ai-target">활동<select value={targetKey} onChange={event => setTarget(event.target.value)}>{targets.map(t => <option key={t.key} value={t.key}>{t.label} ({standardsFor(t.key).length})</option>)}</select></label>
+    <p className="krw-side-note">활동에 연결한 성취기준이에요. <b>AI 요청문에는 자동으로 들어가요.</b> '누가기록에 넣기'를 누르면 이 학생의 활동 누가기록에 붙어요.</p>
+    {list.length ? <ul>{list.map(item => <li key={item.code}><div><code>{item.code}</code><small>{item.domain}</small></div><p>{item.text}</p><div className="acts"><button type="button" data-kdn-bare className="krw-mini" onClick={() => addToMemo(item)}><Plus size={12} /> 누가기록에 넣기</button><CopyBtn text={standardLine(item)} /></div></li>)}</ul>
+      : <p className="krw-side-empty">이 활동에 연결한 성취기준이 없어요.</p>}
+    <button type="button" data-kdn-bare className="krw-btn" onClick={() => onPick(targetKey)}><ListChecks size={14} /> {list.length ? "성취기준 바꾸기" : "성취기준 고르기"}</button>
+  </div>;
+}
+
 const memoCats = targets => [{ key: "memo", label: "공통" }, { key: "memo_att", label: "수업 태도" }, ...targets.map(t => ({ key: `memo_${t.key}`, label: t.label, target: t.key }))];
 
-function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {} }) {
+function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {}, standardsFor = null, onPickStandards = null }) {
   const [tab, setTab] = useState("memo");
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -338,6 +411,7 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
     <header><div className="krw-side-tabs">
       <button type="button" data-kdn-bare aria-pressed={tab === "memo"} onClick={() => setTab("memo")}><FileText size={14} /> 누가기록</button>
       <button type="button" data-kdn-bare aria-pressed={tab === "ai"} onClick={() => setTab("ai")}><Sparkles size={14} /> AI 도우미</button>
+      {standardsFor && <button type="button" data-kdn-bare aria-pressed={tab === "std"} onClick={() => setTab("std")}><ListChecks size={14} /> 성취기준</button>}
       <button type="button" data-kdn-bare aria-pressed={tab === "files"} onClick={() => setTab("files")}><Paperclip size={14} /> 활동지 {files.length > 0 && <em>{files.length}</em>}</button>
     </div><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="자료 칸 닫기"><PanelRightClose size={16} /></button></header>
     {tab === "memo" ? <div className="krw-memo">
@@ -350,7 +424,9 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
       <textarea ref={memoRef} value={memo} spellCheck={false} placeholder={cat.key === "memo_att" ? "예)\n9.5 발표 때 친구 의견을 메모하며 경청\n9.19 모둠 과제에서 자료 정리를 먼저 맡음\n10.2 질문을 자주 하며 개념을 확인" : cat.target ? `'${cat.label}' 활동 관찰을 날짜별로 적어요.\n예)\n9.12 주제 선정 이유를 구체적으로 설명\n10.3 자료 출처를 비교하며 근거 보완\n\n(AI가 써 준 초안을 붙여 두고 고쳐 써도 좋아요)` : "예)\n9.12 모둠 토론에서 반대 측 근거를 정리해 발표\n10.3 실험 보고서 오차 원인을 스스로 분석\n\n(AI가 써 준 초안을 붙여 두고 고쳐 써도 좋아요)"} onChange={event => rec.edit(`s|${sid}|${cat.key}`, event.target.value)} />
       <div className="krw-put">{targets.length > 0 && <><select value={targetKey} onChange={event => setTarget(event.target.value)} aria-label="넣을 칸">{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select><button type="button" data-kdn-bare className="krw-btn pri" onClick={putIntoField} title="드래그한 글(없으면 전체)을 고른 칸 끝에 붙여요"><ChevronLeft size={14} /> 칸에 넣기</button></>}</div>
       <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|${cat.key}`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button></>}
-    </div> : tab === "ai" ? <AiHelper rec={rec} sid={sid} studentName={studentName} targets={targets} targetKey={targetKey} setTarget={setTarget} budgetFor={budgetFor} aiContext={aiContext} cats={cats} putText={putText} showToast={showToast} />
+    </div> : tab === "std" && standardsFor ? <StandardsTab targets={targets} targetKey={targetKey} setTarget={setTarget} standardsFor={standardsFor} onPick={onPickStandards}
+      addToMemo={item => { const key = `memo_${targetKey}`; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev && !prev.endsWith("\n") ? "\n" : ""}[성취기준] ${standardLine(item)}\n`); showToast?.(`'${targets.find(t => t.key === targetKey)?.label}' 누가기록에 넣었어요.`, "success"); }} />
+    : tab === "ai" ? <AiHelper rec={rec} sid={sid} studentName={studentName} targets={targets} targetKey={targetKey} setTarget={setTarget} budgetFor={budgetFor} aiContext={aiContext} cats={cats} putText={putText} showToast={showToast} />
     : <div className="krw-files">
       <div className="up"><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "class"; inputRef.current.click(); }}>{uploading ? <Loader2 size={14} className="spin" /> : <Paperclip size={14} />} 반 공용 활동지 올리기</button><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "student"; inputRef.current.click(); }}><Paperclip size={14} /> 이 학생 자료</button>
         <input ref={inputRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.hwp,.hwpx,.doc,.docx,.xlsx,.xls,.ppt,.pptx" onChange={event => { upload(event.target.files, event.target.dataset.mode === "student"); event.target.value = ""; }} /></div>
@@ -380,7 +456,9 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const [loadKey, setLoadKey] = useState("");
   const defaultLoad = filledCats.find(c => c.target === targetKey)?.key || filledCats[0]?.key || "";
   useEffect(() => { setLoadKey(""); }, [targetKey, sid]);
-  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes, existing: refine ? current : "", studentName });
+  const stdList = aiContext.standardsFor ? aiContext.standardsFor(targetKey) : [];
+  const [useStd, setUseStd] = useState(true);
+  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes, existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [] });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
   // 바로 열기: 팝업 차단을 피하려고 창부터 열고, 요청문은 주소(?q=)에 담고 클립보드에도 복사해 둡니다.
   const openAi = async site => {
@@ -403,6 +481,8 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     {step === "prompt" && <div className="krw-ai-body">
       <p className="krw-side-note">누가기록(이 칸 관찰 · 수업 태도 · 공통)과 기재요령, 남은 바이트를 담은 요청문이에요. <b>학생 이름은 빠져요.</b> 복사해서 쓰시는 AI에 붙여넣고, 받은 답은 ②에서 점검해요.</p>
       <div className="krw-ai-notes"><span>요청문에 넣을 누가기록</span>{filledCats.length ? filledCats.map(c => <label key={c.key}><input type="checkbox" checked={isPicked(c)} onChange={() => togglePick(c.key)} /> {c.label}</label>) : <em>아직 누가기록이 없어요</em>}</div>
+      {aiContext.standardsFor && (stdList.length ? <label className="krw-ai-chk"><input type="checkbox" checked={useStd} onChange={event => setUseStd(event.target.checked)} /> 이 활동 성취기준 {stdList.length}개 넣기 <small>({stdList.map(item => item.code).join(" ")})</small></label>
+        : <p className="krw-ai-tip">이 활동에 성취기준을 연결하면 요청문에 목표로 함께 들어가요. (활동 칩의 '성취기준' 또는 '성취기준' 탭)</p>)}
       <label className="krw-ai-chk"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /> 지금 칸에 쓴 글도 함께 다듬어 달라고 하기</label>
       <pre className="krw-ai-prompt">{prompt}</pre>
       <div className="krw-ai-go">
@@ -600,7 +680,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
 }
 
 // ── 교과담임 ───────────────────────────────────────────────────────────────
-function ActivityManager({ activities, onChange, sources = [], onImport, onApplyAll }) {
+function ActivityManager({ activities, onChange, sources = [], onImport, onApplyAll, onStandards = null, standardsCount = () => 0 }) {
   const [name, setName] = useState("");
   const live = activities.filter(act => !act.removed);
   const hidden = activities.filter(act => act.removed);
@@ -613,6 +693,7 @@ function ActivityManager({ activities, onChange, sources = [], onImport, onApply
     <div className="list">{live.map((act, index) => <span key={act.id} className="chip" style={{ "--c": ACT_COLORS[index % ACT_COLORS.length] }}>
       <i />
       <input value={act.name} aria-label="활동 이름" size={Math.max(4, Array.from(act.name).reduce((n, ch) => n + (ch.charCodeAt(0) > 0x7f ? 2 : 1), 0) + 1)} onChange={event => onChange(activities.map(item => item.id === act.id ? { ...item, name: event.target.value } : item))} />
+      {onStandards && <button type="button" data-kdn-bare className={`std${standardsCount(act) ? " has" : ""}`} title="이 활동의 성취기준 고르기" onClick={() => onStandards(act.id)}><ListChecks size={12} />{standardsCount(act) ? standardsCount(act) : ""}</button>}
       <button type="button" data-kdn-bare title="앞으로" disabled={index === 0} onClick={() => { const order = live.map(a => a.id); [order[index - 1], order[index]] = [order[index], order[index - 1]]; onChange([...order.map(id => activities.find(a => a.id === id)), ...hidden]); }}><ChevronLeft size={13} /></button>
       <button type="button" data-kdn-bare title="숨기기(쓴 글은 지워지지 않아요)" onClick={() => onChange(activities.map(item => item.id === act.id ? { ...item, removed: true } : item))}><Trash2 size={12} /></button>
     </span>)}
@@ -638,6 +719,12 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
   const [side, setSide] = useState(true);
   const [paste, setPaste] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
+  const [stdFor, setStdFor] = useState(null); // 성취기준 고르는 활동 id
+  const std = useStandards(!!book);
+  const stdSubjects = std.data?.subjects || [];
+  const stdMatched = useMemo(() => matchStandardSubject(book?.subject, stdSubjects), [book?.subject, stdSubjects]);
+  const standardsFor = useCallback(actKey => { const act = acts.find(a => a.id === actKey); return act?.std?.length ? findStandards(act.std, stdSubjects, act.stdSub || stdMatched?.n) : []; }, [acts, stdSubjects, stdMatched]);
+  const saveStandards = (codes, subjectName) => { rec.edit("acts", rec.activities.map(a => a.id === stdFor ? { ...a, std: codes, stdSub: subjectName } : a)); showToast?.(codes.length ? `성취기준 ${codes.length}개를 연결했어요.` : "성취기준 연결을 풀었어요.", "success"); setStdFor(null); };
   useEffect(() => { if (!students.some(s => s.sid === sid)) setSid(students[0]?.sid || ""); }, [students]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!acts.some(a => a.id === actId)) setActId(acts[0]?.id || ""); }, [acts.map(a => a.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const texts = s => Object.fromEntries(acts.map(act => [act.id, rec.textOf(s.sid, act.id)]));
@@ -662,7 +749,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
   const importFrom = async srcId => {
     const src = await readStorage(sjKey(year, srcId), emptyDoc()).catch(() => null);
     const names = new Set(rec.activities.filter(a => !a.removed).map(a => a.name.trim()));
-    const add = (src?.activities || []).filter(a => !a.removed && a.name.trim() && !names.has(a.name.trim())).map(a => ({ id: uid(), name: a.name }));
+    const add = (src?.activities || []).filter(a => !a.removed && a.name.trim() && !names.has(a.name.trim())).map(a => ({ id: uid(), name: a.name, ...(a.std?.length ? { std: a.std, stdSub: a.stdSub || "" } : {}) }));
     if (!add.length) return showToast?.("가져올 새 활동이 없어요(같은 이름은 건너뛰어요).", "error");
     rec.edit("acts", [...rec.activities, ...add]);
     showToast?.(`활동 ${add.length}개를 가져왔어요.`, "success");
@@ -675,7 +762,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
     for (const target of targets) {
       const result = await updateStorage(sjKey(year, target.id), emptyDoc(), current => {
         const have = new Set((current?.activities || []).filter(a => !a.removed).map(a => a.name.trim()));
-        const add = acts.filter(a => !have.has(a.name.trim())).map(a => ({ id: uid(), name: a.name }));
+        const add = acts.filter(a => !have.has(a.name.trim())).map(a => ({ id: uid(), name: a.name, ...(a.std?.length ? { std: a.std, stdSub: a.stdSub || "" } : {}) }));
         if (!add.length) return current;
         changed += 1;
         return { ...(current || emptyDoc()), activities: [...(current?.activities || []), ...add], updatedAt: nowIso() };
@@ -732,7 +819,8 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {dupOpen && <DuplicateModal title={`${book?.subject} ${book?.label}`} entries={students.map(s => ({ sid: s.sid, label: book?.kind === "common" ? `${s.number}번` : `${s.class}-${s.number}`, text: totalOf(s) }))} onPick={setSid} onClose={() => setDupOpen(false)} />}
-    {rec.loaded && <ActivityManager activities={rec.activities} onChange={list => rec.edit("acts", list)} sources={sources} onImport={importFrom} onApplyAll={books.some(b => b.id !== book?.id && b.subject === book?.subject) ? applyAll : null} />}
+    {rec.loaded && <ActivityManager activities={rec.activities} onChange={list => rec.edit("acts", list)} sources={sources} onImport={importFrom} onApplyAll={books.some(b => b.id !== book?.id && b.subject === book?.subject) ? applyAll : null} onStandards={setStdFor} standardsCount={act => act.std?.length || 0} />}
+    {stdFor && <StandardsModal subjectName={acts.find(a => a.id === stdFor)?.stdSub || book?.subject || ""} picked={acts.find(a => a.id === stdFor)?.std || []} title={acts.find(a => a.id === stdFor)?.name || "활동"} onSave={saveStandards} onClose={() => setStdFor(null)} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{acts.map(act => <col key={act.id} />)}<col className="c-tot" /></colgroup>
@@ -757,7 +845,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
             {check && <IssueList text={total} />}
           </div>; })()}
         </section>}
-        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: book.subject }} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: book.subject, standardsFor }} standardsFor={standardsFor} onPickStandards={setStdFor} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -792,6 +880,7 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
   const [view, setView] = useState("student"); // 들어올 때는 늘 학생별 보기로 시작
   const [check, setCheck] = useState(true);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [stdOpen, setStdOpen] = useState(false);
   const [tourToken, setTourToken] = useState(0);
   const pick = (setter, storageKey) => value => { setter(value); try { localStorage.setItem(storageKey, value); } catch { /* 선택 기억은 편의 기능 */ } };
 
@@ -802,10 +891,12 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
       <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
     </header>
     {tab !== "legacy" && <TourGuide id="records-v2" steps={TOUR_STEPS} startToken={tourToken} />}
+    {stdOpen && <StandardsModal subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
     {tab !== "legacy" && <div className="krw-opts">
       <div className="krw-views" role="group" aria-label="보는 형태" data-tour="rw-views">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => setView(key)}><Icon size={15} /> {label}</button>)}</div>
       <button type="button" data-kdn-bare data-tour="rw-check" className={`krw-check${check ? " is-on" : ""}`} aria-pressed={check} onClick={() => setCheck(value => !value)}>{check ? <Eye size={15} /> : <EyeOff size={15} />} 기재요령 점검 {check ? "켜짐" : "꺼짐"}</button>
+      <button type="button" data-kdn-bare className="krw-std-btn" onClick={() => setStdOpen(true)} title="2022 개정 교육과정 과목별 성취기준 찾아보기"><ListChecks size={16} /><span>2022 성취기준</span></button>
       <button type="button" data-kdn-bare data-tour="rw-help" className="krw-help-btn" onClick={() => setHelpOpen(true)} title="생기부 작성 가이드라인 · 단계별 안내" aria-label="가이드라인"><HelpCircle size={18} /><span>가이드라인</span></button>
       {tab === "subject" && isAdmin && !teacher && <select className="krw-teacher" value={pickedTeacherId} onChange={event => setPickedTeacherId(event.target.value)} aria-label="선생님"><option value="">선생님 고르기</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
     </div>}
@@ -1080,6 +1171,48 @@ const CSS = `
 .krw-areacard{display:grid;gap:4px}.krw-total-line{display:flex;align-items:center;gap:8px;margin:0 6px;font-size:12.5px;font-weight:700;color:var(--kdn-muted,#8a8f99)}
 .krw-modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:16px;background:rgba(15,18,26,.45)}
 .krw-modal-box{display:grid;gap:10px;width:min(640px,100%);padding:18px;border-radius:20px;background:var(--kdn-surface,#fff);box-shadow:0 24px 60px rgba(15,23,42,.3)}
+/* 2022 성취기준 */
+.krw-std-btn{display:inline-flex;align-items:center;gap:6px;min-height:38px;margin-left:auto;padding:0 14px 0 11px;border-radius:99px;border:1px solid #c9d6ea;background:#f2f6fc;font:inherit;font-size:13.5px;font-weight:800;color:#2f4b7c;cursor:pointer}
+.krw-std-btn:hover{border-color:#5b7fbd;background:#e7eefa}
+.krw-std-btn+.krw-help-btn{margin-left:0}
+.krw-std{width:min(860px,100%);max-height:calc(100vh - 32px);grid-template-rows:auto auto auto auto minmax(0,1fr) auto;overflow:hidden}
+.krw-std>header{display:flex;align-items:center;gap:8px}.krw-std>header b{display:inline-flex;align-items:center;gap:7px;font-size:16px}.krw-std>header .x{margin-left:auto;display:grid;place-items:center;width:34px;height:34px;border:0;border-radius:10px;background:var(--kdn-surface-2,#f3f2ef);color:inherit;cursor:pointer}
+.krw-std-note{margin:0;padding:9px 12px;border-radius:12px;background:#f2f6fc;color:#2f4b7c;font-size:12.5px;line-height:1.6}
+.krw-std-bar{display:flex;flex-wrap:wrap;gap:8px}.krw-std-bar select{flex:1 1 240px;min-height:40px;padding:0 12px;border-radius:12px;border:1.5px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:inherit;font:inherit;font-size:14px;font-weight:700}
+.krw-std-bar .krw-find.is-inline{flex:1 1 200px;max-width:none;min-height:40px}
+.krw-std-doms{display:flex;flex-wrap:wrap;gap:5px}
+.krw-std-doms button{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 11px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}
+.krw-std-doms button[aria-pressed="true"]{background:#2f4b7c;border-color:#2f4b7c;color:#fff}
+.krw-std-doms button em{font-style:normal;font-size:11px;font-weight:800;color:#c2410c}.krw-std-doms button[aria-pressed="true"] em{color:#ffd8bf}
+.krw-std-list{min-height:120px;overflow:auto;padding-right:2px}
+.krw-std-list section+section{margin-top:12px}
+.krw-std-list h4{position:sticky;top:0;z-index:1;margin:0 0 6px;padding:6px 2px;background:var(--kdn-surface,#fff);font-size:13px;font-weight:800;color:#2f4b7c}
+.krw-std-list ul{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.krw-std-list li{display:flex;align-items:flex-start;gap:8px;padding:9px 10px;border-radius:12px;border:1px solid var(--kdn-line,#eceae5);background:var(--kdn-surface,#fff)}
+.krw-std-list li.is-on{border-color:#5b7fbd;background:#f2f6fc}
+.krw-std-list li label,.krw-std-list li .ro{flex:1;display:flex;align-items:flex-start;gap:8px;min-width:0;cursor:pointer;text-align:left}
+.krw-std-list li .ro{cursor:default}
+.krw-std-list li input{margin-top:3px;width:16px;height:16px;flex:none;accent-color:#2f4b7c}
+.krw-std-list code,.krw-stdtab code{flex:none;padding:1px 7px;border-radius:6px;background:#e7eefa;color:#2f4b7c;font-family:inherit;font-size:12px;font-weight:800;white-space:nowrap}
+.krw-std-list li span{font-size:13.5px;line-height:1.6;color:var(--kdn-ink,#17181d)}
+.krw-std-ft{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--kdn-line,#eceae5)}
+.krw-std-ft small{flex:1 1 260px;font-size:11px;line-height:1.5;color:var(--kdn-muted,#8a8f99)}.krw-std-ft .n{font-size:13px;font-weight:800;color:#2f4b7c}
+.krw-acts .chip button.std{min-width:auto;padding:0 7px;gap:3px;display:inline-flex;align-items:center;font-size:11.5px;font-weight:800}
+.krw-acts .chip button.std.has{background:#e7eefa;color:#2f4b7c}
+.krw-acts .chip button.std:hover{color:#2f4b7c}
+.krw-side-tabs{flex-wrap:wrap}
+.krw-stdtab{display:grid;gap:10px}
+.krw-stdtab ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.krw-stdtab li{display:grid;gap:6px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#eceae5);background:var(--kdn-surface,#fff)}
+.krw-stdtab li>div:first-child{display:flex;align-items:center;gap:6px}.krw-stdtab li small{font-size:11.5px;font-weight:700;color:var(--kdn-muted,#8a8f99)}
+.krw-stdtab li p{margin:0;font-size:13px;line-height:1.6}
+.krw-stdtab li .acts{display:flex;gap:6px;justify-content:flex-end}
+.krw-ai-chk small{font-weight:600;color:var(--kdn-muted,#8a8f99)}
+[data-kd-ui="dark"] .krw-std-btn,[data-kd-ui="dark"] .krw-std-note{background:rgba(91,127,189,.14);border-color:rgba(91,127,189,.4);color:#b9cbec}
+[data-kd-ui="dark"] .krw-std-list li.is-on{background:rgba(91,127,189,.14)}
+[data-kd-ui="dark"] .krw-std-list code,[data-kd-ui="dark"] .krw-stdtab code,[data-kd-ui="dark"] .krw-acts .chip button.std.has{background:rgba(91,127,189,.22);color:#c8d7f2}
+[data-kd-ui="dark"] .krw-std-list h4,[data-kd-ui="dark"] .krw-std-ft .n{color:#b9cbec}
+@media (max-width:760px){.krw-std-btn span{display:none}.krw-std-btn{padding:0 10px}.krw-std{padding:14px}}
 .krw-modal-box header{display:flex;align-items:center;justify-content:space-between}.krw-modal-box header b{display:inline-flex;align-items:center;gap:6px;font-size:16px;font-weight:800}
 .krw-modal-box header>button{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:9px;background:var(--kdn-surface-2,#f3f2ef);cursor:pointer;color:inherit}
 .krw-modal-box p{margin:0;font-size:13px;line-height:1.6;color:var(--kdn-ink-soft,#5b606b)}
