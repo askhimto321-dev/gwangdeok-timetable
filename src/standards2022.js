@@ -1,3 +1,5 @@
+import { officialSubjectName } from "./curriculum.js";
+
 // 2022 개정 교육과정 고등학교 성취기준: 자료(약 460KB)는 처음 쓸 때만 따로 불러옵니다.
 // 자료 모양: { v, source, subjects: [{ n: 과목명, d: [[영역, [[코드, 성취기준 문장], ...]], ...] }] }
 
@@ -18,6 +20,22 @@ export function matchStandardSubject(name, subjects = []) {
   if (exact) return exact;
   const prefix = subjects.filter(item => key.startsWith(standardToken(item.n))).sort((a, b) => b.n.length - a.n.length)[0];
   return prefix || null;
+}
+
+// 학교 과목명(시간표 약칭 포함, 예: '미적')을 성취기준 과목으로: 그대로 → 우리 학교 편제표 정식 이름(그 학년 이 학기 → 다른 학기 → 다른 학년) 순서
+export function resolveStandardSubject(label, grade, semester, subjects = []) {
+  const direct = matchStandardSubject(label, subjects);
+  if (direct) return { subject: direct, via: "" };
+  const other = String(semester) === "sem2" || String(semester) === "2" ? "sem1" : "sem2";
+  const tries = [[grade, semester], [grade, other], ...[1, 2, 3].filter(g => String(g) !== String(grade)).flatMap(g => [[g, "sem1"], [g, "sem2"]])];
+  for (const [g, sem] of tries) {
+    const official = officialSubjectName(label, g, sem);
+    if (official && official !== String(label || "").trim()) {
+      const found = matchStandardSubject(official, subjects);
+      if (found) return { subject: found, via: official };
+    }
+  }
+  return { subject: null, via: "" };
 }
 
 // 코드로 성취기준 찾기(과목을 알면 그 과목 안에서 먼저)
