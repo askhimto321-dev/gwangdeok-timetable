@@ -216,7 +216,7 @@ const todayLabel = () => { const d = new Date(); return `${d.getMonth() + 1}.${d
 
 function CopyBtn({ text, label = "복사" }) {
   const [done, setDone] = useState(false);
-  return <button type="button" data-kdn-bare className="krw-mini" title="이 칸 글 복사" onClick={async () => { try { await navigator.clipboard.writeText(String(text || "").trim()); setDone(true); window.setTimeout(() => setDone(false), 1400); } catch { /* 복사 권한이 없으면 무시 */ } }}>{done ? <Check size={12} /> : <Copy size={12} />} {done ? "복사됨" : label}</button>;
+  return <button type="button" data-kdn-bare className="krw-mini" disabled={!String(text || "").trim()} title="이 칸 글 복사" onClick={async () => { try { await navigator.clipboard.writeText(String(text || "").trim()); setDone(true); window.setTimeout(() => setDone(false), 1400); } catch { /* 복사 권한이 없으면 무시 */ } }}>{done ? <Check size={12} /> : <Copy size={12} />} {done ? "복사됨" : label}</button>;
 }
 
 function Field({ label, text, limit, onChange, check, rows = 6, readOnly = false, meta, hint = "", color = "#ea580c", tag = "", share = null }) {
@@ -514,8 +514,9 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
     {dupOpen && <DuplicateModal title={`${cls}반`} entries={students.map(s => ({ sid: s.sid, label: `${s.number}번`, text: HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n") }))} onPick={setSid} onClose={() => setDupOpen(false)} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
-      : view === "table" ? <div className="krw-table-wrap"><table className="krw-table"><thead><tr><th className="n">번호</th><th className="nm">이름</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}>{RECORD_AREAS[key].label}</th>)}</tr></thead>
-        <tbody>{shown.map(s => <tr key={s.sid}><td className="n">{s.number}</td><td className="nm">{s.name}</td>{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <td key={key} style={{ "--c": AREA_COLOR[key] }}><textarea rows={5} value={text} spellCheck={false} onChange={event => rec.edit(`s|${s.sid}|${key}`, event.target.value)} /><div className="cellft"><ByteMeter text={text} limit={RECORD_AREAS[key].limit} />{check && <IssueDot text={text} />}{text.trim() && <CopyBtn text={text} />}</div></td>; })}</tr>)}</tbody></table></div>
+      : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{HOMEROOM_AREAS.map(key => <col key={key} />)}</colgroup>
+        <thead><tr><th className="nm">학생</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}><span className="h"><i />{RECORD_AREAS[key].label}<small>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}명 · 한도 {RECORD_AREAS[key].limit.toLocaleString()}</small></span></th>)}</tr></thead>
+        <tbody>{shown.map(s => <tr key={s.sid}><th className="nm" scope="row"><span className="no">{s.number}</span><b>{s.name}</b></th>{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <td key={key} style={{ "--c": AREA_COLOR[key] }}><textarea rows={4} value={text} spellCheck={false} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={event => rec.edit(`s|${s.sid}|${key}`, event.target.value)} /><div className="cellft"><ByteMeter text={text} limit={RECORD_AREAS[key].limit} />{check && <IssueDot text={text} />}<CopyBtn text={text} /></div></td>; })}</tr>)}</tbody></table></div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{HOMEROOM_AREAS.map(key => <button key={key} type="button" data-kdn-bare aria-pressed={area === key} style={{ "--c": AREA_COLOR[key] }} onClick={() => setArea(key)}>{RECORD_AREAS[key].label}<em>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => <Field key={s.sid} label={`${s.number}번 ${s.name}`} hint={RECORD_AREAS[area].label} color={AREA_COLOR[area]} text={rec.textOf(s.sid, area)} limit={RECORD_AREAS[area].limit} check={check} rows={4} meta={rec.metaOf(s.sid, area)} onChange={value => rec.edit(`s|${s.sid}|${area}`, value)} />)}
@@ -663,9 +664,10 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
     {rec.loaded && <ActivityManager activities={rec.activities} onChange={list => rec.edit("acts", list)} sources={sources} onImport={importFrom} onApplyAll={books.some(b => b.id !== book?.id && b.subject === book?.subject) ? applyAll : null} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
-      : view === "table" ? <div className="krw-table-wrap"><table className="krw-table"><thead><tr><th className="nm">학생</th>{acts.map(act => <th key={act.id} style={{ "--c": actColor(acts, act.id) }}>{act.name}</th>)}<th className="tot">총합본</th></tr></thead>
-        <tbody>{shown.map(s => { const total = totalOf(s); return <tr key={s.sid}><td className="nm">{who(s)}</td>{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <td key={act.id} style={{ "--c": actColor(acts, act.id) }}><textarea rows={5} value={text} spellCheck={false} onChange={event => rec.edit(`s|${s.sid}|${act.id}`, event.target.value)} /><div className="cellft"><span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span>{text.trim() && <CopyBtn text={text} />}</div></td>; })}
-          <td className="tot"><div className="cellhd"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact />{check && <IssueDot text={total} />}{total && <CopyBtn text={total} />}</div><div className={`krw-total-sm${total ? "" : " is-empty"}`}>{total || "활동 칸에 쓰면 합쳐져요"}</div></td></tr>; })}</tbody></table></div>
+      : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{acts.map(act => <col key={act.id} />)}<col className="c-tot" /></colgroup>
+        <thead><tr><th className="nm">학생</th>{acts.map(act => <th key={act.id} style={{ "--c": actColor(acts, act.id) }}><span className="h"><i />{act.name}<small>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}명 작성</small></span></th>)}<th className="tot"><span className="h">과세특 총합본<small>활동 순서대로 줄바꿈 · 한도 {limit.toLocaleString()}</small></span></th></tr></thead>
+        <tbody>{shown.map(s => { const total = totalOf(s); return <tr key={s.sid}><th className="nm" scope="row"><span className="no">{book.kind === "common" ? s.number : `${s.class}-${s.number}`}</span><b>{s.name}</b></th>{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <td key={act.id} style={{ "--c": actColor(acts, act.id) }}><textarea rows={4} value={text} spellCheck={false} placeholder={`${act.name} 쓰기`} onChange={event => rec.edit(`s|${s.sid}|${act.id}`, event.target.value)} /><div className="cellft"><span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span>{check && <IssueDot text={text} />}<CopyBtn text={text} /></div></td>; })}
+          <td className="tot"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /><div className={`krw-total-sm${total ? "" : " is-empty"}`}>{total || "활동 칸에 쓰면 여기에 합쳐져요"}</div><div className="cellft">{check && <IssueDot text={total} />}<CopyBtn text={total} label="총합본 복사" /></div></td></tr>; })}</tbody></table></div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{acts.map(act => <button key={act.id} type="button" data-kdn-bare aria-pressed={actId === act.id} style={{ "--c": actColor(acts, act.id) }} onClick={() => setActId(act.id)}>{act.name}<em>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => { const total = totalOf(s); return <div key={s.sid} className="krw-areacard"><Field label={who(s)} hint={acts.find(a => a.id === actId)?.name || "활동"} color={actColor(acts, actId)} text={rec.textOf(s.sid, actId)} limit={limit} share={{ total: neisBytes(total) }} check={check} rows={3} meta={rec.metaOf(s.sid, actId)} onChange={value => rec.edit(`s|${s.sid}|${actId}`, value)} /><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /></div>; })}
@@ -924,6 +926,32 @@ const CSS = `
 .krw-table textarea{font-size:13.5px;line-height:1.65;padding:9px 10px}
 .krw-table .cellft{display:flex;align-items:center;gap:6px;margin-top:4px}
 .krw-table th.tot{--c:#d0612a}.krw-table td.tot{min-width:320px;background:var(--kdn-surface,#fff)!important;border-left:1px solid var(--kdn-line,#e7e5e0)}
+.krw-grid{table-layout:fixed;min-width:960px}
+.krw-grid col.c-nm{width:118px}.krw-grid col.c-tot{width:34%}
+.krw-grid thead th{padding:10px 10px 9px;text-align:left!important;vertical-align:bottom;border-bottom:2px solid var(--kdn-line,#e2dfd8)!important}
+.krw-grid thead th .h{display:block;font-size:14px;font-weight:800;line-height:1.4;color:var(--kdn-ink,#17181d)}
+.krw-grid thead th .h i{display:inline-block;width:9px;height:9px;margin-right:6px;border-radius:99px;background:var(--c,#d0612a);vertical-align:middle}
+.krw-grid thead th .h small{display:block;margin-top:2px;font-size:11.5px;font-weight:600;color:var(--kdn-muted,#8a8f99)}
+.krw-grid thead th.nm{vertical-align:middle;text-align:center!important}
+.krw-grid tbody th.nm{position:sticky;left:0;z-index:1;padding:12px 10px;vertical-align:top;text-align:left;background:var(--kdn-surface,#fff);border-bottom:1px solid var(--kdn-line,#eeece7);border-right:1px solid var(--kdn-line,#eeece7)}
+.krw-grid tbody th.nm .no{display:inline-grid;place-items:center;min-width:26px;height:22px;padding:0 6px;margin-bottom:4px;border-radius:7px;background:var(--kdn-surface-2,#f1efea);font-size:12px;font-weight:800;color:#3d4048;font-variant-numeric:tabular-nums}
+.krw-grid tbody th.nm b{display:block;font-size:14.5px;font-weight:800;color:var(--kdn-ink,#17181d);word-break:keep-all}
+.krw-grid tbody td{padding:10px;border-bottom:1px solid var(--kdn-line,#eeece7);border-right:1px solid color-mix(in srgb,var(--kdn-line,#eeece7) 60%,transparent);background:var(--kdn-surface,#fff)!important}
+.krw-grid tbody tr:nth-child(even) td,.krw-grid tbody tr:nth-child(even) th.nm{background:var(--kdn-surface,#fff)!important}
+.krw-grid tbody tr:hover td,.krw-grid tbody tr:hover th.nm{background:#fcfbf9!important}
+.krw-grid tbody tr:focus-within td,.krw-grid tbody tr:focus-within th.nm{background:#fff8f3!important}
+.krw-grid tbody tr:focus-within th.nm{box-shadow:inset 3px 0 0 #d0612a}
+.krw-grid textarea{display:block;width:100%;min-height:6.2em;max-height:22em;field-sizing:content;resize:vertical;padding:9px 11px;border-radius:10px;border:1px solid transparent;background:var(--kdn-surface-2,#f7f6f3);font-size:14px;line-height:1.7;color:var(--kdn-ink,#17181d)}
+.krw-grid textarea::placeholder{color:#b3b6bd;font-size:13px}
+.krw-grid textarea:hover{border-color:var(--kdn-line,#e2dfd8)}
+.krw-grid textarea:focus{background:var(--kdn-surface,#fff);border-color:var(--c,#d0612a);box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#d0612a) 15%,transparent)}
+.krw-grid .cellft{display:flex;align-items:center;gap:6px;margin-top:6px}.krw-grid .cellft .krw-mini{margin-left:auto}
+.krw-grid td.tot{background:#fffdfb!important;border-left:2px solid color-mix(in srgb,#d0612a 25%,transparent)}
+.krw-grid td.tot .krw-budget{padding:0;border:0;background:transparent}
+.krw-grid td.tot .krw-total-sm{margin-top:8px;padding:10px 12px;max-height:22em;border-radius:10px;background:var(--kdn-surface,#fff);border:1px dashed var(--kdn-line,#e2dfd8);font-size:13.5px;line-height:1.75}
+.krw-mini:disabled{opacity:.35;cursor:default;border-color:var(--kdn-line,#e2dfd8)!important;color:#8a8f99!important}
+[data-kd-ui="dark"] .krw-grid tbody tr:hover td,[data-kd-ui="dark"] .krw-grid tbody tr:hover th.nm,[data-kd-ui="dark"] .krw-grid td.tot{background:var(--kdn-surface,#1b1c22)!important}
+[data-kd-ui="dark"] .krw-grid tbody tr:focus-within td,[data-kd-ui="dark"] .krw-grid tbody tr:focus-within th.nm{background:color-mix(in srgb,#d0612a 8%,var(--kdn-surface,#1b1c22))!important}
 .krw-total-sm{text-align:left!important;white-space:pre-wrap;font-size:13px;line-height:1.75;max-height:14em;overflow:auto;padding-top:6px}.krw-total-sm.is-empty{color:var(--kdn-muted,#a3a7b0);font-size:12.5px}
 .krw-table .cellhd{display:flex;align-items:center;gap:6px;padding-bottom:6px;border-bottom:1px dashed var(--kdn-line,#e2dfd8)}
 .krw-area{display:grid;gap:10px}
