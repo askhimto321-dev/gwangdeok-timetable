@@ -2,7 +2,7 @@
 // 저장은 학생·칸 하나씩 서버 기록에 합쳐 넣어(동시에 여러 선생님이 써도 서로 덮어쓰지 않게) 하고,
 // 저장 전 글은 이 브라우저에도 바로 보관해 새로고침·끊김에도 남게 합니다. 서버는 덮어쓸 때 이전 본을 자동 백업합니다.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPaste, CloudOff, Copy, Download, Eye, EyeOff, FileSpreadsheet, FileText, HelpCircle, LayoutGrid, Loader2, Sparkles, PanelRightClose, PanelRightOpen, Paperclip, Plus, Printer, RotateCcw, Rows3, Save, Search, Table2, Trash2, Users, Wand2, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPaste, CloudOff, Copy, Download, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileText, HelpCircle, LayoutGrid, Loader2, Sparkles, PanelRightClose, PanelRightOpen, Paperclip, Plus, Printer, RotateCcw, Rows3, Save, Search, Table2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { booksForAssignment } from "./lessonStamps.js";
@@ -362,6 +362,7 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
 }
 
 // AI 도우미: ① 요청문 만들기(학생 이름 빼고 복사) ② AI 답 붙여넣고 점검 → 칸에 넣기 ③ 한도 넘을 때 문장별로 덜어내기
+const AI_URL_MAX = 6000; // 주소가 너무 길면 일부 브라우저·사이트에서 잘려서, 그보다 길면 빈 창만 열고 붙여넣기로 안내
 function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budgetFor, aiContext, cats, putText, showToast }) {
   const [step, setStep] = useState("prompt");
   const [refine, setRefine] = useState(true);
@@ -381,6 +382,18 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   useEffect(() => { setLoadKey(""); }, [targetKey, sid]);
   const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes, existing: refine ? current : "", studentName });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
+  // 바로 열기: 팝업 차단을 피하려고 창부터 열고, 요청문은 주소(?q=)에 담고 클립보드에도 복사해 둡니다.
+  const openAi = async site => {
+    const base = site === "claude" ? "https://claude.ai/new" : "https://chatgpt.com/";
+    const q = encodeURIComponent(prompt);
+    const url = q.length <= AI_URL_MAX ? `${base}?q=${q}` : base;
+    window.open(url, "_blank", "noopener");
+    let copied = false;
+    try { await navigator.clipboard.writeText(prompt); copied = true; } catch { /* 복사 권한이 없어도 창은 열림 */ }
+    const name = site === "claude" ? "Claude" : "ChatGPT";
+    showToast?.(url === base ? `${name}를 열었어요. 요청문이 길어서 자동으로 못 넣었어요. 붙여넣기(Ctrl+V) 해 주세요.` : `${name}를 열었어요. 요청문이 안 들어가 있으면 붙여넣기(Ctrl+V) 해 주세요.${copied ? "" : " (복사는 못 했어요)"}`, "success");
+    setStep("answer");
+  };
   const sentences = splitSentences(current);
   const kept = sentences.filter((_, i) => !drop[i]).join(" ");
   useEffect(() => { setDrop({}); }, [targetKey, sid]);
@@ -392,7 +405,12 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
       <div className="krw-ai-notes"><span>요청문에 넣을 누가기록</span>{filledCats.length ? filledCats.map(c => <label key={c.key}><input type="checkbox" checked={isPicked(c)} onChange={() => togglePick(c.key)} /> {c.label}</label>) : <em>아직 누가기록이 없어요</em>}</div>
       <label className="krw-ai-chk"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /> 지금 칸에 쓴 글도 함께 다듬어 달라고 하기</label>
       <pre className="krw-ai-prompt">{prompt}</pre>
-      <button type="button" data-kdn-bare className="krw-btn pri" onClick={copy}><Copy size={14} /> 요청문 복사</button>
+      <div className="krw-ai-go">
+        <button type="button" data-kdn-bare className="krw-btn pri" onClick={copy}><Copy size={14} /> 요청문 복사</button>
+        <button type="button" data-kdn-bare className="krw-btn ai-claude" onClick={() => openAi("claude")} title="요청문을 담아 Claude 새 창 열기"><ExternalLink size={14} /> Claude에서 열기</button>
+        <button type="button" data-kdn-bare className="krw-btn ai-gpt" onClick={() => openAi("chatgpt")} title="요청문을 담아 ChatGPT 새 창 열기"><ExternalLink size={14} /> ChatGPT에서 열기</button>
+      </div>
+      <p className="krw-ai-tip">새 창은 그 사이트에 로그인한 계정으로 열려요. 학교 방침에 맞는 AI를 써 주시고, 받은 답은 ② 'AI 답 점검'에 붙여넣어 확인해요.</p>
     </div>}
     {step === "answer" && <div className="krw-ai-body">
       <p className="krw-side-note">AI가 써 준 글을 붙여넣으면 바이트와 기재요령을 바로 점검해요. 관찰하지 않은 내용이 들어가지 않았는지 꼭 읽어 보세요.</p>
@@ -950,6 +968,11 @@ const CSS = `
 .krw-ai-body textarea{min-height:180px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:13.5px;line-height:1.7;resize:vertical;color:inherit}
 .krw-ai-meter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12.5px;font-weight:700}
 .krw-ai-acts{display:flex;flex-wrap:wrap;gap:6px}
+.krw-ai-go{display:flex;flex-wrap:wrap;gap:6px}.krw-ai-go .krw-btn{flex:1 1 auto;justify-content:center}
+.krw-ai-go .ai-claude{border-color:#d9a58a;color:#9a4a26;background:#fdf4ee}.krw-ai-go .ai-claude:hover{background:#fae6da}
+.krw-ai-go .ai-gpt{border-color:#9fc7b6;color:#1f6b4f;background:#effaf5}.krw-ai-go .ai-gpt:hover{background:#dff3ea}
+.krw-ai-tip{margin:0;font-size:11.5px;line-height:1.55;color:var(--kdn-muted,#8a8f99)}
+[data-kd-ui="dark"] .krw-ai-go .ai-claude{background:rgba(217,119,87,.12);border-color:rgba(217,119,87,.4);color:#f0b79c}[data-kd-ui="dark"] .krw-ai-go .ai-gpt{background:rgba(16,163,127,.12);border-color:rgba(16,163,127,.4);color:#8fdcc3}
 .krw-trim{list-style:none;margin:0;padding:0;display:grid;gap:4px;max-height:320px;overflow:auto}
 .krw-trim li{display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3);font-size:13px;line-height:1.55}
 .krw-trim li label{flex:1;display:flex;gap:6px;cursor:pointer}.krw-trim li em{font-style:normal;font-size:11.5px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums;white-space:nowrap}

@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-10-30-n",
+    date: "2026-10-30",
+    title: "생기부 AI 도우미: Claude · ChatGPT 바로 열기",
+    items: [
+      { audience: "staff", text: "AI 도우미 ① 요청문 아래에 'Claude에서 열기 · ChatGPT에서 열기' 버튼이 생겼어요. 누르면 요청문(학생 이름 빠짐)을 담아 새 창으로 열고, 클립보드에도 복사해 둬요. 받은 답은 ② 'AI 답 점검'에 붙여넣어 확인해요." },
+    ],
+  },
+  {
     id: "2026-10-30-m",
     date: "2026-10-30",
     title: "생기부 '같은 문장 점검' 더 잘 찾게",
