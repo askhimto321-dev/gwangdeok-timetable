@@ -2047,6 +2047,8 @@ export default function App() {
     openStudent: dashboardOpenStudent,
     onNavigate: dashboardNavigate,
     onOpenStudentView: view => (staffWorkspaceEnabled ? changeStudentWorkspaceView(view) : switchSection(view === "timetable" ? "timetable" : "grades")),
+    // 생기부 마감 띠(교직원만): 누르면 선생님 ZONE › 생기부 업무
+    onOpenRecords: canSeeTeacherZone ? zoneGo("records") : null,
     // 정기시험 기간에 바로가기 맨 앞에 묶어 보여 줄 성적 메뉴(교직원만).
     examZone: canSeeTeacherZone ? [
       { key: "calc", title: "성적 산출", text: "선생님 ZONE", onClick: openGradeCalc },
@@ -3197,6 +3199,7 @@ function TeacherZoneHome({ plannerOwner = "", onOpenPlanner, calendar, actor, ac
       <span className="chips"><em>{todayLabel}</em><em>{grade}학년 작업</em>{exam && <em className="ex">{exam.label} {exam.dLabel}</em>}</span>
       {!exam && last && <button type="button" onClick={() => onOpen(last.key)}>{last.title} 이어서 하기 →</button>}
     </section>
+    <RecordDeadlineStrip now={new Date()} onOpen={() => onOpen("records")} />
     {plannerOwner && <PlannerHomeStrip owner={plannerOwner} onOpen={onOpenPlanner} />}
     {onEditProfile && activeTeacher && !(activeTeacher.assignments || []).some(item => item?.subject) && <section className="kdn-tz2-nosubj">
       <div><b>담당 과목이 아직 없어요</b><span>수업하는 과목을 고르면 성적 산출·공지 대상이 자동으로 정해지고, 같은 과목 선생님과 성적을 함께 작업할 수 있어요.</span></div>
@@ -3374,7 +3377,7 @@ function UiModeMenu() {
 
 // 새 UI 로그인 후 첫 화면(대시보드). 참고 사이트 구성: 큰 3줄 제목 + 버튼 2개 + 안내 한 줄,
 // 오른쪽 그림 위에 떠 있는 핵심 카드 1장, 아래 큰 바로가기 카드 줄.
-function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], examZone = [], semester, academicCalendar }) {
+function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], examZone = [], semester, academicCalendar, onOpenRecords = null }) {
   const now = useNow(1000);
   const student = kind === "student";
   const mobileDash = useIsMobile("(max-width: 760px)");
@@ -3383,7 +3386,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
   const zoneKeys = new Set(["classGrades", "gradeLookup"]);
   const listedShortcuts = exam ? shortcuts.filter(item => !zoneKeys.has(item.key)) : shortcuts;
   // 휴대폰: 인사 + 진한 카드(다음 수업 / 최근 학생) + 바로가기 칸 + 다가오는 일정으로 짧게
-  if (mobileDash) return <MobileDashboard student={student} name={name} lesson={lesson} openStudent={openStudent} onNavigate={onNavigate} onOpenStudentView={onOpenStudentView}
+  if (mobileDash) return <MobileDashboard onOpenRecords={onOpenRecords} student={student} name={name} lesson={lesson} openStudent={openStudent} onNavigate={onNavigate} onOpenStudentView={onOpenStudentView}
     shortcuts={listedShortcuts} exam={exam} examZone={examZone} now={now} academicCalendar={academicCalendar} />;
   const headline = student
     ? [`${name || ""} 학생,`, "오늘 수업과 공지를", "한 번에 확인해요."]
@@ -3394,6 +3397,7 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
   return (
     <main className={`kdn-dash-tight${exam ? " is-exam" : ""}`} style={{ ...dash.page, paddingTop: exam ? 22 : 36, paddingBottom: 28 }}>
       {exam && <DashboardExamStrip exam={exam} now={now} onStart={examZone[0].onClick} />}
+      {!student && onOpenRecords && <RecordDeadlineStrip now={now} onOpen={onOpenRecords} />}
       <section style={dash.hero}>
         <div style={dash.heroText}>
           <h1 style={dash.h1}>
@@ -3450,11 +3454,12 @@ function NewUiDashboard({ kind, name, roleLabel, lesson, openStudent, onNavigate
 }
 
 const WEEK_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-function MobileDashboard({ student, name, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], exam, examZone = [], now, academicCalendar }) {
+function MobileDashboard({ onOpenRecords = null, student, name, lesson, openStudent, onNavigate, onOpenStudentView, shortcuts = [], exam, examZone = [], now, academicCalendar }) {
   const date = `${WEEK_EN[now.getDay()]} · ${String(now.getMonth() + 1).padStart(2, "0")}.${String(now.getDate()).padStart(2, "0")}`;
   return <main className="kdm-dash">
     <header className="kdm-dash-head"><small>{date}</small><b>{student ? `${name || ""}님, 안녕하세요` : `안녕하세요${name ? `, ${name}` : ""}`}</b></header>
     {exam && <DashboardExamStrip exam={exam} now={now} onStart={examZone[0]?.onClick} />}
+    {!student && onOpenRecords && <RecordDeadlineStrip now={now} onOpen={onOpenRecords} />}
     <section className={`kdm-hero${student ? " is-lesson" : ""}`}>
       {student ? <MobileLessonHero lesson={lesson} now={now} onOpen={() => onNavigate("timetable")} />
         : <DashboardStudentCard student={openStudent} onSearch={() => onNavigate("grades", { focusSearch: true })} onOpenStudentView={onOpenStudentView} />}
@@ -3499,6 +3504,22 @@ const SHORTCUT_ILLOS = (() => {
   const folder = svg(96, 80, `<rect x="14" y="22" width="66" height="48" rx="12" ${f(1)}/><path d="M14 30a10 10 0 0 1 10-10h16l8 8h22a10 10 0 0 1 10 10v2H14z" ${f(2)}/><circle cx="72" cy="56" r="8" ${f(3)}/>`);
   return { grades: book, classGrades: chart, gradeLookup: chart, timetable: cal, teacherZone: users, minimumAchievement: shield, admin: sliders, zone: chart, notice, folder, contacts: users, records: book, minimum: shield };
 })();
+
+// 생기부 마감 띠: 입력 완료·제출 날짜와 D-day. 제출일이 지나면 저절로 사라집니다(날짜는 해마다 여기서 바꿔요).
+const RECORD_DEADLINES = [{ key: "input", label: "생기부 입력 완료", date: "2026-12-04" }, { key: "submit", label: "생기부 제출", date: "2026-12-07" }];
+function RecordDeadlineStrip({ now = new Date(), onOpen }) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const items = RECORD_DEADLINES.map(item => { const d = new Date(`${item.date}T00:00:00`); return { ...item, d, left: Math.round((d.getTime() - today) / 86400000) }; });
+  if (items.every(item => item.left < 0)) return null;
+  const next = items.find(item => item.left >= 0);
+  const tone = next.left <= 3 ? "is-hot" : next.left <= 14 ? "is-near" : "";
+  const dLabel = left => left === 0 ? "D-DAY" : left > 0 ? `D-${left}` : "지남";
+  return <section className={`kdn-recdl ${tone}`} aria-label="생기부 마감 일정">
+    <div className="t"><em>생기부 마감</em><b>{next.label}까지 {next.left === 0 ? "오늘이 마감이에요" : `${next.left}일 남았어요`}</b></div>
+    <ol>{items.map(item => <li key={item.key} className={item.left < 0 ? "is-done" : item === next ? "is-next" : ""}><span>{item.label}</span><b>{item.d.getMonth() + 1}.{item.d.getDate()}({"일월화수목금토"[item.d.getDay()]})</b><i>{dLabel(item.left)}</i></li>)}</ol>
+    {onOpen && <button type="button" data-kdn-bare onClick={onOpen}>생기부 업무 열기 <ArrowRight size={16} /></button>}
+  </section>;
+}
 
 // 대시보드 상단 정기시험 띠: D-day, 시험 날짜별 진행(완료·오늘·예정), 끝난 뒤엔 성적 처리 단계.
 function DashboardExamStrip({ exam, now, onStart }) {
