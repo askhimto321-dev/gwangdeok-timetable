@@ -437,9 +437,17 @@ function PasteModal({ students, title, onApply, onClose }) {
   </div>;
 }
 
-function Progress({ done, total, onlyEmpty, setOnlyEmpty }) {
+// 거름: 전체 · 덜 쓴 학생 · 한도 넘음 · 점검 필요 (건수가 0인 거름은 흐리게)
+function Progress({ done, total, filter, setFilter, counts = {} }) {
   const pct = total ? Math.round((done / total) * 100) : 0;
-  return <div className="krw-progress"><span>작성 <b>{done}</b> / {total}명</span><i><em style={{ width: `${pct}%` }} /></i><button type="button" data-kdn-bare aria-pressed={onlyEmpty} onClick={() => setOnlyEmpty(value => !value)}>{onlyEmpty ? "모두 보기" : "안 쓴 학생만"}</button></div>;
+  const chips = [["all", "전체", total], ["empty", "덜 쓴 학생", counts.empty], ["over", "한도 넘음", counts.over], ["issue", "점검 필요", counts.issue]].filter(([, , n]) => n !== undefined);
+  return <div className="krw-progress"><span>작성 <b>{done}</b> / {total}명</span><i><em style={{ width: `${pct}%` }} /></i>
+    <span className="krw-filter" role="group" aria-label="학생 거르기">{chips.map(([key, label, n]) => <button key={key} type="button" data-kdn-bare aria-pressed={filter === key} className={`${key !== "all" && !n ? "is-zero" : ""} f-${key}`} onClick={() => setFilter(filter === key ? "all" : key)}>{label}{key !== "all" && <span className="n">{n}</span>}</button>)}</span></div>;
+}
+const overLimit = (text, limit) => neisBytes(text) > limit;
+const hasIssue = text => !!String(text || "").trim() && checkRecordText(text).length > 0;
+function FindBox({ find, setFind }) {
+  return <label className="krw-find is-inline"><Search size={14} /><input value={find} onChange={event => setFind(event.target.value)} placeholder="이름·번호 찾기" />{find && <button type="button" data-kdn-bare onClick={() => setFind("")} aria-label="지우기"><X size={13} /></button>}</label>;
 }
 
 // Alt+↓/↑ 다음·이전 학생, Ctrl+S 저장
@@ -465,8 +473,22 @@ function StudentList({ items, current, onPick, find, setFind, renderRight }) {
   </nav>;
 }
 
+// 한눈에 표의 학생 칸: 번호·이름·작성 점·(과세특) 합계 바이트, 누르면 학생별 보기로
+function StudentCell({ no, name, done, total, dots = [], bytes = null, limit = 0, onOpen }) {
+  const full = total > 0 && done === total;
+  return <th className="nm" scope="row">
+    <div className="nm-in">
+      <span className={`no${full ? " is-full" : ""}`}>{full ? <Check size={12} /> : null}{no}</span>
+      <b>{name}</b>
+      <span className="dots" title={`${done}/${total}칸 작성`}>{dots.map(dot => <i key={dot.key} className={dot.on ? "on" : ""} style={{ "--c": dot.color }} />)}</span>
+      {bytes !== null && <span className={`tb${bytes > limit ? " is-over" : ""}`}>{bytes ? bytes.toLocaleString() : "-"}<small> / {limit.toLocaleString()}</small></span>}
+      {onOpen && <button type="button" data-kdn-bare className="open" onClick={onOpen} title="학생별 보기에서 이 학생 열기(자료·AI 도우미)">자세히 <ChevronRight size={12} /></button>}
+    </div>
+  </th>;
+}
+
 // ── 학급담임 ───────────────────────────────────────────────────────────────
-function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check, showToast }) {
+function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setView, check, showToast }) {
   const [cls, setCls] = useState(() => classOptions[0] || "");
   useEffect(() => { if (!classOptions.includes(cls)) setCls(classOptions[0] || ""); }, [classOptions.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const students = useMemo(() => Object.entries(rosterFor(grade) || {}).filter(([, info]) => String(info?.class) === String(cls)).map(([sid, info]) => ({ sid, name: info?.name || "", number: Number(info?.number) || Number(String(sid).slice(-2)) })).sort((a, b) => a.number - b.number), [rosterFor, grade, cls]);
@@ -474,13 +496,18 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
   const [sid, setSid] = useState("");
   const [area, setArea] = useState("autonomy");
   const [find, setFind] = useState("");
-  const [onlyEmpty, setOnlyEmpty] = useState(false);
+  const [filter, setFilter] = useState("all");
   const [side, setSide] = useState(true);
   const [paste, setPaste] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
   useEffect(() => { if (!students.some(s => s.sid === sid)) setSid(students[0]?.sid || ""); }, [students]); // eslint-disable-line react-hooks/exhaustive-deps
   const filled = s => HOMEROOM_AREAS.filter(key => rec.textOf(s.sid, key).trim()).length;
-  const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (!onlyEmpty || filled(s) < HOMEROOM_AREAS.length));
+  const isOver = s => HOMEROOM_AREAS.some(key => overLimit(rec.textOf(s.sid, key), RECORD_AREAS[key].limit));
+  const isIssue = s => HOMEROOM_AREAS.some(key => hasIssue(rec.textOf(s.sid, key)));
+  const test = { all: () => true, empty: s => filled(s) < HOMEROOM_AREAS.length, over: isOver, issue: isIssue };
+  const counts = { empty: students.filter(test.empty).length, over: students.filter(isOver).length, ...(check ? { issue: students.filter(isIssue).length } : {}) };
+  const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (test[filter] || test.all)(s));
+  const openStudent = id => { setSid(id); setView?.("student"); };
   const current = students.find(s => s.sid === sid);
   const order = shown.length ? shown : students;
   const idx = order.findIndex(s => s.sid === sid);
@@ -502,7 +529,8 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
   return <div className="krw-body">
     <div className="krw-bar" data-tour="rw-bar">
       {classOptions.length > 1 ? <select value={cls} onChange={event => setCls(event.target.value)} aria-label="반">{classOptions.map(c => <option key={c} value={c}>{grade}학년 {c}반</option>)}</select> : <b className="krw-scope">{grade}학년 {cls}반 담임</b>}
-      {rec.loaded && students.length > 0 && <Progress done={students.filter(s => filled(s) === HOMEROOM_AREAS.length).length} total={students.length} onlyEmpty={onlyEmpty} setOnlyEmpty={setOnlyEmpty} />}
+      {rec.loaded && students.length > 0 && <Progress done={students.filter(s => filled(s) === HOMEROOM_AREAS.length).length} total={students.length} filter={filter} setFilter={setFilter} counts={counts} />}
+      {view !== "student" && <FindBox find={find} setFind={setFind} />}
       <span className="sp" />
       <SaveBadge rec={rec} />
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={saveNow} disabled={!Object.keys(rec.pending).length || rec.status === "saving"}><Save size={15} /> 지금 저장</button>
@@ -516,7 +544,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{HOMEROOM_AREAS.map(key => <col key={key} />)}</colgroup>
         <thead><tr><th className="nm">학생</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}><span className="h"><i />{RECORD_AREAS[key].label}<small>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}명 · 한도 {RECORD_AREAS[key].limit.toLocaleString()}</small></span></th>)}</tr></thead>
-        <tbody>{shown.map(s => <tr key={s.sid}><th className="nm" scope="row"><span className="no">{s.number}</span><b>{s.name}</b></th>{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <td key={key} style={{ "--c": AREA_COLOR[key] }}><textarea rows={4} value={text} spellCheck={false} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={event => rec.edit(`s|${s.sid}|${key}`, event.target.value)} /><div className="cellft"><ByteMeter text={text} limit={RECORD_AREAS[key].limit} />{check && <IssueDot text={text} />}<CopyBtn text={text} /></div></td>; })}</tr>)}</tbody></table></div>
+        <tbody>{shown.map((s, i) => <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${isOver(s) ? " is-over" : ""}`}><StudentCell no={s.number} name={s.name} done={filled(s)} total={HOMEROOM_AREAS.length} dots={HOMEROOM_AREAS.map(key => ({ key, color: AREA_COLOR[key], on: !!rec.textOf(s.sid, key).trim() }))} onOpen={() => openStudent(s.sid)} />{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <td key={key} style={{ "--c": AREA_COLOR[key] }}><textarea rows={2} value={text} spellCheck={false} aria-label={`${s.number}번 ${RECORD_AREAS[key].label}`} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={event => rec.edit(`s|${s.sid}|${key}`, event.target.value)} /><div className="cellft"><ByteMeter text={text} limit={RECORD_AREAS[key].limit} />{check && <IssueDot text={text} />}<CopyBtn text={text} /></div></td>; })}</tr>)}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{HOMEROOM_AREAS.map(key => <button key={key} type="button" data-kdn-bare aria-pressed={area === key} style={{ "--c": AREA_COLOR[key] }} onClick={() => setArea(key)}>{RECORD_AREAS[key].label}<em>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => <Field key={s.sid} label={`${s.number}번 ${s.name}`} hint={RECORD_AREAS[area].label} color={AREA_COLOR[area]} text={rec.textOf(s.sid, area)} limit={RECORD_AREAS[area].limit} check={check} rows={4} meta={rec.metaOf(s.sid, area)} onChange={value => rec.edit(`s|${s.sid}|${area}`, value)} />)}
@@ -557,7 +585,7 @@ function ActivityManager({ activities, onChange, sources = [], onImport, onApply
   </div>;
 }
 
-function SubjectWriter({ year, books, by, view, check, showToast }) {
+function SubjectWriter({ year, books, by, view, setView, check, showToast }) {
   const [bookId, setBookId] = useState(() => books[0]?.id || "");
   useEffect(() => { if (!books.some(book => book.id === bookId)) setBookId(books[0]?.id || ""); }, [books.map(b => b.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const book = books.find(item => item.id === bookId);
@@ -569,7 +597,7 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
   const [actId, setActId] = useState("");
   const [find, setFind] = useState("");
   const [copied, setCopied] = useState(false);
-  const [onlyEmpty, setOnlyEmpty] = useState(false);
+  const [filter, setFilter] = useState("all");
   const [side, setSide] = useState(true);
   const [paste, setPaste] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
@@ -578,7 +606,12 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
   const texts = s => Object.fromEntries(acts.map(act => [act.id, rec.textOf(s.sid, act.id)]));
   const totalOf = s => mergeActivities(acts, texts(s));
   const doneOf = s => acts.length > 0 && acts.every(act => rec.textOf(s.sid, act.id).trim());
-  const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim())) && (!onlyEmpty || !doneOf(s)));
+  const isOver = s => overLimit(totalOf(s), limit);
+  const isIssue = s => hasIssue(totalOf(s));
+  const test = { all: () => true, empty: s => !doneOf(s), over: isOver, issue: isIssue };
+  const counts = { empty: students.filter(test.empty).length, over: students.filter(isOver).length, ...(check ? { issue: students.filter(isIssue).length } : {}) };
+  const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (test[filter] || test.all)(s));
+  const openStudent = id => { setSid(id); setView?.("student"); };
   const current = students.find(s => s.sid === sid);
   const order = shown.length ? shown : students;
   const idx = order.findIndex(s => s.sid === sid);
@@ -651,7 +684,8 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
     <div className="krw-bar" data-tour="rw-bar">
       <select value={bookId} onChange={event => setBookId(event.target.value)} aria-label="과목·반">{books.map(b => <option key={b.id} value={b.id}>{b.subject} · {b.label} ({b.students.length}명)</option>)}</select>
       {book?.kind !== "common" && <small className="krw-tag">이동수업 · 출석부 기준</small>}
-      {rec.loaded && acts.length > 0 && <Progress done={students.filter(doneOf).length} total={students.length} onlyEmpty={onlyEmpty} setOnlyEmpty={setOnlyEmpty} />}
+      {rec.loaded && acts.length > 0 && <Progress done={students.filter(doneOf).length} total={students.length} filter={filter} setFilter={setFilter} counts={counts} />}
+      {view !== "student" && <FindBox find={find} setFind={setFind} />}
       <span className="sp" />
       <SaveBadge rec={rec} />
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={saveNow} disabled={!Object.keys(rec.pending).length || rec.status === "saving"}><Save size={15} /> 지금 저장</button>
@@ -666,8 +700,8 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{acts.map(act => <col key={act.id} />)}<col className="c-tot" /></colgroup>
         <thead><tr><th className="nm">학생</th>{acts.map(act => <th key={act.id} style={{ "--c": actColor(acts, act.id) }}><span className="h"><i />{act.name}<small>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}명 작성</small></span></th>)}<th className="tot"><span className="h">과세특 총합본<small>활동 순서대로 줄바꿈 · 한도 {limit.toLocaleString()}</small></span></th></tr></thead>
-        <tbody>{shown.map(s => { const total = totalOf(s); return <tr key={s.sid}><th className="nm" scope="row"><span className="no">{book.kind === "common" ? s.number : `${s.class}-${s.number}`}</span><b>{s.name}</b></th>{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <td key={act.id} style={{ "--c": actColor(acts, act.id) }}><textarea rows={4} value={text} spellCheck={false} placeholder={`${act.name} 쓰기`} onChange={event => rec.edit(`s|${s.sid}|${act.id}`, event.target.value)} /><div className="cellft"><span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span>{check && <IssueDot text={text} />}<CopyBtn text={text} /></div></td>; })}
-          <td className="tot"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /><div className={`krw-total-sm${total ? "" : " is-empty"}`}>{total || "활동 칸에 쓰면 여기에 합쳐져요"}</div><div className="cellft">{check && <IssueDot text={total} />}<CopyBtn text={total} label="총합본 복사" /></div></td></tr>; })}</tbody></table></div>
+        <tbody>{shown.map((s, i) => { const total = totalOf(s); const tb = neisBytes(total); return <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${tb > limit ? " is-over" : ""}`}><StudentCell no={book.kind === "common" ? s.number : `${s.class}-${s.number}`} name={s.name} done={acts.filter(act => rec.textOf(s.sid, act.id).trim()).length} total={acts.length} bytes={tb} limit={limit} dots={acts.slice(0, 8).map(act => ({ key: act.id, color: actColor(acts, act.id), on: !!rec.textOf(s.sid, act.id).trim() }))} onOpen={() => openStudent(s.sid)} />{acts.map(act => { const text = rec.textOf(s.sid, act.id); return <td key={act.id} style={{ "--c": actColor(acts, act.id) }}><textarea rows={2} value={text} spellCheck={false} aria-label={act.name} placeholder={`${act.name} 쓰기`} onChange={event => rec.edit(`s|${s.sid}|${act.id}`, event.target.value)} /><div className="cellft"><span className="krw-bytes sm"><b>{neisBytes(text).toLocaleString()}</b> byte</span>{check && <IssueDot text={text} />}<CopyBtn text={text} /></div></td>; })}
+          <td className="tot"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /><div className={`krw-total-sm${total ? "" : " is-empty"}`}>{total || "활동 칸에 쓰면 여기에 합쳐져요"}</div><div className="cellft">{check && <IssueDot text={total} />}<CopyBtn text={total} label="총합본 복사" /></div></td></tr>; })}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{acts.map(act => <button key={act.id} type="button" data-kdn-bare aria-pressed={actId === act.id} style={{ "--c": actColor(acts, act.id) }} onClick={() => setActId(act.id)}>{act.name}<em>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
         {shown.map(s => { const total = totalOf(s); return <div key={s.sid} className="krw-areacard"><Field label={who(s)} hint={acts.find(a => a.id === actId)?.name || "활동"} color={actColor(acts, actId)} text={rec.textOf(s.sid, actId)} limit={limit} share={{ total: neisBytes(total) }} check={check} rows={3} meta={rec.metaOf(s.sid, actId)} onChange={value => rec.edit(`s|${s.sid}|${actId}`, value)} /><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /></div>; })}
@@ -738,9 +772,9 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
       <button type="button" data-kdn-bare data-tour="rw-help" className="krw-help-btn" onClick={() => setHelpOpen(true)} title="생기부 작성 가이드라인 · 단계별 안내" aria-label="가이드라인"><HelpCircle size={18} /><span>가이드라인</span></button>
       {tab === "subject" && isAdmin && !teacher && <select className="krw-teacher" value={pickedTeacherId} onChange={event => setPickedTeacherId(event.target.value)} aria-label="선생님"><option value="">선생님 고르기</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
     </div>}
-    {tab === "homeroom" && <HomeroomWriter year={year} grade={hrGrade} classOptions={classOptions} rosterFor={rosterFor} by={by} view={view} check={check} showToast={showToast} />}
+    {tab === "homeroom" && <HomeroomWriter year={year} grade={hrGrade} classOptions={classOptions} rosterFor={rosterFor} by={by} view={view} setView={setView} check={check} showToast={showToast} />}
     {tab === "subject" && (isAdmin && !teacher && !subjectTeacher ? <div className="krw-empty"><Users size={20} /><b>세특을 볼 선생님을 골라 주세요.</b></div>
-      : <SubjectWriter year={year} books={books} by={by} view={view} check={check} showToast={showToast} />)}
+      : <SubjectWriter year={year} books={books} by={by} view={view} setView={setView} check={check} showToast={showToast} />)}
     {tab === "legacy" && legacy}
   </div>;
 }
@@ -941,7 +975,7 @@ const CSS = `
 .krw-grid tbody tr:hover td,.krw-grid tbody tr:hover th.nm{background:#fcfbf9!important}
 .krw-grid tbody tr:focus-within td,.krw-grid tbody tr:focus-within th.nm{background:#fff8f3!important}
 .krw-grid tbody tr:focus-within th.nm{box-shadow:inset 3px 0 0 #d0612a}
-.krw-grid textarea{display:block;width:100%;min-height:6.2em;max-height:22em;field-sizing:content;resize:vertical;padding:9px 11px;border-radius:10px;border:1px solid transparent;background:var(--kdn-surface-2,#f7f6f3);font-size:14px;line-height:1.7;color:var(--kdn-ink,#17181d)}
+.krw-grid textarea{display:block;width:100%;min-height:3.6em;max-height:22em;field-sizing:content;resize:vertical;padding:9px 11px;border-radius:10px;border:1px solid transparent;background:var(--kdn-surface-2,#f7f6f3);font-size:14px;line-height:1.7;color:var(--kdn-ink,#17181d)}
 .krw-grid textarea::placeholder{color:#b3b6bd;font-size:13px}
 .krw-grid textarea:hover{border-color:var(--kdn-line,#e2dfd8)}
 .krw-grid textarea:focus{background:var(--kdn-surface,#fff);border-color:var(--c,#d0612a);box-shadow:0 0 0 3px color-mix(in srgb,var(--c,#d0612a) 15%,transparent)}
@@ -950,6 +984,39 @@ const CSS = `
 .krw-grid td.tot .krw-budget{padding:0;border:0;background:transparent}
 .krw-grid td.tot .krw-total-sm{margin-top:8px;padding:10px 12px;max-height:22em;border-radius:10px;background:var(--kdn-surface,#fff);border:1px dashed var(--kdn-line,#e2dfd8);font-size:13.5px;line-height:1.75}
 .krw-mini:disabled{opacity:.35;cursor:default;border-color:var(--kdn-line,#e2dfd8)!important;color:#8a8f99!important}
+/* 한눈에 표: 학생 구분 강화 */
+.krw-grid tbody tr>*{border-bottom:2px solid var(--kdn-line,#e4e1da)!important}
+.krw-grid tbody tr.is-alt td,.krw-grid tbody tr.is-alt th.nm{background:#f7f5f1!important}
+.krw-grid tbody tr.is-alt textarea{background:#fff;border-color:#ebe8e2}
+.krw-grid tbody tr.is-alt td.tot{background:#f9f6f1!important}
+.krw-grid tbody tr:hover td,.krw-grid tbody tr:hover th.nm{background:#fdf6f0!important}
+.krw-grid tbody tr:focus-within td,.krw-grid tbody tr:focus-within th.nm{background:#fff3ea!important}
+.krw-grid tbody tr:focus-within th.nm{box-shadow:inset 4px 0 0 #d0612a}
+.krw-grid tbody tr.is-over th.nm{box-shadow:inset 4px 0 0 #c2410c}
+.krw-grid textarea:focus{min-height:6.2em}
+.krw-grid tbody th.nm .nm-in{position:sticky;top:66px;display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.krw-grid tbody th.nm .no{display:inline-flex;align-items:center;justify-content:center;gap:3px;margin:0;min-width:30px;height:24px;font-size:12.5px;background:#17181d;color:#fff}
+.krw-grid tbody th.nm .no.is-full{background:#4f8a6b}
+.krw-grid tbody th.nm b{font-size:15.5px;line-height:1.3}
+.krw-grid tbody th.nm .dots{display:flex;flex-wrap:wrap;gap:3px}
+.krw-grid tbody th.nm .dots i{width:8px;height:8px;border-radius:99px;border:1.5px solid var(--c);background:transparent}
+.krw-grid tbody th.nm .dots i.on{background:var(--c)}
+.krw-grid tbody th.nm .tb{font-size:12px;font-weight:800;color:#3d4048;font-variant-numeric:tabular-nums}.krw-grid tbody th.nm .tb small{font-weight:600;color:var(--kdn-muted,#8a8f99)}
+.krw-grid tbody th.nm .tb.is-over{color:#c2410c}
+.krw-grid tbody th.nm .open{display:inline-flex;align-items:center;gap:1px;margin-top:2px;padding:3px 7px 3px 8px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:11.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer}
+.krw-grid tbody th.nm .open:hover{border-color:#d0612a;color:#c2410c}
+.krw-filter{display:inline-flex;flex-wrap:wrap;gap:4px}
+.krw-progress .krw-filter button{display:inline-flex;align-items:center;gap:5px}
+.krw-filter button .n{line-height:18px;font-size:11px;font-weight:800;padding:0 6px;border-radius:99px;background:var(--kdn-surface-2,#f1efea);color:#3d4048}
+.krw-filter button.f-over:not(.is-zero) .n{background:#fde4d6;color:#c2410c}.krw-filter button.f-issue:not(.is-zero) .n{background:#fdecc8;color:#92400e}
+.krw-filter button[aria-pressed="true"] .n{background:rgba(255,255,255,.2);color:#fff}
+.krw-filter button.is-zero{opacity:.5}
+.krw-find.is-inline{margin:0;min-width:170px;max-width:220px;border:1.5px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff)}
+.krw-find.is-inline button{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:99px;background:var(--kdn-surface-2,#f1efea);color:inherit;cursor:pointer}
+[data-kd-ui="dark"] .krw-grid tbody tr.is-alt td,[data-kd-ui="dark"] .krw-grid tbody tr.is-alt th.nm,[data-kd-ui="dark"] .krw-grid tbody tr.is-alt td.tot{background:color-mix(in srgb,#fff 4%,var(--kdn-surface,#1b1c22))!important}
+[data-kd-ui="dark"] .krw-grid tbody tr.is-alt textarea{background:var(--kdn-surface-2,#24252c);border-color:transparent}
+[data-kd-ui="dark"] .krw-grid tbody th.nm .no{background:#f1efea;color:#17181d}
+[data-kd-ui="dark"] .krw-grid tbody th.nm .tb{color:#d6d8dd}
 [data-kd-ui="dark"] .krw-grid tbody tr:hover td,[data-kd-ui="dark"] .krw-grid tbody tr:hover th.nm,[data-kd-ui="dark"] .krw-grid td.tot{background:var(--kdn-surface,#1b1c22)!important}
 [data-kd-ui="dark"] .krw-grid tbody tr:focus-within td,[data-kd-ui="dark"] .krw-grid tbody tr:focus-within th.nm{background:color-mix(in srgb,#d0612a 8%,var(--kdn-surface,#1b1c22))!important}
 .krw-total-sm{text-align:left!important;white-space:pre-wrap;font-size:13px;line-height:1.75;max-height:14em;overflow:auto;padding-top:6px}.krw-total-sm.is-empty{color:var(--kdn-muted,#a3a7b0);font-size:12.5px}
