@@ -172,19 +172,50 @@ export function splitSentences(text = "") {
   });
   return out;
 }
-const normSentence = text => String(text || "").replace(/[\s.,'"!?·()-]/g, "");
+const normSentence = text => String(text || "").replace(/[\s.,'"!?·()\-~…‘’“”]/g, "");
+const bigrams = text => { const set = new Set(); for (let i = 0; i < text.length - 1; i += 1) set.add(text.slice(i, i + 2)); return set; };
+function similarity(x, y) {
+  if (!x.size || !y.size) return 0;
+  let both = 0; x.forEach(g => { if (y.has(g)) both += 1; });
+  return (2 * both) / (x.size + y.size);
+}
+export const DUP_MIN_CHARS = 5;
+export const DUP_SIMILAR_MIN_CHARS = 15;
+export const DUP_SIMILAR_RATIO = 0.8;
 
-// 같은 반에서 여러 학생에게 똑같이 들어간 문장(띄어쓰기·기호 무시, 12자 이상).
+// 여러 학생에게 겹친 문장 찾기.
+// ① 똑같은 문장: 띄어쓰기·기호를 빼고 5자 이상이면 비교
+// ② 거의 같은 문장: 15자 이상 문장끼리 글자 짝(2글자) 80% 이상 겹치면 '비슷한 문장'으로 묶음(조사·어미만 바꾼 경우)
 export function findDuplicateSentences(entries = []) {
   const map = new Map();
   entries.forEach(({ sid, label, text }) => splitSentences(text).forEach(sentence => {
     const key = normSentence(sentence);
-    if (key.length < 12) return;
-    const item = map.get(key) || { sentence, people: [] };
+    if (key.length < DUP_MIN_CHARS) return;
+    const item = map.get(key) || { key, sentence, people: [], variants: [] };
     if (!item.people.some(p => p.sid === sid)) item.people.push({ sid, label });
     map.set(key, item);
   }));
-  return Array.from(map.values()).filter(item => item.people.length >= 2).sort((a, b) => b.people.length - a.people.length);
+  const items = Array.from(map.values());
+  // 비슷한 문장 묶기: 긴 문장만, 아직 묶이지 않은 것끼리
+  const long = items.filter(item => item.key.length >= DUP_SIMILAR_MIN_CHARS).sort((a, b) => b.people.length - a.people.length);
+  const grams = new Map(long.map(item => [item, bigrams(item.key)]));
+  const merged = new Set();
+  long.forEach((base, i) => {
+    if (merged.has(base)) return;
+    for (let j = i + 1; j < long.length; j += 1) {
+      const other = long[j];
+      if (merged.has(other)) continue;
+      const ratio = Math.min(base.key.length, other.key.length) / Math.max(base.key.length, other.key.length);
+      if (ratio < DUP_SIMILAR_RATIO) continue;
+      if (similarity(grams.get(base), grams.get(other)) < DUP_SIMILAR_RATIO) continue;
+      merged.add(other);
+      base.variants.push(other.sentence);
+      other.people.forEach(p => { if (!base.people.some(q => q.sid === p.sid)) base.people.push({ ...p, similar: true }); });
+    }
+  });
+  return items.filter(item => !merged.has(item) && item.people.length >= 2)
+    .map(({ key, ...item }) => ({ ...item, similar: item.variants.length > 0 }))
+    .sort((a, b) => b.people.length - a.people.length);
 }
 
 // AI 요청문: 학생 이름은 빼고, 관찰 기록만 근거로 기재요령·바이트 조건을 담아 만듭니다.
