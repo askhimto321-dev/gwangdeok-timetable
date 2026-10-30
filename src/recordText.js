@@ -95,3 +95,50 @@ export function issueSummary(issues = []) {
   const block = issues.filter(item => item.level === "block").length;
   return { block, warn: issues.length - block, total: issues.length };
 }
+
+// 안전한 자동 고치기: 뜻이 바뀌지 않는 기호만 바꿉니다(가운데점→쉼표, 둥근 따옴표→작은따옴표, 물결→하이픈, 대괄호 빼기, 겹친 띄어쓰기 정리).
+export function autoFixRecordText(text = "") {
+  return String(text || "")
+    .replace(/\s*·\s*/g, ", ")
+    .replace(/[‘’“”]/g, "'")
+    .replace(/\s*[~～∼]\s*/g, "-")
+    .replace(/[[\]［］【】]/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/ +\n/g, "\n");
+}
+
+// 엑셀에서 복사한 '번호(또는 학번) ⇥ 내용' 줄을 학생에게 맞춥니다.
+export function parsePastedRows(text = "", students = []) {
+  const bySid = new Map(students.map(s => [String(s.sid), s]));
+  const byNumber = new Map(students.map(s => [String(Number(s.number)), s]));
+  const matched = [], missed = [];
+  String(text || "").replace(/\r\n?/g, "\n").split("\n").forEach(line => {
+    if (!line.trim()) return;
+    const cells = line.split("\t");
+    if (cells.length < 2) { missed.push(line); return; }
+    const head = cells[0].trim().replace(/번$/, "");
+    const content = cells.slice(cells.length >= 3 && !/^\d+$/.test(cells[1].trim()) ? 2 : 1).join(" ").trim().replace(/^"|"$/g, "");
+    const student = bySid.get(head) || (/^\d{1,2}$/.test(head) ? byNumber.get(String(Number(head))) : null);
+    if (student && content) matched.push({ sid: student.sid, text: content });
+    else missed.push(line);
+  });
+  return { matched, missed };
+}
+
+export const RECORD_GUIDE = {
+  steps: [
+    ["반·과목 고르기", "위에서 담임 반 또는 담당 과목·반(이동수업은 분반)을 골라요."],
+    ["활동 만들기(교과)", "수행평가 영역을 활동으로 추가해요. 다른 반 목록을 '가져오기'로 복사할 수 있어요."],
+    ["쓰기", "학생을 고르고 칸에 쓰면 1초 뒤 자동 저장돼요. 오른쪽 '자료' 칸에 누가기록을 적거나 활동지를 띄워 보며 쓸 수 있어요."],
+    ["점검·출력", "빨간 '기재 불가'는 꼭 고치고, 바이트가 한도를 넘지 않는지 봐요. 다 쓰면 인쇄·PDF·엑셀로 뽑아요."],
+  ],
+  rules: [
+    "교사가 관찰한 사실을 교사 입장에서: ~하는 모습을 보임, ~이 돋보임, ~에 대해 발표함",
+    "현재형 종결어미: ~함, ~임 (했음·하였음·알 수 있었음 X)",
+    "학생 입장 표현 피하기: 깨달음, 다짐함, 느낌, 배움 X",
+    "특수기호 금지: 가운데점(·)→쉼표, 둥근 따옴표→작은따옴표('), 대괄호 X, 기간은 물결(~) 대신 하이픈(-)",
+    "대학명·기관명·상호명·강사명 X (유튜브→동영상 플랫폼, 챗GPT→대화형 인공지능, 캔바→디자인 제작 플랫폼)",
+    "대회·수상·자격증·논문·어학시험·모의고사 성적·해외활동·부모 사회경제적 지위 X",
+  ],
+  endings: ["~에 대한 활동지를 작성함", "~에 대해 발표함", "~하는 모습을 보임", "~한 모습이 돋보임", "~하는 능력이 뛰어남", "~에 두각을 보임", "~하는 태도를 지님", "~하여 동료들로부터 좋은 평가를 받음", "~을 비판적 시각에서 재구성하는 능력이 뛰어남", "~하겠다는 실천 계획까지 밝힌 점이 돋보임"],
+};

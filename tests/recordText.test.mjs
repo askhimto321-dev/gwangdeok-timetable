@@ -30,3 +30,13 @@ test("기재요령 점검: 허용 영문(AI, SNS)과 일반 낱말은 통과", (
   assert.equal(checkRecordText("AI 윤리에 대해 SNS 사례를 조사하여 발표함.").length, 0);
   assert.equal(checkRecordText("현대 사회의 기대와 반대 의견을 비교함.").length, 0);
 });
+import { autoFixRecordText, parsePastedRows } from "../src/recordText.js";
+test("자동 고치기: 기호만 바꾸고 뜻은 그대로", () => {
+  assert.equal(autoFixRecordText("국어·수학 ‘탐구’ 3~5월 [보고서]  발표함."), "국어, 수학 '탐구' 3-5월 보고서 발표함.");
+});
+test("엑셀 붙여넣기: 번호·학번으로 학생 맞추기", () => {
+  const students = [{ sid: "20101", number: 1 }, { sid: "20102", number: 2 }];
+  const { matched, missed } = parsePastedRows("1\t첫째 글\n20102\t홍길동\t둘째 글\n9\t없는 학생", students);
+  assert.deepEqual(matched, [{ sid: "20101", text: "첫째 글" }, { sid: "20102", text: "둘째 글" }]);
+  assert.equal(missed.length, 1);
+});
