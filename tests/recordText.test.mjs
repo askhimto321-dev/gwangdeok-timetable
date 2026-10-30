@@ -88,3 +88,9 @@ test("중복 문장: 조사·어미만 바꾼 문장은 '비슷한 문장'으로
   assert.equal(dup[0].similar, true);
   assert.deepEqual(dup[0].people.map(p => p.label).sort(), ["1번", "2번"]);
 });
+test("AI 요청문: 성취기준을 넣으면 목표로 안내", () => {
+  const prompt = buildAiPrompt({ area: "과세특", subject: "문학", budget: 1500, notes: [["논술", "근거를 들어 주장함"]], standards: ["[12문학01-02] 문학의 여러 갈래들의 특성과 문학의 맥락에 대해 이해한다."] });
+  assert.ok(prompt.includes("[이 활동의 성취기준"));
+  assert.ok(prompt.includes("- [12문학01-02]"));
+  assert.ok(!buildAiPrompt({ area: "과세특", notes: [] }).includes("성취기준"));
+});
