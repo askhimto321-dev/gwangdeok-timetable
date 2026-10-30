@@ -81,6 +81,10 @@ export function checkRecordText(text = "") {
   BRANDS.forEach(([pattern, fix]) => findAll(value, new RegExp(`(?<![A-Za-z가-힣])(?:${pattern})(?![A-Za-z])`, "g")).forEach(hit => add("block", "상호명", hit.match, hit.index, `'${fix}' 등으로`)));
   AGENCIES.forEach(([pattern, fix]) => findAll(value, new RegExp(`(?<![A-Za-z가-힣])(?:${pattern})`, "g")).forEach(hit => add("block", "기관명", hit.match, hit.index, `'${fix}' 등으로`)));
   BANNED_TERMS.forEach(([pattern, fix]) => findAll(value, new RegExp(pattern, "g")).forEach(hit => add("block", "입력 불가 용어", hit.match, hit.index, fix)));
+  // 오타 의심: 자음·모음만 있는 글자(ㅇㅇ, ㅏㅇ), 같은 낱말 연달아, 마침표 겹침
+  findAll(value, /[\u3131-\u318E]+/g).forEach(hit => add("block", "오타 의심", hit.match, hit.index, "자음·모음만 있는 글자예요. 고치거나 지워 주세요"));
+  findAll(value, /(?<![가-힣A-Za-z])([가-힣]{2,})\s+\1(?![가-힣])/g).forEach(hit => add("warn", "오타 의심", hit.match, hit.index, "같은 낱말이 두 번 연달아 있어요"));
+  findAll(value, /\.{2,}|,{2,}|\s+[.,](?=\s|$)/g).forEach(hit => add("warn", "오타 의심", hit.match.trim() || hit.match, hit.index, "문장부호를 확인해 주세요"));
   // 문장 끝: 과거·미래형, 학생 입장(셀프 생기부) 표현
   findAll(value, /[가-힣]*(?:했음|하였음|었음|았음|였음|겠음|할 것임|할 예정임)(?=\s*[.\n]|\s*$)/g).forEach(hit => add("warn", "시제", hit.match, hit.index, "현재형 종결어미로(~함, ~임)"));
   findAll(value, /[가-힣]*(?:파악함|이해함|깨달음|다짐함|느낌|배움|고찰함|분석함)(?=\s*[.\n]|\s*$)/g).forEach(hit => add("warn", "학생 입장 표현", hit.match, hit.index, "교사 관찰로(~하는 모습을 보임, ~이 돋보임)"));
@@ -141,12 +145,71 @@ export const RECORD_GUIDE = {
     "대회·수상·자격증·논문·어학시험·모의고사 성적·해외활동·부모 사회경제적 지위 X",
   ],
   tips: [
+    "AI 도우미 ① 요청문 복사 → 쓰시는 AI에 붙여넣기 → ② 받은 답 붙여넣고 점검 → 칸에 넣기. 요청문에는 학생 이름이 빠지지만, 누가기록에 다른 학생 이름을 적지 않도록 해 주세요.",
     "AI가 써 준 세특 초안은 먼저 '누가기록'에 붙여 두고, 학생 활동에 맞게 고친 문장만 골라 '칸에 넣기'로 옮겨 쓰면 편해요.",
     "엑셀로 미리 써 둔 글은 '영역별 몰아쓰기 → 엑셀에서 붙여넣기'로 반 전체를 한 번에 넣을 수 있어요.",
-    "특수기호가 섞이면 '기호 자동 고치기' 버튼이 나와요. 한 번 누르면 기재요령에 맞게 바뀌어요.",
+    "특수기호가 섞이면 '기호 자동 고치기' 버튼이 나와요. 자음·모음만 있는 글자(ㅇㅇ), 같은 낱말 반복 같은 오타도 '오타 의심'으로 알려 줘요.",
     "총합본은 활동마다 줄을 바꿔 합쳐져요. '복사'를 눌러 나이스에 그대로 붙여넣으면 돼요.",
     "다른 반 활동 목록은 '다른 반 활동 가져오기'로 복사해요. 쓴 글은 옮겨지지 않아요.",
     "글은 1초 뒤 자동 저장되고, 저장 전 글은 이 브라우저에도 보관돼요. 반 자료를 따로 보관하려면 '백업 파일'을 받아 두세요.",
   ],
   endings: ["~에 대한 활동지를 작성함", "~에 대해 발표함", "~하는 모습을 보임", "~한 모습이 돋보임", "~하는 능력이 뛰어남", "~에 두각을 보임", "~하는 태도를 지님", "~하여 동료들로부터 좋은 평가를 받음", "~을 비판적 시각에서 재구성하는 능력이 뛰어남", "~하겠다는 실천 계획까지 밝힌 점이 돋보임"],
 };
+
+// ── 작성 도우미 ───────────────────────────────────────────────────────────
+// 문장 나누기: 마침표·물음표·느낌표·줄바꿈 기준(숫자 사이 마침표는 그대로).
+export function splitSentences(text = "") {
+  const out = [];
+  String(text || "").replace(/\r\n?/g, "\n").split("\n").forEach(line => {
+    let buf = "";
+    const chars = Array.from(line);
+    chars.forEach((ch, i) => {
+      buf += ch;
+      const next = chars[i + 1] || "";
+      if (/[.?!]/.test(ch) && !(/\d/.test(chars[i - 1] || "") && /\d/.test(next)) && (!next || /\s/.test(next))) { if (buf.trim()) out.push(buf.trim()); buf = ""; }
+    });
+    if (buf.trim()) out.push(buf.trim());
+  });
+  return out;
+}
+const normSentence = text => String(text || "").replace(/[\s.,'"!?·()-]/g, "");
+
+// 같은 반에서 여러 학생에게 똑같이 들어간 문장(띄어쓰기·기호 무시, 12자 이상).
+export function findDuplicateSentences(entries = []) {
+  const map = new Map();
+  entries.forEach(({ sid, label, text }) => splitSentences(text).forEach(sentence => {
+    const key = normSentence(sentence);
+    if (key.length < 12) return;
+    const item = map.get(key) || { sentence, people: [] };
+    if (!item.people.some(p => p.sid === sid)) item.people.push({ sid, label });
+    map.set(key, item);
+  }));
+  return Array.from(map.values()).filter(item => item.people.length >= 2).sort((a, b) => b.people.length - a.people.length);
+}
+
+// AI 요청문: 학생 이름은 빼고, 관찰 기록만 근거로 기재요령·바이트 조건을 담아 만듭니다.
+export function buildAiPrompt({ area = "", subject = "", activity = "", budget = 1500, notes = [], existing = "", studentName = "" }) {
+  const hide = text => { let value = String(text || ""); if (studentName && studentName.length >= 2) value = value.split(studentName).join("학생"); return value.trim(); };
+  const noteLines = notes.map(([label, text]) => [label, hide(text)]).filter(([, text]) => text);
+  const chars = Math.floor(budget / 3);
+  return [
+    `당신은 고등학교 교사의 학교생활기록부 '${area}' 작성을 돕는 도우미입니다.`,
+    "아래 관찰 기록만 근거로, 교사가 관찰한 사실을 교사 입장에서 쓴 초안을 만들어 주세요.",
+    "",
+    "[작성 조건]",
+    `- 분량: 나이스 기준 ${budget.toLocaleString()}바이트 이내(한글 1자 3바이트, 영문·숫자·공백 1바이트), 한글로 약 ${chars}자 이내`,
+    "- 현재형 종결어미(~함, ~임, ~하는 모습을 보임)로 끝내기. 과거형(했음, 하였음, 알 수 있었음) 쓰지 않기",
+    "- 학생 입장 표현(깨달음, 다짐함, 느낌, 배움) 대신 교사 관찰 표현(~하는 모습이 돋보임, ~하는 능력이 뛰어남)",
+    "- 특수기호(가운데점, 둥근 따옴표, 대괄호, 물결표) 쓰지 않기. 기간은 하이픈(-)으로",
+    "- 대학명, 기관명, 상호명(동영상 플랫폼·대화형 인공지능 등은 일반 명칭으로), 강사명, 대회, 수상, 자격증, 논문, 어학시험, 모의고사 성적 쓰지 않기",
+    "- 문자는 한글로 쓰고, 관찰 기록에 없는 활동이나 성과는 지어내지 않기",
+    "- 학생 이름은 쓰지 않고 한 문단으로 쓰기",
+    "",
+    `[과목·영역] ${[subject, activity].filter(Boolean).join(" / ") || area}`,
+    "[관찰 기록]",
+    ...(noteLines.length ? noteLines.map(([label, text]) => `(${label})\n${text}`) : ["(관찰 기록이 비어 있어요. 활동 내용을 직접 적어 주세요.)"]),
+    ...(hide(existing) ? ["", "[지금까지 쓴 글: 이 글을 위 조건에 맞게 다듬어 주세요]", hide(existing)] : []),
+    "",
+    "결과는 생기부에 바로 붙여 넣을 본문만 출력해 주세요.",
+  ].join("\n");
+}
