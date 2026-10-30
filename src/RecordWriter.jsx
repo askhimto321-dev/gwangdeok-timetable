@@ -478,9 +478,9 @@ function StudentCell({ no, name, done, total, onOpen }) {
   const full = total > 0 && done === total;
   return <th className="nm" scope="row">
     <div className="nm-in">
-      <span className={`no${full ? " is-full" : ""}`} title={`${done}/${total}칸 작성`}>{full ? <Check size={12} /> : null}{no}</span>
+      <span className="top"><span className={`no${full ? " is-full" : ""}`} title={`${done}/${total}칸 작성`}>{full ? <Check size={12} /> : null}{no}</span>
+        {onOpen && <button type="button" data-kdn-bare className="open" onClick={onOpen} aria-label={`${name} 학생별 보기로 열기`} title="학생별 보기에서 이 학생 열기(자료·AI 도우미)"><ChevronRight size={14} /></button>}</span>
       <b>{name}</b>
-      {onOpen && <button type="button" data-kdn-bare className="open" onClick={onOpen} title="학생별 보기에서 이 학생 열기(자료·AI 도우미)">자세히 <ChevronRight size={12} /></button>}
     </div>
   </th>;
 }
@@ -1013,11 +1013,13 @@ const CSS = `
 .krw-grid tbody tr:focus-within th.nm{box-shadow:inset 4px 0 0 #d0612a}
 .krw-grid tbody tr.is-over th.nm{box-shadow:inset 4px 0 0 #c2410c}
 .krw-grid textarea:focus{min-height:6.2em}
-.krw-grid tbody th.nm .nm-in{position:sticky;top:66px;display:flex;flex-direction:column;align-items:flex-start;gap:5px}
+.krw-grid tbody th.nm .nm-in{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center}
+.krw-grid tbody th.nm{vertical-align:middle;text-align:center!important}
 .krw-grid tbody th.nm .no{display:inline-flex;align-items:center;justify-content:center;gap:3px;margin:0;min-width:30px;height:24px;font-size:12.5px;background:#17181d;color:#fff}
 .krw-grid tbody th.nm .no.is-full{background:#4f8a6b}
 .krw-grid tbody th.nm b{font-size:15.5px;line-height:1.3}
-.krw-grid tbody th.nm .open{display:inline-flex;transition:opacity .15s;align-items:center;gap:1px;margin-top:2px;padding:3px 7px 3px 8px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:11.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer}
+.krw-grid tbody th.nm .top{position:relative;display:inline-flex;align-items:center}
+.krw-grid tbody th.nm .open{position:absolute;left:calc(100% + 4px);top:50%;transform:translateY(-50%);display:grid;place-items:center;width:24px;height:24px;padding:0;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#5b606b);cursor:pointer;transition:opacity .15s}
 .krw-grid tbody th.nm .open:hover{border-color:#d0612a;color:#c2410c}
 @media (hover:hover){.krw-grid tbody th.nm .open{opacity:0}.krw-grid tbody tr:hover th.nm .open,.krw-grid tbody tr:focus-within th.nm .open{opacity:1}}
 .krw-grid textarea.has-block{border-color:#ef4444;box-shadow:inset 3px 0 0 #ef4444}
