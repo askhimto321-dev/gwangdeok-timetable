@@ -40,3 +40,30 @@ test("엑셀 붙여넣기: 번호·학번으로 학생 맞추기", () => {
   assert.deepEqual(matched, [{ sid: "20101", text: "첫째 글" }, { sid: "20102", text: "둘째 글" }]);
   assert.equal(missed.length, 1);
 });
+import { splitSentences, findDuplicateSentences, buildAiPrompt } from "../src/recordText.js";
+test("문장 나누기: 소수점은 그대로", () => {
+  assert.deepEqual(splitSentences("pH 7.5 용액을 만듦. 결과를 발표함.\n다음 줄임"), ["pH 7.5 용액을 만듦.", "결과를 발표함.", "다음 줄임"]);
+});
+test("중복 문장: 띄어쓰기 달라도 같은 문장으로", () => {
+  const dup = findDuplicateSentences([
+    { sid: "1", label: "1번", text: "모둠 활동에 적극적으로 참여하는 모습을 보임. 혼자 쓴 문장임." },
+    { sid: "2", label: "2번", text: "모둠 활동에  적극적으로 참여하는 모습을 보임." },
+    { sid: "3", label: "3번", text: "다른 문장." },
+  ]);
+  assert.equal(dup.length, 1);
+  assert.deepEqual(dup[0].people.map(p => p.label), ["1번", "2번"]);
+});
+test("AI 요청문: 학생 이름을 빼고 바이트 조건을 넣음", () => {
+  const prompt = buildAiPrompt({ area: "과세특", subject: "국어", activity: "논술", budget: 900, notes: [["논술", "홍길동은 근거를 들어 주장함"]], studentName: "홍길동" });
+  assert.ok(!prompt.includes("홍길동"));
+  assert.ok(prompt.includes("900바이트"));
+  assert.ok(prompt.includes("학생은 근거를 들어 주장함"));
+});
+test("오타 의심: 자음·모음만, 같은 낱말 반복, 마침표 겹침", () => {
+  const issues = checkRecordText("발표를 ㅇㅇ 잘함. ㅏㅇ 활동함. 탐구 탐구 보고서를 씀.. 끝.");
+  const typos = issues.filter(item => item.kind === "오타 의심").map(item => item.match);
+  assert.ok(typos.includes("ㅇㅇ") && typos.includes("ㅏㅇ"));
+  assert.ok(typos.some(m => m.startsWith("탐구 탐구")));
+  assert.ok(typos.includes(".."));
+  assert.equal(checkRecordText("현대 사회의 다양한 문제를 탐구함.").filter(i => i.kind === "오타 의심").length, 0);
+});

@@ -2,12 +2,12 @@
 // 저장은 학생·칸 하나씩 서버 기록에 합쳐 넣어(동시에 여러 선생님이 써도 서로 덮어쓰지 않게) 하고,
 // 저장 전 글은 이 브라우저에도 바로 보관해 새로고침·끊김에도 남게 합니다. 서버는 덮어쓸 때 이전 본을 자동 백업합니다.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPaste, CloudOff, Copy, Download, Eye, EyeOff, FileSpreadsheet, FileText, HelpCircle, LayoutGrid, Loader2, PanelRightClose, PanelRightOpen, Paperclip, Plus, Printer, RotateCcw, Rows3, Save, Search, Table2, Trash2, Users, Wand2, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPaste, CloudOff, Copy, Download, Eye, EyeOff, FileSpreadsheet, FileText, HelpCircle, LayoutGrid, Loader2, Sparkles, PanelRightClose, PanelRightOpen, Paperclip, Plus, Printer, RotateCcw, Rows3, Save, Search, Table2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { booksForAssignment } from "./lessonStamps.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, RECORD_GUIDE } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -251,7 +251,7 @@ const TOUR_STEPS = [
   { target: "rw-views", title: "보는 형태 고르기", body: "학생별(한 명씩) · 한눈에 표(반 전체) · 영역별 몰아쓰기(한 영역을 반 전체 차례로) 중 편한 방식으로 써요. 고른 방식은 기억돼요." },
   { target: "rw-acts", title: "수행평가 활동 만들기(교과)", body: "활동을 추가해 활동별로 나눠 쓰면 총합본이 줄을 바꿔 자동으로 합쳐져요. 다른 반 목록은 '가져오기'로 복사해요." },
   { target: "rw-pane", title: "쓰기 · 자동 저장", body: "칸에 쓰면 1초 뒤 저장돼요. 칸마다 나이스 바이트가 보이고, 넘으면 빨갛게 바뀌어요. Alt+↓/↑로 다음·이전 학생으로 가요." },
-  { target: "rw-side", title: "누가기록 · 활동지", body: "관찰 메모나 AI가 써 준 세특 초안을 누가기록에 붙여 두고, 고친 문장만 골라 '칸에 넣기'로 옮겨 써요. 활동지(PDF·사진)를 올려 띄워 볼 수도 있어요." },
+  { target: "rw-side", title: "누가기록 · AI 도우미 · 활동지", body: "누가기록은 공통 · 수업 태도 · 활동별로 따로 적어요. AI 도우미는 누가기록과 기재요령·남은 바이트를 담은 요청문(학생 이름 빠짐)을 만들고, 받은 답을 점검해 칸에 넣거나 문장별로 덜어 바이트를 맞춰요. 활동지(PDF·사진)도 띄워 볼 수 있어요." },
   { target: "rw-total", title: "총합본 · 복사", body: "활동별 글이 줄을 바꿔 합쳐진 최종본이에요. '복사'를 눌러 나이스에 그대로 붙여넣어요." },
   { target: "rw-check", title: "기재요령 점검", body: "빨간 '기재 불가'(특수기호·대학명·상호명·대회 등)는 꼭 고치고, 주황 '고치기 권장'(과거형·학생 입장 표현)도 살펴요." },
   { target: "rw-bar", title: "저장 · 인쇄 · 백업", body: "저장 상태는 여기서 봐요. 인쇄·PDF·엑셀은 학생 · 반 · 담당 반 전체 중 골라 뽑고, '백업 파일'로 반 자료를 따로 보관해요." },
@@ -279,25 +279,36 @@ async function fileUrl(file) {
   const blob = await (await fetch(stored.dataUrl)).blob();
   return URL.createObjectURL(blob);
 }
-function SidePanel({ rec, sid, studentLabel, scopeLabel, by, showToast, onClose, targets = [] }) {
+// 누가기록 갈래: 공통 · 수업 태도 · 활동(영역)별. 예전 '누가기록'은 공통(memo)으로 그대로 보여요.
+const memoCats = targets => [{ key: "memo", label: "공통" }, { key: "memo_att", label: "수업 태도" }, ...targets.map(t => ({ key: `memo_${t.key}`, label: t.label, target: t.key }))];
+
+function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {} }) {
   const [tab, setTab] = useState("memo");
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
   const inputRef = useRef(null);
   const memoRef = useRef(null);
+  const cats = memoCats(targets);
+  const [catKey, setCatKey] = useState("memo");
+  const cat = cats.find(item => item.key === catKey) || cats[0];
   const [target, setTarget] = useState("");
-  const targetKey = targets.some(t => t.key === target) ? target : targets[0]?.key || "";
+  const targetKey = targets.some(t => t.key === target) ? target : cat.target || targets[0]?.key || "";
+  useEffect(() => { if (cat.target) setTarget(cat.target); }, [cat.key]); // eslint-disable-line react-hooks/exhaustive-deps
+  const memo = rec.textOf(sid, cat.key);
+  const putText = (text, mode = "append", key = targetKey) => {
+    const value = String(text || "").trim();
+    if (!value || !key) return false;
+    const before = rec.textOf(sid, key).trim();
+    rec.edit(`s|${sid}|${key}`, mode === "replace" || !before ? value : `${before} ${value}`);
+    showToast?.(`'${targets.find(t => t.key === key)?.label}' 칸에 ${mode === "replace" ? "바꿔 " : ""}넣었어요.`, "success");
+    return true;
+  };
   const putIntoField = () => {
     const el = memoRef.current;
     const picked = el && el.selectionEnd > el.selectionStart ? el.value.slice(el.selectionStart, el.selectionEnd) : (el?.value || "");
-    const text = picked.trim();
-    if (!text || !targetKey) return showToast?.("누가기록에서 넣을 글을 먼저 골라(드래그) 주세요.", "error");
-    const before = rec.textOf(sid, targetKey).trim();
-    rec.edit(`s|${sid}|${targetKey}`, before ? `${before} ${text}` : text);
-    showToast?.(`'${targets.find(t => t.key === targetKey)?.label}' 칸에 넣었어요.`, "success");
+    if (!putText(picked)) showToast?.("누가기록에서 넣을 글을 먼저 골라(드래그) 주세요.", "error");
   };
   const files = rec.files.filter(file => !file.removed && (!file.sid || file.sid === sid));
-  const memo = rec.textOf(sid, "memo");
   const upload = async (list, forStudent) => {
     setUploading(true);
     const added = [];
@@ -317,13 +328,19 @@ function SidePanel({ rec, sid, studentLabel, scopeLabel, by, showToast, onClose,
     } catch (error) { showToast?.(error?.message || "열지 못했어요.", "error"); }
   };
   return <aside className="krw-side" data-tour="rw-side">
-    <header><div className="krw-side-tabs"><button type="button" data-kdn-bare aria-pressed={tab === "memo"} onClick={() => setTab("memo")}><FileText size={14} /> 누가기록</button><button type="button" data-kdn-bare aria-pressed={tab === "files"} onClick={() => setTab("files")}><Paperclip size={14} /> 활동지 {files.length > 0 && <em>{files.length}</em>}</button></div><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="자료 칸 닫기"><PanelRightClose size={16} /></button></header>
+    <header><div className="krw-side-tabs">
+      <button type="button" data-kdn-bare aria-pressed={tab === "memo"} onClick={() => setTab("memo")}><FileText size={14} /> 누가기록</button>
+      <button type="button" data-kdn-bare aria-pressed={tab === "ai"} onClick={() => setTab("ai")}><Sparkles size={14} /> AI 도우미</button>
+      <button type="button" data-kdn-bare aria-pressed={tab === "files"} onClick={() => setTab("files")}><Paperclip size={14} /> 활동지 {files.length > 0 && <em>{files.length}</em>}</button>
+    </div><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="자료 칸 닫기"><PanelRightClose size={16} /></button></header>
     {tab === "memo" ? <div className="krw-memo">
-      <p className="krw-side-note">{studentLabel} 관찰 메모·AI 초안 보관용이에요. 생기부에 들어가지 않아요. 문장을 드래그하고 '칸에 넣기'를 누르면 그 칸 끝에 붙어요.</p>
-      <textarea ref={memoRef} value={memo} spellCheck={false} placeholder={"예)\n9.12 모둠 토론에서 반대 측 근거를 정리해 발표\n10.3 실험 보고서 오차 원인을 스스로 분석\n\n(AI가 써 준 초안을 여기에 붙여 두고 고쳐 써도 좋아요)"} onChange={event => rec.edit(`s|${sid}|memo`, event.target.value)} />
-      <div className="krw-put">{targets.length > 0 && <><select value={targetKey} onChange={event => setTarget(event.target.value)} aria-label="넣을 칸">{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select><button type="button" data-kdn-bare className="krw-btn pri" onClick={putIntoField} title="누가기록에서 드래그한 글(없으면 전체)을 고른 칸 끝에 붙여요"><ChevronLeft size={14} /> 칸에 넣기</button></>}</div>
-      <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|memo`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button>
-    </div> : <div className="krw-files">
+      <div className="krw-memo-cats" role="group" aria-label="누가기록 갈래">{cats.map(item => <button key={item.key} type="button" data-kdn-bare aria-pressed={item.key === cat.key} onClick={() => setCatKey(item.key)}>{item.label}{rec.textOf(sid, item.key).trim() && <i />}</button>)}</div>
+      <p className="krw-side-note">{studentLabel} · <b>{cat.label}</b> 기록이에요. 생기부에 들어가지 않아요. 문장을 드래그하고 '칸에 넣기'를 누르면 그 칸 끝에 붙어요.</p>
+      <textarea ref={memoRef} value={memo} spellCheck={false} placeholder={cat.key === "memo_att" ? "예)\n9.5 발표 때 친구 의견을 메모하며 경청\n9.19 모둠 과제에서 자료 정리를 먼저 맡음\n10.2 질문을 자주 하며 개념을 확인" : cat.target ? `'${cat.label}' 활동 관찰을 날짜별로 적어요.\n예)\n9.12 주제 선정 이유를 구체적으로 설명\n10.3 자료 출처를 비교하며 근거 보완\n\n(AI가 써 준 초안을 붙여 두고 고쳐 써도 좋아요)` : "예)\n9.12 모둠 토론에서 반대 측 근거를 정리해 발표\n10.3 실험 보고서 오차 원인을 스스로 분석\n\n(AI가 써 준 초안을 붙여 두고 고쳐 써도 좋아요)"} onChange={event => rec.edit(`s|${sid}|${cat.key}`, event.target.value)} />
+      <div className="krw-put">{targets.length > 0 && <><select value={targetKey} onChange={event => setTarget(event.target.value)} aria-label="넣을 칸">{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select><button type="button" data-kdn-bare className="krw-btn pri" onClick={putIntoField} title="드래그한 글(없으면 전체)을 고른 칸 끝에 붙여요"><ChevronLeft size={14} /> 칸에 넣기</button></>}</div>
+      <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|${cat.key}`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button>
+    </div> : tab === "ai" ? <AiHelper rec={rec} sid={sid} studentName={studentName} targets={targets} targetKey={targetKey} setTarget={setTarget} budgetFor={budgetFor} aiContext={aiContext} cats={cats} putText={putText} showToast={showToast} />
+    : <div className="krw-files">
       <div className="up"><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "class"; inputRef.current.click(); }}>{uploading ? <Loader2 size={14} className="spin" /> : <Paperclip size={14} />} 반 공용 활동지 올리기</button><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "student"; inputRef.current.click(); }}><Paperclip size={14} /> 이 학생 자료</button>
         <input ref={inputRef} type="file" multiple hidden accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.hwp,.hwpx,.doc,.docx,.xlsx,.xls,.ppt,.pptx" onChange={event => { upload(event.target.files, event.target.dataset.mode === "student"); event.target.value = ""; }} /></div>
       <p className="krw-side-note">PDF·사진은 여기서 바로 보며 쓸 수 있어요(파일 하나 30MB 이하).</p>
@@ -331,6 +348,62 @@ function SidePanel({ rec, sid, studentLabel, scopeLabel, by, showToast, onClose,
       {preview && <div className="krw-preview"><header><b>{preview.name}</b><button type="button" data-kdn-bare onClick={() => setPreview(null)}><X size={14} /></button></header>{preview.image ? <img src={preview.url} alt={preview.name} /> : <iframe title={preview.name} src={preview.url} />}</div>}
     </div>}
   </aside>;
+}
+
+// AI 도우미: ① 요청문 만들기(학생 이름 빼고 복사) ② AI 답 붙여넣고 점검 → 칸에 넣기 ③ 한도 넘을 때 문장별로 덜어내기
+function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budgetFor, aiContext, cats, putText, showToast }) {
+  const [step, setStep] = useState("prompt");
+  const [refine, setRefine] = useState(true);
+  const [answer, setAnswer] = useState("");
+  const [drop, setDrop] = useState({});
+  const target = targets.find(t => t.key === targetKey);
+  const budget = Math.max(0, budgetFor(targetKey));
+  const current = rec.textOf(sid, targetKey);
+  const notes = [
+    ...cats.filter(c => c.target === targetKey).map(c => [`${c.label} 관찰`, rec.textOf(sid, c.key)]),
+    ["수업 태도", rec.textOf(sid, "memo_att")],
+    ["공통 메모", rec.textOf(sid, "memo")],
+  ];
+  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes, existing: refine ? current : "", studentName });
+  const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
+  const sentences = splitSentences(current);
+  const kept = sentences.filter((_, i) => !drop[i]).join(" ");
+  useEffect(() => { setDrop({}); }, [targetKey, sid]);
+  return <div className="krw-ai">
+    <label className="krw-ai-target">쓸 칸<select value={targetKey} onChange={event => setTarget(event.target.value)}>{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select><span>쓸 수 있는 바이트 <b>{budget.toLocaleString()}</b></span></label>
+    <div className="krw-ai-steps" role="tablist">{[["prompt", "① 요청문"], ["answer", "② AI 답 점검"], ["trim", "③ 바이트 맞추기"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={step === key} onClick={() => setStep(key)}>{label}</button>)}</div>
+    {step === "prompt" && <div className="krw-ai-body">
+      <p className="krw-side-note">누가기록(이 칸 관찰 · 수업 태도 · 공통)과 기재요령, 남은 바이트를 담은 요청문이에요. <b>학생 이름은 빠져요.</b> 복사해서 쓰시는 AI에 붙여넣고, 받은 답은 ②에서 점검해요.</p>
+      <label className="krw-ai-chk"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /> 지금 칸에 쓴 글도 함께 다듬어 달라고 하기</label>
+      <pre className="krw-ai-prompt">{prompt}</pre>
+      <button type="button" data-kdn-bare className="krw-btn pri" onClick={copy}><Copy size={14} /> 요청문 복사</button>
+    </div>}
+    {step === "answer" && <div className="krw-ai-body">
+      <p className="krw-side-note">AI가 써 준 글을 붙여넣으면 바이트와 기재요령을 바로 점검해요. 관찰하지 않은 내용이 들어가지 않았는지 꼭 읽어 보세요.</p>
+      <textarea value={answer} spellCheck={false} onChange={event => setAnswer(event.target.value)} placeholder="AI 답을 여기에 붙여넣기" />
+      <div className="krw-ai-meter"><ByteMeter text={answer} limit={budget || 1} />{autoFixRecordText(answer) !== answer && <button type="button" data-kdn-bare className="krw-fix" onClick={() => setAnswer(autoFixRecordText(answer))}><Wand2 size={13} /> 기호 자동 고치기</button>}</div>
+      {answer && <IssueList text={answer} />}
+      <div className="krw-ai-acts"><button type="button" data-kdn-bare className="krw-btn pri" disabled={!answer.trim()} onClick={() => { if (!current.trim() || window.confirm(`'${target?.label}' 칸의 지금 글을 이 글로 바꿀까요?`)) putText(answer, "replace"); }}>칸을 이 글로 바꾸기</button><button type="button" data-kdn-bare className="krw-btn" disabled={!answer.trim()} onClick={() => putText(answer, "append")}>칸 끝에 덧붙이기</button><button type="button" data-kdn-bare className="krw-btn ghost" disabled={!answer.trim()} onClick={() => { const key = cats.find(c => c.target === targetKey)?.key || "memo"; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev ? "\n\n" : ""}[AI 초안 ${todayLabel()}]\n${answer.trim()}`); showToast?.("누가기록에 보관했어요.", "success"); }}>누가기록에 보관</button></div>
+    </div>}
+    {step === "trim" && <div className="krw-ai-body">
+      <p className="krw-side-note">'{target?.label}' 칸의 문장마다 바이트예요. 뺄 문장의 체크를 풀면 남은 글이 한도 안에 드는지 바로 보여요.</p>
+      {sentences.length ? <ul className="krw-trim">{sentences.map((sentence, i) => <li key={i} className={drop[i] ? "is-off" : ""}><label><input type="checkbox" checked={!drop[i]} onChange={() => setDrop(value => ({ ...value, [i]: !value[i] }))} /><span>{sentence}</span></label><em>{neisBytes(sentence)}</em></li>)}</ul> : <p className="krw-side-empty">칸에 쓴 글이 없어요.</p>}
+      {sentences.length > 0 && <><div className="krw-ai-meter"><span>남길 글</span><ByteMeter text={kept} limit={budget || 1} /></div>
+        <button type="button" data-kdn-bare className="krw-btn pri" disabled={!Object.values(drop).some(Boolean)} onClick={() => { putText(kept, "replace"); setDrop({}); }}>고른 문장만 남기기</button></>}
+    </div>}
+  </div>;
+}
+
+// 반 전체 중복 문장 찾기(복붙 세특 점검)
+function DuplicateModal({ entries, title, onClose, onPick }) {
+  const dups = useMemo(() => findDuplicateSentences(entries), [entries]);
+  return <div className="krw-modal" role="dialog" aria-modal="true" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="krw-modal-box krw-dup">
+      <header><b><Search size={17} /> 같은 문장 점검 · {title}</b><button type="button" data-kdn-bare onClick={onClose}><X size={16} /></button></header>
+      <p>여러 학생에게 똑같이 들어간 문장이에요(띄어쓰기·기호는 무시). 학생마다 다른 관찰 내용으로 바꾸면 좋아요. 학생을 누르면 그 학생으로 가요.</p>
+      {dups.length ? <ul>{dups.map((item, index) => <li key={index}><q>{item.sentence}</q><div>{item.people.map(p => <button key={p.sid} type="button" data-kdn-bare onClick={() => { onPick(p.sid); onClose(); }}>{p.label}</button>)}</div><em>{item.people.length}명</em></li>)}</ul> : <p className="krw-side-empty">겹치는 문장이 없어요.</p>}
+    </div>
+  </div>;
 }
 
 // ── 엑셀에서 붙여넣기 ─────────────────────────────────────────────────────
@@ -387,6 +460,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
   const [onlyEmpty, setOnlyEmpty] = useState(false);
   const [side, setSide] = useState(true);
   const [paste, setPaste] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
   useEffect(() => { if (!students.some(s => s.sid === sid)) setSid(students[0]?.sid || ""); }, [students]); // eslint-disable-line react-hooks/exhaustive-deps
   const filled = s => HOMEROOM_AREAS.filter(key => rec.textOf(s.sid, key).trim()).length;
   const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (!onlyEmpty || filled(s) < HOMEROOM_AREAS.length));
@@ -416,9 +490,11 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
       <SaveBadge rec={rec} />
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={saveNow} disabled={!Object.keys(rec.pending).length || rec.status === "saving"}><Save size={15} /> 지금 저장</button>
       <PrintMenu onPick={output} scopes={[["student", "지금 학생"], ["class", `${cls}반 전체`]]} />
+      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setDupOpen(true)} title="여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /> 같은 문장 점검</button>
       <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`생기부_${grade}-${cls}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업 파일</button>
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
+    {dupOpen && <DuplicateModal title={`${cls}반`} entries={students.map(s => ({ sid: s.sid, label: `${s.number}번`, text: HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n") }))} onPick={setSid} onClose={() => setDupOpen(false)} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table"><thead><tr><th className="n">번호</th><th className="nm">이름</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}>{RECORD_AREAS[key].label}</th>)}</tr></thead>
@@ -435,7 +511,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, check,
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           {HOMEROOM_AREAS.map(key => <Field key={key} label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={RECORD_AREAS[key].limit} check={check} rows={key === "career" ? 8 : 6} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />)}
         </section>}
-        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => RECORD_AREAS[key]?.limit || 1500} studentName={current.name} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -478,6 +554,7 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
   const [onlyEmpty, setOnlyEmpty] = useState(false);
   const [side, setSide] = useState(true);
   const [paste, setPaste] = useState(false);
+  const [dupOpen, setDupOpen] = useState(false);
   useEffect(() => { if (!students.some(s => s.sid === sid)) setSid(students[0]?.sid || ""); }, [students]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!acts.some(a => a.id === actId)) setActId(acts[0]?.id || ""); }, [acts.map(a => a.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const texts = s => Object.fromEntries(acts.map(act => [act.id, rec.textOf(s.sid, act.id)]));
@@ -561,9 +638,11 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
       <SaveBadge rec={rec} />
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={saveNow} disabled={!Object.keys(rec.pending).length || rec.status === "saving"}><Save size={15} /> 지금 저장</button>
       <PrintMenu busy={busy} onPick={output} scopes={[["student", "지금 학생"], ["class", `${book?.label || "이 반"} 전체`], ["all", "담당 반 전체"]]} />
+      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setDupOpen(true)} title="여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /> 같은 문장 점검</button>
       <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`과세특_${book?.subject}_${book?.target}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업 파일</button>
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
+    {dupOpen && <DuplicateModal title={`${book?.subject} ${book?.label}`} entries={students.map(s => ({ sid: s.sid, label: book?.kind === "common" ? `${s.number}번` : `${s.class}-${s.number}`, text: totalOf(s) }))} onPick={setSid} onClose={() => setDupOpen(false)} />}
     {rec.loaded && <ActivityManager activities={rec.activities} onChange={list => rec.edit("acts", list)} sources={sources} onImport={importFrom} onApplyAll={books.some(b => b.id !== book?.id && b.subject === book?.subject) ? applyAll : null} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
@@ -588,7 +667,7 @@ function SubjectWriter({ year, books, by, view, check, showToast }) {
             {check && <IssueList text={total} />}
           </div>; })()}
         </section>}
-        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: book.subject }} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -770,6 +849,33 @@ const CSS = `
 .krw-put{display:flex;gap:6px}.krw-put select{flex:1;min-width:0;min-height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:700;color:inherit}
 .krw-btn.ghost{border-style:dashed}
 [data-kd-ui="dark"] .krw-memo textarea{background:var(--kdn-surface-2,#22232a)}
+.krw-memo-cats{display:flex;flex-wrap:wrap;gap:4px}
+.krw-memo-cats button{position:relative;min-height:30px;padding:0 11px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}
+.krw-memo-cats button[aria-pressed="true"]{background:#17181d;border-color:#17181d;color:#fff}
+.krw-memo-cats button i{position:absolute;top:3px;right:4px;width:6px;height:6px;border-radius:99px;background:#d0612a}
+.krw-side-tabs button{padding:0 9px}
+.krw-ai{display:grid;gap:10px}
+.krw-ai-target{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b)}
+.krw-ai-target select{flex:1;min-width:0;min-height:34px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:700;color:inherit}
+.krw-ai-target span{width:100%;font-weight:600}.krw-ai-target b{color:var(--kdn-ink,#17181d)}
+.krw-ai-steps{display:flex;gap:2px;padding:3px;border-radius:11px;background:var(--kdn-surface-2,#f3f2ef)}
+.krw-ai-steps button{flex:1;min-height:32px;border:0;border-radius:9px;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}
+.krw-ai-steps button[aria-selected="true"]{background:#17181d;color:#fff}
+.krw-ai-body{display:grid;gap:8px}
+.krw-ai-chk{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
+.krw-ai-prompt{margin:0;max-height:240px;overflow:auto;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f3);border:1px solid var(--kdn-line,#e7e5e0);font:inherit;font-size:12px;line-height:1.6;white-space:pre-wrap;color:#3d4048}
+.krw-ai-body textarea{min-height:180px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:13.5px;line-height:1.7;resize:vertical;color:inherit}
+.krw-ai-meter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12.5px;font-weight:700}
+.krw-ai-acts{display:flex;flex-wrap:wrap;gap:6px}
+.krw-trim{list-style:none;margin:0;padding:0;display:grid;gap:4px;max-height:320px;overflow:auto}
+.krw-trim li{display:flex;align-items:flex-start;gap:6px;padding:6px 8px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3);font-size:13px;line-height:1.55}
+.krw-trim li label{flex:1;display:flex;gap:6px;cursor:pointer}.krw-trim li em{font-style:normal;font-size:11.5px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums;white-space:nowrap}
+.krw-trim li.is-off{opacity:.45;text-decoration:line-through}
+.krw-dup{width:min(720px,100%);max-height:calc(100vh - 40px);overflow:auto}
+.krw-dup ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.krw-dup li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f3)}
+.krw-dup q{font-size:13.5px;line-height:1.6}.krw-dup li em{font-style:normal;font-size:12px;font-weight:800;color:#b45309;align-self:start}
+.krw-dup li div{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px}.krw-dup li div button{padding:2px 9px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12px;font-weight:700;cursor:pointer;color:inherit}
 .krw-files{display:grid;gap:8px}.krw-files .up{display:flex;flex-wrap:wrap;gap:6px}
 .krw-files ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}.krw-files li{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3)}
 .krw-files li .nm{flex:1;min-width:0;display:inline-flex;align-items:center;gap:5px;border:0;background:transparent;font:inherit;font-size:13px;font-weight:700;color:#1d4ed8;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
