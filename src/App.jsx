@@ -44,8 +44,8 @@ const AdminBackup = lazy(() => import("./AdminBackup.jsx"));
 const LessonStamps = lazy(() => import("./LessonStamps.jsx"));
 const RecordWriter = lazy(() => import("./RecordWriter.jsx"));
 import InstallPrompt from "./InstallPrompt.jsx";
-import { serverLogin, exchangeTicket, googleAuth, kakaoAuth, signOutAccount, takeAuthReturn, KAKAO_ERRORS, changePassword } from "./authClient.js";
-import { HASHED_PW, isHashedPw } from "./accountSecret.js";
+import { serverLogin, exchangeTicket, googleAuth, kakaoAuth, signOutAccount, takeAuthReturn, KAKAO_ERRORS, changePassword, verifySession, isLocalDev } from "./authClient.js";
+import { HASHED_PW, isHashedPw, randomInitialPassword } from "./accountSecret.js";
 import { SocialLoginButtons, SocialLinkCard } from "./SocialLogin.jsx";
 const SusiNaviBetaAdmin = lazy(() => loadSusiNaviModule().then(module => ({ default: module.SusiNaviBetaAdmin })));
 
@@ -57,8 +57,10 @@ const PERIOD_TIME = { 1: "08:40", 2: "09:40", 3: "10:40", 4: "11:40", 5: "13:30"
 const FIXED_LABELS = { "자율": "자율/자치 시간", "자율학습": "자율/자치 시간", "진로": "진로활동", "스과": "스포츠과학" };
 const GRADES = ["1", "2", "3"];
 const DISABLED_GRADES = [];
-const RESET_PASSWORD = "kd2026";
-const DEFAULT_ADMIN = { id: "admin", pw: "kd2026" };
+// 로그인 기록(kd_session)에 들어가는 계정 칸: 서버 계정 종류 → 기록 이름
+const LOGIN_SESSION_KEYS = { admin: "adminId", teacher: "teacherId", departments: "departmentId", monitors: "monitorId", classView: "classViewId", students: "studentId" };
+// 관리자 계정이 하나도 없을 때 서버의 첫 관리자(ADMIN_BOOTSTRAP_PASSWORD)로 들어온 경우의 화면용 계정(비밀번호 없음)
+const BOOTSTRAP_ADMIN = { id: "admin", name: "관리자" };
 const SITE_TITLE = "광덕고 데이터베이스 [BETA]";
 const STUDENT_WORKSPACE_VIEWS = [
   ["grades", "성적 리포트"],
@@ -989,6 +991,17 @@ function parseTimetableWorkbook(XLSX, wb) {
 }
 
 let _xlsxModule = null;
+// 새로 만든 비밀번호 목록을 관리자에게 파일로(화면 밖으로 전달용). 파일은 전달 뒤 지워 주세요.
+async function downloadPasswordList(rows, name) {
+  try {
+    const XLSX = await loadXLSX();
+    const book = XLSX.utils.book_new();
+    const sheet = XLSX.utils.aoa_to_sheet(rows);
+    sheet["!cols"] = rows[0].map(() => ({ wch: 16 }));
+    XLSX.utils.book_append_sheet(book, sheet, "비밀번호");
+    XLSX.writeFile(book, `${name}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  } catch { /* 파일을 못 만들면 화면 알림만 */ }
+}
 async function loadXLSX() {
   if (!_xlsxModule) _xlsxModule = await import("xlsx");
   return _xlsxModule;
@@ -1254,6 +1267,24 @@ export default function App() {
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
       setAccounts(normalizedAccounts);
+      // 새로고침 때 로그인 되살리기: 브라우저에 남은 기록만 믿지 않고 로그인 서버가 세션을 확인한 계정만 되살립니다.
+      let verifiedLogin = null;
+      try {
+        const savedLogin = JSON.parse(localStorage.getItem("kd_session") || "{}");
+        if (Object.values(LOGIN_SESSION_KEYS).some(key => savedLogin[key])) {
+          const check = await verifySession();
+          if (check.status === "ok") verifiedLogin = { kind: check.data.kind, id: String(check.data.id) };
+          else if (check.status === "unavailable" && isLocalDev()) {
+            const kind = Object.keys(LOGIN_SESSION_KEYS).find(key => savedLogin[LOGIN_SESSION_KEYS[key]]);
+            if (kind) verifiedLogin = { kind, id: String(savedLogin[LOGIN_SESSION_KEYS[kind]]) };
+          }
+          if (!verifiedLogin) {
+            Object.values(LOGIN_SESSION_KEYS).forEach(key => { delete savedLogin[key]; });
+            localStorage.setItem("kd_session", JSON.stringify(savedLogin));
+            if (check.status === "fail") signOutAccount();
+          }
+        }
+      } catch { verifiedLogin = null; }
       setLoading(false);
 
       // Restore login session (survives page refresh) — validate saved ids still exist.
@@ -1261,29 +1292,19 @@ export default function App() {
         sessionRestoredRef.current = true;
         try {
           const saved = JSON.parse(localStorage.getItem("kd_session") || "{}");
-          if (saved.adminId) {
-            const acc = (accts.admin || []).find(a => a.id === saved.adminId) || ((accts.admin || []).length === 0 && saved.adminId === DEFAULT_ADMIN.id ? DEFAULT_ADMIN : null);
-            if (acc) setLoggedInAdmin(acc); else localStorage.removeItem("kd_session");
-          }
-          if (saved.classViewId && (accts.classView || []).some(a => a.id === saved.classViewId)) setClassAuthed(true);
-          if (saved.teacherId) {
-            const t = (accts.teacher || []).find(a => a.id === saved.teacherId);
-            if (t) setLoggedInTeacher(t);
-          }
-          if (saved.departmentId) {
-            const d = (accts.departments || []).find(a => a.id === saved.departmentId);
-            if (d) setLoggedInDepartment(d);
-          }
-          if (saved.monitorId) {
-            const m = (accts.monitors || []).find(a => a.id === saved.monitorId);
-            if (m) setLoggedInMonitor(m);
-          }
-          if (saved.studentId) {
-            const s = (accts.students || []).find(a => a.id === saved.studentId);
-            if (s) {
-              const studentGrade = String(s.id || "").charAt(0);
+          if (verifiedLogin) {
+            const entries = normalizedAccounts[verifiedLogin.kind] || [];
+            const acc = entries.find(item => String(item?.id) === verifiedLogin.id) || (verifiedLogin.kind === "admin" && !entries.length && verifiedLogin.id === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null);
+            if (!acc) { try { localStorage.removeItem("kd_session"); } catch { /* ignore */ } }
+            else if (verifiedLogin.kind === "admin") setLoggedInAdmin(acc);
+            else if (verifiedLogin.kind === "teacher") setLoggedInTeacher(acc);
+            else if (verifiedLogin.kind === "departments") setLoggedInDepartment(acc);
+            else if (verifiedLogin.kind === "monitors") setLoggedInMonitor(acc);
+            else if (verifiedLogin.kind === "classView") setClassAuthed(true);
+            else if (verifiedLogin.kind === "students") {
+              const studentGrade = String(acc.id || "").charAt(0);
               if (GRADES.includes(studentGrade)) setGrade(studentGrade);
-              setLoggedInStudent(s);
+              setLoggedInStudent(acc);
             }
           }
           if (saved.selectedStudentSid) {
@@ -1452,12 +1473,14 @@ export default function App() {
     let list = accountsRef.current;
     if (fresh !== unread && fresh && typeof fresh === "object") { list = { ...EMPTY_ACCOUNTS, ...fresh }; setAccounts(list); }
     const entries = list[kind] || [];
-    const account = entries.find(item => String(item.id) === String(id)) || (kind === "admin" && !entries.length && id === DEFAULT_ADMIN.id ? DEFAULT_ADMIN : null);
+    const account = entries.find(item => String(item.id) === String(id)) || (kind === "admin" && !entries.length && String(id) === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null);
     return activateAccount(kind, account) || { error: "계정 정보를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요." };
   };
+  // 로그인 서버 없이 화면에서 확인하는 예전 방식은 개발 화면(내 컴퓨터)에서만 씁니다.
   const localLogin = (id, pw) => {
+    if (!isLocalDev()) return { error: "로그인 서버에 연결하지 못했어요. 잠시 뒤 다시 시도해 주세요." };
     const ok = a => a.id === id && a.pw === pw && !isHashedPw(a.pw);
-    const adminList = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
+    const adminList = accounts.admin;
     for (const [kind, entries] of [["admin", adminList], ["teacher", accounts.teacher], ["departments", accounts.departments], ["monitors", accounts.monitors], ["classView", accounts.classView], ["students", accounts.students]]) {
       const match = (entries || []).find(ok);
       if (match) return activateAccount(kind, match);
@@ -1766,7 +1789,6 @@ export default function App() {
     return { student: info, grid, warnings, notices, homeroomNotices, classroomCourses, hasTimetable: !!homeTT };
   }, [roster, enrollments, timetables, abbrevMap, roomNames, announcements, materials, grade, semester]);
 
-  const adminAccounts = accounts.admin.length ? accounts.admin : [DEFAULT_ADMIN];
   const hasAnyData = Object.keys(roster).length > 0;
   const anyLoggedIn = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor || classAuthed || loggedInStudent);
   const canViewStudentTimetableTools = !!(loggedInAdmin || classAuthed || loggedInMonitor || (loggedInTeacher && teacherCanViewTimetable) || (loggedInDepartment && departmentCanViewTimetable));
@@ -3952,13 +3974,13 @@ function AdminTemplateDownloads({ showToast }) {
         fileName = "선생님_계정_업로드양식.xlsx";
         addSheet("선생님 계정", [
           ["이름", "아이디", "비밀번호", "학교역할", "담당학년", "담임반", "성적조회학년", "시간표조회학년", "담당과목", "대상반"],
-          ["홍길동", "teacher01", "kd2026", "교과담임", "2", "", "2", "2", "대수", "1,2,3"],
-          ["김담임", "teacher02", "kd2026", "학급담임", "2", "4", "", "", "", ""],
+          ["홍길동", "teacher01", "", "교과담임", "2", "", "2", "2", "대수", "1,2,3"],
+          ["김담임", "teacher02", "", "학급담임", "2", "4", "", "", "", ""],
         ], [14, 16, 14, 13, 10, 10, 16, 16, 18, 16]);
         addSheet("작성 안내", [["학교역할", "학급담임 / 학년부장 / 교과담임 중 하나"], ["권한 학년", "여러 학년은 1,2처럼 쉼표로 구분"], ["담당과목·대상반", "여러 과목은 행을 나누어 등록하거나 홈페이지에서 추가 수정"]], [22, 58]);
       } else if (type === "student") {
         fileName = "학생_계정_업로드양식.xlsx";
-        addSheet("학생 계정", [["학번", "이름", "초기비밀번호", "학년", "반", "번호", "입학연도"], [20824, "김예환", "kd2026", 2, 8, 24, 2025]], [12, 14, 16, 9, 9, 9, 12]);
+        addSheet("학생 계정", [["학번", "이름", "초기비밀번호", "학년", "반", "번호", "입학연도"], [20824, "김예환", "", 2, 8, 24, 2025]], [12, 14, 16, 9, 9, 9, 12]);
       } else if (type === "roster") {
         fileName = "이동수업_명단_업로드양식.xlsx";
         addSheet("학생 명단", [["학번", "이름", "원소속반", "번호", "과목", "분반", "개설반"], [20824, "김예환", 8, 24, "대수", "A", 4]], [12, 14, 12, 9, 18, 10, 10]);
@@ -4791,6 +4813,7 @@ function TeacherProfileEditor({ teacher, db, grade, scopeKey, accounts, persistA
       if (wantsPasswordChange) {
         const result = await changePassword(currentPassword, newPassword);
         if (result.status === "fail") { showToast(result.error, "error"); setSaving(false); return; }
+        if (result.status === "unavailable" && !isLocalDev()) { showToast("로그인 서버에 연결하지 못해 비밀번호를 바꾸지 못했어요. 잠시 뒤 다시 시도해 주세요.", "error"); setSaving(false); return; }
         if (result.status === "unavailable") {
           if (isHashedPw(teacher.pw) || String(currentPassword) !== String(teacher.pw || "")) { showToast(isHashedPw(teacher.pw) ? "지금은 비밀번호를 바꿀 수 없어요. 잠시 뒤 다시 시도해주세요." : "현재 비밀번호가 올바르지 않습니다.", "error"); setSaving(false); return; }
           localPassword = newPassword;
@@ -6913,16 +6936,23 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
     if (ok) showToast("저장했습니다.", "success");
   };
 
+  // 전체 초기화: 같은 비밀번호 하나로 바꾸지 않고 계정마다 다른 코드로 바꾼 뒤 목록 파일을 내려받습니다.
   const resetAll = async () => {
-    const nextAdmins = admins.map(item => ({ ...item, pw: RESET_PASSWORD }));
-    const nextDepartments = departments.map(item => ({ ...item, pw: RESET_PASSWORD }));
-    const nextTeachers = teachers.map(item => ({ ...item, pw: RESET_PASSWORD }));
+    if (!window.confirm("관리자·부서·선생님 계정의 비밀번호를 모두 계정마다 다른 새 코드로 바꿀까요? 바뀐 목록 파일이 내려받아져요. 각자에게 직접 전달해 주세요.")) return;
+    const issued = [];
+    const withCode = kindLabel => item => { const pw = randomInitialPassword(); issued.push([kindLabel, item.name || "", item.id || "", pw]); return { ...item, pw }; };
+    const nextAdmins = admins.map(withCode("관리자"));
+    const nextDepartments = departments.map(withCode("부서"));
+    const nextTeachers = teachers.map(withCode("선생님"));
     setAdmins(nextAdmins); setDepartments(nextDepartments); setTeachers(nextTeachers);
     const ok = await persistAccounts({
       admin: nextAdmins, classView: accounts.classView || [], departments: nextDepartments, teacher: nextTeachers,
       teacherPending: accounts.teacherPending || [], monitors: accounts.monitors || [], students: accounts.students || [],
     });
-    if (ok) showToast(`모든 비밀번호가 "${RESET_PASSWORD}"로 초기화되었습니다.`, "success");
+    if (ok) {
+      showToast(`비밀번호 ${issued.length}개를 새 코드로 바꿨어요. 목록 파일을 내려받아요.`, "success");
+      await downloadPasswordList([["구분", "이름", "아이디", "새 비밀번호"], ...issued], "계정_새비밀번호");
+    }
   };
 
   const approve = async req => {
@@ -6966,7 +6996,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
     return { ...teacher, [field]: values.includes(gradeKey) ? values.filter(item => item !== gradeKey) : [...values, gradeKey] };
   }));
   const addDepartment = () => setDepartments(current => [...current, {
-    name: "", id: "", pw: RESET_PASSWORD, gradeAccessGrades: [], timetableAccessGrades: [],
+    name: "", id: "", pw: randomInitialPassword(), gradeAccessGrades: [], timetableAccessGrades: [],
   }]);
   const updateDepartmentField = (index, field, value) => setDepartments(current => current.map((item, itemIndex) => (
     itemIndex === index ? { ...item, [field]: value } : item
@@ -6985,8 +7015,8 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       const workbook = XLSX.utils.book_new();
       const sheet = XLSX.utils.aoa_to_sheet([
         ["이름", "아이디", "비밀번호", "학교역할", "담당학년", "담임반", "성적조회학년", "시간표조회학년", "담당과목", "대상반"],
-        ["홍길동", "teacher01", "kd2026", "교과담임", "2", "", "2", "2", "대수", "1,2,3"],
-        ["김담임", "teacher02", "kd2026", "학급담임", "2", "4", "", "", "", ""],
+        ["홍길동", "teacher01", "", "교과담임", "2", "", "2", "2", "대수", "1,2,3"],
+        ["김담임", "teacher02", "", "학급담임", "2", "4", "", "", "", ""],
       ]);
       sheet["!cols"] = [14,16,14,13,10,10,16,16,18,16].map(width => ({ wch: width }));
       XLSX.utils.book_append_sheet(workbook, sheet, "선생님 계정");
@@ -6994,6 +7024,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
         ["학교역할", "학급담임 / 학년부장 / 교과담임 중 하나"],
         ["권한 학년", "여러 학년은 1,2처럼 쉼표로 구분"],
         ["담당과목·대상반", "같은 아이디를 여러 행에 입력하면 담당과목을 합쳐 등록"],
+        ["비밀번호", "비워 두면 선생님마다 다른 8자리 코드가 자동으로 만들어지고, 등록 뒤 '초기 비밀번호 목록' 파일이 내려받아져요."],
       ]);
       guide["!cols"] = [{ wch: 22 }, { wch: 62 }];
       XLSX.utils.book_append_sheet(workbook, guide, "작성 안내");
@@ -7032,12 +7063,14 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       const parseClass = value => String(value || "").replace(/반/g, "").trim();
       const existingIds = new Set(teachers.map(teacher => String(teacher.id || "").trim()));
       const pendingById = new Map();
+      const issuedPasswords = []; // 비밀번호 칸이 비어 자동으로 만든 코드
       for (let rowIndex = headerIndex + 1; rowIndex < rows.length; rowIndex++) {
         const row = rows[rowIndex]; if (!row) continue;
         const name = cellText(row, "이름", "성명");
         const idString = cellText(row, "아이디", "ID", "계정");
-        const pw = cellText(row, "비밀번호", "초기비밀번호", "패스워드");
-        if (!name || !idString || !pw || existingIds.has(idString)) continue;
+        let pw = cellText(row, "비밀번호", "초기비밀번호", "패스워드");
+        if (!name || !idString || existingIds.has(idString)) continue;
+        if (!pw && !pendingById.has(idString)) { pw = randomInitialPassword(); issuedPasswords.push([name, idString, pw]); }
         const role = parseRole(cellText(row, "학교역할", "역할"));
         const roleGrade = parseGradeList(cellText(row, "담당학년", "역할학년", "학년"))[0] || grade;
         const subject = cellText(row, "담당과목", "과목");
@@ -7062,7 +7095,8 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       const added = Array.from(pendingById.values());
       if (!added.length) { showToast("추가할 새 계정을 찾지 못했습니다. (아이디 중복 또는 필수값 누락)", "error"); setTeacherUploadBusy(false); return; }
       setTeachers(current => [...current, ...added]);
-      showToast(`${added.length}명의 선생님 계정을 추가했습니다. 역할·학년·담당 과목을 확인한 뒤 저장해주세요.`, "success");
+      showToast(`${added.length}명의 선생님 계정을 추가했습니다. 역할·학년·담당 과목을 확인한 뒤 저장해주세요.${issuedPasswords.length ? " 자동으로 만든 초기 비밀번호 목록을 내려받아요." : ""}`, "success");
+      if (issuedPasswords.length) await downloadPasswordList([["이름", "아이디", "초기 비밀번호"], ...issuedPasswords], "선생님_초기비밀번호");
     } catch (error) {
       showToast(`파일 오류: ${error.message}`, "error");
     }
@@ -7082,7 +7116,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
 
   return (
     <div>
-      {!accounts.admin.length && <div style={styles.warnBanner}><AlertTriangle size={14} /> 관리자 계정이 없어 초기 계정({DEFAULT_ADMIN.id}/{DEFAULT_ADMIN.pw})으로 접속 중입니다. 계정을 등록해주세요.</div>}
+      {!accounts.admin.length && <div style={styles.warnBanner}><AlertTriangle size={14} /> 관리자 계정이 없어 서버의 첫 관리자 비밀번호로 접속 중입니다. 지금 관리자 계정을 등록해 주세요.</div>}
 
       <SocialLinkCard showToast={showToast} />
       <div style={accountConsole.summaryGrid}>
@@ -7261,7 +7295,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", ...(accountsDirty ? { position: "sticky", bottom: 12, zIndex: 5, padding: "10px 12px", borderRadius: 12, background: "#fff7ed", border: "1px solid #fdba74", boxShadow: "0 8px 24px rgba(0,0,0,.12)" } : {}) }}>
         {accountsDirty && <span style={{ fontSize: 13, fontWeight: 700, color: "#9a3412" }}>저장하지 않은 변경이 있어요 · 저장해야 선생님 화면에 권한이 반영돼요</span>}
         <button style={styles.primaryBtn} onClick={save}><Save size={14} /> 계정·권한 저장</button>
-        <button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화 ({RESET_PASSWORD})</button>
+        <button style={styles.dangerBtn} onClick={resetAll}><KeyRound size={14} /> 전체 비밀번호 초기화(계정마다 새 코드)</button>
       </div>
     </div>
   );

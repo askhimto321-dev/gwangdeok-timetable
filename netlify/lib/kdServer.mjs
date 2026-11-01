@@ -32,6 +32,8 @@ export function admin() {
   return cached;
 }
 export const secret = () => config().secret;
+// 관리자 계정이 없을 때만 쓰는 첫 관리자 비밀번호(서버 환경변수)
+export const authOptions = () => ({ bootstrapPw: env("ADMIN_BOOTSTRAP_PASSWORD") });
 
 // ── 응답 ──
 export function json(body, status = 200, headers = {}) {

@@ -1,7 +1,7 @@
 // GET /api/auth/kakao/callback?code&state — 카카오가 돌려보내는 주소(카카오 개발자 콘솔에 등록한 Redirect URI)
 import { env } from "../lib/env.mjs";
 import { readToken, signToken, findAccount } from "../lib/authCore.mjs";
-import { handle, redirect, secret, siteOrigin, readAccounts, readLinkFor, linkProvider, HttpError } from "../lib/kdServer.mjs";
+import { handle, redirect, secret, siteOrigin, readAccounts, readLinkFor, linkProvider, HttpError, authOptions } from "../lib/kdServer.mjs";
 
 const back = (req, params) => redirect(`${siteOrigin(req)}/#${new URLSearchParams(params).toString()}`, { "set-cookie": "kd_ks=; Path=/api/auth/kakao; Max-Age=0; HttpOnly; Secure; SameSite=Lax" });
 
@@ -35,7 +35,7 @@ export default handle(async req => {
     return back(req, { kdauth_linked: "kakao" });
   }
   const link = await readLinkFor("kakao", uid);
-  if (!link || !findAccount(await readAccounts(), link.kind, link.id)) return back(req, { kdauth_error: "kakao-unlinked" });
+  if (!link || !findAccount(await readAccounts(), link.kind, link.id, authOptions())) return back(req, { kdauth_error: "kakao-unlinked" });
   // 화면이 이 1회용 표로 /api/auth/login 에서 로그인합니다(2분).
   return back(req, { kdauth_ticket: signToken({ t: "k", k: link.kind, i: link.id, exp: Date.now() + 120000 }, secret()) });
 });

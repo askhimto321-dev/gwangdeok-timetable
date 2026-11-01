@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { randomInitialPassword } from "./accountSecret.js";
 import { MOCK_MONTH_KEYS, MOCK_MONTH_LABELS, MOCK_SUBJECTS as MOCK_SUBJECT_LIST, detectMockFormat, parseRawMock, defaultCuts, applyCuts, gradeCounts, estimateCuts, ABSOLUTE_CUTS } from "./mockImport.js";
 import { ArrowRight, Search, Upload, FileSpreadsheet, Loader2, Save, FileText, ExternalLink, Trash2, BookOpen, Archive, MapPin, Printer, BarChart3, UsersRound, TrendingUp, GraduationCap, CircleAlert, CheckCircle2, Star, MessageSquare, Paperclip, Download, X, ArrowLeft } from "lucide-react";
 import { readStorage, updateStorage, uploadAdmissionDocument, readAdmissionDocument, deleteAdmissionPdf, diagnoseStorageConnection, diagnoseAdmissionFileBackends, uploadClassroomAttachment, deleteClassroomAttachment } from "./storage.js";
@@ -6642,14 +6643,14 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
       const workbook = XLSX.utils.book_new();
       const sheet = XLSX.utils.aoa_to_sheet([
         ["학번", "이름", "초기비밀번호", "학년", "반", "번호", "입학연도"],
-        [20824, "김예환", "kd2026", 2, 8, 24, 2025],
+        [20824, "김예환", "", 2, 8, 24, 2025],
       ]);
       sheet["!cols"] = [12, 14, 16, 9, 9, 9, 12].map(width => ({ wch: width }));
       XLSX.utils.book_append_sheet(workbook, sheet, "학생 계정");
       const guide = XLSX.utils.aoa_to_sheet([
         ["필수 열", "학번, 이름, 초기비밀번호"],
         ["선택 열", "학년, 반, 번호, 입학연도"],
-        ["기본 비밀번호", "초기비밀번호가 비어 있으면 kd2026으로 등록됩니다."],
+        ["초기 비밀번호", "비워 두면 학생마다 다른 8자리 코드가 자동으로 만들어지고, 등록 뒤 '초기 비밀번호 목록' 파일이 내려받아져요. 이미 있는 학생은 비워 두면 비밀번호가 그대로예요."],
         ["기존 학번", "같은 학번이 이미 있으면 이름·반·번호 등의 정보가 갱신됩니다."],
       ]);
       guide["!cols"] = [{ wch: 18 }, { wch: 62 }];
@@ -6674,14 +6675,17 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
       if (idx["학번"] == null || idx["이름"] == null || pwCol == null) { showToast("학번/이름/초기비밀번호 열을 찾지 못했습니다.", "error"); setBusy(false); return; }
       const existing = new Map((accounts.students || []).map(student => [student.id, student]));
       let added = 0, updated = 0;
+      const issued = []; // 이번에 자동으로 만든 초기 비밀번호(관리자에게 파일로 전달)
       for (let i = hi + 1; i < rows.length; i++) {
         const row = rows[i]; if (!row) continue;
         const sidRaw = row[idx["학번"]]; if (!sidRaw) continue;
         const sid = String(sidRaw).trim();
         const name = row[idx["이름"]]; if (!name) continue;
-        const pw = String(row[pwCol] ?? "").trim() || "kd2026";
-        const rosterInfo = roster?.[sid] || {};
         const previous = existing.get(sid) || {};
+        let pw = String(row[pwCol] ?? "").trim();
+        if (!pw && previous.pw) pw = previous.pw;
+        if (!pw) { pw = randomInitialPassword(); issued.push([sid, String(name).trim(), pw]); }
+        const rosterInfo = roster?.[sid] || {};
         const inferred = inferredPlacement(sid);
         const rec = {
           ...previous,
@@ -6697,7 +6701,15 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
         existing.set(sid, rec);
       }
       const ok = await persistAccounts({ ...accounts, students: Array.from(existing.values()) });
-      if (ok) showToast(`학생 계정 ${added}명 추가, ${updated}명 갱신했습니다.`, "success");
+      if (ok) showToast(`학생 계정 ${added}명 추가, ${updated}명 갱신했습니다.${issued.length ? ` 초기 비밀번호 ${issued.length}명 목록을 내려받아요.` : ""}`, "success");
+      if (ok && issued.length) {
+        const XLSX = await loadXLSX();
+        const book = XLSX.utils.book_new();
+        const sheet = XLSX.utils.aoa_to_sheet([["학번", "이름", "초기 비밀번호"], ...issued]);
+        sheet["!cols"] = [{ wch: 10 }, { wch: 12 }, { wch: 14 }];
+        XLSX.utils.book_append_sheet(book, sheet, "초기 비밀번호");
+        XLSX.writeFile(book, `학생_초기비밀번호_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      }
     } catch (e) {
       showToast(`파일 오류: ${e.message}`, "error");
     }
@@ -6705,9 +6717,10 @@ export function AdminStudentAccounts({ accounts, persistAccounts, showToast, ros
   };
 
   const resetPw = async (sid) => {
-    const updated = (accounts.students || []).map(student => student.id === sid ? { ...student, pw: "kd2026" } : student);
+    const code = randomInitialPassword();
+    const updated = (accounts.students || []).map(student => student.id === sid ? { ...student, pw: code } : student);
     const ok = await persistAccounts({ ...accounts, students: updated });
-    if (ok) showToast('비밀번호가 "kd2026"으로 초기화되었습니다.', "success");
+    if (ok) showToast(`새 비밀번호: ${code} — 학생에게 직접 전달해 주세요.`, "success", { label: "복사", onClick: () => navigator.clipboard?.writeText(code) });
   };
 
   const savePlacement = async (student, classValue, numberValue) => {
