@@ -939,7 +939,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
       </div>
       : <div className={`krw-split${side ? " has-side" : ""}`}>
         <StudentList items={shown.map(s => ({ ...s, label: book.kind === "common" ? s.number : `${s.class}-${s.number}` }))} current={sid} onPick={setSid} find={find} setFind={setFind}
-          renderRight={s => { const total = totalOf(s); const b = neisBytes(total); return <><span className="fill">{acts.slice(0, 6).map(act => <i key={act.id} style={{ "--c": actColor(acts, act.id) }} className={rec.textOf(s.sid, act.id).trim() ? "on" : ""} />)}</span><span className={`b${b > limit ? " over" : ""}`}>{b ? b.toLocaleString() : "-"}</span>{check && <IssueDot text={total} />}</>; }} />
+          renderRight={s => { const total = totalOf(s); const b = neisBytes(total); return <><span className={`b${b > limit ? " over" : ""}`} title={`${acts.filter(act => rec.textOf(s.sid, act.id).trim()).length}/${acts.length}개 활동 작성`}>{b ? b.toLocaleString() : "-"}</span>{check && <IssueDot text={total} />}</>; }} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{who(current)}</b><small>{current.sid} · {book.subject}</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           <DupStudentNote dups={dups} sid={current.sid} onPick={setSid} />
@@ -1156,7 +1156,7 @@ const CSS = `
 .krw-empty{display:grid;justify-items:center;gap:6px;padding:40px 18px;border-radius:20px;border:1.5px dashed var(--kdn-line,#e2dfd8);color:var(--kdn-muted,#8a8f99);text-align:center}.krw-empty b{color:var(--kdn-ink,#17181d);font-size:15px}.krw-empty span{font-size:13px}
 .krw-split{display:grid;grid-template-columns:minmax(220px,250px) minmax(0,1fr);gap:14px;align-items:start}
 .krw-split.has-side{grid-template-columns:minmax(220px,240px) minmax(0,1fr) minmax(290px,360px)}
-.krw-list{position:sticky;top:70px;display:grid;gap:2px;max-height:calc(100vh - 160px);overflow:auto;padding:8px;border-radius:20px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
+.krw-list{scrollbar-width:thin;scrollbar-color:var(--kdn-line,#d6d3cc) transparent;position:sticky;top:70px;display:grid;gap:2px;max-height:calc(100vh - 160px);overflow:auto;padding:8px;border-radius:20px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
 .krw-find{display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:0 10px;border-radius:12px;background:var(--kdn-surface-2,#f3f2ef);color:var(--kdn-muted,#8a8f99)}
 .krw-find input{flex:1;min-width:0;min-height:36px;border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#17181d)}
 .krw-list>button{display:flex;align-items:center;gap:6px;min-width:0;min-height:44px;padding:0 8px;border:0;border-radius:12px;background:transparent;font:inherit;color:inherit;text-align:left;cursor:pointer}
@@ -1164,7 +1164,7 @@ const CSS = `
 .krw-list .no{flex:none;width:24px;font-size:12.5px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list>button.is-on .no,.krw-list>button.is-on .b{color:#ffb089;font-weight:800}
 .krw-list .nm{flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .krw-list .fill{flex:none;display:flex;gap:3px}.krw-list .fill i{width:7px;height:7px;border-radius:99px;background:var(--kdn-line,#dcd9d2)}.krw-list .fill i.on{background:var(--c,#ff7a3d)}
-.krw-list .b{flex:none;min-width:30px;text-align:right;font-size:12px;font-weight:700;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list .b.over{color:#dc2626}
+.krw-list .b{flex:none;min-width:0;text-align:right;font-size:12px;font-weight:700;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list .b.over{color:#dc2626}
 .krw-dot{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:99px;font-size:11px;font-weight:800;font-style:normal}.krw-dot.is-block{background:#dc2626;color:#fff}.krw-dot.is-warn{background:#f59e0b;color:#1b1006}
 .krw-pane{display:grid;gap:12px;min-width:0}
 .krw-pane-hd{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:18px;background:linear-gradient(135deg,#1c1d24,#2b2621);color:#fff}
