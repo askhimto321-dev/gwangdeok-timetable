@@ -93,6 +93,14 @@ export function checkRecordText(text = "") {
     if (ALLOWED_EN.has(hit.match) || issues.some(issue => issue.index <= hit.index && hit.index < issue.index + issue.match.length)) return;
     add("warn", "영문", hit.match, hit.index, "문자는 한글로(부득이한 경우만 영문)");
   });
+  // 마지막 문장 끝: 마침표로 끝나는지, '~함. ~임. ~음.'처럼 명사형(받침 ㅁ)으로 끝나는지
+  const tail = value.trim();
+  if (tail) {
+    const end = tail.replace(/["')\]]+$/, "");
+    const lastHangul = (end.replace(/[.!?]+$/, "").match(/[가-힣]$/) || [])[0];
+    if (!/[.!?]$/.test(end)) add("warn", "문장 끝 확인", tail.slice(-12), value.length - 1, "마지막 문장이 마침표로 끝나지 않아요. '~함.', '~임.'처럼 끝내 주세요");
+    else if (lastHangul && (lastHangul.charCodeAt(0) - 0xAC00) % 28 !== 16) add("warn", "문장 끝 확인", tail.slice(-12), value.length - 1, "마지막 문장이 '~함. ~임. ~음.' 같은 종결어미로 끝나는지 확인해 주세요(낱말로 끝나면 문장이 끊긴 것일 수 있어요)");
+  }
   repeatedSentences(value).forEach(sentence => add("warn", "같은 문장 반복", sentence.length > 24 ? `${sentence.slice(0, 24)}…` : sentence, value.lastIndexOf(sentence), "같은 문장을 두 번 썼어요. 하나는 지우거나 다른 관찰 내용으로 바꿔 주세요"));
   return issues.sort((a, b) => a.index - b.index);
 }
