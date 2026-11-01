@@ -156,19 +156,54 @@ function IssueDot({ text }) {
 
 // ── 인쇄·엑셀 ──────────────────────────────────────────────────────────────
 const esc = value => String(value ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+// 점검용 인쇄: 학생마다 한 줄(표), 확인 칸 · 번호·이름 · 글 · 바이트. 빈 칸은 '미작성' 한 줄, 점검 결과는 걸릴 때만.
+// blocks: [{ group, no, name, sub, parts: [{ label, text, bytes, limit, issues, lines?: [{ tag, text }] }] }]
 function printRecords({ title, subtitle, blocks }) {
   const win = window.open("", "_blank");
   if (!win) return false;
-  const body = blocks.map(block => `<section class="st"><header><b>${esc(block.head)}</b><span>${esc(block.sub || "")}</span></header>${block.parts.map(part => `<div class="part${part.minor ? " minor" : ""}"><div class="ph"><b>${esc(part.label)}</b><span class="${part.bytes > part.limit ? "over" : ""}">${part.bytes.toLocaleString()} / ${part.limit.toLocaleString()} byte</span></div><div class="tx">${part.text ? esc(part.text).replace(/\n/g, "<br>") : '<i class="empty">(아직 비어 있음)</i>'}</div>${part.issues ? `<div class="iss">${esc(part.issues)}</div>` : ""}</div>`).join("")}</section>`).join("");
+  const filled = blk => blk.parts.some(part => String(part.text || "").trim());
+  const sum = {
+    total: blocks.length,
+    done: blocks.filter(blk => blk.parts.every(part => String(part.text || "").trim())).length,
+    empty: blocks.filter(blk => !filled(blk)).length,
+    over: blocks.filter(blk => blk.parts.some(part => part.bytes > part.limit)).length,
+    issue: blocks.filter(blk => blk.parts.some(part => part.issues)).length,
+  };
+  const multi = blocks.some(blk => blk.parts.length > 1);
+  const cell = part => {
+    const text = String(part.text || "").trim();
+    const head = multi ? `<div class="lab">${esc(part.label)}</div>` : "";
+    if (!text) return `${head}<div class="empty">미작성</div>`;
+    const body = part.lines?.length > 1 ? part.lines.map(line => `<p><em>${esc(line.tag)}</em>${esc(line.text)}</p>`).join("") : `<p>${esc(text).replace(/\n/g, "<br>")}</p>`;
+    return `${head}${body}${part.issues ? `<div class="iss">${esc(part.issues)}</div>` : ""}`;
+  };
+  const bytes = part => String(part.text || "").trim() ? `<b class="${part.bytes > part.limit ? "over" : ""}">${part.bytes.toLocaleString()}</b><small>/ ${part.limit.toLocaleString()}</small>${part.bytes > part.limit ? `<span class="tag over">${(part.bytes - part.limit).toLocaleString()} 넘음</span>` : ""}` : "";
+  const rows = blk => blk.parts.map((part, i) => `<tr class="${i === 0 ? "first" : "cont"}${filled(blk) ? "" : " is-empty"}">${i === 0 ? `<td class="chk" rowspan="${blk.parts.length}"><span></span></td><td class="who" rowspan="${blk.parts.length}"><strong><em>${esc(blk.no)}</em> ${esc(blk.name)}</strong><small>${esc(blk.sub || "")}</small></td>` : ""}<td class="txt">${cell(part)}</td><td class="byt">${bytes(part)}</td></tr>`).join("");
+  const groups = [];
+  blocks.forEach(blk => { const last = groups[groups.length - 1]; if (last && last.name === (blk.group || "")) last.list.push(blk); else groups.push({ name: blk.group || "", list: [blk] }); });
+  const tables = groups.map(g => `${g.name && groups.length > 1 ? `<h2>${esc(g.name)}</h2>` : ""}<table><colgroup><col class="c-chk"><col class="c-who"><col><col class="c-byt"></colgroup><thead><tr><th>확인</th><th>학생</th><th>내용</th><th>바이트</th></tr></thead><tbody>${g.list.map(rows).join("")}</tbody></table>`).join("");
   win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-  @page{size:A4;margin:14mm 13mm}*{box-sizing:border-box}body{margin:0;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:#17181d;font-size:10.5pt;line-height:1.7}
-  .top{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #17181d;padding-bottom:6px;margin-bottom:12px}.top h1{margin:0;font-size:15pt}.top span{font-size:9pt;color:#5b606b}
-  .st{break-inside:avoid;page-break-inside:avoid;border:1px solid #d9d6cf;border-radius:8px;padding:10px 12px;margin:0 0 10px}
-  .st header{display:flex;gap:10px;align-items:baseline;border-bottom:1px solid #ece9e3;padding-bottom:5px;margin-bottom:6px}.st header b{font-size:12pt}.st header span{font-size:9pt;color:#5b606b}
-  .part{margin:6px 0 8px}.part.minor{margin-left:12px;font-size:9.5pt;color:#3d4048}.ph{display:flex;justify-content:space-between;font-size:9pt;color:#5b606b;margin-bottom:2px}.ph b{color:#c2410c;font-size:9.5pt}.ph .over{color:#b42318;font-weight:700}
-  .tx{text-align:justify;word-break:keep-all;overflow-wrap:anywhere}.empty{color:#9aa0ab}.iss{margin-top:3px;font-size:8.5pt;color:#b42318}
-  .page-break{break-after:page;page-break-after:always}
-  </style></head><body><div class="top"><h1>${esc(title)}</h1><span>${esc(subtitle)} · 출력 ${new Date().toLocaleString("ko-KR")}</span></div>${body}<script>window.onload=()=>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+  @page{size:A4;margin:12mm 11mm 13mm}*{box-sizing:border-box}body{margin:0;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:#17181d;font-size:10pt;line-height:1.65}
+  .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-bottom:6px;border-bottom:2px solid #17181d}.top h1{margin:0;font-size:14pt}.top span{font-size:8.5pt;color:#5b606b;text-align:right}
+  .sum{display:flex;flex-wrap:wrap;gap:6px 16px;margin:8px 0 10px;font-size:9pt;color:#3d4048}.sum b{font-size:10.5pt;color:#17181d}.sum .warn b{color:#b42318}
+  h2{margin:14px 0 6px;font-size:11pt;break-after:avoid}
+  table{width:100%;border-collapse:collapse;table-layout:fixed}col.c-chk{width:11mm}col.c-who{width:30mm}col.c-byt{width:22mm}
+  thead th{white-space:nowrap;padding:4px 6px;border-top:1.5px solid #17181d;border-bottom:1px solid #17181d;font-size:8.5pt;font-weight:700;color:#3d4048;text-align:left}thead th:first-child,thead th:last-child{text-align:center}
+  thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}
+  td{padding:6px;vertical-align:top;border-bottom:1px solid #d9d6cf}tr.first td{border-top:1px solid #9a968e}tbody tr.first:first-child td{border-top:0}
+  tr.cont td{border-top:1px dashed #e4e1db}
+  td.chk{text-align:center}td.chk span{display:inline-block;width:4.2mm;height:4.2mm;margin-top:1mm;border:1px solid #5b606b;border-radius:1mm}
+  td.who strong{display:block;font-size:10pt;word-break:keep-all}td.who strong em{font-style:normal;font-weight:600;color:#5b606b}td.who small{display:block;font-size:7.5pt;color:#8a8f99}
+  td.txt .lab{margin-bottom:2px;font-size:8.5pt;font-weight:700;color:#c2410c}
+  td.txt p{margin:0 0 2px;text-align:justify;word-break:keep-all;overflow-wrap:anywhere}
+  td.txt p em{display:inline-block;margin-right:5px;padding:0 4px;border:1px solid #d9d6cf;border-radius:3px;font-style:normal;font-size:7.5pt;color:#5b606b;vertical-align:1px}
+  td.txt .empty{color:#9aa0ab;font-size:9pt}tr.is-empty td.who strong{color:#5b606b}
+  td.txt .iss{margin-top:3px;padding:2px 6px;border-left:2px solid #b42318;background:#fdf1f0;font-size:8pt;color:#912018}
+  td.byt{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}td.byt b{font-size:10pt}td.byt small{display:block;font-size:7.5pt;color:#8a8f99}
+  td.byt .over{color:#b42318}td.byt .tag{display:inline-block;margin-top:2px;padding:0 4px;border-radius:3px;background:#fdf1f0;font-size:7.5pt;font-weight:700}
+  </style></head><body><div class="top"><h1>${esc(title)}</h1><span>${esc(subtitle)}<br>출력 ${new Date().toLocaleString("ko-KR")}</span></div>
+  <div class="sum"><span>학생 <b>${sum.total}</b>명</span><span>다 씀 <b>${sum.done}</b></span><span>미작성 <b>${sum.empty}</b></span><span class="${sum.over ? "warn" : ""}">한도 넘음 <b>${sum.over}</b></span><span class="${sum.issue ? "warn" : ""}">점검 필요 <b>${sum.issue}</b></span></div>
+  ${tables}<script>window.onload=()=>setTimeout(()=>window.print(),200)<\/script></body></html>`);
   win.document.close();
   return true;
 }
@@ -656,7 +691,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const saveNow = useCallback(async () => { if (await rec.save()) showToast?.("저장했어요.", "success"); }, [rec, showToast]);
   useWriterKeys({ onNext: () => go(1), onPrev: () => go(-1), onSave: saveNow });
 
-  const blocksFor = list => list.map(s => ({ head: `${cls}반 ${s.number}번 ${s.name}`, sub: s.sid, parts: HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return { label: RECORD_AREAS[key].label, text, bytes: neisBytes(text), limit: RECORD_AREAS[key].limit, issues: issueLine(text) }; }) }));
+  const blocksFor = list => list.map(s => ({ no: `${s.number}번`, name: s.name, sub: s.sid, parts: HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return { label: RECORD_AREAS[key].label, text, bytes: neisBytes(text), limit: RECORD_AREAS[key].limit, issues: issueLine(text) }; }) }));
   const output = (scope, kind) => {
     const list = scope === "student" ? (current ? [current] : []) : students;
     if (!list.length) return showToast?.("출력할 학생이 없어요.", "error");
@@ -803,7 +838,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
     const actList = (rd.activities || []).filter(act => !act.removed);
     const t = Object.fromEntries(actList.map(act => [act.id, rd.textOf(s.sid, act.id)]));
     const total = mergeActivities(actList, t);
-    return { head: `${b.subject} · ${b.label} · ${b.kind === "common" ? `${s.number}번 ${s.name}` : `${s.class}반 ${s.number}번 ${s.name}`}`, sub: s.sid, parts: [{ label: "과세특 총합본", text: total, bytes: neisBytes(total), limit, issues: issueLine(total) }, ...actList.map(act => ({ label: `└ ${act.name}`, text: t[act.id], bytes: neisBytes(t[act.id]), limit, minor: true }))] };
+    return { group: `${b.subject} · ${b.label}`, no: b.kind === "common" ? `${s.number}번` : `${s.class}반 ${s.number}번`, name: s.name, sub: s.sid, parts: [{ label: "과세특", text: total, bytes: neisBytes(total), limit, issues: issueLine(total), lines: actList.filter(act => String(t[act.id] || "").trim()).map(act => ({ tag: act.name, text: String(t[act.id]).trim() })) }] };
   });
   const [busy, setBusy] = useState(false);
   const output = async (scope, kind) => {
@@ -980,17 +1015,17 @@ const CSS = `
 .krw-save.is-ok{color:#15803d}.krw-save.is-busy,.krw-save.is-load{color:var(--kdn-muted,#8a8f99)}.krw-save.is-dirty{color:#b45309}.krw-save.is-err{color:#b42318}
 .krw-alert{display:flex;align-items:center;gap:8px;margin:0;padding:10px 14px;border-radius:14px;background:color-mix(in srgb,#dc2626 9%,var(--kdn-surface,#fff));color:#b42318;font-size:13.5px;font-weight:700}
 .krw-empty{display:grid;justify-items:center;gap:6px;padding:40px 18px;border-radius:20px;border:1.5px dashed var(--kdn-line,#e2dfd8);color:var(--kdn-muted,#8a8f99);text-align:center}.krw-empty b{color:var(--kdn-ink,#17181d);font-size:15px}.krw-empty span{font-size:13px}
-.krw-split{display:grid;grid-template-columns:minmax(200px,240px) minmax(0,1fr);gap:14px;align-items:start}
-.krw-split.has-side{grid-template-columns:minmax(200px,230px) minmax(0,1fr) minmax(280px,360px)}
+.krw-split{display:grid;grid-template-columns:minmax(220px,250px) minmax(0,1fr);gap:14px;align-items:start}
+.krw-split.has-side{grid-template-columns:minmax(220px,240px) minmax(0,1fr) minmax(290px,360px)}
 .krw-list{position:sticky;top:70px;display:grid;gap:2px;max-height:calc(100vh - 160px);overflow:auto;padding:8px;border-radius:20px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
 .krw-find{display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:0 10px;border-radius:12px;background:var(--kdn-surface-2,#f3f2ef);color:var(--kdn-muted,#8a8f99)}
 .krw-find input{flex:1;min-width:0;min-height:36px;border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#17181d)}
-.krw-list>button{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 10px;border:0;border-radius:12px;background:transparent;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.krw-list>button{display:flex;align-items:center;gap:6px;min-width:0;min-height:44px;padding:0 8px;border:0;border-radius:12px;background:transparent;font:inherit;color:inherit;text-align:left;cursor:pointer}
 .krw-list>button:hover{background:var(--kdn-surface-2,#f6f5f3)}.krw-list>button.is-on{background:#17181d;color:#fff}.krw-list>button.is-on .fill i:not(.on){background:rgba(255,255,255,.25)}
-.krw-list .no{width:34px;font-size:12.5px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list>button.is-on .no,.krw-list>button.is-on .b{color:#ffb089;font-weight:800}
+.krw-list .no{flex:none;width:24px;font-size:12.5px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list>button.is-on .no,.krw-list>button.is-on .b{color:#ffb089;font-weight:800}
 .krw-list .nm{flex:1;min-width:0;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.krw-list .fill{display:flex;gap:3px}.krw-list .fill i{width:7px;height:7px;border-radius:99px;background:var(--kdn-line,#dcd9d2)}.krw-list .fill i.on{background:var(--c,#ff7a3d)}
-.krw-list .b{min-width:34px;text-align:right;font-size:12px;font-weight:700;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list .b.over{color:#dc2626}
+.krw-list .fill{flex:none;display:flex;gap:3px}.krw-list .fill i{width:7px;height:7px;border-radius:99px;background:var(--kdn-line,#dcd9d2)}.krw-list .fill i.on{background:var(--c,#ff7a3d)}
+.krw-list .b{flex:none;min-width:30px;text-align:right;font-size:12px;font-weight:700;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list .b.over{color:#dc2626}
 .krw-dot{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:99px;font-size:11px;font-weight:800;font-style:normal}.krw-dot.is-block{background:#dc2626;color:#fff}.krw-dot.is-warn{background:#f59e0b;color:#1b1006}
 .krw-pane{display:grid;gap:12px;min-width:0}
 .krw-pane-hd{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:18px;background:linear-gradient(135deg,#1c1d24,#2b2621);color:#fff}
@@ -1248,7 +1283,7 @@ const CSS = `
 .krw-acts .chip button.std{min-width:auto;padding:0 7px;gap:3px;display:inline-flex;align-items:center;font-size:11.5px;font-weight:800}
 .krw-acts .chip button.std.has{background:#e7eefa;color:#2f4b7c}
 .krw-acts .chip button.std:hover{color:#2f4b7c}
-.krw-side-tabs{flex-wrap:wrap}
+.krw-side-tabs{flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:2px}.krw-side-tabs button{flex-direction:column;justify-content:center;gap:2px;min-height:44px;padding:4px 2px!important;font-size:12px;line-height:1.2;white-space:nowrap}.krw-side-tabs button em{position:absolute;top:3px;right:6px}.krw-side-tabs button{position:relative}
 .krw-stdtab{display:grid;gap:10px}
 .krw-stdtab ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .krw-stdtab li{display:grid;gap:6px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#eceae5);background:var(--kdn-surface,#fff)}

@@ -99,3 +99,11 @@ test("점검: 한 글 안에서 같은 문장 반복", () => {
   assert.ok(issues.some(item => item.kind === "같은 문장 반복"));
   assert.ok(!checkRecordText("실험 결과를 정리함. 발표를 잘함.").some(item => item.kind === "같은 문장 반복"));
 });
+test("점검: 마지막 문장 끝(마침표·종결어미)", () => {
+  const kinds = text => checkRecordText(text).filter(item => item.kind === "문장 끝 확인").length;
+  assert.equal(kinds("실험 결과를 정리함."), 0);
+  assert.equal(kinds("발표 능력이 돋보임."), 0);
+  assert.equal(kinds("실험 결과를 정리함"), 1);
+  assert.equal(kinds("소논문 발췌독 대회."), 1);
+  assert.equal(kinds(""), 0);
+});
