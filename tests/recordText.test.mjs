@@ -116,3 +116,14 @@ test("AI 요청문: 교과 4요소 구성·참고 예시", () => {
 test("AI 요청문: 구성 틀은 끌 수 있음", () => {
   assert.ok(!buildAiPrompt({ area: "과세특", subject: "문학", notes: [], frame: false }).includes("성취수준"));
 });
+test("점검 엑셀 읽기: 머리글·글 칸·한도", async () => {
+  const { parseCheckSheet } = await import("../src/recordText.js");
+  const parsed = parseCheckSheet([["2학년 3반"], ["번호", "학번", "이름", "자율·자치활동", "진로활동", "행동특성 및 종합의견"], [1, "20301", "가", "글", "", "행발 글"], ["", "", "", "", "", ""]]);
+  assert.equal(parsed.rows.length, 1);
+  assert.deepEqual(parsed.columns.map(c => c.limit), [1500, 2100, 900]);
+  assert.equal(parsed.rows[0].texts[2], "행발 글");
+  assert.ok(parseCheckSheet([["a", "b"]]).error);
+  const sj = parseCheckSheet([["번호", "이름", "과목별 세부능력 및 특기사항", "바이트"], [1, "가", "세특 글", 9]]);
+  assert.equal(sj.columns.length, 1);
+  assert.equal(sj.columns[0].limit, 1500);
+});

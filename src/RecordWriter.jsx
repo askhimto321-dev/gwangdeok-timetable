@@ -9,7 +9,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -703,9 +703,10 @@ function IssueMini({ issues }) {
 }
 
 // ── 학급담임 ───────────────────────────────────────────────────────────────
-function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setView, check, showToast }) {
+function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setView, check, showToast, onScope }) {
   const [cls, setCls] = useState(() => classOptions[0] || "");
   useEffect(() => { if (!classOptions.includes(cls)) setCls(classOptions[0] || ""); }, [classOptions.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (cls) onScope?.(`hr:${cls}`); }, [cls]); // eslint-disable-line react-hooks/exhaustive-deps
   const students = useMemo(() => Object.entries(rosterFor(grade) || {}).filter(([, info]) => String(info?.class) === String(cls)).map(([sid, info]) => ({ sid, name: info?.name || "", number: Number(info?.number) || Number(String(sid).slice(-2)) })).sort((a, b) => a.number - b.number), [rosterFor, grade, cls]);
   const rec = useRecordDoc(cls ? hrKey(year, grade, cls) : "", by);
   const [sid, setSid] = useState("");
@@ -804,10 +805,11 @@ function ActivityManager({ activities, onChange, sources = [], onImport, onApply
   </div>;
 }
 
-function SubjectWriter({ year, books, by, view, setView, check, showToast, grade = "", semester = "" }) {
+function SubjectWriter({ year, books, by, view, setView, check, showToast, grade = "", semester = "", onScope }) {
   const [bookId, setBookId] = useState(() => books[0]?.id || "");
   useEffect(() => { if (!books.some(book => book.id === bookId)) setBookId(books[0]?.id || ""); }, [books.map(b => b.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const book = books.find(item => item.id === bookId);
+  useEffect(() => { if (bookId) onScope?.(`sj:${bookId}`); }, [bookId]); // eslint-disable-line react-hooks/exhaustive-deps
   const rec = useRecordDoc(book ? sjKey(year, book.id) : "", by);
   const acts = rec.activities.filter(act => !act.removed);
   const limit = RECORD_AREAS.subject.limit;
@@ -954,6 +956,96 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
   </div>;
 }
 
+// ── 점검(엑셀 양식 받기 · 올려서 한 번에 점검) ─────────────────────────────
+// 올린 파일은 이 브라우저 안에서만 읽고 저장하지 않아요.
+function CheckWriter({ year, scopes, initialKey, showToast }) {
+  const [key, setKey] = useState(() => (scopes.some(sc => sc.key === initialKey) ? initialKey : scopes[0]?.key || ""));
+  const scope = scopes.find(sc => sc.key === key);
+  const [withText, setWithText] = useState(false);
+  const [result, setResult] = useState(null); // { fileName, columns, rows }
+  const [only, setOnly] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
+
+  const download = async () => {
+    if (!scope) return;
+    setBusy(true);
+    try {
+      let textsOf = () => scope.columns.map(() => "");
+      if (withText) {
+        const doc = await readStorage(scope.storageKey, emptyDoc()).catch(() => emptyDoc());
+        textsOf = s => scope.columns.map(col => {
+          if (col.key !== "subject") return doc?.students?.[s.sid]?.[col.key]?.t || "";
+          const acts = (doc?.activities || []).filter(act => !act.removed);
+          return mergeActivities(acts, Object.fromEntries(acts.map(act => [act.id, doc?.students?.[s.sid]?.[act.id]?.t || ""])));
+        });
+      }
+      await exportXlsx(`점검양식_${scope.fileLabel}.xlsx`, [{ name: "점검", header: ["번호", "학번", "이름", ...scope.columns.map(col => col.label)], widths: [6, 9, 10, ...scope.columns.map(() => 70)], rows: scope.students.map(s => [s.number, s.sid, s.name, ...textsOf(s)]) }]);
+    } finally { setBusy(false); }
+  };
+  const upload = async file => {
+    if (!file) return;
+    setBusy(true);
+    try {
+      const mod = await import("xlsx-js-style");
+      const XLSX = mod.default?.read ? mod.default : mod;
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const parsed = parseCheckSheet(XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false }));
+      if (parsed.error) { showToast?.(parsed.error, "error"); return; }
+      setResult({ fileName: file.name, ...parsed });
+      showToast?.(`${parsed.rows.length}명 · ${parsed.columns.length}칸을 점검했어요.`, "success");
+    } catch (error) { showToast?.(`파일을 읽지 못했어요. (${error?.message || error})`, "error"); }
+    finally { setBusy(false); }
+  };
+
+  const checked = useMemo(() => {
+    if (!result) return null;
+    const rows = result.rows.map(row => ({ ...row, cells: row.texts.map((text, i) => { const issues = checkRecordText(text); const bytes = neisBytes(text); return { text, bytes, limit: result.columns[i].limit, issues, over: bytes > result.columns[i].limit, block: issues.some(it => it.level === "block") }; }) }));
+    const dups = findDuplicateSentences(rows.map((row, i) => ({ sid: row.sid || `r${i}`, label: row.no ? `${row.no}번` : row.name || `${i + 1}행`, text: row.texts.join("\n") })));
+    rows.forEach((row, i) => { const id = row.sid || `r${i}`; row.id = id; row.dups = dups.filter(item => item.people.some(p => p.sid === id)); row.problem = row.cells.some(c => c.over || c.issues.length) || row.dups.length > 0; row.empty = row.cells.every(c => !c.text); });
+    return { rows, dups, sum: { total: rows.length, empty: rows.filter(r => r.empty).length, over: rows.filter(r => r.cells.some(c => c.over)).length, block: rows.filter(r => r.cells.some(c => c.block)).length, warn: rows.filter(r => r.cells.some(c => c.issues.length && !c.block)).length, dup: rows.filter(r => r.dups.length).length, ok: rows.filter(r => !r.problem && !r.empty).length } };
+  }, [result]);
+
+  const exportResult = () => {
+    if (!checked) return;
+    exportXlsx(`점검결과_${result.fileName.replace(/\.xlsx?$/i, "")}.xlsx`, [{ name: "점검 결과", header: ["번호", "학번", "이름", ...result.columns.flatMap(col => [col.label, "바이트", "점검"]), "같은 문장"], widths: [6, 9, 10, ...result.columns.flatMap(() => [60, 10, 40]), 30],
+      rows: checked.rows.map(row => [row.no, row.sid, row.name, ...row.cells.flatMap(c => [c.text, `${c.bytes}/${c.limit}${c.over ? ` (${c.bytes - c.limit} 넘음)` : ""}`, c.issues.map(it => `${it.level === "block" ? "[불가]" : "[권장]"} ${it.kind} '${it.match}'`).join("\n")]), row.dups.map(d => `${d.similar ? "비슷" : "같음"}: ${d.sentence}`).join("\n")]) }]);
+  };
+
+  if (!scopes.length) return <div className="krw-empty"><Users size={20} /><b>점검할 반이 없어요.</b><span>담임 반이나 담당 과목·반이 있어야 양식을 만들 수 있어요. 그래도 아래에서 아무 엑셀이나 올려 점검할 수 있어요.</span></div>;
+  const shown = checked ? checked.rows.filter(row => !only || row.problem) : [];
+  return <div className="krw-body krw-chk">
+    <section className="krw-chk-steps">
+      <div className="step"><span className="n">1</span><div><b>양식 받기</b><small>반 명단이 들어간 엑셀이에요. 칸에 글을 붙여 넣어 주세요.</small>
+        <div className="row"><select value={key} onChange={event => { setKey(event.target.value); }} aria-label="반">{scopes.map(sc => <option key={sc.key} value={sc.key}>{sc.label}</option>)}</select>
+          <label className="krw-ai-chk"><input type="checkbox" checked={withText} onChange={event => setWithText(event.target.checked)} /> 지금 쓴 글 채워서 받기</label>
+          <button type="button" data-kdn-bare className="krw-btn" disabled={busy || !scope} onClick={download}><Download size={15} /> 양식 받기</button></div></div></div>
+      <div className="step"><span className="n">2</span><div><b>올려서 점검</b><small>바이트 한도 · 기재 불가 · 고치기 권장 · 같은 문장을 한 번에 봐요. 올린 파일은 저장하지 않아요.</small>
+        <div className="row"><button type="button" data-kdn-bare className="krw-btn pri" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={15} className="spin" /> : <ClipboardPaste size={15} />} 엑셀 올리기</button>
+          <input ref={inputRef} type="file" hidden accept=".xlsx,.xls,.csv" onChange={event => { upload(event.target.files?.[0]); event.target.value = ""; }} />
+          {result && <span className="file">{result.fileName}</span>}</div></div></div>
+    </section>
+    {checked && <>
+      <div className="krw-chk-sum">
+        <span>학생 <b>{checked.sum.total}</b>명</span><span className="ok">문제 없음 <b>{checked.sum.ok}</b></span><span>미작성 <b>{checked.sum.empty}</b></span>
+        <span className={checked.sum.over ? "bad" : ""}>한도 넘음 <b>{checked.sum.over}</b></span><span className={checked.sum.block ? "bad" : ""}>기재 불가 <b>{checked.sum.block}</b></span>
+        <span className={checked.sum.warn ? "warn" : ""}>고치기 권장 <b>{checked.sum.warn}</b></span><span className={checked.sum.dup ? "warn" : ""}>같은 문장 <b>{checked.sum.dup}</b></span>
+        <span className="sp" />
+        <label className="krw-ai-chk"><input type="checkbox" checked={only} onChange={event => setOnly(event.target.checked)} /> 문제 있는 학생만</label>
+        <button type="button" data-kdn-bare className="krw-btn" onClick={exportResult}><FileSpreadsheet size={15} /> 점검 결과 엑셀</button>
+      </div>
+      <div className="krw-table-wrap"><table className="krw-table krw-chk-table"><colgroup><col className="c-nm" />{result.columns.map(col => <col key={col.label} />)}</colgroup>
+        <thead><tr><th className="nm">학생</th>{result.columns.map(col => <th key={col.label}>{col.label}<small>한도 {col.limit.toLocaleString()}</small></th>)}</tr></thead>
+        <tbody>{shown.map(row => <tr key={row.id} className={row.problem ? "is-problem" : ""}>
+          <th className="nm" scope="row"><b>{row.no ? `${row.no}번 ` : ""}{row.name}</b><small>{row.sid}</small>{row.dups.length > 0 && <em className="dup">같은 문장 {row.dups.length}</em>}</th>
+          {row.cells.map((c, i) => <td key={i}>{c.text ? <><p>{c.text}</p><div className="cellft"><span className={`krw-bytes sm${c.over ? " is-over" : ""}`}><b>{c.bytes.toLocaleString()}</b> / {c.limit.toLocaleString()}{c.over ? ` · ${(c.bytes - c.limit).toLocaleString()} 넘음` : ""}</span>{!c.issues.length && !c.over && <span className="okmark"><Check size={12} /> 통과</span>}</div>{c.issues.length > 0 && <IssueMini issues={c.issues} />}</> : <span className="empty">미작성</span>}</td>)}
+        </tr>)}</tbody></table>{!shown.length && <p className="krw-side-empty">문제 있는 학생이 없어요.</p>}</div>
+      {checked.dups.length > 0 && <div className="krw-chk-dups"><b><AlertTriangle size={15} /> 여러 학생에게 겹친 문장</b><ul>{checked.dups.map((d, i) => <li key={i}><span className="tag">{d.similar ? "비슷" : "같음"}</span><q>{d.sentence}</q><em>{d.people.map(p => p.label).join(", ")}</em></li>)}</ul></div>}
+    </>}
+  </div>;
+}
+
 // ── 바깥 틀 ─────────────────────────────────────────────────────────────────
 export default function RecordWriter({ teacher = null, isAdmin = false, accounts = {}, db = {}, grade = "2", semester = "sem1", actor = null, showToast, legacy = null }) {
   const year = schoolYearOf();
@@ -979,9 +1071,14 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
   }, [subjectTeacher, db?.roster, db?.enrollments, grade, semester, rosterFor]);
 
   const canHomeroom = isAdmin || !!teacher?.homeroomClass;
-  const tabs = [canHomeroom && ["homeroom", "학급담임", "자율·자치 · 진로 · 행발"], ["subject", "교과담임", "반·분반별 과세특"], legacy && ["legacy", "2학년부 자료", "활동 배정 · 소감문"]].filter(Boolean);
+  const tabs = [canHomeroom && ["homeroom", "학급담임", "자율·자치 · 진로 · 행발"], ["subject", "교과담임", "반·분반별 과세특"], ["check", "점검", "엑셀 올려 한 번에 점검"], legacy && ["legacy", "2학년부 자료", "활동 배정 · 소감문"]].filter(Boolean);
   const [tab, setTab] = useState(() => { try { const saved = localStorage.getItem("kd_rec_tab_v1"); return tabs.some(t => t[0] === saved) ? saved : tabs[0][0]; } catch { return tabs[0][0]; } });
   const [view, setView] = useState("student"); // 들어올 때는 늘 학생별 보기로 시작
+  const [lastScope, setLastScope] = useState(""); // 점검 탭 기본 반: 마지막으로 연 담임 반 또는 과목·반
+  const checkScopes = useMemo(() => [
+    ...classOptions.map(c => ({ key: `hr:${c}`, label: `${hrGrade}학년 ${c}반 담임 (자율·진로·행발)`, fileLabel: `${hrGrade}-${c}_담임`, storageKey: hrKey(year, hrGrade, c), columns: HOMEROOM_AREAS.map(k => ({ key: k, label: RECORD_AREAS[k].label })), students: Object.entries(rosterFor(hrGrade) || {}).filter(([, info]) => String(info?.class) === String(c)).map(([sid, info]) => ({ sid, name: info?.name || "", number: Number(info?.number) || Number(String(sid).slice(-2)) })).sort((a, b) => a.number - b.number) })),
+    ...books.map(b => ({ key: `sj:${b.id}`, label: `${b.subject} · ${b.label} (과세특)`, fileLabel: `${b.subject}_${b.target}`, storageKey: sjKey(year, b.id), columns: [{ key: "subject", label: "과목별 세부능력 및 특기사항" }], students: b.students.map(s => ({ ...s, number: Number(s.number) || Number(String(s.sid).slice(-2)) })) })),
+  ], [classOptions, hrGrade, rosterFor, books, year]);
   const [check, setCheck] = useState(true);
   const [helpOpen, setHelpOpen] = useState(false);
   const [stdOpen, setStdOpen] = useState(false);
@@ -991,22 +1088,23 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
   return <div className="krw">
     <style>{CSS}</style>
     <header className="krw-head">
-      <div className="t"><b>생기부 업무</b><small>칸마다 자동 저장 · 나이스 바이트 계산 · 2026 기재요령 점검</small></div>
+      <div className="t"><b>생기부 업무 <span className="krw-scope-pill">{grade}학년 · {semester === "sem2" ? "2학기" : "1학기"}</span></b><small>칸마다 자동 저장 · 나이스 바이트 계산 · 2026 기재요령 점검 · 학년·학기는 위쪽에서 바꿔요</small></div>
       <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
     </header>
     {tab !== "legacy" && <TourGuide id="records-v2" steps={TOUR_STEPS} startToken={tourToken} />}
     {stdOpen && <StandardsModal grade={grade} semester={semester} subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
-    {tab !== "legacy" && <div className="krw-opts">
+    {tab !== "legacy" && tab !== "check" && <div className="krw-opts">
       <div className="krw-views" role="group" aria-label="보는 형태" data-tour="rw-views">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => setView(key)}><Icon size={15} /> {label}</button>)}</div>
       <button type="button" data-kdn-bare data-tour="rw-check" className={`krw-check${check ? " is-on" : ""}`} aria-pressed={check} onClick={() => setCheck(value => !value)}>{check ? <Eye size={15} /> : <EyeOff size={15} />} 기재요령 점검 {check ? "켜짐" : "꺼짐"}</button>
       <button type="button" data-kdn-bare className="krw-std-btn" onClick={() => setStdOpen(true)} title="2022 개정 교육과정 과목별 성취기준 찾아보기"><ListChecks size={16} /><span>2022 성취기준</span></button>
       <button type="button" data-kdn-bare data-tour="rw-help" className="krw-help-btn" onClick={() => setHelpOpen(true)} title="생기부 작성 가이드라인 · 단계별 안내" aria-label="가이드라인"><HelpCircle size={18} /><span>가이드라인</span></button>
       {tab === "subject" && isAdmin && !teacher && <select className="krw-teacher" value={pickedTeacherId} onChange={event => setPickedTeacherId(event.target.value)} aria-label="선생님"><option value="">선생님 고르기</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
     </div>}
-    {tab === "homeroom" && <HomeroomWriter year={year} grade={hrGrade} classOptions={classOptions} rosterFor={rosterFor} by={by} view={view} setView={setView} check={check} showToast={showToast} />}
+    {tab === "check" && <CheckWriter year={year} scopes={checkScopes} initialKey={lastScope} showToast={showToast} />}
+    {tab === "homeroom" && <HomeroomWriter onScope={setLastScope} year={year} grade={hrGrade} classOptions={classOptions} rosterFor={rosterFor} by={by} view={view} setView={setView} check={check} showToast={showToast} />}
     {tab === "subject" && (isAdmin && !teacher && !subjectTeacher ? <div className="krw-empty"><Users size={20} /><b>세특을 볼 선생님을 골라 주세요.</b></div>
-      : <SubjectWriter year={year} books={books} by={by} view={view} setView={setView} check={check} showToast={showToast} grade={grade} semester={semester} />)}
+      : <SubjectWriter onScope={setLastScope} year={year} books={books} by={by} view={view} setView={setView} check={check} showToast={showToast} grade={grade} semester={semester} />)}
     {tab === "legacy" && legacy}
   </div>;
 }
@@ -1017,6 +1115,7 @@ const CSS = `
 .krw-head::before{content:"";position:absolute;right:-60px;top:-90px;width:260px;height:260px;border-radius:99px;background:radial-gradient(circle,rgba(255,122,61,.35),rgba(255,122,61,0) 70%);pointer-events:none}
 .krw-head>*{position:relative}
 .krw-head .t{display:grid;gap:2px}.krw-head .t b{font-size:21px;font-weight:800;letter-spacing:-.02em;color:#fff}.krw-head .t small{font-size:13px;color:#cfccc5}
+.krw-scope-pill{display:inline-block;margin-left:8px;padding:2px 10px;border-radius:99px;background:rgba(255,255,255,.14);color:#ffd8bf;font-size:12.5px;font-weight:800;vertical-align:3px}
 .krw-tabs{display:flex;gap:4px;padding:4px;border-radius:16px;background:rgba(255,255,255,.08)}
 .krw-tabs button{display:grid;gap:1px;justify-items:start;padding:9px 18px;border:0;border-radius:12px;background:transparent;font:inherit;color:#cfccc5;cursor:pointer;text-align:left}
 .krw-tabs button b{font-size:15px;font-weight:800}.krw-tabs button small{font-size:11.5px;opacity:.85}
@@ -1275,6 +1374,31 @@ const CSS = `
 .krw-areacard{display:grid;gap:4px}.krw-total-line{display:flex;align-items:center;gap:8px;margin:0 6px;font-size:12.5px;font-weight:700;color:var(--kdn-muted,#8a8f99)}
 .krw-modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:16px;background:rgba(15,18,26,.45)}
 .krw-modal-box{display:grid;gap:10px;width:min(640px,100%);padding:18px;border-radius:20px;background:var(--kdn-surface,#fff);box-shadow:0 24px 60px rgba(15,23,42,.3)}
+/* 점검 탭 */
+.krw-chk-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+.krw-chk-steps .step{display:flex;gap:12px;padding:16px;border-radius:18px;border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff)}
+.krw-chk-steps .n{flex:none;display:grid;place-items:center;width:30px;height:30px;border-radius:99px;background:#17181d;color:#fff;font-weight:800}
+.krw-chk-steps .step>div{flex:1;display:grid;gap:4px;min-width:0}.krw-chk-steps b{font-size:15px}.krw-chk-steps small{font-size:12.5px;color:var(--kdn-ink-soft,#5b606b)}
+.krw-chk-steps .row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px}
+.krw-chk-steps select{flex:1 1 220px;min-height:38px;padding:0 10px;border-radius:10px;border:1.5px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:inherit;font:inherit;font-size:13.5px;font-weight:700}
+.krw-chk-steps .file{font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b)}
+.krw-chk-sum{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:12px 16px;border-radius:16px;border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff);font-size:13px;color:var(--kdn-ink-soft,#5b606b)}
+.krw-chk-sum b{font-size:16px;color:var(--kdn-ink,#17181d)}.krw-chk-sum .ok b{color:#2f7a52}.krw-chk-sum .bad b{color:#c2410c}.krw-chk-sum .warn b{color:#b45309}.krw-chk-sum .sp{flex:1}
+.krw-chk-table{table-layout:fixed;min-width:760px}.krw-chk-table col.c-nm{width:130px}
+.krw-chk-table th{text-align:left!important;padding:10px!important}.krw-chk-table thead th small{display:block;font-size:11.5px;font-weight:600;color:var(--kdn-muted,#8a8f99)}
+.krw-chk-table td{padding:10px!important;vertical-align:top;text-align:left!important}
+.krw-chk-table td p,.krw-chk-table td .empty,.krw-chk-table th.nm{text-align:left!important}
+.krw-chk-table td p{margin:0;white-space:pre-wrap;font-size:13.5px;line-height:1.7}
+.krw-chk-table td .empty{font-size:12.5px;color:var(--kdn-muted,#a3a7b0)}
+.krw-chk-table th.nm b{display:block;font-size:14px}.krw-chk-table th.nm small{display:block;font-size:11.5px;color:var(--kdn-muted,#8a8f99)}
+.krw-chk-table th.nm .dup{display:inline-block;margin-top:4px;padding:1px 8px;border-radius:99px;background:#fff1df;color:#9a3412;font-style:normal;font-size:11.5px;font-weight:800}
+.krw-chk-table tr.is-problem th.nm{box-shadow:inset 4px 0 0 #d97706}
+.krw-chk-table .cellft{display:flex;align-items:center;gap:6px;margin-top:6px}
+.krw-chk-table .okmark{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:800;color:#2f7a52}
+.krw-chk-dups{display:grid;gap:6px;padding:12px 16px;border-radius:16px;border:1.5px solid #f2b56b;background:#fff7ed;color:#7c2d12}
+.krw-chk-dups b{display:flex;align-items:center;gap:6px}.krw-chk-dups ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.krw-chk-dups li{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;font-size:13px}.krw-chk-dups .tag{padding:0 7px;border-radius:99px;background:#c2410c;color:#fff;font-size:11px;font-weight:800}.krw-chk-dups em{font-style:normal;font-weight:700;color:#9a3412}
+[data-kd-ui="dark"] .krw-chk-dups{background:rgba(217,119,6,.12);color:#fcd9a8}
 /* 기재 예시 */
 .krw-ai-steps{flex-wrap:wrap}.krw-ai-steps button{flex:1 1 40%}
 .krw-ex ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
