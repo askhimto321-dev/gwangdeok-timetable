@@ -6,6 +6,7 @@ import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPas
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { booksForAssignment } from "./lessonStamps.js";
+import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
 import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
@@ -306,6 +307,13 @@ function HelpDialog({ onClose, onTour }) {
       <header><b><HelpCircle size={18} /> 생기부 작성 가이드라인</b><div className="acts"><button type="button" data-kdn-bare className="krw-btn" onClick={onTour}>단계별 안내 다시 보기</button><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={18} /></button></div></header>
       <section><h4>꼭 지킬 기재요령 <small>2026.05.08 광덕고 연수 자료</small></h4><ul>{RECORD_GUIDE.rules.map(rule => <li key={rule}>{rule}</li>)}</ul></section>
       <section><h4>교사 입장 맺음말 예시 <small>눌러서 복사</small></h4><div className="ends">{RECORD_GUIDE.endings.map(item => <button key={item} type="button" data-kdn-bare onClick={() => navigator.clipboard?.writeText(item.replace(/^~/, ""))}>{item}</button>)}</div></section>
+      <section><h4>교과세특 쓰는 틀 <small>교육부·시도교육청 교과세특 연수 자료(2022.12)</small></h4><ul className="tips">
+        <li><b>학생의 성취수준</b> — 성취기준에 비추어 학생이 도달한 수준을 포괄적으로</li>
+        <li><b>수행 과정 및 결과</b> — 평가 과제에서 관찰한 구체적인 과정과 결과(성취수준 판단의 근거)</li>
+        <li><b>교과역량</b> — 수업·평가에서 드러난 역량</li>
+        <li><b>교사 총평</b> — 특정 성취기준에 국한되지 않고 수업 중 꾸준히 관찰한 학생 특성</li>
+        <li>과목별 예시는 AI 도우미 '④ 기재 예시'에서 볼 수 있어요(2015 개정 기준, 평가 과제 하나에 대한 기록 예시).</li>
+      </ul></section>
       <section><h4>쓰기 팁</h4><ul className="tips">{RECORD_GUIDE.tips.map(tip => <li key={tip}>{tip}</li>)}</ul></section>
       <p className="keys">단축키 <kbd>Alt</kbd>+<kbd>↓</kbd>/<kbd>↑</kbd> 다음·이전 학생 · <kbd>Ctrl</kbd>+<kbd>S</kbd> 바로 저장 · <kbd>Esc</kbd> 창 닫기</p>
     </div>
@@ -475,6 +483,29 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
 }
 
 // AI 도우미: ① 요청문 만들기(학생 이름 빼고 복사) ② AI 답 붙여넣고 점검 → 칸에 넣기 ③ 한도 넘을 때 문장별로 덜어내기
+// 교과세특 기재 예시(교육부·시도교육청 연수 자료): 같은 과목 → 같은 교과 순서로 보여 주고, 하나를 요청문에 문체 참고로 넣을 수 있어요.
+function ExamplesPane({ subject, picked, onPick }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState("");
+  const [group, setGroup] = useState(() => exampleGroupFor(subject) || "국어");
+  useEffect(() => { let alive = true; loadExamples().then(value => { if (alive) setData(value); }).catch(err => { if (alive) setError(err?.message || "불러오지 못했어요."); }); return () => { alive = false; }; }, []);
+  useEffect(() => { const g = exampleGroupFor(subject); if (g) setGroup(g); }, [subject]);
+  if (error) return <p className="krw-alert"><AlertTriangle size={15} /> 예시를 불러오지 못했어요. ({error})</p>;
+  if (!data) return <div className="krw-empty"><Loader2 size={16} className="spin" /> 예시를 불러오는 중이에요.</div>;
+  const list = examplesFor(subject, data.items, group);
+  return <div className="krw-ai-body krw-ex">
+    <p className="krw-side-note"><b>공식 기재 예시</b>예요. {data.note} 문장을 따라 쓰지 말고 <b>구성(성취수준 → 수행 과정·결과 → 역량 → 교사 총평)</b>과 구체성을 참고해 주세요.</p>
+    <label className="krw-ai-target">교과<select value={group} onChange={event => setGroup(event.target.value)}>{EXAMPLE_GROUPS.map(g => <option key={g} value={g}>{g} ({data.items.filter(item => item.g === g).length})</option>)}</select></label>
+    <ul>{list.map((item, index) => <li key={index} className={picked?.t === item.t ? "is-on" : ""}>
+      <header><b>{item.s}</b><small>{item.t.length}자 · {item.k}</small></header>
+      <p>{item.t}</p>
+      <div className="meta"><span>평가 과제</span>{item.task.map(task => <em key={task}>{task}</em>)}<span>성취기준</span><em>{item.c.join(" ")}</em></div>
+      <div className="acts">{picked?.t === item.t ? <button type="button" data-kdn-bare className="krw-mini" onClick={() => onPick(null)}>요청문에서 빼기</button> : <button type="button" data-kdn-bare className="krw-mini" onClick={() => onPick(item)}><Plus size={12} /> 요청문에 문체 참고로 넣기</button>}<CopyBtn text={item.t} /></div>
+    </li>)}</ul>
+    <p className="krw-ex-src">출처: {data.source}</p>
+  </div>;
+}
+
 const AI_URL_MAX = 6000; // 주소가 너무 길면 일부 브라우저·사이트에서 잘려서, 그보다 길면 빈 창만 열고 붙여넣기로 안내
 function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budgetFor, aiContext, cats, putText, showToast }) {
   const [step, setStep] = useState("prompt");
@@ -495,7 +526,10 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   useEffect(() => { setLoadKey(""); }, [targetKey, sid]);
   const stdList = aiContext.standardsFor ? aiContext.standardsFor(targetKey) : [];
   const [useStd, setUseStd] = useState(true);
-  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes, existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [] });
+  const [exPick, setExPick] = useState(null); // 요청문에 넣을 기재 예시(문체 참고)
+  const [useEx, setUseEx] = useState(true);
+  const [useFrame, setUseFrame] = useState(true);
+  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes, existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
   // 바로 열기: 팝업 차단을 피하려고 창부터 열고, 요청문은 주소(?q=)에 담고 클립보드에도 복사해 둡니다.
   const openAi = async site => {
@@ -514,12 +548,17 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   useEffect(() => { setDrop({}); }, [targetKey, sid]);
   return <div className="krw-ai">
     <label className="krw-ai-target">쓸 칸<select value={targetKey} onChange={event => setTarget(event.target.value)}>{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select><span>쓸 수 있는 바이트 <b>{budget.toLocaleString()}</b></span></label>
-    <div className="krw-ai-steps" role="tablist">{[["prompt", "① 요청문"], ["answer", "② AI 답 점검"], ["trim", "③ 바이트 맞추기"]].map(([key, label]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={step === key} onClick={() => setStep(key)}>{label}</button>)}</div>
+    <div className="krw-ai-steps" role="tablist">{[["prompt", "① 요청문"], ["answer", "② AI 답 점검"], ["trim", "③ 바이트 맞추기"], ...(aiContext.subject ? [["examples", "④ 기재 예시"]] : [])].map(([key, label]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={step === key} onClick={() => setStep(key)}>{label}</button>)}</div>
     {step === "prompt" && <div className="krw-ai-body">
       <p className="krw-side-note">누가기록(이 칸 관찰 · 수업 태도 · 공통)과 기재요령, 남은 바이트를 담은 요청문이에요. <b>학생 이름은 빠져요.</b> 복사해서 쓰시는 AI에 붙여넣고, 받은 답은 ②에서 점검해요.</p>
       <div className="krw-ai-notes"><span>요청문에 넣을 누가기록</span>{filledCats.length ? filledCats.map(c => <label key={c.key}><input type="checkbox" checked={isPicked(c)} onChange={() => togglePick(c.key)} /> {c.label}</label>) : <em>아직 누가기록이 없어요</em>}</div>
       {aiContext.standardsFor && (stdList.length ? <label className="krw-ai-chk"><input type="checkbox" checked={useStd} onChange={event => setUseStd(event.target.checked)} /> 이 활동 성취기준 {stdList.length}개 넣기 <small>({stdList.map(item => item.code).join(" ")})</small></label>
         : <p className="krw-ai-tip">이 활동에 성취기준을 연결하면 요청문에 목표로 함께 들어가요. (활동 칩의 '성취기준' 또는 '성취기준' 탭)</p>)}
+      {aiContext.subject && <div className="krw-ai-opts">
+        <label className="krw-ai-chk"><input type="checkbox" checked={useFrame} onChange={event => setUseFrame(event.target.checked)} /> 교과세특 구성 틀 넣기 <small>(성취수준 → 수행 과정·결과 → 역량 → 교사 총평)</small></label>
+        {exPick ? <label className="krw-ai-chk"><input type="checkbox" checked={useEx} onChange={event => setUseEx(event.target.checked)} /> 기재 예시 넣기 <small>({exPick.s} 예시 · 문체 참고)</small> <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setStep("examples")}>바꾸기</button></label>
+          : <p className="krw-ai-tip">기재 예시는 넣지 않아요. 넣으려면 <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setStep("examples")}>④ 기재 예시</button>에서 하나를 골라 주세요.</p>}
+      </div>}
       <label className="krw-ai-chk"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /> 지금 칸에 쓴 글도 함께 다듬어 달라고 하기</label>
       <pre className="krw-ai-prompt">{prompt}</pre>
       <div className="krw-ai-go">
@@ -537,6 +576,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
       {answer && <IssueList text={answer} />}
       <div className="krw-ai-acts"><button type="button" data-kdn-bare className="krw-btn pri" disabled={!answer.trim()} onClick={() => { if (!current.trim() || window.confirm(`'${target?.label}' 칸의 지금 글을 이 글로 바꿀까요?`)) putText(answer, "replace"); }}>칸을 이 글로 바꾸기</button><button type="button" data-kdn-bare className="krw-btn" disabled={!answer.trim()} onClick={() => putText(answer, "append")}>칸 끝에 덧붙이기</button><button type="button" data-kdn-bare className="krw-btn ghost" disabled={!answer.trim()} onClick={() => { const key = cats.find(c => c.target === targetKey)?.key || "memo"; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev ? "\n\n" : ""}[AI 초안 ${todayLabel()}]\n${answer.trim()}`); showToast?.("누가기록에 보관했어요.", "success"); }}>누가기록에 보관</button></div>
     </div>}
+    {step === "examples" && <ExamplesPane subject={aiContext.subject || ""} picked={exPick} onPick={item => { setExPick(item); setUseEx(true); if (item) { setStep("prompt"); showToast?.(`'${item.s}' 예시를 요청문에 문체 참고로 넣었어요.`, "success"); } }} />}
     {step === "trim" && <div className="krw-ai-body">
       <p className="krw-side-note">'{target?.label}' 칸의 문장마다 바이트예요. 뺄 문장의 체크를 풀면 남은 글이 한도 안에 드는지 바로 보여요.</p>
       {sentences.length ? <ul className="krw-trim">{sentences.map((sentence, i) => <li key={i} className={drop[i] ? "is-off" : ""}><label><input type="checkbox" checked={!drop[i]} onChange={() => setDrop(value => ({ ...value, [i]: !value[i] }))} /><span>{sentence}</span></label><em>{neisBytes(sentence)}</em></li>)}</ul> : <p className="krw-side-empty">칸에 쓴 글이 없어요.</p>}
@@ -909,7 +949,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
             {check && <IssueList text={total} />}
           </div>; })()}
         </section>}
-        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: book.subject, standardsFor }} standardsFor={standardsFor} onPickStandards={setStdFor} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: stdMatched?.n || book.subject, standardsFor }} standardsFor={standardsFor} onPickStandards={setStdFor} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -1235,6 +1275,21 @@ const CSS = `
 .krw-areacard{display:grid;gap:4px}.krw-total-line{display:flex;align-items:center;gap:8px;margin:0 6px;font-size:12.5px;font-weight:700;color:var(--kdn-muted,#8a8f99)}
 .krw-modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:16px;background:rgba(15,18,26,.45)}
 .krw-modal-box{display:grid;gap:10px;width:min(640px,100%);padding:18px;border-radius:20px;background:var(--kdn-surface,#fff);box-shadow:0 24px 60px rgba(15,23,42,.3)}
+/* 기재 예시 */
+.krw-ai-steps{flex-wrap:wrap}.krw-ai-steps button{flex:1 1 40%}
+.krw-ex ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.krw-ex li{display:grid;gap:6px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#eceae5);background:var(--kdn-surface,#fff)}
+.krw-ex li.is-on{border-color:#4f8a6b;background:#f1f8f4}
+.krw-ex li header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px}.krw-ex li header b{font-size:13.5px}.krw-ex li header small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}
+.krw-ex li p{margin:0;font-size:13px;line-height:1.7;color:var(--kdn-ink,#17181d)}
+.krw-ex .meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:11.5px;color:var(--kdn-ink-soft,#5b606b)}
+.krw-ex .meta span{font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-ex .meta span+span,.krw-ex .meta em+span{margin-left:6px}
+.krw-ex .meta em{font-style:normal;padding:1px 7px;border-radius:6px;background:var(--kdn-surface-2,#f3f2ef)}
+.krw-ex .acts{display:flex;gap:6px;justify-content:flex-end}
+.krw-ex-src{margin:0;font-size:11px;line-height:1.5;color:var(--kdn-muted,#8a8f99)}
+.krw-ai-opts{display:grid;gap:4px;padding:8px 10px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3)}.krw-linkbtn{padding:0;border:0;background:transparent;font:inherit;font-weight:800;color:#c2410c;cursor:pointer;text-decoration:underline}
+.krw-ai-expick{margin:0;padding:6px 10px;border-radius:10px;background:#f1f8f4;font-size:12.5px;color:#2f5d46}.krw-ai-expick button{margin-left:6px;border:0;background:transparent;font:inherit;font-weight:800;color:#c2410c;cursor:pointer}
+[data-kd-ui="dark"] .krw-ex li.is-on,[data-kd-ui="dark"] .krw-ai-expick{background:rgba(79,138,107,.16);color:#bfe3cf}
 /* 같은 문장 경고 */
 .krw-dupbar{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:16px;border:1.5px solid #f2b56b;background:linear-gradient(135deg,#fff6e8,#fff1df);color:#7c3d06;box-shadow:0 6px 18px rgba(217,119,6,.12)}
 .krw-dupbar>svg{flex:none;color:#d97706}

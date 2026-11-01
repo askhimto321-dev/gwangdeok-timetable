@@ -234,7 +234,7 @@ export function findDuplicateSentences(entries = []) {
 }
 
 // AI 요청문: 학생 이름은 빼고, 관찰 기록만 근거로 기재요령·바이트 조건을 담아 만듭니다.
-export function buildAiPrompt({ area = "", subject = "", activity = "", budget = 1500, notes = [], existing = "", studentName = "", standards = [] }) {
+export function buildAiPrompt({ area = "", subject = "", activity = "", budget = 1500, notes = [], existing = "", studentName = "", standards = [], example = "", frame = true }) {
   const hide = text => { let value = String(text || ""); if (studentName && studentName.length >= 2) value = value.split(studentName).join("학생"); return value.trim(); };
   const noteLines = notes.map(([label, text]) => [label, hide(text)]).filter(([, text]) => text);
   const chars = Math.floor(budget / 3);
@@ -250,9 +250,11 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     "- 대학명, 기관명, 상호명(동영상 플랫폼·대화형 인공지능 등은 일반 명칭으로), 강사명, 대회, 수상, 자격증, 논문, 어학시험, 모의고사 성적 쓰지 않기",
     "- 문자는 한글로 쓰고, 관찰 기록에 없는 활동이나 성과는 지어내지 않기",
     "- 학생 이름은 쓰지 않고 한 문단으로 쓰기",
+    ...(subject && frame ? ["- 구성: 학생의 성취수준 → 평가 과제에서 관찰한 수행 과정과 결과(근거) → 드러난 교과역량 → 교사 총평 순서를 참고하기"] : []),
     "",
     `[과목·영역] ${[subject, activity].filter(Boolean).join(" / ") || area}`,
     ...(standards.length ? ["[이 활동의 성취기준: 활동이 겨냥한 목표예요. 문장을 그대로 옮기지 말고, 관찰 기록 가운데 이 목표와 이어지는 학생의 구체적인 행동·성장을 드러내 주세요]", ...standards.map(line => `- ${line}`), ""] : []),
+    ...(example ? ["[문체·구성 참고 예시: 다른 학생의 기록이에요. 문장 길이와 구성만 참고하고 내용·표현은 따라 쓰지 마세요]", example, ""] : []),
     "[관찰 기록]",
     ...(noteLines.length ? noteLines.map(([label, text]) => `(${label})\n${text}`) : ["(관찰 기록이 비어 있어요. 활동 내용을 직접 적어 주세요.)"]),
     ...(hide(existing) ? ["", "[지금까지 쓴 글: 이 글을 위 조건에 맞게 다듬어 주세요]", hide(existing)] : []),

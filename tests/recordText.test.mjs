@@ -107,3 +107,12 @@ test("점검: 마지막 문장 끝(마침표·종결어미)", () => {
   assert.equal(kinds("소논문 발췌독 대회."), 1);
   assert.equal(kinds(""), 0);
 });
+test("AI 요청문: 교과 4요소 구성·참고 예시", () => {
+  const prompt = buildAiPrompt({ area: "과세특", subject: "문학", notes: [["논술", "근거를 들어 주장함"]], example: "예시 문장임." });
+  assert.ok(prompt.includes("성취수준"));
+  assert.ok(prompt.includes("[문체·구성 참고 예시"));
+  assert.ok(!buildAiPrompt({ area: "행동특성 및 종합의견", notes: [] }).includes("성취수준"));
+});
+test("AI 요청문: 구성 틀은 끌 수 있음", () => {
+  assert.ok(!buildAiPrompt({ area: "과세특", subject: "문학", notes: [], frame: false }).includes("성취수준"));
+});
