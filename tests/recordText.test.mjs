@@ -94,3 +94,8 @@ test("AI 요청문: 성취기준을 넣으면 목표로 안내", () => {
   assert.ok(prompt.includes("- [12문학01-02]"));
   assert.ok(!buildAiPrompt({ area: "과세특", notes: [] }).includes("성취기준"));
 });
+test("점검: 한 글 안에서 같은 문장 반복", () => {
+  const issues = checkRecordText("실험 결과를 정리함. 발표를 잘함. 실험 결과를 정리함.");
+  assert.ok(issues.some(item => item.kind === "같은 문장 반복"));
+  assert.ok(!checkRecordText("실험 결과를 정리함. 발표를 잘함.").some(item => item.kind === "같은 문장 반복"));
+});

@@ -93,7 +93,14 @@ export function checkRecordText(text = "") {
     if (ALLOWED_EN.has(hit.match) || issues.some(issue => issue.index <= hit.index && hit.index < issue.index + issue.match.length)) return;
     add("warn", "영문", hit.match, hit.index, "문자는 한글로(부득이한 경우만 영문)");
   });
+  repeatedSentences(value).forEach(sentence => add("warn", "같은 문장 반복", sentence.length > 24 ? `${sentence.slice(0, 24)}…` : sentence, value.lastIndexOf(sentence), "같은 문장을 두 번 썼어요. 하나는 지우거나 다른 관찰 내용으로 바꿔 주세요"));
   return issues.sort((a, b) => a.index - b.index);
+}
+// 한 글 안에서 같은 문장을 두 번 쓴 경우(띄어쓰기·기호 무시, 5자 이상)
+function repeatedSentences(text) {
+  const seen = new Map(); const out = [];
+  splitSentences(text).forEach(sentence => { const key = normSentence(sentence); if (key.length < 5) return; if (seen.has(key) && !out.includes(sentence)) out.push(sentence); else seen.set(key, sentence); });
+  return out;
 }
 export function issueSummary(issues = []) {
   const block = issues.filter(item => item.level === "block").length;
