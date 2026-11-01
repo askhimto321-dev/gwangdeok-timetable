@@ -5,7 +5,9 @@ import { HASHED_PW } from "../../src/accountSecret.js";
 export { HASHED_PW };
 // 로그인 확인 순서(예전 화면 로그인과 같음)
 export const LOGIN_KINDS = ["admin", "teacher", "departments", "monitors", "classView", "students"];
-export const DEFAULT_ADMIN = { id: "admin", pw: "kd2026" };
+// 관리자 계정이 하나도 없을 때만 쓰는 첫 관리자: 비밀번호는 코드에 두지 않고 서버 환경변수(ADMIN_BOOTSTRAP_PASSWORD, 12자 이상)로만 받습니다.
+export const BOOTSTRAP_ADMIN_ID = "admin";
+export const bootstrapAdmin = pw => (typeof pw === "string" && pw.length >= 12 ? { id: BOOTSTRAP_ADMIN_ID, pw, name: "관리자" } : null);
 
 export const idKey = id => Buffer.from(String(id), "utf8").toString("base64url");
 
@@ -49,27 +51,27 @@ export function readToken(token, secret, type, now = Date.now()) {
 }
 
 // 계정 목록에서 아이디가 같은 계정들(확인 순서대로)
-export function candidates(accounts, id) {
+export function candidates(accounts, id, { bootstrapPw = "" } = {}) {
   const list = [];
   LOGIN_KINDS.forEach(kind => {
     let entries = Array.isArray(accounts?.[kind]) ? accounts[kind] : [];
-    if (kind === "admin" && !entries.length) entries = [DEFAULT_ADMIN];
+    if (kind === "admin" && !entries.length) entries = [bootstrapAdmin(bootstrapPw)].filter(Boolean);
     entries.forEach(entry => { if (entry && String(entry.id ?? "") === id) list.push({ kind, entry }); });
   });
   return list;
 }
-export function findAccount(accounts, kind, id) {
+export function findAccount(accounts, kind, id, { bootstrapPw = "" } = {}) {
   const entries = Array.isArray(accounts?.[kind]) ? accounts[kind] : [];
-  const list = kind === "admin" && !entries.length ? [DEFAULT_ADMIN] : entries;
+  const list = kind === "admin" && !entries.length ? [bootstrapAdmin(bootstrapPw)].filter(Boolean) : entries;
   return list.find(entry => String(entry?.id ?? "") === String(id)) || null;
 }
 
 // 아이디·비밀번호 확인. loadHash(kind, id) → 저장된 암호 문자열.
 // 결과 { kind, entry, via: "plain"|"hash" } 또는 null
-export async function checkLogin(accounts, idRaw, pw, loadHash) {
+export async function checkLogin(accounts, idRaw, pw, loadHash, options = {}) {
   const id = String(idRaw || "").trim();
   if (!id || !pw) return null;
-  for (const { kind, entry } of candidates(accounts, id)) {
+  for (const { kind, entry } of candidates(accounts, id, options)) {
     if (entry.pw === HASHED_PW) {
       const stored = await loadHash(kind, id);
       if (stored && verifyPassword(pw, stored)) return { kind, entry, via: "hash" };

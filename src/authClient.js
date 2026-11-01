@@ -37,6 +37,14 @@ async function finish(result) {
 }
 
 export const serverLogin = (id, pw) => call("login", { id, pw }).then(finish);
+// 새로고침 때 로그인 상태를 되살려도 되는지 서버에 확인(6초 안에 답이 없으면 '서버 없음')
+export async function verifySession() {
+  const session = getAuthSession();
+  if (!session) return { status: "fail", error: "no-session" };
+  return Promise.race([call("session", { session }), new Promise(resolve => setTimeout(() => resolve({ status: "unavailable" }), 6000))]);
+}
+// 개발 화면(내 컴퓨터)에서만 로그인 서버 없이 예전 방식 확인을 허용합니다.
+export const isLocalDev = () => { try { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname); } catch { return false; } };
 export const exchangeTicket = ticket => call("login", { ticket }).then(finish);
 
 // 로그아웃: 세션 지우고 Firebase도 익명 상태로 되돌립니다.

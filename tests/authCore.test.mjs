@@ -39,9 +39,14 @@ test("로그인 확인: 예전 순서(관리자→교사→…) · 평문/암호
   const lee = await checkLogin(accounts, " lee ", "pw2", loadHash);
   assert.equal(lee.kind, "teacher"); assert.equal(lee.via, "plain");
   assert.equal((await checkLogin(accounts, "20101", "kd2026", loadHash)).kind, "students");
-  // 관리자가 없으면 초기 관리자 계정
-  assert.equal((await checkLogin({ admin: [] }, "admin", "kd2026", loadHash)).kind, "admin");
-  assert.equal((await checkLogin(accounts, "admin", "kd2026", loadHash)), null);
+  // 코드에 박힌 기본 관리자 비밀번호는 없음: 관리자가 없을 때도 서버 환경변수(12자 이상)로만 첫 관리자 로그인
+  assert.equal(await checkLogin({ admin: [] }, "admin", "kd2026", loadHash), null);
+  const boot = { bootstrapPw: "first-admin-pass" };
+  assert.equal((await checkLogin({ admin: [] }, "admin", "first-admin-pass", loadHash, boot)).kind, "admin");
+  assert.equal(await checkLogin({ admin: [] }, "admin", "short", loadHash, { bootstrapPw: "short" }), null);
+  assert.equal(await checkLogin(accounts, "admin", "first-admin-pass", loadHash, boot), null);
+  assert.ok(findAccount({ admin: [] }, "admin", "admin", boot));
+  assert.equal(findAccount({ admin: [] }, "admin", "admin"), null);
   assert.ok(findAccount(accounts, "teacher", "lee"));
 });
 
@@ -86,4 +91,11 @@ test("비밀 키 붙여 넣기 실수 바로잡기", async () => {
   assert.equal(normalizePrivateKey("abc"), "");
   assert.match(describePrivateKey("abc"), /형식 확인 필요/);
   assert.equal(describePrivateKey(""), "없음");
+});
+
+test("초기 비밀번호: 계정마다 다른 8자리, 헷갈리는 글자 없음", async () => {
+  const { randomInitialPassword } = await import("../src/accountSecret.js");
+  const codes = Array.from({ length: 200 }, () => randomInitialPassword());
+  assert.equal(new Set(codes).size, 200);
+  codes.forEach(code => { assert.equal(code.length, 8); assert.match(code, /^[a-hjkmnp-z2-9]+$/); });
 });

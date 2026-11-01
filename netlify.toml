@@ -11,6 +11,7 @@
 
 # 로그인 서버(구글·카카오 연결, 비밀번호 확인): netlify/functions/*.mjs → /api/auth/*
 # 필요한 환경변수: FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, KAKAO_REST_API_KEY, KAKAO_CLIENT_SECRET, SESSION_SECRET
+# (선택) ADMIN_BOOTSTRAP_PASSWORD: 관리자 계정이 하나도 없을 때만 쓰는 첫 관리자(아이디 admin) 비밀번호, 12자 이상
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
@@ -21,3 +22,13 @@
 
 [context.branch-deploy]
   ignore = "exit 0"
+
+# 보안 헤더: 다른 사이트가 이 화면을 몰래 틀 안에 넣기(클릭재킹)·파일 형식 속이기·주소 새기 막기, 항상 https
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=31536000"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
