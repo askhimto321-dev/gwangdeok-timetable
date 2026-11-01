@@ -3020,7 +3020,17 @@ const SHARED_NEW_CSS = `
   .kdn-recdl.is-near{border-left-color:#ea580c}.kdn-recdl.is-hot{border-left-color:#dc2626;background:color-mix(in srgb,#dc2626 5%,var(--kdn-surface))}.kdn-recdl.is-hot .t em{background:#dc2626;color:#fff}
   [data-kd-ui="dark"] .kdn-recdl li.is-next{background:#f4f3f0}[data-kd-ui="dark"] .kdn-recdl li.is-next b{color:#17181d}[data-kd-ui="dark"] .kdn-recdl li.is-next span{color:#5b606b}[data-kd-ui="dark"] .kdn-recdl li.is-next i{color:#c2410c}
   @media (max-width:760px){.kdn-recdl{margin:0;padding:12px 14px;border-radius:18px}.kdn-recdl ol{width:100%}.kdn-recdl li{flex:1;min-width:0}.kdn-recdl button{width:100%;justify-content:center}}
-  /* 저장 상태 표시 */
+  /* 학년·학기 선택(시간표·관리자·선생님 ZONE 공통): 묶음 버튼, 고른 칸은 진하게 */
+.kd-scope{display:inline-flex!important;align-items:center!important;gap:8px!important}
+.kd-scope-label{font-size:12.5px!important;font-weight:800!important;color:var(--kdn-muted)!important;white-space:nowrap}
+.kd-scope-row{display:inline-flex!important;gap:2px!important;padding:3px;border-radius:12px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line)}
+.kd-scope-btn{min-height:32px;border:0!important;border-radius:9px!important;padding:0 13px!important;background:transparent!important;color:var(--kdn-ink-soft)!important;font-size:13.5px!important;font-weight:800!important;white-space:nowrap;cursor:pointer;transition:background .15s,color .15s}
+.kd-scope-btn:hover:not(:disabled){color:var(--kdn-ink)!important;background:color-mix(in srgb,var(--kdn-ink) 6%,transparent)!important}
+.kd-scope-btn[aria-pressed="true"]{background:var(--kdn-ink)!important;color:var(--kdn-surface)!important;box-shadow:0 1px 3px rgba(15,18,26,.25)}
+.kd-scope-btn:disabled{opacity:.4!important;cursor:not-allowed}
+.kd-scope-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+@media (max-width:760px){.kd-scope-label{font-size:12px!important}.kd-scope-btn{padding:0 10px!important;font-size:13px!important}*:has(> .kd-scope){flex-wrap:wrap!important;row-gap:6px!important;max-width:100%}}
+/* 저장 상태 표시 */
   .kdn-savestate{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:800;white-space:nowrap}
   .kdn-savestate i{width:8px;height:8px;border-radius:99px;background:currentColor}
   .kdn-savestate.is-ok{background:color-mix(in srgb,#16a34a 13%,transparent);color:#15803d}

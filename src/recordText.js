@@ -262,3 +262,31 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     "결과는 생기부에 바로 붙여 넣을 본문만 출력해 주세요.",
   ].join("\n");
 }
+
+// 점검 탭: 엑셀 첫 시트(2차원 배열)에서 학생 줄과 글 칸 찾기
+const ID_HEADERS = ["번호", "학번", "이름", "반", "성명"];
+const limitForHeader = label => {
+  const v = String(label || "").replace(/\s+/g, "");
+  if (/자율|자치/.test(v)) return RECORD_AREAS.autonomy.limit;
+  if (/진로/.test(v)) return RECORD_AREAS.career.limit;
+  if (/행동|행발|종합의견/.test(v)) return RECORD_AREAS.behavior.limit;
+  return RECORD_AREAS.subject.limit;
+};
+export function parseCheckSheet(aoa = []) {
+  const headerRow = aoa.findIndex(row => (row || []).some(cell => /이름|성명|학번/.test(String(cell || ""))));
+  if (headerRow < 0) return { error: "첫 줄(머리글)에 '이름' 또는 '학번' 칸이 있어야 해요. 양식을 받아 써 주세요." };
+  const header = aoa[headerRow].map(cell => String(cell ?? "").trim());
+  const idx = name => header.findIndex(h => h.replace(/\s+/g, "") === name);
+  const nameCol = idx("이름") >= 0 ? idx("이름") : idx("성명");
+  const sidCol = idx("학번"), noCol = idx("번호");
+  const textCols = header.map((label, col) => ({ label, col })).filter(({ label }) => label && !ID_HEADERS.includes(label.replace(/\s+/g, "")) && !/바이트|글자|점검/.test(label));
+  if (!textCols.length) return { error: "점검할 글 칸(예: 과세특, 자율·자치활동)을 찾지 못했어요." };
+  const rows = aoa.slice(headerRow + 1).map(row => ({
+    no: noCol >= 0 ? String(row?.[noCol] ?? "").trim() : "",
+    sid: sidCol >= 0 ? String(row?.[sidCol] ?? "").trim() : "",
+    name: nameCol >= 0 ? String(row?.[nameCol] ?? "").trim() : "",
+    texts: textCols.map(({ col }) => String(row?.[col] ?? "").replace(/\r\n?/g, "\n").trim()),
+  })).filter(row => row.name || row.sid || row.texts.some(Boolean));
+  return { columns: textCols.map(({ label }) => ({ label, limit: limitForHeader(label) })), rows };
+}
+

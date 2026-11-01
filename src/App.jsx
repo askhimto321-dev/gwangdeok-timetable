@@ -2195,7 +2195,7 @@ export default function App() {
           loggedInAdmin={loggedInAdmin} loggedInTeacher={loggedInTeacher} loggedInDepartment={loggedInDepartment} loggedInMonitor={loggedInMonitor}
           viewedTeacher={viewedTeacher} setViewedTeacher={setViewedTeacher}
           db={db} persist={persist} showToast={showToast} accounts={accounts} persistAccounts={persistAccounts}
-          grade={grade} setGrade={setGrade} semester={semester} scopeKey={scopeKey}
+          grade={grade} setGrade={setGrade} semester={semester} setSemester={setSemester} scopeKey={scopeKey}
           roster={roster} allRosters={db.roster} enrollments={enrollments}
           allowedGrades={loggedInAdmin ? GRADES : Array.from(new Set([...(staffGradeAccessList || []), ...(staffTimetableAccessList || []), grade]))}
           onUpdateTeacher={(teacher) => { if (loggedInTeacher) setLoggedInTeacher(teacher); else setViewedTeacher(teacher); }}
@@ -2947,7 +2947,7 @@ function TeacherZoneWorkspace({
   onModeChange, modeRequest, onOpenMinimum, onEditProfile, gdb, canUseMock = false, mockGradeOptions = [],
   loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor,
   viewedTeacher, setViewedTeacher, db, persist, showToast, accounts, persistAccounts,
-  grade, setGrade, semester, scopeKey, roster, allRosters, enrollments, allowedGrades,
+  grade, setGrade, semester, setSemester, scopeKey, roster, allRosters, enrollments, allowedGrades,
   onUpdateTeacher, onTeacherLogout, onMonitorLogout,
 }) {
   const activeTeacher = loggedInTeacher || viewedTeacher || null;
@@ -3034,7 +3034,10 @@ function TeacherZoneWorkspace({
         {plannerOwner && <button type="button" onClick={() => setWorkspaceMode("planner")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "planner" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><CalendarDays size={15} /> 내 일정</button>}
         {(activeTeacher || loggedInAdmin) && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무</button>}
       </div>
-      <div style={teacherZoneWorkspaceStyles.gradeGroup}><span>작업 학년</span>{visibleGrades.map(item => <button key={item} type="button" onClick={() => setGrade(item)} style={{ ...teacherZoneWorkspaceStyles.gradeButton, ...(String(grade) === item ? teacherZoneWorkspaceStyles.gradeButtonActive : {}) }}>{item}학년</button>)}</div>
+      <div className="kd-scope-bar" style={teacherZoneWorkspaceStyles.gradeGroup}>
+        <ScopeGroup label="학년">{visibleGrades.map(item => <ScopeBtn key={item} active={String(grade) === item} onClick={() => setGrade(item)}>{item}학년</ScopeBtn>)}</ScopeGroup>
+        {setSemester && <SemesterScope semester={semester} setSemester={setSemester} />}
+      </div>
     </div>
     {workspaceMode === "home" && <TeacherZoneHome plannerOwner={plannerOwner} onOpenPlanner={() => setWorkspaceMode("planner")} calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseMock={canUseMock} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} canUseSeparation={separationEligible} isAdmin={!!loggedInAdmin} onOpen={openWorkspaceMode} onOpenMinimum={onOpenMinimum}  onEditProfile={onEditProfile} onOpenGrade={openGradeAt} workspaces={db?.teacherGradeWorkspaces} semester={semester} />}
     {visitedWorkspaceModes.includes("grades") && <div style={{ display: workspaceMode === "grades" ? "block" : "none" }} aria-hidden={workspaceMode !== "grades"}>
@@ -3248,9 +3251,7 @@ const teacherZoneWorkspaceStyles = {
   modeTabs: { display: "flex", gap: 4, flexWrap: "wrap" },
   modeButton: { display: "inline-flex", alignItems: "center", gap: 7, border: "1px solid transparent", borderRadius: 11, padding: "10px 15px", color: "var(--kdn-ink-soft)", background: "transparent", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 14.5, fontWeight: 850, cursor: "pointer" },
   modeButtonActive: { color: "var(--kdn-accent-text)", background: "var(--kdn-accent-soft)", borderColor: "var(--kdn-accent)", boxShadow: "inset 0 -3px 0 var(--kdn-accent)" },
-  gradeGroup: { display: "flex", alignItems: "center", gap: 5, color: "var(--kdn-muted)", fontSize: 13, fontWeight: 850 },
-  gradeButton: { border: "1px solid var(--kdn-control-line)", borderRadius: 999, padding: "7px 12px", color: "var(--kdn-ink-soft)", background: "var(--kdn-surface)", fontSize: 13, fontWeight: 850, cursor: "pointer" },
-  gradeButtonActive: { color: "var(--kdn-accent-ink)", background: "var(--kdn-accent)", borderColor: "var(--kdn-accent)" },
+  gradeGroup: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" },
 };
 
 function MegaNav(props) {
@@ -3906,7 +3907,7 @@ function TopBar({ tab, setTab, grade, setGrade, semester, setSemester, meta, onB
       const disabled = DISABLED_GRADES.includes(g) || permissionDisabled;
       return <ScopeBtn key={g} active={grade === g} disabled={disabled} onClick={() => setGrade(g)}>{g}학년{DISABLED_GRADES.includes(g) ? " (준비중)" : permissionDisabled ? " (권한없음)" : ""}</ScopeBtn>;
     })}</ScopeGroup>
-    <ScopeGroup label="학기"><ScopeBtn active={semester === "sem1"} onClick={() => setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={semester === "sem2"} onClick={() => setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>
+    <SemesterScope semester={semester} setSemester={setSemester} />
   </>;
   if (compact) return (
     <div style={{ ...styles.topbar, ...styles.topbarCompact }} className="no-print">
@@ -4026,8 +4027,10 @@ function AdminTemplateDownloads({ showToast }) {
   );
 }
 
-function ScopeGroup({ label, children }) { return <div style={styles.scopeGroup}><span style={styles.scopeLabel}>{label}</span><div style={styles.scopeBtnRow}>{children}</div></div>; }
-function ScopeBtn({ active, onClick, children, disabled }) { return <button onClick={disabled ? undefined : onClick} disabled={disabled} style={{ ...styles.scopeBtn, ...(active && !disabled ? styles.scopeBtnActive : {}), ...(disabled ? styles.scopeBtnDisabled : {}) }}>{children}</button>; }
+// 학년·학기 선택: 시간표·관리자·선생님 ZONE이 모두 이 부품을 씁니다(새 UI에서는 uiMode.js의 .kd-scope 묶음 버튼 모양).
+function ScopeGroup({ label, children }) { return <div className="kd-scope" role="group" aria-label={label} style={styles.scopeGroup}><span className="kd-scope-label" style={styles.scopeLabel}>{label}</span><div className="kd-scope-row" style={styles.scopeBtnRow}>{children}</div></div>; }
+function ScopeBtn({ active, onClick, children, disabled }) { return <button type="button" className="kd-scope-btn" aria-pressed={!!active && !disabled} onClick={disabled ? undefined : onClick} disabled={disabled} style={{ ...styles.scopeBtn, ...(active && !disabled ? styles.scopeBtnActive : {}), ...(disabled ? styles.scopeBtnDisabled : {}) }}>{children}</button>; }
+function SemesterScope({ semester, setSemester }) { return <ScopeGroup label="학기"><ScopeBtn active={semester === "sem1"} onClick={() => setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={semester === "sem2"} onClick={() => setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>; }
 function NavBtn({ active, onClick, icon, label }) { return <button onClick={onClick} style={{ ...styles.navBtn, ...(active ? styles.navBtnActive : {}) }}>{icon}<span>{label}</span></button>; }
 
 function EmptyState() { return <div style={styles.emptyBox}><Database size={28} color="#c4bfae" /><div style={{ fontWeight: 700, marginTop: 10 }}>등록된 데이터가 없습니다</div><div style={{ fontSize: 13, color: "#8a8578", marginTop: 4 }}>관리자 탭에서 이동수업 명단(엑셀)과 학급 시간표(PDF/한글/엑셀)를 업로드하면 조회가 가능해집니다.</div></div>; }
@@ -6007,7 +6010,7 @@ function AdminConsole(props) {
       <div className="admin-scope-sticky" style={styles.adminScopePanel}>
         <div style={styles.adminScopeIdentity}><Calendar size={16} /><div><b style={{ display: "block", fontSize: 11 }}>관리 범위</b><span style={{ display: "block", marginTop: 2, fontSize: 9.5, color: "#8a8578" }}>아래 선택은 모든 관리자 메뉴에 공통 적용됩니다.</span></div></div>
         <ScopeGroup label="학년">{GRADES.map(g => <ScopeBtn key={g} active={props.grade === g} disabled={DISABLED_GRADES.includes(g)} onClick={() => props.setGrade(g)}>{g}학년{DISABLED_GRADES.includes(g) ? " (준비중)" : ""}</ScopeBtn>)}</ScopeGroup>
-        <ScopeGroup label="학기"><ScopeBtn active={props.semester === "sem1"} onClick={() => props.setSemester("sem1")}>1학기</ScopeBtn><ScopeBtn active={props.semester === "sem2"} onClick={() => props.setSemester("sem2")}>2학기</ScopeBtn></ScopeGroup>
+        <SemesterScope semester={props.semester} setSemester={props.setSemester} />
         <div style={styles.adminScopeCaption}><span>현재</span><strong>{props.grade}학년 · {props.semester === "sem1" ? "1학기" : "2학기"}</strong></div>
       </div>
       <div className="kdn-admin-layout">
