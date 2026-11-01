@@ -512,8 +512,29 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
 }
 
 // 반 전체 중복 문장 찾기(복붙 세특 점검)
-function DuplicateModal({ entries, title, onClose, onPick }) {
-  const dups = useMemo(() => findDuplicateSentences(entries), [entries]);
+// 같은 문장 경고: 반 전체(위쪽 띠)와 지금 학생(학생 칸 위)
+function DupBanner({ dups, onOpen }) {
+  if (!dups.length) return null;
+  const same = dups.filter(item => !item.similar).length;
+  const similar = dups.length - same;
+  const people = new Set(dups.flatMap(item => item.people.map(p => p.sid))).size;
+  return <div className="krw-dupbar" role="alert">
+    <AlertTriangle size={20} />
+    <div><b>여러 학생에게 같은 문장이 들어가 있어요</b><span>{[same && `같은 문장 ${same}개`, similar && `비슷한 문장 ${similar}개`].filter(Boolean).join(" · ")} · 학생 {people}명 — 학생마다 다른 관찰 내용으로 바꿔 주세요.</span></div>
+    <button type="button" data-kdn-bare onClick={onOpen}>어떤 문장인지 보기</button>
+  </div>;
+}
+function DupStudentNote({ dups, sid, onPick }) {
+  const mine = dups.filter(item => item.people.some(p => p.sid === sid));
+  if (!mine.length) return null;
+  return <div className="krw-dupnote" role="alert">
+    <b><AlertTriangle size={15} /> 이 학생 글의 문장 {mine.length}개가 다른 학생과 {mine.every(item => item.similar) ? "비슷해요" : "같아요"}</b>
+    <ul>{mine.slice(0, 3).map((item, index) => <li key={index}><q>{item.sentence}</q><span>{item.people.filter(p => p.sid !== sid).map(p => <button key={p.sid} type="button" data-kdn-bare onClick={() => onPick(p.sid)}>{p.label}</button>)}</span></li>)}{mine.length > 3 && <li className="more">외 {mine.length - 3}개</li>}</ul>
+  </div>;
+}
+
+function DuplicateModal({ entries, dups: given = null, title, onClose, onPick }) {
+  const dups = useMemo(() => given || findDuplicateSentences(entries), [given, entries]);
   return <div className="krw-modal" role="dialog" aria-modal="true" onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div className="krw-modal-box krw-dup">
       <header><b><Search size={17} /> 같은 문장 점검 · {title}</b><button type="button" data-kdn-bare onClick={onClose}><X size={16} /></button></header>
@@ -627,6 +648,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const counts = { empty: students.filter(test.empty).length, over: students.filter(isOver).length, ...(check ? { issue: students.filter(isIssue).length } : {}) };
   const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (test[filter] || test.all)(s));
   const openStudent = id => { setSid(id); setView?.("student"); };
+  const dups = useMemo(() => findDuplicateSentences(students.map(s => ({ sid: s.sid, label: `${s.number}번`, text: HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n") }))), [students, rec.textOf]);
   const current = students.find(s => s.sid === sid);
   const order = shown.length ? shown : students;
   const idx = order.findIndex(s => s.sid === sid);
@@ -658,7 +680,8 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
       <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`생기부_${grade}-${cls}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업 파일</button>
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
-    {dupOpen && <DuplicateModal title={`${cls}반`} entries={students.map(s => ({ sid: s.sid, label: `${s.number}번`, text: HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n") }))} onPick={setSid} onClose={() => setDupOpen(false)} />}
+    {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
+    {dupOpen && <DuplicateModal title={`${cls}반`} dups={dups} onPick={setSid} onClose={() => setDupOpen(false)} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{HOMEROOM_AREAS.map(key => <col key={key} />)}</colgroup>
@@ -674,6 +697,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
           renderRight={s => <><span className="fill">{HOMEROOM_AREAS.map(key => <i key={key} style={{ "--c": AREA_COLOR[key] }} className={rec.textOf(s.sid, key).trim() ? "on" : ""} />)}</span>{check && <IssueDot text={HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n")} />}</>} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
+          <DupStudentNote dups={dups} sid={current.sid} onPick={setSid} />
           {HOMEROOM_AREAS.map(key => <Field key={key} label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={RECORD_AREAS[key].limit} check={check} rows={key === "career" ? 8 : 6} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />)}
         </section>}
         {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => RECORD_AREAS[key]?.limit || 1500} studentName={current.name} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
@@ -738,6 +762,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
   const counts = { empty: students.filter(test.empty).length, over: students.filter(isOver).length, ...(check ? { issue: students.filter(isIssue).length } : {}) };
   const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (test[filter] || test.all)(s));
   const openStudent = id => { setSid(id); setView?.("student"); };
+  const dups = useMemo(() => findDuplicateSentences(students.map(s => ({ sid: s.sid, label: book?.kind === "common" ? `${s.number}번` : `${s.class}-${s.number}`, text: totalOf(s) }))), [students, rec.textOf, rec.activities, book?.kind]); // eslint-disable-line react-hooks/exhaustive-deps
   const current = students.find(s => s.sid === sid);
   const order = shown.length ? shown : students;
   const idx = order.findIndex(s => s.sid === sid);
@@ -820,7 +845,8 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
       <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`과세특_${book?.subject}_${book?.target}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업 파일</button>
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
-    {dupOpen && <DuplicateModal title={`${book?.subject} ${book?.label}`} entries={students.map(s => ({ sid: s.sid, label: book?.kind === "common" ? `${s.number}번` : `${s.class}-${s.number}`, text: totalOf(s) }))} onPick={setSid} onClose={() => setDupOpen(false)} />}
+    {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
+    {dupOpen && <DuplicateModal title={`${book?.subject} ${book?.label}`} dups={dups} onPick={setSid} onClose={() => setDupOpen(false)} />}
     {rec.loaded && <ActivityManager activities={rec.activities} onChange={list => rec.edit("acts", list)} sources={sources} onImport={importFrom} onApplyAll={books.some(b => b.id !== book?.id && b.subject === book?.subject) ? applyAll : null} onStandards={setStdFor} standardsCount={act => act.std?.length || 0} />}
     {stdFor && <StandardsModal chosen={!!acts.find(a => a.id === stdFor)?.stdSub} grade={grade} semester={semester} subjectName={acts.find(a => a.id === stdFor)?.stdSub || book?.subject || ""} picked={acts.find(a => a.id === stdFor)?.std || []} title={acts.find(a => a.id === stdFor)?.name || "활동"} onSave={saveStandards} onClose={() => setStdFor(null)} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
@@ -839,6 +865,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
           renderRight={s => { const total = totalOf(s); const b = neisBytes(total); return <><span className="fill">{acts.slice(0, 6).map(act => <i key={act.id} style={{ "--c": actColor(acts, act.id) }} className={rec.textOf(s.sid, act.id).trim() ? "on" : ""} />)}</span><span className={`b${b > limit ? " over" : ""}`}>{b ? b.toLocaleString() : "-"}</span>{check && <IssueDot text={total} />}</>; }} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{who(current)}</b><small>{current.sid} · {book.subject}</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
+          <DupStudentNote dups={dups} sid={current.sid} onPick={setSid} />
           <div className="krw-budget-sticky"><TotalBudget acts={acts} texts={texts(current)} limit={limit} /></div>
           {acts.map((act, index) => <Field key={act.id} tag={`활동 ${index + 1}`} label={act.name} color={actColor(acts, act.id)} text={rec.textOf(current.sid, act.id)} limit={limit} share={{ total: neisBytes(totalOf(current)) }} check={check} rows={4} meta={rec.metaOf(current.sid, act.id)} onChange={value => rec.edit(`s|${current.sid}|${act.id}`, value)} />)}
           {(() => { const total = totalOf(current); return <div className="krw-total" data-tour="rw-total">
@@ -1173,6 +1200,24 @@ const CSS = `
 .krw-areacard{display:grid;gap:4px}.krw-total-line{display:flex;align-items:center;gap:8px;margin:0 6px;font-size:12.5px;font-weight:700;color:var(--kdn-muted,#8a8f99)}
 .krw-modal{position:fixed;inset:0;z-index:120;display:grid;place-items:center;padding:16px;background:rgba(15,18,26,.45)}
 .krw-modal-box{display:grid;gap:10px;width:min(640px,100%);padding:18px;border-radius:20px;background:var(--kdn-surface,#fff);box-shadow:0 24px 60px rgba(15,23,42,.3)}
+/* 같은 문장 경고 */
+.krw-dupbar{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:16px;border:1.5px solid #f2b56b;background:linear-gradient(135deg,#fff6e8,#fff1df);color:#7c3d06;box-shadow:0 6px 18px rgba(217,119,6,.12)}
+.krw-dupbar>svg{flex:none;color:#d97706}
+.krw-dupbar>div{flex:1;display:grid;gap:2px;min-width:0}.krw-dupbar b{font-size:15.5px;font-weight:800;color:#7c2d12}.krw-dupbar span{font-size:13px;line-height:1.5}
+.krw-dupbar button{flex:none;min-height:38px;padding:0 14px;border-radius:12px;border:0;background:#c2410c;color:#fff;font:inherit;font-size:13.5px;font-weight:800;cursor:pointer}
+.krw-dupbar button:hover{background:#9a3412}
+.krw-dupnote{display:grid;gap:6px;padding:10px 14px;border-radius:14px;border:1.5px solid #f2b56b;background:#fff7ed;color:#7c2d12}
+.krw-dupnote b{display:flex;align-items:center;gap:6px;font-size:14px;font-weight:800}.krw-dupnote b svg{color:#d97706}
+.krw-dupnote ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.krw-dupnote li{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13px;line-height:1.5}
+.krw-dupnote q{flex:1 1 240px;min-width:0;color:#3d2a1a}
+.krw-dupnote li span{display:flex;flex-wrap:wrap;gap:4px}
+.krw-dupnote li button{padding:1px 9px;border-radius:99px;border:1px solid #f2b56b;background:#fff;font:inherit;font-size:12px;font-weight:700;color:#9a3412;cursor:pointer}
+.krw-dupnote li.more{font-weight:700;color:#9a6b4a}
+[data-kd-ui="dark"] .krw-dupbar,[data-kd-ui="dark"] .krw-dupnote{background:rgba(217,119,6,.12);border-color:rgba(242,181,107,.45);color:#fcd9a8;box-shadow:none}
+[data-kd-ui="dark"] .krw-dupbar b,[data-kd-ui="dark"] .krw-dupnote b,[data-kd-ui="dark"] .krw-dupnote q{color:#fde7c7}
+[data-kd-ui="dark"] .krw-dupnote li button{background:transparent;color:#fcd9a8}
+@media (max-width:760px){.krw-dupbar{flex-wrap:wrap}.krw-dupbar button{width:100%}}
 /* 2022 성취기준 */
 .krw-std-btn{display:inline-flex;align-items:center;gap:6px;min-height:38px;margin-left:auto;padding:0 14px 0 11px;border-radius:99px;border:1px solid #c9d6ea;background:#f2f6fc;font:inherit;font-size:13.5px;font-weight:800;color:#2f4b7c;cursor:pointer}
 .krw-std-btn:hover{border-color:#5b7fbd;background:#e7eefa}
