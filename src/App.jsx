@@ -44,7 +44,7 @@ const AdminBackup = lazy(() => import("./AdminBackup.jsx"));
 const LessonStamps = lazy(() => import("./LessonStamps.jsx"));
 const RecordWriter = lazy(() => import("./RecordWriter.jsx"));
 import InstallPrompt from "./InstallPrompt.jsx";
-import { serverLogin, exchangeTicket, googleAuth, kakaoAuth, signOutAccount, takeAuthReturn, KAKAO_ERRORS, changePassword, verifySession, isLocalDev, submitTeacherSignup } from "./authClient.js";
+import { serverLogin, exchangeTicket, googleAuth, kakaoAuth, signOutAccount, takeAuthReturn, KAKAO_ERRORS, changePassword, verifySession, isLocalDev, submitTeacherSignup, saveAccountsOnServer, syncPublicAccounts, finishPasswordSealing } from "./authClient.js";
 import { HASHED_PW, isHashedPw, randomInitialPassword } from "./accountSecret.js";
 import { SocialLoginButtons, SocialLinkCard } from "./SocialLogin.jsx";
 const SusiNaviBetaAdmin = lazy(() => loadSusiNaviModule().then(module => ({ default: module.SusiNaviBetaAdmin })));
@@ -61,6 +61,16 @@ const DISABLED_GRADES = [];
 const LOGIN_SESSION_KEYS = { admin: "adminId", teacher: "teacherId", departments: "departmentId", monitors: "monitorId", classView: "classViewId", students: "studentId" };
 // 관리자 계정이 하나도 없을 때 서버의 첫 관리자(ADMIN_BOOTSTRAP_PASSWORD)로 들어온 경우의 화면용 계정(비밀번호 없음)
 const BOOTSTRAP_ADMIN = { id: "admin", name: "관리자" };
+// 계정 목록 읽기: 서버가 만든 공개용 목록(비밀번호 칸 없음)을 읽고, 아직 없으면 서버에 만들어 달라고 합니다.
+// 서버가 없을 때(개발 화면·옮기기 전)만 예전 원본을 읽습니다.
+async function readAccountsList(fallback) {
+  const missing = {};
+  const shown = await readStorage("kd_accounts_public", missing);
+  if (shown !== missing && shown && typeof shown === "object") return shown;
+  const synced = await syncPublicAccounts();
+  if (synced.status === "ok" && synced.data?.accounts) { finishPasswordSealing(synced); return synced.data.accounts; }
+  return readStorage("kd_accounts", fallback);
+}
 const SITE_TITLE = "광덕고 데이터베이스 [BETA]";
 const STUDENT_WORKSPACE_VIEWS = [
   ["grades", "성적 리포트"],
@@ -1250,7 +1260,7 @@ export default function App() {
         readStorage("kd_abbrev_1", {}),
         readStorage("kd_abbrev_2", {}),
         readStorage("kd_abbrev_3", {}),
-        readStorage("kd_accounts", { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] }),
+        readAccountsList({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] }),
         readStorage("kd_rooms", {}),
         readStorage("kd_notices", {}),
         readStorage("kd_materials", {}),
@@ -1475,7 +1485,7 @@ export default function App() {
   // 서버가 확인한 계정을 최신 계정 목록에서 찾아 로그인 상태로 만듭니다.
   const applyServerLogin = async ({ kind, id }) => {
     const unread = {};
-    const fresh = await readStorage("kd_accounts", unread);
+    const fresh = await readAccountsList(unread);
     let list = accountsRef.current;
     if (fresh !== unread && fresh && typeof fresh === "object") { list = { ...EMPTY_ACCOUNTS, ...fresh }; setAccounts(list); }
     const entries = list[kind] || [];
@@ -1549,8 +1559,13 @@ export default function App() {
     const base = options.base || accountsRef.current;
     let value = a;
     const unread = {};
-    const fresh = await readStorage("kd_accounts", unread);
+    const fresh = await readAccountsList(unread);
     if (fresh !== unread && fresh && typeof fresh === "object") value = mergeAccounts(base, a, { ...EMPTY_ACCOUNTS, ...fresh });
+    // 저장은 로그인 서버가 합니다(역할에 맞는 변경만 반영, 새 비밀번호는 암호화 보관).
+    const result = await saveAccountsOnServer(value);
+    if (result.status === "ok") { setAccounts({ ...EMPTY_ACCOUNTS, ...(result.data.accounts || {}) }); finishPasswordSealing(result); return true; }
+    if (result.status === "fail") { showToast(`실패했습니다. (${result.error})`, "error"); return false; }
+    if (!isLocalDev()) { showToast("로그인 서버에 연결하지 못해 계정을 저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.", "error"); return false; }
     const r = await writeStorage("kd_accounts", value);
     if (!r.ok) { showToast(`실패했습니다. (${r.error})`, "error"); return false; }
     setAccounts(value);
@@ -1564,7 +1579,7 @@ export default function App() {
       if (document.visibilityState === "hidden" || Date.now() - last < 30000) return;
       last = Date.now();
       const unread = {};
-      const fresh = await readStorage("kd_accounts", unread);
+      const fresh = await readAccountsList(unread);
       if (fresh === unread || !fresh || typeof fresh !== "object") return;
       setAccounts(current => (JSON.stringify(current) === JSON.stringify({ ...EMPTY_ACCOUNTS, ...fresh }) ? current : { ...EMPTY_ACCOUNTS, ...fresh }));
     };
