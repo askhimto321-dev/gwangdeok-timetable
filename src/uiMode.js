@@ -3022,6 +3022,14 @@ const SHARED_NEW_CSS = `
   @media (max-width:760px){.kdn-recdl{margin:0;padding:12px 14px;border-radius:18px}.kdn-recdl ol{width:100%}.kdn-recdl li{flex:1;min-width:0}.kdn-recdl button{width:100%;justify-content:center}}
   /* 학년·학기 선택(시간표·관리자·선생님 ZONE 공통): 묶음 버튼, 고른 칸은 진하게 */
 .kd-scope{display:inline-flex!important;align-items:center!important;gap:8px!important}
+.kd-tcard{display:grid;gap:12px}
+.kd-tcard-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;border-radius:12px;background:#f3f2ef}
+.kd-tcard-tabs button{display:grid;gap:1px;justify-items:start;min-width:0;padding:8px 12px;border:0;border-radius:9px;background:transparent;font:inherit;color:#5b606b;text-align:left;cursor:pointer}
+.kd-tcard-tabs button b{font-size:13.5px;font-weight:800}.kd-tcard-tabs button small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:#8a8f99}
+.kd-tcard-tabs button[aria-selected="true"]{background:#fff;color:#17181d;box-shadow:0 1px 4px rgba(20,24,33,.1)}.kd-tcard-tabs button[aria-selected="true"] small{color:#c2410c}
+.kd-tcard-body{display:grid;gap:4px}
+[data-kd-ui="dark"] .kd-tcard-tabs{background:rgba(255,255,255,.06)}[data-kd-ui="dark"] .kd-tcard-tabs button{color:#b7bcc6}[data-kd-ui="dark"] .kd-tcard-tabs button[aria-selected="true"]{background:rgba(255,255,255,.1);color:#fff}
+@media (max-width:640px){.kd-tcard-tabs button small{display:none}}
 .kd-scope-label{font-size:12.5px!important;font-weight:800!important;color:var(--kdn-muted)!important;white-space:nowrap}
 .kd-scope-row{display:inline-flex!important;gap:2px!important;padding:3px;border-radius:12px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line)}
 .kd-scope-btn{min-height:32px;border:0!important;border-radius:9px!important;padding:0 13px!important;background:transparent!important;color:var(--kdn-ink-soft)!important;font-size:13.5px!important;font-weight:800!important;white-space:nowrap;cursor:pointer;transition:background .15s,color .15s}

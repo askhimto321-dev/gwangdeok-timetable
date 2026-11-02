@@ -243,7 +243,7 @@ const issueLine = text => { const list = checkRecordText(text); return list.leng
 function PrintMenu({ onPick, scopes, busy }) {
   const [open, setOpen] = useState(false);
   return <div className="krw-menu">
-    <button type="button" data-kdn-bare onClick={() => setOpen(value => !value)} disabled={busy} title="인쇄 · PDF · 엑셀로 뽑기"><Printer size={15} /> 인쇄·엑셀</button>
+    <button type="button" data-kdn-bare onClick={() => setOpen(value => !value)} disabled={busy} title="인쇄 · PDF · 엑셀로 뽑기" className="sec"><Printer size={15} /><span className="lb">인쇄·엑셀</span></button>
     {open && <div className="krw-menu-pop" onMouseLeave={() => setOpen(false)}>
       {scopes.map(([key, label]) => <div key={key} className="row"><span>{label}</span><button type="button" data-kdn-bare onClick={() => { setOpen(false); onPick(key, "print"); }}><Printer size={13} /> 인쇄·PDF</button><button type="button" data-kdn-bare onClick={() => { setOpen(false); onPick(key, "xlsx"); }}><FileSpreadsheet size={13} /> 엑셀</button></div>)}
       <small>PDF는 인쇄 창에서 '대상: PDF로 저장'을 고르면 돼요.</small>
@@ -698,7 +698,7 @@ function PasteModal({ students, title, onApply, onClose }) {
 // 거름: 전체 · 덜 쓴 학생 · 한도 넘음 · 점검 필요 (건수가 0인 거름은 흐리게)
 function Progress({ done, total, filter, setFilter, counts = {} }) {
   const pct = total ? Math.round((done / total) * 100) : 0;
-  const chips = [["all", "전체", total], ["empty", "덜 쓴 학생", counts.empty], ["over", "한도 넘음", counts.over], ["issue", "점검 필요", counts.issue], ["event", "행사 미확인", counts.event]].filter(([, , n]) => n !== undefined);
+  const chips = [["all", "전체", total], ["empty", "덜 쓴 학생", counts.empty], ["over", "한도 넘음", counts.over], ["issue", "점검 필요", counts.issue], ["event", "행사 미확인", counts.event]].filter(([key, , n]) => n !== undefined && (key === "all" || n > 0 || filter === key)); // 0명인 거르기는 숨겨 한 줄에
   return <div className="krw-progress"><span>작성 <b>{done}</b> / {total}명</span><i><em style={{ width: `${pct}%` }} /></i>
     <span className="krw-filter" role="group" aria-label="학생 거르기">{chips.map(([key, label, n]) => <button key={key} type="button" data-kdn-bare aria-pressed={filter === key} className={`${key !== "all" && !n ? "is-zero" : ""} f-${key}`} onClick={() => setFilter(filter === key ? "all" : key)}>{label}{key !== "all" && <span className="n">{n}</span>}</button>)}</span></div>;
 }
@@ -770,7 +770,7 @@ function IssueMini({ issues }) {
 // ── 학급담임 ───────────────────────────────────────────────────────────────
 // ── 학교 행사 특기사항(부서별 취합 파일) ───────────────────────────────────
 // 학년마다 한 곳에 모아 두고(kd_rec_events_v1_연도_학년), 담임은 학생별로 자율·진로 칸 아래에서 골라 넣어요.
-// 학생별 확인 상태는 반 생기부 자료에 's|학번|ev:행사키' = "in"(넣음) · "out"(안 넣음)으로 저장해요.
+// 학생별 확인 상태는 반 생기부 자료에 's|학번|ev:행사키' = "in"(반영함) · "out"(뺌)으로 저장해요.
 const eventDocKey = (year, grade) => `kd_rec_events_v1_${year}_${grade}`;
 function useEventDoc(year, grade) {
   const key = eventDocKey(year, grade);
@@ -842,12 +842,24 @@ function EventAdmin({ year, grade, rosterFor, by, showToast, canManage }) {
     <section className="krw-card"><h4>올린 파일</h4>
       {(ev.doc.files || []).length ? <ul className="krw-evf-files">{ev.doc.files.map(file => <li key={file.id}><FileSpreadsheet size={14} /><span><b>{file.name}</b><small>{file.count}건 · {file.by ? `${file.by} · ` : ""}{new Date(file.at).toLocaleDateString("ko-KR")}</small></span>{canManage && <button type="button" data-kdn-bare onClick={() => remove(file)} aria-label="빼기" title="이 파일에서 불러온 특기사항 빼기"><Trash2 size={13} /></button>}</li>)}</ul> : <p className="none">아직 올린 파일이 없어요.</p>}
     </section>
-    <section className="krw-card"><h4>반별 확인 현황 <small>담임이 '넣음' 또는 '안 넣음'으로 표시한 학생 수 / 대상 학생 수</small></h4>
+    <section className="krw-card"><h4>반별 확인 현황 <small>담임이 '반영함' 또는 '뺌'으로 확인한 학생 수 / 대상 학생 수</small></h4>
       {events.length ? <div className="krw-table-wrap"><table className="krw-evf-tbl is-wide"><thead><tr><th>행사</th><th>영역</th>{classes.map(c => <th key={c}>{c}반</th>)}<th>합계</th></tr></thead>
         <tbody>{events.map(({ item, total, done, byClass }) => <tr key={item.eventKey}><td><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}</td><td><span className={`krw-refl-tag is-${item.area}`}>{RECORD_AREAS[item.area].short}</span></td>
           {classes.map(c => { const cell = byClass[c]; return <td key={c} className={!cell ? "na" : cell.done < cell.total ? "is-left" : "is-done"}>{cell ? `${cell.done}/${cell.total}` : "·"}</td>; })}
           <td className={done < total ? "is-left" : "is-done"}><b>{done}/{total}</b></td></tr>)}</tbody></table></div> : <p className="none">불러온 행사 특기사항이 없어요.</p>}
     </section>
+  </div>;
+}
+// '학년 자료' 탭: 학년 단위로 모아 쓰는 자료(행사 세특 취합 파일 · 2학년부 활동 배정·소감문)를 한곳에서
+function GradeDataTab({ legacy, events }) {
+  const [part, setPart] = useState(() => { try { return localStorage.getItem("kd_rec_grade_part") === "legacy" && legacy ? "legacy" : "events"; } catch { return "events"; } });
+  const pick = value => { setPart(value); try { localStorage.setItem("kd_rec_grade_part", value); } catch { /* 편의 기능 */ } };
+  return <div className="krw-body">
+    {legacy && <div className="krw-gdseg" role="tablist">
+      <button type="button" data-kdn-bare role="tab" aria-selected={part === "events"} onClick={() => pick("events")}><CalendarCheck size={15} /><span><b>행사 세특</b><small>부서 취합 파일 올리기 · 반별 확인 현황</small></span></button>
+      <button type="button" data-kdn-bare role="tab" aria-selected={part === "legacy"} onClick={() => pick("legacy")}><Users size={15} /><span><b>2학년부 활동·소감문</b><small>활동 배정 · 학생 소감문 파일</small></span></button>
+    </div>}
+    {part === "legacy" && legacy ? legacy : events}
   </div>;
 }
 function EventFilesModal({ ev, students, rec, grade, onClose }) {
@@ -856,37 +868,39 @@ function EventFilesModal({ ev, students, rec, grade, onClose }) {
   (ev.doc.items || []).filter(item => sids.has(item.sid)).forEach(item => { const row = events.get(item.eventKey) || { item, total: 0, done: 0 }; row.total += 1; if (rec.textOf(item.sid, evStatusKey(item))) row.done += 1; events.set(item.eventKey, row); });
   return createPortal(<div className="krw krw-modal" role="dialog" aria-modal="true" aria-label="행사 특기사항" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div className="krw-modal-box krw-evf">
     <header><b><CalendarCheck size={17} /> 행사 특기사항</b><button type="button" data-kdn-bare onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
-    <p>행사 특기사항 파일은 위쪽 <b>'행사 세특'</b> 탭에서 학년 단위로 올리고 관리해요. 여기서는 우리 반 학생들의 확인 현황을 봐요.</p>
+    <p>행사 특기사항 파일은 위쪽 <b>'학년 자료 → 행사 세특'</b>에서 학년 단위로 올리고 관리해요. 여기서는 우리 반 학생들의 확인 현황을 봐요.</p>
     <h4>우리 반 행사별 확인</h4>
     {events.size ? <table className="krw-evf-tbl"><thead><tr><th>행사</th><th>영역</th><th>대상</th><th>확인</th></tr></thead><tbody>{Array.from(events.values()).map(({ item, total, done }) => <tr key={item.eventKey} className={done < total ? "is-left" : ""}><td><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}</td><td>{RECORD_AREAS[item.area].short}</td><td>{total}명</td><td>{done}/{total}</td></tr>)}</tbody></table> : <p className="none">우리 반 학생의 행사 특기사항이 아직 없어요.</p>}
   </div></div>, document.body);
 }
+// 학생 한 명의 행사 특기사항: 하나씩 '칸에 넣기'(넣고 반영 표시) 또는 '빼기'(이 학생은 안 씀). 표시는 되돌릴 수 있어요.
 function EventBox({ items, rec, sid, area }) {
   const readOnlyView = useContext(ReadOnlyContext);
-  const [pick, setPick] = useState({});
   const [open, setOpen] = useState({});
-  useEffect(() => { setPick({}); setOpen({}); }, [sid]);
+  useEffect(() => { setOpen({}); }, [sid]);
   if (!items.length) return null;
   const status = item => rec.textOf(sid, evStatusKey(item));
-  const setStatus = (item, value) => rec.edit(`s|${sid}|${evStatusKey(item)}`, status(item) === value ? "" : value);
-  const left = items.filter(item => !status(item)).length;
-  const picked = items.filter(item => pick[item.eventKey]);
-  const putPicked = () => {
-    const before = rec.textOf(sid, area).trim();
-    const add = picked.map(item => item.text.trim()).join(" ");
-    rec.edit(`s|${sid}|${area}`, before ? `${before} ${add}` : add);
-    picked.forEach(item => rec.edit(`s|${sid}|${evStatusKey(item)}`, "in"));
-    setPick({});
+  const mark = (item, value) => rec.edit(`s|${sid}|${evStatusKey(item)}`, value);
+  const field = rec.textOf(sid, area);
+  const insert = list => {
+    const add = list.map(item => item.text.trim()).filter(text => !field.includes(text)).join(" ");
+    if (add) rec.edit(`s|${sid}|${area}`, field.trim() ? `${field.trim()} ${add}` : add);
+    list.forEach(item => mark(item, "in"));
   };
-  return <div className={`krw-evbox${left ? " has-left" : ""}`}>
-    <div className="hd"><CalendarCheck size={14} /><b>행사 특기사항 {items.length}</b><span>{left ? <em>확인 안 함 {left}</em> : <i><Check size={12} /> 모두 확인</i>}</span></div>
-    <ul>{items.map(item => { const st = status(item); return <li key={item.eventKey} className={st ? `is-${st}` : ""}>
-      <label className="pk" title="칸에 넣을 글로 고르기"><input type="checkbox" checked={!!pick[item.eventKey]} disabled={readOnlyView} onChange={() => setPick(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))} /></label>
-      <div className="body"><button type="button" data-kdn-bare className="ttl" onClick={() => setOpen(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))}><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}<small>{neisBytes(item.text).toLocaleString()} byte</small></button>
+  const left = items.filter(item => !status(item));
+  const label = RECORD_AREAS[area]?.short || "";
+  return <div className={`krw-evbox${left.length ? " has-left" : ""}`}>
+    <div className="hd"><CalendarCheck size={14} /><b>행사 특기사항</b><span>{left.length ? <em>확인할 행사 {left.length}개</em> : <i><Check size={12} /> 모두 확인했어요</i>}</span>
+      {left.length > 1 && !readOnlyView && <button type="button" data-kdn-bare className="krw-mini" onClick={() => insert(left)}>남은 {left.length}개 모두 넣기</button>}</div>
+    <ul>{items.map(item => { const st = status(item); const inField = field.includes(item.text.trim()); return <li key={item.eventKey} className={st ? `is-${st}` : ""}>
+      <div className="body"><button type="button" data-kdn-bare className="ttl" onClick={() => setOpen(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))} title="눌러서 전체 글 보기"><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}<small>{neisBytes(item.text).toLocaleString()} byte</small></button>
         <p className={open[item.eventKey] ? "is-open" : ""}>{item.text}</p></div>
-      <div className="st" role="group" aria-label="확인"><button type="button" data-kdn-bare aria-pressed={st === "in"} onClick={() => setStatus(item, "in")} title="칸에 넣었어요(반영)">넣음</button><button type="button" data-kdn-bare aria-pressed={st === "out"} onClick={() => setStatus(item, "out")} title="이 학생은 넣지 않기로 했어요">안 넣음</button></div>
+      <div className="act">{readOnlyView ? null : !st ? <>
+          <button type="button" data-kdn-bare className="go" onClick={() => insert([item])} title={`${label} 칸 끝에 이 글을 넣고 '반영함'으로 표시`}><ChevronLeft size={13} style={{ transform: "rotate(-90deg)" }} /> 칸에 넣기</button>
+          <button type="button" data-kdn-bare className="skip" onClick={() => mark(item, "out")} title="이 학생은 이 행사를 쓰지 않아요">빼기</button></>
+        : <><span className={`tag is-${st}`}>{st === "in" ? <><Check size={12} /> 반영함</> : "뺌"}</span>{st === "in" && !inField && <small className="warn" title="표시는 '반영함'인데 칸에 이 글이 없어요(고쳐 썼다면 괜찮아요)">칸에 원문 없음</small>}
+          <button type="button" data-kdn-bare className="undo" onClick={() => mark(item, "")} title="확인 표시만 지워요(칸의 글은 그대로)">되돌리기</button></>}</div>
     </li>; })}</ul>
-    {picked.length > 0 && <div className="ft"><span>고른 {picked.length}개 · {neisBytes(picked.map(item => item.text).join(" ")).toLocaleString()} byte</span><button type="button" data-kdn-bare className="krw-btn pri" onClick={putPicked}><ChevronLeft size={13} style={{ transform: "rotate(90deg)" }} /> 칸 끝에 넣고 '넣음' 표시</button></div>}
   </div>;
 }
 
@@ -947,9 +961,9 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
       <SaveBadge rec={rec} />
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={saveNow} disabled={!Object.keys(rec.pending).length || rec.status === "saving"}><Save size={15} /> 지금 저장</button>
       <PrintMenu onPick={output} scopes={[["student", "지금 학생"], ["class", `${cls}반 전체`]]} />
-      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setEvOpen(true)} title="부서별 행사 특기사항 취합 파일 올리기 · 반 확인 현황"><CalendarCheck size={15} /> 행사 세특{classEvents > 0 && <em className="krw-cnt">{students.filter(test.event).length || "✓"}</em>}</button>
-      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setDupOpen(true)} title="여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /> 같은 문장</button>
-      <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`생기부_${grade}-${cls}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업</button>
+      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setEvOpen(true)} title="부서별 행사 특기사항 취합 파일 올리기 · 반 확인 현황"><CalendarCheck size={15} /> 행사{classEvents > 0 && <em className="krw-cnt">{students.filter(test.event).length || "✓"}</em>}</button>
+      <button type="button" data-kdn-bare className="krw-btn sec" onClick={() => setDupOpen(true)} title="같은 문장 점검: 여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /><span className="lb">같은 문장</span></button>
+      <button type="button" data-kdn-bare className="krw-btn sec" title="백업: 이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`생기부_${grade}-${cls}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /><span className="lb">백업</span></button>
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
@@ -1123,8 +1137,8 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
       <SaveBadge rec={rec} />
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={saveNow} disabled={!Object.keys(rec.pending).length || rec.status === "saving"}><Save size={15} /> 지금 저장</button>
       <PrintMenu busy={busy} onPick={output} scopes={[["student", "지금 학생"], ["class", `${book?.label || "이 반"} 전체`], ["all", "담당 반 전체"]]} />
-      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setDupOpen(true)} title="여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /> 같은 문장</button>
-      <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`과세특_${book?.subject}_${book?.target}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업</button>
+      <button type="button" data-kdn-bare className="krw-btn sec" onClick={() => setDupOpen(true)} title="같은 문장 점검: 여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /><span className="lb">같은 문장</span></button>
+      <button type="button" data-kdn-bare className="krw-btn sec" title="백업: 이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`과세특_${book?.subject}_${book?.target}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /><span className="lb">백업</span></button>
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
@@ -1277,8 +1291,8 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
   }, [subjectTeacher, db?.roster, db?.enrollments, grade, semester, rosterFor]);
 
   const canHomeroom = isAdmin || !!teacher?.homeroomClass;
-  const tabs = [canHomeroom && ["homeroom", "학급담임", "자율·자치 · 진로 · 행발"], ["subject", "교과담임", "반·분반별 과세특"], ["check", "점검", "엑셀 올려 한 번에 점검"], ["events", "행사 세특", "부서 취합 파일 · 반별 확인"], legacy && ["legacy", "2학년부 자료", "활동 배정 · 소감문"]].filter(Boolean);
-  const [tab, setTab] = useState(() => { try { const saved = localStorage.getItem("kd_rec_tab_v1"); return tabs.some(t => t[0] === saved) ? saved : tabs[0][0]; } catch { return tabs[0][0]; } });
+  const tabs = [canHomeroom && ["homeroom", "학급담임", "자율·자치 · 진로 · 행발"], ["subject", "교과담임", "반·분반별 과세특"], ["check", "점검", "엑셀 올려 한 번에 점검"], ["grade", "학년 자료", legacy ? "행사 세특 · 활동 배정 · 소감문" : "행사 세특 · 반별 확인"]].filter(Boolean);
+  const [tab, setTab] = useState(() => { try { const raw = localStorage.getItem("kd_rec_tab_v1"); const saved = raw === "events" || raw === "legacy" ? "grade" : raw; return tabs.some(t => t[0] === saved) ? saved : tabs[0][0]; } catch { return tabs[0][0]; } });
   const [view, setView] = useState("student"); // 들어올 때는 늘 학생별 보기로 시작
   const [lastScope, setLastScope] = useState(""); // 점검 탭 기본 반: 마지막으로 연 담임 반 또는 과목·반
   const checkScopes = useMemo(() => [
@@ -1315,22 +1329,22 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
       <div className="t"><b>생기부 업무 <span className="krw-scope-pill">{grade}학년 · {semester === "sem2" ? "2학기" : "1학기"}</span></b><small>칸마다 자동 저장 · 나이스 바이트 계산 · 2026 기재요령 점검 · 학년·학기는 위쪽에서 바꿔요</small></div>
       <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
     </header>
-    {tab !== "legacy" && <TourGuide id="records-v2" steps={TOUR_STEPS} startToken={tourToken} />}
+    {tab !== "grade" && <TourGuide id="records-v2" steps={TOUR_STEPS} startToken={tourToken} />}
     {stdOpen && <StandardsModal grade={grade} semester={semester} subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
-    {tab !== "legacy" && tab !== "check" && tab !== "events" && <div className="krw-opts">
+    {tab !== "grade" && tab !== "check" && <div className="krw-opts">
       <div className="krw-views" role="group" aria-label="보는 형태" data-tour="rw-views">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => setView(key)}><Icon size={15} /> {label}</button>)}</div>
       <button type="button" data-kdn-bare data-tour="rw-check" className={`krw-check${check ? " is-on" : ""}`} aria-pressed={check} onClick={() => setCheck(value => !value)}>{check ? <Eye size={15} /> : <EyeOff size={15} />} 기재요령 점검 {check ? "켜짐" : "꺼짐"}</button>
       <button type="button" data-kdn-bare className="krw-std-btn" onClick={() => setStdOpen(true)} title="2022 개정 교육과정 과목별 성취기준 찾아보기"><ListChecks size={16} /><span>2022 성취기준</span></button>
       <button type="button" data-kdn-bare data-tour="rw-help" className="krw-help-btn" onClick={() => setHelpOpen(true)} title="생기부 작성 가이드라인 · 단계별 안내" aria-label="가이드라인"><HelpCircle size={18} /><span>가이드라인</span></button>
       {tab === "subject" && isAdmin && !teacher && <select className="krw-teacher" value={pickedTeacherId} onChange={event => setPickedTeacherId(event.target.value)} aria-label="선생님"><option value="">선생님 고르기</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
     </div>}
-    {tab === "events" && <EventAdmin year={year} grade={hrGrade} rosterFor={rosterFor} by={by} showToast={showToast} canManage={isAdmin || ["gradeHead", "admin"].includes(String(teacher?.teacherRole || ""))} />}
+    {tab === "grade" && <GradeDataTab legacy={legacy} events={<EventAdmin year={year} grade={hrGrade} rosterFor={rosterFor} by={by} showToast={showToast} canManage={isAdmin || ["gradeHead", "admin"].includes(String(teacher?.teacherRole || ""))} />} />}
     {tab === "check" && <CheckWriter year={year} scopes={checkScopes} initialKey={lastScope} showToast={showToast} />}
     {tab === "homeroom" && <HomeroomWriter reflectionsBySid={reflectionsBySid} onScope={setLastScope} year={year} grade={hrGrade} classOptions={classOptions} rosterFor={rosterFor} by={by} view={view} setView={setView} check={check} showToast={showToast} />}
     {tab === "subject" && (isAdmin && !teacher && !subjectTeacher ? <div className="krw-empty"><Users size={20} /><b>세특을 볼 선생님을 골라 주세요.</b></div>
       : <SubjectWriter onScope={setLastScope} year={year} books={books} by={by} view={view} setView={setView} check={check} showToast={showToast} grade={grade} semester={semester} />)}
-    {tab === "legacy" && legacy}
+
   </div></ReadOnlyContext.Provider>;
 }
 
@@ -1507,16 +1521,23 @@ const CSS = `
 .krw-evbox{display:grid;gap:6px;margin:0;padding:10px 12px;border-radius:14px;border:1px solid color-mix(in srgb,#7c3aed 22%,var(--kdn-line,#e7e5e0));background:color-mix(in srgb,#7c3aed 4%,var(--kdn-surface,#fff))}
 .krw-evbox .hd{display:flex;align-items:center;gap:6px;color:#6d28d9;font-size:13px}.krw-evbox .hd b{font-weight:800}.krw-evbox .hd span{margin-left:auto;font-size:12px}.krw-evbox .hd em{font-style:normal;font-weight:800;color:#b45309}.krw-evbox .hd i{display:inline-flex;align-items:center;gap:3px;font-style:normal;font-weight:700;color:#15803d}
 .krw-evbox ul{display:grid;gap:4px;margin:0;padding:0;list-style:none}
-.krw-evbox li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:8px;padding:8px 10px;border-radius:10px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#ece9e3)}
-.krw-evbox li.is-in{border-color:color-mix(in srgb,#16a34a 35%,transparent)}.krw-evbox li.is-out{opacity:.6}
-.krw-evbox .pk input{margin:3px 0 0;width:16px;height:16px;accent-color:#7c3aed}
+.krw-evbox li{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:10px;padding:9px 12px;border-radius:10px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#ece9e3)}
+.krw-evbox li.is-in{border-color:color-mix(in srgb,#16a34a 35%,transparent);background:color-mix(in srgb,#16a34a 4%,var(--kdn-surface,#fff))}.krw-evbox li.is-out{opacity:.62}
+.krw-evbox .hd .krw-mini{margin-left:6px}
 .krw-evbox .body{display:grid;gap:3px;min-width:0}.krw-evbox .ttl{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;padding:0;border:0;background:transparent;font:inherit;color:inherit;text-align:left;cursor:pointer}.krw-evbox .ttl b{font-size:13.5px}.krw-evbox .ttl small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}
 .krw-evbox .body p{margin:0;font-size:12.5px;line-height:1.6;color:var(--kdn-ink-soft,#5b606b);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.krw-evbox .body p.is-open{display:block}
-.krw-evbox .st{display:flex;gap:2px;padding:2px;border-radius:9px;background:var(--kdn-surface-2,#f3f2ef)}.krw-evbox .st button{min-height:26px;padding:0 8px;border:0;border-radius:7px;background:transparent;font:inherit;font-size:12px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer;white-space:nowrap}
-.krw-evbox .st button[aria-pressed="true"]:first-child{background:#16a34a;color:#fff}.krw-evbox .st button[aria-pressed="true"]:last-child{background:#6b7280;color:#fff}
-.krw-evbox .ft{display:flex;align-items:center;gap:8px}.krw-evbox .ft span{flex:1;font-size:12.5px;font-weight:700;color:#6d28d9}.krw-evbox .ft .krw-btn{min-height:32px}
+.krw-evbox .act{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:4px;max-width:200px}
+.krw-evbox .act button{display:inline-flex;align-items:center;gap:3px;min-height:28px;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:12px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer;white-space:nowrap}
+.krw-evbox .act .go{border-color:transparent;background:#7c3aed;color:#fff}.krw-evbox .act .go:hover{background:#6d28d9}.krw-evbox .act .undo{border:0;background:transparent;text-decoration:underline;padding:0 4px}
+.krw-evbox .act .tag{display:inline-flex;align-items:center;gap:3px;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:800}.krw-evbox .act .tag.is-in{background:#dcfce7;color:#15803d}.krw-evbox .act .tag.is-out{background:#ececec;color:#6b7280}
+.krw-evbox .act .warn{font-size:11px;color:#b45309}
 .krw-evf{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto}.krw-evf h4{margin:4px 0 0;font-size:14px}.krw-evf .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
 .krw-evf-files{display:grid;gap:4px;margin:0;padding:0;list-style:none}.krw-evf-files li{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1px solid var(--kdn-line,#e7e5e0)}.krw-evf-files span{flex:1;display:grid;min-width:0}.krw-evf-files b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.krw-evf-files small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-files button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:8px;background:var(--kdn-surface-2,#f3f2ef);color:inherit;cursor:pointer}
+.krw-gdseg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:5px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
+.krw-gdseg button{display:flex;align-items:center;gap:10px;min-width:0;padding:10px 14px;border:0;border-radius:12px;background:transparent;font:inherit;color:var(--kdn-ink-soft,#5b606b);text-align:left;cursor:pointer}.krw-gdseg button span{display:grid;min-width:0}.krw-gdseg b{font-size:14px;font-weight:800}.krw-gdseg small{font-size:12px;color:var(--kdn-muted,#8a8f99);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.krw-gdseg button[aria-selected="true"]{background:#17181d;color:#fff}.krw-gdseg button[aria-selected="true"] small{color:rgba(255,255,255,.7)}
+@media (max-width:1560px){.krw-bar .sec .lb{display:none}.krw-bar .sec,.krw-bar .krw-menu>button.sec{padding:0 10px}.krw-progress i{width:60px}}
+.krw-bar .sec{gap:6px}
 .krw-evadmin-note{margin:0;padding:10px 14px;border-radius:14px;background:color-mix(in srgb,#7c3aed 6%,var(--kdn-surface,#fff));font-size:13px;line-height:1.6;color:var(--kdn-ink-soft,#5b606b)}
 .krw-evadmin .krw-card{display:grid;gap:8px;padding:14px 16px;border-radius:18px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}.krw-evadmin h4{margin:0;font-size:15px}.krw-evadmin h4 small{margin-left:8px;font-size:12px;font-weight:600;color:var(--kdn-muted,#8a8f99)}.krw-evadmin .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
 .krw-evf-tbl.is-wide td.is-left{color:#b45309;font-weight:800;background:color-mix(in srgb,#f59e0b 8%,transparent)}.krw-evf-tbl.is-wide td.is-done{color:#15803d;font-weight:700}.krw-evf-tbl.is-wide td.na{color:var(--kdn-line,#d6d3cc)}.krw-evf-tbl.is-wide th{white-space:nowrap;font-size:12px}

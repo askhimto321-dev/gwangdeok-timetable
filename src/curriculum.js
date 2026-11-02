@@ -100,10 +100,13 @@ export function officialSubjectName(label, grade, semester, year = schoolYearOf(
   if (!raw || !curriculumApplies(grade, year)) return raw;
   const candidates = curriculumSubjects(grade, semester);
   if (!candidates.length) return raw;
-  const scored = candidates.map(item => ({ name: item.name, score: matchScore(raw, item.name) })).filter(item => item.score > 0).sort((a, b) => b.score - a.score);
-  if (!scored.length) return raw;
-  if (scored.length > 1 && scored[1].score === scored[0].score) return raw;
-  return scored[0].name;
+  const pick = text => {
+    const scored = candidates.map(item => ({ name: item.name, score: matchScore(text, item.name) })).filter(item => item.score > 0).sort((a, b) => b.score - a.score);
+    if (!scored.length || (scored.length > 1 && scored[1].score === scored[0].score)) return "";
+    return scored[0].name;
+  };
+  // 시간표에 붙은 개정 연도·번호(예: '미창22')는 떼고 한 번 더 찾아요.
+  return pick(raw) || (/\d+$/.test(raw) && pick(raw.replace(/\d+$/, ""))) || raw;
 }
 
 // ↔ 로 학급마다 둘 중 하나를 듣는 과목 묶음(편제표 기준)
@@ -123,7 +126,8 @@ export function checkClassAgainstCurriculum(labels, grade, semester, year = scho
     const label = String(raw || "").trim();
     if (!label || NON_SUBJECT.test(label.replace(/\s+/g, ""))) return;
     const official = officialSubjectName(label, grade, semester, year);
-    const known = column.common.some(([name]) => name === official);
+    // 택N 과목도 학급 고정 수업으로 시간표에 들어갈 수 있어요(학점은 반마다 달라 시수는 보지 않음).
+    const known = column.common.some(([name]) => name === official) || column.electives.some(block => block.subjects.includes(official));
     if (!known) { unknown.add(label); return; }
     result.counts[official] = (result.counts[official] || 0) + 1;
   });
