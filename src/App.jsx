@@ -1297,10 +1297,10 @@ export default function App() {
         const savedLogin = JSON.parse(localStorage.getItem("kd_session") || "{}");
         if (Object.values(LOGIN_SESSION_KEYS).some(key => savedLogin[key])) {
           const check = await verifySession();
-          if (check.status === "ok") verifiedLogin = { kind: check.data.kind, id: String(check.data.id) };
+          if (check.status === "ok") verifiedLogin = { roles: (check.data.roles?.length ? check.data.roles : [{ kind: check.data.kind, id: check.data.id }]).map(r => ({ kind: r.kind, id: String(r.id) })) };
           else if (check.status === "unavailable" && isLocalDev()) {
-            const kind = Object.keys(LOGIN_SESSION_KEYS).find(key => savedLogin[LOGIN_SESSION_KEYS[key]]);
-            if (kind) verifiedLogin = { kind, id: String(savedLogin[LOGIN_SESSION_KEYS[kind]]) };
+            const roles = Object.keys(LOGIN_SESSION_KEYS).filter(key => savedLogin[LOGIN_SESSION_KEYS[key]]).map(key => ({ kind: key, id: String(savedLogin[LOGIN_SESSION_KEYS[key]]) }));
+            if (roles.length) verifiedLogin = { roles };
           }
           if (!verifiedLogin) {
             Object.values(LOGIN_SESSION_KEYS).forEach(key => { delete savedLogin[key]; });
@@ -1322,19 +1322,24 @@ export default function App() {
         try {
           const saved = JSON.parse(localStorage.getItem("kd_session") || "{}");
           if (verifiedLogin) {
-            const entries = normalizedAccounts[verifiedLogin.kind] || [];
-            const acc = entries.find(item => String(item?.id) === verifiedLogin.id) || (verifiedLogin.kind === "admin" && !entries.length && verifiedLogin.id === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null);
-            if (!acc) { try { localStorage.removeItem("kd_session"); } catch { /* ignore */ } }
-            else if (verifiedLogin.kind === "admin") setLoggedInAdmin(acc);
-            else if (verifiedLogin.kind === "teacher") setLoggedInTeacher(acc);
-            else if (verifiedLogin.kind === "departments") setLoggedInDepartment(acc);
-            else if (verifiedLogin.kind === "monitors") setLoggedInMonitor(acc);
-            else if (verifiedLogin.kind === "classView") setClassAuthed(true);
-            else if (verifiedLogin.kind === "students") {
-              const studentGrade = String(acc.id || "").charAt(0);
-              if (GRADES.includes(studentGrade)) setGrade(studentGrade);
-              setLoggedInStudent(acc);
-            }
+            let restored = 0;
+            verifiedLogin.roles.forEach(({ kind, id }) => {
+              const entries = normalizedAccounts[kind] || [];
+              const acc = entries.find(item => String(item?.id) === id) || (kind === "admin" && !entries.length && id === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null);
+              if (!acc) return;
+              restored += 1;
+              if (kind === "admin") setLoggedInAdmin(acc);
+              else if (kind === "teacher") setLoggedInTeacher(acc);
+              else if (kind === "departments") setLoggedInDepartment(acc);
+              else if (kind === "monitors") setLoggedInMonitor(acc);
+              else if (kind === "classView") setClassAuthed(true);
+              else if (kind === "students") {
+                const studentGrade = String(acc.id || "").charAt(0);
+                if (GRADES.includes(studentGrade)) setGrade(studentGrade);
+                setLoggedInStudent(acc);
+              }
+            });
+            if (!restored) { try { localStorage.removeItem("kd_session"); } catch { /* ignore */ } }
           }
           if (saved.selectedStudentSid) {
             setSelectedStudentSid(String(saved.selectedStudentSid));
@@ -1505,14 +1510,17 @@ export default function App() {
     return null;
   };
   // 서버가 확인한 계정을 최신 계정 목록에서 찾아 로그인 상태로 만듭니다.
-  const applyServerLogin = async ({ kind, id }) => {
+  // roles: 서버가 확인한 역할 모두(예: 관리자이면서 선생님). 첫 역할의 이름을 돌려줍니다.
+  const applyServerLogin = async ({ kind, id, roles }) => {
     const unread = {};
     const fresh = await readAccountsList(unread);
     let list = accountsRef.current;
     if (fresh !== unread && fresh && typeof fresh === "object") { list = { ...EMPTY_ACCOUNTS, ...fresh }; setAccounts(list); }
-    const entries = list[kind] || [];
-    const account = entries.find(item => String(item.id) === String(id)) || (kind === "admin" && !entries.length && String(id) === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null);
-    return activateAccount(kind, account) || { error: "계정 정보를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요." };
+    const findIn = (k, i) => { const entries = list[k] || []; return entries.find(item => String(item.id) === String(i)) || (k === "admin" && !entries.length && String(i) === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null); };
+    const all = Array.isArray(roles) && roles.length ? roles : [{ kind, id }];
+    const others = all.filter(r => !(r.kind === kind && String(r.id) === String(id)));
+    others.forEach(r => activateAccount(r.kind, findIn(r.kind, r.id)));
+    return activateAccount(kind, findIn(kind, id)) || { error: "계정 정보를 불러오지 못했습니다. 새로고침 후 다시 시도해주세요." };
   };
   // 로그인 서버 없이 화면에서 확인하는 예전 방식은 개발 화면(내 컴퓨터)에서만 씁니다.
   const localLogin = (id, pw) => {

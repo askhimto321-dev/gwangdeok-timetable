@@ -5,10 +5,10 @@ import { requireSession } from "../lib/session.mjs";
 
 export default handle(async req => {
   const body = await readJson(req);
-  const { kind, id } = await requireSession(body.session);
+  const { kind, id, extras } = await requireSession(body.session);
   // Firebase 계정 로그인도 새로 줍니다(자료 보안 규칙이 계정 로그인을 확인). 세션 토큰은 그대로 둡니다.
-  const { firebaseToken } = await issueLogin(kind, id);
-  return json({ ok: true, kind, id, firebaseToken });
+  const { firebaseToken, roles, tokenKind } = await issueLogin(kind, id, extras);
+  return json({ ok: true, kind, id, roles, tokenKind, firebaseToken });
 });
 
 export const config = { path: "/api/auth/session" };

@@ -36,7 +36,8 @@ async function finish(result) {
   return result;
 }
 
-export const serverLogin = (id, pw) => call("login", { id, pw }).then(finish);
+// 이미 로그인해 있던 역할(세션)도 함께 보내서, 다른 역할로 또 로그인하면 두 역할이 함께 켜집니다.
+export const serverLogin = (id, pw) => call("login", { id, pw, session: getAuthSession() }).then(finish);
 // 새로고침 때 로그인 상태를 되살려도 되는지 서버에 확인(6초 안에 답이 없으면 '서버 없음')
 export async function verifySession() {
   const session = getAuthSession();
@@ -45,7 +46,7 @@ export async function verifySession() {
   // Firebase 로그인이 이 계정이 아니면(익명·구글 등) 계정 로그인으로 맞춥니다.
   if (result.status === "ok" && result.data?.firebaseToken) {
     const current = getFirebaseAuth().currentUser;
-    const want = `${result.data.kind}.`;
+    const want = `${result.data.tokenKind || result.data.kind}.`;
     if (!current || current.isAnonymous || !String(current.uid || "").startsWith(want)) await useFirebaseToken(result.data.firebaseToken);
   }
   return result;
@@ -65,7 +66,7 @@ export async function finishPasswordSealing(result) {
 }
 // 개발 화면(내 컴퓨터)에서만 로그인 서버 없이 예전 방식 확인을 허용합니다.
 export const isLocalDev = () => { try { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname); } catch { return false; } };
-export const exchangeTicket = ticket => call("login", { ticket }).then(finish);
+export const exchangeTicket = ticket => call("login", { ticket, session: getAuthSession() }).then(finish);
 
 // 로그아웃: 세션 지우고 Firebase도 익명 상태로 되돌립니다.
 export async function signOutAccount() {
@@ -96,7 +97,7 @@ export async function googleAuth(mode) {
     if (/unauthorized-domain|operation-not-allowed/.test(code)) return { status: "fail", error: "구글 로그인 설정이 아직 끝나지 않았습니다." };
     return { status: "fail", error: "구글 로그인을 하지 못했어요. 앱 안 브라우저라면 크롬·사파리에서 열어주세요." };
   }
-  const result = await call("google", { idToken, mode, session: mode === "link" ? getAuthSession() : undefined });
+  const result = await call("google", { idToken, mode, session: getAuthSession() || undefined });
   if (mode === "login") return finish(result);
   // 연결만 했으면(성공·실패 모두) Firebase 로그인 상태를 원래 계정으로 되돌립니다.
   await verifySession().catch(() => null);
