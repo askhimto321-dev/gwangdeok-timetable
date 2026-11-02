@@ -153,8 +153,16 @@ export async function unlinkProvider(kind, id, provider) {
   });
 }
 
+// 학생·교과부장(학생) 계정 로그인: 학생 자료 분리(보안 3-2)가 끝날 때까지 기본으로 막아 둡니다.
+// 넷리파이 환경변수 STUDENT_LOGIN_OPEN=1 이면 다시 열립니다(코드 수정 없이).
+const STUDENT_KINDS = ["students", "monitors"];
+export function assertKindAllowed(kind) {
+  if (STUDENT_KINDS.includes(kind) && env("STUDENT_LOGIN_OPEN") !== "1") throw new HttpError(403, "학생 로그인은 보안 점검으로 잠시 쉬고 있어요. 담임 선생님께 문의해 주세요.");
+}
+
 // 로그인 성공 → 세션(이 사이트 서명)·Firebase 로그인 토큰
 export async function issueLogin(kind, id) {
+  assertKindAllowed(kind);
   const { signToken } = await import("./authCore.mjs");
   const session = signToken({ t: "s", k: kind, i: String(id), exp: Date.now() + 90 * 86400000 }, secret());
   let firebaseToken = null;

@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-03-a",
+    date: "2026-11-03",
+    title: "학생 로그인 잠시 중지",
+    items: [
+      { audience: "staff", text: "학생 자료를 학생 본인 것만 보이게 나누는 작업이 끝날 때까지 학생·교과부장 계정 로그인을 잠시 막았어요. 선생님·관리자 계정은 그대로예요." },
+    ],
+  },
+  {
     id: "2026-11-02-e",
     date: "2026-11-02",
     title: "로그인한 뒤에만 자료 불러오기",

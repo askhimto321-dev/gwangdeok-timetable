@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// KDTIME Firestore 보안 규칙 — 3단계 D
+// KDTIME Firestore 보안 규칙 — 3단계 E (학생·교과부장 계정은 학생 자료 분리 전까지 접근 금지)
 // - 읽기: 로그인 서버가 준 계정 로그인(custom)만 — 로그인 전 화면은 자료를 읽지 않습니다
 // - 저장: 로그인 서버가 준 계정 로그인(custom)만
 // - 계정 원본(kd_accounts)·그 조각·백업: 브라우저 접근 금지(서버만). 화면은 공개용 목록(kd_accounts_public)만 읽음
@@ -26,9 +26,12 @@ service cloud.firestore {
       function serverWritten() {
         return docId == 'kd_accounts_public' || docId.matches('kd_accounts_public__chunk__.*');
       }
-      // 아이디로 로그인한 계정(로그인 서버가 준 Firebase 토큰)
+      // 아이디로 로그인한 교직원 계정(로그인 서버가 준 Firebase 토큰, kdk = 계정 종류)
+      // 학생(students)·교과부장(monitors)은 학생 자료 분리(보안 3-2) 전까지 막습니다.
       function signedInAccount() {
-        return request.auth != null && request.auth.token.firebase.sign_in_provider == 'custom';
+        return request.auth != null
+          && request.auth.token.firebase.sign_in_provider == 'custom'
+          && !(request.auth.token.kdk in ['students', 'monitors']);
       }
       allow read: if signedInAccount() && !accountsPrivate();
       allow write: if signedInAccount() && !accountsPrivate() && !serverWritten();
