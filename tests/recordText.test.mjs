@@ -162,3 +162,12 @@ test("영역 한도: 학년별", async () => {
   assert.equal(areaLimit("career", "3", 2027), 1500);
   assert.equal(areaLimit("autonomy", "3", 2026), 1500);
 });
+test("문장 끝 확인: 겹받침 ㄻ 명사형(이끎·만듦)은 통과, 마침표 없음은 알림", async () => {
+  const { checkRecordText } = await import("../src/recordText.js");
+  const endIssue = text => checkRecordText(text).some(item => item.label === "문장 끝 확인" || item.type === "문장 끝 확인" || JSON.stringify(item).includes("문장 끝 확인"));
+  assert.equal(endIssue("모둠 활동이 원활히 이루어질 수 있도록 주도적으로 이끎."), false);
+  assert.equal(endIssue("실험 도구를 직접 만듦."), false);
+  assert.equal(endIssue("탐구 태도가 돋보임."), false);
+  assert.equal(endIssue("심화 학습을 지속하겠다고 밝힘"), true);
+  assert.equal(endIssue("관련 도서를 읽고 보고서를 작성."), true);
+});
