@@ -11,6 +11,7 @@
 
 # 로그인 서버(구글·카카오 연결, 비밀번호 확인): netlify/functions/*.mjs → /api/auth/*
 # 필요한 환경변수: FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY, KAKAO_REST_API_KEY, KAKAO_CLIENT_SECRET, SESSION_SECRET
+# (선택) STUDENT_LOGIN_OPEN=1: 학생·교과부장 로그인 다시 열기(보안 3-2 전까지 기본 막힘)
 # (선택) ADMIN_BOOTSTRAP_PASSWORD: 관리자 계정이 하나도 없을 때만 쓰는 첫 관리자(아이디 admin) 비밀번호, 12자 이상
 [functions]
   directory = "netlify/functions"
