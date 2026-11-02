@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-02-d",
+    date: "2026-11-02",
+    title: "생기부 학생 목록 잘림 수정",
+    items: [
+      { audience: "staff", text: "학생 목록 오른쪽 바이트·점검 표시가 잘리던 것을 고쳤고, 줄 높이를 줄여 한 화면에 더 많은 학생이 보여요." },
+    ],
+  },
+  {
     id: "2026-11-02-c",
     date: "2026-11-02",
     title: "계정 저장을 로그인 서버로",
