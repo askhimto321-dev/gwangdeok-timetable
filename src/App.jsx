@@ -14,7 +14,7 @@ import { parseQuickTodo } from "./teacherPlanner.js";
 import { readViewPrefs, saveViewPrefs, FONT_SCALES, DENSITIES } from "./viewPrefs.js";
 import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid, UserX, CalendarDays, Home as HomeIcon, User as UserIcon, Clock as ClockIcon, MoreHorizontal } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck, Archive } from "lucide-react";
-import { readStorage, writeStorage, updateStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
+import { readStorage, writeStorage, updateStorage, resetReadFailures, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi, rawColors } from "./uiMode.js";
 import { TILE_TONES } from "./counselVisuals.jsx";
 
@@ -183,6 +183,7 @@ export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevM
 }
 
 const EMPTY_ACCOUNTS = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] };
+const EMPTY_DB = { roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], siteAnnouncements: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {}, gradeDepartmentData: {} };
 const TEACHER_ROLE_LABELS = { homeroom: "학급담임", gradeHead: "학년부장", other: "교과담임" };
 function normalizeGradeAccessList(value) {
   const values = Array.isArray(value) ? value : (value ? [value] : []);
@@ -1186,7 +1187,7 @@ export default function App() {
   const [semester, setSemester] = useState(() => semesterForDate());
   // 업데이트 안내 팝업이 닫힌 뒤에 다른 안내 팝업(모의고사·성적 확인)을 띄웁니다.
   const [patchPopupDone, setPatchPopupDone] = useState(false);
-  const [db, setDb] = useState({ roster: {}, enrollments: {}, timetables: {}, meta: {}, roomNames: {}, announcements: {}, materials: {}, feedback: [], staffNotices: [], siteAnnouncements: [], teacherGradeWorkspaces: {}, minimumAchievementSettings: {}, minimumAchievementAttendance: {}, gradeDepartmentData: {} });
+  const [db, setDb] = useState(EMPTY_DB);
   const [gdb, setGdb] = useState(null); // 성적 데이터 (lazily loaded when first needed)
   const [abbrevMaps, setAbbrevMaps] = useState({});
   const [accounts, setAccounts] = useState({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] });
@@ -1250,39 +1251,46 @@ export default function App() {
     if (previousView !== nextView) restoreWorkspaceScroll(nextView);
   }, [rememberWorkspaceScroll, restoreWorkspaceScroll]);
 
+  // 앱 자료 불러오기: 로그인(서버가 확인한 계정)한 뒤에만 부릅니다. 로그인 전 화면은 자료를 읽지 않아요.
+  const loadAppData = useCallback(async () => {
+    resetReadFailures();
+    const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar, teacherSignups] = await Promise.all([
+      readStorage("kd_roster", {}),
+      readStorage("kd_enroll", {}),
+      readStorage("kd_tt", {}),
+      readStorage("kd_meta", {}),
+      readStorage("kd_abbrev_1", {}),
+      readStorage("kd_abbrev_2", {}),
+      readStorage("kd_abbrev_3", {}),
+      readAccountsList({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] }),
+      readStorage("kd_rooms", {}),
+      readStorage("kd_notices", {}),
+      readStorage("kd_materials", {}),
+      readStorage("kd_feedback", []),
+      readStorage("kd_staff_notices", []),
+      readStorage("kd_site_announcements", []),
+      readStorage("kd_teacher_grade_workspaces", {}),
+      readStorage("kd_minimum_achievement_settings", {}),
+      readStorage("kd_minimum_achievement_attendance", {}),
+      readStorage("kd_grade_department_data", {}),
+      readStorage("kd_academic_calendar", {}),
+      readStorage("kd_teacher_signups", []),
+    ]);
+    setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar: academicCalendar || {} });
+    setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
+    const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
+    // 서버가 받은 가입 신청(kd_teacher_signups)을 승인 대기 목록에 합칩니다(이미 계정이 된 아이디는 뺌).
+    if (Array.isArray(teacherSignups) && teacherSignups.length) {
+      const taken = new Set([...(normalizedAccounts.teacher || []), ...(normalizedAccounts.teacherPending || [])].map(item => String(item?.id)));
+      normalizedAccounts.teacherPending = [...(normalizedAccounts.teacherPending || []), ...teacherSignups.filter(item => item?.id && !taken.has(String(item.id)))];
+    }
+    setAccounts(normalizedAccounts);
+    return normalizedAccounts;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [dataLoaded, setDataLoaded] = useState(false);
+
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar, teacherSignups] = await Promise.all([
-        readStorage("kd_roster", {}),
-        readStorage("kd_enroll", {}),
-        readStorage("kd_tt", {}),
-        readStorage("kd_meta", {}),
-        readStorage("kd_abbrev_1", {}),
-        readStorage("kd_abbrev_2", {}),
-        readStorage("kd_abbrev_3", {}),
-        readAccountsList({ admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [] }),
-        readStorage("kd_rooms", {}),
-        readStorage("kd_notices", {}),
-        readStorage("kd_materials", {}),
-        readStorage("kd_feedback", []),
-        readStorage("kd_staff_notices", []),
-        readStorage("kd_site_announcements", []),
-        readStorage("kd_teacher_grade_workspaces", {}),
-        readStorage("kd_minimum_achievement_settings", {}),
-        readStorage("kd_minimum_achievement_attendance", {}),
-        readStorage("kd_grade_department_data", {}),
-        readStorage("kd_academic_calendar", {}),
-        readStorage("kd_teacher_signups", []),
-      ]);
-      setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar: academicCalendar || {} });
-      setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
-      const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
-      // 서버가 받은 가입 신청(kd_teacher_signups)을 승인 대기 목록에 합칩니다(이미 계정이 된 아이디는 뺌).
-      if (Array.isArray(teacherSignups) && teacherSignups.length) {
-        const taken = new Set([...(normalizedAccounts.teacher || []), ...(normalizedAccounts.teacherPending || [])].map(item => String(item?.id)));
-        normalizedAccounts.teacherPending = [...(normalizedAccounts.teacherPending || []), ...teacherSignups.filter(item => item?.id && !taken.has(String(item.id)))];
-      }
-      setAccounts(normalizedAccounts);
       // 새로고침 때 로그인 되살리기: 브라우저에 남은 기록만 믿지 않고 로그인 서버가 세션을 확인한 계정만 되살립니다.
       let verifiedLogin = null;
       try {
@@ -1301,6 +1309,11 @@ export default function App() {
           }
         }
       } catch { verifiedLogin = null; }
+      // 서버가 확인한 로그인이 있을 때만 자료를 불러옵니다.
+      let normalizedAccounts = { ...EMPTY_ACCOUNTS };
+      if (verifiedLogin) {
+        try { normalizedAccounts = await loadAppData(); setDataLoaded(true); } catch { verifiedLogin = null; }
+      }
       setLoading(false);
 
       // Restore login session (survives page refresh) — validate saved ids still exist.
@@ -1352,6 +1365,15 @@ export default function App() {
       }
     })();
   }, []);
+
+  // 로그인하면 그때 앱 자료를 불러옵니다(새로고침 복원은 위에서 이미 불러옴).
+  useEffect(() => {
+    const authenticated = Boolean(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor || classAuthed || loggedInStudent);
+    if (loading || !authenticated || dataLoaded) return undefined;
+    let alive = true;
+    loadAppData().catch(() => null).finally(() => { if (alive) setDataLoaded(true); });
+    return () => { alive = false; };
+  }, [loading, loggedInAdmin, loggedInTeacher, loggedInDepartment, loggedInMonitor, classAuthed, loggedInStudent, dataLoaded, loadAppData]);
 
   // 성적 DB도 인증 전에는 읽지 않습니다. 시간표나 로그인만 필요한 첫 화면의 네트워크·파싱
   // 경합을 줄이고, 로그인 직후 필요한 순간에 한 번만 불러옵니다.
@@ -1870,7 +1892,7 @@ export default function App() {
       else showToast(role?.error || "로그인하지 못했어요.", "error");
     });
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (loading) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
+  if (loading || (anyLoggedIn && !dataLoaded)) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   // 관리자 계정 전환(보기 모드): 비밀번호 없이 다른 계정 화면으로 들어갑니다. 메모리에만 두고
   // 로그인 기록(kd_session)은 관리자 그대로 둬서, 새로고침하면 관리자 화면으로 돌아옵니다.
@@ -1913,6 +1935,8 @@ export default function App() {
     setSection(null);
     signOutAccount();
     try { localStorage.removeItem("kd_session"); } catch { /* ignore */ }
+    // 공용 컴퓨터에 자료가 남지 않게 화면에 불러온 자료를 비웁니다(다음 로그인 때 다시 불러옴).
+    setDb(EMPTY_DB); setAbbrevMaps({}); setAccounts({ ...EMPTY_ACCOUNTS }); setGdb(null); setDataLoaded(false);
   };
   const activeSection = section || (isNewUi() ? "home" : "grades");
   // 탭 표시용 학생 화면: 시간표 화면에서만 '개인 시간표'를 켜고, 성적 화면인데 저장된 값이 시간표면 '성적 리포트'로 보여 줍니다.

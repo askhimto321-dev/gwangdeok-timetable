@@ -804,3 +804,5 @@ export async function deleteAdmissionPdf(identifier, bucketName = "") {
 // 로그인 서버(authClient.js)가 같은 Firebase 로그인 상태를 쓰도록 내보냅니다.
 export function getFirebaseAuth() { return auth; }
 export function resetAnonymousAuth() { anonymousAuthPromise = null; }
+// 로그인 전에 권한이 없어 못 읽은 자료가 있으면, 로그인 뒤에는 다시 읽고 저장할 수 있게 표시를 지웁니다.
+export function resetReadFailures() { failedReadKeys.clear(); }
