@@ -412,7 +412,7 @@ function StandardsTab({ targets, targetKey, setTarget, standardsFor, onPick, add
 const sidKey = value => String(value ?? "").replace(/\D/g, "");
 const memoCats = targets => [{ key: "memo", label: "공통" }, { key: "memo_att", label: "수업 태도" }, ...targets.map(t => ({ key: `memo_${t.key}`, label: t.label, target: t.key }))];
 
-function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {}, standardsFor = null, onPickStandards = null, reflections = null }) {
+function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {}, standardsFor = null, onPickStandards = null, reflections = null, focus = "" }) {
   const [tab, setTab] = useState("memo");
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -423,6 +423,8 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
   const showAll = catKey === "__all";
   const cat = cats.find(item => item.key === catKey) || cats[0];
   const [target, setTarget] = useState("");
+  // 학급담임에서 영역 탭(자율·진로·행발)을 고르면 누가기록 갈래·AI 쓸 칸·소감문도 그 영역으로 맞춰요.
+  useEffect(() => { if (focus && targets.some(t => t.key === focus)) { setCatKey(`memo_${focus}`); setTarget(focus); } }, [focus]); // eslint-disable-line react-hooks/exhaustive-deps
   const targetKey = targets.some(t => t.key === target) ? target : cat.target || targets[0]?.key || "";
   useEffect(() => { if (cat.target) setTarget(cat.target); }, [cat.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const memo = rec.textOf(sid, cat.key);
@@ -480,7 +482,7 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
       <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|${cat.key}`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button></>}
     </div> : tab === "std" && standardsFor ? <StandardsTab targets={targets} targetKey={targetKey} setTarget={setTarget} standardsFor={standardsFor} onPick={onPickStandards}
       addToMemo={item => { const key = `memo_${targetKey}`; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev && !prev.endsWith("\n") ? "\n" : ""}[성취기준] ${standardLine(item)}\n`); showToast?.(`'${targets.find(t => t.key === targetKey)?.label}' 누가기록에 넣었어요.`, "success"); }} />
-    : tab === "refl" ? <ReflectionPane items={reflections || []} studentLabel={studentLabel} targets={targets} rec={rec} sid={sid} putText={putText} showToast={showToast} />
+    : tab === "refl" ? <ReflectionPane focus={focus} items={reflections || []} studentLabel={studentLabel} targets={targets} rec={rec} sid={sid} putText={putText} showToast={showToast} />
     : tab === "ai" ? <AiHelper rec={rec} sid={sid} studentName={studentName} targets={targets} targetKey={targetKey} setTarget={setTarget} budgetFor={budgetFor} aiContext={aiContext} cats={cats} putText={putText} showToast={showToast} reflections={reflections} />
     : <div className="krw-files">
       <div className="up"><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "class"; inputRef.current.click(); }}>{uploading ? <Loader2 size={14} className="spin" /> : <Paperclip size={14} />} 반 공용 활동지 올리기</button><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "student"; inputRef.current.click(); }}><Paperclip size={14} /> 이 학생 자료</button>
@@ -518,9 +520,10 @@ function ExamplesPane({ subject, picked, onPick }) {
 
 const AI_URL_MAX = 6000; // 주소가 너무 길면 일부 브라우저·사이트에서 잘려서, 그보다 길면 빈 창만 열고 붙여넣기로 안내
 // 학생 소감문(2학년부 자료에서 불러옴): 활동 이름에 '진로'가 있으면 진로활동, 아니면 자율·자치활동 칸으로 안내해요.
-const reflArea = activity => (/진로/.test(activity || "") ? "career" : "autonomy");
-function ReflectionPane({ items, studentLabel, targets, rec, sid, putText, showToast }) {
-  const [area, setArea] = useState("all");
+const reflArea = activity => (/진로|따라\s*체험|직업|학과|전공|대학\s*탐방|멘토/.test(activity || "") ? "career" : "autonomy");
+function ReflectionPane({ items, studentLabel, targets, rec, sid, putText, showToast, focus = "" }) {
+  const [area, setArea] = useState(focus === "autonomy" || focus === "career" ? focus : "all");
+  useEffect(() => { setArea(focus === "autonomy" || focus === "career" ? focus : "all"); }, [focus]);
   const shown = items.filter(item => area === "all" || reflArea(item.activity) === area);
   const label = key => targets.find(t => t.key === key)?.label || key;
   const tagOf = item => `[소감문 · ${item.activity}${item.date ? ` ${item.date}` : ""}]`;
@@ -857,6 +860,9 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const [paste, setPaste] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
   const [evOpen, setEvOpen] = useState(false);
+  // 학생별 보기에서 한 번에 한 영역만(자율·자치 / 진로 / 행발). '모두'는 예전처럼 세 칸을 한 화면에.
+  const [focus, setFocusRaw] = useState(() => { try { const v = localStorage.getItem("kd_rec_hr_focus"); return ["autonomy", "career", "behavior", "all"].includes(v) ? v : "autonomy"; } catch { return "autonomy"; } });
+  const setFocus = value => { setFocusRaw(value); try { localStorage.setItem("kd_rec_hr_focus", value); } catch { /* 편의 기능 */ } };
   const ev = useEventDoc(year, grade);
   const eventsOf = (s, area) => (ev.bySid.get(s.sid) || []).filter(item => !area || item.area === area);
   const eventLeft = s => eventsOf(s).filter(item => !rec.textOf(s.sid, evStatusKey(item))).length;
@@ -922,10 +928,16 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           <DupStudentNote dups={dups} sid={current.sid} onPick={setSid} />
-          {HOMEROOM_AREAS.map(key => <React.Fragment key={key}><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={RECORD_AREAS[key].limit} check={check} rows={key === "career" ? 8 : 6} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
-            <EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /></React.Fragment>)}
+          <div className="krw-focus" role="tablist" aria-label="영역">{[...HOMEROOM_AREAS, "all"].map(key => { const text = key === "all" ? "" : rec.textOf(current.sid, key); const left = key === "all" ? 0 : eventsOf(current, key).filter(item => !rec.textOf(current.sid, evStatusKey(item))).length; const over = key !== "all" && neisBytes(text) > RECORD_AREAS[key].limit;
+            return <button key={key} type="button" data-kdn-bare role="tab" aria-selected={focus === key} style={{ "--c": key === "all" ? "#5b606b" : AREA_COLOR[key] }} onClick={() => setFocus(key)}>
+              <b>{key === "all" ? "모두 보기" : RECORD_AREAS[key].label}</b>
+              {key !== "all" && <small className={over ? "over" : text.trim() ? "on" : ""}>{neisBytes(text).toLocaleString()} / {RECORD_AREAS[key].limit.toLocaleString()}</small>}
+              {left > 0 && <em title={`확인 안 한 행사 특기사항 ${left}개`}>행사 {left}</em>}
+            </button>; })}</div>
+          {HOMEROOM_AREAS.filter(key => focus === "all" || focus === key).map(key => <React.Fragment key={key}><EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={RECORD_AREAS[key].limit} check={check} rows={focus === "all" ? (key === "career" ? 8 : 6) : 12} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
+            </React.Fragment>)}
         </section>}
-        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => RECORD_AREAS[key]?.limit || 1500} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => RECORD_AREAS[key]?.limit || 1500} focus={focus === "all" ? "" : focus} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -1237,6 +1249,8 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
     list.forEach(item => {
       const sid = sidKey(item?.sid); const response = String(item?.response || "").trim(); const activity = String(item?.activity || item?.sourceSheet || "").replace(/\((\d{3,4})\)$/, "").replace(/[_-]+/g, " ").trim();
       if (!sid || !response || !activity) return;
+      // 행사 특기사항 취합 파일이 소감문으로 잘못 올라간 경우(시트 이름에 '특기사항', 응답이 '진로' 같은 영역 이름뿐) 빼요.
+      if (/특기\s*사항|학적|봉사/.test(`${item?.sourceSheet || ""} ${activity}`) || response.replace(/\s+/g, "").length < 10) return;
       const key = `${sid}::${activity}`;
       if (!best.has(key) || response.length > best.get(key).response.length) best.set(key, { id: item.id || key, activity, date: String(item?.date || "").trim(), response });
     });
@@ -1435,9 +1449,17 @@ const CSS = `
 .krw-ai-body{display:grid;gap:8px}
 .krw-ai-chk{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
 .krw-ai-lead{margin:0;font-size:12.5px;line-height:1.55;color:var(--kdn-ink-soft,#5b606b)}.krw-ai-lead b{color:var(--kdn-ink,#17181d)}
+.krw-focus{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:4px;padding:4px;border-radius:14px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
+.krw-focus button{position:relative;display:grid;justify-items:start;gap:1px;min-width:0;padding:8px 12px;border:0;border-radius:10px;background:transparent;font:inherit;color:var(--kdn-ink-soft,#5b606b);text-align:left;cursor:pointer}
+.krw-focus button::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:9px;background:var(--c);opacity:.35}
+.krw-focus button:hover{background:var(--kdn-surface-2,#f6f5f3)}.krw-focus button[aria-selected="true"]{background:color-mix(in srgb,var(--c) 11%,var(--kdn-surface,#fff));color:var(--kdn-ink,#17181d)}.krw-focus button[aria-selected="true"]::before{opacity:1}
+.krw-focus b{font-size:14px;font-weight:800;white-space:nowrap}.krw-focus small{font-size:11.5px;font-weight:700;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-focus small.on{color:#15803d}.krw-focus small.over{color:#dc2626}
+.krw-focus em{position:absolute;top:6px;right:8px;padding:1px 6px;border-radius:99px;background:color-mix(in srgb,#7c3aed 14%,transparent);color:#6d28d9;font-style:normal;font-size:10.5px;font-weight:800}
+.krw-focus button:last-child{justify-items:center;align-content:center}
+@media (max-width:760px){.krw-focus{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .krw-cnt{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:#f59e0b;color:#fff;font-style:normal;font-size:11px;font-weight:800}
 .krw-evdot{flex:none;display:inline-grid;place-items:center;min-width:16px;height:16px;padding:0 4px;border-radius:99px;background:color-mix(in srgb,#7c3aed 14%,transparent);color:#6d28d9;font-size:10.5px;font-weight:800}
-.krw-evbox{display:grid;gap:6px;margin:-4px 0 4px;padding:10px 12px;border-radius:14px;border:1px solid color-mix(in srgb,#7c3aed 22%,var(--kdn-line,#e7e5e0));background:color-mix(in srgb,#7c3aed 4%,var(--kdn-surface,#fff))}
+.krw-evbox{display:grid;gap:6px;margin:0;padding:10px 12px;border-radius:14px;border:1px solid color-mix(in srgb,#7c3aed 22%,var(--kdn-line,#e7e5e0));background:color-mix(in srgb,#7c3aed 4%,var(--kdn-surface,#fff))}
 .krw-evbox .hd{display:flex;align-items:center;gap:6px;color:#6d28d9;font-size:13px}.krw-evbox .hd b{font-weight:800}.krw-evbox .hd span{margin-left:auto;font-size:12px}.krw-evbox .hd em{font-style:normal;font-weight:800;color:#b45309}.krw-evbox .hd i{display:inline-flex;align-items:center;gap:3px;font-style:normal;font-weight:700;color:#15803d}
 .krw-evbox ul{display:grid;gap:4px;margin:0;padding:0;list-style:none}
 .krw-evbox li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:start;gap:8px;padding:8px 10px;border-radius:10px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#ece9e3)}
