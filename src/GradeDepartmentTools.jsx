@@ -457,7 +457,7 @@ function parseReflectionWorkbook(arrayBuffer, fileName) {
   const sourceId = `reflection-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
   const reflections = [];
   workbook.SheetNames.forEach(sheetName => {
-    if (/학적|학생별\s*소감문\s*확인/.test(cleanText(sheetName))) return;
+    if (/학적|학생별\s*소감문\s*확인|특기\s*사항|봉사/.test(cleanText(sheetName))) return; // 행사 특기사항 취합 파일은 생기부 업무 '행사 세특'에서 올려요
     const rows = workbookRows(workbook, sheetName);
     const headerIndex = rows.slice(0, 12).findIndex(row => row.some(cell => cleanText(cell).includes("학번")) && row.some(cell => cleanText(cell).includes("이름")));
     if (headerIndex < 0) return;
