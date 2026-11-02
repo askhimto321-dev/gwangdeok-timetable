@@ -52,6 +52,17 @@ export async function verifySession() {
 }
 // 선생님 가입 신청(로그인 전): 서버가 받아 비밀번호는 암호로만 보관합니다.
 export const submitTeacherSignup = (entry, pw) => call("signup", { entry, pw });
+// 계정 목록: 저장은 로그인 서버가(역할에 맞는 변경만 반영, 비밀번호 암호화), 화면은 공개용 목록만 읽습니다.
+export const saveAccountsOnServer = accounts => call("accounts", { op: "save", session: getAuthSession(), accounts });
+export const syncPublicAccounts = () => call("accounts", { op: "sync" });
+// 남은 평문 비밀번호를 서버가 50개씩 암호화하도록 이어서 요청합니다(화면 동작과 상관없이 뒤에서).
+let finishing = false;
+export async function finishPasswordSealing(result) {
+  if (finishing || !(result?.data?.deferred > 0)) return;
+  finishing = true;
+  try { for (let round = 0, last = result; round < 40 && last?.status === "ok" && last.data?.deferred > 0; round += 1) last = await syncPublicAccounts(); }
+  finally { finishing = false; }
+}
 // 개발 화면(내 컴퓨터)에서만 로그인 서버 없이 예전 방식 확인을 허용합니다.
 export const isLocalDev = () => { try { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname); } catch { return false; } };
 export const exchangeTicket = ticket => call("login", { ticket }).then(finish);

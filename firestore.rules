@@ -1,22 +1,35 @@
 rules_version = '2';
 
-// KDTIME Firestore 보안 규칙 — 1단계 B (읽기: 로그인한 화면 / 저장: 아이디로 로그인한 계정만)
+// KDTIME Firestore 보안 규칙 — 1단계 C
+// - 읽기: Firebase 로그인(익명 포함)을 마친 화면
+// - 저장: 로그인 서버가 준 계정 로그인(custom)만
+// - 계정 원본(kd_accounts)·그 조각·백업: 브라우저 접근 금지(서버만). 화면은 공개용 목록(kd_accounts_public)만 읽음
 // Firebase 콘솔 → Firestore Database → 규칙 탭에 그대로 붙여 넣고 '게시'를 누릅니다.
 // (로그인 서버는 관리자 권한으로 접근하므로 이 규칙과 상관없이 동작합니다.)
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // 서버 전용: 비밀번호 암호·간편 로그인 연결·로그인 실패 기록. 브라우저는 읽기·쓰기 모두 금지.
+    // 서버 전용: 비밀번호 암호·간편 로그인 연결·로그인 실패 기록
     match /kd_auth/{docId} {
       allow read, write: if false;
     }
 
-    // 앱 자료: 읽기는 Firebase 로그인(익명 포함)을 마친 화면, 저장은 로그인 서버가 준 계정 로그인(custom)만.
-    // 로그인 전 화면이 저장하던 선생님 가입 신청은 서버(/api/auth/signup)가 받습니다.
-    // 다음 단계에서 계정 목록을 서버 전용으로 옮기고, 자료별 역할 제한으로 좁혀 갑니다.
     match /kd_timetable_kv/{docId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.token.firebase.sign_in_provider == 'custom';
+      // 계정 원본과 그 조각·백업(평문 비밀번호가 남아 있을 수 있는 예전 백업 포함)
+      function accountsPrivate() {
+        return docId == 'kd_accounts'
+          || docId.matches('kd_accounts__chunk__.*')
+          || docId.matches('__bk__kd_accounts__.*')
+          || docId == '__bkindex__kd_accounts';
+      }
+      // 서버만 쓰는 곳: 공개용 계정 목록
+      function serverWritten() {
+        return docId == 'kd_accounts_public' || docId.matches('kd_accounts_public__chunk__.*');
+      }
+      allow read: if request.auth != null && !accountsPrivate();
+      allow write: if request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'custom'
+        && !accountsPrivate() && !serverWritten();
     }
 
     // 그 밖의 모든 곳은 금지
