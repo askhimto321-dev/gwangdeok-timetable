@@ -14,14 +14,23 @@ export function charCount(text = "") {
   return Array.from(String(text || "").replace(/\r\n?/g, "\n")).length;
 }
 
-// 영역별 한도(바이트). 2026 기재요령 기준 글자 수 × 3.
+// 영역별 한도(바이트). 2026학년도 기재요령 기준 글자 수 × 3.
+// 진로활동 700자 → 500자(1,500바이트), 행동특성 및 종합의견 500자 → 300자(900바이트).
+// 바뀐 한도는 2026.3.1 고1·고2부터, 고3은 2027.3.1부터 적용 → 2026학년도 3학년은 예전 한도(areaLimit).
 export const RECORD_AREAS = {
   autonomy: { key: "autonomy", label: "자율·자치활동", short: "자율·자치", limit: 1500 },
-  career: { key: "career", label: "진로활동", short: "진로", limit: 2100 },
+  career: { key: "career", label: "진로활동", short: "진로", limit: 1500 },
   behavior: { key: "behavior", label: "행동특성 및 종합의견", short: "행발", limit: 900 },
   subject: { key: "subject", label: "과목별 세부능력 및 특기사항", short: "과세특", limit: 1500 },
 };
 export const HOMEROOM_AREAS = ["autonomy", "career", "behavior"];
+const LEGACY_LIMITS = { career: 2100, behavior: 1500 };
+const schoolYearNow = (date = new Date()) => (date.getMonth() + 1 >= 3 ? date.getFullYear() : date.getFullYear() - 1);
+// 학년에 맞는 한도: 3학년은 2027학년도 전까지 예전 한도
+export function areaLimit(key, grade = "", year = schoolYearNow()) {
+  if (String(grade) === "3" && year < 2027 && LEGACY_LIMITS[key]) return LEGACY_LIMITS[key];
+  return RECORD_AREAS[key]?.limit || RECORD_AREAS.subject.limit;
+}
 
 // 활동별 세특을 한 덩어리로: 비어 있는 활동은 빼고 활동마다 줄을 바꿉니다.
 export function mergeActivities(activities = [], texts = {}) {
@@ -39,7 +48,7 @@ const SPECIAL = [
 ];
 const BRANDS = [
   ["구글 클래스룸|Google Classroom", "학습 플랫폼"], ["구글 문서|Google Docs", "온라인 문서 편집기"], ["구글|Google", "포털사이트"],
-  ["네이버|NAVER|Naver", "포털사이트"], ["다음(?=\\s|$|에서|을|를)|Daum", "포털사이트"],
+  ["네이버|NAVER|Naver", "포털사이트"], ["Daum", "포털사이트"],
   ["유튜버|YouTuber", "동영상 크리에이터"], ["유튜브|YouTube|Youtube", "동영상 플랫폼"], ["넷플릭스|Netflix", "동영상 플랫폼"], ["티빙|TVING", "동영상 플랫폼"], ["왓챠|watcha", "동영상 플랫폼"],
   ["틱톡|TikTok", "엔터테인먼트 플랫폼"], ["인스타그램|Instagram", "소셜네트워크서비스"], ["트위터|Twitter", "소셜네트워크서비스"], ["페이스북|Facebook", "소셜네트워크서비스"],
   ["카카오톡|KakaoTalk", "메신저"], ["카카오|Kakao", "기업명 대신 일반 표현"], ["라인|LINE", "메신저"], ["삼성|Samsung", "기업명 대신 일반 표현"],
@@ -265,14 +274,14 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
 
 // 점검 탭: 엑셀 첫 시트(2차원 배열)에서 학생 줄과 글 칸 찾기
 const ID_HEADERS = ["번호", "학번", "이름", "반", "성명"];
-const limitForHeader = label => {
+const limitForHeader = (label, grade = "") => {
   const v = String(label || "").replace(/\s+/g, "");
-  if (/자율|자치/.test(v)) return RECORD_AREAS.autonomy.limit;
-  if (/진로/.test(v)) return RECORD_AREAS.career.limit;
-  if (/행동|행발|종합의견/.test(v)) return RECORD_AREAS.behavior.limit;
-  return RECORD_AREAS.subject.limit;
+  if (/자율|자치/.test(v)) return areaLimit("autonomy", grade);
+  if (/진로/.test(v)) return areaLimit("career", grade);
+  if (/행동|행발|종합의견/.test(v)) return areaLimit("behavior", grade);
+  return areaLimit("subject", grade);
 };
-export function parseCheckSheet(aoa = []) {
+export function parseCheckSheet(aoa = [], { grade = "" } = {}) {
   const headerRow = aoa.findIndex(row => (row || []).some(cell => /이름|성명|학번/.test(String(cell || ""))));
   if (headerRow < 0) return { error: "첫 줄(머리글)에 '이름' 또는 '학번' 칸이 있어야 해요. 양식을 받아 써 주세요." };
   const header = aoa[headerRow].map(cell => String(cell ?? "").trim());
@@ -287,7 +296,10 @@ export function parseCheckSheet(aoa = []) {
     name: nameCol >= 0 ? String(row?.[nameCol] ?? "").trim() : "",
     texts: textCols.map(({ col }) => String(row?.[col] ?? "").replace(/\r\n?/g, "\n").trim()),
   })).filter(row => row.name || row.sid || row.texts.some(Boolean));
-  return { columns: textCols.map(({ label }) => ({ label, limit: limitForHeader(label) })), rows };
+  // 학년을 모르면 학번 첫 자리로(가장 많은 학년)
+  let g = String(grade || "");
+  if (!g) { const count = {}; rows.forEach(row => { const d = String(row.sid).charAt(0); if (/[1-3]/.test(d)) count[d] = (count[d] || 0) + 1; }); g = Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || ""; }
+  return { columns: textCols.map(({ label }) => ({ label, limit: limitForHeader(label, g) })), rows };
 }
 
 

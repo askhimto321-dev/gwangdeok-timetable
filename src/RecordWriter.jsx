@@ -12,7 +12,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -905,6 +905,7 @@ function EventBox({ items, rec, sid, area }) {
 }
 
 function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setView, check, showToast, onScope, reflectionsBySid = null }) {
+  const lim = key => areaLimit(key, grade); // 2026학년도 3학년은 예전 한도
   const [cls, setCls] = useState(() => classOptions[0] || "");
   useEffect(() => { if (!classOptions.includes(cls)) setCls(classOptions[0] || ""); }, [classOptions.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (cls) onScope?.(`hr:${cls}`); }, [cls]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -927,7 +928,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const classEvents = students.reduce((sum, s) => sum + eventsOf(s).length, 0);
   useEffect(() => { if (!students.some(s => s.sid === sid)) setSid(students[0]?.sid || ""); }, [students]); // eslint-disable-line react-hooks/exhaustive-deps
   const filled = s => HOMEROOM_AREAS.filter(key => rec.textOf(s.sid, key).trim()).length;
-  const isOver = s => HOMEROOM_AREAS.some(key => overLimit(rec.textOf(s.sid, key), RECORD_AREAS[key].limit));
+  const isOver = s => HOMEROOM_AREAS.some(key => overLimit(rec.textOf(s.sid, key), lim(key)));
   const isIssue = s => HOMEROOM_AREAS.some(key => hasIssue(rec.textOf(s.sid, key)));
   const test = { all: () => true, empty: s => filled(s) < HOMEROOM_AREAS.length, over: isOver, issue: isIssue, event: s => eventLeft(s) > 0 };
   const counts = { empty: students.filter(test.empty).length, over: students.filter(isOver).length, ...(check ? { issue: students.filter(isIssue).length } : {}), ...(classEvents ? { event: students.filter(test.event).length } : {}) };
@@ -941,7 +942,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const saveNow = useCallback(async () => { if (await rec.save()) showToast?.("저장했어요.", "success"); }, [rec, showToast]);
   useWriterKeys({ onNext: () => go(1), onPrev: () => go(-1), onSave: saveNow });
 
-  const blocksFor = list => list.map(s => ({ no: `${s.number}번`, name: s.name, sub: s.sid, parts: HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return { label: RECORD_AREAS[key].label, text, bytes: neisBytes(text), limit: RECORD_AREAS[key].limit, issues: issueLine(text) }; }) }));
+  const blocksFor = list => list.map(s => ({ no: `${s.number}번`, name: s.name, sub: s.sid, parts: HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return { label: RECORD_AREAS[key].label, text, bytes: neisBytes(text), limit: lim(key), issues: issueLine(text) }; }) }));
   const output = (scope, kind) => {
     const list = scope === "student" ? (current ? [current] : []) : students;
     if (!list.length) return showToast?.("출력할 학생이 없어요.", "error");
@@ -972,30 +973,30 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{HOMEROOM_AREAS.map(key => <col key={key} />)}</colgroup>
-        <thead><tr><th className="nm">학생</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}><span className="h"><i />{RECORD_AREAS[key].label}<small>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}명 · 한도 {RECORD_AREAS[key].limit.toLocaleString()}</small></span></th>)}</tr></thead>
-        <tbody>{shown.map((s, i) => <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${isOver(s) ? " is-over" : ""}`}><StudentCell no={s.number} name={s.name} done={filled(s)} total={HOMEROOM_AREAS.length} onOpen={() => openStudent(s.sid)} />{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <GridCell key={key} color={AREA_COLOR[key]} text={text} check={check} label={`${s.number}번 ${RECORD_AREAS[key].label}`} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={value => rec.edit(`s|${s.sid}|${key}`, value)} meter={<ByteMeter text={text} limit={RECORD_AREAS[key].limit} />} />; })}</tr>)}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
+        <thead><tr><th className="nm">학생</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}><span className="h"><i />{RECORD_AREAS[key].label}<small>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}명 · 한도 {lim(key).toLocaleString()}</small></span></th>)}</tr></thead>
+        <tbody>{shown.map((s, i) => <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${isOver(s) ? " is-over" : ""}`}><StudentCell no={s.number} name={s.name} done={filled(s)} total={HOMEROOM_AREAS.length} onOpen={() => openStudent(s.sid)} />{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <GridCell key={key} color={AREA_COLOR[key]} text={text} check={check} label={`${s.number}번 ${RECORD_AREAS[key].label}`} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={value => rec.edit(`s|${s.sid}|${key}`, value)} meter={<ByteMeter text={text} limit={lim(key)} />} />; })}</tr>)}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{HOMEROOM_AREAS.map(key => <button key={key} type="button" data-kdn-bare aria-pressed={area === key} style={{ "--c": AREA_COLOR[key] }} onClick={() => setArea(key)}>{RECORD_AREAS[key].label}<em>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
-        {shown.map(s => <Field key={s.sid} label={`${s.number}번 ${s.name}`} hint={RECORD_AREAS[area].label} color={AREA_COLOR[area]} text={rec.textOf(s.sid, area)} limit={RECORD_AREAS[area].limit} check={check} rows={4} meta={rec.metaOf(s.sid, area)} onChange={value => rec.edit(`s|${s.sid}|${area}`, value)} />)}
+        {shown.map(s => <Field key={s.sid} label={`${s.number}번 ${s.name}`} hint={RECORD_AREAS[area].label} color={AREA_COLOR[area]} text={rec.textOf(s.sid, area)} limit={lim(area)} check={check} rows={4} meta={rec.metaOf(s.sid, area)} onChange={value => rec.edit(`s|${s.sid}|${area}`, value)} />)}
         {paste && <PasteModal students={students} title={RECORD_AREAS[area].label} onClose={() => setPaste(false)} onApply={rows => rows.forEach(row => rec.edit(`s|${row.sid}|${area}`, row.text))} />}
       </div>
       : <div className={`krw-split${side ? " has-side" : ""}`}>
         <StudentList items={shown.map(s => ({ ...s, label: s.number }))} current={sid} onPick={setSid} find={find} setFind={setFind}
-          meter={s => { const parts = HOMEROOM_AREAS.map(key => [RECORD_AREAS[key], neisBytes(rec.textOf(s.sid, key))]); const used = parts.reduce((sum, [, b]) => sum + b, 0); const cap = parts.reduce((sum, [area]) => sum + area.limit, 0); return { bar: false, p: cap ? used / cap : 0, over: parts.some(([area, b]) => b > area.limit), tip: parts.map(([area, b]) => `${area.short || area.label} ${b.toLocaleString()}/${area.limit.toLocaleString()}`).join(" · ") }; }}
+          meter={s => { const parts = HOMEROOM_AREAS.map(key => [{ ...RECORD_AREAS[key], limit: lim(key) }, neisBytes(rec.textOf(s.sid, key))]); const used = parts.reduce((sum, [, b]) => sum + b, 0); const cap = parts.reduce((sum, [area]) => sum + area.limit, 0); return { bar: false, p: cap ? used / cap : 0, over: parts.some(([area, b]) => b > area.limit), tip: parts.map(([area, b]) => `${area.short || area.label} ${b.toLocaleString()}/${area.limit.toLocaleString()}`).join(" · ") }; }}
           renderRight={s => <><span className="fill">{HOMEROOM_AREAS.map(key => <i key={key} style={{ "--c": AREA_COLOR[key] }} className={rec.textOf(s.sid, key).trim() ? "on" : ""} />)}</span>{check && <IssueDot text={HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n")} />}{eventLeft(s) > 0 && <span className="krw-evdot" title={`행사 특기사항 확인 안 함 ${eventLeft(s)}개`}>{eventLeft(s)}</span>}</>} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           <DupStudentNote dups={dups} sid={current.sid} onPick={setSid} />
-          <div className="krw-focus" role="tablist" aria-label="영역">{[...HOMEROOM_AREAS, "all"].map(key => { const text = key === "all" ? "" : rec.textOf(current.sid, key); const left = key === "all" ? 0 : eventsOf(current, key).filter(item => !rec.textOf(current.sid, evStatusKey(item))).length; const over = key !== "all" && neisBytes(text) > RECORD_AREAS[key].limit;
+          <div className="krw-focus" role="tablist" aria-label="영역">{[...HOMEROOM_AREAS, "all"].map(key => { const text = key === "all" ? "" : rec.textOf(current.sid, key); const left = key === "all" ? 0 : eventsOf(current, key).filter(item => !rec.textOf(current.sid, evStatusKey(item))).length; const over = key !== "all" && neisBytes(text) > lim(key);
             return <button key={key} type="button" data-kdn-bare role="tab" aria-selected={focus === key} style={{ "--c": key === "all" ? "#5b606b" : AREA_COLOR[key] }} onClick={() => setFocus(key)}>
               <b>{key === "all" ? "모두 보기" : RECORD_AREAS[key].label}</b>
-              {key !== "all" && <small className={over ? "over" : text.trim() ? "on" : ""}>{neisBytes(text).toLocaleString()} / {RECORD_AREAS[key].limit.toLocaleString()}</small>}
+              {key !== "all" && <small className={over ? "over" : text.trim() ? "on" : ""}>{neisBytes(text).toLocaleString()} / {lim(key).toLocaleString()}</small>}
               {left > 0 && <em title={`확인 안 한 행사 특기사항 ${left}개`}>행사 {left}</em>}
             </button>; })}</div>
-          {HOMEROOM_AREAS.filter(key => focus === "all" || focus === key).map(key => <React.Fragment key={key}><EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={RECORD_AREAS[key].limit} check={check} rows={focus === "all" ? (key === "career" ? 8 : 6) : 12} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
+          {HOMEROOM_AREAS.filter(key => focus === "all" || focus === key).map(key => <React.Fragment key={key}><EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={lim(key)} check={check} rows={focus === "all" ? (key === "career" ? 8 : 6) : 12} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
             </React.Fragment>)}
         </section>}
-        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => RECORD_AREAS[key]?.limit || 1500} focus={focus === "all" ? "" : focus} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => lim(key)} focus={focus === "all" ? "" : focus} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -1211,7 +1212,7 @@ function CheckWriter({ year, scopes, initialKey, showToast }) {
       const XLSX = mod.default?.read ? mod.default : mod;
       const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
       const ws = wb.Sheets[wb.SheetNames[0]];
-      const parsed = parseCheckSheet(XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false }));
+      const parsed = parseCheckSheet(XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false }), { grade: scope?.grade || "" });
       if (parsed.error) { showToast?.(parsed.error, "error"); return; }
       setResult({ fileName: file.name, ...parsed });
       showToast?.(`${parsed.rows.length}명 · ${parsed.columns.length}칸을 점검했어요.`, "success");
@@ -1296,8 +1297,8 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
   const [view, setView] = useState("student"); // 들어올 때는 늘 학생별 보기로 시작
   const [lastScope, setLastScope] = useState(""); // 점검 탭 기본 반: 마지막으로 연 담임 반 또는 과목·반
   const checkScopes = useMemo(() => [
-    ...classOptions.map(c => ({ key: `hr:${c}`, label: `${hrGrade}학년 ${c}반 담임 (자율·진로·행발)`, fileLabel: `${hrGrade}-${c}_담임`, storageKey: hrKey(year, hrGrade, c), columns: HOMEROOM_AREAS.map(k => ({ key: k, label: RECORD_AREAS[k].label })), students: Object.entries(rosterFor(hrGrade) || {}).filter(([, info]) => String(info?.class) === String(c)).map(([sid, info]) => ({ sid, name: info?.name || "", number: Number(info?.number) || Number(String(sid).slice(-2)) })).sort((a, b) => a.number - b.number) })),
-    ...books.map(b => ({ key: `sj:${b.id}`, label: `${b.subject} · ${b.label} (과세특)`, fileLabel: `${b.subject}_${b.target}`, storageKey: sjKey(year, b.id), columns: [{ key: "subject", label: "과목별 세부능력 및 특기사항" }], students: b.students.map(s => ({ ...s, number: Number(s.number) || Number(String(s.sid).slice(-2)) })) })),
+    ...classOptions.map(c => ({ grade: hrGrade, key: `hr:${c}`, label: `${hrGrade}학년 ${c}반 담임 (자율·진로·행발)`, fileLabel: `${hrGrade}-${c}_담임`, storageKey: hrKey(year, hrGrade, c), columns: HOMEROOM_AREAS.map(k => ({ key: k, label: RECORD_AREAS[k].label })), students: Object.entries(rosterFor(hrGrade) || {}).filter(([, info]) => String(info?.class) === String(c)).map(([sid, info]) => ({ sid, name: info?.name || "", number: Number(info?.number) || Number(String(sid).slice(-2)) })).sort((a, b) => a.number - b.number) })),
+    ...books.map(b => ({ grade, key: `sj:${b.id}`, label: `${b.subject} · ${b.label} (과세특)`, fileLabel: `${b.subject}_${b.target}`, storageKey: sjKey(year, b.id), columns: [{ key: "subject", label: "과목별 세부능력 및 특기사항" }], students: b.students.map(s => ({ ...s, number: Number(s.number) || Number(String(s.sid).slice(-2)) })) })),
   ], [classOptions, hrGrade, rosterFor, books, year]);
   // 학생 소감문(2학년부 자료): 학번별로 묶기. 같은 활동은 긴 응답 하나만.
   const reflectionsBySid = useMemo(() => {
