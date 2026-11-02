@@ -101,6 +101,15 @@ export function safeRestoredWorkspaceView(savedView, savedSection = "") {
   return savedView;
 }
 
+// 약어 매핑(kd_abbrev_학년)은 학기마다 다를 수 있어요(예: 2학년 1학기 '일본'=일본어, 2학기 '일본'=일본어 회화).
+// 학기 매핑은 __bySem[sem1|sem2]에 두고, 없으면 예전처럼 학년 공통 매핑을 써요.
+export function abbrevForSemester(stored = {}, semester = "") {
+  const bySem = stored && typeof stored.__bySem === "object" ? stored.__bySem : null;
+  const sem = String(semester) === "sem2" || String(semester) === "2" ? "sem2" : "sem1";
+  if (bySem?.[sem] && typeof bySem[sem] === "object") return bySem[sem];
+  const { __bySem, ...plain } = stored || {};
+  return plain;
+}
 export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevMaps = {}, allRosters = {}, allTimetables = {}) {
   const result = {};
   const seenByStudent = new Map();
@@ -110,11 +119,11 @@ export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevM
     return match ? { grade: match[1], semesterKey: `${match[1]}-${match[2]}` } : { grade: "", semesterKey: "" };
   };
   const normalizedSid = value => String(value ?? "").normalize("NFKC").trim().replace(/\.0$/, "");
-  const abbreviationMapForGrade = grade => {
-    const key = String(grade || "");
+  const abbreviationMapForGrade = (grade, semesterKey = "") => {
+    const key = `${String(grade || "")}|${semesterKey}`;
     if (normalizedAbbrevMaps.has(key)) return normalizedAbbrevMaps.get(key);
     const index = new Map();
-    Object.entries(allAbbrevMaps?.[key] || {}).forEach(([abbrev, fullName]) => {
+    Object.entries(abbrevForSemester(allAbbrevMaps?.[String(grade || "")] || {}, `sem${String(semesterKey).split("-")[1] || "1"}`)).forEach(([abbrev, fullName]) => {
       const abbrevKey = normalizeSubjectMatch(abbrev);
       const subject = String(fullName || "").normalize("NFKC").trim();
       if (abbrevKey && subject) index.set(abbrevKey, subject);
@@ -129,7 +138,7 @@ export function collectEnrolledSubjectsByStudent(allEnrollments = {}, allAbbrevM
     if (!result[sid]) result[sid] = [];
     if (!seenByStudent.has(sid)) seenByStudent.set(sid, new Set());
     const seen = seenByStudent.get(sid);
-    const subject = abbreviationMapForGrade(grade).get(normalizeSubjectMatch(sourceSubject)) || sourceSubject;
+    const subject = abbreviationMapForGrade(grade, semesterKey).get(normalizeSubjectMatch(sourceSubject)) || sourceSubject;
     const key = `${normalizeSubjectMatch(subject)}|${semesterKey}`;
     if (seen.has(key)) return;
     seen.add(key);
@@ -1584,12 +1593,20 @@ export default function App() {
     setDb(d => ({ ...d, ...patch })); // only reflect in the UI once Firestore confirms the write
     return true;
   }, [showToast]);
+  // 지금 보고 있는 학기의 매핑만 저장해요(다른 학기 매핑은 그대로).
   const persistAbbrev = useCallback(async (grade, m) => {
-    const r = await writeStorage(`kd_abbrev_${grade}`, m);
+    const sem = String(semester) === "sem2" ? "sem2" : "sem1";
+    const { __bySem: _ignored, ...clean } = m || {};
+    let next = null;
+    const r = await updateStorage(`kd_abbrev_${grade}`, {}, current => {
+      const stored = current && typeof current === "object" ? current : {};
+      next = { ...stored, __bySem: { ...(stored.__bySem || {}), [sem]: clean } };
+      return next;
+    });
     if (!r.ok) { showToast(`실패했습니다. (${r.error})`, "error"); return false; }
-    setAbbrevMaps(prev => ({ ...prev, [grade]: m }));
+    setAbbrevMaps(prev => ({ ...prev, [grade]: r.value || next }));
     return true;
-  }, [showToast]);
+  }, [showToast, semester]);
   // 계정 저장: 저장 직전 최신 계정을 다시 읽어 '내가 바꾼 계정'만 합칩니다(accountsMerge).
   // 다른 화면의 옛 계정 목록으로 통째로 덮어써서 관리자가 준 권한이 사라지던 문제를 막습니다.
   const accountsRef = useRef(accounts);
@@ -1663,7 +1680,7 @@ export default function App() {
   const enrollments = db.enrollments[scopeKey] || {};
   const timetables = db.timetables[scopeKey] || {};
   const roomNames = db.roomNames[scopeKey] || {};
-  const abbrevMap = abbrevMaps[grade] || {};
+  const abbrevMap = useMemo(() => abbrevForSemester(abbrevMaps[grade] || {}, semester), [abbrevMaps, grade, semester]);
   const announcements = db.announcements[scopeKey] || {};
   const materials = db.materials[scopeKey] || {};
   const enrolledSubjectsByStudent = useMemo(
@@ -7313,6 +7330,8 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                   <button style={styles.iconBtn} onClick={() => setTeachers(current => current.filter((_, itemIndex) => itemIndex !== index))}><Trash2 size={14} /></button>
                 </div>
 
+                <TeacherCardTabs storageKey={`t-${index}`} sections={[
+                  { key: "role", label: "역할·학년", hint: `${TEACHER_ROLE_LABELS[role]}${role === "homeroom" && teacher.homeroomClass ? ` · ${roleGrade}학년 ${teacher.homeroomClass}반` : automatic ? ` · ${roleGrade}학년` : ""}`, content: <>
                 <div style={{ display: "grid", gridTemplateColumns: "minmax(150px, 0.8fr) minmax(260px, 1.5fr)", gap: 12, marginBottom: 12 }}>
                   <div>
                     <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>학교 역할</div>
@@ -7337,9 +7356,6 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                   </div>
                 </div>
 
-                <TeacherFeatureAccess teacher={teacher} onToggle={key => setTeachers(current => current.map((item, itemIndex) => itemIndex === index ? toggleFeature(item, key) : item))} />
-                <TeacherAdminAccess teacher={teacher} onChange={next => setTeachers(current => current.map((item, itemIndex) => itemIndex === index ? next : item))} />
-
                 {role === "homeroom" && (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 11.5, color: "#8a8578", marginBottom: 6 }}>{roleGrade}학년 담임반</div>
@@ -7352,10 +7368,19 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                   </div>
                 )}
 
+                  </> },
+                  { key: "perm", label: "권한", hint: Array.isArray(teacher.adminPermissions) ? "관리자 권한 있음" : "기능 권한", content: <>
+                <TeacherFeatureAccess teacher={teacher} onToggle={key => setTeachers(current => current.map((item, itemIndex) => itemIndex === index ? toggleFeature(item, key) : item))} />
+                <TeacherAdminAccess teacher={teacher} onChange={next => setTeachers(current => current.map((item, itemIndex) => itemIndex === index ? next : item))} />
+
+                  </> },
+                  { key: "subj", label: "담당 과목", hint: `${(teacher.assignments || []).filter(item => item.subject).length}개`, content: <>
                 <div>
                   <SubjectSectionTitle note="여러 개 고를 수 있어요. 같은 과목 선생님들은 성적 산출을 함께 작업해요." />
                   <AssignmentsEditor assignments={teacher.assignments || []} setAssignments={assignments => updateTeacherField(index, "assignments", assignments)} db={db} scopeKey={scopeKey} semesterLabel={`${grade}학년 ${semester === "sem2" ? "2학기" : "1학기"}`} />
                 </div>
+                  </> },
+                ]} />
                 </div>
               </details>
             );
@@ -7372,6 +7397,15 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
   );
 }
 
+// 선생님 계정 카드 안쪽: 역할·학년 / 권한 / 담당 과목을 탭으로 나눠 한 번에 하나만 보여요.
+function TeacherCardTabs({ sections }) {
+  const [active, setActive] = useState(sections[0]?.key);
+  const current = sections.find(item => item.key === active) || sections[0];
+  return <div className="kd-tcard">
+    <div className="kd-tcard-tabs" role="tablist">{sections.map(item => <button key={item.key} type="button" role="tab" aria-selected={item.key === current.key} onClick={() => setActive(item.key)}><b>{item.label}</b>{item.hint && <small>{item.hint}</small>}</button>)}</div>
+    <div className="kd-tcard-body">{current.content}</div>
+  </div>;
+}
 // 기능 권한: 역할 기본값에서 켜고 끈 것만 계정에 저장(featureAccess). '기본과 다름'은 점으로 표시합니다.
 function TeacherFeatureAccess({ teacher, onToggle }) {
   const role = staffRoleOf(teacher);

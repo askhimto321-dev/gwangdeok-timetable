@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { officialSubjectName, curriculumApplies, curriculumSubjects } from "../src/curriculum.js";
+import { officialSubjectName, curriculumApplies, curriculumSubjects, checkClassAgainstCurriculum } from "../src/curriculum.js";
 
 const Y = 2026;
 test("시간표 약칭 → 편제표 정식 과목명", () => {
@@ -55,4 +55,14 @@ test("2022 개정 과목 구분: 편제표 공통 편성과 별개", async () =>
   const twoTwo = curriculumSubjects(2, "sem1");
   assert.equal(twoTwo.find(item => item.name === "문학").kind, "common");
   assert.equal(twoTwo.find(item => item.name === "문학").category, "일반선택");
+});
+
+test("편제표 대조: 학급 고정 선택과목·개정 연도 붙은 약칭도 알아봄 (2학년 2학기)", () => {
+  assert.equal(officialSubjectName("미창22", 2, "sem2", 2026), "미술 창작");
+  assert.equal(officialSubjectName("일본", 2, "sem2", 2026), "일본어 회화");
+  assert.equal(officialSubjectName("공중", 2, "sem2", 2026), "공중 보건");
+  const labels = [...Array(4).fill("독작"), ...Array(4).fill("미적"), ...Array(4).fill("영어2"), "스문", "미창22", "미창22", "일본", "일본", "일본", "인윤", "법사"];
+  const check = checkClassAgainstCurriculum(labels, 2, "sem2", 2026);
+  assert.deepEqual(check.unknown, []);
+  assert.deepEqual(check.issues, []);
 });
