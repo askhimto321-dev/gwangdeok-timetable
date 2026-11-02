@@ -127,3 +127,21 @@ test("점검 엑셀 읽기: 머리글·글 칸·한도", async () => {
   assert.equal(sj.columns.length, 1);
   assert.equal(sj.columns[0].limit, 1500);
 });
+
+test("parseEventSheets: 부서 시트·중복 시트 합치기, 영역 나누기", async () => {
+  const { parseEventSheets, eventAreaOf } = await import("../src/recordText.js");
+  const dept = { name: "교무기획부", rows: [["< 입력 >"], ["연번", "주관부서", "생기부 영역", "행사명", "학급", "학번\n(예 : 10101)", "이름", "특기사항", "비고"],
+    [1, "교무기획부", "자율", "학급 자치 회의", 201, 20101, "가", "회의를 이끎.", ""],
+    [2, "교무기획부", "동아리", "축제", 201, 20102, "나", "공연함.", ""],
+    [3, "교무기획부", "진로", "진로 특강", 201, "20101.0", "가", "특강을 들음.", ""]] };
+  const groupSheet = { name: "따라체험 특기사항(조별)", rows: [["제목"], ["연번", "생기부 영역", "행사명", "학급", "학번", "이름", "특기사항", "조", "담당교사"], [1, "진로", "따라체험", 201, 20102, "나", "짧은 글.", 3, "교사"]] };
+  const sorted = { name: "따라체험 (학번순)", rows: [["제목"], ["연번", "생기부 영역", "학번 (자동입력)", "학급", "이름", "조", "담당교사", "행사명 (자동입력)", "특기사항 (자동입력)", "바이트수", "특기사항 자체 점검 필터"], [1, "진로", 20102, 201, "나", 3, "교사", "따라체험", "조금 더 긴 같은 활동 글.", 30, ""]] };
+  const service = { name: "봉사", rows: [["제목"], ["연번", "학번", "활동내용"], [1, 20101, "봉사"]] };
+  const { items, skipped } = parseEventSheets([dept, groupSheet, sorted, service]);
+  assert.equal(items.length, 3);
+  assert.equal(skipped.otherArea, 1);
+  const tr = items.find(i => i.sid === "20102");
+  assert.equal(tr.area, "career"); assert.equal(tr.text, "조금 더 긴 같은 활동 글.");
+  assert.equal(items.filter(i => i.sid === "20101").map(i => i.area).sort().join(","), "autonomy,career");
+  assert.equal(eventAreaOf("자율·자치활동"), "autonomy");
+});

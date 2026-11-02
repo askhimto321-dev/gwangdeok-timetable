@@ -290,3 +290,48 @@ export function parseCheckSheet(aoa = []) {
   return { columns: textCols.map(({ label }) => ({ label, limit: limitForHeader(label) })), rows };
 }
 
+
+// ── 학교 행사 특기사항 취합 파일(부서별 시트) 읽기 ─────────────────────────
+// sheets: [{ name, rows(aoa) }] → { items: [{ sid, area, event, dept, text, eventKey }], skipped: { noArea, otherArea } }
+// 머리글 줄에 '학번'과 '특기사항'이 있는 시트만 읽어요(봉사·학적·제출 확인 시트는 건너뜀).
+// 생기부 영역: '자율'/'자치' → autonomy, '진로' → career. 그 밖(동아리 등)은 건너뛰어요.
+export function eventAreaOf(value) {
+  const v = String(value ?? "").replace(/\s+/g, "");
+  if (/진로/.test(v)) return "career";
+  if (/자율|자치/.test(v)) return "autonomy";
+  return "";
+}
+export const eventKeyOf = (area, event) => `${area}:${String(event ?? "").normalize("NFC").replace(/\s+/g, " ").trim()}`;
+const cellText = value => String(value ?? "").replace(/\r/g, "").trim();
+const sidOf = value => { const digits = String(value ?? "").replace(/\.0+$/, "").replace(/\D/g, ""); return /^\d{5}$/.test(digits) ? digits : ""; };
+export function parseEventSheets(sheets = []) {
+  const best = new Map();
+  const skipped = { noArea: 0, otherArea: 0 };
+  sheets.forEach(({ name = "", rows = [] }) => {
+    const headerRow = rows.slice(0, 8).findIndex(row => (row || []).some(cell => /학번/.test(cellText(cell))) && (row || []).some(cell => /^특기\s*사항/.test(cellText(cell))));
+    if (headerRow < 0) return;
+    const header = rows[headerRow].map(cell => cellText(cell).replace(/\s+/g, " "));
+    const find = test => header.findIndex(test);
+    const sidCol = find(h => /학번/.test(h));
+    const textCol = find(h => /^특기\s*사항/.test(h) && !/점검|바이트|제출|필터/.test(h));
+    const areaCol = find(h => /영역/.test(h));
+    const eventCol = find(h => /행사명|특강명|활동명/.test(h));
+    const deptCol = find(h => /주관\s*부서|^부서/.test(h));
+    if (sidCol < 0 || textCol < 0) return;
+    rows.slice(headerRow + 1).forEach(row => {
+      const sid = sidOf(row?.[sidCol]);
+      const text = cellText(row?.[textCol]);
+      if (!sid || !text) return;
+      const rawArea = areaCol >= 0 ? cellText(row[areaCol]) : "";
+      const area = eventAreaOf(rawArea);
+      if (!area) { skipped[rawArea ? "otherArea" : "noArea"] += 1; return; }
+      const event = (eventCol >= 0 ? cellText(row[eventCol]) : "") || String(name).replace(/특기\s*사항.*$/, "").replace(/[()]/g, " ").trim() || "학교 행사";
+      const dept = deptCol >= 0 ? cellText(row[deptCol]) : "";
+      const eventKey = eventKeyOf(area, event);
+      const key = `${sid}|${eventKey}`;
+      const prev = best.get(key);
+      if (!prev || text.length > prev.text.length) best.set(key, { sid, area, event, dept: dept || prev?.dept || "", text, eventKey });
+    });
+  });
+  return { items: Array.from(best.values()), skipped };
+}
