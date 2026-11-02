@@ -51,18 +51,32 @@ export function readToken(token, secret, type, now = Date.now()) {
 }
 
 // 계정 목록에서 아이디가 같은 계정들(확인 순서대로)
+// 관리자 권한이 있는 선생님(adminPermissions)은 선생님 아이디·비밀번호로 관리자 역할도 켭니다(사람 한 명 = 아이디 하나).
+// 비밀번호 암호는 선생님 쪽(hashKind: "teacher")에 있습니다.
+export function teacherAdmins(accounts) {
+  return (Array.isArray(accounts?.teacher) ? accounts.teacher : [])
+    .filter(t => t && Array.isArray(t.adminPermissions))
+    .map(t => ({ id: t.id, pw: t.pw, name: t.name || "", permissions: t.adminPermissions, viaTeacher: true, hashKind: "teacher" }));
+}
+const adminEntries = (accounts, bootstrapPw) => {
+  const own = Array.isArray(accounts?.admin) ? accounts.admin : [];
+  const linked = teacherAdmins(accounts).filter(t => !own.some(a => String(a?.id) === String(t.id)));
+  const all = [...own, ...linked];
+  return all.length ? all : [bootstrapAdmin(bootstrapPw)].filter(Boolean);
+};
+
 export function candidates(accounts, id, { bootstrapPw = "" } = {}) {
   const list = [];
   LOGIN_KINDS.forEach(kind => {
     let entries = Array.isArray(accounts?.[kind]) ? accounts[kind] : [];
-    if (kind === "admin" && !entries.length) entries = [bootstrapAdmin(bootstrapPw)].filter(Boolean);
+    if (kind === "admin") entries = adminEntries(accounts, bootstrapPw);
     entries.forEach(entry => { if (entry && String(entry.id ?? "") === id) list.push({ kind, entry }); });
   });
   return list;
 }
 export function findAccount(accounts, kind, id, { bootstrapPw = "" } = {}) {
   const entries = Array.isArray(accounts?.[kind]) ? accounts[kind] : [];
-  const list = kind === "admin" && !entries.length ? [bootstrapAdmin(bootstrapPw)].filter(Boolean) : entries;
+  const list = kind === "admin" ? adminEntries(accounts, bootstrapPw) : entries;
   return list.find(entry => String(entry?.id ?? "") === String(id)) || null;
 }
 
@@ -73,7 +87,7 @@ export async function checkLoginAll(accounts, idRaw, pw, loadHash, options = {})
   const out = [];
   for (const { kind, entry } of candidates(accounts, id, options)) {
     if (entry.pw === HASHED_PW) {
-      const stored = await loadHash(kind, id);
+      const stored = await loadHash(entry.hashKind || kind, id);
       if (stored && verifyPassword(pw, stored)) out.push({ kind, entry, via: "hash" });
     } else if (typeof entry.pw === "string" && entry.pw && sameText(entry.pw, pw)) {
       out.push({ kind, entry, via: "plain" });
@@ -92,7 +106,7 @@ export async function checkLogin(accounts, idRaw, pw, loadHash, options = {}) {
   if (!id || !pw) return null;
   for (const { kind, entry } of candidates(accounts, id, options)) {
     if (entry.pw === HASHED_PW) {
-      const stored = await loadHash(kind, id);
+      const stored = await loadHash(entry.hashKind || kind, id);
       if (stored && verifyPassword(pw, stored)) return { kind, entry, via: "hash" };
     } else if (typeof entry.pw === "string" && entry.pw && sameText(entry.pw, pw)) {
       return { kind, entry, via: "plain" };

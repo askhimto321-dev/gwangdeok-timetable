@@ -1,7 +1,9 @@
 // 생기부 업무: 학급담임(자율·자치 / 진로 / 행발)과 교과담임(반·분반별 과세특, 수행평가 활동별 → 총합본).
 // 저장은 학생·칸 하나씩 서버 기록에 합쳐 넣어(동시에 여러 선생님이 써도 서로 덮어쓰지 않게) 하고,
 // 저장 전 글은 이 브라우저에도 바로 보관해 새로고침·끊김에도 남게 합니다. 서버는 덮어쓸 때 이전 본을 자동 백업합니다.
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+// 조회 전용(부서 공용 계정): 글을 보기만 하고 저장하지 않습니다.
+const ReadOnlyContext = createContext(false);
 import { AlertTriangle, BookOpen, Check, ChevronLeft, ChevronRight, ClipboardPaste, CloudOff, Copy, Download, ExternalLink, Eye, EyeOff, FileSpreadsheet, FileText, HelpCircle, LayoutGrid, ListChecks, Loader2, Sparkles, PanelRightClose, PanelRightOpen, Paperclip, Plus, Printer, RotateCcw, Rows3, Save, Search, Table2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
@@ -43,6 +45,7 @@ function applyPending(doc, pending, by) {
 
 // 문서 하나(반 하나 또는 분반 하나)를 읽고, 고친 칸만 모아 저장합니다.
 function useRecordDoc(key, by) {
+  const readOnly = useContext(ReadOnlyContext);
   const [doc, setDoc] = useState(null);
   const [pending, setPending] = useState({});
   const [status, setStatus] = useState("idle"); // idle | loading | saving | saved | error
@@ -94,6 +97,7 @@ function useRecordDoc(key, by) {
   const saveRef = useRef(null);
   saveRef.current = save;
   const edit = useCallback((path, value) => {
+    if (readOnly) return;
     const next = { ...pendingRef.current, [path]: { value, at: nowIso() } };
     pendingRef.current = next; setPending(next); writeDraft(key, next);
     setStatus("dirty");
@@ -434,7 +438,9 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
     if (!putText(picked)) showToast?.("누가기록에서 넣을 글을 먼저 골라(드래그) 주세요.", "error");
   };
   const files = rec.files.filter(file => !file.removed && (!file.sid || file.sid === sid));
+  const readOnlyView = useContext(ReadOnlyContext);
   const upload = async (list, forStudent) => {
+    if (readOnlyView) { showToast?.("조회 전용 계정은 활동지를 올릴 수 없어요.", "error"); return; }
     setUploading(true);
     const added = [];
     for (const file of Array.from(list || [])) {
@@ -1047,7 +1053,7 @@ function CheckWriter({ year, scopes, initialKey, showToast }) {
 }
 
 // ── 바깥 틀 ─────────────────────────────────────────────────────────────────
-export default function RecordWriter({ teacher = null, isAdmin = false, accounts = {}, db = {}, grade = "2", semester = "sem1", actor = null, showToast, legacy = null }) {
+export default function RecordWriter({ readOnly = false, teacher = null, isAdmin = false, accounts = {}, db = {}, grade = "2", semester = "sem1", actor = null, showToast, legacy = null }) {
   const year = schoolYearOf();
   const by = actor?.name || teacher?.name || "";
   const homeroomGrade = String(teacher?.roleGrade || teacher?.homeroomGrade || grade);
@@ -1085,8 +1091,9 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
   const [tourToken, setTourToken] = useState(0);
   const pick = (setter, storageKey) => value => { setter(value); try { localStorage.setItem(storageKey, value); } catch { /* 선택 기억은 편의 기능 */ } };
 
-  return <div className="krw">
+  return <ReadOnlyContext.Provider value={readOnly}><div className={`krw${readOnly ? " is-readonly" : ""}`}>
     <style>{CSS}</style>
+    {readOnly && <p className="krw-alert" style={{ background: "#f2f6fc", color: "#2f4b7c", borderColor: "#c9d6ea" }}><Eye size={15} /> 부서 공용 계정은 생기부를 <b>조회만</b> 할 수 있어요. 고친 내용은 저장되지 않아요.</p>}
     <header className="krw-head">
       <div className="t"><b>생기부 업무 <span className="krw-scope-pill">{grade}학년 · {semester === "sem2" ? "2학기" : "1학기"}</span></b><small>칸마다 자동 저장 · 나이스 바이트 계산 · 2026 기재요령 점검 · 학년·학기는 위쪽에서 바꿔요</small></div>
       <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
@@ -1106,7 +1113,7 @@ export default function RecordWriter({ teacher = null, isAdmin = false, accounts
     {tab === "subject" && (isAdmin && !teacher && !subjectTeacher ? <div className="krw-empty"><Users size={20} /><b>세특을 볼 선생님을 골라 주세요.</b></div>
       : <SubjectWriter onScope={setLastScope} year={year} books={books} by={by} view={view} setView={setView} check={check} showToast={showToast} grade={grade} semester={semester} />)}
     {tab === "legacy" && legacy}
-  </div>;
+  </div></ReadOnlyContext.Provider>;
 }
 
 const CSS = `
