@@ -62,7 +62,10 @@ export function teacherAdmins(accounts) {
 export function impliedRoles(accounts, kind, id) {
   if (kind !== "teacher") return [];
   const teacher = (Array.isArray(accounts?.teacher) ? accounts.teacher : []).find(t => String(t?.id ?? "") === String(id));
-  return teacher && Array.isArray(teacher.adminPermissions) ? [{ kind: "admin", id: String(id) }] : [];
+  if (!teacher) return [];
+  // 아직 합쳐지지 않은 예전 관리자 계정(아이디가 같음)도 같은 사람으로 봅니다.
+  const ownAdmin = (Array.isArray(accounts?.admin) ? accounts.admin : []).some(a => String(a?.id ?? "") === String(id));
+  return Array.isArray(teacher.adminPermissions) || ownAdmin ? [{ kind: "admin", id: String(id) }] : [];
 }
 const adminEntries = (accounts, bootstrapPw) => {
   const own = Array.isArray(accounts?.admin) ? accounts.admin : [];
