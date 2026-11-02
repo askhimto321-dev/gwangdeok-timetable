@@ -41,8 +41,17 @@ export const serverLogin = (id, pw) => call("login", { id, pw }).then(finish);
 export async function verifySession() {
   const session = getAuthSession();
   if (!session) return { status: "fail", error: "no-session" };
-  return Promise.race([call("session", { session }), new Promise(resolve => setTimeout(() => resolve({ status: "unavailable" }), 6000))]);
+  const result = await Promise.race([call("session", { session }), new Promise(resolve => setTimeout(() => resolve({ status: "unavailable" }), 6000))]);
+  // Firebase 로그인이 이 계정이 아니면(익명·구글 등) 계정 로그인으로 맞춥니다.
+  if (result.status === "ok" && result.data?.firebaseToken) {
+    const current = getFirebaseAuth().currentUser;
+    const want = `${result.data.kind}.`;
+    if (!current || current.isAnonymous || !String(current.uid || "").startsWith(want)) await useFirebaseToken(result.data.firebaseToken);
+  }
+  return result;
 }
+// 선생님 가입 신청(로그인 전): 서버가 받아 비밀번호는 암호로만 보관합니다.
+export const submitTeacherSignup = (entry, pw) => call("signup", { entry, pw });
 // 개발 화면(내 컴퓨터)에서만 로그인 서버 없이 예전 방식 확인을 허용합니다.
 export const isLocalDev = () => { try { return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname); } catch { return false; } };
 export const exchangeTicket = ticket => call("login", { ticket }).then(finish);
@@ -78,7 +87,8 @@ export async function googleAuth(mode) {
   }
   const result = await call("google", { idToken, mode, session: mode === "link" ? getAuthSession() : undefined });
   if (mode === "login") return finish(result);
-  // 연결만 했으면 Firebase 로그인 상태를 원래 계정으로 되돌립니다.
+  // 연결만 했으면(성공·실패 모두) Firebase 로그인 상태를 원래 계정으로 되돌립니다.
+  await verifySession().catch(() => null);
   return result;
 }
 

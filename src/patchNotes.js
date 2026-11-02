@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-02-b",
+    date: "2026-11-02",
+    title: "가입 신청·계정 연결 보안",
+    items: [
+      { audience: "staff", text: "선생님 가입 신청은 로그인 서버가 받아 비밀번호를 암호로만 보관해요. 관리자 승인 화면은 그대로 써요." },
+    ],
+  },
+  {
     id: "2026-11-02-a",
     date: "2026-11-02",
     title: "자료 보호 준비",

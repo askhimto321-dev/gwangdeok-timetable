@@ -14,7 +14,7 @@ import { parseQuickTodo } from "./teacherPlanner.js";
 import { readViewPrefs, saveViewPrefs, FONT_SCALES, DENSITIES } from "./viewPrefs.js";
 import { Moon, Sun, ChevronDown, GraduationCap, ShieldCheck, BarChart3, LayoutGrid, UserX, CalendarDays, Home as HomeIcon, User as UserIcon, Clock as ClockIcon, MoreHorizontal } from "lucide-react";
 import { Search, Printer, Settings, AlertTriangle, ArrowRight, Users, Upload, FileSpreadsheet, FileText, Loader2, Check, X, Save, Database, Trash2, Lock, KeyRound, Eye, ClipboardList, Calendar, Paperclip, BookOpen, Download, Bug, MessageSquare, Send, Link2, Sparkles, Bell, BellRing, Megaphone, CheckCheck, Archive } from "lucide-react";
-import { readStorage, writeStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
+import { readStorage, writeStorage, updateStorage, uploadClassroomAttachment, deleteClassroomAttachment, diagnoseStorageConnection } from "./storage.js";
 import { UI_MODES, getUiMode, setUiMode, isNewUi, rawColors } from "./uiMode.js";
 import { TILE_TONES } from "./counselVisuals.jsx";
 
@@ -44,7 +44,7 @@ const AdminBackup = lazy(() => import("./AdminBackup.jsx"));
 const LessonStamps = lazy(() => import("./LessonStamps.jsx"));
 const RecordWriter = lazy(() => import("./RecordWriter.jsx"));
 import InstallPrompt from "./InstallPrompt.jsx";
-import { serverLogin, exchangeTicket, googleAuth, kakaoAuth, signOutAccount, takeAuthReturn, KAKAO_ERRORS, changePassword, verifySession, isLocalDev } from "./authClient.js";
+import { serverLogin, exchangeTicket, googleAuth, kakaoAuth, signOutAccount, takeAuthReturn, KAKAO_ERRORS, changePassword, verifySession, isLocalDev, submitTeacherSignup } from "./authClient.js";
 import { HASHED_PW, isHashedPw, randomInitialPassword } from "./accountSecret.js";
 import { SocialLoginButtons, SocialLinkCard } from "./SocialLogin.jsx";
 const SusiNaviBetaAdmin = lazy(() => loadSusiNaviModule().then(module => ({ default: module.SusiNaviBetaAdmin })));
@@ -1242,7 +1242,7 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar] = await Promise.all([
+      const [roster, enrollments, timetables, meta, abbrev1, abbrev2, abbrev3, accts, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar, teacherSignups] = await Promise.all([
         readStorage("kd_roster", {}),
         readStorage("kd_enroll", {}),
         readStorage("kd_tt", {}),
@@ -1262,10 +1262,16 @@ export default function App() {
         readStorage("kd_minimum_achievement_attendance", {}),
         readStorage("kd_grade_department_data", {}),
         readStorage("kd_academic_calendar", {}),
+        readStorage("kd_teacher_signups", []),
       ]);
       setDb({ roster, enrollments, timetables, meta, roomNames, announcements, materials, feedback, staffNotices, siteAnnouncements, teacherGradeWorkspaces, minimumAchievementSettings, minimumAchievementAttendance, gradeDepartmentData, academicCalendar: academicCalendar || {} });
       setAbbrevMaps({ "1": abbrev1, "2": abbrev2, "3": abbrev3 });
       const normalizedAccounts = { admin: [], classView: [], departments: [], teacher: [], teacherPending: [], monitors: [], students: [], ...(accts || {}) };
+      // 서버가 받은 가입 신청(kd_teacher_signups)을 승인 대기 목록에 합칩니다(이미 계정이 된 아이디는 뺌).
+      if (Array.isArray(teacherSignups) && teacherSignups.length) {
+        const taken = new Set([...(normalizedAccounts.teacher || []), ...(normalizedAccounts.teacherPending || [])].map(item => String(item?.id)));
+        normalizedAccounts.teacherPending = [...(normalizedAccounts.teacherPending || []), ...teacherSignups.filter(item => item?.id && !taken.has(String(item.id)))];
+      }
       setAccounts(normalizedAccounts);
       // 새로고침 때 로그인 되살리기: 브라우저에 남은 기록만 믿지 않고 로그인 서버가 세션을 확인한 계정만 되살립니다.
       let verifiedLogin = null;
@@ -2656,6 +2662,12 @@ function TeacherZoneGate({ accounts, persistAccounts, showToast, db, grade, scop
       teacherRole: homeroomClass ? "homeroom" : "other", roleGrade: grade,
       gradeAccessGrades: [], timetableAccessGrades: [],
     }, grade);
+    // 가입 신청은 로그인 서버가 받습니다(비밀번호 암호화 보관). 개발 화면에서만 서버 없이 예전 방식.
+    const { pw: password, ...entry } = req;
+    const result = await submitTeacherSignup(entry, password);
+    if (result.status === "ok") { setSubmitted(true); showToast("가입 신청이 접수되었습니다.", "success"); return; }
+    if (result.status === "fail") { showToast(result.error, "error"); return; }
+    if (!isLocalDev()) { showToast("로그인 서버에 연결하지 못했어요. 잠시 뒤 다시 시도해주세요.", "error"); return; }
     const ok = await persistAccounts({ ...accounts, teacherPending: [...(accounts.teacherPending || []), req] });
     if (ok) { setSubmitted(true); showToast("가입 신청이 접수되었습니다.", "success"); }
   };
@@ -6967,12 +6979,14 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
       admin: accounts.admin, classView: accounts.classView, departments: accounts.departments || [], teacher: newTeachers,
       teacherPending: newPending, monitors: accounts.monitors || [], students: accounts.students || [],
     });
-    if (ok) showToast(`${req.name} 선생님 계정을 승인했습니다.`, "success");
+    if (ok) { await clearSignup(req.id); showToast(`${req.name} 선생님 계정을 승인했습니다.`, "success"); }
   };
+  // 서버가 받은 가입 신청 목록에서도 지웁니다.
+  const clearSignup = id => updateStorage("kd_teacher_signups", [], list => (Array.isArray(list) ? list.filter(item => String(item?.id) !== String(id)) : [])).catch(() => null);
   const reject = async req => {
     const newPending = (accounts.teacherPending || []).filter(item => item.id !== req.id);
     const ok = await persistAccounts({ ...accounts, teacherPending: newPending });
-    if (ok) showToast("가입 신청을 거절했습니다.", "success");
+    if (ok) { await clearSignup(req.id); showToast("가입 신청을 거절했습니다.", "success"); }
   };
 
   const addTeacher = () => setTeachers(current => [...current, applyAutomaticTeacherAccess({
