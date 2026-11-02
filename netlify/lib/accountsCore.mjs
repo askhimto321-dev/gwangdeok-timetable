@@ -50,13 +50,30 @@ export class AccountChangeError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
+// 사람 한 명 = 아이디 하나: 선생님 계정과 아이디가 같은 관리자 계정은 선생님 계정의 '관리자 권한'(adminPermissions)으로 합칩니다.
+// 로그인은 선생님 비밀번호로 하고, 관리자 역할도 함께 켜집니다. (아이디가 다른 관리자 전용 계정은 그대로)
+export function mergeAdminsIntoTeachers(next) {
+  const teachers = list(next, "teacher");
+  const keep = [];
+  list(next, "admin").forEach(admin => {
+    const index = teachers.findIndex(t => String(t?.id ?? "") === String(admin?.id ?? ""));
+    if (index < 0) { keep.push(admin); return; }
+    teachers[index] = { ...teachers[index], adminPermissions: Array.isArray(admin.permissions) ? admin.permissions : [] };
+  });
+  next.teacher = teachers;
+  next.admin = keep;
+  return next;
+}
+
 // who: { kind, id } (로그인 서버가 확인한 계정). 결과 { next, plain }
 export function applyAccountChange(who, stored = {}, submitted = {}, { limit = Infinity } = {}) {
   let next;
   if (who.kind === "admin") {
     next = { ...stored, ...submitted };
     ACCOUNT_LISTS.forEach(kind => { next[kind] = list(submitted, kind).length || Array.isArray(submitted?.[kind]) ? list(submitted, kind) : list(stored, kind); });
-    if (!list(next, "admin").length && list(stored, "admin").length) throw new AccountChangeError(400, "관리자 계정을 모두 지울 수는 없어요.");
+    mergeAdminsIntoTeachers(next);
+    const adminCount = accounts => list(accounts, "admin").length + list(accounts, "teacher").filter(t => Array.isArray(t?.adminPermissions)).length;
+    if (!adminCount(next) && adminCount(stored)) throw new AccountChangeError(400, "관리자 계정을 모두 지울 수는 없어요.");
   } else if (who.kind === "teacher") {
     next = { ...stored };
     ACCOUNT_LISTS.forEach(kind => { next[kind] = list(stored, kind).map(entry => ({ ...entry })); });

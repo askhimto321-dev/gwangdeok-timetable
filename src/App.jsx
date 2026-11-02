@@ -61,6 +61,15 @@ const DISABLED_GRADES = [];
 const LOGIN_SESSION_KEYS = { admin: "adminId", teacher: "teacherId", departments: "departmentId", monitors: "monitorId", classView: "classViewId", students: "studentId" };
 // 관리자 계정이 하나도 없을 때 서버의 첫 관리자(ADMIN_BOOTSTRAP_PASSWORD)로 들어온 경우의 화면용 계정(비밀번호 없음)
 const BOOTSTRAP_ADMIN = { id: "admin", name: "관리자" };
+// 관리자 역할 계정 찾기: 관리자 전용 계정 또는 '관리자 권한'이 있는 선생님(사람 한 명 = 아이디 하나)
+function adminAccountFor(list, id) {
+  const own = (list?.admin || []).find(item => String(item?.id) === String(id));
+  if (own) return own;
+  const teacher = (list?.teacher || []).find(item => String(item?.id) === String(id) && Array.isArray(item.adminPermissions));
+  if (teacher) return { id: teacher.id, name: teacher.name || "", permissions: teacher.adminPermissions, viaTeacher: true };
+  const noAdmins = !(list?.admin || []).length && !(list?.teacher || []).some(item => Array.isArray(item?.adminPermissions));
+  return noAdmins && String(id) === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null;
+}
 // 계정 목록 읽기: 서버가 만든 공개용 목록(비밀번호 칸 없음)을 읽고, 아직 없으면 서버에 만들어 달라고 합니다.
 // 서버가 없을 때(개발 화면·옮기기 전)만 예전 원본을 읽습니다.
 async function readAccountsList(fallback) {
@@ -209,11 +218,12 @@ function teacherTimetableAccess(teacher) {
   if (role === "homeroom" || role === "gradeHead") return [teacherRoleGrade(teacher)];
   return normalizeGradeAccessList(teacher.timetableAccessGrades || teacher.studentTimetableAccessGrades);
 }
+// 부서 공용 계정: 전 학년 조회(고치기는 교과담임 수준까지, 생기부는 조회 전용)
 function departmentGradeAccess(account) {
-  return normalizeGradeAccessList(account?.gradeAccessGrades || account?.studentGradeAccessGrades);
+  return account ? [...GRADES] : [];
 }
 function departmentTimetableAccess(account) {
-  return normalizeGradeAccessList(account?.timetableAccessGrades || account?.studentTimetableAccessGrades);
+  return account ? [...GRADES] : [];
 }
 function applyAutomaticTeacherAccess(teacher, fallbackGrade = "2") {
   const role = normalizedTeacherRole(teacher);
@@ -1324,8 +1334,7 @@ export default function App() {
           if (verifiedLogin) {
             let restored = 0;
             verifiedLogin.roles.forEach(({ kind, id }) => {
-              const entries = normalizedAccounts[kind] || [];
-              const acc = entries.find(item => String(item?.id) === id) || (kind === "admin" && !entries.length && id === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null);
+              const acc = kind === "admin" ? adminAccountFor(normalizedAccounts, id) : (normalizedAccounts[kind] || []).find(item => String(item?.id) === id) || null;
               if (!acc) return;
               restored += 1;
               if (kind === "admin") setLoggedInAdmin(acc);
@@ -1516,7 +1525,7 @@ export default function App() {
     const fresh = await readAccountsList(unread);
     let list = accountsRef.current;
     if (fresh !== unread && fresh && typeof fresh === "object") { list = { ...EMPTY_ACCOUNTS, ...fresh }; setAccounts(list); }
-    const findIn = (k, i) => { const entries = list[k] || []; return entries.find(item => String(item.id) === String(i)) || (k === "admin" && !entries.length && String(i) === BOOTSTRAP_ADMIN.id ? BOOTSTRAP_ADMIN : null); };
+    const findIn = (k, i) => (k === "admin" ? adminAccountFor(list, i) : (list[k] || []).find(item => String(item.id) === String(i)) || null);
     const all = Array.isArray(roles) && roles.length ? roles : [{ kind, id }];
     const others = all.filter(r => !(r.kind === kind && String(r.id) === String(id)));
     others.forEach(r => activateAccount(r.kind, findIn(r.kind, r.id)));
@@ -3078,7 +3087,7 @@ function TeacherZoneWorkspace({
     if (["contacts", "records", "gradeData"].includes(workspaceMode)) setLastDepartmentToolView(workspaceMode);
   }, [workspaceMode]);
   useEffect(() => {
-    if ((!canUseNotice && workspaceMode === "notice") || (!canUseMock && workspaceMode === "mock") || (!canUseGradeDepartmentTools && ["contacts", "gradeData"].includes(workspaceMode)) || (!(activeTeacher || loggedInAdmin) && workspaceMode === "records") || (!canUseSeparation && workspaceMode === "separation")) setWorkspaceMode("grades");
+    if ((!canUseNotice && workspaceMode === "notice") || (!canUseMock && workspaceMode === "mock") || (!canUseGradeDepartmentTools && ["contacts", "gradeData"].includes(workspaceMode)) || (!(activeTeacher || loggedInAdmin || loggedInDepartment) && workspaceMode === "records") || (!canUseSeparation && workspaceMode === "separation")) setWorkspaceMode("grades");
   }, [canUseNotice, canUseMock, canUseGradeDepartmentTools, canUseSeparation, workspaceMode]);
   useEffect(() => {
     onModeChange?.(workspaceMode);
@@ -3113,7 +3122,7 @@ function TeacherZoneWorkspace({
         {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
         {separationEligible && <button type="button" onClick={() => openWorkspaceMode("separation")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "separation" ? teacherZoneWorkspaceStyles.modeButtonActive : { color: "#b91c1c", borderColor: "#f3b4b4" }) }}><UserX size={15} /> 분리희망학생</button>}
         {plannerOwner && <button type="button" onClick={() => setWorkspaceMode("planner")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "planner" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><CalendarDays size={15} /> 내 일정</button>}
-        {(activeTeacher || loggedInAdmin) && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무</button>}
+        {(activeTeacher || loggedInAdmin || loggedInDepartment) && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무</button>}
       </div>
       <div className="kd-scope-bar" style={teacherZoneWorkspaceStyles.gradeGroup}>
         <ScopeGroup label="학년">{visibleGrades.map(item => <ScopeBtn key={item} active={String(grade) === item} onClick={() => setGrade(item)}>{item}학년</ScopeBtn>)}</ScopeGroup>
@@ -3147,8 +3156,8 @@ function TeacherZoneWorkspace({
     {canUseGradeDepartmentTools && visitedWorkspaceModes.some(mode => ["contacts", "gradeData"].includes(mode)) && <div style={{ display: ["contacts", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "gradeData"].includes(workspaceMode))}>
       <DeferredPanel label="학년부 도구를 불러오는 중입니다."><GradeDepartmentTools view={lastDepartmentToolView === "records" ? "contacts" : lastDepartmentToolView} db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} /></DeferredPanel>
     </div>}
-    {(activeTeacher || loggedInAdmin) && visitedWorkspaceModes.includes("records") && <div style={{ display: workspaceMode === "records" ? "block" : "none" }} aria-hidden={workspaceMode !== "records"}>
-      <DeferredPanel label="생기부 업무를 불러오는 중입니다."><RecordWriter teacher={activeTeacher} isAdmin={!!loggedInAdmin} accounts={accounts} db={db} grade={grade} semester={semester} actor={actor} showToast={showToast}
+    {(activeTeacher || loggedInAdmin || loggedInDepartment) && visitedWorkspaceModes.includes("records") && <div style={{ display: workspaceMode === "records" ? "block" : "none" }} aria-hidden={workspaceMode !== "records"}>
+      <DeferredPanel label="생기부 업무를 불러오는 중입니다."><RecordWriter teacher={activeTeacher} isAdmin={!!loggedInAdmin || (!!loggedInDepartment && !activeTeacher)} readOnly={!!loggedInDepartment && !loggedInAdmin && !activeTeacher} accounts={accounts} db={db} grade={grade} semester={semester} actor={actor} showToast={showToast}
         legacy={canUseGradeDepartmentTools ? <GradeDepartmentTools view="records" db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} /> : null} /></DeferredPanel>
     </div>}
   </div>;
@@ -7329,6 +7338,7 @@ function AdminAccounts({ accounts, persistAccounts, showToast, db, grade, scopeK
                 </div>
 
                 <TeacherFeatureAccess teacher={teacher} onToggle={key => setTeachers(current => current.map((item, itemIndex) => itemIndex === index ? toggleFeature(item, key) : item))} />
+                <TeacherAdminAccess teacher={teacher} onChange={next => setTeachers(current => current.map((item, itemIndex) => itemIndex === index ? next : item))} />
 
                 {role === "homeroom" && (
                   <div style={{ marginBottom: 12 }}>
@@ -7376,6 +7386,26 @@ function TeacherFeatureAccess({ teacher, onToggle }) {
             style={{ ...styles.classChip, padding: "5px 11px", fontSize: 11.5, ...(on ? styles.classChipActive : {}), ...(custom ? { boxShadow: "0 0 0 2px #f59e0b" } : {}) }}>{on ? "✓ " : ""}{feature.label}</button>;
         })}
       </div>
+    </div>
+  );
+}
+
+// 관리자 권한: 켜면 이 선생님 아이디·비밀번호로 관리자 화면도 열려요(관리자 계정을 따로 만들지 않음).
+function TeacherAdminAccess({ teacher, onChange }) {
+  const on = Array.isArray(teacher.adminPermissions);
+  const perms = on ? teacher.adminPermissions : [];
+  const toggleTab = key => onChange({ ...teacher, adminPermissions: perms.includes(key) ? perms.filter(p => p !== key) : [...perms, key] });
+  return (
+    <div style={{ marginBottom: 12, padding: "8px 10px", borderRadius: 10, background: on ? "#fff7ed" : "transparent", border: on ? "1px solid #fdba74" : "1px dashed #e2dfd8" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <button type="button" aria-pressed={on} onClick={() => { if (on && !window.confirm(`${teacher.name || teacher.id} 선생님의 관리자 권한을 끌까요?`)) return; onChange(on ? (({ adminPermissions, ...rest }) => rest)(teacher) : { ...teacher, adminPermissions: [] }); }}
+          style={{ ...styles.classChip, padding: "5px 11px", fontSize: 11.5, ...(on ? styles.classChipActive : {}) }}>{on ? "✓ 관리자 권한" : "+ 관리자 권한 주기"}</button>
+        <span style={{ fontSize: 11.5, color: "#8a8578" }}>{on ? "이 선생님 아이디·비밀번호 하나로 관리자 화면도 열려요." : "관리자 계정을 따로 만들지 않고 이 선생님 계정에 관리자 권한을 줘요."}</span>
+      </div>
+      {on && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+        <span style={{ fontSize: 11, color: "#8a8578", alignSelf: "center" }}>관리 탭(예전 관리자 계정과 같은 방식):</span>
+        {ADMIN_TABS.map(([key, , label]) => <button key={key} type="button" onClick={() => toggleTab(key)} style={{ ...styles.classChip, padding: "4px 10px", fontSize: 11, ...(perms.includes(key) ? styles.classChipActive : {}) }}>{label}</button>)}
+      </div>}
     </div>
   );
 }

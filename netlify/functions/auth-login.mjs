@@ -27,7 +27,7 @@ export default handle(async req => {
   }
   await clearFail(id);
   // 평문으로 맞았으면 이번에 암호화해 옮깁니다(실패해도 로그인은 진행).
-  for (const item of matches) if (item.via === "plain") await storePasswordHash(item.kind, id, pw).catch(error => console.warn("hash migrate failed", error?.message || error));
+  for (const item of matches) if (item.via === "plain") await storePasswordHash(item.entry?.hashKind || item.kind, id, pw).catch(error => console.warn("hash migrate failed", error?.message || error));
   // 이미 다른 역할로 로그인해 있었으면(올바른 세션) 그 역할도 함께 이어 갑니다.
   const extras = [...matches.slice(1).map(item => ({ kind: item.kind, id })), ...priorRoles(body.session, accounts)];
   return json(await issueLogin(match.kind, id, extras));

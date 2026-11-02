@@ -68,3 +68,17 @@ test("한 번에 암호화하는 수 제한: 넘는 건 평문으로 남겨 다�
   const round2 = applyAccountChange({ kind: "admin", id: "boss" }, next, next, { limit: 3 });
   assert.equal(round2.plain.length, 3); assert.equal(round2.deferred, 1);
 });
+
+test("관리자 계정과 아이디가 같은 선생님 계정은 '관리자 권한'으로 합침", async () => {
+  const { checkLoginAll, findAccount } = await import("../netlify/lib/authCore.mjs");
+  const before = { admin: [{ id: "kim", pw: HASHED_PW, permissions: ["accounts"] }, { id: "boss", pw: HASHED_PW, permissions: [] }], teacher: [{ id: "kim", pw: "tpw", name: "김" }] };
+  const { next } = applyAccountChange({ kind: "admin", id: "boss" }, before, before);
+  assert.deepEqual(next.admin.map(a => a.id), ["boss"]);
+  assert.deepEqual(next.teacher[0].adminPermissions, ["accounts"]);
+  // 선생님 비밀번호 하나로 관리자·선생님 두 역할(암호는 선생님 쪽)
+  const hashes = { "teacher|kim": null };
+  const accounts = { ...next, teacher: [{ ...next.teacher[0], pw: "tpw" }] };
+  const roles = await checkLoginAll(accounts, "kim", "tpw", async (kind, id) => hashes[`${kind}|${id}`]);
+  assert.deepEqual(roles.map(r => r.kind), ["admin", "teacher"]);
+  assert.ok(findAccount(accounts, "admin", "kim"));
+});
