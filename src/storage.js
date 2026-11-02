@@ -146,13 +146,16 @@ async function backupPrevious(key, previous) {
   }
 }
 export async function listBackupKeys() {
+  await ensureStorageIdentity(); // 보안 규칙: 로그인(익명 또는 계정)한 화면만 자료를 읽고 씁니다
   const snap = await withTimeout(getDoc(doc(db, COLLECTION, BACKUP_KEYS_DOC)), 15000, "백업 목록 읽기");
   try { return snap.exists() ? JSON.parse(snap.data()?.value || "[]") : []; } catch { return []; }
 }
 export async function listBackups(key) {
+  await ensureStorageIdentity(); // 보안 규칙: 로그인(익명 또는 계정)한 화면만 자료를 읽고 씁니다
   return (await readBackupIndex(key)).sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 export async function readBackup(key, entry) {
+  await ensureStorageIdentity(); // 보안 규칙: 로그인(익명 또는 계정)한 화면만 자료를 읽고 씁니다
   const snap = await withTimeout(getDoc(doc(db, COLLECTION, entry.id)), 20000, "백업 읽기");
   if (!snap.exists()) throw new Error("백업 문서를 찾지 못했습니다.");
   const data = snap.data();
@@ -166,6 +169,7 @@ export async function readBackup(key, entry) {
 }
 // 되돌리기: 백업 내용을 다시 저장합니다(지금 내용은 그 저장 과정에서 또 백업됨).
 export async function restoreBackup(key, entry) {
+  await ensureStorageIdentity(); // 보안 규칙: 로그인(익명 또는 계정)한 화면만 자료를 읽고 씁니다
   const value = await readBackup(key, entry);
   lastBackupAt.delete(key);
   return writeStorage(key, value);
@@ -174,6 +178,7 @@ export async function restoreBackup(key, entry) {
 const failedReadKeys = new Set();
 
 export async function readStorage(key, fallback, options = {}) {
+  await ensureStorageIdentity(); // 보안 규칙: 로그인(익명 또는 계정)한 화면만 자료를 읽고 씁니다
   try {
     const data = await readManifest(key);
     if (!data) { failedReadKeys.delete(key); return fallback; }
@@ -209,6 +214,7 @@ export async function readStorage(key, fallback, options = {}) {
 }
 
 async function writeStorageRaw(key, value) {
+  await ensureStorageIdentity(); // 보안 규칙: 로그인(익명 또는 계정)한 화면만 자료를 읽고 씁니다
   if (failedReadKeys.has(key)) return { ok: false, error: "자료를 불러오지 못한 상태에서는 저장할 수 없습니다. 새로고침 후 다시 시도해주세요." };
   let previousManifest = null;
   try {
@@ -269,6 +275,7 @@ async function writeStorageRaw(key, value) {
 
 // Small shared lists are merged against the server version, never a stale screen copy.
 async function updateStorageRaw(key, fallback, updater) {
+  await ensureStorageIdentity(); // 보안 규칙: 로그인(익명 또는 계정)한 화면만 자료를 읽고 씁니다
   try {
     const result = await runTransaction(db, async transaction => {
       const target = doc(db, COLLECTION, key);
@@ -346,7 +353,12 @@ function attachmentContentType(file) {
   return supplied || "application/octet-stream";
 }
 
+// 자료를 읽고 쓰기 전에 Firebase 로그인 상태를 만듭니다. 계정 로그인(서버 토큰)이 남아 있으면 그대로 쓰고,
+// 아니면 익명 로그인. 새로고침 직후에는 저장된 로그인 상태가 복원될 때까지 기다립니다.
+let authStateReady = null;
 async function ensureStorageIdentity() {
+  if (!authStateReady) authStateReady = (typeof auth.authStateReady === "function" ? withTimeout(auth.authStateReady(), 5000, "로그인 상태 확인") : Promise.resolve()).catch(() => null);
+  await authStateReady;
   if (auth.currentUser) return auth.currentUser;
   if (!anonymousAuthPromise) {
     anonymousAuthPromise = withTimeout(signInAnonymously(auth), 8000, "익명 인증")
@@ -559,6 +571,7 @@ async function saveAdmissionDocumentInFirestore(file, university, documentType, 
 }
 
 export async function readAdmissionDocument(dataKey) {
+  await ensureStorageIdentity(); // 보안 규칙: 로그인(익명 또는 계정)한 화면만 자료를 읽고 씁니다
   return readBinaryAttachment(dataKey);
 }
 

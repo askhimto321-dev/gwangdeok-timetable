@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-02-a",
+    date: "2026-11-02",
+    title: "자료 보호 준비",
+    items: [
+      { audience: "staff", text: "자료를 읽고 쓰기 전에 로그인 상태를 먼저 확인하도록 바꿨어요(보안 규칙 강화 준비). 화면에서 달라지는 점은 없어요." },
+    ],
+  },
+  {
     id: "2026-11-01-f",
     date: "2026-11-01",
     title: "로그인 보안 강화",
