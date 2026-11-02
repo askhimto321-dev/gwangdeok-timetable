@@ -58,6 +58,12 @@ export function teacherAdmins(accounts) {
     .filter(t => t && Array.isArray(t.adminPermissions))
     .map(t => ({ id: t.id, pw: t.pw, name: t.name || "", permissions: t.adminPermissions, viaTeacher: true, hashKind: "teacher" }));
 }
+// 같은 사람에게 딸린 역할: '관리자 권한'이 있는 선생님은 어떤 방법(아이디·카카오·구글)으로 로그인해도 관리자 역할을 함께 켭니다.
+export function impliedRoles(accounts, kind, id) {
+  if (kind !== "teacher") return [];
+  const teacher = (Array.isArray(accounts?.teacher) ? accounts.teacher : []).find(t => String(t?.id ?? "") === String(id));
+  return teacher && Array.isArray(teacher.adminPermissions) ? [{ kind: "admin", id: String(id) }] : [];
+}
 const adminEntries = (accounts, bootstrapPw) => {
   const own = Array.isArray(accounts?.admin) ? accounts.admin : [];
   const linked = teacherAdmins(accounts).filter(t => !own.some(a => String(a?.id) === String(t.id)));

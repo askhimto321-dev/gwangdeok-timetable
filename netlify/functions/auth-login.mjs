@@ -1,6 +1,6 @@
 // POST /api/auth/login  { id, pw } 또는 { ticket }(카카오 로그인 뒤 1회용 표)
 import { checkLoginAll, readToken } from "../lib/authCore.mjs";
-import { priorRoles } from "../lib/session.mjs";
+import { priorRoles, withImplied } from "../lib/session.mjs";
 import { handle, readJson, json, readAccounts, loadPasswordHash, storePasswordHash, checkFailLock, recordFail, clearFail, issueLogin, secret, HttpError, authOptions } from "../lib/kdServer.mjs";
 import { findAccount } from "../lib/authCore.mjs";
 
@@ -11,7 +11,7 @@ export default handle(async req => {
     if (!ticket) throw new HttpError(401, "로그인 시간이 지났습니다. 다시 시도해주세요.");
     const accounts = await readAccounts();
     if (!findAccount(accounts, ticket.k, ticket.i, authOptions())) throw new HttpError(401, "연결된 계정을 찾을 수 없습니다.");
-    return json(await issueLogin(ticket.k, ticket.i, priorRoles(body.session, accounts)));
+    return json(await issueLogin(ticket.k, ticket.i, withImplied(ticket.k, ticket.i, priorRoles(body.session, accounts), accounts)));
   }
   const id = String(body.id || "").trim();
   const pw = String(body.pw || "");
@@ -30,7 +30,7 @@ export default handle(async req => {
   for (const item of matches) if (item.via === "plain") await storePasswordHash(item.entry?.hashKind || item.kind, id, pw).catch(error => console.warn("hash migrate failed", error?.message || error));
   // 이미 다른 역할로 로그인해 있었으면(올바른 세션) 그 역할도 함께 이어 갑니다.
   const extras = [...matches.slice(1).map(item => ({ kind: item.kind, id })), ...priorRoles(body.session, accounts)];
-  return json(await issueLogin(match.kind, id, extras));
+  return json(await issueLogin(match.kind, id, withImplied(match.kind, id, extras, accounts)));
 });
 
 export const config = { path: "/api/auth/login" };

@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-03-d",
+    date: "2026-11-03",
+    title: "관리자 권한 선생님: 카카오·구글 로그인에도 관리자 화면",
+    items: [
+      { audience: "staff", text: "관리자 권한이 있는 선생님은 카카오·구글로 로그인하거나 새로고침해도 관리자 화면이 함께 열려요." },
+    ],
+  },
+  {
     id: "2026-11-03-c",
     date: "2026-11-03",
     title: "계정 하나로 관리자·선생님 · 부서 공용 계정",
