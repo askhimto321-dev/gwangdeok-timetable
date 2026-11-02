@@ -120,3 +120,10 @@ test("관리자 권한이 있는 선생님은 카카오·구글 로그인에도 
   assert.deepEqual(impliedRoles(unmerged, "teacher", "park"), [{ kind: "admin", id: "park" }]);
   assert.deepEqual(impliedRoles(unmerged, "teacher", "choi"), []);
 });
+
+test("linkOwner: 관리자 겸 선생님은 선생님 역할에 간편 로그인 연결", async () => {
+  const { linkOwner } = await import("../netlify/lib/session.mjs");
+  assert.deepEqual(linkOwner({ kind: "admin", id: "K", extras: [{ kind: "teacher", id: "K" }] }), { kind: "teacher", id: "K" });
+  assert.deepEqual(linkOwner({ kind: "teacher", id: "K", extras: [{ kind: "admin", id: "K" }] }), { kind: "teacher", id: "K" });
+  assert.deepEqual(linkOwner({ kind: "admin", id: "A" }), { kind: "admin", id: "A" });
+});
