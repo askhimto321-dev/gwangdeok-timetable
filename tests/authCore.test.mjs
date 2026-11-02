@@ -115,4 +115,8 @@ test("관리자 권한이 있는 선생님은 카카오·구글 로그인에도 
   assert.deepEqual(impliedRoles(accounts, "teacher", "kim"), [{ kind: "admin", id: "kim" }]);
   assert.deepEqual(impliedRoles(accounts, "teacher", "lee"), []);
   assert.deepEqual(impliedRoles(accounts, "departments", "kim"), []);
+  // 아직 합쳐지지 않은 예전 관리자 계정(같은 아이디)
+  const unmerged = { admin: [{ id: "park" }], teacher: [{ id: "park" }, { id: "choi" }] };
+  assert.deepEqual(impliedRoles(unmerged, "teacher", "park"), [{ kind: "admin", id: "park" }]);
+  assert.deepEqual(impliedRoles(unmerged, "teacher", "choi"), []);
 });
