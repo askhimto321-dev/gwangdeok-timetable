@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-02-e",
+    date: "2026-11-02",
+    title: "로그인한 뒤에만 자료 불러오기",
+    items: [
+      { audience: "all", text: "자료는 로그인한 뒤에만 불러오고, 로그아웃하면 화면에서 지워요(공용 컴퓨터 보호). 로그인 직후 잠깐 '로딩 중'이 보일 수 있어요." },
+    ],
+  },
+  {
     id: "2026-11-02-d",
     date: "2026-11-02",
     title: "생기부 학생 목록 잘림 수정",
