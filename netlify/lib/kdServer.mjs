@@ -134,9 +134,12 @@ export async function linkProvider(kind, id, provider, uid, label) {
     const linkRef = db.collection(AUTH).doc(linkDoc(provider, uid));
     const [accSnap, linkSnap] = await Promise.all([tx.get(accRef), tx.get(linkRef)]);
     const existing = linkSnap.exists ? linkSnap.data() : null;
-    if (existing && (existing.kind !== kind || existing.id !== id)) throw new HttpError(409, "이 계정은 이미 다른 KDTIME 아이디에 연결되어 있습니다.");
+    if (existing && String(existing.id) !== String(id)) throw new HttpError(409, "이 계정은 이미 다른 KDTIME 아이디에 연결되어 있습니다.");
+    // 같은 사람(같은 아이디)의 다른 역할에 붙어 있던 연결이면 이 역할로 옮겨요.
+    const movedFrom = existing && existing.kind !== kind ? db.collection(AUTH).doc(acctDoc(existing.kind, existing.id)) : null;
     const old = accSnap.exists ? accSnap.data()?.[provider] : null;
     if (old?.uid && old.uid !== uid) tx.delete(db.collection(AUTH).doc(linkDoc(provider, old.uid)));
+    if (movedFrom) { const { FieldValue } = await import("firebase-admin/firestore"); tx.set(movedFrom, { [provider]: FieldValue.delete() }, { merge: true }); }
     tx.set(linkRef, { kind, id, provider, at });
     tx.set(accRef, { [provider]: { uid, label: label || "", at } }, { merge: true });
   });

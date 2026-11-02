@@ -781,12 +781,11 @@ function useEventDoc(year, grade) {
   return { doc, update, bySid };
 }
 const evStatusKey = item => `ev:${item.eventKey}`;
-function EventFilesModal({ ev, students, rec, grade, by, showToast, onClose }) {
-  const readOnlyView = useContext(ReadOnlyContext);
+// 행사 세특 파일 올리기·빼기(관리자·부서 공용·학년부장)
+function useEventUpload(ev, grade, by, showToast, canManage) {
   const [busy, setBusy] = useState(false);
-  const inputRef = useRef(null);
   const upload = async list => {
-    if (readOnlyView) { showToast?.("조회 전용 계정은 파일을 올릴 수 없어요.", "error"); return; }
+    if (!canManage) { showToast?.("행사 세특 파일은 관리자·부서·학년부장 계정이 올려요.", "error"); return; }
     setBusy(true);
     try {
       const mod = await import("xlsx-js-style"); const XLSX = mod.default?.utils ? mod.default : mod;
@@ -805,14 +804,59 @@ function EventFilesModal({ ev, students, rec, grade, by, showToast, onClose }) {
     setBusy(false);
   };
   const remove = async file => { if (!window.confirm(`'${file.name}'에서 불러온 특기사항을 모두 뺄까요? (담임이 이미 칸에 넣은 글은 그대로예요)`)) return; await ev.update(current => ({ files: current.files.filter(f => f.id !== file.id), items: current.items.filter(item => item.fileId !== file.id) })); };
+  return { busy, upload, remove };
+}
+// 위쪽 '행사 세특' 탭: 학년 단위로 파일을 모아 관리하고, 반별 확인 현황을 한눈에
+function EventAdmin({ year, grade, rosterFor, by, showToast, canManage }) {
+  const ev = useEventDoc(year, grade);
+  const { busy, upload, remove } = useEventUpload(ev, grade, by, showToast, canManage);
+  const inputRef = useRef(null);
+  const roster = rosterFor(grade) || {};
+  const classes = useMemo(() => Array.from(new Set(Object.values(roster).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
+  const classOf = sid => String(roster?.[sid]?.class || Number(String(sid).slice(1, 3)) || "");
+  const [docs, setDocs] = useState({});
+  const [loading, setLoading] = useState(false);
+  const loadDocs = useCallback(async () => {
+    setLoading(true);
+    const pairs = await Promise.all(classes.map(async c => [c, await readStorage(hrKey(year, grade, c), emptyDoc()).catch(() => emptyDoc())]));
+    setDocs(Object.fromEntries(pairs)); setLoading(false);
+  }, [classes.join(","), year, grade]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadDocs(); }, [loadDocs]);
+  const events = useMemo(() => {
+    const map = new Map();
+    (ev.doc.items || []).forEach(item => {
+      const row = map.get(item.eventKey) || { item, total: 0, done: 0, byClass: {} };
+      const c = classOf(item.sid); const cell = row.byClass[c] || (row.byClass[c] = { total: 0, done: 0 });
+      const st = docs[c]?.students?.[item.sid]?.[`ev:${item.eventKey}`]?.t || "";
+      row.total += 1; cell.total += 1; if (st) { row.done += 1; cell.done += 1; }
+      map.set(item.eventKey, row);
+    });
+    return Array.from(map.values()).sort((a, b) => a.item.area.localeCompare(b.item.area) || a.item.event.localeCompare(b.item.event));
+  }, [ev.doc.items, docs]); // eslint-disable-line react-hooks/exhaustive-deps
+  return <div className="krw-body krw-evadmin">
+    <div className="krw-bar"><b className="krw-scope">{grade}학년 행사 특기사항</b><span className="sp" />
+      <button type="button" data-kdn-bare className="krw-btn" onClick={loadDocs} disabled={loading}>{loading ? <Loader2 size={14} className="spin" /> : <RotateCcw size={14} />} 확인 현황 새로 보기</button>
+      {canManage && <><button type="button" data-kdn-bare className="krw-btn pri" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={14} className="spin" /> : <FileSpreadsheet size={14} />} 취합 파일 올리기</button><input ref={inputRef} type="file" hidden multiple accept=".xlsx,.xls" onChange={event => { const files = Array.from(event.target.files || []); event.target.value = ""; upload(files); }} /></>}
+    </div>
+    <p className="krw-evadmin-note">부서별로 모은 <b>행사 특기사항 취합 파일(xlsx)</b>을 여기서 한 번에 올려요. 시트마다 '학번 · 생기부 영역 · 행사명 · 특기사항' 칸을 읽어, 담임 화면의 학생별 <b>자율·자치 / 진로</b> 칸 위에 띄워요. 같은 이름의 파일을 다시 올리면 새 내용으로 바뀌어요.{!canManage && <> 파일은 관리자·부서·학년부장 계정이 올려요.</>}</p>
+    <section className="krw-card"><h4>올린 파일</h4>
+      {(ev.doc.files || []).length ? <ul className="krw-evf-files">{ev.doc.files.map(file => <li key={file.id}><FileSpreadsheet size={14} /><span><b>{file.name}</b><small>{file.count}건 · {file.by ? `${file.by} · ` : ""}{new Date(file.at).toLocaleDateString("ko-KR")}</small></span>{canManage && <button type="button" data-kdn-bare onClick={() => remove(file)} aria-label="빼기" title="이 파일에서 불러온 특기사항 빼기"><Trash2 size={13} /></button>}</li>)}</ul> : <p className="none">아직 올린 파일이 없어요.</p>}
+    </section>
+    <section className="krw-card"><h4>반별 확인 현황 <small>담임이 '넣음' 또는 '안 넣음'으로 표시한 학생 수 / 대상 학생 수</small></h4>
+      {events.length ? <div className="krw-table-wrap"><table className="krw-evf-tbl is-wide"><thead><tr><th>행사</th><th>영역</th>{classes.map(c => <th key={c}>{c}반</th>)}<th>합계</th></tr></thead>
+        <tbody>{events.map(({ item, total, done, byClass }) => <tr key={item.eventKey}><td><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}</td><td><span className={`krw-refl-tag is-${item.area}`}>{RECORD_AREAS[item.area].short}</span></td>
+          {classes.map(c => { const cell = byClass[c]; return <td key={c} className={!cell ? "na" : cell.done < cell.total ? "is-left" : "is-done"}>{cell ? `${cell.done}/${cell.total}` : "·"}</td>; })}
+          <td className={done < total ? "is-left" : "is-done"}><b>{done}/{total}</b></td></tr>)}</tbody></table></div> : <p className="none">불러온 행사 특기사항이 없어요.</p>}
+    </section>
+  </div>;
+}
+function EventFilesModal({ ev, students, rec, grade, onClose }) {
   const sids = new Set(students.map(s => s.sid));
   const events = new Map();
   (ev.doc.items || []).filter(item => sids.has(item.sid)).forEach(item => { const row = events.get(item.eventKey) || { item, total: 0, done: 0 }; row.total += 1; if (rec.textOf(item.sid, evStatusKey(item))) row.done += 1; events.set(item.eventKey, row); });
   return createPortal(<div className="krw krw-modal" role="dialog" aria-modal="true" aria-label="행사 특기사항" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div className="krw-modal-box krw-evf">
     <header><b><CalendarCheck size={17} /> 행사 특기사항</b><button type="button" data-kdn-bare onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
-    <p>부서별로 모은 <b>행사 특기사항 취합 파일(xlsx)</b>을 올리면, 시트마다 '학번 · 생기부 영역 · 행사명 · 특기사항' 칸을 읽어 학생별 <b>자율·자치 / 진로</b> 칸 아래에 띄워요. {grade}학년 담임 모두 같이 봐요. 같은 이름의 파일을 다시 올리면 새 내용으로 바뀌어요.</p>
-    <div className="krw-evf-up"><button type="button" data-kdn-bare className="krw-btn pri" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={14} className="spin" /> : <FileSpreadsheet size={14} />} 취합 파일 올리기</button><input ref={inputRef} type="file" hidden multiple accept=".xlsx,.xls" onChange={event => { const files = Array.from(event.target.files || []); event.target.value = ""; upload(files); }} /></div>
-    {(ev.doc.files || []).length > 0 && <ul className="krw-evf-files">{ev.doc.files.map(file => <li key={file.id}><FileSpreadsheet size={14} /><span><b>{file.name}</b><small>{file.count}건 · {file.by ? `${file.by} · ` : ""}{new Date(file.at).toLocaleDateString("ko-KR")}</small></span><button type="button" data-kdn-bare onClick={() => remove(file)} aria-label="빼기"><Trash2 size={13} /></button></li>)}</ul>}
+    <p>행사 특기사항 파일은 위쪽 <b>'행사 세특'</b> 탭에서 학년 단위로 올리고 관리해요. 여기서는 우리 반 학생들의 확인 현황을 봐요.</p>
     <h4>우리 반 행사별 확인</h4>
     {events.size ? <table className="krw-evf-tbl"><thead><tr><th>행사</th><th>영역</th><th>대상</th><th>확인</th></tr></thead><tbody>{Array.from(events.values()).map(({ item, total, done }) => <tr key={item.eventKey} className={done < total ? "is-left" : ""}><td><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}</td><td>{RECORD_AREAS[item.area].short}</td><td>{total}명</td><td>{done}/{total}</td></tr>)}</tbody></table> : <p className="none">우리 반 학생의 행사 특기사항이 아직 없어요.</p>}
   </div></div>, document.body);
@@ -1233,7 +1277,7 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
   }, [subjectTeacher, db?.roster, db?.enrollments, grade, semester, rosterFor]);
 
   const canHomeroom = isAdmin || !!teacher?.homeroomClass;
-  const tabs = [canHomeroom && ["homeroom", "학급담임", "자율·자치 · 진로 · 행발"], ["subject", "교과담임", "반·분반별 과세특"], ["check", "점검", "엑셀 올려 한 번에 점검"], legacy && ["legacy", "2학년부 자료", "활동 배정 · 소감문"]].filter(Boolean);
+  const tabs = [canHomeroom && ["homeroom", "학급담임", "자율·자치 · 진로 · 행발"], ["subject", "교과담임", "반·분반별 과세특"], ["check", "점검", "엑셀 올려 한 번에 점검"], ["events", "행사 세특", "부서 취합 파일 · 반별 확인"], legacy && ["legacy", "2학년부 자료", "활동 배정 · 소감문"]].filter(Boolean);
   const [tab, setTab] = useState(() => { try { const saved = localStorage.getItem("kd_rec_tab_v1"); return tabs.some(t => t[0] === saved) ? saved : tabs[0][0]; } catch { return tabs[0][0]; } });
   const [view, setView] = useState("student"); // 들어올 때는 늘 학생별 보기로 시작
   const [lastScope, setLastScope] = useState(""); // 점검 탭 기본 반: 마지막으로 연 담임 반 또는 과목·반
@@ -1274,13 +1318,14 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
     {tab !== "legacy" && <TourGuide id="records-v2" steps={TOUR_STEPS} startToken={tourToken} />}
     {stdOpen && <StandardsModal grade={grade} semester={semester} subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
-    {tab !== "legacy" && tab !== "check" && <div className="krw-opts">
+    {tab !== "legacy" && tab !== "check" && tab !== "events" && <div className="krw-opts">
       <div className="krw-views" role="group" aria-label="보는 형태" data-tour="rw-views">{VIEWS.map(([key, label, sub, Icon]) => <button key={key} type="button" data-kdn-bare aria-pressed={view === key} title={sub} onClick={() => setView(key)}><Icon size={15} /> {label}</button>)}</div>
       <button type="button" data-kdn-bare data-tour="rw-check" className={`krw-check${check ? " is-on" : ""}`} aria-pressed={check} onClick={() => setCheck(value => !value)}>{check ? <Eye size={15} /> : <EyeOff size={15} />} 기재요령 점검 {check ? "켜짐" : "꺼짐"}</button>
       <button type="button" data-kdn-bare className="krw-std-btn" onClick={() => setStdOpen(true)} title="2022 개정 교육과정 과목별 성취기준 찾아보기"><ListChecks size={16} /><span>2022 성취기준</span></button>
       <button type="button" data-kdn-bare data-tour="rw-help" className="krw-help-btn" onClick={() => setHelpOpen(true)} title="생기부 작성 가이드라인 · 단계별 안내" aria-label="가이드라인"><HelpCircle size={18} /><span>가이드라인</span></button>
       {tab === "subject" && isAdmin && !teacher && <select className="krw-teacher" value={pickedTeacherId} onChange={event => setPickedTeacherId(event.target.value)} aria-label="선생님"><option value="">선생님 고르기</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
     </div>}
+    {tab === "events" && <EventAdmin year={year} grade={hrGrade} rosterFor={rosterFor} by={by} showToast={showToast} canManage={isAdmin || ["gradeHead", "admin"].includes(String(teacher?.teacherRole || ""))} />}
     {tab === "check" && <CheckWriter year={year} scopes={checkScopes} initialKey={lastScope} showToast={showToast} />}
     {tab === "homeroom" && <HomeroomWriter reflectionsBySid={reflectionsBySid} onScope={setLastScope} year={year} grade={hrGrade} classOptions={classOptions} rosterFor={rosterFor} by={by} view={view} setView={setView} check={check} showToast={showToast} />}
     {tab === "subject" && (isAdmin && !teacher && !subjectTeacher ? <div className="krw-empty"><Users size={20} /><b>세특을 볼 선생님을 골라 주세요.</b></div>
@@ -1472,6 +1517,9 @@ const CSS = `
 .krw-evbox .ft{display:flex;align-items:center;gap:8px}.krw-evbox .ft span{flex:1;font-size:12.5px;font-weight:700;color:#6d28d9}.krw-evbox .ft .krw-btn{min-height:32px}
 .krw-evf{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto}.krw-evf h4{margin:4px 0 0;font-size:14px}.krw-evf .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
 .krw-evf-files{display:grid;gap:4px;margin:0;padding:0;list-style:none}.krw-evf-files li{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1px solid var(--kdn-line,#e7e5e0)}.krw-evf-files span{flex:1;display:grid;min-width:0}.krw-evf-files b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.krw-evf-files small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-files button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:8px;background:var(--kdn-surface-2,#f3f2ef);color:inherit;cursor:pointer}
+.krw-evadmin-note{margin:0;padding:10px 14px;border-radius:14px;background:color-mix(in srgb,#7c3aed 6%,var(--kdn-surface,#fff));font-size:13px;line-height:1.6;color:var(--kdn-ink-soft,#5b606b)}
+.krw-evadmin .krw-card{display:grid;gap:8px;padding:14px 16px;border-radius:18px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}.krw-evadmin h4{margin:0;font-size:15px}.krw-evadmin h4 small{margin-left:8px;font-size:12px;font-weight:600;color:var(--kdn-muted,#8a8f99)}.krw-evadmin .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
+.krw-evf-tbl.is-wide td.is-left{color:#b45309;font-weight:800;background:color-mix(in srgb,#f59e0b 8%,transparent)}.krw-evf-tbl.is-wide td.is-done{color:#15803d;font-weight:700}.krw-evf-tbl.is-wide td.na{color:var(--kdn-line,#d6d3cc)}.krw-evf-tbl.is-wide th{white-space:nowrap;font-size:12px}
 .krw-evf-tbl{width:100%;border-collapse:collapse;font-size:13px}.krw-evf-tbl th,.krw-evf-tbl td{padding:7px 8px;border-bottom:1px solid var(--kdn-line,#ece9e3);text-align:center}.krw-evf-tbl td:first-child,.krw-evf-tbl th:first-child{text-align:left}.krw-evf-tbl td b{display:block}.krw-evf-tbl td small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-tbl tr.is-left td:last-child{color:#b45309;font-weight:800}
 .krw-ai-sum{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f3)}.krw-ai-sum>div{flex:1;min-width:0;display:grid;gap:2px}.krw-ai-sum b{font-size:12.5px;font-weight:800}.krw-ai-sum span{font-size:12.5px;color:var(--kdn-ink-soft,#5b606b)}.krw-ai-sum .krw-btn{flex:none;min-height:32px}
 .krw-pick{width:min(560px,100%);max-height:calc(100vh - 32px);grid-template-rows:auto auto minmax(0,1fr) auto}

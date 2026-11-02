@@ -30,3 +30,16 @@ export function priorRoles(token, accounts) {
   const own = findAccount(accounts, payload.k, payload.i, authOptions()) ? [{ kind: payload.k, id: String(payload.i) }] : [];
   return [...own, ...sessionExtras(payload, accounts)];
 }
+
+// 간편 로그인 연결은 사람(아이디) 단위예요. 여러 역할이면 연결을 둘 역할: 선생님 → 부서 → 그 밖 → 관리자 순서
+// (관리자 계정은 같은 아이디의 선생님 계정에 합쳐지기 때문에 선생님 쪽에 둬요)
+const LINK_RANK = ["teacher", "departments", "classView", "monitors", "students", "admin"];
+export function sessionRoles({ kind, id, extras = [] }) {
+  const out = [{ kind, id: String(id) }];
+  extras.forEach(r => { if (!out.some(x => x.kind === r.kind && x.id === String(r.id))) out.push({ kind: r.kind, id: String(r.id) }); });
+  return out;
+}
+export function linkOwner(who) {
+  const roles = sessionRoles(who).filter(r => r.id === String(who.id));
+  return roles.sort((a, b) => LINK_RANK.indexOf(a.kind) - LINK_RANK.indexOf(b.kind))[0] || { kind: who.kind, id: String(who.id) };
+}
