@@ -120,7 +120,9 @@ test("점검 엑셀 읽기: 머리글·글 칸·한도", async () => {
   const { parseCheckSheet } = await import("../src/recordText.js");
   const parsed = parseCheckSheet([["2학년 3반"], ["번호", "학번", "이름", "자율·자치활동", "진로활동", "행동특성 및 종합의견"], [1, "20301", "가", "글", "", "행발 글"], ["", "", "", "", "", ""]]);
   assert.equal(parsed.rows.length, 1);
-  assert.deepEqual(parsed.columns.map(c => c.limit), [1500, 2100, 900]);
+  assert.deepEqual(parsed.columns.map(c => c.limit), [1500, 1500, 900]); // 2026학년도 2학년: 진로 500자·행발 300자
+  const third = parseCheckSheet([["번호", "학번", "이름", "진로활동", "행동특성 및 종합의견"], [1, "30101", "가", "글", "글"]]);
+  assert.deepEqual(third.columns.map(c => c.limit), [2100, 1500]); // 3학년은 2027.3.1부터 새 한도
   assert.equal(parsed.rows[0].texts[2], "행발 글");
   assert.ok(parseCheckSheet([["a", "b"]]).error);
   const sj = parseCheckSheet([["번호", "이름", "과목별 세부능력 및 특기사항", "바이트"], [1, "가", "세특 글", 9]]);
@@ -144,4 +146,19 @@ test("parseEventSheets: 부서 시트·중복 시트 합치기, 영역 나누기
   assert.equal(tr.area, "career"); assert.equal(tr.text, "조금 더 긴 같은 활동 글.");
   assert.equal(items.filter(i => i.sid === "20101").map(i => i.area).sort().join(","), "autonomy,career");
   assert.equal(eventAreaOf("자율·자치활동"), "autonomy");
+});
+
+test("상호명 점검: '다음'은 상호명으로 보지 않음, Daum은 봄", async () => {
+  const { checkRecordText } = await import("../src/recordText.js");
+  const brand = text => checkRecordText(text).some(item => /포털/.test(item.message || item.label || JSON.stringify(item)));
+  assert.equal(brand("다음 시간에 발표를 이어 가기로 함. 다음을 준비함."), false);
+  assert.equal(brand("Daum 카페에서 자료를 찾음."), true);
+});
+test("영역 한도: 학년별", async () => {
+  const { areaLimit } = await import("../src/recordText.js");
+  assert.equal(areaLimit("career", "2", 2026), 1500);
+  assert.equal(areaLimit("career", "3", 2026), 2100);
+  assert.equal(areaLimit("behavior", "3", 2026), 1500);
+  assert.equal(areaLimit("career", "3", 2027), 1500);
+  assert.equal(areaLimit("autonomy", "3", 2026), 1500);
 });
