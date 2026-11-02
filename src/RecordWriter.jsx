@@ -299,6 +299,7 @@ const TOUR_STEPS = [
   { target: "rw-views", title: "보는 형태 고르기", body: "학생별(한 명씩) · 한눈에 표(반 전체) · 영역별 몰아쓰기(한 영역을 반 전체 차례로) 중 편한 방식으로 써요. 고른 방식은 기억돼요." },
   { target: "rw-bar", title: "거르기 · 저장 · 도구", body: "덜 쓴 학생 · 한도 넘음 · 점검 필요 · 행사 미확인 학생만 골라 볼 수 있어요(0명인 칩은 숨겨요). 오른쪽은 지금 저장 · 인쇄·엑셀 · 같은 문장 점검 · 백업이에요." },
   { target: "rw-evbtn", title: "부서 행사 세특 · 반 전체 한 번에", body: "부서에서 보낸 행사 특기사항을 고르면 우리 반 학생 모두의 자율·자치 / 진로 칸에 한 번에 들어가요. 행사별로 몇 명을 확인했는지도 여기서 봐요." },
+  { target: "rw-clear", title: "특기사항 일괄 지우기", body: "지금 학생 또는 반 전체의 칸을 영역(교과는 활동)별로 골라 한 번에 지워요. 지우기 전에 반 자료 백업 파일을 받아 두고, 누가기록·소감문은 지우지 않아요." },
   { target: "rw-acts", title: "수행평가 활동 만들기(교과)", body: "활동을 추가해 활동별로 나눠 쓰면 총합본이 줄을 바꿔 자동으로 합쳐져요. 다른 반 목록은 '가져오기'로 복사하고, 활동마다 2022 성취기준을 연결할 수 있어요." },
   { target: "rw-focus", title: "영역 탭", body: "자율·자치 / 진로 / 행발 중 하나만 크게 보며 써요. 탭마다 바이트와 확인 안 한 행사 수가 보이고, 오른쪽 자료 칸도 그 영역으로 맞춰져요. '모두 보기'는 세 칸을 한 화면에." },
   { target: "rw-events", title: "이 학생의 행사 특기사항", body: "행사마다 '칸에 넣기'(넣고 반영함 표시) 또는 '빼기'(이 학생은 안 씀)를 눌러 확인해요. 표시는 '되돌리기'로 지울 수 있고, 확인 안 한 행사는 학생 목록에 보라 숫자로 남아요." },
@@ -877,6 +878,36 @@ function EventAdmin({ year, grade, rosterFor, by, showToast, canManage }) {
     </section>
   </div>;
 }
+// 특기사항 일괄 지우기: 지울 칸(영역·활동)과 범위(지금 학생 / 반 전체)를 고르고, 지우기 전에 반 자료를 백업 파일로 받아 둬요.
+function ClearModal({ fields, students, current, rec, title, backupName, extra = null, showToast, onClose }) {
+  const [scope, setScope] = useState(current ? "student" : "class");
+  const [pick, setPick] = useState(() => Object.fromEntries(fields.map(f => [f.key, false])));
+  const [withExtra, setWithExtra] = useState(false);
+  const [backup, setBackup] = useState(true);
+  const list = scope === "student" && current ? [current] : students;
+  const keys = fields.filter(f => pick[f.key]).map(f => f.key);
+  const targets = []; list.forEach(st => keys.forEach(key => { if (rec.textOf(st.sid, key).trim()) targets.push([st.sid, key]); }));
+  const people = new Set(targets.map(([sid]) => sid)).size;
+  const run = async () => {
+    if (!targets.length && !(withExtra && extra)) return;
+    const who = scope === "student" ? `${current.number}번 학생` : `${title} 학생 ${people}명`;
+    if (!window.confirm(`${who}의 ${fields.filter(f => pick[f.key]).map(f => f.label).join(" · ")} 칸 ${targets.length}개를 지울까요?\n지운 글은 되돌리기 어려워요.${backup ? " 지우기 전에 반 자료 백업 파일을 내려받아요." : ""}`)) return;
+    if (backup) { await rec.save(); downloadJson(`${backupName}_지우기전_${new Date().toISOString().slice(0, 10)}.json`, rec.doc); }
+    targets.forEach(([sid, key]) => rec.edit(`s|${sid}|${key}`, ""));
+    if (withExtra && extra) extra.run(list);
+    showToast?.(`${targets.length}칸을 지웠어요.`, "success");
+    onClose();
+  };
+  return createPortal(<div className="krw krw-modal" role="dialog" aria-modal="true" aria-label="특기사항 일괄 지우기" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div className="krw-modal-box krw-clear">
+    <header><b><Trash2 size={17} /> 특기사항 일괄 지우기</b><button type="button" data-kdn-bare onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
+    <p>지울 칸과 범위를 골라요. 누가기록·소감문·활동 목록은 지우지 않아요.</p>
+    <div className="row"><span className="k">범위</span><div className="v">{current && <label className={`chip${scope === "student" ? " on" : ""}`}><input type="radio" name="clr-scope" checked={scope === "student"} onChange={() => setScope("student")} />지금 학생({current.number}번)</label>}<label className={`chip${scope === "class" ? " on" : ""}`}><input type="radio" name="clr-scope" checked={scope === "class"} onChange={() => setScope("class")} />{title} 전체({students.length}명)</label></div></div>
+    <div className="row"><span className="k">지울 칸</span><div className="v">{fields.map(f => { const n = list.filter(st => rec.textOf(st.sid, f.key).trim()).length; return <label key={f.key} className={`chip${pick[f.key] ? " on" : ""}`}><input type="checkbox" checked={!!pick[f.key]} onChange={() => setPick(v => ({ ...v, [f.key]: !v[f.key] }))} />{f.label}<em>{n}</em></label>; })}</div></div>
+    {extra && <div className="row"><span className="k">함께</span><div className="v"><label className={`chip${withExtra ? " on" : ""}`}><input type="checkbox" checked={withExtra} onChange={event => setWithExtra(event.target.checked)} />{extra.label}</label></div></div>}
+    <div className="row"><span className="k">안전</span><div className="v"><label className={`chip${backup ? " on" : ""}`}><input type="checkbox" checked={backup} onChange={event => setBackup(event.target.checked)} />지우기 전에 백업 파일 받기(권장)</label></div></div>
+    <div className="ft"><span>{targets.length ? `${people}명 · ${targets.length}칸을 지워요` : "지울 칸을 골라 주세요"}</span><button type="button" data-kdn-bare className="krw-btn danger" disabled={!targets.length && !(withExtra && extra)} onClick={run}><Trash2 size={14} /> 지우기</button></div>
+  </div></div>, document.body);
+}
 // '학년 자료' 탭: 학년 단위로 모아 쓰는 자료(행사 세특 취합 파일 · 2학년부 활동 배정·소감문)를 한곳에서
 function GradeDataTab({ legacy, events }) {
   const [part, setPart] = useState(() => { try { return localStorage.getItem("kd_rec_grade_part") === "legacy" && legacy ? "legacy" : "events"; } catch { return "events"; } });
@@ -959,6 +990,7 @@ function EventBox({ items, rec, sid, area }) {
 }
 
 function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setView, check, showToast, onScope, reflectionsBySid = null }) {
+  const readOnlyView = useContext(ReadOnlyContext);
   const lim = key => areaLimit(key, grade); // 2026학년도 3학년은 예전 한도
   const [cls, setCls] = useState(() => classOptions[0] || "");
   useEffect(() => { if (!classOptions.includes(cls)) setCls(classOptions[0] || ""); }, [classOptions.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -973,6 +1005,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const [paste, setPaste] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
   const [evOpen, setEvOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   // 소감문 일괄: 반 학생 모두의 소감문을 영역별 누가기록에 담기(이미 담긴 건 건너뜀)
   const bulkReflections = reflectionsBySid ? () => {
     const plan = students.map(s => [s, reflectionsBySid.get(sidKey(s.sid)) || []]).filter(([, list]) => list.length);
@@ -1027,10 +1060,13 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
       <button type="button" data-kdn-bare className="krw-btn" data-tour="rw-evbtn" onClick={() => setEvOpen(true)} title="부서별 행사 특기사항 취합 파일 올리기 · 반 확인 현황"><CalendarCheck size={15} /> 행사{classEvents > 0 && <em className="krw-cnt">{students.filter(test.event).length || "✓"}</em>}</button>
       <button type="button" data-kdn-bare className="krw-btn sec" onClick={() => setDupOpen(true)} title="같은 문장 점검: 여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /><span className="lb">같은 문장</span></button>
       <button type="button" data-kdn-bare className="krw-btn sec" title="백업: 이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`생기부_${grade}-${cls}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /><span className="lb">백업</span></button>
+      {!readOnlyView && <button type="button" data-kdn-bare className="krw-btn sec" data-tour="rw-clear" title="특기사항 일괄 지우기(지금 학생 또는 반 전체)" onClick={() => setClearOpen(true)}><Trash2 size={15} /><span className="lb">지우기</span></button>}
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
     {dupOpen && <DuplicateModal title={`${cls}반`} dups={dups} onPick={setSid} onClose={() => setDupOpen(false)} />}
+    {clearOpen && <ClearModal fields={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].short }))} students={students} current={view === "student" ? current : null} rec={rec} title={`${cls}반`} backupName={`생기부_${grade}-${cls}`} showToast={showToast} onClose={() => setClearOpen(false)}
+      extra={{ label: "행사 확인 표시(반영함·뺌)도 지우기", run: list => list.forEach(st => (ev.bySid.get(st.sid) || []).forEach(item => { if (rec.textOf(st.sid, evStatusKey(item))) rec.edit(`s|${st.sid}|${evStatusKey(item)}`, ""); })) }} />}
     {evOpen && <EventFilesModal ev={ev} students={students} rec={rec} showToast={showToast} onClose={() => setEvOpen(false)} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
@@ -1088,6 +1124,8 @@ function ActivityManager({ activities, onChange, sources = [], onImport, onApply
 }
 
 function SubjectWriter({ year, books, by, view, setView, check, showToast, grade = "", semester = "", onScope }) {
+  const readOnlyView = useContext(ReadOnlyContext);
+  const [clearOpen, setClearOpen] = useState(false);
   const [bookId, setBookId] = useState(() => books[0]?.id || "");
   useEffect(() => { if (!books.some(book => book.id === bookId)) setBookId(books[0]?.id || ""); }, [books.map(b => b.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const book = books.find(item => item.id === bookId);
@@ -1202,6 +1240,8 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
       <PrintMenu busy={busy} onPick={output} scopes={[["student", "지금 학생"], ["class", `${book?.label || "이 반"} 전체`], ["all", "담당 반 전체"]]} />
       <button type="button" data-kdn-bare className="krw-btn sec" onClick={() => setDupOpen(true)} title="같은 문장 점검: 여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /><span className="lb">같은 문장</span></button>
       <button type="button" data-kdn-bare className="krw-btn sec" title="백업: 이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`과세특_${book?.subject}_${book?.target}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /><span className="lb">백업</span></button>
+      {!readOnlyView && acts.length > 0 && <button type="button" data-kdn-bare className="krw-btn sec" data-tour="rw-clear" title="과세특 일괄 지우기(활동별 · 지금 학생 또는 반 전체)" onClick={() => setClearOpen(true)}><Trash2 size={15} /><span className="lb">지우기</span></button>}
+      {clearOpen && <ClearModal fields={acts.map(act => ({ key: act.id, label: act.name }))} students={students} current={view === "student" ? current : null} rec={rec} title={book?.label || "이 반"} backupName={`과세특_${book?.subject}_${book?.target}`} showToast={showToast} onClose={() => setClearOpen(false)} />}
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
@@ -1392,7 +1432,7 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
       <div className="t"><b>생기부 업무 <span className="krw-scope-pill">{grade}학년 · {semester === "sem2" ? "2학기" : "1학기"}</span></b><small>칸마다 자동 저장 · 나이스 바이트 계산 · 2026 기재요령 점검 · 학년·학기는 위쪽에서 바꿔요</small></div>
       <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
     </header>
-    {tab !== "grade" && <TourGuide id="records-v3" steps={TOUR_STEPS} startToken={tourToken} />}
+    {tab !== "grade" && <TourGuide id="records-v4" steps={TOUR_STEPS} startToken={tourToken} />}
     {stdOpen && <StandardsModal grade={grade} semester={semester} subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
     {tab !== "grade" && tab !== "check" && <div className="krw-opts">
@@ -1596,6 +1636,9 @@ const CSS = `
 .krw-evbox .act .warn{font-size:11px;color:#b45309}
 .krw-evf{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto}.krw-evf h4{margin:4px 0 0;font-size:14px}.krw-evf .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
 .krw-evf-files{display:grid;gap:4px;margin:0;padding:0;list-style:none}.krw-evf-files li{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1px solid var(--kdn-line,#e7e5e0)}.krw-evf-files span{flex:1;display:grid;min-width:0}.krw-evf-files b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.krw-evf-files small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-files button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:8px;background:var(--kdn-surface-2,#f3f2ef);color:inherit;cursor:pointer}
+.krw-clear{width:min(560px,100%)}.krw-clear .row{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;gap:10px;padding:8px 0;border-top:1px solid var(--kdn-line,#efede8)}.krw-clear .k{padding-top:5px;font-size:12.5px;font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-clear .v{display:flex;flex-wrap:wrap;gap:6px}
+.krw-clear .chip{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 11px 0 8px;border-radius:99px;border:1px solid var(--kdn-line,#dcd9d2);font-size:13px;font-weight:700;cursor:pointer}.krw-clear .chip input{margin:0;accent-color:#dc2626}.krw-clear .chip.on{border-color:#fca5a5;background:#fef2f2;color:#b91c1c}.krw-clear .chip em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}
+.krw-btn.danger{border-color:transparent;background:#dc2626;color:#fff}.krw-btn.danger:disabled{opacity:.4}
 .krw-gdseg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:5px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
 .krw-gdseg button{display:flex;align-items:center;gap:10px;min-width:0;padding:10px 14px;border:0;border-radius:12px;background:transparent;font:inherit;color:var(--kdn-ink-soft,#5b606b);text-align:left;cursor:pointer}.krw-gdseg button span{display:grid;min-width:0}.krw-gdseg b{font-size:14px;font-weight:800}.krw-gdseg small{font-size:12px;color:var(--kdn-muted,#8a8f99);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .krw-gdseg button[aria-selected="true"]{background:#17181d;color:#fff}.krw-gdseg button[aria-selected="true"] small{color:rgba(255,255,255,.7)}
