@@ -108,3 +108,11 @@ test("같은 아이디·비밀번호가 맞는 역할은 모두(관리자이면�
   assert.deepEqual((await checkLoginAll({ admin: [{ id: "kim", pw: "a" }], teacher: [{ id: "kim", pw: "b" }] }, "kim", "b", async () => null)).map(m => m.kind), ["teacher"]);
   assert.equal(bestRole([{ kind: "teacher", id: "kim" }, { kind: "admin", id: "kim" }]).kind, "admin");
 });
+
+test("관리자 권한이 있는 선생님은 카카오·구글 로그인에도 관리자 역할", async () => {
+  const { impliedRoles } = await import("../netlify/lib/authCore.mjs");
+  const accounts = { teacher: [{ id: "kim", adminPermissions: [] }, { id: "lee" }] };
+  assert.deepEqual(impliedRoles(accounts, "teacher", "kim"), [{ kind: "admin", id: "kim" }]);
+  assert.deepEqual(impliedRoles(accounts, "teacher", "lee"), []);
+  assert.deepEqual(impliedRoles(accounts, "departments", "kim"), []);
+});
