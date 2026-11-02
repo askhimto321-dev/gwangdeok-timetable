@@ -1,0 +1,25 @@
+rules_version = '2';
+
+// KDTIME Firestore 보안 규칙 — 1단계 A
+// Firebase 콘솔 → Firestore Database → 규칙 탭에 그대로 붙여 넣고 '게시'를 누릅니다.
+// (로그인 서버는 관리자 권한으로 접근하므로 이 규칙과 상관없이 동작합니다.)
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 서버 전용: 비밀번호 암호·간편 로그인 연결·로그인 실패 기록. 브라우저는 읽기·쓰기 모두 금지.
+    match /kd_auth/{docId} {
+      allow read, write: if false;
+    }
+
+    // 앱 자료: Firebase 로그인(익명 또는 계정)을 마친 화면만 읽고 씁니다.
+    // 다음 단계에서 계정 로그인만 쓰기 허용 → 자료별 역할 제한으로 좁혀 갑니다.
+    match /kd_timetable_kv/{docId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 그 밖의 모든 곳은 금지
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
