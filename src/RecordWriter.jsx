@@ -412,7 +412,7 @@ function StandardsTab({ targets, targetKey, setTarget, standardsFor, onPick, add
 const sidKey = value => String(value ?? "").replace(/\D/g, "");
 const memoCats = targets => [{ key: "memo", label: "공통" }, { key: "memo_att", label: "수업 태도" }, ...targets.map(t => ({ key: `memo_${t.key}`, label: t.label, target: t.key }))];
 
-function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {}, standardsFor = null, onPickStandards = null, reflections = null, focus = "" }) {
+function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {}, standardsFor = null, onPickStandards = null, reflections = null, focus = "", onBulkReflections = null }) {
   const [tab, setTab] = useState("memo");
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -482,7 +482,7 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
       <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|${cat.key}`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button></>}
     </div> : tab === "std" && standardsFor ? <StandardsTab targets={targets} targetKey={targetKey} setTarget={setTarget} standardsFor={standardsFor} onPick={onPickStandards}
       addToMemo={item => { const key = `memo_${targetKey}`; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev && !prev.endsWith("\n") ? "\n" : ""}[성취기준] ${standardLine(item)}\n`); showToast?.(`'${targets.find(t => t.key === targetKey)?.label}' 누가기록에 넣었어요.`, "success"); }} />
-    : tab === "refl" ? <ReflectionPane focus={focus} items={reflections || []} studentLabel={studentLabel} targets={targets} rec={rec} sid={sid} putText={putText} showToast={showToast} />
+    : tab === "refl" ? <ReflectionPane onBulk={onBulkReflections} focus={focus} items={reflections || []} studentLabel={studentLabel} targets={targets} rec={rec} sid={sid} putText={putText} showToast={showToast} />
     : tab === "ai" ? <AiHelper rec={rec} sid={sid} studentName={studentName} targets={targets} targetKey={targetKey} setTarget={setTarget} budgetFor={budgetFor} aiContext={aiContext} cats={cats} putText={putText} showToast={showToast} reflections={reflections} />
     : <div className="krw-files">
       <div className="up"><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "class"; inputRef.current.click(); }}>{uploading ? <Loader2 size={14} className="spin" /> : <Paperclip size={14} />} 반 공용 활동지 올리기</button><button type="button" data-kdn-bare className="krw-btn" disabled={uploading} onClick={() => { inputRef.current.dataset.mode = "student"; inputRef.current.click(); }}><Paperclip size={14} /> 이 학생 자료</button>
@@ -521,29 +521,46 @@ function ExamplesPane({ subject, picked, onPick }) {
 const AI_URL_MAX = 6000; // 주소가 너무 길면 일부 브라우저·사이트에서 잘려서, 그보다 길면 빈 창만 열고 붙여넣기로 안내
 // 학생 소감문(2학년부 자료에서 불러옴): 활동 이름에 '진로'가 있으면 진로활동, 아니면 자율·자치활동 칸으로 안내해요.
 const reflArea = activity => (/진로|따라\s*체험|직업|학과|전공|대학\s*탐방|멘토/.test(activity || "") ? "career" : "autonomy");
-function ReflectionPane({ items, studentLabel, targets, rec, sid, putText, showToast, focus = "" }) {
-  const [area, setArea] = useState(focus === "autonomy" || focus === "career" ? focus : "all");
-  useEffect(() => { setArea(focus === "autonomy" || focus === "career" ? focus : "all"); }, [focus]);
-  const shown = items.filter(item => area === "all" || reflArea(item.activity) === area);
-  const label = key => targets.find(t => t.key === key)?.label || key;
-  const tagOf = item => `[소감문 · ${item.activity}${item.date ? ` ${item.date}` : ""}]`;
-  const inMemo = item => rec.textOf(sid, `memo_${reflArea(item.activity)}`).includes(tagOf(item));
-  const toMemo = list => {
-    const byArea = {};
-    list.filter(item => !inMemo(item)).forEach(item => { (byArea[reflArea(item.activity)] ||= []).push(`${tagOf(item)}\n${item.response.trim()}`); });
-    const areas = Object.keys(byArea);
-    if (!areas.length) { showToast?.("이미 누가기록에 담겨 있어요.", "success"); return; }
-    areas.forEach(key => { const prev = rec.textOf(sid, `memo_${key}`); rec.edit(`s|${sid}|memo_${key}`, `${prev}${prev.trim() ? "\n\n" : ""}${byArea[key].join("\n\n")}`); });
-    showToast?.(`소감문을 ${areas.map(label).join(" · ")} 누가기록에 담았어요. AI 도우미 요청문에도 넣을 수 있어요.`, "success");
-  };
-  if (!items.length) return <p className="krw-side-empty">{studentLabel} 소감문이 없어요. 2학년부 자료에 소감문 파일을 올리면 여기서 불러와요.</p>;
+// 활동 이름으로 짐작한 영역을 반에서 바꿔 둘 수 있어요(반 생기부 자료 '__cfg' 칸에 저장, 반 학생 모두에게 적용).
+const reflAreaKey = activity => `ra:${String(activity || "").trim()}`;
+const reflAreaOf = (rec, activity) => { const v = rec.textOf("__cfg", reflAreaKey(activity)); return v === "career" || v === "autonomy" ? v : reflArea(activity); };
+const reflTag = item => `[소감문 · ${item.activity}${item.date ? ` ${item.date}` : ""}]`;
+// 한 학생의 소감문을 영역별 누가기록 끝에 담기(이미 담긴 건 건너뜀). 돌려주는 값: 담은 개수
+function reflectionsToMemo(rec, sid, list) {
+  const byArea = {};
+  list.forEach(item => { const key = reflAreaOf(rec, item.activity); if (rec.textOf(sid, `memo_${key}`).includes(reflTag(item))) return; (byArea[key] ||= []).push(`${reflTag(item)}\n${item.response.trim()}`); });
+  let count = 0;
+  Object.entries(byArea).forEach(([key, parts]) => { const prev = rec.textOf(sid, `memo_${key}`); rec.edit(`s|${sid}|memo_${key}`, `${prev}${prev.trim() ? "\n\n" : ""}${parts.join("\n\n")}`); count += parts.length; });
+  return count;
+}
+function ReflectionPane({ items, studentLabel, targets, rec, sid, putText, showToast, focus = "", onBulk = null }) {
+  const readOnlyView = useContext(ReadOnlyContext);
+  const counts = { autonomy: 0, career: 0 };
+  items.forEach(item => { counts[reflAreaOf(rec, item.activity)] += 1; });
+  const pickDefault = () => (focus === "autonomy" || focus === "career") && counts[focus] ? focus : "all";
+  const [area, setArea] = useState(pickDefault);
+  useEffect(() => { setArea(pickDefault()); }, [focus, sid]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shown = items.filter(item => area === "all" || reflAreaOf(rec, item.activity) === area);
+  const inMemo = item => rec.textOf(sid, `memo_${reflAreaOf(rec, item.activity)}`).includes(reflTag(item));
+  const toMemo = list => { const n = reflectionsToMemo(rec, sid, list); showToast?.(n ? `소감문 ${n}개를 누가기록에 담았어요. AI 도우미 요청문에도 넣을 수 있어요.` : "이미 누가기록에 담겨 있어요.", "success"); };
+  const flip = item => { const next = reflAreaOf(rec, item.activity) === "career" ? "autonomy" : "career"; rec.edit(`s|__cfg|${reflAreaKey(item.activity)}`, next); showToast?.(`'${item.activity}'을(를) 이 반에서는 ${RECORD_AREAS[next].short}(으)로 볼게요.`, "success"); };
+  if (!items.length) return <div className="krw-refl">
+    <p className="krw-side-empty">{studentLabel} 소감문이 없어요. 2학년부 자료에 소감문 파일을 올리면 여기서 불러와요.</p>
+    {onBulk && !readOnlyView && <button type="button" data-kdn-bare className="krw-btn" onClick={onBulk}><Users size={14} /> 반 전체 소감문 누가기록에 담기</button>}
+  </div>;
+  const left = items.filter(item => !inMemo(item));
   return <div className="krw-refl">
-    <p className="krw-side-note">{studentLabel}이 낸 <b>소감문</b>이에요(2학년부 자료). 학생 글이라 그대로 옮기기보다 <b>누가기록에 담아</b> 관찰 사실과 함께 다듬어 쓰는 걸 권해요.</p>
-    <div className="krw-refl-bar"><select value={area} onChange={event => setArea(event.target.value)} aria-label="영역">{[["all", `전체 (${items.length})`], ["autonomy", "자율·자치"], ["career", "진로"]].map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select><button type="button" data-kdn-bare className="krw-btn" disabled={!shown.length} onClick={() => toMemo(shown)}><ClipboardPaste size={14} /> 보이는 것 모두 누가기록에 담기</button></div>
-    {shown.map(item => { const key = reflArea(item.activity); const done = inMemo(item); return <article key={item.id || `${item.activity}-${item.date}`}>
-      <header><b>{item.activity}</b>{item.date && <small>{item.date}</small>}<span className={`krw-refl-tag is-${key}`}>{RECORD_AREAS[key].short}</span></header>
+    <p className="krw-side-note">{studentLabel} <b>소감문</b>이에요(2학년부 자료). 학생 글이라 <b>누가기록에 담아</b> 관찰 사실과 함께 다듬어 쓰는 걸 권해요. 영역 표시는 활동 이름으로 짐작한 거라, 틀리면 눌러서 바꿔요.</p>
+    <div className="krw-refl-seg" role="tablist" aria-label="영역">{[["all", "전체", items.length], ["autonomy", "자율·자치", counts.autonomy], ["career", "진로", counts.career]].map(([key, text, n]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={area === key} onClick={() => setArea(key)}>{text}<em>{n}</em></button>)}</div>
+    {!shown.length && <p className="krw-side-empty">{RECORD_AREAS[area]?.short || ""}(으)로 나뉜 소감문이 없어요. <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setArea("all")}>전체 보기</button></p>}
+    {!readOnlyView && <div className="krw-refl-bar">
+      <button type="button" data-kdn-bare className="krw-btn" disabled={!left.length} onClick={() => toMemo(items)}><ClipboardPaste size={14} /> 이 학생 모두 담기{left.length ? ` (${left.length})` : ""}</button>
+      {onBulk && <button type="button" data-kdn-bare className="krw-btn" onClick={onBulk} title="반 학생 모두의 소감문을 영역별 누가기록에 한 번에 담아요(이미 담긴 건 건너뜀)"><Users size={14} /> 반 전체 담기</button>}
+    </div>}
+    {shown.map(item => { const key = reflAreaOf(rec, item.activity); const done = inMemo(item); return <article key={item.id || `${item.activity}-${item.date}`}>
+      <header><b>{item.activity}</b>{item.date && <small>{item.date}</small>}<button type="button" data-kdn-bare className={`krw-refl-tag is-${key}`} disabled={readOnlyView} onClick={() => flip(item)} title="눌러서 영역 바꾸기(이 반 모든 학생에게 적용)">{RECORD_AREAS[key].short} ⇄</button></header>
       <p>{item.response}</p>
-      <div className="acts"><button type="button" data-kdn-bare className="krw-mini" disabled={done} onClick={() => toMemo([item])}>{done ? <><Check size={12} /> 누가기록에 있음</> : <><ClipboardPaste size={12} /> 누가기록에 담기</>}</button><button type="button" data-kdn-bare className="krw-mini" onClick={() => putText(item.response, "append", key)}><ChevronLeft size={12} /> {RECORD_AREAS[key].short} 칸에 넣기</button><CopyBtn text={item.response} /></div>
+      {!readOnlyView && <div className="acts"><button type="button" data-kdn-bare className="krw-mini" disabled={done} onClick={() => toMemo([item])}>{done ? <><Check size={12} /> 누가기록에 있음</> : <><ClipboardPaste size={12} /> 누가기록에 담기</>}</button><button type="button" data-kdn-bare className="krw-mini" onClick={() => putText(item.response, "append", key)}><ChevronLeft size={12} /> {RECORD_AREAS[key].short} 칸에 넣기</button><CopyBtn text={item.response} /></div>}
     </article>; })}
   </div>;
 }
@@ -919,6 +936,14 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const [paste, setPaste] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
   const [evOpen, setEvOpen] = useState(false);
+  // 소감문 일괄: 반 학생 모두의 소감문을 영역별 누가기록에 담기(이미 담긴 건 건너뜀)
+  const bulkReflections = reflectionsBySid ? () => {
+    const plan = students.map(s => [s, reflectionsBySid.get(sidKey(s.sid)) || []]).filter(([, list]) => list.length);
+    if (!plan.length) { showToast?.("이 반 학생의 소감문이 없어요.", "error"); return; }
+    if (!window.confirm(`${cls}반 학생 ${plan.length}명의 소감문을 영역별 누가기록 끝에 담을까요? (이미 담긴 건 건너뛰고, 생기부 칸에는 넣지 않아요)`)) return;
+    const total = plan.reduce((sum, [s, list]) => sum + reflectionsToMemo(rec, s.sid, list), 0);
+    showToast?.(total ? `소감문 ${total}개를 ${plan.length}명의 누가기록에 담았어요.` : "이미 모두 누가기록에 담겨 있어요.", "success");
+  } : null;
   // 학생별 보기에서 한 번에 한 영역만(자율·자치 / 진로 / 행발). '모두'는 예전처럼 세 칸을 한 화면에.
   const [focus, setFocusRaw] = useState(() => { try { const v = localStorage.getItem("kd_rec_hr_focus"); return ["autonomy", "career", "behavior", "all"].includes(v) ? v : "autonomy"; } catch { return "autonomy"; } });
   const setFocus = value => { setFocusRaw(value); try { localStorage.setItem("kd_rec_hr_focus", value); } catch { /* 편의 기능 */ } };
@@ -996,7 +1021,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
           {HOMEROOM_AREAS.filter(key => focus === "all" || focus === key).map(key => <React.Fragment key={key}><EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={lim(key)} check={check} rows={focus === "all" ? (key === "career" ? 8 : 6) : 12} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
             </React.Fragment>)}
         </section>}
-        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => lim(key)} focus={focus === "all" ? "" : focus} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => lim(key)} focus={focus === "all" ? "" : focus} onBulkReflections={bulkReflections} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -1550,7 +1575,9 @@ const CSS = `
 .krw-pick-body .opt{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0);cursor:pointer}.krw-pick-body .opt:has(input:checked){border-color:color-mix(in srgb,#ff7a3d 50%,transparent);background:color-mix(in srgb,#ff7a3d 6%,var(--kdn-surface,#fff))}
 .krw-pick-body .opt input{flex:none;margin:2px 0 0;width:16px;height:16px;accent-color:#ff7a3d}.krw-pick-body .opt span{display:grid;gap:3px;min-width:0}.krw-pick-body .opt b{font-size:14px;font-weight:700}.krw-pick-body .opt em{font-style:normal;font-size:12.5px;line-height:1.5;color:var(--kdn-ink-soft,#5b606b);overflow-wrap:anywhere}
 .krw-pick-body .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
-.krw-refl{display:grid;gap:10px}.krw-refl-bar{display:flex;gap:6px}.krw-refl-bar select{min-height:34px;padding:0 8px;border-radius:10px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:inherit}.krw-refl-bar .krw-btn{flex:1;min-height:34px;justify-content:center;font-size:12.5px}
+.krw-refl{display:grid;gap:10px}
+.krw-refl-seg{display:flex;gap:2px;padding:3px;border-radius:11px;background:var(--kdn-surface-2,#f3f2ef)}.krw-refl-seg button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:30px;border:0;border-radius:8px;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}.krw-refl-seg button em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}.krw-refl-seg button[aria-selected="true"]{background:#17181d;color:#fff}.krw-refl-seg button[aria-selected="true"] em{color:#ffb089}
+button.krw-refl-tag{border:0;font-family:inherit;cursor:pointer}button.krw-refl-tag:disabled{cursor:default}.krw-refl-bar{display:flex;gap:6px}.krw-refl-bar select{min-height:34px;padding:0 8px;border-radius:10px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:inherit}.krw-refl-bar .krw-btn{flex:1;min-height:34px;justify-content:center;font-size:12.5px}
 .krw-refl article{display:grid;gap:6px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0)}.krw-refl header{display:flex;align-items:center;gap:6px}.krw-refl header b{font-size:13.5px}.krw-refl header small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .krw-refl-tag{margin-left:auto;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:800;background:color-mix(in srgb,#2563eb 10%,transparent);color:#1d4ed8}.krw-refl-tag.is-career{background:color-mix(in srgb,#16a34a 12%,transparent);color:#15803d}
 .krw-refl article p{margin:0;font-size:13px;line-height:1.65;white-space:pre-wrap;color:var(--kdn-ink,#17181d)}.krw-refl .acts{display:flex;flex-wrap:wrap;gap:4px}
