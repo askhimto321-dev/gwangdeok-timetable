@@ -242,7 +242,7 @@ const issueLine = text => { const list = checkRecordText(text); return list.leng
 function PrintMenu({ onPick, scopes, busy }) {
   const [open, setOpen] = useState(false);
   return <div className="krw-menu">
-    <button type="button" data-kdn-bare onClick={() => setOpen(value => !value)} disabled={busy}><Printer size={15} /> 인쇄·PDF·엑셀</button>
+    <button type="button" data-kdn-bare onClick={() => setOpen(value => !value)} disabled={busy} title="인쇄 · PDF · 엑셀로 뽑기"><Printer size={15} /> 인쇄·엑셀</button>
     {open && <div className="krw-menu-pop" onMouseLeave={() => setOpen(false)}>
       {scopes.map(([key, label]) => <div key={key} className="row"><span>{label}</span><button type="button" data-kdn-bare onClick={() => { setOpen(false); onPick(key, "print"); }}><Printer size={13} /> 인쇄·PDF</button><button type="button" data-kdn-bare onClick={() => { setOpen(false); onPick(key, "xlsx"); }}><FileSpreadsheet size={13} /> 엑셀</button></div>)}
       <small>PDF는 인쇄 창에서 '대상: PDF로 저장'을 고르면 돼요.</small>
@@ -553,29 +553,28 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const kept = sentences.filter((_, i) => !drop[i]).join(" ");
   useEffect(() => { setDrop({}); }, [targetKey, sid]);
   return <div className="krw-ai">
-    <label className="krw-ai-target">쓸 칸<select value={targetKey} onChange={event => setTarget(event.target.value)}>{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select><span>쓸 수 있는 바이트 <b>{budget.toLocaleString()}</b></span></label>
-    <div className="krw-ai-steps" role="tablist">{[["prompt", "① 요청문"], ["answer", "② AI 답 점검"], ["trim", "③ 바이트 맞추기"], ...(aiContext.subject ? [["examples", "④ 기재 예시"]] : [])].map(([key, label]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={step === key} onClick={() => setStep(key)}>{label}</button>)}</div>
+    <div className="krw-ai-head"><label className="krw-ai-target">쓸 칸<select value={targetKey} onChange={event => setTarget(event.target.value)}>{targets.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}</select></label><span className="krw-ai-budget" title="이 칸에 쓸 수 있는 바이트">{budget.toLocaleString()}<small>byte</small></span></div>
+    <div className="krw-ai-steps" role="tablist">{[["prompt", "1", "요청문", "요청문 만들기"], ["answer", "2", "답 점검", "AI 답 붙여넣어 점검"], ["trim", "3", "줄이기", "문장 빼서 바이트 맞추기"], ...(aiContext.subject ? [["examples", "4", "예시", "공식 기재 예시"]] : [])].map(([key, no, label, tip]) => <button key={key} type="button" data-kdn-bare role="tab" title={tip} aria-selected={step === key} onClick={() => setStep(key)}><i>{no}</i>{label}</button>)}</div>
     {step === "prompt" && <div className="krw-ai-body">
-      <p className="krw-side-note">누가기록(이 칸 관찰 · 수업 태도 · 공통)과 기재요령, 남은 바이트를 담은 요청문이에요. <b>학생 이름은 빠져요.</b> 복사해서 쓰시는 AI에 붙여넣고, 받은 답은 ②에서 점검해요.</p>
-      <div className="krw-ai-notes"><span>요청문에 넣을 누가기록</span>{filledCats.length ? filledCats.map(c => <label key={c.key}><input type="checkbox" checked={isPicked(c)} onChange={() => togglePick(c.key)} /> {c.label}</label>) : <em>아직 누가기록이 없어요</em>}</div>
-      {aiContext.standardsFor && (stdList.length ? <label className="krw-ai-chk"><input type="checkbox" checked={useStd} onChange={event => setUseStd(event.target.checked)} /> 이 활동 성취기준 {stdList.length}개 넣기 <small>({stdList.map(item => item.code).join(" ")})</small></label>
-        : <p className="krw-ai-tip">이 활동에 성취기준을 연결하면 요청문에 목표로 함께 들어가요. (활동 칩의 '성취기준' 또는 '성취기준' 탭)</p>)}
-      {aiContext.subject && <div className="krw-ai-opts">
-        <label className="krw-ai-chk"><input type="checkbox" checked={useFrame} onChange={event => setUseFrame(event.target.checked)} /> 교과세특 구성 틀 넣기 <small>(성취수준 → 수행 과정·결과 → 역량 → 교사 총평)</small></label>
-        {exPick ? <label className="krw-ai-chk"><input type="checkbox" checked={useEx} onChange={event => setUseEx(event.target.checked)} /> 기재 예시 넣기 <small>({exPick.s} 예시 · 문체 참고)</small> <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setStep("examples")}>바꾸기</button></label>
-          : <p className="krw-ai-tip">기재 예시는 넣지 않아요. 넣으려면 <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setStep("examples")}>④ 기재 예시</button>에서 하나를 골라 주세요.</p>}
-      </div>}
-      <label className="krw-ai-chk"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /> 지금 칸에 쓴 글도 함께 다듬어 달라고 하기</label>
-      <pre className="krw-ai-prompt">{prompt}</pre>
-      <div className="krw-ai-go">
-        <button type="button" data-kdn-bare className="krw-btn pri" onClick={copy}><Copy size={14} /> 요청문 복사</button>
-        <button type="button" data-kdn-bare className="krw-btn ai-claude" onClick={() => openAi("claude")} title="요청문을 담아 Claude 새 창 열기"><ExternalLink size={14} /> Claude에서 열기</button>
-        <button type="button" data-kdn-bare className="krw-btn ai-gpt" onClick={() => openAi("chatgpt")} title="요청문을 담아 ChatGPT 새 창 열기"><ExternalLink size={14} /> ChatGPT에서 열기</button>
+      <p className="krw-ai-lead">누가기록·기재요령·남은 바이트를 담은 요청문이에요. <b>학생 이름은 빠져요.</b></p>
+      <div className="krw-ai-inc" aria-label="요청문에 넣을 것">
+        <div className="hd">요청문에 넣을 것</div>
+        <div className="row"><span className="k">누가기록</span><div className="v">{filledCats.length ? filledCats.map(c => <label key={c.key} className={`chip${isPicked(c) ? " on" : ""}`}><input type="checkbox" checked={isPicked(c)} onChange={() => togglePick(c.key)} />{c.label}</label>) : <em>아직 없어요</em>}</div></div>
+        {aiContext.standardsFor && <div className="row"><span className="k">성취기준</span><div className="v">{stdList.length ? <label className={`chip${useStd ? " on" : ""}`} title={stdList.map(item => item.code).join(" ")}><input type="checkbox" checked={useStd} onChange={event => setUseStd(event.target.checked)} />{stdList.length}개 연결됨</label> : <em>연결 안 됨 · '성취기준' 탭에서 연결</em>}</div></div>}
+        {aiContext.subject && <div className="row"><span className="k">구성 틀</span><div className="v"><label className={`chip${useFrame ? " on" : ""}`} title="성취수준 → 수행 과정·결과 → 역량 → 교사 총평"><input type="checkbox" checked={useFrame} onChange={event => setUseFrame(event.target.checked)} />교과세특 4단 구성</label></div></div>}
+        {aiContext.subject && <div className="row"><span className="k">기재 예시</span><div className="v">{exPick ? <><label className={`chip${useEx ? " on" : ""}`} title="문체 참고용"><input type="checkbox" checked={useEx} onChange={event => setUseEx(event.target.checked)} />{exPick.s}</label><button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setStep("examples")}>바꾸기</button></> : <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setStep("examples")}>예시 고르기</button>}</div></div>}
+        <div className="row"><span className="k">지금 쓴 글</span><div className="v"><label className={`chip${refine ? " on" : ""}`}><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} />{current.trim() ? "함께 다듬기" : "함께 다듬기 (아직 비어 있음)"}</label></div></div>
       </div>
-      <p className="krw-ai-tip">새 창은 그 사이트에 로그인한 계정으로 열려요. 학교 방침에 맞는 AI를 써 주시고, 받은 답은 ② 'AI 답 점검'에 붙여넣어 확인해요.</p>
+      <details className="krw-ai-preview"><summary>요청문 미리 보기 <small>{prompt.length.toLocaleString()}자</small></summary><pre className="krw-ai-prompt">{prompt}</pre></details>
+      <div className="krw-ai-go">
+        <button type="button" data-kdn-bare className="krw-btn pri copy" onClick={copy}><Copy size={14} /> 요청문 복사</button>
+        <button type="button" data-kdn-bare className="krw-btn ai-claude" onClick={() => openAi("claude")} title="요청문을 담아 Claude 새 창 열기"><ExternalLink size={14} /> Claude</button>
+        <button type="button" data-kdn-bare className="krw-btn ai-gpt" onClick={() => openAi("chatgpt")} title="요청문을 담아 ChatGPT 새 창 열기"><ExternalLink size={14} /> ChatGPT</button>
+      </div>
+      <p className="krw-ai-tip">학교 방침에 맞는 AI를 써 주세요. 받은 답은 <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setStep("answer")}>2 답 점검</button>에 붙여넣어 확인해요.</p>
     </div>}
     {step === "answer" && <div className="krw-ai-body">
-      <p className="krw-side-note">AI가 써 준 글을 붙여넣으면 바이트와 기재요령을 바로 점검해요. 관찰하지 않은 내용이 들어가지 않았는지 꼭 읽어 보세요.</p>
+      <p className="krw-ai-lead">AI 답을 붙여넣으면 바이트와 기재요령을 바로 점검해요. <b>관찰하지 않은 내용</b>이 없는지 꼭 읽어 보세요.</p>
       {filledCats.length > 0 && <div className="krw-ai-load"><select value={loadKey || defaultLoad} onChange={event => setLoadKey(event.target.value)} aria-label="가져올 누가기록">{filledCats.map(c => <option key={c.key} value={c.key}>{c.label} 누가기록</option>)}</select><button type="button" data-kdn-bare className="krw-btn" onClick={() => { const text = rec.textOf(sid, loadKey || defaultLoad); setAnswer(value => value.trim() ? `${value.trim()}\n${text}` : text); }}><ClipboardPaste size={14} /> 누가기록 가져오기</button></div>}
       <textarea value={answer} spellCheck={false} onChange={event => setAnswer(event.target.value)} placeholder="AI 답을 붙여넣거나, 위에서 누가기록(보관해 둔 AI 초안 등)을 가져와 다듬어요" />
       <div className="krw-ai-meter"><ByteMeter text={answer} limit={budget || 1} />{autoFixRecordText(answer) !== answer && <button type="button" data-kdn-bare className="krw-fix" onClick={() => setAnswer(autoFixRecordText(answer))}><Wand2 size={13} /> 기호 자동 고치기</button>}</div>
@@ -584,7 +583,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     </div>}
     {step === "examples" && <ExamplesPane subject={aiContext.subject || ""} picked={exPick} onPick={item => { setExPick(item); setUseEx(true); if (item) { setStep("prompt"); showToast?.(`'${item.s}' 예시를 요청문에 문체 참고로 넣었어요.`, "success"); } }} />}
     {step === "trim" && <div className="krw-ai-body">
-      <p className="krw-side-note">'{target?.label}' 칸의 문장마다 바이트예요. 뺄 문장의 체크를 풀면 남은 글이 한도 안에 드는지 바로 보여요.</p>
+      <p className="krw-ai-lead">'{target?.label}' 칸의 문장별 바이트예요. 뺄 문장의 체크를 풀면 남는 글이 한도 안인지 바로 보여요.</p>
       {sentences.length ? <ul className="krw-trim">{sentences.map((sentence, i) => <li key={i} className={drop[i] ? "is-off" : ""}><label><input type="checkbox" checked={!drop[i]} onChange={() => setDrop(value => ({ ...value, [i]: !value[i] }))} /><span>{sentence}</span></label><em>{neisBytes(sentence)}</em></li>)}</ul> : <p className="krw-side-empty">칸에 쓴 글이 없어요.</p>}
       {sentences.length > 0 && <><div className="krw-ai-meter"><span>남길 글</span><ByteMeter text={kept} limit={budget || 1} /></div>
         <button type="button" data-kdn-bare className="krw-btn pri" disabled={!Object.values(drop).some(Boolean)} onClick={() => { putText(kept, "replace"); setDrop({}); }}>고른 문장만 남기기</button></>}
@@ -665,12 +664,16 @@ function useWriterKeys({ onNext, onPrev, onSave }) {
   }, [onNext, onPrev, onSave]);
 }
 
-function StudentList({ items, current, onPick, find, setFind, renderRight }) {
-  return <nav className="krw-list">
+// 학생 목록: 두 줄 칸(번호·이름 / 작성 막대)으로 촘촘하게. meter(s) → { p: 0~1 이상, tip, over }
+function StudentList({ items, current, onPick, find, setFind, renderRight, meter }) {
+  const ref = useRef(null);
+  useEffect(() => { ref.current?.querySelector("button.is-on")?.scrollIntoView({ block: "nearest" }); }, [current]);
+  return <nav className="krw-list" ref={ref}>
     <label className="krw-find"><Search size={14} /><input value={find} onChange={event => setFind(event.target.value)} placeholder="이름·번호 찾기" /></label>
-    {items.map(s => <button key={s.sid} type="button" data-kdn-bare className={s.sid === current ? "is-on" : ""} onClick={() => onPick(s.sid)}>
+    {items.map(s => { const m = meter ? meter(s) : null; return <button key={s.sid} type="button" data-kdn-bare className={`${s.sid === current ? "is-on" : ""}${m?.over ? " is-over" : ""}`} title={m?.tip || ""} onClick={() => onPick(s.sid)}>
       <span className="no">{s.label}</span><span className="nm">{s.name}</span>{renderRight(s)}
-    </button>)}
+      {m && m.bar !== false && <i className="pg" aria-hidden="true"><em style={{ width: `${Math.min(100, Math.round((m.p || 0) * 100))}%` }} /></i>}
+    </button>; })}
     {!items.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}
   </nav>;
 }
@@ -758,8 +761,8 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
       <SaveBadge rec={rec} />
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={saveNow} disabled={!Object.keys(rec.pending).length || rec.status === "saving"}><Save size={15} /> 지금 저장</button>
       <PrintMenu onPick={output} scopes={[["student", "지금 학생"], ["class", `${cls}반 전체`]]} />
-      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setDupOpen(true)} title="여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /> 같은 문장 점검</button>
-      <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`생기부_${grade}-${cls}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업 파일</button>
+      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setDupOpen(true)} title="여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /> 같은 문장</button>
+      <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`생기부_${grade}-${cls}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업</button>
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
@@ -776,6 +779,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
       </div>
       : <div className={`krw-split${side ? " has-side" : ""}`}>
         <StudentList items={shown.map(s => ({ ...s, label: s.number }))} current={sid} onPick={setSid} find={find} setFind={setFind}
+          meter={s => { const parts = HOMEROOM_AREAS.map(key => [RECORD_AREAS[key], neisBytes(rec.textOf(s.sid, key))]); const used = parts.reduce((sum, [, b]) => sum + b, 0); const cap = parts.reduce((sum, [area]) => sum + area.limit, 0); return { bar: false, p: cap ? used / cap : 0, over: parts.some(([area, b]) => b > area.limit), tip: parts.map(([area, b]) => `${area.short || area.label} ${b.toLocaleString()}/${area.limit.toLocaleString()}`).join(" · ") }; }}
           renderRight={s => <><span className="fill">{HOMEROOM_AREAS.map(key => <i key={key} style={{ "--c": AREA_COLOR[key] }} className={rec.textOf(s.sid, key).trim() ? "on" : ""} />)}</span>{check && <IssueDot text={HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n")} />}</>} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
@@ -917,15 +921,15 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
   return <div className="krw-body">
     <div className="krw-bar" data-tour="rw-bar">
       <select value={bookId} onChange={event => setBookId(event.target.value)} aria-label="과목·반">{books.map(b => <option key={b.id} value={b.id}>{b.subject} · {b.label} ({b.students.length}명)</option>)}</select>
-      {book?.kind !== "common" && <small className="krw-tag">이동수업 · 출석부 기준</small>}
+      {book?.kind !== "common" && <small className="krw-tag" title="이동수업 학생은 출석부(수강 목록) 기준이에요">이동수업</small>}
       {rec.loaded && acts.length > 0 && <Progress done={students.filter(doneOf).length} total={students.length} filter={filter} setFilter={setFilter} counts={counts} />}
       {view !== "student" && <FindBox find={find} setFind={setFind} />}
       <span className="sp" />
       <SaveBadge rec={rec} />
       <button type="button" data-kdn-bare className="krw-btn pri" onClick={saveNow} disabled={!Object.keys(rec.pending).length || rec.status === "saving"}><Save size={15} /> 지금 저장</button>
       <PrintMenu busy={busy} onPick={output} scopes={[["student", "지금 학생"], ["class", `${book?.label || "이 반"} 전체`], ["all", "담당 반 전체"]]} />
-      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setDupOpen(true)} title="여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /> 같은 문장 점검</button>
-      <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`과세특_${book?.subject}_${book?.target}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업 파일</button>
+      <button type="button" data-kdn-bare className="krw-btn" onClick={() => setDupOpen(true)} title="여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /> 같은 문장</button>
+      <button type="button" data-kdn-bare className="krw-btn" title="이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`과세특_${book?.subject}_${book?.target}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /> 백업</button>
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
@@ -945,7 +949,8 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
       </div>
       : <div className={`krw-split${side ? " has-side" : ""}`}>
         <StudentList items={shown.map(s => ({ ...s, label: book.kind === "common" ? s.number : `${s.class}-${s.number}` }))} current={sid} onPick={setSid} find={find} setFind={setFind}
-          renderRight={s => { const total = totalOf(s); const b = neisBytes(total); return <><span className={`b${b > limit ? " over" : ""}`} title={`${acts.filter(act => rec.textOf(s.sid, act.id).trim()).length}/${acts.length}개 활동 작성`}>{b ? b.toLocaleString() : "-"}</span>{check && <IssueDot text={total} />}</>; }} />
+          meter={s => { const b = neisBytes(totalOf(s)); return { p: limit ? b / limit : 0, over: b > limit, tip: `${b.toLocaleString()} / ${limit.toLocaleString()} byte · ${acts.filter(act => rec.textOf(s.sid, act.id).trim()).length}/${acts.length}개 활동 작성` }; }}
+          renderRight={s => { const total = totalOf(s); const b = neisBytes(total); return <><span className={`b${b > limit ? " over" : ""}`}>{b ? b.toLocaleString() : ""}</span>{check && <IssueDot text={total} />}</>; }} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{who(current)}</b><small>{current.sid} · {book.subject}</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           <DupStudentNote dups={dups} sid={current.sid} onPick={setSid} />
@@ -1164,16 +1169,21 @@ const CSS = `
 .krw-split{display:grid;grid-template-columns:minmax(220px,250px) minmax(0,1fr);gap:14px;align-items:start}
 .krw-split.has-side{grid-template-columns:minmax(220px,240px) minmax(0,1fr) minmax(290px,360px)}
 .krw-list>*{min-width:0}.krw-list .krw-find input{width:100%}
-.krw-list{grid-template-columns:minmax(0,1fr);scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:var(--kdn-line,#d6d3cc) transparent;position:sticky;top:70px;display:grid;gap:2px;max-height:calc(100vh - 160px);overflow:auto;padding:8px;border-radius:20px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
+.krw-list{grid-template-columns:repeat(auto-fill,minmax(104px,1fr));align-content:start;scrollbar-width:none;position:sticky;top:70px;display:grid;gap:3px;max-height:calc(100vh - 110px);overflow:auto;overscroll-behavior:contain;padding:8px;border-radius:20px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
+.krw-list::-webkit-scrollbar{width:0;height:0}.krw-list:hover{scrollbar-width:thin;scrollbar-color:var(--kdn-line,#d6d3cc) transparent}.krw-list:hover::-webkit-scrollbar{width:6px}.krw-list:hover::-webkit-scrollbar-thumb{background:var(--kdn-line,#d6d3cc);border-radius:9px}
+.krw-list>.krw-find,.krw-list>.krw-side-empty{grid-column:1/-1}
 .krw-find{display:flex;align-items:center;gap:6px;margin-bottom:4px;padding:0 10px;border-radius:12px;background:var(--kdn-surface-2,#f3f2ef);color:var(--kdn-muted,#8a8f99)}
 .krw-find input{flex:1;min-width:0;min-height:36px;border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#17181d)}
-.krw-list>button{box-sizing:border-box;width:100%;overflow:hidden;display:flex;align-items:center;gap:5px;min-width:0;min-height:34px;padding:0 6px 0 8px;border:0;border-radius:10px;background:transparent;font:inherit;color:inherit;text-align:left;cursor:pointer}
+.krw-list>button{position:relative;box-sizing:border-box;width:100%;overflow:hidden;display:flex;align-items:center;gap:4px;min-width:0;min-height:32px;padding:0 5px 3px 6px;border:0;border-radius:9px;background:var(--kdn-surface-2,#f7f6f3);font:inherit;color:inherit;text-align:left;cursor:pointer}
+.krw-list .pg{position:absolute;left:6px;right:6px;bottom:3px;height:3px;border-radius:9px;background:var(--kdn-line,#e4e1da);overflow:hidden}.krw-list .pg em{display:block;height:100%;border-radius:9px;background:#4f8a6b}
+.krw-list>button.is-over .pg em{background:#dc2626}.krw-list>button.is-over:not(.is-on) .nm{color:#dc2626}.krw-list>button.is-on .pg{background:rgba(255,255,255,.22)}.krw-list>button.is-on .pg em{background:#ffb089}.krw-list>button.is-on.is-over .pg em{background:#ff8a8a}
 .krw-list>button:hover{background:var(--kdn-surface-2,#f6f5f3)}.krw-list>button.is-on{background:#17181d;color:#fff}.krw-list>button.is-on .fill i:not(.on){background:rgba(255,255,255,.25)}
-.krw-list .no{flex:none;width:22px;font-size:12px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list>button.is-on .no,.krw-list>button.is-on .b{color:#ffb089;font-weight:800}
-.krw-list .nm{flex:1;min-width:0;font-size:13.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.krw-list .no{flex:none;min-width:14px;font-size:11.5px;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list>button.is-on .no,.krw-list>button.is-on .b{color:#ffb089;font-weight:800}
+.krw-list .nm{flex:1;min-width:0;font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .krw-list .fill{flex:none;display:flex;gap:3px}.krw-list .fill i{width:7px;height:7px;border-radius:99px;background:var(--kdn-line,#dcd9d2)}.krw-list .fill i.on{background:var(--c,#ff7a3d)}
-.krw-list .b{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:clip;white-space:nowrap;text-align:right;font-size:11.5px;font-weight:700;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list .b.over{color:#dc2626}
-.krw-list .krw-dot{flex:none;min-width:16px;height:16px;padding:0 4px;font-size:10.5px}
+.krw-list .b{display:none;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:clip;white-space:nowrap;text-align:right;font-size:11px;font-weight:700;color:var(--kdn-muted,#8a8f99);font-variant-numeric:tabular-nums}.krw-list .b.over{color:#dc2626}
+.krw-list .krw-dot{flex:none;min-width:15px;height:15px;padding:0 3px;font-size:10px}.krw-list .fill{gap:2px}.krw-list .fill i{width:6px;height:6px}
+.krw-list>button:hover{background:var(--kdn-surface-3,#eeece7)}
 .krw-dot{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:99px;font-size:11px;font-weight:800;font-style:normal}.krw-dot.is-block{background:#dc2626;color:#fff}.krw-dot.is-warn{background:#f59e0b;color:#1b1006}
 .krw-pane{display:grid;gap:12px;min-width:0}
 .krw-pane-hd{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:18px;background:linear-gradient(135deg,#1c1d24,#2b2621);color:#fff}
@@ -1259,19 +1269,30 @@ const CSS = `
 .krw-memo-cats button i{position:absolute;top:3px;right:4px;width:6px;height:6px;border-radius:99px;background:#d0612a}
 .krw-side-tabs button{padding:0 9px}
 .krw-ai{display:grid;gap:10px}
-.krw-ai-target{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b)}
+.krw-ai-head{display:flex;align-items:center;gap:8px}.krw-ai-head .krw-ai-target{flex:1;min-width:0}
+.krw-ai-budget{flex:none;display:inline-flex;align-items:baseline;gap:3px;padding:5px 10px;border-radius:99px;background:color-mix(in srgb,#4f8a6b 12%,var(--kdn-surface,#fff));color:#2f6b4f;font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums}.krw-ai-budget small{font-size:10.5px;font-weight:700;opacity:.8}
+.krw-ai-target{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);white-space:nowrap}
 .krw-ai-target select{flex:1;min-width:0;min-height:34px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:13px;font-weight:700;color:inherit}
 .krw-ai-target span{width:100%;font-weight:600}.krw-ai-target b{color:var(--kdn-ink,#17181d)}
 .krw-ai-steps{display:flex;gap:2px;padding:3px;border-radius:11px;background:var(--kdn-surface-2,#f3f2ef)}
-.krw-ai-steps button{flex:1;min-height:32px;border:0;border-radius:9px;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}
+.krw-ai-steps button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:4px;min-width:0;min-height:32px;padding:0 4px;border:0;border-radius:9px;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer;white-space:nowrap}
+.krw-ai-steps button i{display:grid;place-items:center;flex:none;width:16px;height:16px;border-radius:99px;background:var(--kdn-line,#dcd9d2);font-style:normal;font-size:10px;font-weight:800;color:#3d4048}.krw-ai-steps button[aria-selected="true"] i{background:#ff7a3d;color:#fff}
 .krw-ai-steps button[aria-selected="true"]{background:#17181d;color:#fff}
 .krw-ai-body{display:grid;gap:8px}
 .krw-ai-chk{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
+.krw-ai-lead{margin:0;font-size:12.5px;line-height:1.55;color:var(--kdn-ink-soft,#5b606b)}.krw-ai-lead b{color:var(--kdn-ink,#17181d)}
+.krw-ai-inc{display:grid;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0);overflow:hidden}
+.krw-ai-inc .hd{padding:7px 10px;background:var(--kdn-surface-2,#f6f5f3);font-size:12px;font-weight:800;color:var(--kdn-ink-soft,#5b606b)}
+.krw-ai-inc .row{display:grid;grid-template-columns:62px minmax(0,1fr);align-items:center;gap:8px;padding:6px 10px;border-top:1px solid var(--kdn-line,#efede8)}
+.krw-ai-inc .krw-linkbtn{font-size:12px}.krw-ai-inc .k{font-size:12px;font-weight:700;color:var(--kdn-muted,#8a8f99)}.krw-ai-inc .v{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;min-width:0}.krw-ai-inc em{font-style:normal;font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-ai-inc .chip{display:inline-flex;align-items:center;gap:4px;max-width:100%;min-height:26px;padding:0 9px 0 6px;border-radius:99px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font-size:12px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.krw-ai-inc .chip input{margin:0;width:13px;height:13px;accent-color:#ff7a3d}.krw-ai-inc .chip.on{border-color:color-mix(in srgb,#ff7a3d 45%,transparent);background:color-mix(in srgb,#ff7a3d 9%,var(--kdn-surface,#fff));color:#b4441a}
+.krw-ai-preview{border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0)}.krw-ai-preview summary{padding:8px 10px;font-size:12.5px;font-weight:700;cursor:pointer;color:var(--kdn-ink-soft,#5b606b)}.krw-ai-preview summary small{margin-left:4px;font-weight:600;color:var(--kdn-muted,#8a8f99)}.krw-ai-preview .krw-ai-prompt{border:0;border-top:1px solid var(--kdn-line,#e7e5e0);border-radius:0 0 12px 12px}
 .krw-ai-prompt{margin:0;max-height:240px;overflow:auto;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f3);border:1px solid var(--kdn-line,#e7e5e0);font:inherit;font-size:12px;line-height:1.6;white-space:pre-wrap;color:#3d4048}
 .krw-ai-body textarea{min-height:180px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:13.5px;line-height:1.7;resize:vertical;color:inherit}
 .krw-ai-meter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:12.5px;font-weight:700}
 .krw-ai-acts{display:flex;flex-wrap:wrap;gap:6px}
-.krw-ai-go{display:flex;flex-wrap:wrap;gap:6px}.krw-ai-go .krw-btn{flex:1 1 auto;justify-content:center}
+.krw-ai-go{position:sticky;bottom:-12px;z-index:2;display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0 -12px;padding:8px 12px 12px;background:linear-gradient(to bottom,transparent,var(--kdn-surface,#fff) 30%)}.krw-ai-go .krw-btn{justify-content:center;min-width:0}.krw-ai-go .copy{grid-column:1/-1}
 .krw-ai-go .ai-claude{border-color:#d9a58a;color:#9a4a26;background:#fdf4ee}.krw-ai-go .ai-claude:hover{background:#fae6da}
 .krw-ai-go .ai-gpt{border-color:#9fc7b6;color:#1f6b4f;background:#effaf5}.krw-ai-go .ai-gpt:hover{background:#dff3ea}
 .krw-ai-tip{margin:0;font-size:11.5px;line-height:1.55;color:var(--kdn-muted,#8a8f99)}
@@ -1409,7 +1430,7 @@ const CSS = `
 .krw-chk-dups li{display:flex;flex-wrap:wrap;gap:6px;align-items:baseline;font-size:13px}.krw-chk-dups .tag{padding:0 7px;border-radius:99px;background:#c2410c;color:#fff;font-size:11px;font-weight:800}.krw-chk-dups em{font-style:normal;font-weight:700;color:#9a3412}
 [data-kd-ui="dark"] .krw-chk-dups{background:rgba(217,119,6,.12);color:#fcd9a8}
 /* 기재 예시 */
-.krw-ai-steps{flex-wrap:wrap}.krw-ai-steps button{flex:1 1 40%}
+
 .krw-ex ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
 .krw-ex li{display:grid;gap:6px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#eceae5);background:var(--kdn-surface,#fff)}
 .krw-ex li.is-on{border-color:#4f8a6b;background:#f1f8f4}
@@ -1491,7 +1512,7 @@ const CSS = `
 .krw-modal-box .ft{display:flex;align-items:center;gap:8px}.krw-modal-box .ft span{flex:1;font-size:13px}
 [data-kd-ui="dark"] .krw-list>button.is-on{background:color-mix(in srgb,#ff7a3d 18%,transparent)}
 [data-kd-ui="dark"] .krw-copy{background:#f4f3f0;color:#17181d}
-@media (max-width:1280px){.krw-split.has-side{grid-template-columns:minmax(200px,230px) minmax(0,1fr)}.krw-split.has-side .krw-side{grid-column:1/-1;position:static;max-height:none}}
-@media (max-width:860px){.krw-split,.krw-split.has-side{grid-template-columns:minmax(0,1fr)}.krw-list{position:static;max-height:240px}.krw-side{position:static}.krw-head{padding:14px}.krw-tabs{width:100%}.krw-tabs button{flex:1}.krw-tabs button small{display:none}.krw-bar{position:static}.krw-seg{top:0}}
+@media (max-width:1280px){.krw-split.has-side{grid-template-columns:minmax(200px,230px) minmax(0,1fr)}.krw-split.has-side .krw-side{grid-column:2;position:static;max-height:none}}
+@media (max-width:860px){.krw-split,.krw-split.has-side{grid-template-columns:minmax(0,1fr)}.krw-split.has-side .krw-side{grid-column:auto}.krw-list{position:static;max-height:240px}.krw-side{position:static}.krw-head{padding:14px}.krw-tabs{width:100%}.krw-tabs button{flex:1}.krw-tabs button small{display:none}.krw-bar{position:static}.krw-seg{top:0}}
 @media print{.krw{display:none}}
 `;
