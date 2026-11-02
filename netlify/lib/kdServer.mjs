@@ -161,13 +161,18 @@ export function assertKindAllowed(kind) {
 }
 
 // 로그인 성공 → 세션(이 사이트 서명)·Firebase 로그인 토큰
-export async function issueLogin(kind, id) {
+// extras: 함께 켜 둘 다른 역할 [{ kind, id }] (예: 관리자이면서 선생님). 막힌 종류(학생 등)는 뺍니다.
+export async function issueLogin(kind, id, extras = []) {
   assertKindAllowed(kind);
-  const { signToken } = await import("./authCore.mjs");
-  const session = signToken({ t: "s", k: kind, i: String(id), exp: Date.now() + 90 * 86400000 }, secret());
+  const { signToken, bestRole } = await import("./authCore.mjs");
+  const allowed = r => { try { assertKindAllowed(r.kind); return true; } catch { return false; } };
+  const roles = [{ kind, id: String(id) }];
+  extras.filter(allowed).forEach(r => { if (!roles.some(x => x.kind === r.kind && x.id === String(r.id))) roles.push({ kind: r.kind, id: String(r.id) }); });
+  const session = signToken({ t: "s", k: kind, i: String(id), x: roles.slice(1).map(r => [r.kind, r.id]), exp: Date.now() + 90 * 86400000 }, secret());
+  const top = bestRole(roles);
   let firebaseToken = null;
-  try { firebaseToken = await admin().auth.createCustomToken(`${kind}.${idKey(id)}`.slice(0, 128), { kdk: kind, kdi: String(id) }); }
+  try { firebaseToken = await admin().auth.createCustomToken(`${top.kind}.${idKey(top.id)}`.slice(0, 128), { kdk: top.kind, kdi: top.id }); }
   catch (error) { console.warn("custom token unavailable", error?.message || error); }
-  return { ok: true, kind, id: String(id), session, firebaseToken };
+  return { ok: true, kind, id: String(id), roles, tokenKind: top.kind, session, firebaseToken };
 }
 export const randomId = () => crypto.randomBytes(16).toString("base64url");

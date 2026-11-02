@@ -99,3 +99,12 @@ test("초기 비밀번호: 계정마다 다른 8자리, 헷갈리는 글자 없�
   assert.equal(new Set(codes).size, 200);
   codes.forEach(code => { assert.equal(code.length, 8); assert.match(code, /^[a-hjkmnp-z2-9]+$/); });
 });
+
+test("같은 아이디·비밀번호가 맞는 역할은 모두(관리자이면서 선생님)", async () => {
+  const { checkLoginAll, bestRole } = await import("../netlify/lib/authCore.mjs");
+  const accounts = { admin: [{ id: "kim", pw: "same" }], teacher: [{ id: "kim", pw: "same" }, { id: "lee", pw: "x" }] };
+  const all = await checkLoginAll(accounts, "kim", "same", async () => null);
+  assert.deepEqual(all.map(m => m.kind), ["admin", "teacher"]);
+  assert.deepEqual((await checkLoginAll({ admin: [{ id: "kim", pw: "a" }], teacher: [{ id: "kim", pw: "b" }] }, "kim", "b", async () => null)).map(m => m.kind), ["teacher"]);
+  assert.equal(bestRole([{ kind: "teacher", id: "kim" }, { kind: "admin", id: "kim" }]).kind, "admin");
+});

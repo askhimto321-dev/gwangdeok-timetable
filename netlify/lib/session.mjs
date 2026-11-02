@@ -9,5 +9,18 @@ export async function requireSession(token) {
   const accounts = await readAccounts();
   const entry = findAccount(accounts, payload.k, payload.i, authOptions());
   if (!entry) throw new HttpError(401, "계정을 찾을 수 없습니다. 다시 로그인해주세요.");
-  return { kind: payload.k, id: payload.i, entry, accounts };
+  return { kind: payload.k, id: payload.i, entry, accounts, extras: sessionExtras(payload, accounts) };
+}
+// 세션에 함께 담긴 다른 역할 중 아직 있는 계정만
+function sessionExtras(payload, accounts) {
+  return (Array.isArray(payload?.x) ? payload.x : [])
+    .map(([kind, id]) => ({ kind: String(kind), id: String(id) }))
+    .filter(r => findAccount(accounts, r.kind, r.id, authOptions()));
+}
+// 로그인할 때 이미 로그인해 있던 역할(올바른 세션일 때만)을 이어 붙입니다.
+export function priorRoles(token, accounts) {
+  const payload = readToken(token, secret(), "s");
+  if (!payload) return [];
+  const own = findAccount(accounts, payload.k, payload.i, authOptions()) ? [{ kind: payload.k, id: String(payload.i) }] : [];
+  return [...own, ...sessionExtras(payload, accounts)];
 }

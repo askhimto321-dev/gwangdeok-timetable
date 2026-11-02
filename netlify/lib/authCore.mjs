@@ -66,6 +66,25 @@ export function findAccount(accounts, kind, id, { bootstrapPw = "" } = {}) {
   return list.find(entry => String(entry?.id ?? "") === String(id)) || null;
 }
 
+// 같은 아이디·비밀번호가 맞는 계정을 모두(예: 관리자이면서 선생님) — 확인 순서대로
+export async function checkLoginAll(accounts, idRaw, pw, loadHash, options = {}) {
+  const id = String(idRaw || "").trim();
+  if (!id || !pw) return [];
+  const out = [];
+  for (const { kind, entry } of candidates(accounts, id, options)) {
+    if (entry.pw === HASHED_PW) {
+      const stored = await loadHash(kind, id);
+      if (stored && verifyPassword(pw, stored)) out.push({ kind, entry, via: "hash" });
+    } else if (typeof entry.pw === "string" && entry.pw && sameText(entry.pw, pw)) {
+      out.push({ kind, entry, via: "plain" });
+    }
+  }
+  return out;
+}
+// 역할이 여럿일 때 Firebase 로그인에 담을 대표 역할(권한이 큰 순서)
+export const ROLE_RANK = ["admin", "departments", "teacher", "classView", "monitors", "students"];
+export const bestRole = roles => [...roles].sort((a, b) => ROLE_RANK.indexOf(a.kind) - ROLE_RANK.indexOf(b.kind))[0];
+
 // 아이디·비밀번호 확인. loadHash(kind, id) → 저장된 암호 문자열.
 // 결과 { kind, entry, via: "plain"|"hash" } 또는 null
 export async function checkLogin(accounts, idRaw, pw, loadHash, options = {}) {
