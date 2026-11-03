@@ -172,3 +172,18 @@ test("문장 끝 확인: 겹받침 ㄻ 명사형(이끎·만듦)은 통과, 마�
   assert.equal(endIssue("심화 학습을 지속하겠다고 밝힘"), true);
   assert.equal(endIssue("관련 도서를 읽고 보고서를 작성."), true);
 });
+test("같은 문장: 행사 원문 문장은 빼고, 영역을 알려 줌", async () => {
+  const { findDuplicateSentences } = await import("../src/recordText.js");
+  const ev = "희망 진로를 심층적으로 탐색하고 관련 체험을 계획하고 실행하는 따라체험 활동에 참여함.";
+  const entries = [
+    { sid: "1", label: "1번", area: "career", areaLabel: "진로", text: `${ev} 개인 관찰 하나를 적음.` },
+    { sid: "2", label: "2번", area: "career", areaLabel: "진로", text: `${ev.replace("탐색하고", "연구하고")} 개인 관찰 둘을 적음.` },
+    { sid: "1", label: "1번", area: "autonomy", areaLabel: "자율·자치", text: "학급 회의에서 의견을 모아 정리하는 역할을 성실히 수행함." },
+    { sid: "2", label: "2번", area: "behavior", areaLabel: "행발", text: "학급 회의에서 의견을 모아 정리하는 역할을 성실히 수행함." },
+  ];
+  assert.equal(findDuplicateSentences(entries).length, 2); // 행사 문장(비슷한 문장) + 회의 문장
+  const dups = findDuplicateSentences(entries, { ignore: [ev] });
+  assert.equal(dups.length, 1);
+  assert.deepEqual(dups[0].areas, { "자율·자치": 1, "행발": 1 });
+  assert.equal(dups[0].count, 2);
+});

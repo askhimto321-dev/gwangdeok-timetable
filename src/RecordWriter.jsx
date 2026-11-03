@@ -692,9 +692,11 @@ function DupBanner({ dups, onOpen }) {
 function DupStudentNote({ dups, sid, onPick }) {
   const mine = dups.filter(item => item.people.some(p => p.sid === sid));
   if (!mine.length) return null;
+  const myAreas = item => Array.from(new Set(item.people.filter(p => p.sid === sid && p.areaLabel).map(p => p.areaLabel)));
+  const others = item => { const seen = new Set(); return item.people.filter(p => p.sid !== sid && !seen.has(p.sid) && seen.add(p.sid)); };
   return <div className="krw-dupnote" role="alert">
-    <b><AlertTriangle size={15} /> 이 학생 글의 문장 {mine.length}개가 다른 학생과 {mine.every(item => item.similar) ? "비슷해요" : "같아요"}</b>
-    <ul>{mine.slice(0, 3).map((item, index) => <li key={index}><q>{item.sentence}</q><span>{item.people.filter(p => p.sid !== sid).map(p => <button key={p.sid} type="button" data-kdn-bare onClick={() => onPick(p.sid)}>{p.label}</button>)}</span></li>)}{mine.length > 3 && <li className="more">외 {mine.length - 3}개</li>}</ul>
+    <b><AlertTriangle size={15} /> 이 학생 글의 문장 {mine.length}개가 다른 학생(또는 다른 영역)과 {mine.every(item => item.similar) ? "비슷해요" : "같아요"}</b>
+    <ul>{mine.slice(0, 3).map((item, index) => <li key={index}>{myAreas(item).map(label => <span key={label} className="krw-dup-area">{label}</span>)}<q>{item.sentence}</q><span>{others(item).map(p => <button key={p.sid} type="button" data-kdn-bare onClick={() => onPick(p.sid, p.area)}>{p.label}</button>)}</span></li>)}{mine.length > 3 && <li className="more">외 {mine.length - 3}개 · 위쪽 '어떤 문장인지 보기'에서 모두 봐요</li>}</ul>
   </div>;
 }
 
@@ -704,7 +706,7 @@ function DuplicateModal({ entries, dups: given = null, title, onClose, onPick })
     <div className="krw-modal-box krw-dup">
       <header><b><Search size={17} /> 같은 문장 점검 · {title}</b><button type="button" data-kdn-bare onClick={onClose}><X size={16} /></button></header>
       <p>여러 학생에게 <b>똑같이</b> 들어간 문장(띄어쓰기·기호 무시, 5자 이상)과, 조사·어미만 바꾼 <b>거의 같은</b> 문장(15자 이상)을 찾아요. 학생마다 다른 관찰 내용으로 바꾸면 좋아요. 학생을 누르면 그 학생으로 가요.</p>
-      {dups.length ? <ul>{dups.map((item, index) => <li key={index} className={item.similar ? "is-similar" : ""}><div className="q"><span className="tag">{item.similar ? "비슷한 문장" : "같은 문장"}</span><q>{item.sentence}</q>{item.variants?.map((v, i) => <q key={i} className="v">{v}</q>)}</div><em>{item.people.length}명</em><div className="who">{item.people.map(p => <button key={p.sid} type="button" data-kdn-bare className={p.similar ? "is-sim" : ""} title={p.similar ? "비슷한 문장" : "같은 문장"} onClick={() => { onPick(p.sid); onClose(); }}>{p.label}</button>)}</div></li>)}</ul> : <p className="krw-side-empty">겹치는 문장이 없어요.</p>}
+      {dups.length ? <ul>{dups.map((item, index) => <li key={index} className={item.similar ? "is-similar" : ""}><div className="q"><span className="tag">{item.similar ? "비슷한 문장" : "같은 문장"}</span><q>{item.sentence}</q>{item.variants?.map((v, i) => <q key={i} className="v">{v}</q>)}</div><em>{item.count ?? item.people.length}명{Object.keys(item.areas || {}).length > 0 && <span className="areas">{Object.entries(item.areas).map(([label, n]) => <i key={label}>{label} {n}</i>)}</span>}</em><div className="who">{item.people.map(p => <button key={`${p.sid}|${p.area || ""}`} type="button" data-kdn-bare className={p.similar ? "is-sim" : ""} title={p.similar ? "비슷한 문장" : "같은 문장"} onClick={() => { onPick(p.sid, p.area); onClose(); }}>{p.label}{p.areaLabel && <small>{p.areaLabel}</small>}</button>)}</div></li>)}</ul> : <p className="krw-side-empty">겹치는 문장이 없어요.</p>}
     </div>
   </div>;
 }
@@ -1037,7 +1039,11 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const counts = { empty: students.filter(test.empty).length, over: students.filter(isOver).length, ...(check ? { issue: students.filter(isIssue).length } : {}), ...(classEvents ? { event: students.filter(test.event).length } : {}) };
   const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (test[filter] || test.all)(s));
   const openStudent = id => { setSid(id); setView?.("student"); };
-  const dups = useMemo(() => findDuplicateSentences(students.map(s => ({ sid: s.sid, label: `${s.number}번`, text: HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n") }))), [students, rec.textOf]);
+  // 영역마다 따로 비교하고(어느 영역에서 겹쳤는지), 부서 행사 특기사항 원문에서 온 문장은 같은 문장으로 보지 않아요.
+  // 겹친 문장에서 학생을 누르면 그 학생 · 그 영역으로
+  const pickDup = (id, area) => { setSid(id); if (area && focus !== "all") setFocus(area); setView?.("student"); };
+  const eventTexts = useMemo(() => Array.from(new Set((ev.doc.items || []).map(item => item.text))), [ev.doc.items]);
+  const dups = useMemo(() => findDuplicateSentences(students.flatMap(s => HOMEROOM_AREAS.map(key => ({ sid: s.sid, label: `${s.number}번`, area: key, areaLabel: RECORD_AREAS[key].short, text: rec.textOf(s.sid, key) }))), { ignore: eventTexts }), [students, rec.textOf, eventTexts]);
   const current = students.find(s => s.sid === sid);
   const order = shown.length ? shown : students;
   const idx = order.findIndex(s => s.sid === sid);
@@ -1072,7 +1078,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
-    {dupOpen && <DuplicateModal title={`${cls}반`} dups={dups} onPick={setSid} onClose={() => setDupOpen(false)} />}
+    {dupOpen && <DuplicateModal title={`${cls}반`} dups={dups} onPick={pickDup} onClose={() => setDupOpen(false)} />}
     {clearOpen && <ClearModal fields={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].short }))} students={students} current={view === "student" ? current : null} rec={rec} title={`${cls}반`} backupName={`생기부_${grade}-${cls}`} showToast={showToast} onClose={() => setClearOpen(false)}
       extra={{ label: "행사 확인 표시(반영함·뺌)도 지우기", run: list => list.forEach(st => (ev.bySid.get(st.sid) || []).forEach(item => { if (rec.textOf(st.sid, evStatusKey(item))) rec.edit(`s|${st.sid}|${evStatusKey(item)}`, ""); })) }} />}
     {evOpen && <EventFilesModal ev={ev} students={students} rec={rec} showToast={showToast} onClose={() => setEvOpen(false)} />}
@@ -1092,7 +1098,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
           renderRight={s => <><span className="fill">{HOMEROOM_AREAS.map(key => <i key={key} style={{ "--c": AREA_COLOR[key] }} className={rec.textOf(s.sid, key).trim() ? "on" : ""} />)}</span>{check && <IssueDot text={HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n")} />}{eventLeft(s) > 0 && <span className="krw-evdot" title={`행사 특기사항 확인 안 함 ${eventLeft(s)}개`}>{eventLeft(s)}</span>}</>} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
-          <DupStudentNote dups={dups} sid={current.sid} onPick={setSid} />
+          <DupStudentNote dups={dups} sid={current.sid} onPick={pickDup} />
           <div className="krw-focus" role="tablist" aria-label="영역" data-tour="rw-focus">{[...HOMEROOM_AREAS, "all"].map(key => { const text = key === "all" ? "" : rec.textOf(current.sid, key); const left = key === "all" ? 0 : eventsOf(current, key).filter(item => !rec.textOf(current.sid, evStatusKey(item))).length; const over = key !== "all" && neisBytes(text) > lim(key);
             return <button key={key} type="button" data-kdn-bare role="tab" aria-selected={focus === key} style={{ "--c": key === "all" ? "#5b606b" : AREA_COLOR[key] }} onClick={() => setFocus(key)}>
               <b>{key === "all" ? "모두 보기" : RECORD_AREAS[key].label}</b>
@@ -1333,7 +1339,8 @@ function CheckWriter({ year, scopes, initialKey, showToast }) {
   const checked = useMemo(() => {
     if (!result) return null;
     const rows = result.rows.map(row => ({ ...row, cells: row.texts.map((text, i) => { const issues = checkRecordText(text); const bytes = neisBytes(text); return { text, bytes, limit: result.columns[i].limit, issues, over: bytes > result.columns[i].limit, block: issues.some(it => it.level === "block") }; }) }));
-    const dups = findDuplicateSentences(rows.map((row, i) => ({ sid: row.sid || `r${i}`, label: row.no ? `${row.no}번` : row.name || `${i + 1}행`, text: row.texts.join("\n") })));
+    const short = label => { const v = String(label || "").replace(/\s+/g, ""); return /자율|자치/.test(v) ? "자율·자치" : /진로/.test(v) ? "진로" : /행동|행발|종합의견/.test(v) ? "행발" : result.columns.length > 1 ? String(label).slice(0, 8) : ""; };
+    const dups = findDuplicateSentences(rows.flatMap((row, i) => row.texts.map((text, c) => ({ sid: row.sid || `r${i}`, label: row.no ? `${row.no}번` : row.name || `${i + 1}행`, area: String(c), areaLabel: short(result.columns[c]?.label), text }))));
     rows.forEach((row, i) => { const id = row.sid || `r${i}`; row.id = id; row.dups = dups.filter(item => item.people.some(p => p.sid === id)); row.problem = row.cells.some(c => c.over || c.issues.length) || row.dups.length > 0; row.empty = row.cells.every(c => !c.text); });
     return { rows, dups, sum: { total: rows.length, empty: rows.filter(r => r.empty).length, over: rows.filter(r => r.cells.some(c => c.over)).length, block: rows.filter(r => r.cells.some(c => c.block)).length, warn: rows.filter(r => r.cells.some(c => c.issues.length && !c.block)).length, dup: rows.filter(r => r.dups.length).length, ok: rows.filter(r => !r.problem && !r.empty).length } };
   }, [result]);
@@ -1695,6 +1702,9 @@ button.krw-refl-tag{border:0;font-family:inherit;cursor:pointer}button.krw-refl-
 .krw-dup li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f3)}
 .krw-dup q{font-size:13.5px;line-height:1.6}.krw-dup li em{font-style:normal;font-size:12px;font-weight:800;color:#b45309;align-self:start}
 .krw-dup li .q{display:grid;gap:4px;min-width:0}.krw-dup li .tag{justify-self:start;padding:1px 8px;border-radius:99px;background:#17181d;color:#fff;font-size:11px;font-weight:800}.krw-dup li.is-similar .tag{background:#b45309}.krw-dup q.v{color:var(--kdn-ink-soft,#5b606b);font-size:12.5px}.krw-dup q.v::before{content:"≈ "}.krw-dup li .who button.is-sim{border-style:dashed}
+.krw-dup li em .areas{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:3px;margin-top:4px}.krw-dup li em .areas i{padding:1px 7px;border-radius:99px;background:color-mix(in srgb,#2563eb 10%,transparent);color:#1d4ed8;font-style:normal;font-size:11px;font-weight:800}
+.krw-dup li div.who button small{margin-left:4px;font-size:10.5px;font-weight:800;color:#1d4ed8}
+.krw-dup-area{display:inline-block;margin-right:6px;padding:1px 7px;border-radius:99px;background:color-mix(in srgb,#2563eb 10%,transparent);color:#1d4ed8;font-size:11px;font-weight:800;vertical-align:1px}
 .krw-dup li div.who{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px}.krw-dup li div button{padding:2px 9px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12px;font-weight:700;cursor:pointer;color:inherit}
 .krw-files{display:grid;gap:8px}.krw-files .up{display:flex;flex-wrap:wrap;gap:6px}
 .krw-files ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}.krw-files li{display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3)}
