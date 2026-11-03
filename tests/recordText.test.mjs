@@ -143,7 +143,8 @@ test("parseEventSheets: 부서 시트·중복 시트 합치기, 영역 나누기
   assert.equal(items.length, 3);
   assert.equal(skipped.otherArea, 1);
   const tr = items.find(i => i.sid === "20102");
-  assert.equal(tr.area, "career"); assert.equal(tr.text, "조금 더 긴 같은 활동 글.");
+  assert.equal(tr.area, "career"); assert.equal(tr.text, "짧은 글."); // 학번순(자동입력) 취합 시트는 읽지 않음
+  assert.equal(tr.dept, undefined); // 부서명은 담지 않음
   assert.equal(items.filter(i => i.sid === "20101").map(i => i.area).sort().join(","), "autonomy,career");
   assert.equal(eventAreaOf("자율·자치활동"), "autonomy");
 });
