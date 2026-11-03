@@ -211,13 +211,35 @@ export const DUP_SIMILAR_RATIO = 0.8;
 // 여러 학생에게 겹친 문장 찾기.
 // ① 똑같은 문장: 띄어쓰기·기호를 빼고 5자 이상이면 비교
 // ② 거의 같은 문장: 15자 이상 문장끼리 글자 짝(2글자) 80% 이상 겹치면 '비슷한 문장'으로 묶음(조사·어미만 바꾼 경우)
-export function findDuplicateSentences(entries = []) {
-  const map = new Map();
-  entries.forEach(({ sid, label, text }) => splitSentences(text).forEach(sentence => {
+// entries: [{ sid, label, text, area?, areaLabel? }] — 영역(자율·진로 등)마다 따로 넣으면 어느 영역에서 겹쳤는지 알려 줘요.
+// ignore: 같은 문장이 여러 학생에게 들어가는 게 정상인 글(예: 부서 행사 특기사항 원문). 이 글의 문장과 같거나 비슷한 문장은 빼요.
+export function findDuplicateSentences(entries = [], { ignore = [] } = {}) {
+  const ignoreKeys = new Set();
+  const ignoreLong = [];
+  ignore.forEach(text => splitSentences(text).forEach(sentence => {
     const key = normSentence(sentence);
-    if (key.length < DUP_MIN_CHARS) return;
+    if (key.length < DUP_MIN_CHARS || ignoreKeys.has(key)) return;
+    ignoreKeys.add(key);
+    if (key.length >= DUP_SIMILAR_MIN_CHARS) ignoreLong.push({ key, grams: bigrams(key) });
+  }));
+  const ignored = new Map();
+  const isIgnored = key => {
+    if (ignoreKeys.has(key)) return true;
+    if (key.length < DUP_SIMILAR_MIN_CHARS || !ignoreLong.length) return false;
+    if (ignored.has(key)) return ignored.get(key);
+    const grams = bigrams(key);
+    const hit = ignoreLong.some(other => Math.min(key.length, other.key.length) / Math.max(key.length, other.key.length) >= DUP_SIMILAR_RATIO && similarity(grams, other.grams) >= DUP_SIMILAR_RATIO);
+    ignored.set(key, hit);
+    return hit;
+  };
+  const same = (p, q) => p.sid === q.sid && (p.area || "") === (q.area || "");
+  const map = new Map();
+  entries.forEach(({ sid, label, text, area = "", areaLabel = "" }) => splitSentences(text).forEach(sentence => {
+    const key = normSentence(sentence);
+    if (key.length < DUP_MIN_CHARS || isIgnored(key)) return;
     const item = map.get(key) || { key, sentence, people: [], variants: [] };
-    if (!item.people.some(p => p.sid === sid)) item.people.push({ sid, label });
+    const person = { sid, label, area, areaLabel };
+    if (!item.people.some(p => same(p, person))) item.people.push(person);
     map.set(key, item);
   }));
   const items = Array.from(map.values());
@@ -235,12 +257,17 @@ export function findDuplicateSentences(entries = []) {
       if (similarity(grams.get(base), grams.get(other)) < DUP_SIMILAR_RATIO) continue;
       merged.add(other);
       base.variants.push(other.sentence);
-      other.people.forEach(p => { if (!base.people.some(q => q.sid === p.sid)) base.people.push({ ...p, similar: true }); });
+      other.people.forEach(p => { if (!base.people.some(q => same(q, p))) base.people.push({ ...p, similar: true }); });
     }
   });
+  // 여러 학생(또는 한 학생의 여러 영역)에 들어간 것만
   return items.filter(item => !merged.has(item) && item.people.length >= 2)
-    .map(({ key, ...item }) => ({ ...item, similar: item.variants.length > 0 }))
-    .sort((a, b) => b.people.length - a.people.length);
+    .map(({ key, ...item }) => {
+      const areas = {};
+      item.people.forEach(p => { if (p.areaLabel) areas[p.areaLabel] = (areas[p.areaLabel] || 0) + 1; });
+      return { ...item, similar: item.variants.length > 0, count: new Set(item.people.map(p => p.sid)).size, areas };
+    })
+    .sort((a, b) => b.count - a.count || b.people.length - a.people.length);
 }
 
 // AI 요청문: 학생 이름은 빼고, 관찰 기록만 근거로 기재요령·바이트 조건을 담아 만듭니다.
