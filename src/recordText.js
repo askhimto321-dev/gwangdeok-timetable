@@ -102,10 +102,19 @@ export function checkRecordText(text = "") {
     if (ALLOWED_EN.has(hit.match) || issues.some(issue => issue.index <= hit.index && hit.index < issue.index + issue.match.length)) return;
     add("warn", "영문", hit.match, hit.index, "문자는 한글로(부득이한 경우만 영문)");
   });
+  // 임원 경력만 적힌 줄(예: '학급자치회 회장(2026.08.13.-2027.02.28.)'): 나이스 임원 칸처럼 이름만 있고 문장이 아니에요.
+  String(value).split(/\n/).forEach(line => {
+    const t = line.trim();
+    if (!t || t.length > 60) return;
+    if (/(?:부?회장|부?반장|부?실장|대의원|임원|부?위원장|부?부장|차장|총무|서기|회계|부?대표|기장|조장|팀장)\s*(?:\([^()]*\))?\s*[.。]?$/.test(t) && !/[가-힣](?:함|임|음|됨|봄|짐|김|림|힘|킴|움|줌|춤|름)\s*[.。]?\s*$/.test(t)) {
+      add("warn", "임원 문장 완성", t.length > 24 ? `${t.slice(0, 24)}…` : t, value.indexOf(t), "임원 이름·기간만 있어요. '~회장(기간)으로서 ~을 이끎.'처럼 맡은 역할과 활동을 문장으로 완성해 주세요");
+    }
+  });
   // 마지막 문장 끝: 마침표로 끝나는지, '~함. ~임. ~음. ~이끎.'처럼 명사형(받침 ㅁ·ㄻ)으로 끝나는지
   const tail = value.trim();
   if (tail) {
-    const end = tail.replace(/["')\]]+$/, "");
+    // 끝의 괄호(기간 등)는 떼고 봐요: '회장(2026.08.13.-2027.02.28.)'의 괄호 안 마침표를 문장 끝으로 보지 않게
+    const end = tail.replace(/\s*\([^()]*\)\s*$/, "").replace(/["'\]]+$/, "");
     const lastHangul = (end.replace(/[.!?]+$/, "").match(/[가-힣]$/) || [])[0];
     if (!/[.!?]$/.test(end)) add("warn", "문장 끝 확인", tail.slice(-12), value.length - 1, "마지막 문장이 마침표로 끝나지 않아요. '~함.', '~임.'처럼 끝내 주세요");
     // 받침 ㅁ(함·임·음) 또는 ㄻ(이끎·만듦·삶)이면 명사형 종결로 봐요.
