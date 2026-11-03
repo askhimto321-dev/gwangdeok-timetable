@@ -1020,8 +1020,8 @@ function EventFilesModal({ ev, students, rec, showToast, onClose, onPick = null 
     plan.forEach((list, k) => {
       const [sid, area] = k.split("|");
       const field = rec.textOf(sid, area);
-      const add = list.map(item => item.text.trim()).filter(text => !field.includes(text)).join(" ");
-      if (add) { rec.edit(`s|${sid}|${area}`, field.trim() ? `${field.trim()} ${add}` : add); added += 1; }
+      const add = list.map(item => item.text.trim()).filter(text => !field.includes(text)).join("\n"); // 행사마다 줄 바꿈
+      if (add) { rec.edit(`s|${sid}|${area}`, field.trim() ? `${field.trim()}\n${add}` : add); added += 1; }
       list.forEach(item => rec.edit(`s|${sid}|${evStatusKey(item)}`, "in"));
     });
     showToast?.(`${people}명의 칸에 행사 특기사항을 넣었어요. 바이트 한도를 넘은 학생은 '한도 넘음'으로 확인해 주세요.`, "success");
@@ -1063,8 +1063,8 @@ function EventBox({ items, rec, sid, area }) {
   const mark = (item, value) => rec.edit(`s|${sid}|${evStatusKey(item)}`, value);
   const field = rec.textOf(sid, area);
   const insert = list => {
-    const add = list.map(item => item.text.trim()).filter(text => !field.includes(text)).join(" ");
-    if (add) rec.edit(`s|${sid}|${area}`, field.trim() ? `${field.trim()} ${add}` : add);
+    const add = list.map(item => item.text.trim()).filter(text => !field.includes(text)).join("\n"); // 행사마다 줄 바꿈
+    if (add) rec.edit(`s|${sid}|${area}`, field.trim() ? `${field.trim()}\n${add}` : add);
     list.forEach(item => mark(item, "in"));
   };
   const left = items.filter(item => !status(item));

@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-03-u",
+    date: "2026-11-03",
+    title: "행사 세특: 행사마다 줄 바꿈",
+    items: [
+      { audience: "staff", text: "행사 특기사항을 칸에 넣을 때(한 학생 · 반 전체 모두) 행사마다 줄을 바꿔 넣어요. 줄 바꿈은 나이스에서 2바이트로 세요." },
+    ],
+  },
+  {
     id: "2026-11-03-t",
     date: "2026-11-03",
     title: "생기부: 나이스 파일 반영, 단계별 안내 새로",
