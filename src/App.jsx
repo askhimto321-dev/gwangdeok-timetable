@@ -3319,13 +3319,7 @@ function TeacherZoneHome({ plannerOwner = "", onOpenPlanner, calendar, actor, ac
       <b>최근 작업 과목</b>
       {resultGroups.map(([g, list]) => <div key={g} className="kdn-tz2-quick-row"><small>{g}학년</small>{list.slice(0, 8).map(ws => <button key={ws.id} type="button" data-kdn-bare onClick={() => onOpenGrade?.(3, ws.id, g)} title={`${g}학년 ${ws.subject} 결과 확인으로 바로 가기`}>{ws.subject}<ArrowRight size={13} /></button>)}</div>)}
     </section>}
-    {canUseSeparation && <section className="kdn-tz2-sep" aria-label="반편성 분리희망학생 입력">
-      <span className="ic" aria-hidden="true"><UserX size={26} /></span>
-      <div className="tx"><em>반편성 · 지금 입력할 일</em><b>{new Date().getFullYear() + (new Date().getMonth() + 1 >= 3 ? 1 : 0)} 반편성 분리희망학생</b><span>{activeTeacher?.homeroomClass ? `${activeTeacher.homeroomClass}반 학생마다` : "학생마다"} 같은 반이 되면 안 되는 학생을 적어 주세요. 다른 반에서 적은 내용도 함께 보입니다.</span>
-        <i className="lv"><s className="must">반드시</s><s className="high">되도록</s><s className="mid">가능하면</s><s className="low">참고</s></i></div>
-      <button type="button" data-kdn-bare onClick={() => onOpen("separation")}>입력하기 <ArrowRight size={16} /></button>
-    </section>}
-    <div className="kdn-tz2-grid">{cards.filter(card => card.key !== "separation").map(card => {
+    <div className="kdn-tz2-grid">{cards.map(card => { // 반편성 분리희망 기간이 끝나 강조 띠 없이 일반 카드로
       const [short, illo, palette] = SHORT[card.key] || [card.text, "grades", "il-admin"];
       const isLast = card.key === lastMode;
       if (exam && card.key === "grades") return <section key={card.key} className={`kdn-tz2-feature ${palette}`}>
