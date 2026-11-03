@@ -219,3 +219,13 @@ test("행사 원문 줄 바꾸기", async () => {
   assert.equal(lineBreakEvents(`${a}\n${b}`, [a, b]), `${a}\n${b}`);
   assert.equal(lineBreakEvents(`직접 쓴 글. ${b} 덧붙인 글.`, [b]), `직접 쓴 글.\n${b}\n덧붙인 글.`);
 });
+test("AI 요청문: 여러 활동이면 줄 바꿈·억지 연결 금지, 진로희망 반영", async () => {
+  const { buildAiPrompt } = await import("../src/recordText.js");
+  const multi = buildAiPrompt({ area: "자율·자치활동", notes: [["a", "x"], ["b", "y"]], multi: true, hope: "건축가" });
+  assert.ok(multi.includes("활동마다 줄을 바꿔"));
+  assert.ok(multi.includes("'~에서는'"));
+  assert.ok(multi.includes("[학생 진로희망] 건축가"));
+  const one = buildAiPrompt({ area: "행동특성 및 종합의견", notes: [["a", "x"]] });
+  assert.ok(!one.includes("활동마다 줄을 바꿔"));
+  assert.ok(!one.includes("진로희망"));
+});

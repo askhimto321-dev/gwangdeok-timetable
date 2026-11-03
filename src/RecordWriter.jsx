@@ -606,15 +606,23 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const [reflPick, setReflPick] = useState({});
   useEffect(() => { setReflPick({}); }, [sid]);
   const reflNotes = refls.filter(item => reflPick[item.key]).map(item => [`학생 소감문(학생이 쓴 글, ${item.activity})`, item.response]);
+  const hope = String(aiContext.hope || "").trim();
+  const [useHope, setUseHope] = useState(true);
+  // 활동마다 줄 바꾸기: 담임 자율·진로는 기본으로 켜고(여러 행사·활동), 소감문을 2개 이상 넣으면 켜요.
+  const [multiPick, setMultiPick] = useState(null);
+  useEffect(() => { setMultiPick(null); }, [targetKey, sid]);
+  const multi = multiPick ?? ((!aiContext.subject && targetKey !== "behavior") || reflNotes.length >= 2);
   const incSummary = [
     notes.length && `누가기록 ${notes.length}`,
     reflNotes.length && `소감문 ${reflNotes.length}`,
     useStd && stdList.length && `성취기준 ${stdList.length}`,
     aiContext.subject && useFrame && "구성 틀",
+    useHope && hope && "진로희망",
+    multi && "활동마다 줄 바꿈",
     aiContext.subject && useEx && exPick && "기재 예시",
     refine && current.trim() && "지금 쓴 글",
   ].filter(Boolean);
-  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame });
+  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
   // 바로 열기: 팝업 차단을 피하려고 창부터 열고, 요청문은 주소(?q=)에 담고 클립보드에도 복사해 둡니다.
   const openAi = async site => {
@@ -649,6 +657,8 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
             {exPick ? <label className="opt"><input type="checkbox" checked={useEx} onChange={event => setUseEx(event.target.checked)} /><span><b>기재 예시: {exPick.s}</b><em>문체 참고용 · <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => { setPickOpen(false); setStep("examples"); }}>바꾸기</button></em></span></label>
               : <p className="none">기재 예시는 넣지 않아요. <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => { setPickOpen(false); setStep("examples"); }}>예시 고르기</button></p>}
           </section>}
+          <section><h4>학생 진로희망</h4>{hope ? <label className="opt"><input type="checkbox" checked={useHope} onChange={event => setUseHope(event.target.checked)} /><span><b>{hope}</b><em>관찰 기록에 있는 내용만 진로와 이어 쓰도록 알려요</em></span></label> : <p className="none">{aiContext.subject ? "교과 화면에는 진로희망이 없어요." : "학생 화면 위 '진로희망' 칸에 적으면 요청문에 넣을 수 있어요."}</p>}</section>
+          <section><h4>여러 활동 쓰는 법</h4><label className="opt"><input type="checkbox" checked={multi} onChange={event => setMultiPick(event.target.checked)} /><span><b>활동마다 줄 바꿔 따로 쓰기</b><em>관련 없는 활동을 '~에서는', '~에서도'로 억지로 이어 한 문단으로 만들지 않게 해요</em></span></label></section>
           <section><h4>지금 칸에 쓴 글</h4><label className="opt"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /><span><b>함께 보내 다듬어 달라고 하기</b><em>{current.trim() ? clip(current, 90) : "아직 비어 있어요"}</em></span></label></section>
         </div>
         <div className="ft"><span>{incSummary.length ? incSummary.join(" · ") : "기재요령과 바이트만 들어가요"}</span><button type="button" data-kdn-bare className="krw-btn pri" onClick={() => setPickOpen(false)}>다 골랐어요</button></div>
@@ -932,6 +942,8 @@ function NeisImportModal({ students, rec, grade, cls, backupName, limitOf, showT
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState({});
   const [note, setNote] = useState("");
+  const [hopes, setHopes] = useState({}); // 나이스 '희망분야' → 우리 쪽 진로희망이 비어 있는 학생만
+  const [fillHope, setFillHope] = useState(true);
   const inputRef = useRef(null);
   const bySid = new Map(students.map(st => [st.sid, st]));
   const read = async list => {
@@ -954,6 +966,7 @@ function NeisImportModal({ students, rec, grade, cls, backupName, limitOf, showT
         return { ...row, text: neis, cur, state };
       }).sort((a, b) => a.sid.localeCompare(b.sid) || HOMEROOM_AREAS.indexOf(a.area) - HOMEROOM_AREAS.indexOf(b.area));
       setRows(list2);
+      setHopes(found.filter(row => row.hope && bySid.has(row.sid) && !rec.textOf(row.sid, "hope").trim()).reduce((m, row) => ({ ...m, [row.sid]: row.hope }), {}));
       setPick(Object.fromEntries(list2.filter(r => r.state === "diff" || r.state === "new").map(r => [`${r.sid}|${r.area}`, true])));
       setNote([files > 1 && `파일 ${files}개`, other && `다른 영역 ${other}줄`, outside && `다른 반 ${outside}줄`].filter(Boolean).join(" · "));
     } catch (error) { showToast?.(`파일을 읽지 못했어요. (${error?.message || error})`, "error"); }
@@ -961,12 +974,14 @@ function NeisImportModal({ students, rec, grade, cls, backupName, limitOf, showT
   };
   const count = state => (rows || []).filter(r => r.state === state).length;
   const picked = (rows || []).filter(r => pick[`${r.sid}|${r.area}`]);
+  const hopeCount = fillHope ? Object.keys(hopes).length : 0;
   const apply = async () => {
-    if (!picked.length) return;
-    if (!window.confirm(`고른 ${picked.length}칸을 나이스 글로 바꿀까요?\n바꾸기 전에 반 자료 백업 파일을 내려받아요.`)) return;
+    if (!picked.length && !hopeCount) return;
+    if (!window.confirm(`${picked.length ? `고른 ${picked.length}칸을 나이스 글로 바꿀까요?` : ""}${hopeCount ? `${picked.length ? "\n" : ""}진로희망 ${hopeCount}명을 나이스 '희망분야'로 채울까요?` : ""}\n바꾸기 전에 반 자료 백업 파일을 내려받아요.`)) return;
     await rec.save(); downloadJson(`${backupName}_나이스반영전_${new Date().toISOString().slice(0, 10)}.json`, rec.doc);
     picked.forEach(r => rec.edit(`s|${r.sid}|${r.area}`, r.text));
-    showToast?.(`나이스 글 ${picked.length}칸을 반영했어요.`, "success");
+    if (hopeCount) Object.entries(hopes).forEach(([sid, hope]) => rec.edit(`s|${sid}|hope`, hope));
+    showToast?.(`나이스 글 ${picked.length}칸${hopeCount ? ` · 진로희망 ${hopeCount}명` : ""}을 반영했어요.`, "success");
     onClose();
   };
   const label = { same: "같음", diff: "바뀜", new: "새 글", empty: "나이스 빈칸", none: "명단에 없음" };
@@ -983,8 +998,9 @@ function NeisImportModal({ students, rec, grade, cls, backupName, limitOf, showT
             <td className="b">{neisBytes(r.cur).toLocaleString()}</td><td className={`b${nb > lim ? " over" : ""}`}>{nb.toLocaleString()}</td><td><span className={`tag is-${r.state}`}>{label[r.state]}</span></td></tr>
           {open[k] && <tr className="detail"><td /><td colSpan={5}><div><small>지금</small><p>{r.cur || "(비어 있음)"}</p></div><div><small>나이스</small><p>{r.text || "(비어 있음)"}</p></div></td></tr>}
         </React.Fragment>; })}</tbody></table></div>
+      {Object.keys(hopes).length > 0 && <label className="krw-ai-chk"><input type="checkbox" checked={fillHope} onChange={event => setFillHope(event.target.checked)} /> 나이스 '희망분야'로 진로희망 {Object.keys(hopes).length}명 채우기 <small>(비어 있는 학생만)</small></label>}
       {count("same") > 0 && <p className="same">같은 칸 {count("same")}개는 목록에서 뺐어요. 학생을 누르면 두 글을 비교해 볼 수 있어요.</p>}
-      <div className="ft"><span>{picked.length ? `${picked.length}칸을 나이스 글로 바꿔요` : "바꿀 칸을 골라 주세요"}{count("empty") ? " · '나이스 빈칸'은 고르면 우리 쪽 글이 지워져요" : ""}</span><button type="button" data-kdn-bare className="krw-btn pri" disabled={!picked.length} onClick={apply}><Check size={14} /> 고른 칸 반영</button></div>
+      <div className="ft"><span>{picked.length ? `${picked.length}칸을 나이스 글로 바꿔요` : "바꿀 칸을 골라 주세요"}{count("empty") ? " · '나이스 빈칸'은 고르면 우리 쪽 글이 지워져요" : ""}</span><button type="button" data-kdn-bare className="krw-btn pri" disabled={!picked.length && !hopeCount} onClick={apply}><Check size={14} /> 고른 칸 반영</button></div>
     </>}
   </div></div>, document.body);
 }
@@ -1258,6 +1274,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
           renderRight={s => <><span className="fill">{HOMEROOM_AREAS.map(key => <i key={key} style={{ "--c": AREA_COLOR[key] }} className={rec.textOf(s.sid, key).trim() ? "on" : ""} />)}</span>{check && <IssueDot text={HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n")} />}{eventLeft(s) > 0 && <span className="krw-evdot" title={`행사 특기사항 확인 안 함 ${eventLeft(s)}개`}>{eventLeft(s)}</span>}</>} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
+          <label className="krw-hope"><span>진로희망</span><input value={rec.textOf(current.sid, "hope")} readOnly={readOnlyView} placeholder="예: 건축가, 간호 계열 (AI 요청문에 넣을 수 있어요)" onChange={event => rec.edit(`s|${current.sid}|hope`, event.target.value)} /></label>
           <EventStrip items={eventsOf(current)} rec={rec} sid={current.sid} onFocus={area => { if (focus !== "all") setFocus(area); }} />
           <DupStudentNote dups={dups} sid={current.sid} onPick={pickDup} />
           <div className="krw-focus" role="tablist" aria-label="영역" data-tour="rw-focus">{[...HOMEROOM_AREAS, "all"].map(key => { const text = key === "all" ? "" : rec.textOf(current.sid, key); const left = key === "all" ? 0 : eventsOf(current, key).filter(item => evNeeds(rec, item)).length; const over = key !== "all" && neisBytes(text) > lim(key);
@@ -1269,7 +1286,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
           {HOMEROOM_AREAS.filter(key => focus === "all" || focus === key).map(key => <React.Fragment key={key}><EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={lim(key)} check={check} rows={focus === "all" ? (key === "career" ? 8 : 6) : 12} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
             </React.Fragment>)}
         </section>}
-        {current && side && <SidePanel targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => lim(key)} focus={focus === "all" ? "" : focus} onBulkReflections={bulkReflections} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel aiContext={{ hope: rec.textOf(current.sid, "hope") }} targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => lim(key)} focus={focus === "all" ? "" : focus} onBulkReflections={bulkReflections} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -1827,6 +1844,7 @@ const CSS = `
 .krw-modal-box.krw-sjx{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto}.krw-sjx section{display:grid;gap:8px;padding-top:10px;border-top:1px solid var(--kdn-line,#efede8)}.krw-sjx h4{margin:0;font-size:14.5px}
 .krw-sjx .row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.krw-sjx .cols{display:grid;gap:4px;margin:0;padding:0;list-style:none}.krw-sjx .cols li{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3);font-size:13px}.krw-sjx .cols li.off{opacity:.55}.krw-sjx .cols label{display:flex;align-items:center;gap:6px;flex:1;min-width:0}.krw-sjx .cols span{font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .krw-sjx .sum{font-weight:700;color:var(--kdn-ink,#17181d)!important}
+.krw-hope{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-radius:14px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}.krw-hope span{flex:none;font-size:12.5px;font-weight:800;color:#15803d}.krw-hope input{flex:1;min-width:0;min-height:30px;border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#17181d)}
 .krw-clear{width:min(560px,100%)}.krw-clear .row{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;gap:10px;padding:8px 0;border-top:1px solid var(--kdn-line,#efede8)}.krw-clear .k{padding-top:5px;font-size:12.5px;font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-clear .v{display:flex;flex-wrap:wrap;gap:6px}
 .krw-clear .chip{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 11px 0 8px;border-radius:99px;border:1px solid var(--kdn-line,#dcd9d2);font-size:13px;font-weight:700;cursor:pointer}.krw-clear .chip input{margin:0;accent-color:#dc2626}.krw-clear .chip.on{border-color:#fca5a5;background:#fef2f2;color:#b91c1c}.krw-clear .chip em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}
 .krw-btn.danger{border-color:transparent;background:#dc2626;color:#fff}.krw-btn.danger:disabled{opacity:.4}
