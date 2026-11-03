@@ -441,3 +441,16 @@ export function parseNeisRecordSheets(sheets = []) {
   });
   return { rows: out, skipped };
 }
+
+// 칸 안의 행사 특기사항 원문을 행사마다 한 줄로(앞뒤에 줄 바꿈). 원문이 그대로 들어 있는 경우만 고쳐요.
+export function lineBreakEvents(field = "", texts = []) {
+  let out = String(field || "");
+  Array.from(new Set(texts.map(t => String(t || "").trim()).filter(t => t.length >= 5))).forEach(t => {
+    const idx = out.indexOf(t);
+    if (idx < 0) return;
+    const before = out.slice(0, idx).replace(/[ \t]+$/, "");
+    const after = out.slice(idx + t.length).replace(/^[ \t]+/, "");
+    out = `${before}${before && !before.endsWith("\n") ? "\n" : ""}${t}${after && !after.startsWith("\n") ? "\n" : ""}${after}`;
+  });
+  return out;
+}

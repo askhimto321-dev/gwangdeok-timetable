@@ -212,3 +212,10 @@ test("줄마다 끝맺음 점검: 중간 줄의 임원 기록도 알림", async 
   assert.ok(issues.some(item => JSON.stringify(item).includes("임원 문장 완성")));
   assert.equal(checkRecordText("토론회를 이끎.\n콘서트에서 연주함.").filter(item => JSON.stringify(item).includes("문장 끝 확인")).length, 0);
 });
+test("행사 원문 줄 바꾸기", async () => {
+  const { lineBreakEvents } = await import("../src/recordText.js");
+  const a = "학급자치회 부회장(2026.08.13.-2027.02.28.)"; const b = "대토론회에서 학급 대표를 맡아 토론회를 이끎."; const c = "교내 콘서트에서 연주함.";
+  assert.equal(lineBreakEvents(`${a} ${b} ${c}`, [a, b, c]), `${a}\n${b}\n${c}`);
+  assert.equal(lineBreakEvents(`${a}\n${b}`, [a, b]), `${a}\n${b}`);
+  assert.equal(lineBreakEvents(`직접 쓴 글. ${b} 덧붙인 글.`, [b]), `직접 쓴 글.\n${b}\n덧붙인 글.`);
+});

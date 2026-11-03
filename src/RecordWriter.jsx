@@ -12,7 +12,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, lineBreakEvents, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -813,6 +813,8 @@ function useEventDoc(year, grade) {
   return { doc, update, bySid };
 }
 const evStatusKey = item => `ev:${item.eventKey}`;
+// 넣을 차례인 행사: 확인 안 함, 또는 '반영함'인데 칸에서 글을 지운 경우(다시 넣기)
+const evNeeds = (rec, item) => { const st = rec.textOf(item.sid, evStatusKey(item)); return !st || (st === "in" && !rec.textOf(item.sid, item.area).includes(item.text.trim())); };
 // 행사 세특 파일 올리기·빼기(관리자·부서 공용·학년부장)
 // 한 파일에 여러 학년이 들어 있으면 학년마다 따로 저장해요(지금 학년은 화면에도 바로 반영).
 function useEventUpload(ev, grade, by, showToast, canManage, year) {
@@ -1004,7 +1006,7 @@ function EventFilesModal({ ev, students, rec, showToast, onClose, onPick = null 
   const sids = new Set(students.map(s => s.sid));
   const mine = (ev.doc.items || []).filter(item => sids.has(item.sid));
   const events = new Map();
-  mine.forEach(item => { const st = rec.textOf(item.sid, evStatusKey(item)); const row = events.get(item.eventKey) || { item, total: 0, done: 0, left: 0 }; row.total += 1; if (st) row.done += 1; else row.left += 1; events.set(item.eventKey, row); });
+  mine.forEach(item => { const st = evNeeds(rec, item) ? "" : rec.textOf(item.sid, evStatusKey(item)); const row = events.get(item.eventKey) || { item, total: 0, done: 0, left: 0 }; row.total += 1; if (st) row.done += 1; else row.left += 1; events.set(item.eventKey, row); });
   const rows = Array.from(events.values());
   const [pick, setPick] = useState(() => Object.fromEntries(rows.filter(row => row.left).map(row => [row.item.eventKey, true])));
   const picked = rows.filter(row => pick[row.item.eventKey]);
@@ -1012,7 +1014,7 @@ function EventFilesModal({ ev, students, rec, showToast, onClose, onPick = null 
   const applyBulk = () => {
     const keys = new Set(picked.map(row => row.item.eventKey));
     const plan = new Map(); // `${sid}|${area}` → [items]
-    mine.filter(item => keys.has(item.eventKey) && !rec.textOf(item.sid, evStatusKey(item))).forEach(item => { const k = `${item.sid}|${item.area}`; if (!plan.has(k)) plan.set(k, []); plan.get(k).push(item); });
+    mine.filter(item => keys.has(item.eventKey) && evNeeds(rec, item)).forEach(item => { const k = `${item.sid}|${item.area}`; if (!plan.has(k)) plan.set(k, []); plan.get(k).push(item); });
     if (!plan.size) { showToast?.("넣을 학생이 없어요. 이미 모두 확인했어요.", "success"); return; }
     const people = new Set(Array.from(plan.keys()).map(k => k.split("|")[0])).size;
     if (!window.confirm(`고른 행사 ${picked.length}개를 우리 반 ${people}명의 칸 끝에 넣고 '반영함'으로 표시할까요?\n('빼기'·'반영함'으로 이미 확인한 학생은 건너뛰어요. 넣은 뒤에도 학생마다 고쳐 쓸 수 있어요.)`)) return;
@@ -1027,6 +1029,14 @@ function EventFilesModal({ ev, students, rec, showToast, onClose, onPick = null 
     showToast?.(`${people}명의 칸에 행사 특기사항을 넣었어요. 바이트 한도를 넘은 학생은 '한도 넘음'으로 확인해 주세요.`, "success");
     setPick({});
   };
+  // 이미 넣은 행사 글을 행사마다 한 줄로(예전에 띄어쓰기로 붙여 넣은 칸 정리)
+  const fixLines = () => {
+    const plan = new Map();
+    mine.forEach(item => { const k = `${item.sid}|${item.area}`; if (!plan.has(k)) plan.set(k, []); plan.get(k).push(item.text); });
+    let changed = 0;
+    plan.forEach((texts, k) => { const [sid, area] = k.split("|"); const field = rec.textOf(sid, area); const next = lineBreakEvents(field, texts); if (next !== field) { rec.edit(`s|${sid}|${area}`, next); changed += 1; } });
+    showToast?.(changed ? `${changed}칸의 행사 글을 행사마다 줄 바꿨어요.` : "줄 바꿀 칸이 없어요. 이미 행사마다 줄이 바뀌어 있어요.", "success");
+  };
   return createPortal(<div className="krw krw-modal" role="dialog" aria-modal="true" aria-label="행사 특기사항" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div className="krw-modal-box krw-evf">
     <header><b><CalendarCheck size={17} /> 행사 특기사항 · 우리 반</b><button type="button" data-kdn-bare onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
     <div className="krw-refl-seg" role="tablist"><button type="button" data-kdn-bare role="tab" aria-selected={mode === "events"} onClick={() => setMode("events")}>행사별 · 반 전체 넣기</button><button type="button" data-kdn-bare role="tab" aria-selected={mode === "students"} onClick={() => setMode("students")}>학생별 현황</button></div>
@@ -1036,6 +1046,7 @@ function EventFilesModal({ ev, students, rec, showToast, onClose, onPick = null 
       {!readOnlyView && <td className="ck"><input type="checkbox" aria-label={`${item.event} 고르기`} disabled={!left} checked={!!pick[item.eventKey]} onChange={() => setPick(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))} /></td>}
       <td><b>{item.event}</b></td><td>{RECORD_AREAS[item.area].short}</td><td>{total}명</td><td>{done}/{total}</td></tr>)}</tbody></table> : <p className="none">우리 반 학생의 행사 특기사항이 아직 없어요.</p>}
     {!readOnlyView && rows.length > 0 && <div className="ft"><span>{picked.length ? `고른 행사 ${picked.length}개 · 확인 안 한 학생 ${picked.reduce((sum, row) => sum + row.left, 0)}명분` : "넣을 행사를 골라 주세요"}</span><button type="button" data-kdn-bare className="krw-btn pri" disabled={!picked.length} onClick={applyBulk}><Users size={14} /> 반 전체 칸에 넣기</button></div>}
+    {!readOnlyView && rows.length > 0 && <p className="krw-evf-fix"><button type="button" data-kdn-bare className="krw-linkbtn" onClick={fixLines}>이미 넣은 행사 글 줄 바꾸기(반 전체)</button> — 예전에 띄어 쓰기로 붙여 넣은 칸을 행사마다 한 줄로 정리해요.</p>}
     </>}
   </div></div>, document.body);
 }
@@ -1044,14 +1055,14 @@ function StudentEventGrid({ students, rows, mine, rec, onPick }) {
   if (!rows.length) return <p className="none">우리 반 학생의 행사 특기사항이 아직 없어요.</p>;
   const has = new Map(mine.map(item => [`${item.sid}|${item.eventKey}`, item]));
   return <div className="krw-table-wrap krw-evgrid"><table><thead><tr><th className="nm">학생</th>{rows.map(({ item }) => <th key={item.eventKey} title={item.event}><span className={`krw-refl-tag is-${item.area}`}>{RECORD_AREAS[item.area].short}</span><b>{item.event}</b></th>)}<th>남음</th></tr></thead>
-    <tbody>{students.map(st => { let left = 0; const cells = rows.map(({ item }) => { const it = has.get(`${st.sid}|${item.eventKey}`); if (!it) return <td key={item.eventKey} className="na" />; const v = rec.textOf(st.sid, evStatusKey(it)); if (!v) left += 1; return <td key={item.eventKey} className={v ? `is-${v}` : "is-left"} title={v === "in" ? "반영함" : v === "out" ? "뺌" : "확인 안 함"}>{v === "in" ? "✓" : v === "out" ? "뺌" : "●"}</td>; });
+    <tbody>{students.map(st => { let left = 0; const cells = rows.map(({ item }) => { const it = has.get(`${st.sid}|${item.eventKey}`); if (!it) return <td key={item.eventKey} className="na" />; const v = evNeeds(rec, it) ? "" : rec.textOf(st.sid, evStatusKey(it)); if (!v) left += 1; return <td key={item.eventKey} className={v ? `is-${v}` : "is-left"} title={v === "in" ? "반영함" : v === "out" ? "뺌" : "확인 안 함"}>{v === "in" ? "✓" : v === "out" ? "뺌" : "●"}</td>; });
       return <tr key={st.sid} className={left ? "has-left" : ""}><th className="nm">{onPick ? <button type="button" data-kdn-bare onClick={() => onPick(st.sid, rows.find(({ item }) => has.has(`${st.sid}|${item.eventKey}`) && !rec.textOf(st.sid, evStatusKey(item)))?.item.area)}>{st.number} {st.name}</button> : <>{st.number} {st.name}</>}</th>{cells}<td className="left">{left || ""}</td></tr>; })}</tbody></table>
     <p className="legend">✓ 반영함 · 뺌 · <b>●</b> 확인 안 함 · 빈칸은 대상 아님{onPick ? " · 학생을 누르면 그 학생으로 가요" : ""}</p></div>;
 }
 // 학생 화면 위: 이 학생의 행사 한 줄(영역·확인 상태). 누르면 그 영역 탭으로
 function EventStrip({ items, rec, sid, onFocus }) {
   if (!items.length) return null;
-  return <div className="krw-evstrip"><span className="lb"><CalendarCheck size={13} /> 행사 {items.length}</span>{items.map(item => { const v = rec.textOf(sid, evStatusKey(item)); return <button key={item.eventKey} type="button" data-kdn-bare className={`chip is-${v || "left"}`} title={`${RECORD_AREAS[item.area].label} · ${v === "in" ? "반영함" : v === "out" ? "뺌" : "확인 안 함"}`} onClick={() => onFocus?.(item.area)}><i className={`a is-${item.area}`}>{RECORD_AREAS[item.area].short}</i>{item.event}<em>{v === "in" ? "✓" : v === "out" ? "뺌" : "●"}</em></button>; })}</div>;
+  return <div className="krw-evstrip"><span className="lb"><CalendarCheck size={13} /> 행사 {items.length}</span>{items.map(item => { const v = evNeeds(rec, item) ? "" : rec.textOf(sid, evStatusKey(item)); return <button key={item.eventKey} type="button" data-kdn-bare className={`chip is-${v || "left"}`} title={`${RECORD_AREAS[item.area].label} · ${v === "in" ? "반영함" : v === "out" ? "뺌" : "확인 안 함"}`} onClick={() => onFocus?.(item.area)}><i className={`a is-${item.area}`}>{RECORD_AREAS[item.area].short}</i>{item.event}<em>{v === "in" ? "✓" : v === "out" ? "뺌" : "●"}</em></button>; })}</div>;
 }
 // 학생 한 명의 행사 특기사항: 하나씩 '칸에 넣기'(넣고 반영 표시) 또는 '빼기'(이 학생은 안 씀). 표시는 되돌릴 수 있어요.
 function EventBox({ items, rec, sid, area }) {
@@ -1067,10 +1078,11 @@ function EventBox({ items, rec, sid, area }) {
     if (add) rec.edit(`s|${sid}|${area}`, field.trim() ? `${field.trim()}\n${add}` : add);
     list.forEach(item => mark(item, "in"));
   };
-  const left = items.filter(item => !status(item));
+  const needs = item => !status(item) || (status(item) === "in" && !field.includes(item.text.trim()));
+  const left = items.filter(needs);
   const label = RECORD_AREAS[area]?.short || "";
   return <div className={`krw-evbox${left.length ? " has-left" : ""}`} data-tour="rw-events">
-    <div className="hd"><CalendarCheck size={14} /><b>행사 특기사항</b><span>{left.length ? <em>확인할 행사 {left.length}개</em> : <i><Check size={12} /> 모두 확인했어요</i>}</span>
+    <div className="hd"><CalendarCheck size={14} /><b>행사 특기사항</b><span>{left.length ? <em>넣을 행사 {left.length}개</em> : <i><Check size={12} /> 모두 확인했어요</i>}</span>
       {left.length > 1 && !readOnlyView && <button type="button" data-kdn-bare className="krw-mini" onClick={() => insert(left)}>남은 {left.length}개 모두 넣기</button>}</div>
     <ul>{items.map(item => { const st = status(item); const inField = field.includes(item.text.trim()); return <li key={item.eventKey} className={st ? `is-${st}` : ""}>
       <div className="body"><button type="button" data-kdn-bare className="ttl" onClick={() => setOpen(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))} title="눌러서 전체 글 보기"><b>{item.event}</b><small>{neisBytes(item.text).toLocaleString()} byte</small></button>
@@ -1078,7 +1090,7 @@ function EventBox({ items, rec, sid, area }) {
       <div className="act">{readOnlyView ? null : !st ? <>
           <button type="button" data-kdn-bare className="go" onClick={() => insert([item])} title={`${label} 칸 끝에 이 글을 넣고 '반영함'으로 표시`}><ChevronLeft size={13} style={{ transform: "rotate(-90deg)" }} /> 칸에 넣기</button>
           <button type="button" data-kdn-bare className="skip" onClick={() => mark(item, "out")} title="이 학생은 이 행사를 쓰지 않아요">빼기</button></>
-        : <><span className={`tag is-${st}`}>{st === "in" ? <><Check size={12} /> 반영함</> : "뺌"}</span>{st === "in" && !inField && <small className="warn" title="표시는 '반영함'인데 칸에 이 글이 없어요(고쳐 썼다면 괜찮아요)">칸에 원문 없음</small>}
+        : <><span className={`tag is-${st}`}>{st === "in" ? <><Check size={12} /> 반영함</> : "뺌"}</span>{st === "in" && !inField && <button type="button" data-kdn-bare className="go" onClick={() => insert([item])} title="칸에서 이 글이 지워졌어요. 다시 넣어요">다시 넣기</button>}{false && <small className="warn" title="표시는 '반영함'인데 칸에 이 글이 없어요(고쳐 썼다면 괜찮아요)">칸에 원문 없음</small>}
           <button type="button" data-kdn-bare className="undo" onClick={() => mark(item, "")} title="확인 표시만 지워요(칸의 글은 그대로)">되돌리기</button></>}</div>
     </li>; })}</ul>
   </div>;
@@ -1115,7 +1127,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const setFocus = value => { setFocusRaw(value); try { localStorage.setItem("kd_rec_hr_focus", value); } catch { /* 편의 기능 */ } };
   const ev = useEventDoc(year, grade);
   const eventsOf = (s, area) => (ev.bySid.get(s.sid) || []).filter(item => !area || item.area === area);
-  const eventLeft = s => eventsOf(s).filter(item => !rec.textOf(s.sid, evStatusKey(item))).length;
+  const eventLeft = s => eventsOf(s).filter(item => evNeeds(rec, item)).length;
   const classEvents = students.reduce((sum, s) => sum + eventsOf(s).length, 0);
   useEffect(() => { if (!students.some(s => s.sid === sid)) setSid(students[0]?.sid || ""); }, [students]); // eslint-disable-line react-hooks/exhaustive-deps
   const filled = s => HOMEROOM_AREAS.filter(key => rec.textOf(s.sid, key).trim()).length;
@@ -1188,7 +1200,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           <EventStrip items={eventsOf(current)} rec={rec} sid={current.sid} onFocus={area => { if (focus !== "all") setFocus(area); }} />
           <DupStudentNote dups={dups} sid={current.sid} onPick={pickDup} />
-          <div className="krw-focus" role="tablist" aria-label="영역" data-tour="rw-focus">{[...HOMEROOM_AREAS, "all"].map(key => { const text = key === "all" ? "" : rec.textOf(current.sid, key); const left = key === "all" ? 0 : eventsOf(current, key).filter(item => !rec.textOf(current.sid, evStatusKey(item))).length; const over = key !== "all" && neisBytes(text) > lim(key);
+          <div className="krw-focus" role="tablist" aria-label="영역" data-tour="rw-focus">{[...HOMEROOM_AREAS, "all"].map(key => { const text = key === "all" ? "" : rec.textOf(current.sid, key); const left = key === "all" ? 0 : eventsOf(current, key).filter(item => evNeeds(rec, item)).length; const over = key !== "all" && neisBytes(text) > lim(key);
             return <button key={key} type="button" data-kdn-bare role="tab" aria-selected={focus === key} style={{ "--c": key === "all" ? "#5b606b" : AREA_COLOR[key] }} onClick={() => setFocus(key)}>
               <b>{key === "all" ? "모두 보기" : RECORD_AREAS[key].label}</b>
               {key !== "all" && <small className={over ? "over" : text.trim() ? "on" : ""}>{neisBytes(text).toLocaleString()} / {lim(key).toLocaleString()}</small>}
@@ -1771,6 +1783,7 @@ const CSS = `
 .krw-evstrip .chip{display:inline-flex;align-items:center;gap:5px;min-height:26px;padding:0 9px 0 4px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);font:inherit;font-size:12px;font-weight:700;color:var(--kdn-ink,#17181d);cursor:pointer}
 .krw-evstrip .chip .a{padding:1px 6px;border-radius:99px;font-style:normal;font-size:10.5px;background:color-mix(in srgb,#2563eb 10%,transparent);color:#1d4ed8}.krw-evstrip .chip .a.is-career{background:color-mix(in srgb,#16a34a 12%,transparent);color:#15803d}
 .krw-evstrip .chip em{font-style:normal;font-size:11px}.krw-evstrip .chip.is-in em{color:#15803d}.krw-evstrip .chip.is-out{opacity:.6}.krw-evstrip .chip.is-left{border-color:color-mix(in srgb,#f59e0b 45%,transparent)}.krw-evstrip .chip.is-left em{color:#b45309}
+.krw-evf-fix{margin:0;font-size:12.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-fix .krw-linkbtn{font-size:12.5px}
 .krw-evf-tbl td.ck,.krw-evf-tbl th.ck{width:30px;text-align:center}.krw-evf-tbl th.ck+th,.krw-evf-tbl td.ck+td{text-align:left}.krw-evf-tbl td.ck input{width:16px;height:16px;accent-color:#7c3aed}
 .krw-evf-tbl{width:100%;border-collapse:collapse;font-size:13px}.krw-evf-tbl th,.krw-evf-tbl td{padding:7px 8px;border-bottom:1px solid var(--kdn-line,#ece9e3);text-align:center}.krw-evf-tbl td:first-child,.krw-evf-tbl th:first-child{text-align:left}.krw-evf-tbl td b{display:block}.krw-evf-tbl td small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-tbl tr.is-left td:last-child{color:#b45309;font-weight:800}
 .krw-ai-sum{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f3)}.krw-ai-sum>div{flex:1;min-width:0;display:grid;gap:2px}.krw-ai-sum b{font-size:12.5px;font-weight:800}.krw-ai-sum span{font-size:12.5px;color:var(--kdn-ink-soft,#5b606b)}.krw-ai-sum .krw-btn{flex:none;min-height:32px}
