@@ -810,7 +810,8 @@ function useEventDoc(year, grade) {
 }
 const evStatusKey = item => `ev:${item.eventKey}`;
 // 행사 세특 파일 올리기·빼기(관리자·부서 공용·학년부장)
-function useEventUpload(ev, grade, by, showToast, canManage) {
+// 한 파일에 여러 학년이 들어 있으면 학년마다 따로 저장해요(지금 학년은 화면에도 바로 반영).
+function useEventUpload(ev, grade, by, showToast, canManage, year) {
   const [busy, setBusy] = useState(false);
   const upload = async list => {
     if (!canManage) { showToast?.("행사 세특 파일은 관리자·부서·학년부장 계정이 올려요.", "error"); return; }
@@ -820,13 +821,20 @@ function useEventUpload(ev, grade, by, showToast, canManage) {
       for (const file of Array.from(list || [])) {
         const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
         const { items, skipped } = parseEventSheets(wb.SheetNames.map(name => ({ name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: true }) })));
-        const mine = items.filter(item => String(item.sid).charAt(0) === String(grade));
-        if (!mine.length) { showToast?.(`${file.name}: ${grade}학년 자율·진로 특기사항을 찾지 못했어요. '학번'·'생기부 영역'·'특기사항' 칸이 있는지 확인해 주세요.`, "error"); continue; }
+        const byGrade = {};
+        items.forEach(item => { const g = String(item.sid).charAt(0); if (/[1-3]/.test(g)) (byGrade[g] ||= []).push(item); });
+        const grades = Object.keys(byGrade).sort();
+        if (!grades.length) { showToast?.(`${file.name}: 자율·진로 특기사항을 찾지 못했어요. '학번'·'생기부 영역'·'특기사항' 칸이 있는지 확인해 주세요.`, "error"); continue; }
         const fileId = `f_${file.name}`;
-        const result = await ev.update(current => ({ files: [...current.files.filter(f => f.id !== fileId), { id: fileId, name: file.name, at: nowIso(), by, count: mine.length }], items: [...current.items.filter(item => item.fileId !== fileId), ...mine.map(item => ({ ...item, fileId }))] }));
-        if (!result?.ok) { showToast?.(`${file.name}: 저장하지 못했어요. (${result?.error || ""})`, "error"); continue; }
-        const extra = skipped.otherArea ? ` · 자율·진로가 아닌 ${skipped.otherArea}건은 뺐어요` : "";
-        showToast?.(`${file.name}: ${grade}학년 특기사항 ${mine.length}건을 불러왔어요${extra}.`, "success");
+        const apply = list => current => ({ files: [...(current.files || []).filter(f => f.id !== fileId), { id: fileId, name: file.name, at: nowIso(), by, count: list.length }], items: [...(current.items || []).filter(item => item.fileId !== fileId), ...list.map(item => ({ ...item, fileId }))] });
+        const done = []; const failed = [];
+        for (const g of grades) {
+          const result = String(g) === String(grade) ? await ev.update(apply(byGrade[g])) : await updateStorage(eventDocKey(year, g), { files: [], items: [] }, current => apply(byGrade[g])({ files: current?.files || [], items: current?.items || [] }));
+          (result?.ok ? done : failed).push(`${g}학년 ${byGrade[g].length}건`);
+        }
+        const extra = [skipped.otherArea && `자율·진로가 아닌 ${skipped.otherArea}건(동아리 등)`, skipped.merged && `학생별로 합쳐 둔 시트(${skipped.merged})`].filter(Boolean).join(", ");
+        if (done.length) showToast?.(`${file.name}: ${done.join(" · ")}을 불러왔어요${extra ? ` · ${extra}는 뺐어요` : ""}.`, "success");
+        if (failed.length) showToast?.(`${file.name}: ${failed.join(" · ")}을 저장하지 못했어요. 다시 올려 주세요.`, "error");
       }
     } catch (error) { showToast?.(`파일을 읽지 못했어요. (${error?.message || error})`, "error"); }
     setBusy(false);
@@ -837,7 +845,7 @@ function useEventUpload(ev, grade, by, showToast, canManage) {
 // 위쪽 '행사 세특' 탭: 학년 단위로 파일을 모아 관리하고, 반별 확인 현황을 한눈에
 function EventAdmin({ year, grade, rosterFor, by, showToast, canManage }) {
   const ev = useEventDoc(year, grade);
-  const { busy, upload, remove } = useEventUpload(ev, grade, by, showToast, canManage);
+  const { busy, upload, remove } = useEventUpload(ev, grade, by, showToast, canManage, year);
   const inputRef = useRef(null);
   const roster = rosterFor(grade) || {};
   const classes = useMemo(() => Array.from(new Set(Object.values(roster).map(info => String(info?.class || "")).filter(Boolean))).sort((a, b) => Number(a) - Number(b)), [roster]);
@@ -866,13 +874,13 @@ function EventAdmin({ year, grade, rosterFor, by, showToast, canManage }) {
       <button type="button" data-kdn-bare className="krw-btn" onClick={loadDocs} disabled={loading}>{loading ? <Loader2 size={14} className="spin" /> : <RotateCcw size={14} />} 확인 현황 새로 보기</button>
       {canManage && <><button type="button" data-kdn-bare className="krw-btn pri" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={14} className="spin" /> : <FileSpreadsheet size={14} />} 취합 파일 올리기</button><input ref={inputRef} type="file" hidden multiple accept=".xlsx,.xls" onChange={event => { const files = Array.from(event.target.files || []); event.target.value = ""; upload(files); }} /></>}
     </div>
-    <p className="krw-evadmin-note">부서별로 모은 <b>행사 특기사항 취합 파일(xlsx)</b>을 여기서 한 번에 올려요. 시트마다 '학번 · 생기부 영역 · 행사명 · 특기사항' 칸을 읽어, 담임 화면의 학생별 <b>자율·자치 / 진로</b> 칸 위에 띄워요. 같은 이름의 파일을 다시 올리면 새 내용으로 바뀌어요.{!canManage && <> 파일은 관리자·부서·학년부장 계정이 올려요.</>}</p>
+    <p className="krw-evadmin-note">부서별로 모은 <b>행사 특기사항 취합 파일(xlsx)</b>을 여기서 한 번에 올려요. 한 파일에 여러 학년이 있으면 학년마다 나눠 저장해요. 시트마다 '학번 · 생기부 영역 · 행사명 · 특기사항' 칸을 읽어, 담임 화면의 학생별 <b>자율·자치 / 진로</b> 칸 위에 띄워요. 같은 이름의 파일을 다시 올리면 새 내용으로 바뀌어요.{!canManage && <> 파일은 관리자·부서·학년부장 계정이 올려요.</>}</p>
     <section className="krw-card"><h4>올린 파일</h4>
       {(ev.doc.files || []).length ? <ul className="krw-evf-files">{ev.doc.files.map(file => <li key={file.id}><FileSpreadsheet size={14} /><span><b>{file.name}</b><small>{file.count}건 · {file.by ? `${file.by} · ` : ""}{new Date(file.at).toLocaleDateString("ko-KR")}</small></span>{canManage && <button type="button" data-kdn-bare onClick={() => remove(file)} aria-label="빼기" title="이 파일에서 불러온 특기사항 빼기"><Trash2 size={13} /></button>}</li>)}</ul> : <p className="none">아직 올린 파일이 없어요.</p>}
     </section>
     <section className="krw-card"><h4>반별 확인 현황 <small>담임이 '반영함' 또는 '뺌'으로 확인한 학생 수 / 대상 학생 수</small></h4>
       {events.length ? <div className="krw-table-wrap"><table className="krw-evf-tbl is-wide"><thead><tr><th>행사</th><th>영역</th>{classes.map(c => <th key={c}>{c}반</th>)}<th>합계</th></tr></thead>
-        <tbody>{events.map(({ item, total, done, byClass }) => <tr key={item.eventKey}><td><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}</td><td><span className={`krw-refl-tag is-${item.area}`}>{RECORD_AREAS[item.area].short}</span></td>
+        <tbody>{events.map(({ item, total, done, byClass }) => <tr key={item.eventKey}><td><b>{item.event}</b></td><td><span className={`krw-refl-tag is-${item.area}`}>{RECORD_AREAS[item.area].short}</span></td>
           {classes.map(c => { const cell = byClass[c]; return <td key={c} className={!cell ? "na" : cell.done < cell.total ? "is-left" : "is-done"}>{cell ? `${cell.done}/${cell.total}` : "·"}</td>; })}
           <td className={done < total ? "is-left" : "is-done"}><b>{done}/{total}</b></td></tr>)}</tbody></table></div> : <p className="none">불러온 행사 특기사항이 없어요.</p>}
     </section>
@@ -954,7 +962,7 @@ function EventFilesModal({ ev, students, rec, showToast, onClose }) {
     <p>부서에서 보낸 행사 특기사항을 <b>반 전체 학생 칸에 한 번에</b> 넣을 수 있어요. 넣을 행사를 고르고 아래 버튼을 눌러요. 파일은 <b>'학년 자료 → 행사 세특'</b>에서 올려요.</p>
     {rows.length ? <table className="krw-evf-tbl"><thead><tr>{!readOnlyView && <th className="ck" />}<th>행사</th><th>영역</th><th>대상</th><th>확인</th></tr></thead><tbody>{rows.map(({ item, total, done, left }) => <tr key={item.eventKey} className={left ? "is-left" : ""}>
       {!readOnlyView && <td className="ck"><input type="checkbox" aria-label={`${item.event} 고르기`} disabled={!left} checked={!!pick[item.eventKey]} onChange={() => setPick(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))} /></td>}
-      <td><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}</td><td>{RECORD_AREAS[item.area].short}</td><td>{total}명</td><td>{done}/{total}</td></tr>)}</tbody></table> : <p className="none">우리 반 학생의 행사 특기사항이 아직 없어요.</p>}
+      <td><b>{item.event}</b></td><td>{RECORD_AREAS[item.area].short}</td><td>{total}명</td><td>{done}/{total}</td></tr>)}</tbody></table> : <p className="none">우리 반 학생의 행사 특기사항이 아직 없어요.</p>}
     {!readOnlyView && rows.length > 0 && <div className="ft"><span>{picked.length ? `고른 행사 ${picked.length}개 · 확인 안 한 학생 ${picked.reduce((sum, row) => sum + row.left, 0)}명분` : "넣을 행사를 골라 주세요"}</span><button type="button" data-kdn-bare className="krw-btn pri" disabled={!picked.length} onClick={applyBulk}><Users size={14} /> 반 전체 칸에 넣기</button></div>}
   </div></div>, document.body);
 }
@@ -978,7 +986,7 @@ function EventBox({ items, rec, sid, area }) {
     <div className="hd"><CalendarCheck size={14} /><b>행사 특기사항</b><span>{left.length ? <em>확인할 행사 {left.length}개</em> : <i><Check size={12} /> 모두 확인했어요</i>}</span>
       {left.length > 1 && !readOnlyView && <button type="button" data-kdn-bare className="krw-mini" onClick={() => insert(left)}>남은 {left.length}개 모두 넣기</button>}</div>
     <ul>{items.map(item => { const st = status(item); const inField = field.includes(item.text.trim()); return <li key={item.eventKey} className={st ? `is-${st}` : ""}>
-      <div className="body"><button type="button" data-kdn-bare className="ttl" onClick={() => setOpen(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))} title="눌러서 전체 글 보기"><b>{item.event}</b>{item.dept && <small>{item.dept}</small>}<small>{neisBytes(item.text).toLocaleString()} byte</small></button>
+      <div className="body"><button type="button" data-kdn-bare className="ttl" onClick={() => setOpen(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))} title="눌러서 전체 글 보기"><b>{item.event}</b><small>{neisBytes(item.text).toLocaleString()} byte</small></button>
         <p className={open[item.eventKey] ? "is-open" : ""}>{item.text}</p></div>
       <div className="act">{readOnlyView ? null : !st ? <>
           <button type="button" data-kdn-bare className="go" onClick={() => insert([item])} title={`${label} 칸 끝에 이 글을 넣고 '반영함'으로 표시`}><ChevronLeft size={13} style={{ transform: "rotate(-90deg)" }} /> 칸에 넣기</button>

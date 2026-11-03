@@ -305,7 +305,7 @@ export function parseCheckSheet(aoa = [], { grade = "" } = {}) {
 
 
 // ── 학교 행사 특기사항 취합 파일(부서별 시트) 읽기 ─────────────────────────
-// sheets: [{ name, rows(aoa) }] → { items: [{ sid, area, event, dept, text, eventKey }], skipped: { noArea, otherArea } }
+// sheets: [{ name, rows(aoa) }] → { items: [{ sid, area, event, text, eventKey }], skipped: { noArea, otherArea, merged } }
 // 머리글 줄에 '학번'과 '특기사항'이 있는 시트만 읽어요(봉사·학적·제출 확인 시트는 건너뜀).
 // 생기부 영역: '자율'/'자치' → autonomy, '진로' → career. 그 밖(동아리 등)은 건너뛰어요.
 export function eventAreaOf(value) {
@@ -317,7 +317,23 @@ export function eventAreaOf(value) {
 export const eventKeyOf = (area, event) => `${area}:${String(event ?? "").normalize("NFC").replace(/\s+/g, " ").trim()}`;
 const cellText = value => String(value ?? "").replace(/\r/g, "").trim();
 const sidOf = value => { const digits = String(value ?? "").replace(/\.0+$/, "").replace(/\D/g, ""); return /^\d{5}$/.test(digits) ? digits : ""; };
+// 부서 시트를 학생별로 모아 둔 시트(예: '전체취합본', '학번순' — 머리글에 '자동입력')는 같은 내용이 행사 이름을 합친 채로
+// 또 들어 있어서 읽지 않아요. 부서명도 담지 않아요(행사명·영역·특기사항만).
 export function parseEventSheets(sheets = []) {
+  const merged = sheets.filter(sheet => isMergedEventSheet(sheet)).map(sheet => sheet.name);
+  const result = parseEventSheetsOnce(sheets.filter(sheet => !isMergedEventSheet(sheet)));
+  return { items: result.items, skipped: { ...result.skipped, merged: merged.join(", ") } };
+}
+function eventHeaderOf(rows = []) {
+  const headerRow = rows.slice(0, 8).findIndex(row => (row || []).some(cell => /학번/.test(cellText(cell))) && (row || []).some(cell => /^특기\s*사항/.test(cellText(cell))));
+  return headerRow < 0 ? null : { headerRow, header: rows[headerRow].map(cell => cellText(cell).replace(/\s+/g, " ")) };
+}
+function isMergedEventSheet({ name = "", rows = [] }) {
+  const head = eventHeaderOf(rows);
+  if (!head) return false;
+  return /취합|학번순/.test(name) || head.header.some(h => /^특기\s*사항/.test(h) && /자동\s*입력/.test(h));
+}
+function parseEventSheetsOnce(sheets = []) {
   const best = new Map();
   const skipped = { noArea: 0, otherArea: 0 };
   sheets.forEach(({ name = "", rows = [] }) => {
@@ -329,7 +345,6 @@ export function parseEventSheets(sheets = []) {
     const textCol = find(h => /^특기\s*사항/.test(h) && !/점검|바이트|제출|필터/.test(h));
     const areaCol = find(h => /영역/.test(h));
     const eventCol = find(h => /행사명|특강명|활동명/.test(h));
-    const deptCol = find(h => /주관\s*부서|^부서/.test(h));
     if (sidCol < 0 || textCol < 0) return;
     rows.slice(headerRow + 1).forEach(row => {
       const sid = sidOf(row?.[sidCol]);
@@ -339,11 +354,10 @@ export function parseEventSheets(sheets = []) {
       const area = eventAreaOf(rawArea);
       if (!area) { skipped[rawArea ? "otherArea" : "noArea"] += 1; return; }
       const event = (eventCol >= 0 ? cellText(row[eventCol]) : "") || String(name).replace(/특기\s*사항.*$/, "").replace(/[()]/g, " ").trim() || "학교 행사";
-      const dept = deptCol >= 0 ? cellText(row[deptCol]) : "";
       const eventKey = eventKeyOf(area, event);
       const key = `${sid}|${eventKey}`;
       const prev = best.get(key);
-      if (!prev || text.length > prev.text.length) best.set(key, { sid, area, event, dept: dept || prev?.dept || "", text, eventKey });
+      if (!prev || text.length > prev.text.length) best.set(key, { sid, area, event, text, eventKey });
     });
   });
   return { items: Array.from(best.values()), skipped };
