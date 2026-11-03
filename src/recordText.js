@@ -286,7 +286,7 @@ export function findDuplicateSentences(entries = [], { ignore = [] } = {}) {
 }
 
 // AI 요청문: 학생 이름은 빼고, 관찰 기록만 근거로 기재요령·바이트 조건을 담아 만듭니다.
-export function buildAiPrompt({ area = "", subject = "", activity = "", budget = 1500, notes = [], existing = "", studentName = "", standards = [], example = "", frame = true }) {
+export function buildAiPrompt({ area = "", subject = "", activity = "", budget = 1500, notes = [], existing = "", studentName = "", standards = [], example = "", frame = true, hope = "", multi = false }) {
   const hide = text => { let value = String(text || ""); if (studentName && studentName.length >= 2) value = value.split(studentName).join("학생"); return value.trim(); };
   const noteLines = notes.map(([label, text]) => [label, hide(text)]).filter(([, text]) => text);
   const chars = Math.floor(budget / 3);
@@ -301,10 +301,16 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     "- 특수기호(가운데점, 둥근 따옴표, 대괄호, 물결표) 쓰지 않기. 기간은 하이픈(-)으로",
     "- 대학명, 기관명, 상호명(동영상 플랫폼·대화형 인공지능 등은 일반 명칭으로), 강사명, 대회, 수상, 자격증, 논문, 어학시험, 모의고사 성적 쓰지 않기",
     "- 문자는 한글로 쓰고, 관찰 기록에 없는 활동이나 성과는 지어내지 않기",
-    "- 학생 이름은 쓰지 않고 한 문단으로 쓰기",
+    "- 학생 이름은 쓰지 않기",
+    ...(multi
+      ? ["- 활동이 여러 개예요. 활동마다 줄을 바꿔 따로 쓰기(활동 하나 = 한 단락, 단락 사이 빈 줄 없이 줄 바꿈만)",
+        "- 서로 관련 없는 활동을 '~에서는', '~에서도', '또한 ~에서는'처럼 억지로 이어 한 문장·한 문단으로 만들지 않기. 활동이 바뀌면 줄을 바꾸기"]
+      : ["- 한 문단으로 쓰되, 서로 관련 없는 내용을 '~에서는', '~에서도'처럼 억지로 잇지 않기"]),
+    ...(hope ? ["- 학생의 진로희망과 이어지는 내용은 관찰 기록에 있는 것만 자연스럽게 연결하기(진로와 억지로 엮거나 지어내지 않기)"] : []),
     ...(subject && frame ? ["- 구성: 학생의 성취수준 → 평가 과제에서 관찰한 수행 과정과 결과(근거) → 드러난 교과역량 → 교사 총평 순서를 참고하기"] : []),
     "",
     `[과목·영역] ${[subject, activity].filter(Boolean).join(" / ") || area}`,
+    ...(hope ? [`[학생 진로희망] ${hide(hope)}`] : []),
     ...(standards.length ? ["[이 활동의 성취기준: 활동이 겨냥한 목표예요. 문장을 그대로 옮기지 말고, 관찰 기록 가운데 이 목표와 이어지는 학생의 구체적인 행동·성장을 드러내 주세요]", ...standards.map(line => `- ${line}`), ""] : []),
     ...(example ? ["[문체·구성 참고 예시: 다른 학생의 기록이에요. 문장 길이와 구성만 참고하고 내용·표현은 따라 쓰지 마세요]", example, ""] : []),
     "[관찰 기록]",
@@ -427,6 +433,7 @@ export function parseNeisRecordSheets(sheets = []) {
     const classCol = col(h => h === "반");
     const noCol = col(h => h === "번호");
     const textCol = col(h => /특기사항|종합의견/.test(h) && !/영역/.test(h));
+    const hopeCol = col(h => /희망분야|진로희망|희망/.test(h));
     if (classCol < 0 || noCol < 0 || textCol < 0) return;
     rows.slice(headerRow + 1).forEach(row => {
       const area = neisAreaOf(areaCol >= 0 ? row?.[areaCol] : name) || neisAreaOf(name);
@@ -436,7 +443,7 @@ export function parseNeisRecordSheets(sheets = []) {
       const no = parseInt(String(row?.[noCol] ?? "").replace(/\.0+$/, "").replace(/\D/g, ""), 10);
       if (!grade || !cls || !no) { if ((row || []).some(cell => cellText(cell))) skipped.noStudent += 1; return; }
       const sid = `${grade}${String(cls).padStart(2, "0")}${String(no).padStart(2, "0")}`;
-      out.push({ sid, grade: String(grade), cls: String(cls), no, area, text: cellText(row?.[textCol]).replace(/\r\n?/g, "\n") });
+      out.push({ sid, grade: String(grade), cls: String(cls), no, area, text: cellText(row?.[textCol]).replace(/\r\n?/g, "\n"), hope: hopeCol >= 0 ? cellText(row?.[hopeCol]) : "" });
     });
   });
   return { rows: out, skipped };
