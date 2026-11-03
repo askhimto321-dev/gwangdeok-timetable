@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-03-y",
+    date: "2026-11-03",
+    title: "선생님 ZONE: 반편성 분리희망 강조 띠 내리기",
+    items: [
+      { audience: "staff", text: "반편성 분리희망학생 입력 기간이 끝나 선생님 ZONE 홈의 강조 띠를 내렸어요. 화면은 다른 업무와 같은 카드로 그대로 들어갈 수 있어요." },
+    ],
+  },
+  {
     id: "2026-11-03-x",
     date: "2026-11-03",
     title: "교과담임: 과세특 엑셀 양식 받기 · 이미 쓴 엑셀 올리기",
