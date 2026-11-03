@@ -187,3 +187,13 @@ test("같은 문장: 행사 원문 문장은 빼고, 영역을 알려 줌", asyn
   assert.deepEqual(dups[0].areas, { "자율·자치": 1, "행발": 1 });
   assert.equal(dups[0].count, 2);
 });
+test("임원 기록만 있으면 문장 완성 알림", async () => {
+  const { checkRecordText } = await import("../src/recordText.js");
+  const has = (text, name) => checkRecordText(text).some(item => JSON.stringify(item).includes(name));
+  assert.equal(has("학급자치회 회장(2026.08.13.-2027.02.28.)", "임원 문장 완성"), true);
+  assert.equal(has("학급자치회 부회장(2026.03.02.-2026.08.12.)", "임원 문장 완성"), true);
+  assert.equal(has("학급자치회 회장(2026.08.13.-2027.02.28.)", "문장 끝 확인"), true);
+  assert.equal(has("학급자치회 회장(2026.08.13.-2027.02.28.)으로서 학급 회의를 이끌며 의견을 조율함.", "임원 문장 완성"), false);
+  assert.equal(has("학급자치회 회장(2026.08.13.-2027.02.28.)으로서 학급 회의를 이끌며 의견을 조율함.", "문장 끝 확인"), false);
+  assert.equal(has("모둠 활동에서 의견을 정리함(2026.05.).", "문장 끝 확인"), false);
+});
