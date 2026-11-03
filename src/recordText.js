@@ -110,16 +110,22 @@ export function checkRecordText(text = "") {
       add("warn", "임원 문장 완성", t.length > 24 ? `${t.slice(0, 24)}…` : t, value.indexOf(t), "임원 이름·기간만 있어요. '~회장(기간)으로서 ~을 이끎.'처럼 맡은 역할과 활동을 문장으로 완성해 주세요");
     }
   });
-  // 마지막 문장 끝: 마침표로 끝나는지, '~함. ~임. ~음. ~이끎.'처럼 명사형(받침 ㅁ·ㄻ)으로 끝나는지
-  const tail = value.trim();
-  if (tail) {
+  // 줄마다 끝맺음: 마침표로 끝나는지, '~함. ~임. ~음. ~이끎.'처럼 명사형(받침 ㅁ·ㄻ)으로 끝나는지
+  // (행사 세특을 줄 바꿔 넣으면 줄마다 한 덩어리라, 마지막 줄만 보면 중간 줄의 끊긴 문장을 놓쳐요)
+  let offset = 0;
+  const lines = String(value).split("\n").map(line => { const at = offset; offset += line.length + 1; return { line, at }; }).filter(({ line }) => line.trim());
+  lines.forEach(({ line, at }, index) => {
+    const tail = line.trim();
+    const last = index === lines.length - 1;
+    const where = last ? "마지막 문장" : `${index + 1}번째 줄`;
     // 끝의 괄호(기간 등)는 떼고 봐요: '회장(2026.08.13.-2027.02.28.)'의 괄호 안 마침표를 문장 끝으로 보지 않게
     const end = tail.replace(/\s*\([^()]*\)\s*$/, "").replace(/["'\]]+$/, "");
     const lastHangul = (end.replace(/[.!?]+$/, "").match(/[가-힣]$/) || [])[0];
-    if (!/[.!?]$/.test(end)) add("warn", "문장 끝 확인", tail.slice(-12), value.length - 1, "마지막 문장이 마침표로 끝나지 않아요. '~함.', '~임.'처럼 끝내 주세요");
+    const pos = at + line.length - 1;
+    if (!/[.!?]$/.test(end)) add("warn", "문장 끝 확인", tail.slice(-12), pos, `${where}이 마침표로 끝나지 않아요. '~함.', '~임.'처럼 끝내 주세요`);
     // 받침 ㅁ(함·임·음) 또는 ㄻ(이끎·만듦·삶)이면 명사형 종결로 봐요.
-    else if (lastHangul && ![16, 10].includes((lastHangul.charCodeAt(0) - 0xAC00) % 28)) add("warn", "문장 끝 확인", tail.slice(-12), value.length - 1, "마지막 문장이 '~함. ~임. ~음.' 같은 종결어미로 끝나는지 확인해 주세요(낱말로 끝나면 문장이 끊긴 것일 수 있어요)");
-  }
+    else if (lastHangul && ![16, 10].includes((lastHangul.charCodeAt(0) - 0xAC00) % 28)) add("warn", "문장 끝 확인", tail.slice(-12), pos, `${where}이 '~함. ~임. ~음.' 같은 종결어미로 끝나는지 확인해 주세요(낱말로 끝나면 문장이 끊긴 것일 수 있어요)`);
+  });
   repeatedSentences(value).forEach(sentence => add("warn", "같은 문장 반복", sentence.length > 24 ? `${sentence.slice(0, 24)}…` : sentence, value.lastIndexOf(sentence), "같은 문장을 두 번 썼어요. 하나는 지우거나 다른 관찰 내용으로 바꿔 주세요"));
   return issues.sort((a, b) => a.index - b.index);
 }
