@@ -204,3 +204,11 @@ test("나이스 생기부 엑셀 읽기: 영역·학번 맞추기", async () => 
   const { rows } = parseNeisRecordSheets([auto, career]);
   assert.deepEqual(rows.map(r => [r.sid, r.area, r.text]), [["20401", "autonomy", "자율 글."], ["20402", "autonomy", ""], ["20401", "career", "진로 글."]]);
 });
+test("줄마다 끝맺음 점검: 중간 줄의 임원 기록도 알림", async () => {
+  const { checkRecordText } = await import("../src/recordText.js");
+  const issues = checkRecordText("학급자치회 부회장(2026.08.13.-2027.02.28.)\n대토론회에서 학급 대표를 맡아 토론회를 이끎.\n교내 콘서트에서 연주함.");
+  const ends = issues.filter(item => JSON.stringify(item).includes("문장 끝 확인"));
+  assert.equal(ends.length, 1);
+  assert.ok(issues.some(item => JSON.stringify(item).includes("임원 문장 완성")));
+  assert.equal(checkRecordText("토론회를 이끎.\n콘서트에서 연주함.").filter(item => JSON.stringify(item).includes("문장 끝 확인")).length, 0);
+});
