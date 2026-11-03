@@ -301,6 +301,7 @@ const TOUR_STEPS = [
   { target: "rw-evbtn", title: "부서 행사 세특 · 반 전체 한 번에", body: "부서에서 보낸 행사 특기사항을 고르면 우리 반 학생 모두의 자율·자치 / 진로 칸에 한 번에 들어가요. 행사별로 몇 명을 확인했는지도 여기서 봐요." },
   { target: "rw-neis", title: "나이스 파일 반영", body: "나이스에서 바이트를 줄이는 등 고친 글을, 나이스에서 내려받은 엑셀(영역별)로 다시 맞춰요. 달라진 칸만 비교해 골라 바꾸고, 바꾸기 전에 백업 파일을 받아요." },
   { target: "rw-clear", title: "특기사항 일괄 지우기", body: "지금 학생 또는 반 전체의 칸을 영역(교과는 활동)별로 골라 한 번에 지워요. 지우기 전에 반 자료 백업 파일을 받아 두고, 누가기록·소감문은 지우지 않아요." },
+  { target: "rw-sjx", title: "과세특 엑셀(교과)", body: "활동마다 칸이 나뉜 엑셀 양식을 받고, 이미 엑셀로 쓴 글을 올려 활동 칸에 한 번에 채워요. 엑셀 칸 이름이 활동 이름과 같으면 그 활동에, 없으면 새 활동으로 넣어요." },
   { target: "rw-acts", title: "수행평가 활동 만들기(교과)", body: "활동을 추가해 활동별로 나눠 쓰면 총합본이 줄을 바꿔 자동으로 합쳐져요. 다른 반 목록은 '가져오기'로 복사하고, 활동마다 2022 성취기준을 연결할 수 있어요." },
   { target: "rw-focus", title: "영역 탭", body: "자율·자치 / 진로 / 행발 중 하나만 크게 보며 써요. 탭마다 바이트와 확인 안 한 행사 수가 보이고, 오른쪽 자료 칸도 그 영역으로 맞춰져요. '모두 보기'는 세 칸을 한 화면에." },
   { target: "rw-events", title: "이 학생의 행사 특기사항", body: "행사마다 '칸에 넣기'(넣고 반영함 표시) 또는 '빼기'(이 학생은 안 씀)를 눌러 확인해요. 표시는 '되돌리기'로 지울 수 있고, 확인 안 한 행사는 학생 목록에 보라 숫자로 남아요." },
@@ -987,6 +988,65 @@ function NeisImportModal({ students, rec, grade, cls, backupName, limitOf, showT
     </>}
   </div></div>, document.body);
 }
+// 교과담임 엑셀 양식·올리기: 활동(수행평가 영역)마다 칸을 나눈 엑셀을 받고, 이미 쓴 엑셀을 올려 활동 칸에 채워요.
+// 엑셀 머리글이 활동 이름과 같으면 그 활동에, 없는 이름은 새 활동으로 만들 수 있어요. '총합본' 칸은 읽지 않아요.
+function SubjectExcelModal({ acts, students, rec, book, fileLabel, showToast, onClose }) {
+  const [withText, setWithText] = useState(true);
+  const [plan, setPlan] = useState(null); // { cols: [{ label, actId|null, use }], rows: [{ st, texts }], unmatched }
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef(null);
+  const download = async () => {
+    if (!acts.length) { showToast?.("먼저 수행평가 활동을 추가해 주세요. 활동 이름이 엑셀 칸 이름이 돼요.", "error"); return; }
+    await exportXlsx(`과세특_양식_${fileLabel}.xlsx`, [{ name: "과세특", header: ["번호", "학번", "이름", ...acts.map(act => act.name)], widths: [6, 9, 10, ...acts.map(() => 50)],
+      rows: students.map(st => [st.number, st.sid, st.name, ...acts.map(act => (withText ? rec.textOf(st.sid, act.id) : ""))]) }]);
+  };
+  const read = async file => {
+    setBusy(true);
+    try {
+      const mod = await import("xlsx-js-style"); const XLSX = mod.default?.utils ? mod.default : mod;
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const parsed = parseCheckSheet(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false }));
+      if (parsed.error) { showToast?.(parsed.error, "error"); setBusy(false); return; }
+      const key = v => String(v || "").replace(/\s+/g, "");
+      const cols = parsed.columns.map(col => { const total = /총합|합계/.test(col.label); const act = acts.find(a => key(a.name) === key(col.label)); return { label: col.label, actId: act?.id || null, use: !total, total }; });
+      const bySid = new Map(students.map(st => [String(st.sid), st]));
+      const byName = new Map(); students.forEach(st => { byName.set(st.name, byName.has(st.name) ? null : st); });
+      const byNo = new Map(students.map(st => [String(st.number), st]));
+      let unmatched = 0;
+      const rows = parsed.rows.map(row => {
+        const sid = String(row.sid || "").replace(/\.0+$/, "").replace(/\D/g, "");
+        const st = (sid && bySid.get(sid)) || (row.name && byName.get(row.name)) || (book?.kind === "common" && row.no && byNo.get(String(Number(row.no)))) || null;
+        if (!st) unmatched += 1;
+        return { st, texts: row.texts };
+      }).filter(row => row.st && row.texts.some(Boolean));
+      setPlan({ cols, rows, unmatched });
+    } catch (error) { showToast?.(`파일을 읽지 못했어요. (${error?.message || error})`, "error"); }
+    setBusy(false);
+  };
+  const changes = plan ? plan.rows.reduce((n, row) => n + plan.cols.filter((col, i) => col.use && row.texts[i] && (!col.actId || normText(rec.textOf(row.st.sid, col.actId)) !== normText(row.texts[i]))).length, 0) : 0;
+  const apply = async () => {
+    const newActs = []; const ids = plan.cols.map(col => { if (!col.use) return null; if (col.actId) return col.actId; const id = uid(); newActs.push({ id, name: col.label }); return id; });
+    if (!window.confirm(`엑셀 글 ${changes}칸을 활동 칸에 넣을까요?${newActs.length ? `\n새 활동 ${newActs.length}개(${newActs.map(a => a.name).join(", ")})를 만들어요.` : ""}\n바꾸기 전에 반 자료 백업 파일을 내려받아요.`)) return;
+    await rec.save(); downloadJson(`과세특_${fileLabel}_엑셀반영전_${new Date().toISOString().slice(0, 10)}.json`, rec.doc);
+    if (newActs.length) rec.edit("acts", [...rec.activities, ...newActs]);
+    plan.rows.forEach(row => plan.cols.forEach((col, i) => { const id = ids[i]; const text = String(row.texts[i] || "").trim(); if (id && text) rec.edit(`s|${row.st.sid}|${id}`, text); }));
+    showToast?.(`엑셀 글을 반영했어요(${plan.rows.length}명).`, "success");
+    onClose();
+  };
+  return createPortal(<div className="krw krw-modal" role="dialog" aria-modal="true" aria-label="과세특 엑셀" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div className="krw-modal-box krw-sjx">
+    <header><b><FileSpreadsheet size={17} /> 과세특 엑셀 · {book?.subject} {book?.label}</b><button type="button" data-kdn-bare onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
+    <section><h4>① 양식 받기</h4><p>수행평가 활동마다 칸이 나뉜 엑셀이에요(번호 · 학번 · 이름 · 활동…). 엑셀에서 써서 ②로 올리면 돼요.</p>
+      <div className="row"><label className="krw-ai-chk"><input type="checkbox" checked={withText} onChange={event => setWithText(event.target.checked)} /> 지금 쓴 글 채워서 받기</label><button type="button" data-kdn-bare className="krw-btn" onClick={download}><Download size={14} /> 양식 받기 ({acts.length}개 활동)</button></div></section>
+    <section><h4>② 이미 쓴 엑셀 올리기</h4><p>첫 줄(머리글)에 <b>학번 또는 이름</b>과 활동 칸이 있으면 돼요. 머리글이 활동 이름과 같으면 그 활동에, 없는 이름은 새 활동으로 넣어요. '총합본'·'바이트' 칸은 읽지 않아요.</p>
+      <div className="row"><button type="button" data-kdn-bare className="krw-btn pri" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={14} className="spin" /> : <FileSpreadsheet size={14} />} 엑셀 고르기</button><input ref={inputRef} type="file" hidden accept=".xlsx,.xls,.csv" onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; if (file) read(file); }} /></div>
+      {plan && <>
+        <ul className="cols">{plan.cols.map((col, i) => <li key={i} className={col.use ? "" : "off"}><label><input type="checkbox" checked={col.use} onChange={() => setPlan(v => ({ ...v, cols: v.cols.map((c, j) => j === i ? { ...c, use: !c.use } : c) }))} /><b>{col.label}</b></label><span>{col.total ? "총합본(읽지 않음)" : col.actId ? "→ 같은 이름 활동" : "→ 새 활동으로"}</span></li>)}</ul>
+        <p className="sum">학생 {plan.rows.length}명 · 바뀌는 칸 {changes}개{plan.unmatched ? ` · 명단에서 못 찾은 줄 ${plan.unmatched}개(빼고 넣어요)` : ""}</p>
+        <div className="ft"><span>같은 글인 칸은 그대로 두고, 엑셀에 빈칸이면 지우지 않아요.</span><button type="button" data-kdn-bare className="krw-btn pri" disabled={!changes} onClick={apply}><Check size={14} /> 활동 칸에 넣기</button></div>
+      </>}
+    </section>
+  </div></div>, document.body);
+}
 // '학년 자료' 탭: 학년 단위로 모아 쓰는 자료(행사 세특 취합 파일 · 2학년부 활동 배정·소감문)를 한곳에서
 function GradeDataTab({ legacy, events }) {
   const [part, setPart] = useState(() => { try { return localStorage.getItem("kd_rec_grade_part") === "legacy" && legacy ? "legacy" : "events"; } catch { return "events"; } });
@@ -1241,6 +1301,7 @@ function ActivityManager({ activities, onChange, sources = [], onImport, onApply
 function SubjectWriter({ year, books, by, view, setView, check, showToast, grade = "", semester = "", onScope }) {
   const readOnlyView = useContext(ReadOnlyContext);
   const [clearOpen, setClearOpen] = useState(false);
+  const [xlOpen, setXlOpen] = useState(false);
   const [bookId, setBookId] = useState(() => books[0]?.id || "");
   useEffect(() => { if (!books.some(book => book.id === bookId)) setBookId(books[0]?.id || ""); }, [books.map(b => b.id).join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   const book = books.find(item => item.id === bookId);
@@ -1355,6 +1416,8 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
       <PrintMenu busy={busy} onPick={output} scopes={[["student", "지금 학생"], ["class", `${book?.label || "이 반"} 전체`], ["all", "담당 반 전체"]]} />
       <button type="button" data-kdn-bare className="krw-btn sec" onClick={() => setDupOpen(true)} title="같은 문장 점검: 여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /><span className="lb">같은 문장</span></button>
       <button type="button" data-kdn-bare className="krw-btn sec" title="백업: 이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`과세특_${book?.subject}_${book?.target}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /><span className="lb">백업</span></button>
+      {!readOnlyView && <button type="button" data-kdn-bare className="krw-btn sec" data-tour="rw-sjx" title="엑셀: 활동별 양식 받기 · 이미 쓴 엑셀 올리기" onClick={() => setXlOpen(true)}><FileSpreadsheet size={15} /><span className="lb">엑셀</span></button>}
+      {xlOpen && <SubjectExcelModal acts={acts} students={students} rec={rec} book={book} fileLabel={`${book?.subject}_${book?.target}`} showToast={showToast} onClose={() => setXlOpen(false)} />}
       {!readOnlyView && acts.length > 0 && <button type="button" data-kdn-bare className="krw-btn sec" data-tour="rw-clear" title="과세특 일괄 지우기(활동별 · 지금 학생 또는 반 전체)" onClick={() => setClearOpen(true)}><Trash2 size={15} /><span className="lb">지우기</span></button>}
       {clearOpen && <ClearModal fields={acts.map(act => ({ key: act.id, label: act.name }))} students={students} current={view === "student" ? current : null} rec={rec} title={book?.label || "이 반"} backupName={`과세특_${book?.subject}_${book?.target}`} showToast={showToast} onClose={() => setClearOpen(false)} />}
     </div>
@@ -1548,7 +1611,7 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
       <div className="t"><b>생기부 업무 <span className="krw-scope-pill">{grade}학년 · {semester === "sem2" ? "2학기" : "1학기"}</span></b><small>칸마다 자동 저장 · 나이스 바이트 계산 · 2026 기재요령 점검 · 학년·학기는 위쪽에서 바꿔요</small></div>
       <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
     </header>
-    {tab !== "grade" && <TourGuide id="records-v5" steps={TOUR_STEPS} startToken={tourToken} />}
+    {tab !== "grade" && <TourGuide id="records-v6" steps={TOUR_STEPS} startToken={tourToken} />}
     {stdOpen && <StandardsModal grade={grade} semester={semester} subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
     {tab !== "grade" && tab !== "check" && <div className="krw-opts">
@@ -1761,6 +1824,9 @@ const CSS = `
 .krw-neis-tbl .tag{padding:2px 8px;border-radius:99px;font-size:11.5px;font-weight:800;background:#f3f4f6;color:#6b7280}.krw-neis-tbl .tag.is-diff{background:#fef3c7;color:#92400e}.krw-neis-tbl .tag.is-new{background:#dbeafe;color:#1d4ed8}
 .krw-neis-tbl tr.detail td{background:var(--kdn-surface-2,#f8f7f4);text-align:left}.krw-neis-tbl tr.detail td>div{display:grid;gap:2px;margin-bottom:6px}.krw-neis-tbl tr.detail small{font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-neis-tbl tr.detail p{margin:0;white-space:pre-wrap;line-height:1.6}
 .krw-neis .same{margin:0;font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-modal-box.krw-sjx{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto}.krw-sjx section{display:grid;gap:8px;padding-top:10px;border-top:1px solid var(--kdn-line,#efede8)}.krw-sjx h4{margin:0;font-size:14.5px}
+.krw-sjx .row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.krw-sjx .cols{display:grid;gap:4px;margin:0;padding:0;list-style:none}.krw-sjx .cols li{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3);font-size:13px}.krw-sjx .cols li.off{opacity:.55}.krw-sjx .cols label{display:flex;align-items:center;gap:6px;flex:1;min-width:0}.krw-sjx .cols span{font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-sjx .sum{font-weight:700;color:var(--kdn-ink,#17181d)!important}
 .krw-clear{width:min(560px,100%)}.krw-clear .row{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;gap:10px;padding:8px 0;border-top:1px solid var(--kdn-line,#efede8)}.krw-clear .k{padding-top:5px;font-size:12.5px;font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-clear .v{display:flex;flex-wrap:wrap;gap:6px}
 .krw-clear .chip{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 11px 0 8px;border-radius:99px;border:1px solid var(--kdn-line,#dcd9d2);font-size:13px;font-weight:700;cursor:pointer}.krw-clear .chip input{margin:0;accent-color:#dc2626}.krw-clear .chip.on{border-color:#fca5a5;background:#fef2f2;color:#b91c1c}.krw-clear .chip em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}
 .krw-btn.danger{border-color:transparent;background:#dc2626;color:#fff}.krw-btn.danger:disabled{opacity:.4}
