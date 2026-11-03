@@ -12,7 +12,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -299,6 +299,7 @@ const TOUR_STEPS = [
   { target: "rw-views", title: "보는 형태 고르기", body: "학생별(한 명씩) · 한눈에 표(반 전체) · 영역별 몰아쓰기(한 영역을 반 전체 차례로) 중 편한 방식으로 써요. 고른 방식은 기억돼요." },
   { target: "rw-bar", title: "거르기 · 저장 · 도구", body: "덜 쓴 학생 · 한도 넘음 · 점검 필요 · 행사 미확인 학생만 골라 볼 수 있어요(0명인 칩은 숨겨요). 오른쪽은 지금 저장 · 인쇄·엑셀 · 같은 문장 점검 · 백업이에요." },
   { target: "rw-evbtn", title: "부서 행사 세특 · 반 전체 한 번에", body: "부서에서 보낸 행사 특기사항을 고르면 우리 반 학생 모두의 자율·자치 / 진로 칸에 한 번에 들어가요. 행사별로 몇 명을 확인했는지도 여기서 봐요." },
+  { target: "rw-neis", title: "나이스 파일 반영", body: "나이스에서 바이트를 줄이는 등 고친 글을, 나이스에서 내려받은 엑셀(영역별)로 다시 맞춰요. 달라진 칸만 비교해 골라 바꾸고, 바꾸기 전에 백업 파일을 받아요." },
   { target: "rw-clear", title: "특기사항 일괄 지우기", body: "지금 학생 또는 반 전체의 칸을 영역(교과는 활동)별로 골라 한 번에 지워요. 지우기 전에 반 자료 백업 파일을 받아 두고, 누가기록·소감문은 지우지 않아요." },
   { target: "rw-acts", title: "수행평가 활동 만들기(교과)", body: "활동을 추가해 활동별로 나눠 쓰면 총합본이 줄을 바꿔 자동으로 합쳐져요. 다른 반 목록은 '가져오기'로 복사하고, 활동마다 2022 성취기준을 연결할 수 있어요." },
   { target: "rw-focus", title: "영역 탭", body: "자율·자치 / 진로 / 행발 중 하나만 크게 보며 써요. 탭마다 바이트와 확인 안 한 행사 수가 보이고, 오른쪽 자료 칸도 그 영역으로 맞춰져요. '모두 보기'는 세 칸을 한 화면에." },
@@ -319,6 +320,7 @@ function HelpDialog({ onClose, onTour }) {
         <li><b>소감문 담기</b> — 자료 칸 '소감문'에서 '반 전체 담기'로 학생 글을 영역별 누가기록에 모아 둬요.</li>
         <li><b>영역 탭으로 하나씩</b> — 자율·자치 / 진로 / 행발 탭을 골라 한 영역씩 써요. 누가기록·AI 도우미도 그 영역으로 맞춰져요.</li>
         <li><b>AI 도우미</b> — '고르기'로 누가기록·소감문·성취기준을 골라 요청문을 만들고, 받은 답은 '답 점검'에서 바이트·기재요령을 확인해요.</li>
+        <li><b>나이스와 맞추기</b> — 나이스에서 고친 글은 '나이스 반영'에 나이스 엑셀을 올려 달라진 칸만 골라 다시 가져와요.</li>
         <li><b>마무리 점검</b> — '점검 필요' · '한도 넘음' 거르기와 '같은 문장'으로 반 전체를 훑고, '점검' 탭에서 엑셀로 한 번 더 봐요.</li>
       </ol></section>
       <section><h4>꼭 지킬 기재요령 <small>2026.05.08 광덕고 연수 자료</small></h4><ul>{RECORD_GUIDE.rules.map(rule => <li key={rule}>{rule}</li>)}</ul></section>
@@ -918,6 +920,71 @@ function ClearModal({ fields, students, current, rec, title, backupName, extra =
     <div className="ft"><span>{targets.length ? `${people}명 · ${targets.length}칸을 지워요` : "지울 칸을 골라 주세요"}</span><button type="button" data-kdn-bare className="krw-btn danger" disabled={!targets.length && !(withExtra && extra)} onClick={run}><Trash2 size={14} /> 지우기</button></div>
   </div></div>, document.body);
 }
+// 나이스 파일 반영: 나이스에서 내려받은 엑셀(영역별)을 올리면 우리 반 글과 비교해, 고른 칸만 나이스 글로 바꿔요.
+// 선생님이 나이스에서 바이트를 줄이는 등 고친 글을 다시 가져올 때 써요.
+const normText = text => String(text || "").replace(/\r\n?/g, "\n").replace(/[ \t]+\n/g, "\n").trim();
+function NeisImportModal({ students, rec, grade, cls, backupName, limitOf, showToast, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [pick, setPick] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState({});
+  const [note, setNote] = useState("");
+  const inputRef = useRef(null);
+  const bySid = new Map(students.map(st => [st.sid, st]));
+  const read = async list => {
+    setBusy(true);
+    try {
+      const mod = await import("xlsx-js-style"); const XLSX = mod.default?.utils ? mod.default : mod;
+      const found = []; let other = 0; let outside = 0; let files = 0;
+      for (const file of list) {
+        const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+        const parsed = parseNeisRecordSheets(wb.SheetNames.map(name => ({ name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: true }) })));
+        if (parsed.rows.length) files += 1;
+        other += parsed.skipped.otherArea;
+        parsed.rows.forEach(row => { if (String(row.grade) !== String(grade) || String(row.cls) !== String(Number(cls))) { outside += 1; return; } found.push(row); });
+      }
+      if (!found.length) { showToast?.(outside ? `${grade}학년 ${cls}반 학생이 없는 파일이에요(다른 반 ${outside}줄).` : "나이스 생기부 파일을 찾지 못했어요. '반·번호·특기사항' 칸이 있는 나이스 엑셀인지 확인해 주세요.", "error"); setBusy(false); return; }
+      const merged = new Map(); found.forEach(row => merged.set(`${row.sid}|${row.area}`, row));
+      const list2 = Array.from(merged.values()).map(row => {
+        const cur = normText(rec.textOf(row.sid, row.area)); const neis = normText(row.text);
+        const state = !bySid.has(row.sid) ? "none" : cur === neis ? "same" : !neis ? "empty" : !cur ? "new" : "diff";
+        return { ...row, text: neis, cur, state };
+      }).sort((a, b) => a.sid.localeCompare(b.sid) || HOMEROOM_AREAS.indexOf(a.area) - HOMEROOM_AREAS.indexOf(b.area));
+      setRows(list2);
+      setPick(Object.fromEntries(list2.filter(r => r.state === "diff" || r.state === "new").map(r => [`${r.sid}|${r.area}`, true])));
+      setNote([files > 1 && `파일 ${files}개`, other && `다른 영역 ${other}줄`, outside && `다른 반 ${outside}줄`].filter(Boolean).join(" · "));
+    } catch (error) { showToast?.(`파일을 읽지 못했어요. (${error?.message || error})`, "error"); }
+    setBusy(false);
+  };
+  const count = state => (rows || []).filter(r => r.state === state).length;
+  const picked = (rows || []).filter(r => pick[`${r.sid}|${r.area}`]);
+  const apply = async () => {
+    if (!picked.length) return;
+    if (!window.confirm(`고른 ${picked.length}칸을 나이스 글로 바꿀까요?\n바꾸기 전에 반 자료 백업 파일을 내려받아요.`)) return;
+    await rec.save(); downloadJson(`${backupName}_나이스반영전_${new Date().toISOString().slice(0, 10)}.json`, rec.doc);
+    picked.forEach(r => rec.edit(`s|${r.sid}|${r.area}`, r.text));
+    showToast?.(`나이스 글 ${picked.length}칸을 반영했어요.`, "success");
+    onClose();
+  };
+  const label = { same: "같음", diff: "바뀜", new: "새 글", empty: "나이스 빈칸", none: "명단에 없음" };
+  return createPortal(<div className="krw krw-modal" role="dialog" aria-modal="true" aria-label="나이스 파일 반영" onClick={event => { if (event.target === event.currentTarget) onClose(); }}><div className="krw-modal-box krw-neis">
+    <header><b><FileSpreadsheet size={17} /> 나이스 파일 반영 · {grade}학년 {cls}반</b><button type="button" data-kdn-bare onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
+    <p>나이스에서 내려받은 <b>자율·자치 / 진로 / 행발 엑셀</b>(영역별 파일 여러 개 가능)을 올리면, 우리 반 글과 비교해 <b>달라진 칸만</b> 골라 나이스 글로 바꿔요. 나이스에서 바이트를 줄이는 등 고친 글을 다시 맞출 때 써요.</p>
+    <div className="up"><button type="button" data-kdn-bare className="krw-btn pri" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={14} className="spin" /> : <FileSpreadsheet size={14} />} 나이스 엑셀 고르기</button><input ref={inputRef} type="file" hidden multiple accept=".xlsx,.xls" onChange={event => { const files = Array.from(event.target.files || []); event.target.value = ""; if (files.length) read(files); }} />{note && <small>{note}</small>}</div>
+    {rows && <>
+      <div className="sum">{["diff", "new", "same", "empty", "none"].filter(state => count(state)).map(state => <span key={state} className={`is-${state}`}>{label[state]} <b>{count(state)}</b></span>)}</div>
+      <div className="krw-table-wrap"><table className="krw-neis-tbl"><thead><tr><th className="ck" /><th>학생</th><th>영역</th><th>지금</th><th>나이스</th><th>상태</th></tr></thead>
+        <tbody>{rows.filter(r => r.state !== "same").map(r => { const k = `${r.sid}|${r.area}`; const st = bySid.get(r.sid); const lim = limitOf(r.area); const nb = neisBytes(r.text); const can = r.state === "diff" || r.state === "new" || r.state === "empty"; return <React.Fragment key={k}>
+          <tr className={`is-${r.state}`}><td className="ck"><input type="checkbox" disabled={!can} checked={!!pick[k]} onChange={() => setPick(v => ({ ...v, [k]: !v[k] }))} aria-label="반영할 칸 고르기" /></td>
+            <td className="who"><button type="button" data-kdn-bare onClick={() => setOpen(v => ({ ...v, [k]: !v[k] }))}>{st ? `${st.number} ${st.name}` : r.sid}</button></td><td>{RECORD_AREAS[r.area].short}</td>
+            <td className="b">{neisBytes(r.cur).toLocaleString()}</td><td className={`b${nb > lim ? " over" : ""}`}>{nb.toLocaleString()}</td><td><span className={`tag is-${r.state}`}>{label[r.state]}</span></td></tr>
+          {open[k] && <tr className="detail"><td /><td colSpan={5}><div><small>지금</small><p>{r.cur || "(비어 있음)"}</p></div><div><small>나이스</small><p>{r.text || "(비어 있음)"}</p></div></td></tr>}
+        </React.Fragment>; })}</tbody></table></div>
+      {count("same") > 0 && <p className="same">같은 칸 {count("same")}개는 목록에서 뺐어요. 학생을 누르면 두 글을 비교해 볼 수 있어요.</p>}
+      <div className="ft"><span>{picked.length ? `${picked.length}칸을 나이스 글로 바꿔요` : "바꿀 칸을 골라 주세요"}{count("empty") ? " · '나이스 빈칸'은 고르면 우리 쪽 글이 지워져요" : ""}</span><button type="button" data-kdn-bare className="krw-btn pri" disabled={!picked.length} onClick={apply}><Check size={14} /> 고른 칸 반영</button></div>
+    </>}
+  </div></div>, document.body);
+}
 // '학년 자료' 탭: 학년 단위로 모아 쓰는 자료(행사 세특 취합 파일 · 2학년부 활동 배정·소감문)를 한곳에서
 function GradeDataTab({ legacy, events }) {
   const [part, setPart] = useState(() => { try { return localStorage.getItem("kd_rec_grade_part") === "legacy" && legacy ? "legacy" : "events"; } catch { return "events"; } });
@@ -1034,6 +1101,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const [dupOpen, setDupOpen] = useState(false);
   const [evOpen, setEvOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [neisOpen, setNeisOpen] = useState(false);
   // 소감문 일괄: 반 학생 모두의 소감문을 영역별 누가기록에 담기(이미 담긴 건 건너뜀)
   const bulkReflections = reflectionsBySid ? () => {
     const plan = students.map(s => [s, reflectionsBySid.get(sidKey(s.sid)) || []]).filter(([, list]) => list.length);
@@ -1092,11 +1160,13 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
       <button type="button" data-kdn-bare className="krw-btn" data-tour="rw-evbtn" onClick={() => setEvOpen(true)} title="부서별 행사 특기사항 취합 파일 올리기 · 반 확인 현황"><CalendarCheck size={15} /> 행사{classEvents > 0 && <em className="krw-cnt">{students.filter(test.event).length || "✓"}</em>}</button>
       <button type="button" data-kdn-bare className="krw-btn sec" onClick={() => setDupOpen(true)} title="같은 문장 점검: 여러 학생에게 똑같이 들어간 문장 찾기"><Search size={15} /><span className="lb">같은 문장</span></button>
       <button type="button" data-kdn-bare className="krw-btn sec" title="백업: 이 반 자료를 파일로 내려받아 따로 보관" onClick={() => downloadJson(`생기부_${grade}-${cls}_${new Date().toISOString().slice(0, 10)}.json`, rec.doc)}><Download size={15} /><span className="lb">백업</span></button>
+      {!readOnlyView && <button type="button" data-kdn-bare className="krw-btn sec" data-tour="rw-neis" title="나이스 파일 반영: 나이스에서 내려받은 엑셀로 고친 글 다시 맞추기" onClick={() => setNeisOpen(true)}><FileSpreadsheet size={15} /><span className="lb">나이스 반영</span></button>}
       {!readOnlyView && <button type="button" data-kdn-bare className="krw-btn sec" data-tour="rw-clear" title="특기사항 일괄 지우기(지금 학생 또는 반 전체)" onClick={() => setClearOpen(true)}><Trash2 size={15} /><span className="lb">지우기</span></button>}
     </div>
     {rec.error && <p className="krw-alert"><AlertTriangle size={15} /> {rec.error}</p>}
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
     {dupOpen && <DuplicateModal title={`${cls}반`} dups={dups} onPick={pickDup} onClose={() => setDupOpen(false)} />}
+    {neisOpen && <NeisImportModal students={students} rec={rec} grade={grade} cls={cls} backupName={`생기부_${grade}-${cls}`} limitOf={lim} showToast={showToast} onClose={() => setNeisOpen(false)} />}
     {clearOpen && <ClearModal fields={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].short }))} students={students} current={view === "student" ? current : null} rec={rec} title={`${cls}반`} backupName={`생기부_${grade}-${cls}`} showToast={showToast} onClose={() => setClearOpen(false)}
       extra={{ label: "행사 확인 표시(반영함·뺌)도 지우기", run: list => list.forEach(st => (ev.bySid.get(st.sid) || []).forEach(item => { if (rec.textOf(st.sid, evStatusKey(item))) rec.edit(`s|${st.sid}|${evStatusKey(item)}`, ""); })) }} />}
     {evOpen && <EventFilesModal ev={ev} students={students} rec={rec} showToast={showToast} onPick={pickDup} onClose={() => setEvOpen(false)} />}
@@ -1466,7 +1536,7 @@ export default function RecordWriter({ readOnly = false, teacher = null, isAdmin
       <div className="t"><b>생기부 업무 <span className="krw-scope-pill">{grade}학년 · {semester === "sem2" ? "2학기" : "1학기"}</span></b><small>칸마다 자동 저장 · 나이스 바이트 계산 · 2026 기재요령 점검 · 학년·학기는 위쪽에서 바꿔요</small></div>
       <div className="krw-tabs" role="tablist" data-tour="rw-tabs">{tabs.map(([key, label, sub]) => <button key={key} type="button" data-kdn-bare role="tab" aria-selected={tab === key} className={`t-${key}`} onClick={() => pick(setTab, "kd_rec_tab_v1")(key)}><b>{label}</b><small>{sub}</small></button>)}</div>
     </header>
-    {tab !== "grade" && <TourGuide id="records-v4" steps={TOUR_STEPS} startToken={tourToken} />}
+    {tab !== "grade" && <TourGuide id="records-v5" steps={TOUR_STEPS} startToken={tourToken} />}
     {stdOpen && <StandardsModal grade={grade} semester={semester} subjectName={tab === "subject" ? (books[0]?.subject || "") : ""} onClose={() => setStdOpen(false)} />}
     {helpOpen && <HelpDialog onClose={() => setHelpOpen(false)} onTour={() => { setHelpOpen(false); setTourToken(value => value + 1); }} />}
     {tab !== "grade" && tab !== "check" && <div className="krw-opts">
@@ -1670,6 +1740,15 @@ const CSS = `
 .krw-evbox .act .warn{font-size:11px;color:#b45309}
 .krw-evf{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto}.krw-evf h4{margin:4px 0 0;font-size:14px}.krw-evf .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
 .krw-evf-files{display:grid;gap:4px;margin:0;padding:0;list-style:none}.krw-evf-files li{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1px solid var(--kdn-line,#e7e5e0)}.krw-evf-files span{flex:1;display:grid;min-width:0}.krw-evf-files b{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.krw-evf-files small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-files button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:8px;background:var(--kdn-surface-2,#f3f2ef);color:inherit;cursor:pointer}
+.krw-modal-box.krw-neis{width:min(820px,100%);max-height:calc(100vh - 32px);overflow:auto}
+.krw-neis .up{display:flex;align-items:center;gap:10px}.krw-neis .up small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-neis .sum{display:flex;flex-wrap:wrap;gap:6px}.krw-neis .sum span{padding:3px 10px;border-radius:99px;background:var(--kdn-surface-2,#f3f2ef);font-size:12.5px;font-weight:700}.krw-neis .sum .is-diff{background:#fef3c7;color:#92400e}.krw-neis .sum .is-new{background:#dbeafe;color:#1d4ed8}.krw-neis .sum .is-same{background:#dcfce7;color:#15803d}.krw-neis .sum .is-empty,.krw-neis .sum .is-none{background:#f3f4f6;color:#6b7280}
+.krw-neis-tbl{width:100%;border-collapse:collapse;font-size:13px}.krw-neis-tbl th,.krw-neis-tbl td{padding:7px 8px;border-bottom:1px solid var(--kdn-line,#efede8);text-align:center}.krw-neis-tbl th{font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-neis-tbl td.ck{width:30px}.krw-neis-tbl td.ck input{width:16px;height:16px;accent-color:#ea580c}.krw-neis-tbl td.who{text-align:left}.krw-neis-tbl td.who button{border:0;background:transparent;font:inherit;font-weight:700;color:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.krw-neis-tbl td.b{font-variant-numeric:tabular-nums}.krw-neis-tbl td.b.over{color:#dc2626;font-weight:800}
+.krw-neis-tbl .tag{padding:2px 8px;border-radius:99px;font-size:11.5px;font-weight:800;background:#f3f4f6;color:#6b7280}.krw-neis-tbl .tag.is-diff{background:#fef3c7;color:#92400e}.krw-neis-tbl .tag.is-new{background:#dbeafe;color:#1d4ed8}
+.krw-neis-tbl tr.detail td{background:var(--kdn-surface-2,#f8f7f4);text-align:left}.krw-neis-tbl tr.detail td>div{display:grid;gap:2px;margin-bottom:6px}.krw-neis-tbl tr.detail small{font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-neis-tbl tr.detail p{margin:0;white-space:pre-wrap;line-height:1.6}
+.krw-neis .same{margin:0;font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .krw-clear{width:min(560px,100%)}.krw-clear .row{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;gap:10px;padding:8px 0;border-top:1px solid var(--kdn-line,#efede8)}.krw-clear .k{padding-top:5px;font-size:12.5px;font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-clear .v{display:flex;flex-wrap:wrap;gap:6px}
 .krw-clear .chip{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 11px 0 8px;border-radius:99px;border:1px solid var(--kdn-line,#dcd9d2);font-size:13px;font-weight:700;cursor:pointer}.krw-clear .chip input{margin:0;accent-color:#dc2626}.krw-clear .chip.on{border-color:#fca5a5;background:#fef2f2;color:#b91c1c}.krw-clear .chip em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}
 .krw-btn.danger{border-color:transparent;background:#dc2626;color:#fff}.krw-btn.danger:disabled{opacity:.4}
