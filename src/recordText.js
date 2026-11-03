@@ -398,3 +398,40 @@ function parseEventSheetsOnce(sheets = []) {
   });
   return { items: Array.from(best.values()), skipped };
 }
+
+// ── 나이스에서 내려받은 생기부 엑셀(영역 구분·학년도·학년·반·번호·성명·특기사항) 읽기 ─────────
+// 영역 구분: '자율·자치활동_특기사항' → autonomy, '진로활동_특기사항' → career, '행동특성 및 종합의견' → behavior
+export function neisAreaOf(value) {
+  const v = String(value ?? "").replace(/\s+/g, "");
+  if (/행동|종합의견/.test(v)) return "behavior";
+  if (/진로/.test(v)) return "career";
+  if (/자율|자치/.test(v)) return "autonomy";
+  return "";
+}
+// sheets: [{ name, rows(aoa) }] → { rows: [{ sid, grade, cls, no, area, text }], skipped: { otherArea, noStudent } }
+export function parseNeisRecordSheets(sheets = []) {
+  const out = []; const skipped = { otherArea: 0, noStudent: 0 };
+  sheets.forEach(({ name = "", rows = [] }) => {
+    const headerRow = rows.slice(0, 8).findIndex(row => { const cells = (row || []).map(cell => cellText(cell).replace(/\s+/g, "")); return cells.includes("반") && cells.includes("번호") && cells.some(c => /^특기사항$|^종합의견$|특기사항/.test(c)); });
+    if (headerRow < 0) return;
+    const header = rows[headerRow].map(cell => cellText(cell).replace(/\s+/g, ""));
+    const col = test => header.findIndex(test);
+    const areaCol = col(h => /영역/.test(h));
+    const gradeCol = col(h => h === "학년");
+    const classCol = col(h => h === "반");
+    const noCol = col(h => h === "번호");
+    const textCol = col(h => /특기사항|종합의견/.test(h) && !/영역/.test(h));
+    if (classCol < 0 || noCol < 0 || textCol < 0) return;
+    rows.slice(headerRow + 1).forEach(row => {
+      const area = neisAreaOf(areaCol >= 0 ? row?.[areaCol] : name) || neisAreaOf(name);
+      if (!area) { if ((row || []).some(cell => cellText(cell))) skipped.otherArea += 1; return; }
+      const grade = parseInt(String(gradeCol >= 0 ? row?.[gradeCol] : "").replace(/\D/g, ""), 10);
+      const cls = parseInt(String(row?.[classCol] ?? "").replace(/\D/g, ""), 10);
+      const no = parseInt(String(row?.[noCol] ?? "").replace(/\.0+$/, "").replace(/\D/g, ""), 10);
+      if (!grade || !cls || !no) { if ((row || []).some(cell => cellText(cell))) skipped.noStudent += 1; return; }
+      const sid = `${grade}${String(cls).padStart(2, "0")}${String(no).padStart(2, "0")}`;
+      out.push({ sid, grade: String(grade), cls: String(cls), no, area, text: cellText(row?.[textCol]).replace(/\r\n?/g, "\n") });
+    });
+  });
+  return { rows: out, skipped };
+}
