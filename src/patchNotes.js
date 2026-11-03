@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-03-v",
+    date: "2026-11-03",
+    title: "생기부 일정 바로잡기",
+    items: [
+      { audience: "staff", text: "대시보드 생기부 일정을 제출 시작 12.7(월) · 제출 마감 12.14(월)로 바로잡았어요." },
+    ],
+  },
+  {
     id: "2026-11-03-u",
     date: "2026-11-03",
     title: "행사 세특 줄 바꿈 · 줄마다 끝맺음 점검",

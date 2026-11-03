@@ -3614,7 +3614,7 @@ const SHORTCUT_ILLOS = (() => {
 })();
 
 // 생기부 마감 띠: 입력 완료·제출 날짜와 D-day. 제출일이 지나면 저절로 사라집니다(날짜는 해마다 여기서 바꿔요).
-const RECORD_DEADLINES = [{ key: "input", label: "생기부 입력 완료", date: "2026-12-04" }, { key: "submit", label: "생기부 제출", date: "2026-12-07" }];
+const RECORD_DEADLINES = [{ key: "submitStart", label: "생기부 제출 시작", date: "2026-12-07" }, { key: "submitEnd", label: "생기부 제출 마감", date: "2026-12-14" }];
 function RecordDeadlineStrip({ now = new Date(), onOpen }) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const items = RECORD_DEADLINES.map(item => { const d = new Date(`${item.date}T00:00:00`); return { ...item, d, left: Math.round((d.getTime() - today) / 86400000) }; });
