@@ -259,11 +259,13 @@ test("eventInField: 고쳐 쓴 행사 글도 있음으로 봄", async () => {
   assert.equal(eventInField("전혀 다른 내용의 자율 활동 기록임.", ev), false);
   assert.equal(eventInField("", ev), false);
 });
-test("AI 요청문: 활동 이름·날짜 그대로, 너무 짧지 않게", async () => {
+test("AI 요청문: 활동 이름 그대로, 날짜 쓰지 않기, 분량 설정", async () => {
   const { buildAiPrompt } = await import("../src/recordText.js");
-  const prompt = buildAiPrompt({ area: "자율·자치활동", budget: 1500, notes: [["소감문: 장애인식 개선 교육", "영상을 보고 토의함"]], activities: [{ name: "장애인식 개선 교육", date: "2026.04.17." }] });
-  assert.ok(prompt.includes("[활동 목록] 장애인식 개선 교육(2026.04.17.)"));
+  const prompt = buildAiPrompt({ area: "자율·자치활동", budget: 1500, notes: [["소감문: 장애인식 개선 교육", "영상을 보고 토의함"]], activities: ["장애인식 개선 교육"] });
+  assert.ok(prompt.includes("[활동 목록] 장애인식 개선 교육"));
   assert.ok(prompt.includes("적힌 그대로 쓰기"));
-  assert.ok(prompt.includes("너무 짧게 쓰지 않기: 자료가 한두 개뿐이어도 한글 약 375-450자"));
-  assert.ok(buildAiPrompt({ area: "진로", activities: ["따라체험"] }).includes("[활동 목록] 따라체험"));
+  assert.ok(prompt.includes("날짜·기간·시간은 쓰지 않기"));
+  assert.ok(prompt.includes("한글 약 375-450자"));
+  assert.ok(buildAiPrompt({ area: "자율", budget: 1500, fill: "short" }).includes("한글 약 250-325자"));
+  assert.ok(buildAiPrompt({ area: "자율", budget: 1500, fill: "full" }).includes("한글 약 450-490자"));
 });

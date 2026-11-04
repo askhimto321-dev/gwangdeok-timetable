@@ -12,7 +12,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt, AI_FILL, AI_FILL_DEFAULT } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -634,6 +634,9 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const [useEx, setUseEx] = useState(true);
   const [useFrame, setUseFrame] = useState(true);
   const [pickOpen, setPickOpen] = useState(false);
+  // 분량(짧게·보통·꽉 채워): 선생님 기기에 기억해요. 기본은 보통(한도의 75-90%)
+  const [fill, setFillRaw] = useState(() => { try { const v = localStorage.getItem("kd_rec_ai_fill"); return AI_FILL[v] ? v : AI_FILL_DEFAULT; } catch { return AI_FILL_DEFAULT; } });
+  const setFill = v => { setFillRaw(v); try { localStorage.setItem("kd_rec_ai_fill", v); } catch { /* 기억은 편의 기능 */ } };
   const readOnlyView = useContext(ReadOnlyContext);
   // 활동 이름: 소감문 파일의 시트 이름이라 생기부 이름과 다를 수 있어요. 반에서 고쳐 두면 요청문에 그 이름이 들어가요('__cfg' an:원래이름).
   const refls = (reflections || []).map((item, i) => ({ ...item, key: item.id || `${item.activity}-${i}`, name: rec.textOf("__cfg", `an:${item.activity}`).trim() || item.activity }));
@@ -653,10 +656,11 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     aiContext.subject && useFrame && "구성 틀",
     useHope && hope && "진로희망",
     multi && "활동마다 줄 바꿈",
+    `분량 ${AI_FILL[fill].label}`,
     aiContext.subject && useEx && exPick && "기재 예시",
     refine && current.trim() && "지금 쓴 글",
   ].filter(Boolean);
-  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi, activities: refls.filter(item => reflPick[item.key]).map(item => ({ name: item.name, date: item.date })) });
+  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi, fill, activities: refls.filter(item => reflPick[item.key]).map(item => item.name) });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
   // 바로 열기: 팝업 차단을 피하려고 창부터 열고, 요청문은 주소(?q=)에 담고 클립보드에도 복사해 둡니다.
   const openAi = async site => {
@@ -697,6 +701,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
               : <p className="none">기재 예시는 넣지 않아요. <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => { setPickOpen(false); setStep("examples"); }}>예시 고르기</button></p>}
           </section>}
           <section><h4>학생 진로희망</h4>{hope ? <label className="opt"><input type="checkbox" checked={useHope} onChange={event => setUseHope(event.target.checked)} /><span><b>{hope}</b><em>관찰 기록에 있는 내용만 진로와 이어 쓰도록 알려요</em></span></label> : <p className="none">{aiContext.subject ? "교과 화면에는 진로희망이 없어요." : "학생 화면 위 '진로희망' 칸에 적으면 요청문에 넣을 수 있어요."}</p>}</section>
+          <section><h4>분량 <small>칸 한도 {budget.toLocaleString()}바이트 기준</small></h4><div className="krw-fill" role="radiogroup">{Object.entries(AI_FILL).map(([key, f]) => <button key={key} type="button" data-kdn-bare role="radio" aria-checked={fill === key} className={fill === key ? "on" : ""} onClick={() => setFill(key)}><b>{f.label}{key === AI_FILL_DEFAULT ? " (기본)" : ""}</b><small>한도의 {f.lo}-{f.hi}% · 약 {Math.floor(budget / 3 * f.lo / 100)}-{Math.floor(budget / 3 * f.hi / 100)}자</small></button>)}</div></section>
           <section><h4>여러 활동 쓰는 법</h4><label className="opt"><input type="checkbox" checked={multi} onChange={event => setMultiPick(event.target.checked)} /><span><b>활동마다 줄 바꿔 따로 쓰기</b><em>관련 없는 활동을 '~에서는', '~에서도'로 억지로 이어 한 문단으로 만들지 않게 해요</em></span></label></section>
           <section><h4>지금 칸에 쓴 글</h4><label className="opt"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /><span><b>함께 보내 다듬어 달라고 하기</b><em>{current.trim() ? clip(current, 90) : "아직 비어 있어요"}</em></span></label></section>
         </div>
@@ -1928,6 +1933,7 @@ const CSS = `
 .krw-pick-body .opt{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0);cursor:pointer}.krw-pick-body .opt:has(input:checked){border-color:color-mix(in srgb,#ff7a3d 50%,transparent);background:color-mix(in srgb,#ff7a3d 6%,var(--kdn-surface,#fff))}
 .krw-pick-body .opt input{flex:none;margin:2px 0 0;width:16px;height:16px;accent-color:#ff7a3d}.krw-pick-body .opt span{display:grid;gap:3px;min-width:0}.krw-pick-body .opt b{font-size:14px;font-weight:700}.krw-pick-body .opt em{font-style:normal;font-size:12.5px;line-height:1.5;color:var(--kdn-ink-soft,#5b606b);overflow-wrap:anywhere}
 .krw-pick-body .opt .krw-actname{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:4px;font-size:12px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:default}.krw-pick-body .opt .krw-actname input{flex:1 1 180px;width:auto;height:30px;margin:0;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-weight:600;accent-color:auto}.krw-pick-body .opt .krw-actname small{font-weight:500;color:var(--kdn-muted,#8a8f99)}
+.krw-fill{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.krw-fill button{display:grid;gap:2px;padding:9px 10px;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);text-align:left;cursor:pointer;font:inherit}.krw-fill button b{font-size:14px;font-weight:800}.krw-fill button small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-fill button.on{border-color:#ff7a3d;background:color-mix(in srgb,#ff7a3d 8%,var(--kdn-surface,#fff));box-shadow:inset 0 0 0 1px #ff7a3d}
 .krw-pick-body .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
 .krw-refl{display:grid;gap:10px}
 .krw-refl-seg{display:flex;gap:2px;padding:3px;border-radius:11px;background:var(--kdn-surface-2,#f3f2ef)}.krw-refl-seg button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:30px;border:0;border-radius:8px;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}.krw-refl-seg button em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}.krw-refl-seg button[aria-selected="true"]{background:#17181d;color:#fff}.krw-refl-seg button[aria-selected="true"] em{color:#ffb089}

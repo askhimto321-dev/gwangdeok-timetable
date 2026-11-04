@@ -5,6 +5,15 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-04-j",
+    date: "2026-11-04",
+    title: "AI 도우미: 날짜 빼기, 분량 고르기",
+    items: [
+      { audience: "staff", text: "AI가 활동 이름 뒤에 날짜·기간·시간을 괄호로 붙이지 않도록 요청해요." },
+      { audience: "staff", text: "'요청문에 넣을 것' 창에서 분량을 짧게 · 보통(기본, 한도의 75-90%) · 꽉 채워 중에 고를 수 있어요. 고른 값은 기억돼요." },
+    ],
+  },
+  {
     id: "2026-11-04-i",
     date: "2026-11-04",
     title: "AI 도우미: 활동 이름 그대로, 분량 넉넉히",
