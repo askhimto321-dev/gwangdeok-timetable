@@ -301,3 +301,6 @@ test("점검 전수조사: 걸러야 할 것은 그대로", () => {
     "행복나눔재단에서 주최한 활동에 참여함.": "입력 불가 용어", "광덕한마음축제에서 공연함.": "입력 불가 용어", "책을 출간하여 나눔.": "입력 불가 용어", "강사님의 강연을 듣고 질문함.": "학생 입장 표현" };
   Object.entries(bad).forEach(([text, kind]) => assert.ok(checkRecordText(text).some(i => i.kind === kind), text));
 });
+test("점검: 살펴봄은 학생 입장 표현", () => {
+  assert.ok(checkRecordText("탄소가 환경에 미치는 영향을 살펴봄.").some(i => i.kind === "학생 입장 표현"));
+});
