@@ -269,3 +269,14 @@ test("AI 요청문: 활동 이름 그대로, 날짜 쓰지 않기, 분량 설정
   assert.ok(buildAiPrompt({ area: "자율", budget: 1500, fill: "short" }).includes("한글 약 250-325자"));
   assert.ok(buildAiPrompt({ area: "자율", budget: 1500, fill: "full" }).includes("한글 약 450-490자"));
 });
+test("점검: 태도 표현 반복", () => {
+  const text = "교육에 참여하여 사례를 들으며 집중함. 사례를 주의 깊게 경청하고 진지한 자세로 임함. 끝까지 집중력을 유지하는 모습을 보임. 전 과정에 성실하고 바른 태도로 참여함.";
+  assert.ok(checkRecordText(text).some(i => i.kind === "태도 표현 반복"));
+  assert.ok(!checkRecordText("사례를 조사해 표로 정리함. 모둠 토의에서 개선 방안을 제시함. 끝까지 성실하게 참여함.").some(i => i.kind === "태도 표현 반복"));
+});
+test("AI 요청문: 태도 문장으로 분량 채우지 않기", async () => {
+  const { buildAiPrompt } = await import("../src/recordText.js");
+  const prompt = buildAiPrompt({ area: "자율", budget: 1500 });
+  assert.ok(prompt.includes("태도 문장으로 분량을 채우지 않기"));
+  assert.ok(prompt.includes("한글 약 375-450자"));
+});

@@ -132,9 +132,17 @@ export function checkRecordText(text = "") {
   const endWords = splitSentences(value).map(sentence => (sentence.replace(/[.!?\s]+$/, "").match(/[가-힣]+$/) || [""])[0].slice(-3)).filter(Boolean);
   const endCount = {}; endWords.forEach(w => { endCount[w] = (endCount[w] || 0) + 1; });
   Object.entries(endCount).filter(([, n]) => n >= 3).forEach(([w, n]) => add("warn", "같은 끝맺음 반복", `~${w}. ×${n}`, Math.max(0, value.lastIndexOf(w)), `'~${w}'로 끝나는 문장이 ${n}개예요. 끝맺음을 다양하게 바꿔 보세요(~함, ~을 보임, ~에 기여함 등)`));
+  // 태도 표현 반복: 한 단락(줄)에서 '집중함·경청함·성실히 참여함' 같은 태도 문장이 3번 넘게 나오면 분량 채우기용 반복일 수 있어요
+  let lineAt = 0;
+  value.split("\n").forEach(line => {
+    const hits = splitSentences(line).filter(sentence => ATTITUDE_RE.test(sentence));
+    if (hits.length >= 3) add("warn", "태도 표현 반복", `${(hits[hits.length - 1].match(ATTITUDE_RE) || [""])[0]} 등 ×${hits.length}`, lineAt + Math.max(0, line.lastIndexOf(hits[hits.length - 1])), `한 활동에 '집중함·경청함·성실히 참여함' 같은 태도 문장이 ${hits.length}개예요. 하나만 남기고, 나머지는 학생이 한 구체적인 활동(조사·발표·토의·만든 것)으로 바꿔 주세요`);
+    lineAt += line.length + 1;
+  });
   repeatedSentences(value).forEach(sentence => add("warn", "같은 문장 반복", sentence.length > 24 ? `${sentence.slice(0, 24)}…` : sentence, value.lastIndexOf(sentence), "같은 문장을 두 번 썼어요. 하나는 지우거나 다른 관찰 내용으로 바꿔 주세요"));
   return issues.sort((a, b) => a.index - b.index);
 }
+const ATTITUDE_RE = /집중|경청|성실|진지|바른\s*태도|흐트러짐|끝까지|열심히|적극적으로\s*참여|성의\s*있/;
 // 한 글 안에서 같은 문장을 두 번 쓴 경우(띄어쓰기·기호 무시, 5자 이상)
 function repeatedSentences(text) {
   const seen = new Map(); const out = [];
@@ -309,7 +317,8 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     `분량: 나이스 기준 ${budget.toLocaleString()}바이트 이내(한글 1자 3바이트, 영문·숫자·공백 1바이트, 줄 바꿈 2바이트), 한글로 약 ${chars}자 이내`,
     (() => { const f = AI_FILL[fill] || AI_FILL[AI_FILL_DEFAULT]; const lo = Math.floor((chars * f.lo) / 100), hi = Math.floor((chars * f.hi) / 100); return fill === "short"
       ? `분량은 간결하게: 한글 약 ${lo}-${hi}자로, 활동마다 핵심 행동과 태도를 1-2문장으로 쓰기`
-      : `너무 짧게 쓰지 않기: 자료가 한두 개뿐이어도 한글 약 ${lo}-${hi}자를 채우기. 활동마다 무엇을 했는지(상황·맡은 일), 어떻게 했는지(과정·방법), 어떤 태도·결과가 드러났는지를 2-4문장으로 구체적으로 풀어 쓰기. 단, 자료에 없는 사실을 지어내 분량을 늘리지 않기`; })(),
+      : `분량 목표: 한글 약 ${lo}-${hi}자. 활동마다 무엇을 했는지(상황·맡은 일), 어떻게 했는지(과정·방법), 어떤 결과가 나왔는지를 자료 속 구체적인 사실(본 사례, 조사·토의·발표한 내용, 만든 것, 맡은 역할)로 채우기. 단, 자료에 없는 사실을 지어내지 않기`; })(),
+    "태도 문장으로 분량을 채우지 않기: '집중함', '경청함', '진지하게 임함', '성실히 참여함', '끝까지 흐트러짐 없이' 같은 태도 표현은 활동마다 한 번만 쓰기. 같은 뜻을 말만 바꿔 되풀이하지 않기. 모든 문장에 새로운 사실이 하나씩 들어가야 하며, 자료의 사실이 모자라면 분량 목표보다 짧아도 괜찮음",
     "교사가 관찰한 사실로 쓰기: 학생이 '무엇을 하고 어떻게 행동했는지'만 쓰고, 학생 입장·내면 표현은 쓰지 않기(이해함, 깨달음, 알게 됨, 느낌, 배움, 다짐함, 생각함, 결심함, 인식함, 체득함, 성찰함 등)",
     "문장을 '분석함', '파악함', '고찰함', '이해함'처럼 머릿속 활동으로 끝내지 않기. 눈에 보이는 행동과 결과로 끝내기(예: '~을 분석함' → '~을 분석해 개선 방안을 제시함', '~을 파악함' → '~을 조사해 표로 정리하고 발표함')",
     ...(fromReflection ? ["소감문은 학생이 쓴 글이에요. 결과물에 '소감문', '글', '서술함', '진술함', '기술함', '~라고 밝힘'처럼 글을 썼다는 표현을 쓰지 말고, 소감문에 드러난 활동 사실만 골라 활동 기록으로 바꿔 쓰기(학생의 생각·다짐·느낀 점은 옮기지 않기)"] : []),
