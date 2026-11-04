@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-04-f",
+    date: "2026-11-04",
+    title: "점검: '소감을 밝힘' 허용",
+    items: [
+      { audience: "staff", text: "기재요령 점검과 AI 요청문에서 '소감을 밝힘'은 학생 입장 표현으로 보지 않아요." },
+    ],
+  },
+  {
     id: "2026-11-04-e",
     date: "2026-11-04",
     title: "AI 요청문: 분석함·파악함 끝맺음 금지",
