@@ -294,7 +294,10 @@ export function findDuplicateSentences(entries = [], { ignore = [] } = {}) {
 // AI 요청문: 학생 이름은 빼고, 관찰 기록만 근거로 기재요령·바이트 조건을 담아 만듭니다.
 // 규칙은 '꼭 지킬 것' 번호 목록으로 맨 앞에 두고, 마지막에 스스로 점검하게 해요(긴 목록 중간 규칙을 AI가 놓치지 않게).
 // notes: [[라벨, 글]] — 소감문은 라벨이 '소감문:'으로 시작해요. activities: 여러 활동일 때 활동 이름(줄 시작 어투를 돌려 쓰게)
-export function buildAiPrompt({ area = "", subject = "", activity = "", budget = 1500, notes = [], existing = "", studentName = "", standards = [], example = "", frame = true, hope = "", multi = false, activities = [] }) {
+// 분량: 한도 대비 채울 비율(%). 기본 = 75-90%
+export const AI_FILL = { short: { label: "짧게", lo: 50, hi: 65 }, normal: { label: "보통", lo: 75, hi: 90 }, full: { label: "꽉 채워", lo: 90, hi: 98 } };
+export const AI_FILL_DEFAULT = "normal";
+export function buildAiPrompt({ area = "", subject = "", activity = "", budget = 1500, notes = [], existing = "", studentName = "", standards = [], example = "", frame = true, hope = "", multi = false, activities = [], fill = AI_FILL_DEFAULT }) {
   // activities: 활동 이름 문자열 또는 { name, date }
   const acts = activities.map(item => (typeof item === "string" ? { name: item, date: "" } : { name: String(item?.name || ""), date: String(item?.date || "") })).filter(item => item.name.trim());
   const actNames = acts.map(item => item.name);
@@ -304,7 +307,9 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
   const chars = Math.floor(budget / 3);
   const rules = [
     `분량: 나이스 기준 ${budget.toLocaleString()}바이트 이내(한글 1자 3바이트, 영문·숫자·공백 1바이트, 줄 바꿈 2바이트), 한글로 약 ${chars}자 이내`,
-    `너무 짧게 쓰지 않기: 자료가 한두 개뿐이어도 한글 약 ${Math.floor(chars * 0.75)}-${Math.floor(chars * 0.9)}자를 채우기. 활동마다 무엇을 했는지(상황·맡은 일), 어떻게 했는지(과정·방법), 어떤 태도·결과가 드러났는지를 2-4문장으로 구체적으로 풀어 쓰기. 단, 자료에 없는 사실을 지어내 분량을 늘리지 않기`,
+    (() => { const f = AI_FILL[fill] || AI_FILL[AI_FILL_DEFAULT]; const lo = Math.floor((chars * f.lo) / 100), hi = Math.floor((chars * f.hi) / 100); return fill === "short"
+      ? `분량은 간결하게: 한글 약 ${lo}-${hi}자로, 활동마다 핵심 행동과 태도를 1-2문장으로 쓰기`
+      : `너무 짧게 쓰지 않기: 자료가 한두 개뿐이어도 한글 약 ${lo}-${hi}자를 채우기. 활동마다 무엇을 했는지(상황·맡은 일), 어떻게 했는지(과정·방법), 어떤 태도·결과가 드러났는지를 2-4문장으로 구체적으로 풀어 쓰기. 단, 자료에 없는 사실을 지어내 분량을 늘리지 않기`; })(),
     "교사가 관찰한 사실로 쓰기: 학생이 '무엇을 하고 어떻게 행동했는지'만 쓰고, 학생 입장·내면 표현은 쓰지 않기(이해함, 깨달음, 알게 됨, 느낌, 배움, 다짐함, 생각함, 결심함, 인식함, 체득함, 성찰함 등)",
     "문장을 '분석함', '파악함', '고찰함', '이해함'처럼 머릿속 활동으로 끝내지 않기. 눈에 보이는 행동과 결과로 끝내기(예: '~을 분석함' → '~을 분석해 개선 방안을 제시함', '~을 파악함' → '~을 조사해 표로 정리하고 발표함')",
     ...(fromReflection ? ["소감문은 학생이 쓴 글이에요. 결과물에 '소감문', '글', '서술함', '진술함', '기술함', '~라고 밝힘'처럼 글을 썼다는 표현을 쓰지 말고, 소감문에 드러난 활동 사실만 골라 활동 기록으로 바꿔 쓰기(학생의 생각·다짐·느낀 점은 옮기지 않기)"] : []),
@@ -318,9 +323,10 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
       : ["한 문단으로 쓰되, 서로 관련 없는 내용을 '~에서는', '~에서도'처럼 억지로 잇지 않기. 문장 시작 표현은 '~에 참여하여', '~에서', '~을 통해' 등을 번갈아 다양하게"]),
     "문장 끝을 다양하게: '돋보임', '보임' 같은 같은 끝맺음을 이어 쓰지 않기(~함, ~임, ~을 보임, ~이 돋보임, ~을 이끎, ~에 기여함 등을 섞기)",
     "현재형 명사형 종결(~함, ~임, ~하는 모습을 보임)로 끝내기. 과거형(했음, 하였음, 알 수 있었음)은 쓰지 않기",
-    "특수기호(가운데점, 둥근 따옴표, 대괄호, 물결표) 쓰지 않기. 기간은 하이픈(-)으로. 문자는 한글로. 학생 이름은 쓰지 않기",
+    "특수기호(가운데점, 둥근 따옴표, 대괄호, 물결표) 쓰지 않기. 문자는 한글로. 학생 이름은 쓰지 않기",
     "자료에 없는 활동이나 성과는 지어내지 않기",
-    `활동 이름은 ${actNames.length ? "[활동 목록]에" : "자료에"} 적힌 그대로 쓰기(낱말을 바꾸거나 덧붙이거나 다른 행사와 섞지 않기). 날짜·기간은 ${acts.some(item => item.date) ? "[활동 목록]에 적힌 것만" : "자료에 있을 때만"} 쓰고 지어내지 않기`,
+    `활동 이름은 ${actNames.length ? "[활동 목록]에" : "자료에"} 적힌 그대로 쓰기(낱말을 바꾸거나 덧붙이거나 다른 행사와 섞지 않기)`,
+    "날짜·기간·시간은 쓰지 않기(예: '(2026.04.17.)', '(3.30.-6.26.)', '(10시간)'처럼 활동 이름 뒤에 괄호로 붙이지 않기)",
     ...(hope ? [`학생의 진로희망을 고려해 쓰기${/자율|자치/.test(area) ? "(자율·자치활동에서도 진로와 이어지는 관심·역량이 드러나는 부분을 살리기)" : ""}. 단, 자료에 있는 내용만 자연스럽게 연결하고 진로와 억지로 엮거나 지어내지 않기`] : []),
     ...(subject && frame ? ["구성: 학생의 성취수준 → 평가 과제에서 관찰한 수행 과정과 결과(근거) → 드러난 교과역량 → 교사 총평 순서를 참고하기"] : []),
   ];
@@ -333,7 +339,7 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     "",
     `[과목·영역] ${[subject, activity].filter(Boolean).join(" / ") || area}`,
     ...(hope ? [`[학생 진로희망] ${hide(hope)}`] : []),
-    ...(acts.length ? [`[활동 목록] ${acts.map(item => `${item.name}${item.date ? `(${item.date})` : ""}`).join(", ")}`] : []),
+    ...(acts.length ? [`[활동 목록] ${actNames.join(", ")}`] : []),
     ...(standards.length ? ["[이 활동의 성취기준: 활동이 겨냥한 목표예요. 문장을 그대로 옮기지 말고, 자료 가운데 이 목표와 이어지는 학생의 구체적인 행동·성장을 드러내 주세요]", ...standards.map(line => `- ${line}`)] : []),
     ...(example ? ["[문체·구성 참고 예시: 다른 학생의 기록이에요. 문장 길이와 구성만 참고하고 내용·표현은 따라 쓰지 마세요]", example] : []),
     "",
