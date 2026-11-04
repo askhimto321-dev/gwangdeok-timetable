@@ -265,9 +265,9 @@ test("AI 요청문: 활동 이름 그대로, 날짜 쓰지 않기, 분량 설정
   assert.ok(prompt.includes("[활동 목록] 장애인식 개선 교육"));
   assert.ok(prompt.includes("적힌 그대로 쓰기"));
   assert.ok(prompt.includes("날짜·기간·시간은 쓰지 않기"));
-  assert.ok(prompt.includes("한글 약 375-450자"));
-  assert.ok(buildAiPrompt({ area: "자율", budget: 1500, fill: "short" }).includes("한글 약 250-325자"));
-  assert.ok(buildAiPrompt({ area: "자율", budget: 1500, fill: "full" }).includes("한글 약 450-490자"));
+  assert.ok(prompt.includes("약 1,125-1,350바이트, 띄어쓰기 포함 약 430-510자"));
+  assert.ok(buildAiPrompt({ area: "자율", budget: 1500, fill: "short" }).includes("약 750-975바이트"));
+  assert.ok(buildAiPrompt({ area: "자율", budget: 1500, fill: "full" }).includes("약 1,320-1,425바이트"));
 });
 test("점검: 태도 표현 반복", () => {
   const text = "교육에 참여하여 사례를 들으며 집중함. 사례를 주의 깊게 경청하고 진지한 자세로 임함. 끝까지 집중력을 유지하는 모습을 보임. 전 과정에 성실하고 바른 태도로 참여함.";
@@ -278,7 +278,7 @@ test("AI 요청문: 태도 문장으로 분량 채우지 않기", async () => {
   const { buildAiPrompt } = await import("../src/recordText.js");
   const prompt = buildAiPrompt({ area: "자율", budget: 1500 });
   assert.ok(prompt.includes("태도 문장으로 분량을 채우지 않기")); assert.ok(prompt.includes("교사의 평가로 한 문장")); assert.ok(prompt.includes("글 전체에서 1-2번만"));
-  assert.ok(prompt.includes("한글 약 375-450자"));
+  assert.ok(prompt.includes("약 1,125-1,350바이트, 띄어쓰기 포함 약 430-510자"));
 });
 test("점검: 참여하여 ~ 참여함 겹침", () => {
   assert.ok(checkRecordText("장애이해교육에 참여하여 사례를 들음. 배려를 주제로 한 교육 과정에 참여함.").some(i => i.kind === "'참여' 겹침"));
@@ -303,4 +303,9 @@ test("점검 전수조사: 걸러야 할 것은 그대로", () => {
 });
 test("점검: 살펴봄은 학생 입장 표현", () => {
   assert.ok(checkRecordText("탄소가 환경에 미치는 영향을 살펴봄.").some(i => i.kind === "학생 입장 표현"));
+});
+test("점검: 평가 문장 많음(3개 이상)", () => {
+  const t = "영상에 음성 해설을 넣자고 제안하여 포용적 태도가 돋보임.\n토의에서 콘텐츠를 걸러야 한다고 주장하며 비판적 관점을 드러냄.\n카드뉴스를 만들어 게시하며 기획력이 돋보임.";
+  assert.ok(checkRecordText(t).some(i => i.kind === "평가 문장 많음"));
+  assert.ok(!checkRecordText("제안하여 포용적 태도가 돋보임.\n카드뉴스를 만들어 게시함.").some(i => i.kind === "평가 문장 많음"));
 });
