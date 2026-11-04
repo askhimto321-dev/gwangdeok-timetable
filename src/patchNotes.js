@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-05-a",
+    date: "2026-11-05",
+    title: "AI 도우미 요청문 다듬기",
+    items: [
+      { audience: "staff", text: "AI 요청문을 다듬어 활동별 흐름(한 일 → 학생의 생각·제안 → 드러난 역량)과 진로 연결이 더 잘 드러나게 했어요." },
+    ],
+  },
+  {
     id: "2026-11-04-n",
     date: "2026-11-04",
     title: "생기부 필터링 강화",

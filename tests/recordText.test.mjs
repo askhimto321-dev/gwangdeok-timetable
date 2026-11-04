@@ -222,7 +222,7 @@ test("행사 원문 줄 바꾸기", async () => {
 test("AI 요청문: 여러 활동이면 줄 바꿈·억지 연결 금지, 진로희망 반영", async () => {
   const { buildAiPrompt } = await import("../src/recordText.js");
   const multi = buildAiPrompt({ area: "자율·자치활동", notes: [["a", "x"], ["b", "y"]], multi: true, hope: "건축가" });
-  assert.ok(multi.includes("활동마다 줄을 바꿔"));
+  assert.ok(multi.includes("활동마다 줄을 바꿔")); assert.ok(multi.includes("문장마다 줄을 바꾸지 않기"));
   assert.ok(multi.includes("'~에서는'"));
   assert.ok(multi.includes("[학생 진로희망] 건축가"));
   const one = buildAiPrompt({ area: "행동특성 및 종합의견", notes: [["a", "x"]] });
@@ -277,7 +277,7 @@ test("점검: 태도 표현 반복", () => {
 test("AI 요청문: 태도 문장으로 분량 채우지 않기", async () => {
   const { buildAiPrompt } = await import("../src/recordText.js");
   const prompt = buildAiPrompt({ area: "자율", budget: 1500 });
-  assert.ok(prompt.includes("태도 문장으로 분량을 채우지 않기"));
+  assert.ok(prompt.includes("태도 문장으로 분량을 채우지 않기")); assert.ok(prompt.includes("교사의 평가로 한 문장")); assert.ok(prompt.includes("글 전체에서 1-2번만"));
   assert.ok(prompt.includes("한글 약 375-450자"));
 });
 test("점검: 참여하여 ~ 참여함 겹침", () => {
