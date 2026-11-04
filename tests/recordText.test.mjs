@@ -229,3 +229,11 @@ test("AI 요청문: 여러 활동이면 줄 바꿈·억지 연결 금지, 진로
   assert.ok(!one.includes("활동마다 줄을 바꿔"));
   assert.ok(!one.includes("진로희망"));
 });
+test("같은 끝맺음 반복 알림, 요청문 다양성 규칙", async () => {
+  const { checkRecordText, buildAiPrompt } = await import("../src/recordText.js");
+  const has = t => checkRecordText(t).some(i => JSON.stringify(i).includes("같은 끝맺음 반복"));
+  assert.equal(has("회의를 이끄는 모습이 돋보임. 자료를 정리하는 능력이 돋보임. 협력하는 태도가 돋보임."), true);
+  assert.equal(has("회의를 이끎. 자료를 정리하는 능력이 돋보임. 협력하는 태도를 보임."), false);
+  const pr = buildAiPrompt({ area: "자율·자치활동", notes: [["a", "x"]], hope: "건축가" });
+  assert.ok(pr.includes("이해함")); assert.ok(pr.includes("문장 끝을 다양하게")); assert.ok(pr.includes("'~에 참여하여'")); assert.ok(pr.includes("자율·자치활동에서도 진로"));
+});

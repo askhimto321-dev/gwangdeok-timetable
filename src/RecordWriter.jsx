@@ -644,7 +644,11 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     <div className="krw-ai-steps" role="tablist">{[["prompt", "1", "요청문", "요청문 만들기"], ["answer", "2", "답 점검", "AI 답 붙여넣어 점검"], ["trim", "3", "줄이기", "문장 빼서 바이트 맞추기"], ...(aiContext.subject ? [["examples", "4", "예시", "공식 기재 예시"]] : [])].map(([key, no, label, tip]) => <button key={key} type="button" data-kdn-bare role="tab" title={tip} aria-selected={step === key} onClick={() => setStep(key)}><i>{no}</i>{label}</button>)}</div>
     {step === "prompt" && <div className="krw-ai-body">
       <p className="krw-ai-lead">누가기록·기재요령·남은 바이트를 담은 요청문이에요. <b>학생 이름은 빠져요.</b></p>
-      <div className="krw-ai-sum"><div><b>요청문에 넣을 것</b><span>{incSummary.length ? incSummary.join(" · ") : "기재요령과 바이트만"}</span></div><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPickOpen(true)}><ListChecks size={14} /> 고르기</button></div>
+      <div className={`krw-ai-sum${notes.length + reflNotes.length ? "" : " is-empty"}`}>
+        <div className="hd"><ListChecks size={16} /><b>① 요청문에 넣을 것</b><span>{notes.length + reflNotes.length ? "이 자료로 요청문을 만들어요" : "아직 누가기록·소감문을 고르지 않았어요"}</span></div>
+        <div className="chips">{incSummary.length ? incSummary.map(text => <i key={text}>{text}</i>) : <em>기재요령과 바이트 조건만 들어가요</em>}</div>
+        <button type="button" data-kdn-bare className="krw-btn pri" onClick={() => setPickOpen(true)}><ListChecks size={14} /> 넣을 자료 고르기 · 확인</button>
+      </div>
       {pickOpen && createPortal(<div className="krw krw-modal" role="dialog" aria-modal="true" aria-label="요청문에 넣을 것 고르기" onClick={event => { if (event.target === event.currentTarget) setPickOpen(false); }}><div className="krw-modal-box krw-pick">
         <header><b><ListChecks size={17} /> 요청문에 넣을 것</b><button type="button" data-kdn-bare onClick={() => setPickOpen(false)} aria-label="닫기"><X size={16} /></button></header>
         <p>'{target?.label}' 칸 요청문에 함께 보낼 자료를 골라요. 학생 이름은 들어가지 않아요.</p>
@@ -1870,7 +1874,13 @@ const CSS = `
 .krw-evf-fix{margin:0;font-size:12.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-fix .krw-linkbtn{font-size:12.5px}
 .krw-evf-tbl td.ck,.krw-evf-tbl th.ck{width:30px;text-align:center}.krw-evf-tbl th.ck+th,.krw-evf-tbl td.ck+td{text-align:left}.krw-evf-tbl td.ck input{width:16px;height:16px;accent-color:#7c3aed}
 .krw-evf-tbl{width:100%;border-collapse:collapse;font-size:13px}.krw-evf-tbl th,.krw-evf-tbl td{padding:7px 8px;border-bottom:1px solid var(--kdn-line,#ece9e3);text-align:center}.krw-evf-tbl td:first-child,.krw-evf-tbl th:first-child{text-align:left}.krw-evf-tbl td b{display:block}.krw-evf-tbl td small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-evf-tbl tr.is-left td:last-child{color:#b45309;font-weight:800}
-.krw-ai-sum{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f3)}.krw-ai-sum>div{flex:1;min-width:0;display:grid;gap:2px}.krw-ai-sum b{font-size:12.5px;font-weight:800}.krw-ai-sum span{font-size:12.5px;color:var(--kdn-ink-soft,#5b606b)}.krw-ai-sum .krw-btn{flex:none;min-height:32px}
+.krw-ai-sum{display:grid;gap:8px;padding:12px 14px;border-radius:14px;border:2px solid color-mix(in srgb,#ff7a3d 55%,transparent);background:color-mix(in srgb,#ff7a3d 6%,var(--kdn-surface,#fff));box-shadow:0 4px 14px rgba(255,122,61,.12)}
+.krw-ai-sum .hd{display:flex;flex-wrap:wrap;align-items:center;gap:6px;color:#c2410c}.krw-ai-sum .hd b{font-size:14px;font-weight:800}.krw-ai-sum .hd span{font-size:12px;font-weight:600;color:var(--kdn-ink-soft,#5b606b)}
+.krw-ai-sum .chips{display:flex;flex-wrap:wrap;gap:4px}.krw-ai-sum .chips i{padding:3px 9px;border-radius:99px;background:var(--kdn-surface,#fff);border:1px solid color-mix(in srgb,#ff7a3d 35%,transparent);font-style:normal;font-size:12px;font-weight:700;color:#9a3412}.krw-ai-sum .chips em{font-style:normal;font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-ai-sum .krw-btn{justify-content:center;min-height:36px}
+.krw-ai-sum.is-empty{animation:krwPulse 1.6s ease-in-out 3}.krw-ai-sum.is-empty .hd span{color:#b45309;font-weight:800}
+@keyframes krwPulse{0%,100%{box-shadow:0 4px 14px rgba(255,122,61,.12)}50%{box-shadow:0 0 0 6px rgba(255,122,61,.22)}}
+@media (prefers-reduced-motion:reduce){.krw-ai-sum.is-empty{animation:none}}
 .krw-pick{width:min(560px,100%);max-height:calc(100vh - 32px);grid-template-rows:auto auto minmax(0,1fr) auto}
 .krw-pick-body{display:grid;gap:14px;overflow:auto;padding-right:2px}
 .krw-pick-body section{display:grid;gap:6px}.krw-pick-body h4{margin:0;font-size:14px;font-weight:800}.krw-pick-body h4 small{margin-left:6px;font-size:12px;font-weight:600;color:var(--kdn-muted,#8a8f99)}
