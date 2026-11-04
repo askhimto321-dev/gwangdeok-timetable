@@ -96,7 +96,7 @@ export function checkRecordText(text = "") {
   findAll(value, /\.{2,}|,{2,}|\s+[.,](?=\s|$)/g).forEach(hit => add("warn", "오타 의심", hit.match.trim() || hit.match, hit.index, "문장부호를 확인해 주세요"));
   // 문장 끝: 과거·미래형, 학생 입장(셀프 생기부) 표현
   findAll(value, /[가-힣]*(?:했음|하였음|었음|았음|였음|겠음|할 것임|할 예정임)(?=\s*[.\n]|\s*$)/g).forEach(hit => add("warn", "시제", hit.match, hit.index, "현재형 종결어미로(~함, ~임)"));
-  findAll(value, /[가-힣]*(?:파악함|이해함|깨달음|다짐함|느낌|배움|고찰함|분석함)(?=\s*[.\n]|\s*$)/g).forEach(hit => add("warn", "학생 입장 표현", hit.match, hit.index, "교사 관찰로(~하는 모습을 보임, ~이 돋보임)"));
+  findAll(value, /[가-힣]*(?:파악함|이해함|깨달음|다짐함|느낌|배움|고찰함|분석함|알게 됨|알게됨|생각함|결심함|체득함|인식함|느낌을 밝힘|소감을 밝힘)(?=\s*[.\n]|\s*$)/g).forEach(hit => add("warn", "학생 입장 표현", hit.match, hit.index, "교사 관찰로(~하는 모습을 보임, ~이 돋보임)"));
   // 영문: 허용 목록 밖의 영어 낱말
   findAll(value, /[A-Za-z][A-Za-z0-9]*/g).forEach(hit => {
     if (ALLOWED_EN.has(hit.match) || issues.some(issue => issue.index <= hit.index && hit.index < issue.index + issue.match.length)) return;
@@ -126,6 +126,10 @@ export function checkRecordText(text = "") {
     // 받침 ㅁ(함·임·음) 또는 ㄻ(이끎·만듦·삶)이면 명사형 종결로 봐요.
     else if (lastHangul && ![16, 10].includes((lastHangul.charCodeAt(0) - 0xAC00) % 28)) add("warn", "문장 끝 확인", tail.slice(-12), pos, `${where}이 '~함. ~임. ~음.' 같은 종결어미로 끝나는지 확인해 주세요(낱말로 끝나면 문장이 끊긴 것일 수 있어요)`);
   });
+  // 같은 끝맺음 반복: '~돋보임.'처럼 같은 끝말로 끝나는 문장이 3번 넘게 이어지면 알려요
+  const endWords = splitSentences(value).map(sentence => (sentence.replace(/[.!?\s]+$/, "").match(/[가-힣]+$/) || [""])[0].slice(-3)).filter(Boolean);
+  const endCount = {}; endWords.forEach(w => { endCount[w] = (endCount[w] || 0) + 1; });
+  Object.entries(endCount).filter(([, n]) => n >= 3).forEach(([w, n]) => add("warn", "같은 끝맺음 반복", `~${w}. ×${n}`, Math.max(0, value.lastIndexOf(w)), `'~${w}'로 끝나는 문장이 ${n}개예요. 끝맺음을 다양하게 바꿔 보세요(~함, ~을 보임, ~에 기여함 등)`));
   repeatedSentences(value).forEach(sentence => add("warn", "같은 문장 반복", sentence.length > 24 ? `${sentence.slice(0, 24)}…` : sentence, value.lastIndexOf(sentence), "같은 문장을 두 번 썼어요. 하나는 지우거나 다른 관찰 내용으로 바꿔 주세요"));
   return issues.sort((a, b) => a.index - b.index);
 }
@@ -297,7 +301,10 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     "[작성 조건]",
     `- 분량: 나이스 기준 ${budget.toLocaleString()}바이트 이내(한글 1자 3바이트, 영문·숫자·공백 1바이트), 한글로 약 ${chars}자 이내`,
     "- 현재형 종결어미(~함, ~임, ~하는 모습을 보임)로 끝내기. 과거형(했음, 하였음, 알 수 있었음) 쓰지 않기",
-    "- 학생 입장 표현(깨달음, 다짐함, 느낌, 배움) 대신 교사 관찰 표현(~하는 모습이 돋보임, ~하는 능력이 뛰어남)",
+    "- 학생 입장·내면 표현 쓰지 않기: 이해함, 깨달음, 알게 됨, 느낌, 배움, 다짐함, 생각함, 결심함, 인식함, 체득함, 소감을 밝힘 등. 학생이 '무엇을 하고 어떻게 행동했는지'를 교사가 관찰한 사실로 쓰기(예: ~을 정리해 발표함, ~하는 모습을 보임)",
+    "- 소감문은 학생이 쓴 글이에요. 학생의 생각·다짐을 옮기지 말고, 소감문에 드러난 활동 사실만 근거로 쓰기",
+    "- 문장 끝을 다양하게: '돋보임', '보임' 같은 같은 끝맺음을 이어 쓰지 않기(~함, ~임, ~을 보임, ~이 돋보임, ~을 이끎, ~에 기여함 등을 섞기)",
+    "- 문장 시작·연결도 다양하게: '~에 참여하여', '~에서', '~을 통해'를 번갈아 쓰거나 다른 표현(~을 맡아, ~하는 과정에서, ~을 바탕으로 등)으로 바꾸기",
     "- 특수기호(가운데점, 둥근 따옴표, 대괄호, 물결표) 쓰지 않기. 기간은 하이픈(-)으로",
     "- 대학명, 기관명, 상호명(동영상 플랫폼·대화형 인공지능 등은 일반 명칭으로), 강사명, 대회, 수상, 자격증, 논문, 어학시험, 모의고사 성적 쓰지 않기",
     "- 문자는 한글로 쓰고, 관찰 기록에 없는 활동이나 성과는 지어내지 않기",
@@ -306,7 +313,7 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
       ? ["- 활동이 여러 개예요. 활동마다 줄을 바꿔 따로 쓰기(활동 하나 = 한 단락, 단락 사이 빈 줄 없이 줄 바꿈만)",
         "- 서로 관련 없는 활동을 '~에서는', '~에서도', '또한 ~에서는'처럼 억지로 이어 한 문장·한 문단으로 만들지 않기. 활동이 바뀌면 줄을 바꾸기"]
       : ["- 한 문단으로 쓰되, 서로 관련 없는 내용을 '~에서는', '~에서도'처럼 억지로 잇지 않기"]),
-    ...(hope ? ["- 학생의 진로희망과 이어지는 내용은 관찰 기록에 있는 것만 자연스럽게 연결하기(진로와 억지로 엮거나 지어내지 않기)"] : []),
+    ...(hope ? [`- 학생의 진로희망을 고려해 쓰기${/자율|자치/.test(area) ? "(자율·자치활동에서도 진로와 이어지는 관심·역량이 드러나는 부분을 살리기)" : ""}. 단, 관찰 기록에 있는 내용만 자연스럽게 연결하고 진로와 억지로 엮거나 지어내지 않기`] : []),
     ...(subject && frame ? ["- 구성: 학생의 성취수준 → 평가 과제에서 관찰한 수행 과정과 결과(근거) → 드러난 교과역량 → 교사 총평 순서를 참고하기"] : []),
     "",
     `[과목·영역] ${[subject, activity].filter(Boolean).join(" / ") || area}`,
