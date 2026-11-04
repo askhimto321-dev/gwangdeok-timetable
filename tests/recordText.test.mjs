@@ -251,3 +251,11 @@ test("'소감을 밝힘'은 점검에 걸리지 않음", async () => {
   const { checkRecordText } = await import("../src/recordText.js");
   assert.equal(checkRecordText("활동을 마치고 소감을 밝힘.").some(i => i.kind === "학생 입장 표현"), false);
 });
+test("eventInField: 고쳐 쓴 행사 글도 있음으로 봄", async () => {
+  const { eventInField } = await import("../src/recordText.js");
+  const ev = "희망 진로를 심층적으로 탐구하고 관련 분야를 직접 체험해보는 따라체험 활동에 참여함. 헤어 분야에 관심을 가지고 체험 활동을 계획함.";
+  assert.equal(eventInField(`${ev} 덧붙임.`, ev), true);
+  assert.equal(eventInField("희망 진로를 심층적으로 탐구하고 관련 분야를 직접 체험해보는 따라체험 활동에 참여함. 팀에서 타임 매니저 역할을 맡음.", ev), true);
+  assert.equal(eventInField("전혀 다른 내용의 자율 활동 기록임.", ev), false);
+  assert.equal(eventInField("", ev), false);
+});

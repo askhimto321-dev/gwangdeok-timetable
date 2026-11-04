@@ -480,3 +480,16 @@ export function lineBreakEvents(field = "", texts = []) {
   });
   return out;
 }
+
+// 칸에 행사 글이 (고쳐 썼더라도) 남아 있는지: 원문 그대로이거나, 원문 문장 중 하나가 거의 그대로 있거나, 글자 조각이 절반 넘게 겹치면 '있음'
+export function eventInField(field = "", text = "") {
+  const f = String(field || ""); const t = String(text || "").trim();
+  if (!t || !f.trim()) return false;
+  if (f.includes(t)) return true;
+  const nf = normSentence(f);
+  if (splitSentences(t).some(sentence => { const k = normSentence(sentence); return k.length >= 10 && nf.includes(k); })) return true;
+  const gt = bigrams(normSentence(t)); const gf = bigrams(nf);
+  if (!gt.size) return false;
+  let hit = 0; gt.forEach(g => { if (gf.has(g)) hit += 1; });
+  return hit / gt.size >= 0.5;
+}
