@@ -12,7 +12,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, lineBreakEvents, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -861,7 +861,7 @@ function useEventDoc(year, grade) {
 }
 const evStatusKey = item => `ev:${item.eventKey}`;
 // 넣을 차례인 행사: 확인 안 함, 또는 '반영함'인데 칸에서 글을 지운 경우(다시 넣기)
-const evNeeds = (rec, item) => { const st = rec.textOf(item.sid, evStatusKey(item)); return !st || (st === "in" && !rec.textOf(item.sid, item.area).includes(item.text.trim())); };
+const evNeeds = (rec, item) => { const st = rec.textOf(item.sid, evStatusKey(item)); return !st || (st === "in" && !eventInField(rec.textOf(item.sid, item.area), item.text)); }; // 고쳐 쓴 글도 반영으로 봐요
 // 행사 세특 파일 올리기·빼기(관리자·부서 공용·학년부장)
 // 한 파일에 여러 학년이 들어 있으면 학년마다 따로 저장해요(지금 학년은 화면에도 바로 반영).
 function useEventUpload(ev, grade, by, showToast, canManage, year) {
@@ -1190,19 +1190,19 @@ function EventBox({ items, rec, sid, area }) {
     if (add) rec.edit(`s|${sid}|${area}`, field.trim() ? `${field.trim()}\n${add}` : add);
     list.forEach(item => mark(item, "in"));
   };
-  const needs = item => !status(item) || (status(item) === "in" && !field.includes(item.text.trim()));
+  const needs = item => !status(item) || (status(item) === "in" && !eventInField(field, item.text));
   const left = items.filter(needs);
   const label = RECORD_AREAS[area]?.short || "";
   return <div className={`krw-evbox${left.length ? " has-left" : ""}`} data-tour="rw-events">
     <div className="hd"><CalendarCheck size={14} /><b>행사 특기사항</b><span>{left.length ? <em>넣을 행사 {left.length}개</em> : <i><Check size={12} /> 모두 확인했어요</i>}</span>
       {left.length > 1 && !readOnlyView && <button type="button" data-kdn-bare className="krw-mini" onClick={() => insert(left)}>남은 {left.length}개 모두 넣기</button>}</div>
-    <ul>{items.map(item => { const st = status(item); const inField = field.includes(item.text.trim()); return <li key={item.eventKey} className={st ? `is-${st}` : ""}>
+    <ul>{items.map(item => { const st = status(item); const inField = eventInField(field, item.text); const edited = inField && !field.includes(item.text.trim()); return <li key={item.eventKey} className={st ? `is-${st}` : ""}>
       <div className="body"><button type="button" data-kdn-bare className="ttl" onClick={() => setOpen(v => ({ ...v, [item.eventKey]: !v[item.eventKey] }))} title="눌러서 전체 글 보기"><b>{item.event}</b><small>{neisBytes(item.text).toLocaleString()} byte</small></button>
         <p className={open[item.eventKey] ? "is-open" : ""}>{item.text}</p></div>
       <div className="act">{readOnlyView ? null : !st ? <>
           <button type="button" data-kdn-bare className="go" onClick={() => insert([item])} title={`${label} 칸 끝에 이 글을 넣고 '반영함'으로 표시`}><ChevronLeft size={13} style={{ transform: "rotate(-90deg)" }} /> 칸에 넣기</button>
           <button type="button" data-kdn-bare className="skip" onClick={() => mark(item, "out")} title="이 학생은 이 행사를 쓰지 않아요">빼기</button></>
-        : <><span className={`tag is-${st}`}>{st === "in" ? <><Check size={12} /> 반영함</> : "뺌"}</span>{st === "in" && !inField && <button type="button" data-kdn-bare className="go" onClick={() => insert([item])} title="칸에서 이 글이 지워졌어요. 다시 넣어요">다시 넣기</button>}{false && <small className="warn" title="표시는 '반영함'인데 칸에 이 글이 없어요(고쳐 썼다면 괜찮아요)">칸에 원문 없음</small>}
+        : <><span className={`tag is-${st}`}>{st === "in" ? <><Check size={12} /> 반영함{edited ? " · 고쳐 씀" : ""}</> : "뺌"}</span>{st === "in" && !inField && <button type="button" data-kdn-bare className="go" onClick={() => insert([item])} title="칸에서 이 글이 지워졌어요. 다시 넣어요">다시 넣기</button>}{false && <small className="warn" title="표시는 '반영함'인데 칸에 이 글이 없어요(고쳐 썼다면 괜찮아요)">칸에 원문 없음</small>}
           <button type="button" data-kdn-bare className="undo" onClick={() => mark(item, "")} title="확인 표시만 지워요(칸의 글은 그대로)">되돌리기</button></>}</div>
     </li>; })}</ul>
   </div>;
