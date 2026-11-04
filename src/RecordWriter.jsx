@@ -145,17 +145,31 @@ function ByteMeter({ text, limit }) {
   </span>;
 }
 
-function IssueList({ text }) {
-  const issues = useMemo(() => checkRecordText(text), [text]);
-  if (!issues.length) return text ? <p className="krw-ok"><Check size={13} /> 기재요령 점검 통과</p> : null;
+// 점검 '인정': 선생님이 맞다고 본 항목(예: 광고 용어 4P)은 학생마다 기억해 두고, 주의 표시·개수에서 빼요.
+// 저장: 반 생기부 자료 's|학번|ok' = ["종류|걸린 글", ...]
+const issueSig = item => `${item.kind}|${item.match}`;
+const parseOk = raw => { try { const v = JSON.parse(raw || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } };
+const activeIssues = (text, ok = []) => checkRecordText(text).filter(item => !ok.includes(issueSig(item)));
+function IssueList({ text, ok = [], onToggle = null }) {
+  const all = useMemo(() => checkRecordText(text), [text]);
   const merged = [];
-  issues.forEach(item => { const found = merged.find(x => x.kind === item.kind && x.match === item.match); if (found) found.count += 1; else merged.push({ ...item, count: 1 }); });
-  return <ul className="krw-issues">{merged.map((item, index) => <li key={index} className={item.level === "block" ? "is-block" : "is-warn"}>
-    <b>{item.level === "block" ? "기재 불가" : "고치기 권장"}</b><span className="k">{item.kind}</span><code>{item.match}</code>{item.count > 1 && <em>×{item.count}</em>}<small>{item.fix}</small>
-  </li>)}</ul>;
+  all.forEach(item => { const found = merged.find(x => x.kind === item.kind && x.match === item.match); if (found) found.count += 1; else merged.push({ ...item, count: 1 }); });
+  const active = merged.filter(item => !ok.includes(issueSig(item)));
+  const accepted = merged.filter(item => ok.includes(issueSig(item)));
+  if (!merged.length) return text ? <p className="krw-ok"><Check size={13} /> 기재요령 점검 통과</p> : null;
+  return <>
+    {active.length ? <ul className="krw-issues">{active.map((item, index) => <li key={index} className={item.level === "block" ? "is-block" : "is-warn"}>
+      <b>{item.level === "block" ? "기재 불가" : "고치기 권장"}</b><span className="k">{item.kind}</span><code>{item.match}</code>{item.count > 1 && <em>×{item.count}</em>}<small>{item.fix}</small>
+      {onToggle && <button type="button" data-kdn-bare className="krw-okbtn" title="이 학생에게는 맞는 표현이라 점검에서 빼요(예: 전문 용어). 언제든 취소할 수 있어요." onClick={() => onToggle(issueSig(item), true)}>인정</button>}
+    </li>)}</ul> : <p className="krw-ok"><Check size={13} /> 기재요령 점검 통과{accepted.length ? ` (인정 ${accepted.length}개)` : ""}</p>}
+    {accepted.length > 0 && <ul className="krw-issues is-ok">{accepted.map((item, index) => <li key={index}>
+      <b>인정함</b><span className="k">{item.kind}</span><code>{item.match}</code><small>선생님이 맞다고 확인한 표현이에요</small>
+      {onToggle && <button type="button" data-kdn-bare className="krw-okbtn undo" onClick={() => onToggle(issueSig(item), false)}>취소</button>}
+    </li>)}</ul>}
+  </>;
 }
-function IssueDot({ text }) {
-  const s = issueSummary(checkRecordText(text));
+function IssueDot({ text, ok = [] }) {
+  const s = issueSummary(activeIssues(text, ok));
   if (!s.total) return null;
   return <span className={`krw-dot ${s.block ? "is-block" : "is-warn"}`} title={`기재 불가 ${s.block} · 권장 ${s.warn}`}>{s.total}</span>;
 }
@@ -256,7 +270,7 @@ function downloadJson(fileName, data) {
   const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = fileName; document.body.appendChild(a); a.click(); a.remove();
   window.setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 }
-const issueLine = text => { const list = checkRecordText(text); return list.length ? `점검: ${list.slice(0, 6).map(item => `${item.kind} '${item.match}'`).join(", ")}${list.length > 6 ? ` 외 ${list.length - 6}건` : ""}` : ""; };
+const issueLine = (text, ok = []) => { const list = activeIssues(text, ok); return list.length ? `점검: ${list.slice(0, 6).map(item => `${item.kind} '${item.match}'`).join(", ")}${list.length > 6 ? ` 외 ${list.length - 6}건` : ""}` : ""; };
 
 function PrintMenu({ onPick, scopes, busy }) {
   const [open, setOpen] = useState(false);
@@ -279,7 +293,7 @@ function CopyBtn({ text, label = "복사" }) {
   return <button type="button" data-kdn-bare className="krw-mini" disabled={!String(text || "").trim()} title="이 칸 글 복사" onClick={async () => { try { await navigator.clipboard.writeText(String(text || "").trim()); setDone(true); window.setTimeout(() => setDone(false), 1400); } catch { /* 복사 권한이 없으면 무시 */ } }}>{done ? <Check size={12} /> : <Copy size={12} />} {done ? "복사됨" : label}</button>;
 }
 
-function Field({ label, text, limit, onChange, check, rows = 6, readOnly = false, meta, hint = "", color = "#ea580c", tag = "", share = null }) {
+function Field({ label, text, limit, onChange, check, rows = 6, readOnly = false, meta, hint = "", color = "#ea580c", tag = "", share = null, ok = [], onOk = null }) {
   const fixed = autoFixRecordText(text);
   return <div className="krw-field" style={{ "--c": color }}>
     <div className="krw-field-hd">{tag && <span className="krw-chip">{tag}</span>}<b>{label}</b>{meta?.at && <small>{meta.by ? `${meta.by} · ` : ""}{new Date(meta.at).toLocaleString("ko-KR", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</small>}
@@ -287,7 +301,7 @@ function Field({ label, text, limit, onChange, check, rows = 6, readOnly = false
       {!readOnly && fixed !== text && <button type="button" data-kdn-bare className="krw-fix" title="가운데점·둥근 따옴표·물결·대괄호·겹친 띄어쓰기를 기재요령대로 바꿔요" onClick={() => onChange?.(fixed)}><Wand2 size={13} /> 기호 자동 고치기</button>}
       {share ? <span className="krw-part" title="이 활동 바이트 (한도는 총합본 기준)"><b>{neisBytes(text).toLocaleString()}</b> byte{share.total ? ` · 합계의 ${Math.round((neisBytes(text) / share.total) * 100)}%` : ""}</span> : <ByteMeter text={text} limit={limit} />}</div>
     <textarea value={text} rows={rows} readOnly={readOnly} spellCheck={false} onChange={event => onChange?.(event.target.value)} placeholder={readOnly ? "" : `${hint || label} 내용을 적어 주세요. 자동으로 저장돼요.`} />
-    {check && <IssueList text={text} />}
+    {check && <IssueList text={text} ok={ok} onToggle={readOnly ? null : onOk} />}
   </div>;
 }
 
@@ -768,7 +782,7 @@ function Progress({ done, total, filter, setFilter, counts = {} }) {
     <span className="krw-filter" role="group" aria-label="학생 거르기">{chips.map(([key, label, n]) => <button key={key} type="button" data-kdn-bare aria-pressed={filter === key} className={`${key !== "all" && !n ? "is-zero" : ""} f-${key}`} onClick={() => setFilter(filter === key ? "all" : key)}>{label}{key !== "all" && <span className="n">{n}</span>}</button>)}</span></div>;
 }
 const overLimit = (text, limit) => neisBytes(text) > limit;
-const hasIssue = text => !!String(text || "").trim() && checkRecordText(text).length > 0;
+const hasIssue = (text, ok = []) => !!String(text || "").trim() && activeIssues(text, ok).length > 0;
 function FindBox({ find, setFind }) {
   return <label className="krw-find is-inline"><Search size={14} /><input value={find} onChange={event => setFind(event.target.value)} placeholder="이름·번호 찾기" />{find && <button type="button" data-kdn-bare onClick={() => setFind("")} aria-label="지우기"><X size={13} /></button>}</label>;
 }
@@ -812,8 +826,8 @@ function StudentCell({ no, name, done, total, onOpen }) {
 }
 
 // 한눈에 표의 글 칸: 비어 있으면 입력칸만, 글이 있으면 바이트·복사, 점검에 걸리면 무엇이 걸렸는지 바로 아래에 적어요.
-function GridCell({ color, text, check, label, placeholder, onChange, meter }) {
-  const issues = useMemo(() => (check && text.trim() ? checkRecordText(text) : []), [check, text]);
+function GridCell({ color, text, check, label, placeholder, onChange, meter, ok = [] }) {
+  const issues = useMemo(() => (check && text.trim() ? activeIssues(text, ok) : []), [check, text, ok]);
   const tone = issues.some(item => item.level === "block") ? "has-block" : issues.length ? "has-warn" : "";
   return <td style={{ "--c": color }}>
     <textarea rows={2} value={text} spellCheck={false} aria-label={label} placeholder={placeholder} className={tone} onChange={event => onChange(event.target.value)} />
@@ -1230,7 +1244,9 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   useEffect(() => { if (!students.some(s => s.sid === sid)) setSid(students[0]?.sid || ""); }, [students]); // eslint-disable-line react-hooks/exhaustive-deps
   const filled = s => HOMEROOM_AREAS.filter(key => rec.textOf(s.sid, key).trim()).length;
   const isOver = s => HOMEROOM_AREAS.some(key => overLimit(rec.textOf(s.sid, key), lim(key)));
-  const isIssue = s => HOMEROOM_AREAS.some(key => hasIssue(rec.textOf(s.sid, key)));
+  const okOf = sid => parseOk(rec.textOf(sid, "ok"));
+  const toggleOk = sid => (sig, on) => { const list = okOf(sid).filter(x => x !== sig); rec.edit(`s|${sid}|ok`, JSON.stringify(on ? [...list, sig] : list)); };
+  const isIssue = s => HOMEROOM_AREAS.some(key => hasIssue(rec.textOf(s.sid, key), okOf(s.sid)));
   const test = { all: () => true, empty: s => filled(s) < HOMEROOM_AREAS.length, over: isOver, issue: isIssue, event: s => eventLeft(s) > 0 };
   const counts = { empty: students.filter(test.empty).length, over: students.filter(isOver).length, ...(check ? { issue: students.filter(isIssue).length } : {}), ...(classEvents ? { event: students.filter(test.event).length } : {}) };
   const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (test[filter] || test.all)(s));
@@ -1247,7 +1263,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
   const saveNow = useCallback(async () => { if (await rec.save()) showToast?.("저장했어요.", "success"); }, [rec, showToast]);
   useWriterKeys({ onNext: () => go(1), onPrev: () => go(-1), onSave: saveNow });
 
-  const blocksFor = list => list.map(s => ({ no: `${s.number}번`, name: s.name, sub: s.sid, parts: HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return { label: RECORD_AREAS[key].label, text, bytes: neisBytes(text), limit: lim(key), issues: issueLine(text) }; }) }));
+  const blocksFor = list => list.map(s => ({ no: `${s.number}번`, name: s.name, sub: s.sid, parts: HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return { label: RECORD_AREAS[key].label, text, bytes: neisBytes(text), limit: lim(key), issues: issueLine(text, okOf(s.sid)) }; }) }));
   const output = (scope, kind) => {
     const list = scope === "student" ? (current ? [current] : []) : students;
     if (!list.length) return showToast?.("출력할 학생이 없어요.", "error");
@@ -1284,16 +1300,16 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
       : !students.length ? <div className="krw-empty"><Users size={20} /><b>{cls}반 명단이 없어요.</b><span>관리자 화면에서 {grade}학년 명단을 올려 주세요.</span></div>
       : view === "table" ? <div className="krw-table-wrap"><table className="krw-table krw-grid"><colgroup><col className="c-nm" />{HOMEROOM_AREAS.map(key => <col key={key} />)}</colgroup>
         <thead><tr><th className="nm">학생</th>{HOMEROOM_AREAS.map(key => <th key={key} style={{ "--c": AREA_COLOR[key] }}><span className="h"><i />{RECORD_AREAS[key].label}<small>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}명 · 한도 {lim(key).toLocaleString()}</small></span></th>)}</tr></thead>
-        <tbody>{shown.map((s, i) => <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${isOver(s) ? " is-over" : ""}`}><StudentCell no={s.number} name={s.name} done={filled(s)} total={HOMEROOM_AREAS.length} onOpen={() => openStudent(s.sid)} />{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <GridCell key={key} color={AREA_COLOR[key]} text={text} check={check} label={`${s.number}번 ${RECORD_AREAS[key].label}`} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={value => rec.edit(`s|${s.sid}|${key}`, value)} meter={<ByteMeter text={text} limit={lim(key)} />} />; })}</tr>)}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
+        <tbody>{shown.map((s, i) => <tr key={s.sid} className={`${i % 2 ? "is-alt" : ""}${isOver(s) ? " is-over" : ""}`}><StudentCell no={s.number} name={s.name} done={filled(s)} total={HOMEROOM_AREAS.length} onOpen={() => openStudent(s.sid)} />{HOMEROOM_AREAS.map(key => { const text = rec.textOf(s.sid, key); return <GridCell ok={okOf(s.sid)} key={key} color={AREA_COLOR[key]} text={text} check={check} label={`${s.number}번 ${RECORD_AREAS[key].label}`} placeholder={`${RECORD_AREAS[key].short} 쓰기`} onChange={value => rec.edit(`s|${s.sid}|${key}`, value)} meter={<ByteMeter text={text} limit={lim(key)} />} />; })}</tr>)}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{HOMEROOM_AREAS.map(key => <button key={key} type="button" data-kdn-bare aria-pressed={area === key} style={{ "--c": AREA_COLOR[key] }} onClick={() => setArea(key)}>{RECORD_AREAS[key].label}<em>{students.filter(s => rec.textOf(s.sid, key).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
-        {shown.map(s => <Field key={s.sid} label={`${s.number}번 ${s.name}`} hint={RECORD_AREAS[area].label} color={AREA_COLOR[area]} text={rec.textOf(s.sid, area)} limit={lim(area)} check={check} rows={4} meta={rec.metaOf(s.sid, area)} onChange={value => rec.edit(`s|${s.sid}|${area}`, value)} />)}
+        {shown.map(s => <Field key={s.sid} label={`${s.number}번 ${s.name}`} hint={RECORD_AREAS[area].label} color={AREA_COLOR[area]} text={rec.textOf(s.sid, area)} limit={lim(area)} check={check} ok={okOf(s.sid)} onOk={toggleOk(s.sid)} rows={4} meta={rec.metaOf(s.sid, area)} onChange={value => rec.edit(`s|${s.sid}|${area}`, value)} />)}
         {paste && <PasteModal students={students} title={RECORD_AREAS[area].label} onClose={() => setPaste(false)} onApply={rows => rows.forEach(row => rec.edit(`s|${row.sid}|${area}`, row.text))} />}
       </div>
       : <div className={`krw-split${side ? " has-side" : ""}`}>
         <StudentList items={shown.map(s => ({ ...s, label: s.number }))} current={sid} onPick={setSid} find={find} setFind={setFind}
           meter={s => { const parts = HOMEROOM_AREAS.map(key => [{ ...RECORD_AREAS[key], limit: lim(key) }, neisBytes(rec.textOf(s.sid, key))]); const used = parts.reduce((sum, [, b]) => sum + b, 0); const cap = parts.reduce((sum, [area]) => sum + area.limit, 0); return { bar: false, p: cap ? used / cap : 0, over: parts.some(([area, b]) => b > area.limit), tip: parts.map(([area, b]) => `${area.short || area.label} ${b.toLocaleString()}/${area.limit.toLocaleString()}`).join(" · ") }; }}
-          renderRight={s => <><span className="fill">{HOMEROOM_AREAS.map(key => <i key={key} style={{ "--c": AREA_COLOR[key] }} className={rec.textOf(s.sid, key).trim() ? "on" : ""} />)}</span>{check && <IssueDot text={HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n")} />}{eventLeft(s) > 0 && <span className="krw-evdot" title={`행사 특기사항 확인 안 함 ${eventLeft(s)}개`}>{eventLeft(s)}</span>}</>} />
+          renderRight={s => <><span className="fill">{HOMEROOM_AREAS.map(key => <i key={key} style={{ "--c": AREA_COLOR[key] }} className={rec.textOf(s.sid, key).trim() ? "on" : ""} />)}</span>{check && <IssueDot ok={okOf(s.sid)} text={HOMEROOM_AREAS.map(key => rec.textOf(s.sid, key)).join("\n")} />}{eventLeft(s) > 0 && <span className="krw-evdot" title={`행사 특기사항 확인 안 함 ${eventLeft(s)}개`}>{eventLeft(s)}</span>}</>} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{current.number}번 {current.name}</b><small>{current.sid} · {filled(current)}/3 영역 작성</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           <label className="krw-hope"><span>진로희망</span><input value={rec.textOf(current.sid, "hope")} readOnly={readOnlyView} placeholder="예: 건축가, 간호 계열 (AI 요청문에 넣을 수 있어요)" onChange={event => rec.edit(`s|${current.sid}|hope`, event.target.value)} /></label>
@@ -1305,7 +1321,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
               {key !== "all" && <small className={over ? "over" : text.trim() ? "on" : ""}>{neisBytes(text).toLocaleString()} / {lim(key).toLocaleString()}</small>}
               {left > 0 && <em title={`확인 안 한 행사 특기사항 ${left}개`}>행사 {left}</em>}
             </button>; })}</div>
-          {HOMEROOM_AREAS.filter(key => focus === "all" || focus === key).map(key => <React.Fragment key={key}><EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={lim(key)} check={check} rows={focus === "all" ? (key === "career" ? 8 : 6) : 12} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
+          {HOMEROOM_AREAS.filter(key => focus === "all" || focus === key).map(key => <React.Fragment key={key}><EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={lim(key)} check={check} ok={okOf(current.sid)} onOk={toggleOk(current.sid)} rows={focus === "all" ? (key === "career" ? 8 : 6) : 12} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
             </React.Fragment>)}
         </section>}
         {current && side && <SidePanel aiContext={{ hope: rec.textOf(current.sid, "hope") }} targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => lim(key)} focus={focus === "all" ? "" : focus} onBulkReflections={bulkReflections} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
@@ -1369,7 +1385,9 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
   const totalOf = s => mergeActivities(acts, texts(s));
   const doneOf = s => acts.length > 0 && acts.every(act => rec.textOf(s.sid, act.id).trim());
   const isOver = s => overLimit(totalOf(s), limit);
-  const isIssue = s => hasIssue(totalOf(s));
+  const okOf = sid => parseOk(rec.textOf(sid, "ok"));
+  const toggleOk = sid => (sig, on) => { const list = okOf(sid).filter(x => x !== sig); rec.edit(`s|${sid}|ok`, JSON.stringify(on ? [...list, sig] : list)); };
+  const isIssue = s => hasIssue(totalOf(s), okOf(s.sid));
   const test = { all: () => true, empty: s => !doneOf(s), over: isOver, issue: isIssue };
   const counts = { empty: students.filter(test.empty).length, over: students.filter(isOver).length, ...(check ? { issue: students.filter(isIssue).length } : {}) };
   const shown = students.filter(s => (!find.trim() || s.name.includes(find.trim()) || s.sid.includes(find.trim()) || String(s.number) === find.trim()) && (test[filter] || test.all)(s));
@@ -1415,7 +1433,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
     const actList = (rd.activities || []).filter(act => !act.removed);
     const t = Object.fromEntries(actList.map(act => [act.id, rd.textOf(s.sid, act.id)]));
     const total = mergeActivities(actList, t);
-    return { group: `${b.subject} · ${b.label}`, no: b.kind === "common" ? `${s.number}번` : `${s.class}반 ${s.number}번`, name: s.name, sub: s.sid, parts: [{ label: "과세특", text: total, bytes: neisBytes(total), limit, issues: issueLine(total), lines: actList.filter(act => String(t[act.id] || "").trim()).map(act => ({ tag: act.name, text: String(t[act.id]).trim() })) }] };
+    return { group: `${b.subject} · ${b.label}`, no: b.kind === "common" ? `${s.number}번` : `${s.class}반 ${s.number}번`, name: s.name, sub: s.sid, parts: [{ label: "과세특", text: total, bytes: neisBytes(total), limit, issues: issueLine(total, parseOk(rd.textOf(s.sid, "ok"))), lines: actList.filter(act => String(t[act.id] || "").trim()).map(act => ({ tag: act.name, text: String(t[act.id]).trim() })) }] };
   });
   const [busy, setBusy] = useState(false);
   const output = async (scope, kind) => {
@@ -1473,22 +1491,22 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
           <td className="tot"><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact />{total && <><div className="krw-total-sm">{total}</div><div className="cellft"><CopyBtn text={total} label="총합본 복사" /></div></>}</td></tr>; })}</tbody></table>{!shown.length && <p className="krw-side-empty">조건에 맞는 학생이 없어요.</p>}</div>
       : view === "area" ? <div className="krw-area">
         <div className="krw-seg">{acts.map(act => <button key={act.id} type="button" data-kdn-bare aria-pressed={actId === act.id} style={{ "--c": actColor(acts, act.id) }} onClick={() => setActId(act.id)}>{act.name}<em>{students.filter(s => rec.textOf(s.sid, act.id).trim()).length}/{students.length}</em></button>)}<span className="sp" /><button type="button" data-kdn-bare className="krw-btn" onClick={() => setPaste(true)}><ClipboardPaste size={14} /> 엑셀에서 붙여넣기</button></div>
-        {shown.map(s => { const total = totalOf(s); return <div key={s.sid} className="krw-areacard"><Field label={who(s)} hint={acts.find(a => a.id === actId)?.name || "활동"} color={actColor(acts, actId)} text={rec.textOf(s.sid, actId)} limit={limit} share={{ total: neisBytes(total) }} check={check} rows={3} meta={rec.metaOf(s.sid, actId)} onChange={value => rec.edit(`s|${s.sid}|${actId}`, value)} /><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /></div>; })}
+        {shown.map(s => { const total = totalOf(s); return <div key={s.sid} className="krw-areacard"><Field label={who(s)} hint={acts.find(a => a.id === actId)?.name || "활동"} color={actColor(acts, actId)} text={rec.textOf(s.sid, actId)} limit={limit} share={{ total: neisBytes(total) }} check={check} ok={okOf(s.sid)} onOk={toggleOk(s.sid)} rows={3} meta={rec.metaOf(s.sid, actId)} onChange={value => rec.edit(`s|${s.sid}|${actId}`, value)} /><TotalBudget acts={acts} texts={texts(s)} limit={limit} compact /></div>; })}
         {paste && <PasteModal students={students} title={acts.find(a => a.id === actId)?.name || "활동"} onClose={() => setPaste(false)} onApply={rows => rows.forEach(row => rec.edit(`s|${row.sid}|${actId}`, row.text))} />}
       </div>
       : <div className={`krw-split${side ? " has-side" : ""}`}>
         <StudentList items={shown.map(s => ({ ...s, label: book.kind === "common" ? s.number : `${s.class}-${s.number}` }))} current={sid} onPick={setSid} find={find} setFind={setFind}
           meter={s => { const b = neisBytes(totalOf(s)); return { p: limit ? b / limit : 0, over: b > limit, tip: `${b.toLocaleString()} / ${limit.toLocaleString()} byte · ${acts.filter(act => rec.textOf(s.sid, act.id).trim()).length}/${acts.length}개 활동 작성` }; }}
-          renderRight={s => { const total = totalOf(s); const b = neisBytes(total); return <><span className={`b${b > limit ? " over" : ""}`}>{b ? b.toLocaleString() : ""}</span>{check && <IssueDot text={total} />}</>; }} />
+          renderRight={s => { const total = totalOf(s); const b = neisBytes(total); return <><span className={`b${b > limit ? " over" : ""}`}>{b ? b.toLocaleString() : ""}</span>{check && <IssueDot ok={okOf(s.sid)} text={total} />}</>; }} />
         {current && <section className="krw-pane" data-tour="rw-pane">
           <header className="krw-pane-hd"><button type="button" data-kdn-bare disabled={idx <= 0} onClick={() => go(-1)} aria-label="이전 학생" title="이전 학생 (Alt+↑)"><ChevronLeft size={18} /></button><div><b>{who(current)}</b><small>{current.sid} · {book.subject}</small></div>{!side && <button type="button" data-kdn-bare className="side" onClick={() => setSide(true)}><PanelRightOpen size={16} /> 자료</button>}<button type="button" data-kdn-bare disabled={idx >= order.length - 1} onClick={() => go(1)} aria-label="다음 학생" title="다음 학생 (Alt+↓)"><ChevronRight size={18} /></button></header>
           <DupStudentNote dups={dups} sid={current.sid} onPick={setSid} />
           <div className="krw-budget-sticky"><TotalBudget acts={acts} texts={texts(current)} limit={limit} /></div>
-          {acts.map((act, index) => <Field key={act.id} tag={`활동 ${index + 1}`} label={act.name} color={actColor(acts, act.id)} text={rec.textOf(current.sid, act.id)} limit={limit} share={{ total: neisBytes(totalOf(current)) }} check={check} rows={4} meta={rec.metaOf(current.sid, act.id)} onChange={value => rec.edit(`s|${current.sid}|${act.id}`, value)} />)}
+          {acts.map((act, index) => <Field key={act.id} tag={`활동 ${index + 1}`} label={act.name} color={actColor(acts, act.id)} text={rec.textOf(current.sid, act.id)} limit={limit} share={{ total: neisBytes(totalOf(current)) }} check={check} ok={okOf(current.sid)} onOk={toggleOk(current.sid)} rows={4} meta={rec.metaOf(current.sid, act.id)} onChange={value => rec.edit(`s|${current.sid}|${act.id}`, value)} />)}
           {(() => { const total = totalOf(current); return <div className="krw-total" data-tour="rw-total">
             <div className="krw-total-hd"><div><b>과세특 총합본</b><small>활동마다 줄을 바꿔 자동으로 합쳐요</small></div><ByteMeter text={total} limit={limit} /><button type="button" data-kdn-bare className="krw-copy" disabled={!total} onClick={async () => { try { await navigator.clipboard.writeText(total); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { showToast?.("복사하지 못했어요.", "error"); } }}><Copy size={14} /> {copied ? "복사됨" : "나이스용 복사"}</button></div>
             <div className={`krw-total-tx${total ? "" : " is-empty"}`}>{total || "위 활동 칸에 글을 쓰면 여기에 합쳐져요."}</div>
-            {check && <IssueList text={total} />}
+            {check && <IssueList text={total} ok={okOf(current.sid)} onToggle={readOnlyView ? null : toggleOk(current.sid)} />}
           </div>; })()}
         </section>}
         {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: stdMatched?.n || book.subject, standardsFor }} standardsFor={standardsFor} onPickStandards={setStdFor} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
@@ -1867,6 +1885,8 @@ const CSS = `
 .krw-sjx .row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.krw-sjx .cols{display:grid;gap:4px;margin:0;padding:0;list-style:none}.krw-sjx .cols li{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3);font-size:13px}.krw-sjx .cols li.off{opacity:.55}.krw-sjx .cols label{display:flex;align-items:center;gap:6px;flex:1;min-width:0}.krw-sjx .cols span{font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .krw-sjx .sum{font-weight:700;color:var(--kdn-ink,#17181d)!important}
 .krw-hope{display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-radius:14px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}.krw-hope span{flex:none;font-size:12.5px;font-weight:800;color:#15803d}.krw-hope input{flex:1;min-width:0;min-height:30px;border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#17181d)}
+.krw-okbtn{flex:none;margin-left:auto;padding:2px 9px;border-radius:99px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:11.5px;font-weight:800;color:#15803d;cursor:pointer;white-space:nowrap}.krw-okbtn:hover{background:#ecfdf3}.krw-okbtn.undo{color:var(--kdn-muted,#8a8f99)}
+.krw-issues.is-ok li{background:color-mix(in srgb,#16a34a 7%,var(--kdn-surface,#fff));border-color:color-mix(in srgb,#16a34a 25%,transparent)}.krw-issues.is-ok li b{background:#16a34a;color:#fff}.krw-issues.is-ok li code{text-decoration:none;color:#15803d}
 .krw-clear{width:min(560px,100%)}.krw-clear .row{display:grid;grid-template-columns:64px minmax(0,1fr);align-items:start;gap:10px;padding:8px 0;border-top:1px solid var(--kdn-line,#efede8)}.krw-clear .k{padding-top:5px;font-size:12.5px;font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-clear .v{display:flex;flex-wrap:wrap;gap:6px}
 .krw-clear .chip{display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:0 11px 0 8px;border-radius:99px;border:1px solid var(--kdn-line,#dcd9d2);font-size:13px;font-weight:700;cursor:pointer}.krw-clear .chip input{margin:0;accent-color:#dc2626}.krw-clear .chip.on{border-color:#fca5a5;background:#fef2f2;color:#b91c1c}.krw-clear .chip em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}
 .krw-btn.danger{border-color:transparent;background:#dc2626;color:#fff}.krw-btn.danger:disabled{opacity:.4}
