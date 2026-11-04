@@ -634,10 +634,12 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const [useEx, setUseEx] = useState(true);
   const [useFrame, setUseFrame] = useState(true);
   const [pickOpen, setPickOpen] = useState(false);
-  const refls = (reflections || []).map((item, i) => ({ ...item, key: item.id || `${item.activity}-${i}` }));
+  const readOnlyView = useContext(ReadOnlyContext);
+  // 활동 이름: 소감문 파일의 시트 이름이라 생기부 이름과 다를 수 있어요. 반에서 고쳐 두면 요청문에 그 이름이 들어가요('__cfg' an:원래이름).
+  const refls = (reflections || []).map((item, i) => ({ ...item, key: item.id || `${item.activity}-${i}`, name: rec.textOf("__cfg", `an:${item.activity}`).trim() || item.activity }));
   const [reflPick, setReflPick] = useState({});
   useEffect(() => { setReflPick({}); }, [sid]);
-  const reflNotes = refls.filter(item => reflPick[item.key]).map(item => [`소감문: ${item.activity} — 학생이 쓴 글, 활동 사실만 근거로`, item.response]);
+  const reflNotes = refls.filter(item => reflPick[item.key]).map(item => [`소감문: ${item.name} — 학생이 쓴 글, 활동 사실만 근거로`, item.response]);
   const hope = String(aiContext.hope || "").trim();
   const [useHope, setUseHope] = useState(true);
   // 활동마다 줄 바꾸기: 담임 자율·진로는 기본으로 켜고(여러 행사·활동), 소감문을 2개 이상 넣으면 켜요.
@@ -654,7 +656,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     aiContext.subject && useEx && exPick && "기재 예시",
     refine && current.trim() && "지금 쓴 글",
   ].filter(Boolean);
-  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi, activities: refls.filter(item => reflPick[item.key]).map(item => item.activity) });
+  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi, activities: refls.filter(item => reflPick[item.key]).map(item => ({ name: item.name, date: item.date })) });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
   // 바로 열기: 팝업 차단을 피하려고 창부터 열고, 요청문은 주소(?q=)에 담고 클립보드에도 복사해 둡니다.
   const openAi = async site => {
@@ -686,7 +688,8 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
         <p>'{target?.label}' 칸 요청문에 함께 보낼 자료를 골라요. 학생 이름은 들어가지 않아요.</p>
         <div className="krw-pick-body">
           <section><h4>누가기록 <small>선생님 관찰 기록</small></h4>{filledCats.length ? filledCats.map(c => <label key={c.key} className="opt"><input type="checkbox" checked={isPicked(c)} onChange={() => togglePick(c.key)} /><span><b>{c.label}</b><em>{clip(rec.textOf(sid, c.key), 90)}</em></span></label>) : <p className="none">이 학생 누가기록이 아직 없어요.</p>}</section>
-          {refls.length > 0 && <section><h4>학생 소감문 <small>학생이 쓴 글 · 사실 확인용</small></h4>{refls.map(item => <label key={item.key} className="opt"><input type="checkbox" checked={!!reflPick[item.key]} onChange={() => setReflPick(v => ({ ...v, [item.key]: !v[item.key] }))} /><span><b>{item.activity}{item.date ? ` · ${item.date}` : ""}</b><em>{clip(item.response, 90)}</em></span></label>)}</section>}
+          {refls.length > 0 && <section><h4>학생 소감문 <small>학생이 쓴 글 · 사실 확인용</small></h4>{refls.map(item => <label key={item.key} className="opt"><input type="checkbox" checked={!!reflPick[item.key]} onChange={() => setReflPick(v => ({ ...v, [item.key]: !v[item.key] }))} /><span><b>{item.name}{item.date ? ` · ${item.date}` : ""}</b><em>{clip(item.response, 90)}</em>
+            {reflPick[item.key] && !readOnlyView && <span className="krw-actname" onClick={event => event.preventDefault()}>생기부에 쓸 활동 이름<input value={rec.textOf("__cfg", `an:${item.activity}`) || item.activity} onChange={event => rec.edit(`s|__cfg|an:${item.activity}`, event.target.value === item.activity ? "" : event.target.value)} /><small>반 전체에 적용돼요</small></span>}</span></label>)}</section>}
           {aiContext.standardsFor && <section><h4>성취기준</h4>{stdList.length ? <label className="opt"><input type="checkbox" checked={useStd} onChange={event => setUseStd(event.target.checked)} /><span><b>이 활동 성취기준 {stdList.length}개</b><em>{stdList.map(item => item.code).join(" ")}</em></span></label> : <p className="none">연결한 성취기준이 없어요. '성취기준' 탭에서 연결해요.</p>}</section>}
           {aiContext.subject && <section><h4>쓰는 방식</h4>
             <label className="opt"><input type="checkbox" checked={useFrame} onChange={event => setUseFrame(event.target.checked)} /><span><b>교과세특 구성 틀</b><em>성취수준 → 수행 과정·결과 → 역량 → 교사 총평</em></span></label>
@@ -1924,6 +1927,7 @@ const CSS = `
 .krw-pick-body section{display:grid;gap:6px}.krw-pick-body h4{margin:0;font-size:14px;font-weight:800}.krw-pick-body h4 small{margin-left:6px;font-size:12px;font-weight:600;color:var(--kdn-muted,#8a8f99)}
 .krw-pick-body .opt{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0);cursor:pointer}.krw-pick-body .opt:has(input:checked){border-color:color-mix(in srgb,#ff7a3d 50%,transparent);background:color-mix(in srgb,#ff7a3d 6%,var(--kdn-surface,#fff))}
 .krw-pick-body .opt input{flex:none;margin:2px 0 0;width:16px;height:16px;accent-color:#ff7a3d}.krw-pick-body .opt span{display:grid;gap:3px;min-width:0}.krw-pick-body .opt b{font-size:14px;font-weight:700}.krw-pick-body .opt em{font-style:normal;font-size:12.5px;line-height:1.5;color:var(--kdn-ink-soft,#5b606b);overflow-wrap:anywhere}
+.krw-pick-body .opt .krw-actname{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin-top:4px;font-size:12px;font-weight:700;color:var(--kdn-ink-soft,#5b606b);cursor:default}.krw-pick-body .opt .krw-actname input{flex:1 1 180px;width:auto;height:30px;margin:0;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-weight:600;accent-color:auto}.krw-pick-body .opt .krw-actname small{font-weight:500;color:var(--kdn-muted,#8a8f99)}
 .krw-pick-body .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
 .krw-refl{display:grid;gap:10px}
 .krw-refl-seg{display:flex;gap:2px;padding:3px;border-radius:11px;background:var(--kdn-surface-2,#f3f2ef)}.krw-refl-seg button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:30px;border:0;border-radius:8px;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}.krw-refl-seg button em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}.krw-refl-seg button[aria-selected="true"]{background:#17181d;color:#fff}.krw-refl-seg button[aria-selected="true"] em{color:#ffb089}
