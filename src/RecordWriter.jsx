@@ -164,52 +164,70 @@ function IssueDot({ text }) {
 const esc = value => String(value ?? "").replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 // 점검용 인쇄: 학생마다 한 줄(표), 확인 칸 · 번호·이름 · 글 · 바이트. 빈 칸은 '미작성' 한 줄, 점검 결과는 걸릴 때만.
 // blocks: [{ group, no, name, sub, parts: [{ label, text, bytes, limit, issues, lines?: [{ tag, text }] }] }]
+// 인쇄: 첫 장은 반 전체 요약표, 이어서 학생마다 한 장(영역별 글 · 바이트 막대 · 점검 내용 · 확인란)
 function printRecords({ title, subtitle, blocks }) {
   const win = window.open("", "_blank");
   if (!win) return false;
-  const filled = blk => blk.parts.some(part => String(part.text || "").trim());
+  const has = part => !!String(part.text || "").trim();
+  const filled = blk => blk.parts.some(has);
   const sum = {
     total: blocks.length,
-    done: blocks.filter(blk => blk.parts.every(part => String(part.text || "").trim())).length,
+    done: blocks.filter(blk => blk.parts.every(has)).length,
     empty: blocks.filter(blk => !filled(blk)).length,
     over: blocks.filter(blk => blk.parts.some(part => part.bytes > part.limit)).length,
     issue: blocks.filter(blk => blk.parts.some(part => part.issues)).length,
   };
-  const multi = blocks.some(blk => blk.parts.length > 1);
-  const cell = part => {
-    const text = String(part.text || "").trim();
-    const head = multi ? `<div class="lab">${esc(part.label)}</div>` : "";
-    if (!text) return `${head}<div class="empty">미작성</div>`;
-    const body = part.lines?.length > 1 ? part.lines.map(line => `<p><em>${esc(line.tag)}</em>${esc(line.text)}</p>`).join("") : `<p>${esc(text).replace(/\n/g, "<br>")}</p>`;
-    return `${head}${body}${part.issues ? `<div class="iss">${esc(part.issues)}</div>` : ""}`;
+  const printedAt = new Date().toLocaleString("ko-KR");
+  const bar = part => { const pct = Math.min(100, Math.round((part.bytes / Math.max(1, part.limit)) * 100)); const over = part.bytes > part.limit; return `<div class="meter${over ? " over" : ""}"><i style="width:${pct}%"></i></div><span class="bn${over ? " over" : ""}"><b>${part.bytes.toLocaleString()}</b> / ${part.limit.toLocaleString()} byte${over ? ` · <em>${(part.bytes - part.limit).toLocaleString()} 넘음</em>` : ""}</span>`; };
+  const body = part => {
+    if (!has(part)) return `<p class="empty">미작성</p>`;
+    if (part.lines?.length > 1) return part.lines.map(line => `<p><span class="tag">${esc(line.tag)}</span>${esc(line.text)}</p>`).join("");
+    return String(part.text).trim().split(/\n+/).map(line => `<p>${esc(line)}</p>`).join("");
   };
-  const bytes = part => String(part.text || "").trim() ? `<b class="${part.bytes > part.limit ? "over" : ""}">${part.bytes.toLocaleString()}</b><small>/ ${part.limit.toLocaleString()}</small>${part.bytes > part.limit ? `<span class="tag over">${(part.bytes - part.limit).toLocaleString()} 넘음</span>` : ""}` : "";
-  const rows = blk => blk.parts.map((part, i) => `<tr class="${i === 0 ? "first" : "cont"}${filled(blk) ? "" : " is-empty"}">${i === 0 ? `<td class="chk" rowspan="${blk.parts.length}"><span></span></td><td class="who" rowspan="${blk.parts.length}"><strong><em>${esc(blk.no)}</em> ${esc(blk.name)}</strong><small>${esc(blk.sub || "")}</small></td>` : ""}<td class="txt">${cell(part)}</td><td class="byt">${bytes(part)}</td></tr>`).join("");
-  const groups = [];
-  blocks.forEach(blk => { const last = groups[groups.length - 1]; if (last && last.name === (blk.group || "")) last.list.push(blk); else groups.push({ name: blk.group || "", list: [blk] }); });
-  const tables = groups.map(g => `${g.name && groups.length > 1 ? `<h2>${esc(g.name)}</h2>` : ""}<table><colgroup><col class="c-chk"><col class="c-who"><col><col class="c-byt"></colgroup><thead><tr><th>확인</th><th>학생</th><th>내용</th><th>바이트</th></tr></thead><tbody>${g.list.map(rows).join("")}</tbody></table>`).join("");
+  const issues = part => part.issues ? `<ul class="iss"><li class="h">기재요령 점검</li>${String(part.issues).replace(/^점검:\s*/, "").split(/,\s+(?=[가-힣 ]+ ')/).map(t => `<li>${esc(t)}</li>`).join("")}</ul>` : "";
+  const statusOf = blk => !filled(blk) ? ["미작성", "s-empty"] : blk.parts.some(p => p.bytes > p.limit) ? ["한도 넘음", "s-over"] : blk.parts.some(p => p.issues) ? ["점검 필요", "s-warn"] : blk.parts.every(has) ? ["다 씀", "s-ok"] : ["덜 씀", "s-part"];
+  const many = blocks.length > 1;
+  const labels = Array.from(new Set(blocks.flatMap(blk => blk.parts.map(p => p.label))));
+  const summary = many ? `<section class="page cover">
+    <header class="top"><h1>${esc(title)}</h1><span>${esc(subtitle)}<br>출력 ${esc(printedAt)}</span></header>
+    <div class="sum"><span>학생 <b>${sum.total}</b>명</span><span>다 씀 <b>${sum.done}</b></span><span>미작성 <b>${sum.empty}</b></span><span class="${sum.over ? "warn" : ""}">한도 넘음 <b>${sum.over}</b></span><span class="${sum.issue ? "warn" : ""}">점검 필요 <b>${sum.issue}</b></span></div>
+    <table class="ov"><thead><tr><th class="c">확인</th><th>학생</th>${labels.map(l => `<th class="c">${esc(l)}</th>`).join("")}<th class="c">상태</th><th class="c">쪽</th></tr></thead><tbody>
+    ${blocks.map((blk, n) => { const [st, cls] = statusOf(blk); return `<tr><td class="c"><span class="box"></span></td><td><b>${esc(blk.no)}</b> ${esc(blk.name)}${blk.group && labels.length === 1 ? `<small> ${esc(blk.group)}</small>` : ""}</td>${labels.map(l => { const part = blk.parts.find(p => p.label === l); if (!part) return `<td class="c">-</td>`; return `<td class="c ${!has(part) ? "dim" : part.bytes > part.limit ? "bad" : part.issues ? "warn" : ""}">${has(part) ? `${part.bytes.toLocaleString()}${part.issues ? " ⚠" : ""}` : "·"}</td>`; }).join("")}<td class="c"><span class="st ${cls}">${st}</span></td><td class="c">${n + 2}</td></tr>`; }).join("")}
+    </tbody></table>
+    <p class="legend">숫자는 나이스 바이트예요. 빨강 = 한도 넘음, 주황 ⚠ = 기재요령 점검 필요, · = 미작성. 다음 쪽부터 학생마다 한 장씩이에요.</p>
+  </section>` : "";
+  const pages = blocks.map((blk, n) => { const [st, cls] = statusOf(blk); return `<section class="page">
+    <header class="top sm"><span>${esc(title)}${blk.group ? ` · ${esc(blk.group)}` : ""}</span><span>${many ? `${n + 1} / ${blocks.length}` : esc(printedAt)}</span></header>
+    <div class="who"><div><strong><em>${esc(blk.no)}</em> ${esc(blk.name)}</strong><small>${esc(blk.sub || "")}</small></div><span class="st ${cls}">${st}</span><div class="sign"><span class="box"></span> 확인 <i></i></div></div>
+    ${blk.parts.map(part => `<article class="area${has(part) ? "" : " is-empty"}${part.bytes > part.limit ? " is-over" : ""}">
+      <div class="ah"><h3>${esc(part.label)}</h3>${has(part) ? bar(part) : ""}</div>
+      <div class="tx">${body(part)}</div>${issues(part)}
+    </article>`).join("")}
+    <div class="memo"><span>메모</span></div>
+  </section>`; }).join("");
   win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-  @page{size:A4;margin:12mm 11mm 13mm}*{box-sizing:border-box}body{margin:0;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:#17181d;font-size:10pt;line-height:1.65}
-  .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-bottom:6px;border-bottom:2px solid #17181d}.top h1{margin:0;font-size:14pt}.top span{font-size:8.5pt;color:#5b606b;text-align:right}
-  .sum{display:flex;flex-wrap:wrap;gap:6px 16px;margin:8px 0 10px;font-size:9pt;color:#3d4048}.sum b{font-size:10.5pt;color:#17181d}.sum .warn b{color:#b42318}
-  h2{margin:14px 0 6px;font-size:11pt;break-after:avoid}
-  table{width:100%;border-collapse:collapse;table-layout:fixed}col.c-chk{width:11mm}col.c-who{width:30mm}col.c-byt{width:22mm}
-  thead th{white-space:nowrap;padding:4px 6px;border-top:1.5px solid #17181d;border-bottom:1px solid #17181d;font-size:8.5pt;font-weight:700;color:#3d4048;text-align:left}thead th:first-child,thead th:last-child{text-align:center}
-  thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}
-  td{padding:6px;vertical-align:top;border-bottom:1px solid #d9d6cf}tr.first td{border-top:1px solid #9a968e}tbody tr.first:first-child td{border-top:0}
-  tr.cont td{border-top:1px dashed #e4e1db}
-  td.chk{text-align:center}td.chk span{display:inline-block;width:4.2mm;height:4.2mm;margin-top:1mm;border:1px solid #5b606b;border-radius:1mm}
-  td.who strong{display:block;font-size:10pt;word-break:keep-all}td.who strong em{font-style:normal;font-weight:600;color:#5b606b}td.who small{display:block;font-size:7.5pt;color:#8a8f99}
-  td.txt .lab{margin-bottom:2px;font-size:8.5pt;font-weight:700;color:#c2410c}
-  td.txt p{margin:0 0 2px;text-align:justify;word-break:keep-all;overflow-wrap:anywhere}
-  td.txt p em{display:inline-block;margin-right:5px;padding:0 4px;border:1px solid #d9d6cf;border-radius:3px;font-style:normal;font-size:7.5pt;color:#5b606b;vertical-align:1px}
-  td.txt .empty{color:#9aa0ab;font-size:9pt}tr.is-empty td.who strong{color:#5b606b}
-  td.txt .iss{margin-top:3px;padding:2px 6px;border-left:2px solid #b42318;background:#fdf1f0;font-size:8pt;color:#912018}
-  td.byt{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}td.byt b{font-size:10pt}td.byt small{display:block;font-size:7.5pt;color:#8a8f99}
-  td.byt .over{color:#b42318}td.byt .tag{display:inline-block;margin-top:2px;padding:0 4px;border-radius:3px;background:#fdf1f0;font-size:7.5pt;font-weight:700}
-  </style></head><body><div class="top"><h1>${esc(title)}</h1><span>${esc(subtitle)}<br>출력 ${new Date().toLocaleString("ko-KR")}</span></div>
-  <div class="sum"><span>학생 <b>${sum.total}</b>명</span><span>다 씀 <b>${sum.done}</b></span><span>미작성 <b>${sum.empty}</b></span><span class="${sum.over ? "warn" : ""}">한도 넘음 <b>${sum.over}</b></span><span class="${sum.issue ? "warn" : ""}">점검 필요 <b>${sum.issue}</b></span></div>
-  ${tables}<script>window.onload=()=>setTimeout(()=>window.print(),200)<\/script></body></html>`);
+  @page{size:A4;margin:13mm 13mm 14mm}*{box-sizing:border-box}body{margin:0;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:#17181d;font-size:10.5pt;line-height:1.7}
+  .page{break-after:page;page-break-after:always;display:flex;flex-direction:column;gap:10px;min-height:calc(297mm - 27mm)}.page:last-child{break-after:auto;page-break-after:auto}
+  .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-bottom:6px;border-bottom:2px solid #17181d}.top h1{margin:0;font-size:15pt}.top span{font-size:8.5pt;color:#5b606b;text-align:right}
+  .top.sm{border-bottom:1px solid #c9c5bd;padding-bottom:4px}.top.sm span{font-size:8.5pt;text-align:left}.top.sm span:last-child{text-align:right}
+  .sum{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:9.5pt;color:#3d4048}.sum b{font-size:11pt;color:#17181d}.sum .warn b{color:#b42318}
+  table.ov{width:100%;border-collapse:collapse;font-size:9.5pt}table.ov th{padding:5px 6px;border-top:1.5px solid #17181d;border-bottom:1px solid #17181d;font-size:8.5pt;text-align:left;color:#3d4048}table.ov td{padding:5px 6px;border-bottom:1px solid #e1ded7}table.ov tr{break-inside:avoid}
+  table.ov .c{text-align:center}table.ov td.bad{color:#b42318;font-weight:800}table.ov td.warn{color:#b45309;font-weight:700}table.ov td.dim{color:#b5b9c1}table.ov small{color:#8a8f99;font-size:8pt}
+  .box{display:inline-block;width:4.2mm;height:4.2mm;border:1px solid #5b606b;border-radius:1mm;vertical-align:-1mm}
+  .st{display:inline-block;padding:1px 8px;border-radius:99px;font-size:8.5pt;font-weight:800;white-space:nowrap}.s-ok{background:#e7f6ec;color:#15803d}.s-part{background:#eef2f7;color:#475569}.s-empty{background:#f1f1f1;color:#6b7280}.s-over{background:#fdecea;color:#b42318}.s-warn{background:#fff4e0;color:#b45309}
+  .legend{margin:0;font-size:8.5pt;color:#6b7280}
+  .who{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:10px;background:#f4f3f0}.who>div:first-child{flex:1}.who strong{display:block;font-size:15pt;line-height:1.3}.who strong em{font-style:normal;color:#c2410c;margin-right:4px}.who small{font-size:8.5pt;color:#6b7280}
+  .sign{display:flex;align-items:center;gap:6px;font-size:9pt;color:#3d4048}.sign i{display:inline-block;width:26mm;border-bottom:1px solid #9a968e;height:5mm}
+  .area{border:1px solid #d9d6cf;border-radius:10px;padding:10px 14px 12px;break-inside:avoid}.area.is-over{border-color:#e8a29b}
+  .ah{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding-bottom:6px;margin-bottom:6px;border-bottom:1px solid #ece9e3}.ah h3{margin:0;font-size:11pt;color:#c2410c}
+  .meter{flex:1;min-width:30mm;height:2.2mm;border-radius:2mm;background:#ece9e3;overflow:hidden}.meter i{display:block;height:100%;background:#4f8a6b}.meter.over i{background:#b42318}
+  .bn{font-size:8.5pt;color:#5b606b;font-variant-numeric:tabular-nums;white-space:nowrap}.bn b{color:#17181d;font-size:10pt}.bn.over b,.bn em{color:#b42318;font-style:normal;font-weight:800}
+  .tx p{margin:0 0 4px;text-align:justify;word-break:keep-all;overflow-wrap:anywhere}.tx p:last-child{margin-bottom:0}.tx .tag{display:inline-block;margin-right:6px;padding:0 5px;border:1px solid #d9d6cf;border-radius:3px;font-size:8pt;color:#5b606b;vertical-align:1px}
+  .tx .empty{color:#9aa0ab}
+  ul.iss li.h{list-style:none;margin-left:-14px;font-weight:800}ul.iss{margin:8px 0 0;padding:6px 10px 6px 24px;border-radius:6px;background:#fdf3f1;border-left:3px solid #b42318;font-size:8.5pt;color:#912018}ul.iss li{margin:1px 0}
+  .memo{flex:1;min-height:22mm;border:1px dashed #c9c5bd;border-radius:10px;padding:6px 12px;font-size:8.5pt;color:#9aa0ab}
+  @media screen{body{background:#e9e7e2}.page{width:210mm;min-height:297mm;margin:10mm auto;padding:13mm;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.12)}}
+  </style></head><body>${summary}${pages}<script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`);
   win.document.close();
   return true;
 }
