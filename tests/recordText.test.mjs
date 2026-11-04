@@ -247,3 +247,7 @@ test("AI 요청문: 분석함·파악함 끝맺음 금지", async () => {
   const { buildAiPrompt } = await import("../src/recordText.js");
   assert.ok(buildAiPrompt({ area: "진로활동", notes: [["a", "x"]] }).includes("'분석함', '파악함'"));
 });
+test("'소감을 밝힘'은 점검에 걸리지 않음", async () => {
+  const { checkRecordText } = await import("../src/recordText.js");
+  assert.equal(checkRecordText("활동을 마치고 소감을 밝힘.").some(i => i.kind === "학생 입장 표현"), false);
+});
