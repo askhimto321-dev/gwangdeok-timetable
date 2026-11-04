@@ -12,7 +12,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt, AI_FILL, AI_FILL_DEFAULT } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt, AI_FILL, AI_FILL_DEFAULT, aiFillRange } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -701,7 +701,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
               : <p className="none">기재 예시는 넣지 않아요. <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => { setPickOpen(false); setStep("examples"); }}>예시 고르기</button></p>}
           </section>}
           <section><h4>학생 진로희망</h4>{hope ? <label className="opt"><input type="checkbox" checked={useHope} onChange={event => setUseHope(event.target.checked)} /><span><b>{hope}</b><em>관찰 기록에 있는 내용만 진로와 이어 쓰도록 알려요</em></span></label> : <p className="none">{aiContext.subject ? "교과 화면에는 진로희망이 없어요." : "학생 화면 위 '진로희망' 칸에 적으면 요청문에 넣을 수 있어요."}</p>}</section>
-          <section><h4>분량 <small>칸 한도 {budget.toLocaleString()}바이트 기준</small></h4><div className="krw-fill" role="radiogroup">{Object.entries(AI_FILL).map(([key, f]) => <button key={key} type="button" data-kdn-bare role="radio" aria-checked={fill === key} className={fill === key ? "on" : ""} onClick={() => setFill(key)}><b>{f.label}{key === AI_FILL_DEFAULT ? " (기본)" : ""}</b><small>한도의 {f.lo}-{f.hi}% · 약 {Math.floor(budget / 3 * f.lo / 100)}-{Math.floor(budget / 3 * f.hi / 100)}자</small></button>)}</div></section>
+          <section><h4>분량 <small>칸 한도 {budget.toLocaleString()}바이트 기준</small></h4><div className="krw-fill" role="radiogroup">{Object.entries(AI_FILL).map(([key, f]) => <button key={key} type="button" data-kdn-bare role="radio" aria-checked={fill === key} className={fill === key ? "on" : ""} onClick={() => setFill(key)}><b>{f.label}{key === AI_FILL_DEFAULT ? " (기본)" : ""}</b><small>한도의 {f.lo}-{f.hi}% · 약 {aiFillRange(budget, key).lo}-{aiFillRange(budget, key).hi}자</small></button>)}</div></section>
           <section><h4>여러 활동 쓰는 법</h4><label className="opt"><input type="checkbox" checked={multi} onChange={event => setMultiPick(event.target.checked)} /><span><b>활동마다 줄 바꿔 따로 쓰기</b><em>관련 없는 활동을 '~에서는', '~에서도'로 억지로 이어 한 문단으로 만들지 않게 해요</em></span></label></section>
           <section><h4>지금 칸에 쓴 글</h4><label className="opt"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /><span><b>함께 보내 다듬어 달라고 하기</b><em>{current.trim() ? clip(current, 90) : "아직 비어 있어요"}</em></span></label></section>
         </div>

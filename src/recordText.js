@@ -314,8 +314,14 @@ export function findDuplicateSentences(entries = [], { ignore = [] } = {}) {
 // 규칙은 '꼭 지킬 것' 번호 목록으로 맨 앞에 두고, 마지막에 스스로 점검하게 해요(긴 목록 중간 규칙을 AI가 놓치지 않게).
 // notes: [[라벨, 글]] — 소감문은 라벨이 '소감문:'으로 시작해요. activities: 여러 활동일 때 활동 이름(줄 시작 어투를 돌려 쓰게)
 // 분량: 한도 대비 채울 비율(%). 기본 = 75-90%
-export const AI_FILL = { short: { label: "짧게", lo: 50, hi: 65 }, normal: { label: "보통", lo: 75, hi: 90 }, full: { label: "꽉 채워", lo: 90, hi: 98 } };
+export const AI_FILL = { short: { label: "짧게", lo: 50, hi: 65 }, normal: { label: "보통", lo: 75, hi: 90 }, full: { label: "꽉 채워", lo: 88, hi: 95 } };
 export const AI_FILL_DEFAULT = "normal";
+// 분량 범위: 바이트와, 띄어쓰기를 넣은 실제 글 기준 글자 수(1자 평균 약 2.6바이트)
+export function aiFillRange(budget, fill = AI_FILL_DEFAULT) {
+  const f = AI_FILL[fill] || AI_FILL[AI_FILL_DEFAULT];
+  const loB = Math.floor((budget * f.lo) / 100), hiB = Math.floor((budget * f.hi) / 100);
+  return { loB, hiB, lo: Math.floor(loB / 2.6 / 10) * 10, hi: Math.floor(hiB / 2.6 / 10) * 10 };
+}
 export function buildAiPrompt({ area = "", subject = "", activity = "", budget = 1500, notes = [], existing = "", studentName = "", standards = [], example = "", frame = true, hope = "", multi = false, activities = [], fill = AI_FILL_DEFAULT }) {
   // activities: 활동 이름 문자열 또는 { name, date }
   const acts = activities.map(item => (typeof item === "string" ? { name: item, date: "" } : { name: String(item?.name || ""), date: String(item?.date || "") })).filter(item => item.name.trim());
@@ -326,10 +332,10 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
   const chars = Math.floor(budget / 3);
   const behavior = /행동|행발|종합의견/.test(area);
   const f = AI_FILL[fill] || AI_FILL[AI_FILL_DEFAULT];
-  const lo = Math.floor((chars * f.lo) / 100), hi = Math.floor((chars * f.hi) / 100);
+  const { loB, hiB, lo, hi } = aiFillRange(budget, fill);
   // 규칙은 적을수록 잘 지켜요: 비슷한 것끼리 묶어 10개 안팎으로 유지해요.
   const rules = [
-    `분량: 나이스 기준 ${budget.toLocaleString()}바이트 이내(한글 1자 3바이트, 영문·숫자·공백 1바이트, 줄 바꿈 2바이트). 목표는 한글 약 ${lo}-${hi}자${fill === "short" ? "로 간결하게" : ""}. 자료의 사실이 모자라면 목표보다 짧아도 괜찮음`,
+    `분량: 나이스 기준 ${budget.toLocaleString()}바이트를 절대 넘기지 않기(넘치면 입력되지 않음. 한글 1자 3바이트, 영문·숫자·공백 1바이트, 줄 바꿈 2바이트). 목표는 약 ${loB.toLocaleString()}-${hiB.toLocaleString()}바이트, 띄어쓰기 포함 약 ${lo}-${hi}자${fill === "short" ? "로 간결하게" : ""}. 자료의 사실이 모자라면 목표보다 짧아도 괜찮음`,
     ...(subject && frame
       ? ["구성: 학생의 성취수준 → 평가 과제에서 관찰한 수행 과정과 결과(근거) → 드러난 교과역량 → 교사 총평 순서를 참고하기"]
       : behavior ? [] : [`구성(활동마다): ① 어떤 활동에서 무엇을 했는지 → ② 학생이 보인 구체적인 행동·생각·의견·제안(자료 속 사실) → ③ 그 과정에서 드러난 역량이나 태도를 교사의 평가로 한 문장(예: '~을 제안하는 포용적 태도가 돋보임', '~을 근거로 비판적 시각을 보임'). ③ 교사 평가 문장은 글 전체에서 1-2번만, 역량이 가장 잘 드러난 활동에 쓰고(활동마다 넣지 않기, 같은 평가 표현을 되풀이하지 않기), 나머지 활동은 ②의 구체적인 행동·의견으로 맺기${fill === "short" ? ". 활동마다 2문장 안팎" : ""}`]),
@@ -343,7 +349,7 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     "쓰지 않을 것: 학생 이름, 강사·강연자·연사·멘토·교수 같은 인물과 직함, 대학·기관·상호명(동영상 플랫폼·대화형 인공지능 등 일반 명칭으로), 대회, 수상, 자격증, 논문, 어학시험, 모의고사 성적, 특수기호(가운데점, 둥근 따옴표, 대괄호, 물결표), 영문(한글로)",
     "날짜·기간·시간은 쓰지 않기(예: '(2026.04.17.)', '(3.30.-6.26.)', '(10시간)'처럼 활동 이름 뒤에 괄호로 붙이지 않기)",
     `자료에 없는 활동·성과는 지어내지 않기. 활동 이름은 ${actNames.length ? "[활동 목록]에" : "자료에"} 적힌 그대로 쓰기(낱말을 바꾸거나 덧붙이지 않기)`,
-    ...(hope ? [`학생의 진로희망을 살려 쓰기: 활동마다 진로희망과 이어지는 관심·관점·역량이 자연스럽게 드러나게 하기${/자율|자치/.test(area) ? "(자율·자치활동에서도 진로와 이어지는 부분을 살리기)" : ""}. 단, 자료에 있는 내용으로만 연결하고 지어내지 않기`] : []),
+    ...(hope ? [`학생의 진로희망을 살려 쓰기: 활동마다 진로희망과 이어지는 관심·관점·역량이 자연스럽게 드러나게 하기${/자율|자치/.test(area) ? "(자율·자치활동에서도 진로와 이어지는 부분을 살리기)" : ""}. '~을 희망하는 학생으로서', '~을 꿈꾸는 학생답게'처럼 진로희망을 직접 밝히지 말고 활동 내용과 관점으로 드러내기. 자료에 있는 내용으로만 연결하고 지어내지 않기`] : []),
   ];
   return [
     `당신은 고등학교 교사의 학교생활기록부 '${area}' 초안을 쓰는 도우미입니다.`,
