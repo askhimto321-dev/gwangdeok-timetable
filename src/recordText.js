@@ -51,11 +51,11 @@ const BRANDS = [
   ["네이버|NAVER|Naver", "포털사이트"], ["Daum", "포털사이트"],
   ["유튜버|YouTuber", "동영상 크리에이터"], ["유튜브|YouTube|Youtube", "동영상 플랫폼"], ["넷플릭스|Netflix", "동영상 플랫폼"], ["티빙|TVING", "동영상 플랫폼"], ["왓챠|watcha", "동영상 플랫폼"],
   ["틱톡|TikTok", "엔터테인먼트 플랫폼"], ["인스타그램|Instagram", "소셜네트워크서비스"], ["트위터|Twitter", "소셜네트워크서비스"], ["페이스북|Facebook", "소셜네트워크서비스"],
-  ["카카오톡|KakaoTalk", "메신저"], ["카카오|Kakao", "기업명 대신 일반 표현"], ["라인|LINE", "메신저"], ["삼성|Samsung", "기업명 대신 일반 표현"],
+  ["카카오톡|KakaoTalk", "메신저"], ["카카오|Kakao", "기업명 대신 일반 표현"], ["LINE", "메신저"], ["삼성(?![가-힣]{0,1}분)(?=$|[^가-힣]|전자|그룹|의|에서|에|이|은|을|과|와|처럼)|Samsung", "기업명 대신 일반 표현"],
   ["줌(?=\\s|$|으로|을|를)|Zoom", "화상 회의"], ["EBS 온라인클래스", "온라인 클래스"],
   ["미리캔버스", "디자인 제작 플랫폼"], ["망고보드", "디자인 제작 플랫폼"], ["캔바|Canva", "디자인 제작 플랫폼"],
   ["챗\\s?GPT|챗지피티|Chat\\s?GPT", "대화형 인공지능"], ["제미나이|Gemini", "대화형 인공지능"], ["뤼튼|wrtn", "대화형 인공지능"],
-  ["블로|Vllo", "영상 편집 프로그램"], ["프리미어 ?프로|Premiere Pro", "영상 편집 프로그램"], ["파이널 ?컷|Final Cut Pro", "영상 편집 프로그램"],
+  ["블로(?!그|거|킹|흐|우)|Vllo", "영상 편집 프로그램"], ["프리미어 ?프로|Premiere Pro", "영상 편집 프로그램"], ["파이널 ?컷|Final Cut Pro", "영상 편집 프로그램"],
   ["아이패드|iPad", "태블릿PC"], ["갤럭시 ?탭|Galaxy Tab", "태블릿PC"], ["크롬북|Chromebook", "휴대용 컴퓨터"],
   ["TED", "온라인 강연회"], ["패들렛|Padlet", "협업 플랫폼"], ["띵커벨|ThinkerBell", "협업 플랫폼"],
   ["커리어넷|careernet", "진로정보망"], ["메이저맵|majormap", "진로 정보 사이트"], ["홀랜드|Holland", "직업선호도 검사"], ["MBTI", "성격유형 검사"],
@@ -63,15 +63,18 @@ const BRANDS = [
 ];
 const AGENCIES = [["유네스코|UNESCO", "국제기구"], ["WTO|OECD|IMF|IAEA|NATO|WHO", "국제기구"], ["UN(?![A-Za-z])|EU(?![A-Za-z])", "국제기구"], ["통계청", "국가 통계 기관"], ["금융감독원", "금융 관리 기관"]];
 const BANNED_TERMS = [
-  ["대회", "교내외 대회 이름·결과는 쓰지 않기(경기·활동 등으로)"], ["수상", "수상 실적은 쓰지 않기"], ["자격증", "자격증은 쓰지 않기"],
+  ["대회(?!의)", "교내외 대회 이름·결과는 쓰지 않기(경기·활동 등으로)"], ["(?<![가-힣])수상(?!\\s?(?:안전|스키|레저|구조|생물|가옥|교통|택시|버스|스포츠|활동|훈련|생활|도시))(?=함|하|했|실적|경력|자|작|내역|\\s|$|[.,])|(?:(?<![가-힣])(?:금|은|동|대|최우수|우수|장려|특별|최고|인기|모범|봉사)?상|상장)을\\s?받", "수상 실적은 쓰지 않기"], ["자격증", "자격증은 쓰지 않기"],
   ["소논문|논문", "'학술자료' 등으로"], ["어학\\s?시험|인증\\s?시험|토익|토플|TOEIC|TOEFL|TEPS|HSK|JLPT", "어학·인증시험은 쓰지 않기"],
   ["모의고사|전국연합\\s?학력평가|학력평가", "모의고사·전국연합평가 성적은 쓰지 않기"],
-  ["해외\\s?(연수|봉사|활동)|어학연수", "해외 활동은 쓰지 않기"], ["도서\\s?출간|출판", "도서 출간은 쓰지 않기"], ["특허", "특허 등록은 쓰지 않기"],
-  ["장학생|장학금", "장학 관련 내용은 쓰지 않기"], ["부모|아버지|어머니|친인척", "부모·친인척의 사회·경제적 지위는 쓰지 않기"],
-  ["재단", "재단명은 쓰지 않기"], ["축제", "학교 축제명은 쓰지 않기"],
+  ["해외\\s?(연수|봉사|활동)|어학연수", "해외 활동은 쓰지 않기"], ["(?:책|도서|저서|시집|소설|동화책|그림책)[을를]?\\s?(?:출판|출간)|도서\\s?출간|출간(?:함|하여|했)", "도서 출간은 쓰지 않기"], ["특허", "특허 등록은 쓰지 않기"],
+  ["장학생|장학금", "장학 관련 내용은 쓰지 않기"], ["(?:부모님?|아버지|어머니|친인척)[가-힣]{0,2}\\s?(?:[가-힣]+\\s)?(?:직업|직장|회사|사업|교수|의사|변호사|판사|검사|공무원|대표|사장|임원|근무)", "부모·친인척의 직업·사회·경제적 지위는 쓰지 않기"],
+  ["[가-힣A-Za-z]{2,}\\s?재단(?![하해한된되질사])|재단법인", "재단명은 쓰지 않기"], ["(?<!학교|학급|교내|지역|마을|동네|학년|과학|수학|독서|영어|체육|음악|미술|문화|진로|동아리|가을|봄|여름|겨울|작은|한마당)(?<=[가-힣A-Za-z0-9]{2})축제", "학교 축제명은 쓰지 않기('학교 축제'처럼 일반 명칭으로)"],
 ];
-const ALLOWED_EN = new Set(["CEO", "PD", "UCC", "IT", "POP", "CF", "TV", "PAPS", "SNS", "PPT", "AI", "km", "m", "kg", "cm", "mm", "g", "mg", "ml", "L", "DNA", "RNA", "PC", "IoT", "VR", "AR", "CO2", "pH"]);
+const ALLOWED_EN = new Set(["STEAM", "STEM", "QR", "AED", "CPR", "GPS", "LED", "USB", "PDF", "OTT", "CAD", "SW", "HW", "MRI", "CT", "UV", "OX", "PBL", "LH", "API", "CO", "D",
+  "CEO", "PD", "UCC", "IT", "POP", "CF", "TV", "PAPS", "SNS", "PPT", "AI", "km", "m", "kg", "cm", "mm", "g", "mg", "ml", "L", "DNA", "RNA", "PC", "IoT", "VR", "AR", "CO2", "pH"]);
 
+const UNIV_SHORT = "서울|연세|고려|서강|성균관|한양|중앙|경희|한국외|외|서울시립|시립|건국|동국|홍익|국민|숭실|세종|단국|아주|인하|광운|명지|상명|가톨릭|가천|삼육|한성|서경|인천|부산|경북|경상국립|경상|전남|전북|충남|충북|강원|제주|부경|한국교원|교원|서울교|경인교|공주교|청주교|춘천교|서울과기|과기|한국항공|항공|울산|영남|계명|동아|조선|한림|순천향|한동|경기|수원|용인|한신|협성|강남|한국체|한국예술종합|카톨릭|포항공|한국공학|한국기술교육|안양|대진|평택|을지|차의과학|성결|루터|백석|호서|선문|남서울|상지|연세미래|고려세종";
+const UNIV_RE = new RegExp(`[가-힣A-Za-z]+대학교|(?<![가-힣])(?:${UNIV_SHORT})대(?![가-힣])|(?<![가-힣])(?:${UNIV_SHORT})대(?=에|의|를|을|로|와|과|에서|생|학생|\\s?[가-힣]+(?:학과|학부|캠퍼스))|[가-힣]{2,}여대(?![가-힣])|[가-힣]{2,}대\\s[가-힣]+(?:학과|학부)|KAIST|카이스트|POSTECH|포스텍|UNIST|유니스트|GIST|지스트|DGIST|디지스트|사관학교|경찰대`, "g");
 function findAll(text, re) {
   const out = [];
   const g = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
@@ -85,7 +88,8 @@ export function checkRecordText(text = "") {
   const issues = [];
   const add = (level, kind, match, index, fix) => issues.push({ level, kind, match, index, fix });
   SPECIAL.forEach(([re, name, fix]) => findAll(value, re).forEach(hit => add("block", `특수문자 · ${name}`, hit.match, hit.index, fix)));
-  findAll(value, /[가-힣A-Za-z]+대학교|[가-힣]{2,}대(?=에|의|를|을|로|와|과|\s|$|\.|,)(?<!(?:시대|세대|상대|반대|기대|확대|최대|최소대|현대|고대|근대|교대|강대|군대|무대|연대|대대|절대|접대|위대|거대|광대|관대|온대|열대|한대|토대|지대|부대|해대|극대|증대|단대|침대|의대|공대|법대|약대|치대))/g)
+  // 대학명: '~대학교', 줄임말 목록(서울대·연세대 등), '~여대', '~대 ~학과'만 잡아요('순서대로', '계획대로'는 대학이 아니에요).
+  findAll(value, UNIV_RE)
     .forEach(hit => add("block", "대학명", hit.match, hit.index, "특정 대학명은 쓰지 않기"));
   BRANDS.forEach(([pattern, fix]) => findAll(value, new RegExp(`(?<![A-Za-z가-힣])(?:${pattern})(?![A-Za-z])`, "g")).forEach(hit => add("block", "상호명", hit.match, hit.index, `'${fix}' 등으로`)));
   AGENCIES.forEach(([pattern, fix]) => findAll(value, new RegExp(`(?<![A-Za-z가-힣])(?:${pattern})`, "g")).forEach(hit => add("block", "기관명", hit.match, hit.index, `'${fix}' 등으로`)));
@@ -98,9 +102,9 @@ export function checkRecordText(text = "") {
   findAll(value, /[가-힣]*(?:했음|하였음|었음|았음|였음|겠음|할 것임|할 예정임)(?=\s*[.\n]|\s*$)/g).forEach(hit => add("warn", "시제", hit.match, hit.index, "현재형 종결어미로(~함, ~임)"));
   findAll(value, /[가-힣]*(?:파악함|이해함|깨달음|다짐함|느낌|배움|고찰함|분석함|알게 됨|알게됨|생각함|결심함|체득함|인식함)(?=\s*[.\n]|\s*$)/g).forEach(hit => add("warn", "학생 입장 표현", hit.match, hit.index, "교사 관찰로(~하는 모습을 보임, ~이 돋보임)"));
   // 소감문을 그대로 옮긴 표현·인물 직함(교사 관찰 기록에 맞지 않음)
-  findAll(value, /소감문|(?:서술|진술|기술)함|강사|강연자|연사(?=[의가를는께])/g).forEach(hit => add("warn", "학생 입장 표현", hit.match, hit.index, /소감/.test(hit.match) || /함$/.test(hit.match) ? "학생이 쓴 글을 옮긴 표현이에요. 활동 사실을 교사 관찰로 바꿔 써 주세요" : "강사·강연자 같은 인물은 쓰지 않아요. '~ 교육(특강)에 참여하여'처럼 활동으로 써 주세요"));
+  findAll(value, /소감문|(?:서술|진술|기술)함|(?<![가-힣])강사(?!항|업|진)|강연자|(?<![가-힣])연사(?=[의가를는께])/g).forEach(hit => add("warn", "학생 입장 표현", hit.match, hit.index, /소감/.test(hit.match) || /함$/.test(hit.match) ? "학생이 쓴 글을 옮긴 표현이에요. 활동 사실을 교사 관찰로 바꿔 써 주세요" : "강사·강연자 같은 인물은 쓰지 않아요. '~ 교육(특강)에 참여하여'처럼 활동으로 써 주세요"));
   // 영문: 허용 목록 밖의 영어 낱말
-  findAll(value, /[A-Za-z][A-Za-z0-9]*/g).forEach(hit => {
+  findAll(value, /(?<![0-9A-Za-z])[A-Za-z][A-Za-z0-9]*/g).forEach(hit => {
     if (ALLOWED_EN.has(hit.match) || issues.some(issue => issue.index <= hit.index && hit.index < issue.index + issue.match.length)) return;
     add("warn", "영문", hit.match, hit.index, "문자는 한글로(부득이한 경우만 영문)");
   });
@@ -135,11 +139,12 @@ export function checkRecordText(text = "") {
   // 태도 표현 반복: 한 단락(줄)에서 '집중함·경청함·성실히 참여함' 같은 태도 문장이 3번 넘게 나오면 분량 채우기용 반복일 수 있어요
   let lineAt = 0;
   value.split("\n").forEach(line => {
-    const hits = splitSentences(line).filter(sentence => ATTITUDE_RE.test(sentence));
+    const sentences = splitSentences(line);
+    const hits = sentences.filter(sentence => ATTITUDE_RE.test(sentence) && ATTITUDE_END_RE.test(sentence.replace(/[.!?\s]+$/, "")));
     // '~에 참여하여'로 시작한 단락을 '~에 참여함'으로 또 맺으면 같은 말을 두 번 한 셈이에요
-    const joinAt = line.search(/참여하여|참여해|참가하여|참가해/);
-    const endHit = joinAt >= 0 ? [...line.matchAll(/(?:참여|참가)(?:함|하였음|했음|하는 모습을 보임)/g)].find(m => m.index > joinAt) : null;
-    if (endHit) add("warn", "'참여' 겹침", endHit[0], lineAt + endHit.index, "'~에 참여하여'로 시작한 단락을 '참여함'으로 또 맺었어요. 끝은 학생이 한 행동(정리함, 제시함, 실천함 등)으로 바꿔 주세요");
+    const lastSentence = sentences[sentences.length - 1] || "";
+    const endHit = sentences.length && /참여하여|참여해|참가하여|참가해/.test(sentences[0]) ? lastSentence.replace(/[.!?\s]+$/, "").match(/(?<!도\s?)(?:참여|참가)(?:함|하는 모습을 보임)$/) : null;
+    if (endHit && (sentences.length > 1 || lastSentence.search(/참여하여|참여해|참가하여|참가해/) < endHit.index)) add("warn", "'참여' 겹침", endHit[0], lineAt + line.lastIndexOf(endHit[0]), "'~에 참여하여'로 시작한 단락을 '참여함'으로 또 맺었어요. 끝은 학생이 한 행동(정리함, 제시함, 실천함 등)으로 바꿔 주세요");
     if (hits.length >= 3) add("warn", "태도 표현 반복", `${(hits[hits.length - 1].match(ATTITUDE_RE) || [""])[0]} 등 ×${hits.length}`, lineAt + Math.max(0, line.lastIndexOf(hits[hits.length - 1])), `한 활동에 '집중함·경청함·성실히 참여함' 같은 태도 문장이 ${hits.length}개예요. 하나만 남기고, 나머지는 학생이 한 구체적인 활동(조사·발표·토의·만든 것)으로 바꿔 주세요`);
     lineAt += line.length + 1;
   });
@@ -147,6 +152,8 @@ export function checkRecordText(text = "") {
   return issues.sort((a, b) => a.index - b.index);
 }
 const ATTITUDE_RE = /집중|경청|성실|진지|바른\s*태도|흐트러짐|끝까지|열심히|적극적으로\s*참여|성의\s*있/;
+// 문장의 끝(서술어)이 태도뿐인 경우만 세요: '~에 집중함', '~진지하게 임함', '~태도로 참여함', '~모습을 보임'
+const ATTITUDE_END_RE = /(?:집중|경청|임|참여|참가|유지|노력)(?:함|하는 모습을 보임)$|(?:태도|자세|모습)[을를이가]?\s?(?:보임|돋보임)$/;
 // 한 글 안에서 같은 문장을 두 번 쓴 경우(띄어쓰기·기호 무시, 5자 이상)
 function repeatedSentences(text) {
   const seen = new Map(); const out = [];
