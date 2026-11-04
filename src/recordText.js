@@ -148,9 +148,13 @@ export function checkRecordText(text = "") {
     if (hits.length >= 3) add("warn", "태도 표현 반복", `${(hits[hits.length - 1].match(ATTITUDE_RE) || [""])[0]} 등 ×${hits.length}`, lineAt + Math.max(0, line.lastIndexOf(hits[hits.length - 1])), `한 활동에 '집중함·경청함·성실히 참여함' 같은 태도 문장이 ${hits.length}개예요. 하나만 남기고, 나머지는 학생이 한 구체적인 활동(조사·발표·토의·만든 것)으로 바꿔 주세요`);
     lineAt += line.length + 1;
   });
+  // 교사 평가 문장(~이 돋보임, ~시각을 보임 등)이 글 하나에 3개 이상이면 어색해요(여러 활동마다 붙인 경우)
+  const evals = splitSentences(value).filter(sentence => EVAL_END_RE.test(sentence.replace(/[.!?\s]+$/, "")));
+  if (evals.length >= 3) add("warn", "평가 문장 많음", `~${(evals[evals.length - 1].replace(/[.!?\s]+$/, "").match(EVAL_END_RE) || [""])[0]} 등 ×${evals.length}`, Math.max(0, value.lastIndexOf(evals[evals.length - 1])), `'~이 돋보임'처럼 평가로 끝나는 문장이 ${evals.length}개예요. 역량이 가장 잘 드러난 1-2곳만 남기고, 나머지는 학생이 한 행동이나 의견으로 맺어 주세요`);
   repeatedSentences(value).forEach(sentence => add("warn", "같은 문장 반복", sentence.length > 24 ? `${sentence.slice(0, 24)}…` : sentence, value.lastIndexOf(sentence), "같은 문장을 두 번 썼어요. 하나는 지우거나 다른 관찰 내용으로 바꿔 주세요"));
   return issues.sort((a, b) => a.index - b.index);
 }
+const EVAL_END_RE = /(?:돋보임|(?:태도|자세|시각|관점|역량|능력|면모|모습|의지|리더십|열정|기획력|사고력|탐구력|표현력|공감\s?능력)[을를이가]?\s?(?:보임|드러냄|드러남|발휘함))$/;
 const ATTITUDE_RE = /집중|경청|성실|진지|바른\s*태도|흐트러짐|끝까지|열심히|적극적으로\s*참여|성의\s*있/;
 // 문장의 끝(서술어)이 태도뿐인 경우만 세요: '~에 집중함', '~진지하게 임함', '~태도로 참여함', '~모습을 보임'
 const ATTITUDE_END_RE = /(?:집중|경청|임|참여|참가|유지|노력)(?:함|하는 모습을 보임)$|(?:태도|자세|모습)[을를이가]?\s?(?:보임|돋보임)$/;
@@ -368,7 +372,7 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     ...(noteLines.length ? noteLines.map(([label, text]) => `(${label})\n${text}`) : ["(자료가 비어 있어요. 활동 내용을 직접 적어 주세요.)"]),
     ...(hide(existing) ? ["", "[지금까지 쓴 글: 이 글을 위 조건에 맞게 다듬어 주세요]", hide(existing)] : []),
     "",
-    `[출력 전 스스로 점검] 위 1~${rules.length}번을 하나씩 확인하고, 어긋난 문장은 고친 뒤 생기부에 바로 붙여 넣을 본문만 출력해 주세요(제목·설명·머리말 없이).`,
+    `[출력 전 스스로 점검] 위 1~${rules.length}번을 하나씩 확인하세요. 특히 ${behavior || subject ? "" : "교사 평가 문장('~이 돋보임', '~시각을 보임', '~관점을 드러냄' 등)이 글 전체에서 2개를 넘으면 줄이고, "}바이트가 한도를 넘지 않는지 다시 세어 보세요. 어긋난 문장은 고친 뒤 생기부에 바로 붙여 넣을 본문만 출력해 주세요(제목·설명·머리말 없이).`,
   ].join("\n");
 }
 
