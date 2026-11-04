@@ -243,3 +243,7 @@ test("AI 요청문: 소감문이면 글쓰기 표현·인물 금지, 시작 어�
   assert.ok(pr.includes("'소감문', '글', '서술함'")); assert.ok(pr.includes("강사")); assert.ok(pr.includes("가교육에 참여하여 / 나교육에서")); assert.ok(pr.includes("[출력 전 스스로 점검]"));
   assert.ok(checkRecordText("강사의 강의를 경청하고 소감문에 정리함.").some(i => i.match === "강사"));
 });
+test("AI 요청문: 분석함·파악함 끝맺음 금지", async () => {
+  const { buildAiPrompt } = await import("../src/recordText.js");
+  assert.ok(buildAiPrompt({ area: "진로활동", notes: [["a", "x"]] }).includes("'분석함', '파악함'"));
+});
