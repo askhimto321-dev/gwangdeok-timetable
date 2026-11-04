@@ -280,3 +280,7 @@ test("AI 요청문: 태도 문장으로 분량 채우지 않기", async () => {
   assert.ok(prompt.includes("태도 문장으로 분량을 채우지 않기"));
   assert.ok(prompt.includes("한글 약 375-450자"));
 });
+test("점검: 참여하여 ~ 참여함 겹침", () => {
+  assert.ok(checkRecordText("장애이해교육에 참여하여 사례를 들음. 배려를 주제로 한 교육 과정에 참여함.").some(i => i.kind === "'참여' 겹침"));
+  assert.ok(!checkRecordText("장애이해교육에 참여하여 사례를 조사하고 모둠 발표를 함.\n캠페인에 참여함.").some(i => i.kind === "'참여' 겹침"));
+});
