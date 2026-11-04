@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-04-l",
+    date: "2026-11-04",
+    title: "'참여하여 ~ 참여함' 겹침 잡기",
+    items: [
+      { audience: "staff", text: "'~에 참여하여'로 시작한 단락을 '참여함'으로 또 맺으면 기재요령 점검에서 알려 줘요. AI 요청문에도 마지막 문장은 학생이 한 행동으로 맺도록 넣었어요." },
+    ],
+  },
+  {
     id: "2026-11-04-k",
     date: "2026-11-04",
     title: "AI 도우미: 태도 문장 되풀이 막기",

@@ -136,6 +136,10 @@ export function checkRecordText(text = "") {
   let lineAt = 0;
   value.split("\n").forEach(line => {
     const hits = splitSentences(line).filter(sentence => ATTITUDE_RE.test(sentence));
+    // '~에 참여하여'로 시작한 단락을 '~에 참여함'으로 또 맺으면 같은 말을 두 번 한 셈이에요
+    const joinAt = line.search(/참여하여|참여해|참가하여|참가해/);
+    const endHit = joinAt >= 0 ? [...line.matchAll(/(?:참여|참가)(?:함|하였음|했음|하는 모습을 보임)/g)].find(m => m.index > joinAt) : null;
+    if (endHit) add("warn", "'참여' 겹침", endHit[0], lineAt + endHit.index, "'~에 참여하여'로 시작한 단락을 '참여함'으로 또 맺었어요. 끝은 학생이 한 행동(정리함, 제시함, 실천함 등)으로 바꿔 주세요");
     if (hits.length >= 3) add("warn", "태도 표현 반복", `${(hits[hits.length - 1].match(ATTITUDE_RE) || [""])[0]} 등 ×${hits.length}`, lineAt + Math.max(0, line.lastIndexOf(hits[hits.length - 1])), `한 활동에 '집중함·경청함·성실히 참여함' 같은 태도 문장이 ${hits.length}개예요. 하나만 남기고, 나머지는 학생이 한 구체적인 활동(조사·발표·토의·만든 것)으로 바꿔 주세요`);
     lineAt += line.length + 1;
   });
@@ -318,6 +322,7 @@ export function buildAiPrompt({ area = "", subject = "", activity = "", budget =
     (() => { const f = AI_FILL[fill] || AI_FILL[AI_FILL_DEFAULT]; const lo = Math.floor((chars * f.lo) / 100), hi = Math.floor((chars * f.hi) / 100); return fill === "short"
       ? `분량은 간결하게: 한글 약 ${lo}-${hi}자로, 활동마다 핵심 행동과 태도를 1-2문장으로 쓰기`
       : `분량 목표: 한글 약 ${lo}-${hi}자. 활동마다 무엇을 했는지(상황·맡은 일), 어떻게 했는지(과정·방법), 어떤 결과가 나왔는지를 자료 속 구체적인 사실(본 사례, 조사·토의·발표한 내용, 만든 것, 맡은 역할)로 채우기. 단, 자료에 없는 사실을 지어내지 않기`; })(),
+    "한 단락 안에서 같은 서술어를 되풀이하지 않기: '~에 참여하여'로 시작했다면 그 단락을 '참여함'으로 끝내지 말고, 마지막 문장은 학생이 한 구체적인 행동(정리함, 제시함, 실천함, 공유함 등)으로 맺기",
     "태도 문장으로 분량을 채우지 않기: '집중함', '경청함', '진지하게 임함', '성실히 참여함', '끝까지 흐트러짐 없이' 같은 태도 표현은 활동마다 한 번만 쓰기. 같은 뜻을 말만 바꿔 되풀이하지 않기. 모든 문장에 새로운 사실이 하나씩 들어가야 하며, 자료의 사실이 모자라면 분량 목표보다 짧아도 괜찮음",
     "교사가 관찰한 사실로 쓰기: 학생이 '무엇을 하고 어떻게 행동했는지'만 쓰고, 학생 입장·내면 표현은 쓰지 않기(이해함, 깨달음, 알게 됨, 느낌, 배움, 다짐함, 생각함, 결심함, 인식함, 체득함, 성찰함 등)",
     "문장을 '분석함', '파악함', '고찰함', '이해함'처럼 머릿속 활동으로 끝내지 않기. 눈에 보이는 행동과 결과로 끝내기(예: '~을 분석함' → '~을 분석해 개선 방안을 제시함', '~을 파악함' → '~을 조사해 표로 정리하고 발표함')",
