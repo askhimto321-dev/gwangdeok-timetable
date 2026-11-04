@@ -623,7 +623,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const refls = (reflections || []).map((item, i) => ({ ...item, key: item.id || `${item.activity}-${i}` }));
   const [reflPick, setReflPick] = useState({});
   useEffect(() => { setReflPick({}); }, [sid]);
-  const reflNotes = refls.filter(item => reflPick[item.key]).map(item => [`학생 소감문(학생이 쓴 글, ${item.activity})`, item.response]);
+  const reflNotes = refls.filter(item => reflPick[item.key]).map(item => [`소감문: ${item.activity} — 학생이 쓴 글, 활동 사실만 근거로`, item.response]);
   const hope = String(aiContext.hope || "").trim();
   const [useHope, setUseHope] = useState(true);
   // 활동마다 줄 바꾸기: 담임 자율·진로는 기본으로 켜고(여러 행사·활동), 소감문을 2개 이상 넣으면 켜요.
@@ -640,7 +640,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     aiContext.subject && useEx && exPick && "기재 예시",
     refine && current.trim() && "지금 쓴 글",
   ].filter(Boolean);
-  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi });
+  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi, activities: refls.filter(item => reflPick[item.key]).map(item => item.activity) });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
   // 바로 열기: 팝업 차단을 피하려고 창부터 열고, 요청문은 주소(?q=)에 담고 클립보드에도 복사해 둡니다.
   const openAi = async site => {
