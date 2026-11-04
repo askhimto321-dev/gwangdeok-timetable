@@ -237,3 +237,9 @@ test("같은 끝맺음 반복 알림, 요청문 다양성 규칙", async () => {
   const pr = buildAiPrompt({ area: "자율·자치활동", notes: [["a", "x"]], hope: "건축가" });
   assert.ok(pr.includes("이해함")); assert.ok(pr.includes("문장 끝을 다양하게")); assert.ok(pr.includes("'~에 참여하여'")); assert.ok(pr.includes("자율·자치활동에서도 진로"));
 });
+test("AI 요청문: 소감문이면 글쓰기 표현·인물 금지, 시작 어투 예시", async () => {
+  const { buildAiPrompt, checkRecordText } = await import("../src/recordText.js");
+  const pr = buildAiPrompt({ area: "자율·자치활동", multi: true, activities: ["가교육", "나교육"], notes: [["소감문: 가교육 — 학생이 쓴 글", "x"], ["소감문: 나교육 — 학생이 쓴 글", "y"]] });
+  assert.ok(pr.includes("'소감문', '글', '서술함'")); assert.ok(pr.includes("강사")); assert.ok(pr.includes("가교육에 참여하여 / 나교육에서")); assert.ok(pr.includes("[출력 전 스스로 점검]"));
+  assert.ok(checkRecordText("강사의 강의를 경청하고 소감문에 정리함.").some(i => i.match === "강사"));
+});
