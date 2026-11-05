@@ -39,7 +39,7 @@ export function normalizeHandover(raw) {
   const v = raw && typeof raw === "object" && Array.isArray(raw.depts) ? raw : seedHandover();
   return {
     ...v,
-    depts: v.depts.map((d, i) => ({ id: String(d.id || uid("dept_")), name: String(d.name || "부서"), order: Number.isFinite(d.order) ? d.order : i, common: String(d.common || "") })).sort((a, b) => a.order - b.order),
+    depts: v.depts.map((d, i) => ({ id: String(d.id || uid("dept_")), name: String(d.name || "부서"), order: Number.isFinite(d.order) ? d.order : i, common: String(d.common || ""), memberAdd: (d.memberAdd || []).map(String), memberRemove: (d.memberRemove || []).map(String) })).sort((a, b) => a.order - b.order),
     roles: (v.roles || []).map((r, i) => ({ id: String(r.id || uid("role_")), deptId: String(r.deptId || ""), title: String(r.title || ""), ownerId: String(r.ownerId || ""), ownerName: String(r.ownerName || ""), order: Number.isFinite(r.order) ? r.order : i, duties: (r.duties || []).map(d => ({ id: String(d.id || uid("duty_")), text: String(d.text || ""), part: String(d.part || ""), group: String(d.group || ""), editors: (Array.isArray(d.editors) ? d.editors : []).map(e => ({ id: String(e?.id || ""), name: String(e?.name || "") })).filter(e => e.id) })) })).sort((a, b) => a.order - b.order),
   };
 }
@@ -221,4 +221,15 @@ export function formatDetail(text = "") {
     });
   });
   return out;
+}
+
+// 부서 선생님: 'N학년부'는 학년이 N으로 지정된 선생님(학년·담임 학년·학년부장 학년) 자동 포함,
+// 담당자 배정 화면에서 더한 선생님(memberAdd)은 넣고 뺀 선생님(memberRemove)은 빼요. 이미 담당인 선생님은 늘 포함.
+export const teacherGradeOf = t => String(t?.roleGrade || t?.homeroomGrade || t?.gradeHeadGrade || "").trim();
+export function deptMembers(dept, teachers = [], roles = []) {
+  const grade = (String(dept?.name || "").match(/([1-3])\s*학년/) || [])[1] || "";
+  const add = new Set((dept?.memberAdd || []).map(String));
+  const remove = new Set((dept?.memberRemove || []).map(String));
+  const owners = new Set(roles.filter(r => r.deptId === dept?.id && r.ownerId).map(r => String(r.ownerId)));
+  return teachers.filter(t => { const id = String(t.id); if (owners.has(id)) return true; if (remove.has(id)) return false; return add.has(id) || (!!grade && teacherGradeOf(t) === grade); });
 }

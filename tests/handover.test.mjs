@@ -71,3 +71,10 @@ test("인수인계: 단계 내용 목록·메모로 나누기", async () => {
   const f = formatDetail("ⓐ 학생들의 진로 희망, ⓑ 상담 후 진로가 변경된 학생, ⓒ 인원수 분배 등을 고려\n*최대한 학기초에 진행\n- 시트에 정리\n일반 문장");
   assert.deepEqual(f.map(x => [x.type, x.marker || "", x.text]), [["li", "ⓐ", "학생들의 진로 희망"], ["li", "ⓑ", "상담 후 진로가 변경된 학생"], ["li", "ⓒ", "인원수 분배 등을 고려"], ["note", "", "최대한 학기초에 진행"], ["li", "•", "시트에 정리"], ["p", "", "일반 문장"]]);
 });
+test("인수인계: 부서 선생님(학년부 자동 + 더하기/빼기 + 담당은 늘 포함)", async () => {
+  const { deptMembers } = await import("../src/handover.js");
+  const t = [{ id: "a", roleGrade: "2" }, { id: "b", homeroomGrade: "2" }, { id: "c", roleGrade: "1" }, { id: "d" }, { id: "e", roleGrade: "2" }];
+  const dept = { id: "g2", name: "2학년부", memberAdd: ["d"], memberRemove: ["e", "c"] };
+  assert.deepEqual(deptMembers(dept, t, [{ deptId: "g2", ownerId: "c" }]).map(x => x.id), ["a", "b", "c", "d"]);
+  assert.deepEqual(deptMembers({ id: "x", name: "교무부", memberAdd: ["c"] }, t, []).map(x => x.id), ["c"]);
+});
