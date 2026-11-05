@@ -9,7 +9,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, UserCog, UserPlus, CalendarDays, Check, CopyPlus, Printer, Lightbulb, AlignLeft, Dot, CheckCircle2, Info, Sparkles, ChevronRight, ClipboardList, ClipboardPaste, Copy, ExternalLink, FileSpreadsheet, FileText, Film, FolderOpen, Globe, Link2, Loader2, MessageSquare, Palette, Paperclip, Pencil, Plus, Presentation, Search, Share2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
-import { HANDOVER_KEY, normalizeHandover, normalizeTask, emptyTask, newStep, newLink, newComment, groupSteps, linkKind, safeUrl, stepTemplate, taskProgress, SCHOOL_MONTHS, parseSheetRows, siblingDuties, dutyPartNo, taskStoreKey, mergeTasks, taskAsText, stepPeople, formatDetail } from "./handover.js";
+import { HANDOVER_KEY, normalizeHandover, normalizeTask, emptyTask, newStep, newLink, newComment, groupSteps, linkKind, safeUrl, stepTemplate, taskProgress, SCHOOL_MONTHS, parseSheetRows, siblingDuties, dutyPartNo, taskStoreKey, mergeTasks, taskAsText, stepPeople, formatDetail, deptMembers } from "./handover.js";
 
 const KIND_ICON = { sheet: FileSpreadsheet, doc: FileText, slide: Presentation, form: ClipboardList, drive: FolderOpen, design: Palette, video: Film, web: Globe };
 const fmtAt = iso => { if (!iso) return ""; const d = new Date(iso); if (Number.isNaN(d.getTime())) return ""; return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
@@ -123,18 +123,17 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
         {manage && dept && <div className="mng-dept"><span>부서 이름</span><input key={dept.id} defaultValue={dept.name} onBlur={e => renameDept(e.target.value)} onKeyDown={onEnter(() => document.activeElement?.blur())} /><button type="button" data-kdn-bare onClick={removeDept}>부서 지우기</button></div>}
         {!manage && !q && roles.length > 2 && <div className="foldbar"><small>담당 {roles.length}개</small><button type="button" data-kdn-bare onClick={() => setAll(!allOpen)}>{allOpen ? "모두 접기" : "모두 펼치기"}</button></div>}
         {visibleRoles.length === 0 && <p className="none">{mineOnly ? "내 담당이 아직 없어요. 맡은 담당의 '내 담당으로'를 눌러 주세요." : q ? "찾는 업무가 없어요." : "아직 담당이 없어요."}</p>}
-        {visibleRoles.map(role => { const mine = role.ownerId && role.ownerId === myId; const opened = isOpenRole(role); const filledN = role.duties.filter(d => { const m = data.meta?.[d.id]; return m && (m.steps || m.files || m.filled); }).length; return <section key={role.id} className={`kho-role${mine ? " mine" : ""}${opened ? "" : " folded"}`}>
-          <header>
+        {visibleRoles.map(role => { const mine = role.ownerId && role.ownerId === myId; const opened = isOpenRole(role); const filledN = role.duties.filter(d => { const m = data.meta?.[d.id]; return m && (m.steps || m.files || m.filled); }).length; return <section key={role.id} className={`kho-role${mine ? " mine" : ""}${opened ? "" : " folded"}`} title={opened ? undefined : role.duties.map(d => `· ${d.text}`).join("\n")}>
+          <header onClick={manage ? undefined : e => { if (!e.target.closest("button,select,input,a")) toggleRole(role); }}>
             {!manage && <button type="button" data-kdn-bare className="fold" aria-expanded={opened} title={opened ? "접기" : "펼치기"} onClick={() => toggleRole(role)}><ChevronDown size={15} /></button>}
             <b className="rn">{roleNo(data, role)}</b>
-            {manage && canManage ? <select value={role.ownerId} onChange={e => { const t = teachers.find(x => String(x.id) === e.target.value); editRole(role.id, { ownerId: t ? String(t.id) : "", ownerName: t ? String(t.name) : "" }); }}><option value="">담당 미정</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+            {manage && canManage ? <select value={role.ownerId} onChange={e => { const t = teachers.find(x => String(x.id) === e.target.value); editRole(role.id, { ownerId: t ? String(t.id) : "", ownerName: t ? String(t.name) : "" }); }}><option value="">담당 미정</option>{deptMembers(dept, teachers, data.roles).sort((a, b) => String(a.name).localeCompare(String(b.name), "ko")).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
               : <span className={role.ownerName ? "who" : "who nil"}>{role.ownerName || "미정"}</span>}
             {!manage && <span className="cnt" onClick={() => toggleRole(role)} title={`세부 업무 ${role.duties.length}개 중 ${filledN}개 정리`}>{filledN}/{role.duties.length}</span>}
             {!manage && mine && <button type="button" data-kdn-bare className="me" title="눌러서 담당 풀기" onClick={() => window.confirm("내 담당을 풀까요?") && claim(role, false)}>내 담당</button>}
-            {!manage && isTeacher && !role.ownerId && <button type="button" data-kdn-bare className="claim" onClick={() => claim(role, true)}>내 담당으로</button>}
+            {!manage && opened && isTeacher && !role.ownerId && <button type="button" data-kdn-bare className="claim" onClick={() => claim(role, true)}>내 담당으로</button>}
             {manage && <span className="mng"><input defaultValue={role.title} placeholder="담당 이름" onBlur={e => e.target.value !== role.title && editRole(role.id, { title: e.target.value.trim() })} /><button type="button" data-kdn-bare title="담당 지우기" onClick={() => removeRole(role)}><Trash2 size={13} /></button></span>}
           </header>
-          {!opened && <button type="button" data-kdn-bare className="peek" onClick={() => toggleRole(role)}>{role.duties[0]?.text || "세부 업무 없음"}{role.duties.length > 1 ? <em> 외 {role.duties.length - 1}개</em> : null}</button>}
           {opened && <ul>{role.duties.map(duty => { const m = data.meta?.[duty.id]; const filled = !!(m && (m.steps || m.files || m.filled)); return <li key={duty.id}>
             {manage ? <span className="mng-duty"><input defaultValue={duty.text} onBlur={e => e.target.value.trim() && e.target.value !== duty.text && editDuties(role.id, list => list.map(d => d.id === duty.id ? { ...d, text: e.target.value.trim() } : d))} /><select className="mv" value="" title="다른 담당으로 옮기기" aria-label="다른 담당으로 옮기기" onChange={e => moveDuty(duty, role, e.target.value)}><option value="">옮기기</option>{data.depts.map(d => <optgroup key={d.id} label={d.name}>{data.roles.filter(r => r.deptId === d.id && r.id !== role.id).map(r => <option key={r.id} value={r.id}>{roleNo(data, r)}{r.ownerName ? ` · ${r.ownerName}` : ""}</option>)}</optgroup>)}</select><button type="button" data-kdn-bare title="지우기" onClick={() => window.confirm("이 세부 업무를 목록에서 지울까요?") && editDuties(role.id, list => list.filter(d => d.id !== duty.id))}><X size={13} /></button></span>
               : <button type="button" data-kdn-bare className={duty.id === dutyId ? "on" : ""} onClick={() => open(duty.id)} title={filled ? "정리된 업무" : "아직 비어 있는 업무"}>
@@ -146,7 +145,7 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
         {dept?.common && !manage && <p className="common"><b>공동</b> {dept.common}</p>}
       </aside>
       <main className="kho-main">
-        {assignOpen && canManage ? <AssignPanel data={data} dept={dept} teachers={teachers} onAssign={(roleId, t) => editRole(roleId, { ownerId: t ? String(t.id) : "", ownerName: t ? String(t.name) : "" })} onClose={() => setAssignOpen(false)} onOpen={id => { setAssignOpen(false); open(id); }} />
+        {assignOpen && canManage ? <AssignPanel data={data} dept={dept} teachers={teachers} onMembers={(addIds, removeIds) => saveStructure(v => ({ ...v, depts: v.depts.map(d => d.id === dept.id ? { ...d, memberAdd: addIds, memberRemove: removeIds } : d) }))} onAssign={(roleId, t) => editRole(roleId, { ownerId: t ? String(t.id) : "", ownerName: t ? String(t.name) : "" })} onClose={() => setAssignOpen(false)} onOpen={id => { setAssignOpen(false); open(id); }} />
         : found ? <TaskPanel key={`${found.duty.id}-${found.duty.group}`} data={data} duty={found.duty} role={found.role} dept={data.depts.find(d => d.id === found.role.deptId)}
           canEdit={canEditDuty(found.role, found.duty) || siblingDuties(data, found.duty.id).some(x => found.duty.group && x.duty.group === found.duty.group && canEditDuty(x.role, x.duty))}
           canEditOf={canEditDuty} teachers={teachers} actor={actor} showToast={showToast} onMeta={onMeta} editDuty={editDuty} onOpen={open} onClose={() => setDutyId("")} initialMonth={openMonth} />
@@ -163,31 +162,44 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
 }
 
 // 담당자 배정(관리자·부서 계정·학년부장): 부서의 담당마다 선생님을 정하고, 아직 담당이 없는 선생님을 보여 줘요.
-function AssignPanel({ data, dept, teachers, onAssign, onClose, onOpen }) {
+function AssignPanel({ data, dept, teachers, onAssign, onMembers, onClose, onOpen }) {
   const [find, setFind] = React.useState("");
+  const [allTeachers, setAllTeachers] = React.useState(false);
+  const [adding, setAdding] = React.useState(false);
   const roles = data.roles.filter(r => r.deptId === dept?.id);
+  const members = deptMembers(dept, teachers, data.roles);
+  const memberIds = new Set(members.map(t => String(t.id)));
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), "ko");
+  const pool = (allTeachers ? teachers : members).filter(t => !find.trim() || String(t.name).includes(find.trim())).sort(byName);
   const assigned = new Set(data.roles.map(r => r.ownerId).filter(Boolean));
-  const free = teachers.filter(t => !assigned.has(String(t.id)));
-  const shown = find.trim() ? teachers.filter(t => String(t.name).includes(find.trim())) : teachers;
-  const sorted = [...shown].sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
+  const deptOwners = new Set(roles.map(r => r.ownerId).filter(Boolean));
+  const free = members.filter(t => !deptOwners.has(String(t.id))).sort(byName);
   const done = roles.filter(r => r.ownerId).length;
+  const addMember = id => { if (!id) return; const add = new Set(dept.memberAdd || []); const rm = new Set(dept.memberRemove || []); add.add(id); rm.delete(id); onMembers([...add], [...rm]); setAdding(false); };
+  const removeMember = t => { const id = String(t.id); if (deptOwners.has(id)) return; const add = new Set(dept.memberAdd || []); const rm = new Set(dept.memberRemove || []); add.delete(id); rm.add(id); onMembers([...add], [...rm]); };
   return <div className="kho-assign">
-    <header><div><b><UserCog size={17} /> 담당자 배정 · {dept?.name}</b><small>담당마다 선생님을 골라요. 고르면 바로 저장돼요. ({done}/{roles.length} 배정)</small></div>
-      <label className="srch"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="선생님 이름으로 좁히기" /></label>
+    <header><div><b><UserCog size={17} /> 담당자 배정 · {dept?.name}</b><small>담당마다 선생님을 고르면 바로 저장돼요 · {done}/{roles.length} 배정</small></div>
       <button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
+    <section className="mem">
+      <div className="hd"><b>부서 선생님 {members.length}명</b><small>{/학년/.test(dept?.name || "") ? "학년이 지정된 선생님은 자동으로 들어와요." : "이 부서 선생님을 더해 주세요."} 담당 선생님은 뺄 수 없어요.</small></div>
+      <div className="chips">{members.sort(byName).map(t => <span key={t.id} className={deptOwners.has(String(t.id)) ? "own" : ""}>{t.name}{!deptOwners.has(String(t.id)) && <button type="button" data-kdn-bare title="부서에서 빼기" onClick={() => removeMember(t)}><X size={11} /></button>}</span>)}
+        {adding ? <select autoFocus value="" onChange={e => addMember(e.target.value)} onBlur={() => setAdding(false)}><option value="">선생님 고르기</option>{teachers.filter(t => !memberIds.has(String(t.id))).sort(byName).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+          : <button type="button" data-kdn-bare className="add" onClick={() => setAdding(true)}><UserPlus size={12} /> 선생님 더하기</button>}</div>
+    </section>
+    <div className="tools"><label className="srch"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름으로 좁히기" /></label><label className="chk"><input type="checkbox" checked={allTeachers} onChange={e => setAllTeachers(e.target.checked)} /> 다른 부서 선생님도 보기</label></div>
     <ul className="rows">{roles.map(r => <li key={r.id} className={r.ownerId ? "on" : ""}>
       <b className="rn">{roleNo(data, r)}</b>
       <div className="duties">{r.duties.map(d => <button key={d.id} type="button" data-kdn-bare onClick={() => onOpen(d.id)} title="이 업무 열기">{d.text}</button>)}</div>
       <div className="pick">
         <select value={r.ownerId} onChange={e => onAssign(r.id, teachers.find(t => String(t.id) === e.target.value) || null)} aria-label={`${roleNo(data, r)} 담당 선생님`}>
           <option value="">담당 미정</option>
-          {r.ownerId && !sorted.some(t => String(t.id) === r.ownerId) && <option value={r.ownerId}>{r.ownerName}</option>}
-          {sorted.map(t => <option key={t.id} value={t.id}>{t.name}{assigned.has(String(t.id)) && String(t.id) !== r.ownerId ? " (다른 담당 있음)" : ""}</option>)}
+          {r.ownerId && !pool.some(t => String(t.id) === r.ownerId) && <option value={r.ownerId}>{r.ownerName}</option>}
+          {pool.map(t => <option key={t.id} value={t.id}>{t.name}{assigned.has(String(t.id)) && String(t.id) !== r.ownerId ? " (다른 담당 있음)" : ""}{allTeachers && !memberIds.has(String(t.id)) ? " · 다른 부서" : ""}</option>)}
         </select>
         {r.ownerId && <button type="button" data-kdn-bare className="clr" title="배정 풀기" onClick={() => onAssign(r.id, null)}><X size={13} /></button>}
       </div>
     </li>)}</ul>
-    {free.length > 0 && <details className="free"><summary><UserPlus size={14} /> 아직 담당이 없는 선생님 {free.length}명</summary><div>{free.map(t => <span key={t.id}>{t.name}</span>)}</div></details>}
+    {free.length > 0 && <p className="free"><UserPlus size={14} /> 아직 이 부서 담당이 없는 선생님 {free.length}명: {free.map(t => t.name).join(", ")}</p>}
   </div>;
 }
 
@@ -956,4 +968,24 @@ const CSS = `
 .kho-role.folded>header{min-height:36px;padding-top:3px;padding-bottom:0}
 .kho-role.folded .peek{padding:0 12px 7px 40px;font-size:12px}
 .kho-list{gap:6px}
+
+/* 접힌 담당: 한 줄, 여백 넉넉히 */
+.kho-list{gap:8px!important}
+.kho-role.folded>header{min-height:48px!important;padding:8px 12px 8px 10px!important;background:var(--kdn-surface,#fff)!important}
+.kho-role.mine.folded>header{background:color-mix(in srgb,var(--kho-acc) 9%,var(--kdn-surface,#fff))!important}
+.kho-role>header{cursor:pointer}
+.kho-role>header{gap:10px!important}
+.kho-role>header .who{font-size:13.5px}
+/* 배정: 부서 선생님 */
+.kho-assign .mem{display:grid;gap:8px;padding:12px 14px;border-radius:12px;border:1px dashed var(--kdn-line,#d9d6cf)}
+.kho-assign .mem .hd{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}.kho-assign .mem .hd b{font-size:14px}.kho-assign .mem .hd small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.kho-assign .mem .chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.kho-assign .mem .chips>span{display:inline-flex;align-items:center;gap:2px;height:30px;padding:0 6px 0 12px;border-radius:99px;background:var(--kho-soft);font-size:13px;font-weight:700}
+.kho-assign .mem .chips>span.own{padding-right:12px;background:color-mix(in srgb,#2563eb 12%,var(--kdn-surface,#fff));color:#1d4ed8}
+.kho-assign .mem .chips>span button{display:grid;place-items:center;width:20px;height:20px;border:0;border-radius:50%;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}
+.kho-assign .mem .chips .add{display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 12px;border-radius:99px;border:1px dashed var(--kdn-line,#c9c5bd);background:transparent;color:var(--kdn-ink-soft,#3d4048);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.kho-assign .mem .chips select{height:30px;border-radius:99px;padding:0 10px;border:1px solid var(--kho-acc);font:inherit;font-size:13px;background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d)}
+.kho-assign .tools{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
+.kho-assign .chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--kdn-ink-soft,#3d4048);cursor:pointer}
+.kho-assign p.free{margin:0;display:flex;gap:6px;align-items:flex-start;font-size:12.5px;line-height:1.6;color:var(--kdn-muted,#8a8f99)}.kho-assign p.free svg{flex:none;margin-top:3px}
 `;
