@@ -7,7 +7,7 @@
 // - 공유: 링크 복사(로그인하면 이 업무가 바로 열림), 글로 복사(메신저용)
 import React from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, Info, Sparkles, ChevronRight, ClipboardList, ClipboardPaste, Copy, ExternalLink, FileSpreadsheet, FileText, Film, FolderOpen, Globe, Link2, Loader2, MessageSquare, Palette, Paperclip, Pencil, Plus, Presentation, Search, Share2, Trash2, Users, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, CalendarDays, Check, CopyPlus, Printer, Lightbulb, AlignLeft, Dot, CheckCircle2, Info, Sparkles, ChevronRight, ClipboardList, ClipboardPaste, Copy, ExternalLink, FileSpreadsheet, FileText, Film, FolderOpen, Globe, Link2, Loader2, MessageSquare, Palette, Paperclip, Pencil, Plus, Presentation, Search, Share2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { HANDOVER_KEY, normalizeHandover, normalizeTask, emptyTask, newStep, newLink, newComment, groupSteps, linkKind, safeUrl, stepTemplate, taskProgress, SCHOOL_MONTHS, parseSheetRows, siblingDuties, dutyPartNo, taskStoreKey, mergeTasks, taskAsText, stepPeople, formatDetail } from "./handover.js";
 
@@ -35,6 +35,7 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
   const [mineOnly, setMineOnly] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const [manage, setManage] = React.useState(false);
+  const [openMonth, setOpenMonth] = React.useState(-1);
   const myId = String(actor?.id || "");
 
   React.useEffect(() => {
@@ -67,7 +68,7 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
   const found = data.roles.flatMap(r => r.duties.map(d => ({ duty: d, role: r }))).find(x => x.duty.id === dutyId);
   const canEditDuty = (role, duty) => !!role && (canManage || (isTeacher && myId && (role.ownerId === myId || (duty?.editors || []).some(e => e.id === myId))));
   const teachers = (accounts?.teacher || []).filter(t => t?.id && t?.name);
-  const open = id => { setDutyId(id); if (window.matchMedia?.("(max-width: 960px)").matches) window.scrollTo({ top: 0 }); };
+  const open = (id, month = -1) => { setOpenMonth(month); setDutyId(id); if (window.matchMedia?.("(max-width: 960px)").matches) window.scrollTo({ top: 0 }); };
 
   const claim = (role, on) => saveStructure(v => ({ ...v, roles: v.roles.map(r => r.id === role.id ? { ...r, ownerId: on ? myId : "", ownerName: on ? String(actor?.name || "") : "" } : r) }))
     .then(ok => ok && showToast(on ? "내 담당으로 정했어요." : "담당을 풀었어요.", "success"));
@@ -115,7 +116,7 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
           <ul>{role.duties.map(duty => { const m = data.meta?.[duty.id]; const filled = !!(m && (m.steps || m.files || m.filled)); return <li key={duty.id}>
             {manage ? <span className="mng-duty"><input defaultValue={duty.text} onBlur={e => e.target.value.trim() && e.target.value !== duty.text && editDuties(role.id, list => list.map(d => d.id === duty.id ? { ...d, text: e.target.value.trim() } : d))} /><select className="mv" value="" title="다른 담당으로 옮기기" aria-label="다른 담당으로 옮기기" onChange={e => moveDuty(duty, role, e.target.value)}><option value="">옮기기</option>{data.depts.map(d => <optgroup key={d.id} label={d.name}>{data.roles.filter(r => r.deptId === d.id && r.id !== role.id).map(r => <option key={r.id} value={r.id}>{roleNo(data, r)}{r.ownerName ? ` · ${r.ownerName}` : ""}</option>)}</optgroup>)}</select><button type="button" data-kdn-bare title="지우기" onClick={() => window.confirm("이 세부 업무를 목록에서 지울까요?") && editDuties(role.id, list => list.filter(d => d.id !== duty.id))}><X size={13} /></button></span>
               : <button type="button" data-kdn-bare className={duty.id === dutyId ? "on" : ""} onClick={() => open(duty.id)} title={filled ? "정리된 업무" : "아직 비어 있는 업무"}>
-                {filled ? <CheckCircle2 size={15} className="st on" /> : <i className="st" />}<span className="tx">{duty.text}</span>{m?.steps ? <small>{m.steps}단계</small> : null}<ChevronRight size={14} className="go" /></button>}
+                {filled ? <CheckCircle2 size={15} className="st on" /> : <i className="st" />}<span className="tx">{duty.text}</span>{m?.steps ? <small title={`${m.steps}단계 중 ${m.done || 0}단계 끝냄`}>{m.done || 0}/{m.steps}</small> : null}<ChevronRight size={14} className="go" /></button>}
           </li>; })}</ul>
           {manage && <button type="button" data-kdn-bare className="add-duty" onClick={() => editDuties(role.id, list => [...list, { id: `duty_${Date.now().toString(36)}`, text: "새 세부 업무", part: "", group: "", editors: [] }])}><Plus size={13} /> 세부 업무</button>}
         </section>; })}
@@ -125,17 +126,74 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
       <main className="kho-main">
         {found ? <TaskPanel key={`${found.duty.id}-${found.duty.group}`} data={data} duty={found.duty} role={found.role} dept={data.depts.find(d => d.id === found.role.deptId)}
           canEdit={canEditDuty(found.role, found.duty) || siblingDuties(data, found.duty.id).some(x => found.duty.group && x.duty.group === found.duty.group && canEditDuty(x.role, x.duty))}
-          canEditOf={canEditDuty} teachers={teachers} actor={actor} showToast={showToast} onMeta={onMeta} editDuty={editDuty} onOpen={open} onClose={() => setDutyId("")} />
-          : <div className="kho-guide">
-            <b>업무를 골라 주세요</b>
-            <p>맡은 담당에서 <em>내 담당으로</em>를 누르고, 업무를 열어 <em>고치기</em>로 정리해요. <CheckCircle2 size={14} className="gk" /> 표시는 정리된 업무예요.</p>
-          </div>}
+          canEditOf={canEditDuty} teachers={teachers} actor={actor} showToast={showToast} onMeta={onMeta} editDuty={editDuty} onOpen={open} onClose={() => setDutyId("")} initialMonth={openMonth} />
+          : <>
+            {isTeacher && myId && <MyMonth data={data} myId={myId} onOpen={open} />}
+            <div className="kho-guide">
+              <b>업무를 골라 주세요</b>
+              <p>맡은 담당에서 <em>내 담당으로</em>를 누르고, 업무를 열어 <em>고치기</em>로 정리해요. <CheckCircle2 size={14} className="gk" /> 표시는 정리된 업무, 숫자는 끝낸 단계/전체 단계예요.</p>
+            </div>
+          </>}
       </main>
     </div>
   </div>;
 }
 
-function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor, showToast, onMeta, editDuty, onOpen, onClose }) {
+// 내 이번 달 할 일: 내 담당(또는 함께 고칠) 업무에서 이번 달·다음 달의 아직 안 끝낸 단계
+function MyMonth({ data, myId, onOpen }) {
+  const [items, setItems] = React.useState(null);
+  const mine = React.useMemo(() => data.roles.flatMap(r => r.duties.filter(d => r.ownerId === myId || d.editors.some(e => e.id === myId)).map(d => ({ duty: d, role: r }))), [data, myId]);
+  const sig = mine.map(x => `${x.duty.id}:${x.duty.group}:${data.meta?.[x.duty.id]?.updatedAt || ""}`).join("|");
+  React.useEffect(() => {
+    let on = true;
+    if (!mine.length) { setItems([]); return () => {}; }
+    Promise.all(mine.map(x => readStorage(taskStoreKey(x.duty), null).catch(() => null).then(raw => ({ ...x, task: normalizeTask(raw) })))).then(list => on && setItems(list));
+    return () => { on = false; };
+  }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!mine.length) return null;
+  const now = new Date().getMonth() + 1; const nextM = now === 12 ? 1 : now + 1;
+  const pick = m => (items || []).flatMap(x => x.task.steps.filter(st => st.month === m && !st.done).map(st => ({ ...x, step: st })));
+  const cols = [[now, "이번 달", pick(now)], [nextM, "다음 달", pick(nextM)]];
+  return <section className="kho-mymonth">
+    <header><CalendarDays size={16} /><b>내 업무 · 할 일</b><small>내 담당 업무에서 아직 끝내지 않은 단계예요</small></header>
+    {items === null ? <p className="kho-nil"><Loader2 size={14} className="spin" /> 불러오는 중이에요.</p> : <div className="cols">{cols.map(([m, label, list]) => <div key={m} className={`col ${m >= 3 && m <= 8 ? "s1" : "s2"}`}>
+      <h4><span>{m}월</span>{label}<small>{list.length}</small></h4>
+      {list.length ? <ul>{list.slice(0, 6).map(x => <li key={`${x.duty.id}-${x.step.id}`}><button type="button" data-kdn-bare onClick={() => onOpen(x.duty.id, m)}><b>{x.step.title || "(제목 없음)"}</b><small>{x.duty.text}{x.step.when ? ` · ${x.step.when}` : ""}</small></button></li>)}{list.length > 6 && <li className="more">외 {list.length - 6}개</li>}</ul> : <p className="kho-nil">{m}월에 남은 단계가 없어요.</p>}
+    </div>)}</div>}
+    {items && <div className="mine">{mine.map(x => { const t = items.find(y => y.duty.id === x.duty.id)?.task || emptyTask(); const d = t.steps.filter(st => st.done).length; return <button key={x.duty.id} type="button" data-kdn-bare onClick={() => onOpen(x.duty.id)}><span className="tx">{x.duty.text}</span>{t.steps.length ? <span className="pg"><i style={{ width: `${Math.round((d / t.steps.length) * 100)}%` }} /></span> : <small>비어 있음</small>}{t.steps.length ? <small>{d}/{t.steps.length}</small> : null}</button>; })}</div>}
+  </section>;
+}
+
+// 인수인계서 인쇄(PDF로 저장 가능): 한눈에 보기 · 타임라인(달별) · 자료 목록
+function printHandover({ duty, dept, roleLabel, owner, task, whoLabel, siblings = [] }) {
+  const win = window.open("", "_blank"); if (!win) return;
+  const esc = v => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+  const detail = text => { const out = []; let ul = []; const flush = () => { if (ul.length) { out.push(`<ul>${ul.join("")}</ul>`); ul = []; } }; formatDetail(text).forEach(b => { if (b.type === "li") ul.push(`<li>${esc(b.text)}</li>`); else { flush(); out.push(b.type === "note" ? `<p class="note">※ ${esc(b.text)}</p>` : `<p>${esc(b.text)}</p>`); } }); flush(); return out.join(""); };
+  const brief = [["업무 요약", task.summary], ["꼭 알아둘 것", task.must], ["달라진 점 · 내년 제안", task.changes]].filter(([, v]) => String(v || "").trim());
+  const groups = groupSteps(task.steps);
+  const links = [...task.links.map(l => `<li><b>${esc(l.label || linkKind(l.url).label)}</b> <span>${esc(l.url)}</span></li>`), ...task.files.map(f => `<li><b>${esc(f.fileName || "첨부파일")}</b> <span>(사이트 첨부파일)</span></li>`)];
+  win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(duty.text)} 인수인계</title><style>
+  @page{size:A4;margin:14mm}*{box-sizing:border-box}body{margin:0;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:#17181d;font-size:10.5pt;line-height:1.6}
+  header{border-bottom:2px solid #17181d;padding-bottom:8px;margin-bottom:12px}h1{margin:0 0 4px;font-size:17pt}header p{margin:0;color:#5b606b;font-size:9.5pt}
+  h2{margin:16px 0 6px;font-size:12pt;padding-left:8px;border-left:4px solid #ea580c}
+  .brief{display:grid;gap:6px}.brief div{padding:8px 10px;border:1px solid #e2dfd8;border-radius:6px}.brief b{display:block;font-size:9pt;color:#5b606b}
+  .parts{display:flex;gap:8px}.parts div{flex:1;padding:6px 10px;border:1px solid #c7d7fe;border-radius:6px;background:#f5f8ff;font-size:9.5pt}
+  table{width:100%;border-collapse:collapse}td{vertical-align:top;padding:7px 8px;border-bottom:1px solid #e7e5e0}td.m{width:58px;font-weight:800;white-space:nowrap}td.c{width:22px;text-align:center}
+  .tt{font-weight:800}.tt em{font-style:normal;font-weight:600;color:#5b606b;font-size:9pt;margin-left:6px}.who{display:inline-block;margin-right:6px;padding:0 6px;border-radius:4px;background:#eef2ff;color:#1d4ed8;font-size:8.5pt;font-weight:800}
+  ul{margin:3px 0 0;padding-left:18px}li{margin:1px 0}p{margin:3px 0 0}.note{color:#854d0e;font-size:9.5pt}.lk{font-size:9pt;color:#5b606b;word-break:break-all}
+  .links li span{color:#5b606b;font-size:9pt;word-break:break-all}footer{margin-top:16px;font-size:8.5pt;color:#8a8f99}
+  </style></head><body>
+  <header><h1>${esc(duty.text)}</h1><p>${esc(dept?.name || "")} · ${esc(roleLabel)} · ${esc(owner ? `${owner} 선생님` : "담당 미정")}${task.updatedAt ? ` · 마지막 수정 ${esc(new Date(task.updatedAt).toLocaleDateString("ko-KR"))}` : ""}</p></header>
+  ${siblings.length ? `<h2>나눠 맡는 업무</h2><div class="parts">${siblings.map(x => `<div><b>${esc(x.no)}번 · ${esc(x.who)}</b><br>${esc(x.part || "-")}</div>`).join("")}</div>` : ""}
+  ${brief.length ? `<h2>한눈에 보기</h2><div class="brief">${brief.map(([k, v]) => `<div><b>${esc(k)}</b>${esc(v).replace(/\n/g, "<br>")}</div>`).join("")}</div>` : ""}
+  ${task.steps.length ? `<h2>타임라인</h2><table>${groups.map(g => g.steps.map((st, i) => `<tr><td class="m">${i === 0 ? esc(g.label) : ""}</td><td class="c">${st.done ? "✓" : "☐"}</td><td><div class="tt">${whoLabel(st.who) ? `<span class="who">${esc(whoLabel(st.who))}</span>` : ""}${esc(st.title || "(제목 없음)")}${st.when ? `<em>${esc(st.when)}</em>` : ""}</div>${detail(st.detail)}${st.links.length ? `<div class="lk">${st.links.map(l => `${esc(l.label || linkKind(l.url).label)}: ${esc(l.url)}`).join("<br>")}</div>` : ""}</td></tr>`).join("")).join("")}</table>` : ""}
+  ${links.length ? `<h2>자료</h2><ul class="links">${links.join("")}</ul>` : ""}
+  <footer>광덕고 업무 인수인계 · 출력 ${esc(new Date().toLocaleString("ko-KR"))}</footer>
+  <script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`);
+  win.document.close();
+}
+
+function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor, showToast, onMeta, editDuty, onOpen, onClose, initialMonth = -1 }) {
   const key = taskStoreKey(duty);
   const siblings = siblingDuties(data, duty.id);
   const groupIds = duty.group ? siblings.filter(x => x.duty.group === duty.group).map(x => x.duty.id) : [duty.id];
@@ -146,24 +204,31 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
   const [shareOpen, setShareOpen] = React.useState(false);
   const [pasteOpen, setPasteOpen] = React.useState(false);
   const [whoFilter, setWhoFilter] = React.useState("");
-  const [monthFilter, setMonthFilter] = React.useState(-1); // -1 전체, 0 시기 미정, 1-12 달
+  const [monthFilter, setMonthFilter] = React.useState(initialMonth); // -1 전체, 0 시기 미정, 1-12 달
   const ref = React.useRef(null);
   const timer = React.useRef(0);
-  React.useEffect(() => { let on = true; readStorage(key, null).then(raw => { if (on) { const t = normalizeTask(raw); ref.current = t; setTask(t); } }).catch(() => on && setTask(emptyTask())); return () => { on = false; clearTimeout(timer.current); }; }, [key]);
+  const dirtyRef = React.useRef(false);
+  const saveRef = React.useRef(null);
+  // 닫거나 다른 업무를 열 때 아직 저장 안 된 글이 있으면 바로 저장해요
+  React.useEffect(() => { let on = true; readStorage(key, null).then(raw => { if (on) { const t = normalizeTask(raw); ref.current = t; setTask(t); } }).catch(() => on && setTask(emptyTask())); return () => { on = false; clearTimeout(timer.current); if (dirtyRef.current) saveRef.current?.(); }; }, [key]);
+  React.useEffect(() => { const warn = e => { if (dirtyRef.current) { e.preventDefault(); e.returnValue = ""; } }; window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn); }, []);
   const pushMeta = saved => onMeta(groupIds, { ...taskProgress(saved), updatedAt: saved.updatedAt, updatedBy: saved.updatedBy });
   const save = async () => {
     clearTimeout(timer.current);
     const draft = ref.current; if (!draft) return;
+    dirtyRef.current = false;
     setState("saving");
     const stamp = { updatedAt: new Date().toISOString(), updatedBy: String(actor?.name || "") };
     const result = await updateStorage(key, null, current => { const cur = normalizeTask(current); return { ...cur, summary: draft.summary, must: draft.must, changes: draft.changes, steps: draft.steps, links: draft.links, files: draft.files, ...stamp }; });
-    if (result?.ok === false) { setState("dirty"); showToast("저장하지 못했어요. 잠시 뒤 다시 해 주세요.", "error"); return; }
+    if (result?.ok === false) { dirtyRef.current = true; setState("dirty"); showToast("저장하지 못했어요. 잠시 뒤 다시 해 주세요.", "error"); return; }
     const saved = normalizeTask(result?.value);
     ref.current = { ...draft, ...stamp, comments: saved.comments }; setTask(ref.current); setState("saved"); pushMeta(saved);
   };
-  const edit = fn => { if (!canEdit) return; const next = fn(ref.current); ref.current = next; setTask(next); setState("dirty"); clearTimeout(timer.current); timer.current = setTimeout(save, 1000); };
+  saveRef.current = save;
+  const edit = fn => { if (!canEdit) return; const next = fn(ref.current); ref.current = next; setTask(next); dirtyRef.current = true; setState("dirty"); clearTimeout(timer.current); timer.current = setTimeout(save, 1000); };
   const finish = async () => { if (state === "dirty") await save(); setEditing(false); };
   const editStep = (id, patch) => edit(t => ({ ...t, steps: t.steps.map(s => s.id === id ? { ...s, ...patch } : s) }));
+  const dupStep = id => edit(t => { const i = t.steps.findIndex(s => s.id === id); if (i < 0) return t; const copy = { ...newStep(), ...t.steps[i], id: newStep().id, done: false, title: `${t.steps[i].title}` }; const list = [...t.steps]; list.splice(i + 1, 0, copy); return { ...t, steps: list }; });
   const moveStep = (id, dir) => edit(t => { const list = [...t.steps]; const i = list.findIndex(s => s.id === id); const j = i + dir; if (i < 0 || j < 0 || j >= list.length) return t; [list[i], list[j]] = [list[j], list[i]]; return { ...t, steps: list }; });
   const addComment = async text => {
     const c = newComment(text, actor); if (!c.text) return false;
@@ -227,11 +292,13 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
               onCopyLink={async () => showToast(await copyText(shareLink()) ? "링크를 복사했어요. 로그인한 선생님은 이 업무가 바로 열려요." : "복사하지 못했어요.", "success")}
               onCopyText={async () => showToast(await copyText(`${taskAsText(task, duty.text, whoLabel)}\n\n${shareLink()}`) ? "글로 복사했어요. 메신저에 붙여 넣으세요." : "복사하지 못했어요.", "success")}
               onEditors={editors => editDuty(duty.id, { editors })} />}</span>
+          <button type="button" data-kdn-bare className="kho-ghost icon" title="인수인계서 인쇄·PDF" aria-label="인쇄" onClick={() => printHandover({ duty, dept, roleLabel: roleNo(data, role), owner: role.ownerName, task, whoLabel, siblings: siblings.length > 1 ? siblings.map(x => ({ no: dutyPartNo(x.duty.text), who: x.role.ownerName || roleNo(data, x.role), part: x.duty.part })) : [] })}><Printer size={15} /></button>
           {canEdit && (editing ? <button type="button" data-kdn-bare className="kho-pri" onClick={finish}><Check size={14} /> 다 했어요</button> : <button type="button" data-kdn-bare className="kho-pri" onClick={() => setEditing(true)}><Pencil size={14} /> 고치기</button>)}
           <button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={16} /></button>
         </div>
       </div>
       <div className="chips"><em className="d">{dept?.name}</em><em>{roleNo(data, role)}</em><em className={role.ownerName ? "o" : "o nil"}>{role.ownerName ? `${role.ownerName} 선생님` : "담당 미정"}</em>{duty.editors.length ? <em>함께 고침 {duty.editors.map(e => e.name).join(", ")}</em> : null}</div>
+      {task.steps.length > 0 && (() => { const d = task.steps.filter(x => x.done).length; const pct = Math.round((d / task.steps.length) * 100); return <div className="kho-prog" title={`${task.steps.length}단계 중 ${d}단계 끝냄`}><span><i style={{ width: `${pct}%` }} /></span><b>{d}/{task.steps.length}단계</b><small>{pct}%</small></div>; })()}
       <div className="meta">{editing ? (state === "saving" ? "저장 중…" : state === "dirty" ? "고치는 중 · 자동 저장" : state === "saved" ? "저장됨" : "적으면 자동 저장돼요") : task.updatedAt ? `${fmtAt(task.updatedAt)} ${task.updatedBy || ""} 수정` : "아직 정리 전"}</div>
     </section>
 
@@ -276,7 +343,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
         <ol className={`kho-tl${editing ? " is-edit" : ""}`}>{groupSteps(task.steps.filter(s => monthFilter < 0 || (s.month || 0) === monthFilter).filter(s => !whoFilter || (whoFilter === "none" ? !s.who : s.who === whoFilter || s.who === "all"))).map(g => <li key={g.month} className={g.month ? (g.month >= 3 && g.month <= 8 ? "s1" : "s2") : "nil"}>
           <span className={`mo${g.month ? (g.month >= 3 && g.month <= 8 ? " s1" : " s2") : " nil"}`}>{g.label}</span>
           <div className="steps">{g.steps.map(step => editing
-            ? <StepEdit key={step.id} step={step} people={people} onChange={patch => editStep(step.id, patch)} onMove={dir => moveStep(step.id, dir)} onRemove={() => window.confirm("이 단계를 지울까요?") && edit(t => ({ ...t, steps: t.steps.filter(s => s.id !== step.id) }))} onUpload={list => upload(list, step.id)} showToast={showToast} />
+            ? <StepEdit key={step.id} step={step} people={people} onChange={patch => editStep(step.id, patch)} onMove={dir => moveStep(step.id, dir)} onDup={() => dupStep(step.id)} onRemove={() => window.confirm("이 단계를 지울까요?") && edit(t => ({ ...t, steps: t.steps.filter(s => s.id !== step.id) }))} onUpload={list => upload(list, step.id)} showToast={showToast} />
             : <article key={step.id} className={`kho-step${step.done ? " done" : ""}`}>
               <button type="button" data-kdn-bare className="ck" disabled={!canEdit} aria-pressed={step.done} title={canEdit ? (step.done ? "끝냄 취소" : "끝냄") : ""} onClick={() => editStep(step.id, { done: !step.done })}>{step.done && <Check size={12} />}</button>
               <div className="bd"><div className="hl"><b className="tt">{step.title || "(제목 없음)"}</b><span className="mt">{step.who && whoLabel(step.who) ? <span className={`kho-who t${step.who === "all" ? "a" : personOf(step.who)?.tone ?? 0}`}>{whoLabel(step.who)}</span> : null}{step.when ? <em className="wh">{step.when}</em> : null}</span></div>{step.detail ? <Detail text={step.detail} /> : null}
@@ -300,6 +367,44 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
   </div>;
 }
 
+// 세부 내용 입력: 한 줄 = 한 항목. Enter로 다음 항목, 빈 줄에서 Backspace로 지우기, 앞 표시를 눌러 항목·문장·메모 바꾸기.
+// 저장은 글 그대로('- 항목', '* 메모', 문장) 해서 예전 글·보기·글로 복사와 같이 써요.
+const ROW_KINDS = { li: { label: "항목", next: "p" }, p: { label: "문장", next: "note" }, note: { label: "메모", next: "li" } };
+const serializeRows = rows => rows.filter(r => r.text.trim()).map(r => (r.type === "li" ? `- ${r.text.trim()}` : r.type === "note" ? `* ${r.text.trim()}` : r.text.trim())).join("\n");
+function DetailEditor({ value, onChange }) {
+  const [rows, setRows] = React.useState(() => { const b = formatDetail(value).map((x, i) => ({ id: `r${i}`, type: x.type, text: x.text })); return b.length ? b : [{ id: "r0", type: "li", text: "" }]; });
+  const refs = React.useRef({});
+  const focusId = React.useRef("");
+  React.useLayoutEffect(() => { if (focusId.current && refs.current[focusId.current]) { const el = refs.current[focusId.current]; el.focus(); const n = el.value.length; el.setSelectionRange(n, n); focusId.current = ""; } });
+  const commit = next => { setRows(next); onChange(serializeRows(next)); };
+  const nid = () => `r${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  const insertAfter = (i, type, text = "") => { const row = { id: nid(), type, text }; const next = [...rows]; next.splice(i + 1, 0, row); focusId.current = row.id; commit(next); };
+  const onKey = (e, i) => {
+    const r = rows[i];
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); const at = e.target.selectionStart ?? r.text.length; const head = r.text.slice(0, at), tail = r.text.slice(at); const next = [...rows]; next[i] = { ...r, text: head }; const row = { id: nid(), type: r.type === "p" ? "li" : r.type, text: tail }; next.splice(i + 1, 0, row); focusId.current = row.id; commit(next); }
+    else if (e.key === "Backspace" && !r.text && rows.length > 1) { e.preventDefault(); const next = rows.filter((_, k) => k !== i); focusId.current = next[Math.max(0, i - 1)].id; commit(next); }
+    else if (e.key === "ArrowUp" && i > 0 && e.target.selectionStart === 0) { focusId.current = rows[i - 1].id; setRows([...rows]); }
+    else if (e.key === "ArrowDown" && i < rows.length - 1 && e.target.selectionStart === r.text.length) { focusId.current = rows[i + 1].id; setRows([...rows]); }
+  };
+  const onPaste = (e, i) => {
+    const text = e.clipboardData?.getData("text") || "";
+    if (!text.includes("\n") && !/[ⓐ-ⓩ①-⑳]/.test(text)) return;
+    e.preventDefault();
+    const add = formatDetail(text).map(b => ({ id: nid(), type: b.type, text: b.text }));
+    if (!add.length) return;
+    const next = [...rows]; const keep = rows[i].text.trim() ? [rows[i]] : [];
+    next.splice(i, 1, ...keep, ...add); focusId.current = add[add.length - 1].id; commit(next);
+  };
+  return <div className="kho-de">
+    {rows.map((r, i) => <div key={r.id} className={`row k-${r.type}`}>
+      <button type="button" data-kdn-bare className="kind" title={`${ROW_KINDS[r.type].label} · 눌러서 바꾸기`} onClick={() => commit(rows.map((x, k) => (k === i ? { ...x, type: ROW_KINDS[x.type].next } : x)))}>{r.type === "li" ? <Dot size={18} /> : r.type === "note" ? <Lightbulb size={13} /> : <AlignLeft size={13} />}</button>
+      <AutoText inputRef={el => { refs.current[r.id] = el; }} value={r.text} placeholder={r.type === "note" ? "참고 메모(주의할 점, 팁)" : r.type === "p" ? "문장" : i === 0 ? "세부 항목을 적고 Enter" : "세부 항목"} onChange={v => { const next = rows.map((x, k) => (k === i ? { ...x, text: v.replace(/\n/g, " ") } : x)); commit(next); }} onKeyDown={e => onKey(e, i)} onPaste={e => onPaste(e, i)} />
+      {rows.length > 1 && <button type="button" data-kdn-bare className="rm" title="이 줄 지우기" onClick={() => commit(rows.filter((_, k) => k !== i))}><X size={12} /></button>}
+    </div>)}
+    <div className="adds"><button type="button" data-kdn-bare onClick={() => insertAfter(rows.length - 1, "li")}><Plus size={12} /> 항목</button><button type="button" data-kdn-bare onClick={() => insertAfter(rows.length - 1, "note")}><Lightbulb size={12} /> 메모</button><small>Enter 다음 줄 · 앞 표시를 눌러 항목/문장/메모</small></div>
+  </div>;
+}
+
 // 단계 내용: 항목(ⓐⓑ, ①②, -, 1)) 은 목록, '*' 줄은 참고 메모, 나머지는 문단
 function Detail({ text }) {
   const blocks = formatDetail(text);
@@ -312,7 +417,7 @@ function Detail({ text }) {
   return <div className="kho-detail">{out}</div>;
 }
 
-function StepEdit({ step, people = [], onChange, onMove, onRemove, onUpload, showToast }) {
+function StepEdit({ step, people = [], onChange, onMove, onDup, onRemove, onUpload, showToast }) {
   const [more, setMore] = React.useState(false);
   return <article className={`kho-step edit${step.done ? " done" : ""}`}>
     <div className="er">
@@ -321,9 +426,9 @@ function StepEdit({ step, people = [], onChange, onMove, onRemove, onUpload, sho
       <input className="tt" value={step.title} placeholder="할 일" onChange={e => onChange({ title: e.target.value })} />
       <input className="wh" value={step.when} placeholder="2주" onChange={e => onChange({ when: e.target.value })} aria-label="때" />
       {people.length > 0 && <select className="who" value={step.who || ""} onChange={e => onChange({ who: e.target.value })} aria-label="이 단계 담당"><option value="">담당 미정</option>{people.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}<option value="all">함께</option></select>}
-      <span className="ops"><button type="button" data-kdn-bare title="위로" onClick={() => onMove(-1)}><ArrowUp size={13} /></button><button type="button" data-kdn-bare title="아래로" onClick={() => onMove(1)}><ArrowDown size={13} /></button><button type="button" data-kdn-bare title="지우기" onClick={onRemove}><Trash2 size={13} /></button></span>
+      <span className="ops"><button type="button" data-kdn-bare title="이 단계 복제" onClick={onDup}><CopyPlus size={13} /></button><button type="button" data-kdn-bare title="위로" onClick={() => onMove(-1)}><ArrowUp size={13} /></button><button type="button" data-kdn-bare title="아래로" onClick={() => onMove(1)}><ArrowDown size={13} /></button><button type="button" data-kdn-bare title="지우기" onClick={onRemove}><Trash2 size={13} /></button></span>
     </div>
-    <AutoText value={step.detail} placeholder="내용 · 방법 · 참고할 점" onChange={v => onChange({ detail: v })} />
+    <DetailEditor value={step.detail} onChange={v => onChange({ detail: v })} />
     {(step.links.length > 0 || step.files.length > 0) && <Chips links={step.links} files={step.files} showToast={showToast} onRemoveLink={id => onChange({ links: step.links.filter(l => l.id !== id) })} onRemoveFile={i => onChange({ files: step.files.filter((_, k) => k !== i) })} />}
     {more ? <AddMaterial onLink={l => { onChange({ links: [...step.links, l] }); setMore(false); }} onUpload={list => { onUpload(list); setMore(false); }} showToast={showToast} /> : <button type="button" data-kdn-bare className="kho-more" onClick={() => setMore(true)}><Plus size={12} /> 자료</button>}
   </article>;
@@ -377,10 +482,10 @@ function PasteModal({ onClose, onApply }) {
   </div>, document.body);
 }
 
-function AutoText({ value, onChange, placeholder }) {
+function AutoText({ value, onChange, placeholder, inputRef = null, onKeyDown, onPaste }) {
   const el = React.useRef(null);
-  React.useLayoutEffect(() => { const t = el.current; if (t) { t.style.height = "auto"; t.style.height = `${Math.max(38, t.scrollHeight)}px`; } }, [value]);
-  return <textarea ref={el} rows={1} value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} />;
+  React.useLayoutEffect(() => { const t = el.current; if (t) { t.style.height = "auto"; t.style.height = `${Math.max(onKeyDown ? 32 : 38, t.scrollHeight)}px`; } }, [value]);
+  return <textarea ref={node => { el.current = node; if (inputRef) inputRef(node); }} rows={1} value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} onKeyDown={onKeyDown} onPaste={onPaste} />;
 }
 
 function Comments({ list, actor, canModerate, onAdd, onRemove }) {
@@ -689,4 +794,44 @@ const CSS = `
 @media (max-width:760px){.kho-month-filter{grid-template-columns:repeat(7,minmax(0,1fr));row-gap:12px}.kho-month-filter button.all{grid-column:span 1;padding:0}}
 
 .kho-role .mng-duty select.mv{flex:none;width:72px;padding:0 4px;font-weight:700;color:var(--kho-acc-ink);border-color:color-mix(in srgb,var(--kho-acc) 40%,var(--kdn-line,#e2dfd8));cursor:pointer}
+
+/* 세부 내용 항목 입력 */
+.kho-de{display:grid;gap:2px;padding:6px 8px;border-radius:10px;background:var(--kho-soft)}
+.kho-de .row{display:grid;grid-template-columns:26px minmax(0,1fr) 22px;align-items:start;gap:2px}
+.kho-de .kind{display:grid;place-items:center;width:26px;height:32px;border:0;border-radius:7px;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}
+.kho-de .kind:hover{background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d)}
+.kho-de .k-note .kind{color:#a16207}.kho-de .k-note textarea{background:color-mix(in srgb,#ca8a04 9%,var(--kdn-surface,#fff));color:#854d0e}
+.kho-de textarea{min-height:32px;padding:5px 8px;border-color:transparent;background:transparent;font-size:14px;line-height:1.55}
+.kho-de textarea:hover{border-color:var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff)}.kho-de textarea:focus{background:var(--kdn-surface,#fff)}
+.kho-de .rm{display:grid;place-items:center;width:22px;height:32px;border:0;background:transparent;color:var(--kdn-muted,#b5b9c1);cursor:pointer;opacity:0}
+.kho-de .row:hover .rm,.kho-de .row:focus-within .rm{opacity:1}
+.kho-de .adds{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:2px 0 0 26px}
+.kho-de .adds button{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px;border:0;border-radius:7px;background:transparent;color:var(--kdn-ink-soft,#5b606b);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.kho-de .adds button:hover{background:var(--kdn-surface,#fff)}
+.kho-de .adds small{margin-left:auto;font-size:11.5px;color:var(--kdn-muted,#a4a8b1)}
+@media (max-width:560px){.kho-de .adds small{display:none}}
+/* 진행 막대 */
+.kho-prog{display:flex;align-items:center;gap:8px}
+.kho-prog>span{flex:1;max-width:280px;height:8px;border-radius:99px;background:var(--kho-soft);overflow:hidden}.kho-prog>span i{display:block;height:100%;border-radius:99px;background:#16a34a}
+.kho-prog b{font-size:13px}.kho-prog small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.kho-ghost.icon{width:36px;padding:0}
+/* 내 업무 · 할 일 */
+.kho-mymonth{display:grid;gap:12px;margin-bottom:12px;padding:16px 18px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#ebe9e4)}
+.kho-mymonth>header{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}.kho-mymonth>header svg{color:var(--kho-acc)}.kho-mymonth>header b{font-size:16px}.kho-mymonth>header small{font-size:12.5px;color:var(--kdn-muted,#8a8f99)}
+.kho-mymonth .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px}
+.kho-mymonth .col{display:grid;align-content:start;gap:8px;padding:12px 14px;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0);border-top:3px solid var(--kho-s1)}
+.kho-mymonth .col.s2{border-top-color:var(--kho-s2)}
+.kho-mymonth h4{display:flex;align-items:center;gap:8px;margin:0;font-size:14px}
+.kho-mymonth h4 span{padding:1px 9px;border-radius:99px;background:var(--kho-s1);color:#fff;font-size:12px}.kho-mymonth .col.s2 h4 span{background:var(--kho-s2)}
+.kho-mymonth h4 small{margin-left:auto;font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.kho-mymonth ul{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.kho-mymonth li button{display:grid;gap:1px;width:100%;padding:7px 9px;border-radius:9px;border:0;background:var(--kho-soft);text-align:left;color:inherit;font:inherit;cursor:pointer}
+.kho-mymonth li button:hover{background:color-mix(in srgb,var(--kho-acc) 10%,var(--kdn-surface,#fff))}
+.kho-mymonth li b{font-size:13.5px;line-height:1.4;word-break:keep-all}.kho-mymonth li small{font-size:12px;color:var(--kdn-muted,#8a8f99);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kho-mymonth li.more{font-size:12px;color:var(--kdn-muted,#8a8f99);padding-left:4px}
+.kho-mymonth .mine{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px}
+.kho-mymonth .mine button{display:grid;grid-template-columns:minmax(0,1fr) 70px auto;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff);text-align:left;color:inherit;font:inherit;cursor:pointer}
+.kho-mymonth .mine .tx{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kho-mymonth .mine .pg{height:6px;border-radius:99px;background:var(--kho-soft);overflow:hidden}.kho-mymonth .mine .pg i{display:block;height:100%;background:#16a34a}
+.kho-mymonth .mine small{font-size:11.5px;color:var(--kdn-muted,#8a8f99);white-space:nowrap}
 `;
