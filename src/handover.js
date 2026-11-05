@@ -50,14 +50,14 @@ export function normalizeTask(raw) {
   const t = { ...emptyTask(), ...(raw && typeof raw === "object" ? raw : {}) };
   return {
     ...t,
-    steps: (t.steps || []).map(s => ({ id: String(s.id || uid("st_")), month: s.month ? Number(s.month) : 0, when: String(s.when || ""), title: String(s.title || ""), detail: String(s.detail || ""), done: !!s.done, links: (s.links || []).map(normLink).filter(l => l.url), files: Array.isArray(s.files) ? s.files : [] })),
+    steps: (t.steps || []).map(s => ({ who: String(s.who || ""), id: String(s.id || uid("st_")), month: s.month ? Number(s.month) : 0, when: String(s.when || ""), title: String(s.title || ""), detail: String(s.detail || ""), done: !!s.done, links: (s.links || []).map(normLink).filter(l => l.url), files: Array.isArray(s.files) ? s.files : [] })),
     links: (t.links || []).map(normLink).filter(l => l.url),
     files: Array.isArray(t.files) ? t.files : [],
     comments: (t.comments || []).map(c => ({ id: String(c.id || uid("cm_")), by: String(c.by || ""), byId: String(c.byId || ""), at: String(c.at || ""), text: String(c.text || "") })).filter(c => c.text),
   };
 }
 const normLink = l => ({ id: String(l?.id || uid("ln_")), label: String(l?.label || ""), url: String(l?.url || "").trim() });
-export const newStep = (patch = {}) => ({ id: uid("st_"), month: 0, when: "", title: "", detail: "", done: false, links: [], files: [], ...patch });
+export const newStep = (patch = {}) => ({ id: uid("st_"), who: "", month: 0, when: "", title: "", detail: "", done: false, links: [], files: [], ...patch });
 export const newLink = (label = "", url = "") => ({ id: uid("ln_"), label, url: url.trim() });
 export const newComment = (text, actor) => ({ id: uid("cm_"), text: String(text || "").trim(), by: String(actor?.name || "선생님"), byId: String(actor?.id || ""), at: new Date().toISOString() });
 
@@ -182,13 +182,22 @@ export function mergeTasks(list = []) {
   return { ...emptyTask(), summary: join("summary"), must: join("must"), changes: join("changes"), steps: uniq(ts.flatMap(t => t.steps)), links: uniq(ts.flatMap(t => t.links)), files: uniq(ts.flatMap(t => t.files)), comments: uniq(ts.flatMap(t => t.comments)).sort((a, b) => String(a.at).localeCompare(String(b.at))) };
 }
 // 메신저에 붙여 넣을 글
-export function taskAsText(task, title = "") {
+export function taskAsText(task, title = "", whoLabel = () => "") {
   const t = normalizeTask(task);
   const lines = [`[업무 인수인계] ${title}`];
   if (t.summary.trim()) lines.push("", `요약: ${t.summary.trim()}`);
   if (t.must.trim()) lines.push(`꼭 알아둘 것: ${t.must.trim()}`);
   if (t.changes.trim()) lines.push(`달라진 점: ${t.changes.trim()}`);
-  if (t.steps.length) { lines.push("", "■ 타임라인"); groupSteps(t.steps).forEach(g => g.steps.forEach(s => lines.push(`${g.label}${s.when ? ` ${s.when}` : ""} ${s.done ? "✓ " : ""}${s.title}${s.detail ? ` - ${s.detail.replace(/\n+/g, " ")}` : ""}${s.links.length ? ` (${s.links.map(l => l.url).join(", ")})` : ""}`))); }
+  if (t.steps.length) { lines.push("", "■ 타임라인"); groupSteps(t.steps).forEach(g => g.steps.forEach(s => lines.push(`${g.label}${s.when ? ` ${s.when}` : ""} ${s.done ? "✓ " : ""}${whoLabel(s.who) ? `[${whoLabel(s.who)}] ` : ""}${s.title}${s.detail ? ` - ${s.detail.replace(/\n+/g, " ")}` : ""}${s.links.length ? ` (${s.links.map(l => l.url).join(", ")})` : ""}`))); }
   if (t.links.length) { lines.push("", "■ 자료"); t.links.forEach(l => lines.push(`- ${l.label || linkKind(l.url).label}: ${l.url}`)); }
   return lines.join("\n");
+}
+
+// 단계 담당 고르기: 함께 쓰는 나눠 맡은 업무면 1번·2번 담당, 아니면 담당 선생님 + 함께 고칠 선생님. 2명 이상일 때만 써요.
+export function stepPeople({ duty, role, siblings = [], roleLabel = r => r?.title || "담당" }) {
+  if (duty?.group && siblings.length > 1) return siblings.filter(x => x.duty.group === duty.group).map((x, i) => ({ id: x.duty.id, short: dutyPartNo(x.duty.text) || String(i + 1), label: `${dutyPartNo(x.duty.text) || i + 1}번 ${x.role.ownerName || roleLabel(x.role)}`, tone: i % 4 }));
+  const list = [];
+  if (role?.ownerId) list.push({ id: `t:${role.ownerId}`, short: (role.ownerName || "담당").slice(0, 3), label: role.ownerName || "담당 선생님", tone: 0 });
+  (duty?.editors || []).forEach(e => { if (!list.some(p => p.id === `t:${e.id}`)) list.push({ id: `t:${e.id}`, short: e.name.slice(0, 3), label: e.name, tone: list.length % 4 }); });
+  return list.length > 1 ? list : [];
 }
