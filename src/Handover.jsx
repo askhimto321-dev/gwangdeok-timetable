@@ -17,11 +17,16 @@ const fmtAtFull = iso => { if (!iso) return ""; const d = new Date(iso); if (Num
 const LINK_PARAM = "handover";
 const roleNo = (data, role) => role.title || `담당 ${data.roles.filter(r => r.deptId === role.deptId).findIndex(r => r.id === role.id) + 1}`;
 
+// 파일 보이는 이름: 선생님이 정한 이름(label) → 원래 파일 이름. 내려받을 때는 정한 이름 + 원래 확장자.
+const fileExt = name => { const m = String(name || "").match(/(\.[A-Za-z0-9]{1,6})$/); return m ? m[1] : ""; };
+const fileTitle = f => String(f?.label || f?.fileName || "첨부파일");
+const fileDownloadName = (f, fallback = "") => { const orig = f?.fileName || fallback || "첨부파일"; if (!f?.label) return orig; const ext = fileExt(orig); return f.label.endsWith(ext) ? f.label : `${f.label}${ext}`; };
+const stripExt = name => String(name || "").replace(/\.[A-Za-z0-9]{1,6}$/, "");
 async function openFile(file) {
   if (file.dataKey) {
     const stored = await readStorage(file.dataKey, null);
     if (!stored?.dataUrl) throw new Error("파일을 찾지 못했어요.");
-    const a = document.createElement("a"); a.href = stored.dataUrl; a.download = file.fileName || stored.fileName || "첨부파일";
+    const a = document.createElement("a"); a.href = stored.dataUrl; a.download = fileDownloadName(file, stored.fileName);
     document.body.appendChild(a); a.click(); a.remove(); return;
   }
   if (file.url) window.open(file.url, "_blank", "noopener,noreferrer");
@@ -171,7 +176,7 @@ function printHandover({ duty, dept, roleLabel, owner, task, whoLabel, siblings 
   const detail = text => { const out = []; let ul = []; const flush = () => { if (ul.length) { out.push(`<ul>${ul.join("")}</ul>`); ul = []; } }; formatDetail(text).forEach(b => { if (b.type === "li") ul.push(`<li>${esc(b.text)}</li>`); else { flush(); out.push(b.type === "note" ? `<p class="note">※ ${esc(b.text)}</p>` : `<p>${esc(b.text)}</p>`); } }); flush(); return out.join(""); };
   const brief = [["업무 요약", task.summary], ["꼭 알아둘 것", task.must], ["달라진 점 · 내년 제안", task.changes]].filter(([, v]) => String(v || "").trim());
   const groups = groupSteps(task.steps);
-  const links = [...task.links.map(l => `<li><b>${esc(l.label || linkKind(l.url).label)}</b> <span>${esc(l.url)}</span></li>`), ...task.files.map(f => `<li><b>${esc(f.fileName || "첨부파일")}</b> <span>(사이트 첨부파일)</span></li>`)];
+  const links = [...task.links.map(l => `<li><b>${esc(l.label || linkKind(l.url).label)}</b> <span>${esc(l.url)}</span></li>`), ...task.files.map(f => `<li><b>${esc(fileTitle(f))}</b> <span>(사이트 첨부파일)</span></li>`)];
   win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(duty.text)} 인수인계</title><style>
   @page{size:A4;margin:14mm}*{box-sizing:border-box}body{margin:0;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:#17181d;font-size:10.5pt;line-height:1.6}
   header{border-bottom:2px solid #17181d;padding-bottom:8px;margin-bottom:12px}h1{margin:0 0 4px;font-size:17pt}header p{margin:0;color:#5b606b;font-size:9.5pt}
@@ -241,11 +246,11 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
     const result = await updateStorage(key, null, current => { const cur = normalizeTask(current); return { ...cur, comments: cur.comments.filter(c => c.id !== id) }; });
     if (result?.ok !== false) { const saved = normalizeTask(result?.value); ref.current = { ...ref.current, comments: saved.comments }; setTask(ref.current); }
   };
-  const upload = async (list, stepId) => {
+  const upload = async (list, stepId, labels = []) => {
     const files = Array.from(list || []).slice(0, 5); if (!files.length) return;
     showToast("파일을 올리는 중이에요.", "info");
     const done = [];
-    for (const file of files) { try { done.push({ ...(await uploadClassroomAttachment(file, { scopeKey: "handover", subject: dept?.name || "업무", target: duty.text.slice(0, 30), teacherName: actor?.name || "선생님" })), fileName: file.name, size: file.size, id: `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}` }); } catch (error) { showToast(error?.message || "파일을 올리지 못했어요.", "error"); } }
+    for (const [n, file] of files.entries()) { try { done.push({ label: String(labels[n] || "").trim() && String(labels[n]).trim() !== stripExt(file.name) ? String(labels[n]).trim() : "", ...(await uploadClassroomAttachment(file, { scopeKey: "handover", subject: dept?.name || "업무", target: duty.text.slice(0, 30), teacherName: actor?.name || "선생님" })), fileName: file.name, size: file.size, id: `f${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}` }); } catch (error) { showToast(error?.message || "파일을 올리지 못했어요.", "error"); } }
     if (!done.length) return;
     if (stepId) editStep(stepId, { files: [...(ref.current.steps.find(s => s.id === stepId)?.files || []), ...done] });
     else edit(t => ({ ...t, files: [...t.files, ...done] }));
@@ -343,7 +348,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
         <ol className={`kho-tl${editing ? " is-edit" : ""}`}>{groupSteps(task.steps.filter(s => monthFilter < 0 || (s.month || 0) === monthFilter).filter(s => !whoFilter || (whoFilter === "none" ? !s.who : s.who === whoFilter || s.who === "all"))).map(g => <li key={g.month} className={g.month ? (g.month >= 3 && g.month <= 8 ? "s1" : "s2") : "nil"}>
           <span className={`mo${g.month ? (g.month >= 3 && g.month <= 8 ? " s1" : " s2") : " nil"}`}>{g.label}</span>
           <div className="steps">{g.steps.map(step => editing
-            ? <StepEdit key={step.id} step={step} people={people} onChange={patch => editStep(step.id, patch)} onMove={dir => moveStep(step.id, dir)} onDup={() => dupStep(step.id)} onRemove={() => window.confirm("이 단계를 지울까요?") && edit(t => ({ ...t, steps: t.steps.filter(s => s.id !== step.id) }))} onUpload={list => upload(list, step.id)} showToast={showToast} />
+            ? <StepEdit key={step.id} step={step} people={people} onChange={patch => editStep(step.id, patch)} onMove={dir => moveStep(step.id, dir)} onDup={() => dupStep(step.id)} onRemove={() => window.confirm("이 단계를 지울까요?") && edit(t => ({ ...t, steps: t.steps.filter(s => s.id !== step.id) }))} onUpload={(list, labels) => upload(list, step.id, labels)} showToast={showToast} />
             : <article key={step.id} className={`kho-step${step.done ? " done" : ""}`}>
               <button type="button" data-kdn-bare className="ck" disabled={!canEdit} aria-pressed={step.done} title={canEdit ? (step.done ? "끝냄 취소" : "끝냄") : ""} onClick={() => editStep(step.id, { done: !step.done })}>{step.done && <Check size={12} />}</button>
               <div className="bd"><div className="hl"><b className="tt">{step.title || "(제목 없음)"}</b><span className="mt">{step.who && whoLabel(step.who) ? <span className={`kho-who t${step.who === "all" ? "a" : personOf(step.who)?.tone ?? 0}`}>{whoLabel(step.who)}</span> : null}{step.when ? <em className="wh">{step.when}</em> : null}</span></div>{step.detail ? <Detail text={step.detail} /> : null}
@@ -355,9 +360,10 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
       </>}
 
       {tab === "files" && <div className="kho-files">
-        {fileCount ? <Chips links={task.links} files={task.files} showToast={showToast} large onRemoveLink={editing ? id => edit(t => ({ ...t, links: t.links.filter(l => l.id !== id) })) : null} onRemoveFile={editing ? i => edit(t => ({ ...t, files: t.files.filter((_, k) => k !== i) })) : null} />
+        {fileCount ? <Chips links={task.links} files={task.files} showToast={showToast} large onRemoveLink={canEdit ? id => edit(t => ({ ...t, links: t.links.filter(l => l.id !== id) })) : null} onRemoveFile={canEdit ? i => edit(t => ({ ...t, files: t.files.filter((_, k) => k !== i) })) : null}
+          onRenameLink={canEdit ? (id, label) => edit(t => ({ ...t, links: t.links.map(l => (l.id === id ? { ...l, label } : l)) })) : null} onRenameFile={canEdit ? (i, label) => edit(t => ({ ...t, files: t.files.map((f, k) => (k === i ? { ...f, label } : f)) })) : null} />
           : <p className="kho-nil">{canEdit ? "업무 전체에 쓰는 시트·문서·폴더 링크나 파일을 모아 두세요." : "붙인 자료가 없어요."}</p>}
-        {canEdit && <AddMaterial onLink={l => edit(t => ({ ...t, links: [...t.links, l] }))} onUpload={list => upload(list, "")} showToast={showToast} />}
+        {canEdit && <AddMaterial onLink={l => edit(t => ({ ...t, links: [...t.links, l] }))} onUpload={(list, labels) => upload(list, "", labels)} showToast={showToast} />}
       </div>}
 
       {tab === "comments" && <Comments list={task.comments} actor={actor} canModerate={canEdit} onAdd={addComment} onRemove={removeComment} />}
@@ -429,29 +435,44 @@ function StepEdit({ step, people = [], onChange, onMove, onDup, onRemove, onUplo
       <span className="ops"><button type="button" data-kdn-bare title="이 단계 복제" onClick={onDup}><CopyPlus size={13} /></button><button type="button" data-kdn-bare title="위로" onClick={() => onMove(-1)}><ArrowUp size={13} /></button><button type="button" data-kdn-bare title="아래로" onClick={() => onMove(1)}><ArrowDown size={13} /></button><button type="button" data-kdn-bare title="지우기" onClick={onRemove}><Trash2 size={13} /></button></span>
     </div>
     <DetailEditor value={step.detail} onChange={v => onChange({ detail: v })} />
-    {(step.links.length > 0 || step.files.length > 0) && <Chips links={step.links} files={step.files} showToast={showToast} onRemoveLink={id => onChange({ links: step.links.filter(l => l.id !== id) })} onRemoveFile={i => onChange({ files: step.files.filter((_, k) => k !== i) })} />}
-    {more ? <AddMaterial onLink={l => { onChange({ links: [...step.links, l] }); setMore(false); }} onUpload={list => { onUpload(list); setMore(false); }} showToast={showToast} /> : <button type="button" data-kdn-bare className="kho-more" onClick={() => setMore(true)}><Plus size={12} /> 자료</button>}
+    {(step.links.length > 0 || step.files.length > 0) && <Chips links={step.links} files={step.files} showToast={showToast} onRemoveLink={id => onChange({ links: step.links.filter(l => l.id !== id) })} onRemoveFile={i => onChange({ files: step.files.filter((_, k) => k !== i) })}
+      onRenameLink={(id, label) => onChange({ links: step.links.map(l => (l.id === id ? { ...l, label } : l)) })} onRenameFile={(i, label) => onChange({ files: step.files.map((f, k) => (k === i ? { ...f, label } : f)) })} />}
+    {more ? <AddMaterial onLink={l => { onChange({ links: [...step.links, l] }); setMore(false); }} onUpload={(list, labels) => { onUpload(list, labels); setMore(false); }} showToast={showToast} /> : <button type="button" data-kdn-bare className="kho-more" onClick={() => setMore(true)}><Plus size={12} /> 자료</button>}
   </article>;
 }
 
-function Chips({ links = [], files = [], showToast, large = false, onRemoveLink = null, onRemoveFile = null }) {
+function Chips({ links = [], files = [], showToast, large = false, onRemoveLink = null, onRemoveFile = null, onRenameLink = null, onRenameFile = null }) {
+  const rename = (current, apply, what) => { const next = window.prompt(`${what} 이름`, current); if (next == null) return; const v = next.trim(); if (!v) { showToast("이름을 비울 수는 없어요.", "error"); return; } if (v !== current) apply(v); };
   return <ul className={`kho-chips${large ? " lg" : ""}`}>
-    {links.map(l => { const k = linkKind(l.url); const Icon = KIND_ICON[k.kind] || Globe; return <li key={l.id} className={`k-${k.kind}`}><a href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}><Icon size={14} /><span>{l.label || k.label}</span>{large && <small>{k.label}</small>}<ExternalLink size={11} className="ext" /></a>{onRemoveLink && <button type="button" data-kdn-bare title="빼기" onClick={() => onRemoveLink(l.id)}><X size={12} /></button>}</li>; })}
-    {files.map((f, i) => <li key={f.id || i} className="k-file"><button type="button" data-kdn-bare className="open" onClick={() => openFile(f).catch(e => showToast(e.message, "error"))}><Paperclip size={14} /><span>{f.fileName || "첨부파일"}</span>{large && <small>{f.size ? `${Math.max(1, Math.round(f.size / 1024))}KB` : "파일"}</small>}</button>{onRemoveFile && <button type="button" data-kdn-bare title="빼기" onClick={() => window.confirm("이 파일을 뺄까요?") && onRemoveFile(i)}><X size={12} /></button>}</li>)}
+    {links.map(l => { const k = linkKind(l.url); const Icon = KIND_ICON[k.kind] || Globe; const name = l.label || k.label; return <li key={l.id} className={`k-${k.kind}`}><a href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}><Icon size={14} /><span>{name}</span>{large && <small>{k.label}</small>}<ExternalLink size={11} className="ext" /></a>
+      {onRenameLink && <button type="button" data-kdn-bare title="이름 바꾸기" onClick={() => rename(name, v => onRenameLink(l.id, v), "링크")}><Pencil size={11} /></button>}
+      {onRemoveLink && <button type="button" data-kdn-bare className="del" title="빼기" onClick={() => window.confirm(`'${name}' 링크를 뺄까요?`) && onRemoveLink(l.id)}><X size={12} /></button>}</li>; })}
+    {files.map((f, i) => { const name = fileTitle(f); return <li key={f.id || i} className="k-file"><button type="button" data-kdn-bare className="open" title={f.label ? `원래 파일: ${f.fileName}` : "내려받기"} onClick={() => openFile(f).catch(e => showToast(e.message, "error"))}><Paperclip size={14} /><span>{name}</span>{large && <small>{fileExt(f.fileName).replace(".", "").toUpperCase() || "파일"}{f.size ? ` · ${Math.max(1, Math.round(f.size / 1024))}KB` : ""}</small>}</button>
+      {onRenameFile && <button type="button" data-kdn-bare title="이름 바꾸기" onClick={() => rename(name.replace(new RegExp(`${fileExt(f.fileName).replace(".", "\\.")}$`), ""), v => onRenameFile(i, v), "파일")}><Pencil size={11} /></button>}
+      {onRemoveFile && <button type="button" data-kdn-bare className="del" title="지우기" onClick={() => window.confirm(`'${name}' 파일을 지울까요?\n지우면 이 업무에서 다시 열 수 없어요.`) && onRemoveFile(i)}><X size={12} /></button>}</li>; })}
   </ul>;
 }
 
 function AddMaterial({ onLink, onUpload, showToast }) {
   const [url, setUrl] = React.useState("");
   const [label, setLabel] = React.useState("");
+  const [pending, setPending] = React.useState([]); // 고른 파일: 올리기 전에 이름 정하기
   const input = React.useRef(null);
   const add = () => { const u = safeUrl(url); if (!u) { showToast("https://로 시작하는 주소를 붙여 넣어 주세요.", "error"); return; } onLink(newLink(label.trim() || linkKind(u).label, u)); setUrl(""); setLabel(""); };
-  return <div className="kho-addmat">
-    <input value={url} onChange={e => setUrl(e.target.value)} placeholder="시트·문서·폴더 주소 붙여 넣기" onKeyDown={e => e.key === "Enter" && add()} />
-    <input value={label} onChange={e => setLabel(e.target.value)} placeholder="이름(선택)" onKeyDown={e => e.key === "Enter" && add()} className="lb" />
-    <button type="button" data-kdn-bare className="kho-ghost" disabled={!url.trim()} onClick={add}><Link2 size={13} /> 붙이기</button>
-    <button type="button" data-kdn-bare className="kho-ghost" onClick={() => input.current?.click()}><Paperclip size={13} /> 파일</button>
-    <input ref={input} type="file" multiple hidden onChange={e => { const list = Array.from(e.target.files || []); e.target.value = ""; onUpload(list); }} />
+  const send = () => { onUpload(pending.map(p => p.file), pending.map(p => p.name)); setPending([]); };
+  return <div className="kho-addmat-wrap">
+    <div className="kho-addmat">
+      <input value={url} onChange={e => setUrl(e.target.value)} placeholder="시트·문서·폴더 주소 붙여 넣기" onKeyDown={e => e.key === "Enter" && add()} />
+      <input value={label} onChange={e => setLabel(e.target.value)} placeholder="링크 이름(선택)" onKeyDown={e => e.key === "Enter" && add()} className="lb" />
+      <button type="button" data-kdn-bare className="kho-ghost" disabled={!url.trim()} onClick={add}><Link2 size={13} /> 붙이기</button>
+      <button type="button" data-kdn-bare className="kho-ghost" onClick={() => input.current?.click()}><Paperclip size={13} /> 파일</button>
+      <input ref={input} type="file" multiple hidden onChange={e => { const list = Array.from(e.target.files || []).slice(0, 5); if (!list.length) return; e.target.value = ""; setPending(list.map(file => ({ file, name: stripExt(file.name) }))); }} />
+    </div>
+    {pending.length > 0 && <div className="kho-pending">
+      <b>파일 이름 정하기</b>
+      {pending.map((p, k) => <label key={k}><Paperclip size={13} /><input value={p.name} autoFocus={k === 0} onChange={e => setPending(list => list.map((x, n) => (n === k ? { ...x, name: e.target.value } : x)))} onKeyDown={e => e.key === "Enter" && send()} /><small>{fileExt(p.file.name)}</small></label>)}
+      <div className="ft"><button type="button" data-kdn-bare className="kho-ghost" onClick={() => setPending([])}>취소</button><button type="button" data-kdn-bare className="kho-pri" disabled={pending.some(p => !p.name.trim())} onClick={send}>{pending.length}개 올리기</button></div>
+    </div>}
   </div>;
 }
 
@@ -834,4 +855,14 @@ const CSS = `
 .kho-mymonth .mine .tx{font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .kho-mymonth .mine .pg{height:6px;border-radius:99px;background:var(--kho-soft);overflow:hidden}.kho-mymonth .mine .pg i{display:block;height:100%;background:#16a34a}
 .kho-mymonth .mine small{font-size:11.5px;color:var(--kdn-muted,#8a8f99);white-space:nowrap}
+
+.kho-chips li>button:not(.open){width:26px}
+.kho-chips li>button.del:hover{color:#b42318;background:color-mix(in srgb,#dc2626 10%,transparent)}
+.kho-addmat-wrap{display:grid;gap:8px}
+.kho-pending{display:grid;gap:6px;padding:10px 12px;border-radius:12px;border:1px solid color-mix(in srgb,var(--kho-acc) 35%,var(--kdn-line,#e2dfd8));background:color-mix(in srgb,var(--kho-acc) 6%,var(--kdn-surface,#fff))}
+.kho-pending b{font-size:13px}
+.kho-pending label{display:flex;align-items:center;gap:6px;color:var(--kho-acc-ink)}
+.kho-pending input{flex:1;min-width:0;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13.5px}
+.kho-pending small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.kho-pending .ft{display:flex;justify-content:flex-end;gap:6px}
 `;
