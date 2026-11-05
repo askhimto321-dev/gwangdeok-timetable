@@ -1927,6 +1927,18 @@ export default function App() {
       else showToast(role?.error || "로그인하지 못했어요.", "error");
     });
   }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 업무 인수인계 공유 링크(?handover=업무): 교직원으로 로그인하면 선생님 ZONE › 업무 인수인계로 열어요(업무는 화면이 주소를 읽어 엽니다).
+  // 훅은 아래 로딩 화면 return보다 위에 있어야 해요. switchSection은 그 아래에서 만들어지니 ref로 불러요.
+  const switchSectionRef = useRef(null);
+  const handoverLinkStaff = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment);
+  useEffect(() => {
+    if (loading || !dataLoaded || !handoverLinkStaff || !switchSectionRef.current) return;
+    let linked = "";
+    try { linked = new URLSearchParams(window.location.search).get("handover") || ""; } catch { /* 주소 읽기 실패는 무시 */ }
+    if (!linked) return;
+    setTeacherZoneRequest({ mode: "handover", at: Date.now() });
+    switchSectionRef.current("teacherZone");
+  }, [loading, dataLoaded, handoverLinkStaff]);
   if (loading || (anyLoggedIn && !dataLoaded)) return <div style={styles.loadingScreen}><Loader2 className="spin" size={24} /><div style={styles.loadingText}>로딩 중입니다. 잠시만 기다려주세요.</div></div>;
 
   // 관리자 계정 전환(보기 모드): 비밀번호 없이 다른 계정 화면으로 들어갑니다. 메모리에만 두고
@@ -2068,15 +2080,7 @@ export default function App() {
   // 새 UI 대시보드(로그인 후 첫 화면)에 넘길 값. 훅은 로그인 여부와 관계없이 항상 같은 순서로 호출합니다.
   const canSeeMinimum = !!(loggedInAdmin || loggedInMonitor || ((loggedInTeacher || loggedInDepartment) && canUseFeature("minimum")));
   const canSeeTeacherZone = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor);
-  // 업무 인수인계 공유 링크(?handover=업무): 교직원으로 로그인하면 선생님 ZONE › 업무 인수인계로 열어요(업무는 화면이 주소를 읽어 엽니다).
-  useEffect(() => {
-    if (!canSeeTeacherZone || loggedInMonitor) return;
-    let linked = "";
-    try { linked = new URLSearchParams(window.location.search).get("handover") || ""; } catch { /* 주소 읽기 실패는 무시 */ }
-    if (!linked) return;
-    setTeacherZoneRequest({ mode: "handover", at: Date.now() });
-    switchSection("teacherZone");
-  }, [canSeeTeacherZone]); // eslint-disable-line react-hooks/exhaustive-deps
+  switchSectionRef.current = switchSection;
   // 최성보 화면의 '성적 산출' 버튼 → 선생님 ZONE을 성적 산출 탭으로 엽니다.
   const openGradeCalc = canSeeTeacherZone ? () => { setTeacherZoneRequest({ mode: "grades", at: Date.now() }); switchSection("teacherZone"); } : undefined;
   const dashboardNavigate = (target, options = {}) => {
