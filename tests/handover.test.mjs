@@ -54,3 +54,15 @@ test("인수인계: 나눠 맡는 업무 찾기·함께 쓰기 합치기·글로
   assert.equal(m.summary, "a\n\nb"); assert.equal(m.steps.length, 2);
   assert.ok(taskAsText({ summary: "요약", steps: [newStep({ month: 3, title: "계획" })] }, "따라체험").includes("3월 계획"));
 });
+test("인수인계: 단계 담당 고르기(함께 쓰는 나눠 맡은 업무, 함께 고칠 선생님)", async () => {
+  const { stepPeople, normalizeHandover, siblingDuties, taskAsText, newStep } = await import("../src/handover.js");
+  const v = normalizeHandover(null);
+  const one = v.roles.flatMap(r => r.duties).find(d => /따라체험.*1$/.test(d.text));
+  const sib = siblingDuties(v, one.id).map(x => ({ ...x, duty: { ...x.duty, group: "g1" } }));
+  const role = sib[0].role;
+  assert.equal(stepPeople({ duty: { ...one, group: "g1" }, role, siblings: sib }).length, 2);
+  assert.equal(stepPeople({ duty: one, role: { ownerId: "t1", ownerName: "가" }, siblings: [] }).length, 0);
+  const ppl = stepPeople({ duty: { ...one, editors: [{ id: "t2", name: "나" }] }, role: { ownerId: "t1", ownerName: "가" }, siblings: [] });
+  assert.deepEqual(ppl.map(p => p.label), ["가", "나"]);
+  assert.ok(taskAsText({ steps: [newStep({ month: 3, title: "섭외", who: "t:t2" })] }, "x", id => (id === "t:t2" ? "나" : "")).includes("[나] 섭외"));
+});

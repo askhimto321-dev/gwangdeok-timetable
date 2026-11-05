@@ -9,7 +9,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, Info, Sparkles, ChevronRight, ClipboardList, ClipboardPaste, Copy, ExternalLink, FileSpreadsheet, FileText, Film, FolderOpen, Globe, Link2, Loader2, MessageSquare, Palette, Paperclip, Pencil, Plus, Presentation, Search, Share2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
-import { HANDOVER_KEY, normalizeHandover, normalizeTask, emptyTask, newStep, newLink, newComment, groupSteps, linkKind, safeUrl, stepTemplate, taskProgress, SCHOOL_MONTHS, parseSheetRows, siblingDuties, dutyPartNo, taskStoreKey, mergeTasks, taskAsText } from "./handover.js";
+import { HANDOVER_KEY, normalizeHandover, normalizeTask, emptyTask, newStep, newLink, newComment, groupSteps, linkKind, safeUrl, stepTemplate, taskProgress, SCHOOL_MONTHS, parseSheetRows, siblingDuties, dutyPartNo, taskStoreKey, mergeTasks, taskAsText, stepPeople } from "./handover.js";
 
 const KIND_ICON = { sheet: FileSpreadsheet, doc: FileText, slide: Presentation, form: ClipboardList, drive: FolderOpen, design: Palette, video: Film, web: Globe };
 const fmtAt = iso => { if (!iso) return ""; const d = new Date(iso); if (Number.isNaN(d.getTime())) return ""; return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
@@ -137,6 +137,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
   const [tab, setTab] = React.useState("timeline");
   const [shareOpen, setShareOpen] = React.useState(false);
   const [pasteOpen, setPasteOpen] = React.useState(false);
+  const [whoFilter, setWhoFilter] = React.useState("");
   const ref = React.useRef(null);
   const timer = React.useRef(0);
   React.useEffect(() => { let on = true; readStorage(key, null).then(raw => { if (on) { const t = normalizeTask(raw); ref.current = t; setTask(t); } }).catch(() => on && setTask(emptyTask())); return () => { on = false; clearTimeout(timer.current); }; }, [key]);
@@ -196,6 +197,9 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
     }
   };
 
+  const people = stepPeople({ duty, role, siblings, roleLabel: r => roleNo(data, r) });
+  const personOf = id => people.find(p => p.id === id);
+  const whoLabel = id => (id === "all" ? "함께" : personOf(id)?.label || "");
   if (!task) return <div className="kho-task"><p className="kho-loading"><Loader2 size={16} className="spin" /> 불러오는 중이에요.</p></div>;
   const brief = [["summary", "업무 요약", "무엇을, 누구와, 언제 하는 업무인지", Info], ["must", "꼭 알아둘 것", "놓치면 안 되는 점, 연락처", AlertTriangle], ["changes", "달라진 점 · 내년 제안", "예: 평가회 영상 대신 팜플렛 제작", Sparkles]];
   const filledBrief = brief.filter(([k]) => task[k].trim());
@@ -212,7 +216,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
           <span className="share-wrap"><button type="button" data-kdn-bare className="kho-ghost" onClick={() => setShareOpen(v => !v)}><Share2 size={14} /> 공유</button>
             {shareOpen && <SharePop duty={duty} canEdit={canEdit} teachers={teachers} onClose={() => setShareOpen(false)} showToast={showToast}
               onCopyLink={async () => showToast(await copyText(shareLink()) ? "링크를 복사했어요. 로그인한 선생님은 이 업무가 바로 열려요." : "복사하지 못했어요.", "success")}
-              onCopyText={async () => showToast(await copyText(`${taskAsText(task, duty.text)}\n\n${shareLink()}`) ? "글로 복사했어요. 메신저에 붙여 넣으세요." : "복사하지 못했어요.", "success")}
+              onCopyText={async () => showToast(await copyText(`${taskAsText(task, duty.text, whoLabel)}\n\n${shareLink()}`) ? "글로 복사했어요. 메신저에 붙여 넣으세요." : "복사하지 못했어요.", "success")}
               onEditors={editors => editDuty(duty.id, { editors })} />}</span>
           {canEdit && (editing ? <button type="button" data-kdn-bare className="kho-pri" onClick={finish}><Check size={14} /> 다 했어요</button> : <button type="button" data-kdn-bare className="kho-pri" onClick={() => setEditing(true)}><Pencil size={14} /> 고치기</button>)}
           <button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={16} /></button>
@@ -250,13 +254,18 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
             <button type="button" data-kdn-bare className="kho-ghost" onClick={() => { setEditing(true); edit(t => ({ ...t, steps: [newStep()] })); }}><Plus size={14} /> 직접 적기</button>
           </div>}
         </div>}
-        <ol className={`kho-tl${editing ? " is-edit" : ""}`}>{groupSteps(task.steps).map(g => <li key={g.month} className={g.month ? (g.month >= 3 && g.month <= 8 ? "s1" : "s2") : "nil"}>
+        {people.length > 0 && task.steps.length > 0 && <div className="kho-who-filter" role="group" aria-label="담당별 보기">
+          <button type="button" data-kdn-bare className={whoFilter ? "" : "on"} onClick={() => setWhoFilter("")}>전체 <small>{task.steps.length}</small></button>
+          {people.map(p => <button key={p.id} type="button" data-kdn-bare className={`t${p.tone}${whoFilter === p.id ? " on" : ""}`} onClick={() => setWhoFilter(p.id)}>{p.label} <small>{task.steps.filter(s => s.who === p.id || s.who === "all").length}</small></button>)}
+          {task.steps.some(s => !s.who) && <button type="button" data-kdn-bare className={whoFilter === "none" ? "on" : ""} onClick={() => setWhoFilter("none")}>담당 미정 <small>{task.steps.filter(s => !s.who).length}</small></button>}
+        </div>}
+        <ol className={`kho-tl${editing ? " is-edit" : ""}`}>{groupSteps(task.steps.filter(s => !whoFilter || (whoFilter === "none" ? !s.who : s.who === whoFilter || s.who === "all"))).map(g => <li key={g.month} className={g.month ? (g.month >= 3 && g.month <= 8 ? "s1" : "s2") : "nil"}>
           <span className={`mo${g.month ? (g.month >= 3 && g.month <= 8 ? " s1" : " s2") : " nil"}`}>{g.label}</span>
           <div className="steps">{g.steps.map(step => editing
-            ? <StepEdit key={step.id} step={step} onChange={patch => editStep(step.id, patch)} onMove={dir => moveStep(step.id, dir)} onRemove={() => window.confirm("이 단계를 지울까요?") && edit(t => ({ ...t, steps: t.steps.filter(s => s.id !== step.id) }))} onUpload={list => upload(list, step.id)} showToast={showToast} />
+            ? <StepEdit key={step.id} step={step} people={people} onChange={patch => editStep(step.id, patch)} onMove={dir => moveStep(step.id, dir)} onRemove={() => window.confirm("이 단계를 지울까요?") && edit(t => ({ ...t, steps: t.steps.filter(s => s.id !== step.id) }))} onUpload={list => upload(list, step.id)} showToast={showToast} />
             : <article key={step.id} className={`kho-step${step.done ? " done" : ""}`}>
               <button type="button" data-kdn-bare className="ck" disabled={!canEdit} aria-pressed={step.done} title={canEdit ? (step.done ? "끝냄 취소" : "끝냄") : ""} onClick={() => editStep(step.id, { done: !step.done })}>{step.done && <Check size={12} />}</button>
-              <div className="bd"><b>{step.title || "(제목 없음)"}{step.when ? <em>{step.when}</em> : null}</b>{step.detail ? <p>{step.detail}</p> : null}
+              <div className="bd"><b>{step.who && whoLabel(step.who) ? <span className={`kho-who t${step.who === "all" ? "a" : personOf(step.who)?.tone ?? 0}`}>{whoLabel(step.who)}</span> : null}{step.title || "(제목 없음)"}{step.when ? <em>{step.when}</em> : null}</b>{step.detail ? <p>{step.detail}</p> : null}
                 {(step.links.length > 0 || step.files.length > 0) && <Chips links={step.links} files={step.files} showToast={showToast} />}</div>
             </article>)}</div>
         </li>)}</ol>
@@ -276,7 +285,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
   </div>;
 }
 
-function StepEdit({ step, onChange, onMove, onRemove, onUpload, showToast }) {
+function StepEdit({ step, people = [], onChange, onMove, onRemove, onUpload, showToast }) {
   const [more, setMore] = React.useState(false);
   return <article className={`kho-step edit${step.done ? " done" : ""}`}>
     <div className="er">
@@ -284,6 +293,7 @@ function StepEdit({ step, onChange, onMove, onRemove, onUpload, showToast }) {
       <select value={step.month || 0} onChange={e => onChange({ month: Number(e.target.value) })} aria-label="달"><option value={0}>미정</option>{SCHOOL_MONTHS.map(m => <option key={m} value={m}>{m}월</option>)}</select>
       <input className="tt" value={step.title} placeholder="할 일" onChange={e => onChange({ title: e.target.value })} />
       <input className="wh" value={step.when} placeholder="2주" onChange={e => onChange({ when: e.target.value })} aria-label="때" />
+      {people.length > 0 && <select className="who" value={step.who || ""} onChange={e => onChange({ who: e.target.value })} aria-label="이 단계 담당"><option value="">담당 미정</option>{people.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}<option value="all">함께</option></select>}
       <span className="ops"><button type="button" data-kdn-bare title="위로" onClick={() => onMove(-1)}><ArrowUp size={13} /></button><button type="button" data-kdn-bare title="아래로" onClick={() => onMove(1)}><ArrowDown size={13} /></button><button type="button" data-kdn-bare title="지우기" onClick={onRemove}><Trash2 size={13} /></button></span>
     </div>
     <AutoText value={step.detail} placeholder="내용 · 방법 · 참고할 점" onChange={v => onChange({ detail: v })} />
@@ -599,4 +609,17 @@ const CSS = `
 @media (max-width:560px){.kho-head .row{flex-direction:column;align-items:stretch}.kho-head h2{text-align:left}.kho-tabs button{padding:8px 4px}.kho-tabs button span{min-width:22px;padding:0 6px;font-size:12px}}
 
 .kho-list .mng-hint{margin:0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--kho-acc) 9%,var(--kdn-surface,#fff));border:1px solid color-mix(in srgb,var(--kho-acc) 30%,transparent);font-size:13px;line-height:1.55;color:var(--kho-acc-ink)}
+
+.kho-who-filter{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.kho-who-filter button{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:99px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#3d4048);font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.kho-who-filter button small{font-size:11.5px;font-weight:800;color:var(--kdn-muted,#8a8f99)}
+.kho-who-filter button.on{background:var(--kdn-ink,#17181d);border-color:var(--kdn-ink,#17181d);color:var(--kdn-surface,#fff)}.kho-who-filter button.on small{color:inherit;opacity:.8}
+.kho-who{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:99px;font-size:12px;font-weight:800;white-space:nowrap}
+.kho-who.t0{background:color-mix(in srgb,#2563eb 14%,transparent);color:#1d4ed8}
+.kho-who.t1{background:color-mix(in srgb,#7c3aed 14%,transparent);color:#6d28d9}
+.kho-who.t2{background:color-mix(in srgb,#0d9488 14%,transparent);color:#0f766e}
+.kho-who.t3{background:color-mix(in srgb,#db2777 14%,transparent);color:#be185d}
+.kho-who.ta{background:color-mix(in srgb,#16a34a 14%,transparent);color:#15803d}
+.kho-step.edit select.who{width:auto;max-width:130px}
+@media (max-width:560px){.kho-step.edit select.who{order:6;flex:1 1 100%;max-width:none}}
 `;
