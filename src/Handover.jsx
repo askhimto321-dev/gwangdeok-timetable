@@ -9,7 +9,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, ArrowDown, ArrowUp, Check, CheckCircle2, Info, Sparkles, ChevronRight, ClipboardList, ClipboardPaste, Copy, ExternalLink, FileSpreadsheet, FileText, Film, FolderOpen, Globe, Link2, Loader2, MessageSquare, Palette, Paperclip, Pencil, Plus, Presentation, Search, Share2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
-import { HANDOVER_KEY, normalizeHandover, normalizeTask, emptyTask, newStep, newLink, newComment, groupSteps, linkKind, safeUrl, stepTemplate, taskProgress, SCHOOL_MONTHS, parseSheetRows, siblingDuties, dutyPartNo, taskStoreKey, mergeTasks, taskAsText, stepPeople } from "./handover.js";
+import { HANDOVER_KEY, normalizeHandover, normalizeTask, emptyTask, newStep, newLink, newComment, groupSteps, linkKind, safeUrl, stepTemplate, taskProgress, SCHOOL_MONTHS, parseSheetRows, siblingDuties, dutyPartNo, taskStoreKey, mergeTasks, taskAsText, stepPeople, formatDetail } from "./handover.js";
 
 const KIND_ICON = { sheet: FileSpreadsheet, doc: FileText, slide: Presentation, form: ClipboardList, drive: FolderOpen, design: Palette, video: Film, web: Globe };
 const fmtAt = iso => { if (!iso) return ""; const d = new Date(iso); if (Number.isNaN(d.getTime())) return ""; return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
@@ -265,7 +265,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
             ? <StepEdit key={step.id} step={step} people={people} onChange={patch => editStep(step.id, patch)} onMove={dir => moveStep(step.id, dir)} onRemove={() => window.confirm("이 단계를 지울까요?") && edit(t => ({ ...t, steps: t.steps.filter(s => s.id !== step.id) }))} onUpload={list => upload(list, step.id)} showToast={showToast} />
             : <article key={step.id} className={`kho-step${step.done ? " done" : ""}`}>
               <button type="button" data-kdn-bare className="ck" disabled={!canEdit} aria-pressed={step.done} title={canEdit ? (step.done ? "끝냄 취소" : "끝냄") : ""} onClick={() => editStep(step.id, { done: !step.done })}>{step.done && <Check size={12} />}</button>
-              <div className="bd"><b>{step.who && whoLabel(step.who) ? <span className={`kho-who t${step.who === "all" ? "a" : personOf(step.who)?.tone ?? 0}`}>{whoLabel(step.who)}</span> : null}{step.title || "(제목 없음)"}{step.when ? <em>{step.when}</em> : null}</b>{step.detail ? <p>{step.detail}</p> : null}
+              <div className="bd"><div className="hl"><b className="tt">{step.title || "(제목 없음)"}</b><span className="mt">{step.who && whoLabel(step.who) ? <span className={`kho-who t${step.who === "all" ? "a" : personOf(step.who)?.tone ?? 0}`}>{whoLabel(step.who)}</span> : null}{step.when ? <em className="wh">{step.when}</em> : null}</span></div>{step.detail ? <Detail text={step.detail} /> : null}
                 {(step.links.length > 0 || step.files.length > 0) && <Chips links={step.links} files={step.files} showToast={showToast} />}</div>
             </article>)}</div>
         </li>)}</ol>
@@ -283,6 +283,18 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
 
     {pasteOpen && <PasteModal onClose={() => setPasteOpen(false)} onApply={steps => { setEditing(true); edit(t => ({ ...t, steps: [...t.steps, ...steps] })); setPasteOpen(false); setTab("timeline"); showToast(`${steps.length}단계를 넣었어요. 확인하고 고쳐 주세요.`, "success"); }} />}
   </div>;
+}
+
+// 단계 내용: 항목(ⓐⓑ, ①②, -, 1)) 은 목록, '*' 줄은 참고 메모, 나머지는 문단
+function Detail({ text }) {
+  const blocks = formatDetail(text);
+  const out = []; let list = null;
+  blocks.forEach((b, i) => {
+    if (b.type === "li") { if (!list) { list = []; out.push(<ul key={`u${i}`} className="dl">{list}</ul>); } list.push(<li key={i}><span className="mk">{b.marker}</span><span>{b.text}</span></li>); return; }
+    list = null;
+    out.push(b.type === "note" ? <p key={i} className="dn"><Info size={13} /><span>{b.text}</span></p> : <p key={i} className="dp">{b.text}</p>);
+  });
+  return <div className="kho-detail">{out}</div>;
 }
 
 function StepEdit({ step, people = [], onChange, onMove, onRemove, onUpload, showToast }) {
@@ -622,4 +634,24 @@ const CSS = `
 .kho-who.ta{background:color-mix(in srgb,#16a34a 14%,transparent);color:#15803d}
 .kho-step.edit select.who{width:auto;max-width:130px}
 @media (max-width:560px){.kho-step.edit select.who{order:6;flex:1 1 100%;max-width:none}}
+
+/* ── 단계 카드 가독성: 흰 카드 + 달 색 테두리, 제목 줄 오른쪽에 담당·때, 내용은 목록·메모로 ── */
+.kho-step:not(.edit){background:var(--kdn-surface,#fff)!important;border:1px solid var(--kdn-line,#e7e5e0);border-left:4px solid var(--kdn-line,#d9d6cf);padding:14px 16px;gap:12px;box-shadow:0 1px 2px rgba(20,24,33,.04)}
+.kho-tl>li.s1 .kho-step:not(.edit){border-left-color:var(--kho-s1)}
+.kho-tl>li.s2 .kho-step:not(.edit){border-left-color:var(--kho-s2)}
+.kho-step.done:not(.edit){background:color-mix(in srgb,#16a34a 5%,var(--kdn-surface,#fff))!important;border-left-color:#16a34a!important}
+.kho-step .bd{flex:1;gap:8px}
+.kho-step .hl{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 12px}
+.kho-step .hl .tt{flex:1 1 260px;min-width:0;font-size:15.5px;font-weight:800;line-height:1.45;word-break:keep-all}
+.kho-step .hl .mt{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;margin-left:auto}
+.kho-step .hl .wh{font-style:normal;height:22px;display:inline-flex;align-items:center;padding:0 9px;border-radius:99px;background:var(--kho-soft);font-size:12px;font-weight:700;color:var(--kdn-ink-soft,#5b606b)}
+.kho-step.done .hl .tt{color:var(--kdn-muted,#8a8f99);text-decoration:line-through;text-decoration-color:color-mix(in srgb,#16a34a 55%,transparent)}
+.kho-detail{display:grid;gap:6px;max-width:78ch;font-size:14px;line-height:1.65;color:var(--kdn-ink-soft,#3d4048)}
+.kho-detail .dp{margin:0;word-break:keep-all;overflow-wrap:anywhere}
+.kho-detail .dl{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.kho-detail .dl li{display:grid;grid-template-columns:22px minmax(0,1fr);align-items:baseline;word-break:keep-all;overflow-wrap:anywhere}
+.kho-detail .dl .mk{font-weight:800;color:var(--kdn-muted,#8a8f99);font-size:13px}
+.kho-detail .dn{margin:0;display:flex;gap:6px;align-items:flex-start;padding:7px 10px;border-radius:8px;background:color-mix(in srgb,#ca8a04 9%,var(--kdn-surface,#fff));color:#854d0e;font-size:13px;line-height:1.55}
+.kho-detail .dn svg{flex:none;margin-top:3px}
+.kho-tl .steps{gap:10px}
 `;
