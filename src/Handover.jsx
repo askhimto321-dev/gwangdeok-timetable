@@ -7,7 +7,7 @@
 // - 공유: 링크 복사(로그인하면 이 업무가 바로 열림), 글로 복사(메신저용)
 import React from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, ArrowDown, ArrowUp, CalendarDays, Check, CopyPlus, Printer, Lightbulb, AlignLeft, Dot, CheckCircle2, Info, Sparkles, ChevronRight, ClipboardList, ClipboardPaste, Copy, ExternalLink, FileSpreadsheet, FileText, Film, FolderOpen, Globe, Link2, Loader2, MessageSquare, Palette, Paperclip, Pencil, Plus, Presentation, Search, Share2, Trash2, Users, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown, UserCog, UserPlus, CalendarDays, Check, CopyPlus, Printer, Lightbulb, AlignLeft, Dot, CheckCircle2, Info, Sparkles, ChevronRight, ClipboardList, ClipboardPaste, Copy, ExternalLink, FileSpreadsheet, FileText, Film, FolderOpen, Globe, Link2, Loader2, MessageSquare, Palette, Paperclip, Pencil, Plus, Presentation, Search, Share2, Trash2, Users, Wand2, X } from "lucide-react";
 import { readStorage, updateStorage, uploadClassroomAttachment } from "./storage.js";
 import { HANDOVER_KEY, normalizeHandover, normalizeTask, emptyTask, newStep, newLink, newComment, groupSteps, linkKind, safeUrl, stepTemplate, taskProgress, SCHOOL_MONTHS, parseSheetRows, siblingDuties, dutyPartNo, taskStoreKey, mergeTasks, taskAsText, stepPeople, formatDetail } from "./handover.js";
 
@@ -31,6 +31,8 @@ async function openFile(file) {
   }
   if (file.url) window.open(file.url, "_blank", "noopener,noreferrer");
 }
+// 한글 입력 중(조합 중) Enter는 글자 확정용이라 무시해요(마지막 글자가 빠진 채 저장·업로드되던 문제)
+const onEnter = fn => e => { if (e.key !== "Enter" || e.shiftKey || e.nativeEvent?.isComposing || e.keyCode === 229) return; e.preventDefault(); fn(); };
 async function copyText(text) { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } }
 
 export default function Handover({ actor = null, accounts = null, canManage = false, canEditStructure = canManage, isTeacher = false, showToast = () => {} }) {
@@ -41,6 +43,11 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
   const [query, setQuery] = React.useState("");
   const [manage, setManage] = React.useState(false);
   const [openMonth, setOpenMonth] = React.useState(-1);
+  const [assignOpen, setAssignOpen] = React.useState(false);
+  const [deptDraft, setDeptDraft] = React.useState(null);
+  // 담당 접기·펴기: 정해 둔 것은 이 기기에 기억(기본: 내 담당 · 지금 연 업무의 담당만 펼침)
+  const [fold, setFold] = React.useState(() => { try { return JSON.parse(localStorage.getItem("kd_handover_fold") || "{}") || {}; } catch { return {}; } });
+  const setFoldSave = next => { setFold(next); try { localStorage.setItem("kd_handover_fold", JSON.stringify(next)); } catch { /* 기억은 편의 기능 */ } };
   const myId = String(actor?.id || "");
 
   React.useEffect(() => {
@@ -89,15 +96,21 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
   };
   const addRole = () => saveStructure(v => ({ ...v, roles: [...v.roles, { id: `role_${Date.now().toString(36)}`, deptId: dept.id, title: "", ownerId: "", ownerName: "", order: v.roles.length, duties: [{ id: `duty_${Date.now().toString(36)}`, text: "새 업무", part: "", group: "", editors: [] }] }] }));
   const removeRole = role => { if (window.confirm("이 담당을 지울까요? 적어 둔 업무 내용은 남지만 목록에서 사라져요.")) saveStructure(v => ({ ...v, roles: v.roles.filter(r => r.id !== role.id) })); };
-  const addDept = () => { const name = window.prompt("새 부서 이름(예: 교무부, 1학년부)"); if (!name?.trim()) return; const id = `dept_${Date.now().toString(36)}`; saveStructure(v => ({ ...v, depts: [...v.depts, { id, name: name.trim(), order: v.depts.length, common: "" }] })).then(ok => ok && setDeptId(id)); };
-  const renameDept = () => { const name = window.prompt("부서 이름", dept.name); if (!name?.trim()) return; saveStructure(v => ({ ...v, depts: v.depts.map(d => d.id === dept.id ? { ...d, name: name.trim() } : d) })); };
+  const addDept = name => { if (!name?.trim()) return; const id = `dept_${Date.now().toString(36)}`; saveStructure(v => ({ ...v, depts: [...v.depts, { id, name: name.trim(), order: v.depts.length, common: "" }] })).then(ok => { if (ok) { setDeptId(id); setDeptDraft(null); } }); };
+  const renameDept = name => { if (!name?.trim() || name.trim() === dept.name) return; saveStructure(v => ({ ...v, depts: v.depts.map(d => d.id === dept.id ? { ...d, name: name.trim() } : d) })); };
+  const isOpenRole = role => manage || !!q || (fold[role.id] ?? (role.ownerId === myId || role.duties.some(d => d.id === dutyId || d.editors.some(e => e.id === myId))));
+  const toggleRole = role => setFoldSave({ ...fold, [role.id]: !isOpenRole(role) });
+  const allOpen = roles.every(isOpenRole);
+  const setAll = on => setFoldSave({ ...fold, ...Object.fromEntries(roles.map(r => [r.id, on])) });
   const removeDept = () => { if (roles.length) { showToast("담당이 남아 있는 부서는 지울 수 없어요.", "error"); return; } if (window.confirm(`'${dept.name}' 부서를 지울까요?`)) saveStructure(v => ({ ...v, depts: v.depts.filter(d => d.id !== dept.id) })).then(() => setDeptId("")); };
 
   return <div className="kho"><style>{CSS}</style>
     <header className="kho-top">
       <b className="ttl">업무 인수인계</b>
       <div className="depts" role="tablist">{data.depts.map(d => <button key={d.id} type="button" data-kdn-bare role="tab" aria-selected={d.id === dept?.id} className={d.id === dept?.id ? "on" : ""} onClick={() => { setDeptId(d.id); setDutyId(""); }}>{d.name}</button>)}
-        {manage && <button type="button" data-kdn-bare className="add" onClick={addDept}><Plus size={13} /> 부서</button>}</div>
+        {manage && (deptDraft === null ? <button type="button" data-kdn-bare className="add" onClick={() => setDeptDraft("")}><Plus size={13} /> 부서</button>
+          : <span className="dept-new"><input autoFocus value={deptDraft} placeholder="부서 이름(예: 교무부)" onChange={e => setDeptDraft(e.target.value)} onKeyDown={onEnter(() => addDept(deptDraft))} /><button type="button" data-kdn-bare className="kho-pri" disabled={!deptDraft.trim()} onClick={() => addDept(deptDraft)}>추가</button><button type="button" data-kdn-bare className="kho-ghost" onClick={() => setDeptDraft(null)}>취소</button></span>)}</div>
+      {canManage && <button type="button" data-kdn-bare className={`kho-ghost${assignOpen ? " on" : ""}`} onClick={() => { setAssignOpen(v => !v); setDutyId(""); }}><UserCog size={14} /> 담당자 배정</button>}
       {canEditStructure && <button type="button" data-kdn-bare className={`kho-ghost${manage ? " on" : ""}`} onClick={() => setManage(v => !v)}>{manage ? <><Check size={13} /> 다 고쳤어요</> : <><Pencil size={13} /> 업무 추가·삭제</>}</button>}
     </header>
     <div className={`kho-body${found ? " has-sel" : ""}`}>
@@ -107,29 +120,34 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
           {isTeacher && <button type="button" data-kdn-bare className={`kho-ghost${mineOnly ? " on" : ""}`} onClick={() => setMineOnly(v => !v)}>내 업무</button>}
         </div>
         {manage && <p className="mng-hint">업무 이름을 고치면 바로 저장돼요. 담당·세부 업무를 더하거나 지우고, <b>옮기기</b>로 세부 업무를 다른 담당에게 넘길 수 있어요(적은 내용도 함께).</p>}
-        {manage && dept && <div className="mng-dept"><span>{dept.name}</span><button type="button" data-kdn-bare onClick={renameDept}>이름 바꾸기</button><button type="button" data-kdn-bare onClick={removeDept}>지우기</button></div>}
+        {manage && dept && <div className="mng-dept"><span>부서 이름</span><input key={dept.id} defaultValue={dept.name} onBlur={e => renameDept(e.target.value)} onKeyDown={onEnter(() => document.activeElement?.blur())} /><button type="button" data-kdn-bare onClick={removeDept}>부서 지우기</button></div>}
+        {!manage && !q && roles.length > 2 && <div className="foldbar"><small>담당 {roles.length}개</small><button type="button" data-kdn-bare onClick={() => setAll(!allOpen)}>{allOpen ? "모두 접기" : "모두 펼치기"}</button></div>}
         {visibleRoles.length === 0 && <p className="none">{mineOnly ? "내 담당이 아직 없어요. 맡은 담당의 '내 담당으로'를 눌러 주세요." : q ? "찾는 업무가 없어요." : "아직 담당이 없어요."}</p>}
-        {visibleRoles.map(role => { const mine = role.ownerId && role.ownerId === myId; return <section key={role.id} className={`kho-role${mine ? " mine" : ""}`}>
+        {visibleRoles.map(role => { const mine = role.ownerId && role.ownerId === myId; const opened = isOpenRole(role); const filledN = role.duties.filter(d => { const m = data.meta?.[d.id]; return m && (m.steps || m.files || m.filled); }).length; return <section key={role.id} className={`kho-role${mine ? " mine" : ""}${opened ? "" : " folded"}`}>
           <header>
+            {!manage && <button type="button" data-kdn-bare className="fold" aria-expanded={opened} title={opened ? "접기" : "펼치기"} onClick={() => toggleRole(role)}><ChevronDown size={15} /></button>}
             <b className="rn">{roleNo(data, role)}</b>
-            {manage ? <select value={role.ownerId} onChange={e => { const t = teachers.find(x => String(x.id) === e.target.value); editRole(role.id, { ownerId: t ? String(t.id) : "", ownerName: t ? String(t.name) : "" }); }}><option value="">담당 미정</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+            {manage && canManage ? <select value={role.ownerId} onChange={e => { const t = teachers.find(x => String(x.id) === e.target.value); editRole(role.id, { ownerId: t ? String(t.id) : "", ownerName: t ? String(t.name) : "" }); }}><option value="">담당 미정</option>{teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
               : <span className={role.ownerName ? "who" : "who nil"}>{role.ownerName || "미정"}</span>}
-            {!manage && mine && <span className="me">내 담당</span>}
+            {!manage && <span className="cnt" onClick={() => toggleRole(role)} title={`세부 업무 ${role.duties.length}개 중 ${filledN}개 정리`}>{filledN}/{role.duties.length}</span>}
+            {!manage && mine && <button type="button" data-kdn-bare className="me" title="눌러서 담당 풀기" onClick={() => window.confirm("내 담당을 풀까요?") && claim(role, false)}>내 담당</button>}
             {!manage && isTeacher && !role.ownerId && <button type="button" data-kdn-bare className="claim" onClick={() => claim(role, true)}>내 담당으로</button>}
             {manage && <span className="mng"><input defaultValue={role.title} placeholder="담당 이름" onBlur={e => e.target.value !== role.title && editRole(role.id, { title: e.target.value.trim() })} /><button type="button" data-kdn-bare title="담당 지우기" onClick={() => removeRole(role)}><Trash2 size={13} /></button></span>}
           </header>
-          <ul>{role.duties.map(duty => { const m = data.meta?.[duty.id]; const filled = !!(m && (m.steps || m.files || m.filled)); return <li key={duty.id}>
+          {!opened && <button type="button" data-kdn-bare className="peek" onClick={() => toggleRole(role)}>{role.duties[0]?.text || "세부 업무 없음"}{role.duties.length > 1 ? <em> 외 {role.duties.length - 1}개</em> : null}</button>}
+          {opened && <ul>{role.duties.map(duty => { const m = data.meta?.[duty.id]; const filled = !!(m && (m.steps || m.files || m.filled)); return <li key={duty.id}>
             {manage ? <span className="mng-duty"><input defaultValue={duty.text} onBlur={e => e.target.value.trim() && e.target.value !== duty.text && editDuties(role.id, list => list.map(d => d.id === duty.id ? { ...d, text: e.target.value.trim() } : d))} /><select className="mv" value="" title="다른 담당으로 옮기기" aria-label="다른 담당으로 옮기기" onChange={e => moveDuty(duty, role, e.target.value)}><option value="">옮기기</option>{data.depts.map(d => <optgroup key={d.id} label={d.name}>{data.roles.filter(r => r.deptId === d.id && r.id !== role.id).map(r => <option key={r.id} value={r.id}>{roleNo(data, r)}{r.ownerName ? ` · ${r.ownerName}` : ""}</option>)}</optgroup>)}</select><button type="button" data-kdn-bare title="지우기" onClick={() => window.confirm("이 세부 업무를 목록에서 지울까요?") && editDuties(role.id, list => list.filter(d => d.id !== duty.id))}><X size={13} /></button></span>
               : <button type="button" data-kdn-bare className={duty.id === dutyId ? "on" : ""} onClick={() => open(duty.id)} title={filled ? "정리된 업무" : "아직 비어 있는 업무"}>
                 {filled ? <CheckCircle2 size={15} className="st on" /> : <i className="st" />}<span className="tx">{duty.text}</span>{m?.steps ? <small title={`${m.steps}단계 중 ${m.done || 0}단계 끝냄`}>{m.done || 0}/{m.steps}</small> : null}<ChevronRight size={14} className="go" /></button>}
-          </li>; })}</ul>
+          </li>; })}</ul>}
           {manage && <button type="button" data-kdn-bare className="add-duty" onClick={() => editDuties(role.id, list => [...list, { id: `duty_${Date.now().toString(36)}`, text: "새 세부 업무", part: "", group: "", editors: [] }])}><Plus size={13} /> 세부 업무</button>}
         </section>; })}
         {manage && <button type="button" data-kdn-bare className="add-role" onClick={addRole}><Plus size={14} /> 담당 추가</button>}
         {dept?.common && !manage && <p className="common"><b>공동</b> {dept.common}</p>}
       </aside>
       <main className="kho-main">
-        {found ? <TaskPanel key={`${found.duty.id}-${found.duty.group}`} data={data} duty={found.duty} role={found.role} dept={data.depts.find(d => d.id === found.role.deptId)}
+        {assignOpen && canManage ? <AssignPanel data={data} dept={dept} teachers={teachers} onAssign={(roleId, t) => editRole(roleId, { ownerId: t ? String(t.id) : "", ownerName: t ? String(t.name) : "" })} onClose={() => setAssignOpen(false)} onOpen={id => { setAssignOpen(false); open(id); }} />
+        : found ? <TaskPanel key={`${found.duty.id}-${found.duty.group}`} data={data} duty={found.duty} role={found.role} dept={data.depts.find(d => d.id === found.role.deptId)}
           canEdit={canEditDuty(found.role, found.duty) || siblingDuties(data, found.duty.id).some(x => found.duty.group && x.duty.group === found.duty.group && canEditDuty(x.role, x.duty))}
           canEditOf={canEditDuty} teachers={teachers} actor={actor} showToast={showToast} onMeta={onMeta} editDuty={editDuty} onOpen={open} onClose={() => setDutyId("")} initialMonth={openMonth} />
           : <>
@@ -141,6 +159,35 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
           </>}
       </main>
     </div>
+  </div>;
+}
+
+// 담당자 배정(관리자·부서 계정·학년부장): 부서의 담당마다 선생님을 정하고, 아직 담당이 없는 선생님을 보여 줘요.
+function AssignPanel({ data, dept, teachers, onAssign, onClose, onOpen }) {
+  const [find, setFind] = React.useState("");
+  const roles = data.roles.filter(r => r.deptId === dept?.id);
+  const assigned = new Set(data.roles.map(r => r.ownerId).filter(Boolean));
+  const free = teachers.filter(t => !assigned.has(String(t.id)));
+  const shown = find.trim() ? teachers.filter(t => String(t.name).includes(find.trim())) : teachers;
+  const sorted = [...shown].sort((a, b) => String(a.name).localeCompare(String(b.name), "ko"));
+  const done = roles.filter(r => r.ownerId).length;
+  return <div className="kho-assign">
+    <header><div><b><UserCog size={17} /> 담당자 배정 · {dept?.name}</b><small>담당마다 선생님을 골라요. 고르면 바로 저장돼요. ({done}/{roles.length} 배정)</small></div>
+      <label className="srch"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="선생님 이름으로 좁히기" /></label>
+      <button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
+    <ul className="rows">{roles.map(r => <li key={r.id} className={r.ownerId ? "on" : ""}>
+      <b className="rn">{roleNo(data, r)}</b>
+      <div className="duties">{r.duties.map(d => <button key={d.id} type="button" data-kdn-bare onClick={() => onOpen(d.id)} title="이 업무 열기">{d.text}</button>)}</div>
+      <div className="pick">
+        <select value={r.ownerId} onChange={e => onAssign(r.id, teachers.find(t => String(t.id) === e.target.value) || null)} aria-label={`${roleNo(data, r)} 담당 선생님`}>
+          <option value="">담당 미정</option>
+          {r.ownerId && !sorted.some(t => String(t.id) === r.ownerId) && <option value={r.ownerId}>{r.ownerName}</option>}
+          {sorted.map(t => <option key={t.id} value={t.id}>{t.name}{assigned.has(String(t.id)) && String(t.id) !== r.ownerId ? " (다른 담당 있음)" : ""}</option>)}
+        </select>
+        {r.ownerId && <button type="button" data-kdn-bare className="clr" title="배정 풀기" onClick={() => onAssign(r.id, null)}><X size={13} /></button>}
+      </div>
+    </li>)}</ul>
+    {free.length > 0 && <details className="free"><summary><UserPlus size={14} /> 아직 담당이 없는 선생님 {free.length}명</summary><div>{free.map(t => <span key={t.id}>{t.name}</span>)}</div></details>}
   </div>;
 }
 
@@ -310,7 +357,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
     {siblings.length > 1 && <section className="kho-parts">
       <div className="hd"><b>나눠 맡는 업무</b>{duty.group ? <span className="tag">타임라인 함께 쓰는 중</span> : null}
         {canEdit && <button type="button" data-kdn-bare className="lnk" onClick={() => toggleShared(!duty.group)}>{duty.group ? "따로 쓰기" : "타임라인 함께 쓰기"}</button>}</div>
-      <div className="cards">{siblings.map(x => { const me = x.duty.id === duty.id; const r = x.role; return <div key={x.duty.id} className={`part${me ? " me" : ""}`} role={me ? undefined : "button"} tabIndex={me ? -1 : 0} onClick={() => !me && onOpen(x.duty.id)} onKeyDown={e => !me && e.key === "Enter" && onOpen(x.duty.id)}>
+      <div className="cards">{siblings.map(x => { const me = x.duty.id === duty.id; const r = x.role; return <div key={x.duty.id} className={`part${me ? " me" : ""}`} role={me ? undefined : "button"} tabIndex={me ? -1 : 0} onClick={() => !me && onOpen(x.duty.id)} onKeyDown={e => !me && e.key === "Enter" && !e.nativeEvent?.isComposing && onOpen(x.duty.id)}>
         <span className="no">{dutyPartNo(x.duty.text)}</span>
         <span className="who">{roleNo(data, r)} · {r.ownerName || "미정"}</span>
         {me && editing && canEditOf(r, x.duty) ? <input defaultValue={x.duty.part} placeholder="이 담당이 맡는 일(예: 체험처 섭외, 당일 운영)" onBlur={e => e.target.value !== x.duty.part && editDuty(x.duty.id, { part: e.target.value.trim() })} />
@@ -442,14 +489,18 @@ function StepEdit({ step, people = [], onChange, onMove, onDup, onRemove, onUplo
 }
 
 function Chips({ links = [], files = [], showToast, large = false, onRemoveLink = null, onRemoveFile = null, onRenameLink = null, onRenameFile = null }) {
-  const rename = (current, apply, what) => { const next = window.prompt(`${what} 이름`, current); if (next == null) return; const v = next.trim(); if (!v) { showToast("이름을 비울 수는 없어요.", "error"); return; } if (v !== current) apply(v); };
+  // 이름 바꾸기는 화면 안 입력칸으로(앱·일부 브라우저에서 prompt 창이 안 떠서)
+  const [ren, setRen] = React.useState(null); // { key, value, apply }
+  const startRen = (key, value, apply) => setRen({ key, value, apply });
+  const doneRen = () => { if (!ren) return; const v = ren.value.trim(); if (!v) { showToast("이름을 비울 수는 없어요.", "error"); return; } ren.apply(v); setRen(null); };
+  const editor = key => ren?.key === key ? <span className="ren"><input autoFocus value={ren.value} onChange={e => setRen({ ...ren, value: e.target.value })} onKeyDown={e => { if (e.key === "Escape") setRen(null); else onEnter(doneRen)(e); }} /><button type="button" data-kdn-bare className="ok" onClick={doneRen} title="이름 저장"><Check size={12} /></button><button type="button" data-kdn-bare onClick={() => setRen(null)} title="취소"><X size={12} /></button></span> : null;
   return <ul className={`kho-chips${large ? " lg" : ""}`}>
-    {links.map(l => { const k = linkKind(l.url); const Icon = KIND_ICON[k.kind] || Globe; const name = l.label || k.label; return <li key={l.id} className={`k-${k.kind}`}><a href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}><Icon size={14} /><span>{name}</span>{large && <small>{k.label}</small>}<ExternalLink size={11} className="ext" /></a>
-      {onRenameLink && <button type="button" data-kdn-bare title="이름 바꾸기" onClick={() => rename(name, v => onRenameLink(l.id, v), "링크")}><Pencil size={11} /></button>}
-      {onRemoveLink && <button type="button" data-kdn-bare className="del" title="빼기" onClick={() => window.confirm(`'${name}' 링크를 뺄까요?`) && onRemoveLink(l.id)}><X size={12} /></button>}</li>; })}
-    {files.map((f, i) => { const name = fileTitle(f); return <li key={f.id || i} className="k-file"><button type="button" data-kdn-bare className="open" title={f.label ? `원래 파일: ${f.fileName}` : "내려받기"} onClick={() => openFile(f).catch(e => showToast(e.message, "error"))}><Paperclip size={14} /><span>{name}</span>{large && <small>{fileExt(f.fileName).replace(".", "").toUpperCase() || "파일"}{f.size ? ` · ${Math.max(1, Math.round(f.size / 1024))}KB` : ""}</small>}</button>
-      {onRenameFile && <button type="button" data-kdn-bare title="이름 바꾸기" onClick={() => rename(name.replace(new RegExp(`${fileExt(f.fileName).replace(".", "\\.")}$`), ""), v => onRenameFile(i, v), "파일")}><Pencil size={11} /></button>}
-      {onRemoveFile && <button type="button" data-kdn-bare className="del" title="지우기" onClick={() => window.confirm(`'${name}' 파일을 지울까요?\n지우면 이 업무에서 다시 열 수 없어요.`) && onRemoveFile(i)}><X size={12} /></button>}</li>; })}
+    {links.map(l => { const k = linkKind(l.url); const Icon = KIND_ICON[k.kind] || Globe; const name = l.label || k.label; const key = `l:${l.id}`; return <li key={l.id} className={`k-${k.kind}`}>{editor(key) || <><a href={l.url} target="_blank" rel="noopener noreferrer" title={l.url}><Icon size={14} /><span>{name}</span>{large && <small>{k.label}</small>}<ExternalLink size={11} className="ext" /></a>
+      {onRenameLink && <button type="button" data-kdn-bare title="이름 바꾸기" onClick={() => startRen(key, name, v => onRenameLink(l.id, v))}><Pencil size={11} /></button>}
+      {onRemoveLink && <button type="button" data-kdn-bare className="del" title="빼기" onClick={() => window.confirm(`'${name}' 링크를 뺄까요?`) && onRemoveLink(l.id)}><X size={12} /></button>}</>}</li>; })}
+    {files.map((f, i) => { const name = fileTitle(f); const key = `f:${f.id || i}`; const ext = fileExt(f.fileName); return <li key={f.id || i} className="k-file">{editor(key) || <><button type="button" data-kdn-bare className="open" title={f.label ? `원래 파일: ${f.fileName}` : "내려받기"} onClick={() => openFile(f).catch(e => showToast(e.message, "error"))}><Paperclip size={14} /><span>{name}</span>{large && <small>{ext.replace(".", "").toUpperCase() || "파일"}{f.size ? ` · ${Math.max(1, Math.round(f.size / 1024))}KB` : ""}</small>}</button>
+      {onRenameFile && <button type="button" data-kdn-bare title="이름 바꾸기" onClick={() => startRen(key, ext && name.endsWith(ext) ? name.slice(0, -ext.length) : name, v => onRenameFile(i, v))}><Pencil size={11} /></button>}
+      {onRemoveFile && <button type="button" data-kdn-bare className="del" title="지우기" onClick={() => window.confirm(`'${name}' 파일을 지울까요?\n지우면 이 업무에서 다시 열 수 없어요.`) && onRemoveFile(i)}><X size={12} /></button>}</>}</li>; })}
   </ul>;
 }
 
@@ -462,15 +513,15 @@ function AddMaterial({ onLink, onUpload, showToast }) {
   const send = () => { onUpload(pending.map(p => p.file), pending.map(p => p.name)); setPending([]); };
   return <div className="kho-addmat-wrap">
     <div className="kho-addmat">
-      <input value={url} onChange={e => setUrl(e.target.value)} placeholder="시트·문서·폴더 주소 붙여 넣기" onKeyDown={e => e.key === "Enter" && add()} />
-      <input value={label} onChange={e => setLabel(e.target.value)} placeholder="링크 이름(선택)" onKeyDown={e => e.key === "Enter" && add()} className="lb" />
+      <input value={url} onChange={e => setUrl(e.target.value)} placeholder="시트·문서·폴더 주소 붙여 넣기" onKeyDown={onEnter(add)} />
+      <input value={label} onChange={e => setLabel(e.target.value)} placeholder="링크 이름(선택)" onKeyDown={onEnter(add)} className="lb" />
       <button type="button" data-kdn-bare className="kho-ghost" disabled={!url.trim()} onClick={add}><Link2 size={13} /> 붙이기</button>
       <button type="button" data-kdn-bare className="kho-ghost" onClick={() => input.current?.click()}><Paperclip size={13} /> 파일</button>
       <input ref={input} type="file" multiple hidden onChange={e => { const list = Array.from(e.target.files || []).slice(0, 5); if (!list.length) return; e.target.value = ""; setPending(list.map(file => ({ file, name: stripExt(file.name) }))); }} />
     </div>
     {pending.length > 0 && <div className="kho-pending">
       <b>파일 이름 정하기</b>
-      {pending.map((p, k) => <label key={k}><Paperclip size={13} /><input value={p.name} autoFocus={k === 0} onChange={e => setPending(list => list.map((x, n) => (n === k ? { ...x, name: e.target.value } : x)))} onKeyDown={e => e.key === "Enter" && send()} /><small>{fileExt(p.file.name)}</small></label>)}
+      {pending.map((p, k) => <label key={k}><Paperclip size={13} /><input value={p.name} autoFocus={k === 0} onChange={e => setPending(list => list.map((x, n) => (n === k ? { ...x, name: e.target.value } : x)))} onKeyDown={onEnter(send)} /><small>{fileExt(p.file.name)}</small></label>)}
       <div className="ft"><button type="button" data-kdn-bare className="kho-ghost" onClick={() => setPending([])}>취소</button><button type="button" data-kdn-bare className="kho-pri" disabled={pending.some(p => !p.name.trim())} onClick={send}>{pending.length}개 올리기</button></div>
     </div>}
   </div>;
@@ -865,4 +916,44 @@ const CSS = `
 .kho-pending input{flex:1;min-width:0;height:34px;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13.5px}
 .kho-pending small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .kho-pending .ft{display:flex;justify-content:flex-end;gap:6px}
+
+/* 담당 접기 */
+.kho-list .foldbar{display:flex;align-items:center;justify-content:space-between;padding:0 4px}.kho-list .foldbar small{font-size:12.5px;font-weight:700;color:var(--kdn-muted,#8a8f99)}
+.kho-list .foldbar button{border:0;background:none;padding:0;color:var(--kho-acc-ink);font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
+.kho-role .fold{display:grid;place-items:center;width:24px;height:24px;margin-left:-4px;border:0;border-radius:6px;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer;transition:transform .15s}
+.kho-role .fold[aria-expanded=false]{transform:rotate(-90deg)}
+.kho-role>header{grid-template-columns:auto auto minmax(0,1fr) auto auto!important}
+.kho-role .cnt{font-size:11.5px;font-weight:800;color:var(--kdn-muted,#8a8f99);padding:1px 7px;border-radius:99px;background:var(--kdn-surface,#fff);cursor:pointer}
+.kho-role .me{border:0;cursor:pointer;font:inherit;font-size:11px;font-weight:800}
+.kho-role.folded>header{border-bottom:0}
+.kho-role .peek{display:block;width:100%;padding:6px 12px 9px 40px;border:0;background:transparent;text-align:left;font:inherit;font-size:12.5px;color:var(--kdn-muted,#8a8f99);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.kho-role .peek em{font-style:normal;font-weight:700}
+.kho-list .mng-dept input{flex:1;min-width:0;height:30px;padding:0 8px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13px}
+.kho-top .dept-new{display:inline-flex;gap:4px;align-items:center}.kho-top .dept-new input{height:34px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13.5px;width:160px}
+.kho-top .dept-new .kho-pri,.kho-top .dept-new .kho-ghost{height:34px;padding:0 10px}
+/* 이름 바꾸기 입력칸 */
+.kho-chips .ren{display:inline-flex;align-items:center;gap:2px;padding:2px}
+.kho-chips .ren input{width:200px;max-width:52vw;height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--kho-acc);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13px}
+.kho-chips .ren button{display:grid;place-items:center;width:26px;height:28px;border:0;border-radius:7px;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}.kho-chips .ren button.ok{color:#15803d}
+/* 담당자 배정 */
+.kho-assign{display:grid;gap:12px;padding:18px 20px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#ebe9e4);border-left:5px solid #2563eb}
+.kho-assign>header{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.kho-assign>header>div{flex:1 1 260px;display:grid;gap:2px}.kho-assign>header b{display:inline-flex;align-items:center;gap:6px;font-size:18px}.kho-assign>header small{font-size:12.5px;color:var(--kdn-muted,#8a8f99)}
+.kho-assign .srch{display:flex;align-items:center;gap:6px;height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#e2dfd8);color:var(--kdn-muted,#8a8f99)}.kho-assign .srch input{border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#17181d);width:170px}
+.kho-assign .x{display:grid;place-items:center;width:36px;height:36px;border:0;border-radius:10px;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}
+.kho-assign .rows{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.kho-assign .rows li{display:grid;grid-template-columns:72px minmax(0,1fr) minmax(180px,240px);align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:var(--kho-soft)}
+.kho-assign .rows li.on{background:color-mix(in srgb,#2563eb 6%,var(--kdn-surface,#fff))}
+.kho-assign .rn{justify-self:start;padding:2px 10px;border-radius:99px;background:var(--kdn-ink,#17181d);color:var(--kdn-surface,#fff);font-size:12px}
+.kho-assign .duties{display:flex;flex-wrap:wrap;gap:4px}
+.kho-assign .duties button{max-width:100%;padding:3px 9px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#3d4048);font:inherit;font-size:12.5px;text-align:left;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kho-assign .pick{display:flex;gap:4px}.kho-assign .pick select{flex:1;min-width:0;height:36px;padding:0 8px;border-radius:9px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13.5px;font-weight:700}
+.kho-assign .pick .clr{display:grid;place-items:center;width:36px;height:36px;border:1px solid var(--kdn-line,#e2dfd8);border-radius:9px;background:var(--kdn-surface,#fff);color:var(--kdn-muted,#8a8f99);cursor:pointer}
+.kho-assign .free summary{cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:800;color:var(--kdn-ink-soft,#3d4048)}
+.kho-assign .free div{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}.kho-assign .free span{padding:3px 10px;border-radius:99px;background:var(--kho-soft);font-size:12.5px;font-weight:700}
+@media (max-width:760px){.kho-assign .rows li{grid-template-columns:1fr}}
+
+.kho-role.folded>header{min-height:36px;padding-top:3px;padding-bottom:0}
+.kho-role.folded .peek{padding:0 12px 7px 40px;font-size:12px}
+.kho-list{gap:6px}
 `;
