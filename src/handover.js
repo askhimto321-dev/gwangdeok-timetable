@@ -201,3 +201,24 @@ export function stepPeople({ duty, role, siblings = [], roleLabel = r => r?.titl
   (duty?.editors || []).forEach(e => { if (!list.some(p => p.id === `t:${e.id}`)) list.push({ id: `t:${e.id}`, short: e.name.slice(0, 3), label: e.name, tone: list.length % 4 }); });
   return list.length > 1 ? list : [];
 }
+
+// 단계 내용 보기 좋게: ⓐⓑⓒ·①②·'- '·'• '·'1) ' 같은 항목은 한 줄씩 목록으로, '*'로 시작하는 줄은 참고 메모로 나눠요.
+const ENUM_CHARS = "ⓐ-ⓩ①-⑳㉠-㉭㉮-㉻";
+export function formatDetail(text = "") {
+  const out = [];
+  String(text || "").replace(/\r/g, "").split("\n").forEach(raw => {
+    const line = raw.trim();
+    if (!line) return;
+    if (/^[*※]/.test(line)) { out.push({ type: "note", text: line.replace(/^[*※]\s*/, "") }); return; }
+    // 한 줄 안의 ⓐ ⓑ ⓒ 를 나눠요(앞의 쉼표·공백은 지움)
+    const parts = line.split(new RegExp(`\\s*,?\\s*(?=[${ENUM_CHARS}])`)).map(p => p.trim()).filter(Boolean);
+    parts.forEach(part => {
+      let m = part.match(new RegExp(`^([${ENUM_CHARS}])\\s*(.*)$`));
+      if (m) { out.push({ type: "li", marker: m[1], text: m[2].replace(/[,，]\s*$/, "") }); return; }
+      m = part.match(/^(\d{1,2}[).]|[-•·▪◦])\s+(.*)$/);
+      if (m) { out.push({ type: "li", marker: /^[-•·▪◦]$/.test(m[1]) ? "•" : m[1], text: m[2] }); return; }
+      out.push({ type: "p", text: part });
+    });
+  });
+  return out;
+}
