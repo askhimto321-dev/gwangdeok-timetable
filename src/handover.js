@@ -40,7 +40,7 @@ export function normalizeHandover(raw) {
   return {
     ...v,
     depts: v.depts.map((d, i) => ({ id: String(d.id || uid("dept_")), name: String(d.name || "부서"), order: Number.isFinite(d.order) ? d.order : i, common: String(d.common || "") })).sort((a, b) => a.order - b.order),
-    roles: (v.roles || []).map((r, i) => ({ id: String(r.id || uid("role_")), deptId: String(r.deptId || ""), title: String(r.title || ""), ownerId: String(r.ownerId || ""), ownerName: String(r.ownerName || ""), order: Number.isFinite(r.order) ? r.order : i, duties: (r.duties || []).map(d => ({ id: String(d.id || uid("duty_")), text: String(d.text || "") })) })).sort((a, b) => a.order - b.order),
+    roles: (v.roles || []).map((r, i) => ({ id: String(r.id || uid("role_")), deptId: String(r.deptId || ""), title: String(r.title || ""), ownerId: String(r.ownerId || ""), ownerName: String(r.ownerName || ""), order: Number.isFinite(r.order) ? r.order : i, duties: (r.duties || []).map(d => ({ id: String(d.id || uid("duty_")), text: String(d.text || ""), part: String(d.part || ""), group: String(d.group || ""), editors: (Array.isArray(d.editors) ? d.editors : []).map(e => ({ id: String(e?.id || ""), name: String(e?.name || "") })).filter(e => e.id) })) })).sort((a, b) => a.order - b.order),
   };
 }
 
@@ -108,4 +108,87 @@ export function taskProgress(task) {
   const t = normalizeTask(task);
   const filled = [t.summary.trim(), t.must.trim(), t.steps.length, t.links.length + t.files.length].filter(Boolean).length;
   return { filled, total: 4, steps: t.steps.length, done: t.steps.filter(s => s.done).length, files: t.links.length + t.files.length + t.steps.reduce((n, s) => n + s.links.length + s.files.length, 0), comments: t.comments.length };
+}
+
+// 시트에서 복사해 붙여 넣은 표(탭으로 나뉜 줄)를 타임라인 단계로 바꿔요.
+// 머리글(월·시기 / 업무·할 일 / 내용·세부 / 링크·자료)이 있으면 그 칸을 쓰고, 없으면 칸 모양으로 짐작해요.
+// 합친 칸(같은 달이 이어지는 줄)은 위 줄의 달을 이어받아요.
+export function parseMonthCell(cell = "") {
+  const v = String(cell || "").trim();
+  if (!v) return { month: 0, when: "" };
+  let m = v.match(/(?:\d{4}\s*[.\-/]\s*)?(\d{1,2})\s*[.\-/]\s*(\d{1,2})(?!\d)/) || v.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+  if (m && Number(m[1]) >= 1 && Number(m[1]) <= 12 && Number(m[2]) >= 1 && Number(m[2]) <= 31) return { month: Number(m[1]), when: `${Number(m[2])}일` };
+  m = v.match(/(\d{1,2})\s*월/);
+  if (m && Number(m[1]) >= 1 && Number(m[1]) <= 12) return { month: Number(m[1]), when: v.replace(m[0], "").replace(/^[\s,·~-]+/, "").trim() };
+  if (/^\d{1,2}$/.test(v) && Number(v) >= 1 && Number(v) <= 12) return { month: Number(v), when: "" };
+  return { month: 0, when: "" };
+}
+const URL_RE = /https?:\/\/[^\s"'<>]+/g;
+export function parseSheetRows(text = "") {
+  const rows = String(text || "").replace(/\r/g, "").split("\n").map(line => line.split("\t").map(cell => cell.trim())).filter(row => row.some(Boolean));
+  if (!rows.length) return [];
+  const width = Math.max(...rows.map(r => r.length));
+  const head = rows[0].map(c => c.replace(/\s+/g, ""));
+  const find = re => head.findIndex(c => re.test(c));
+  let col = { month: find(/^(월|시기|일정|날짜|기간|일시|때)/), title: find(/업무|할일|항목|추진|단계|내용$|활동|행사/), detail: find(/세부|방법|비고|메모|참고|설명|상세|내용/), link: find(/링크|URL|주소|자료|파일/i) };
+  if (col.detail === col.title) col.detail = head.findIndex((c, i) => i !== col.title && /세부|방법|비고|메모|참고|설명|상세/.test(c));
+  const hasHead = col.month >= 0 || col.title >= 0;
+  const body = hasHead ? rows.slice(1) : rows;
+  if (!hasHead) {
+    // 머리글이 없으면: 달처럼 보이는 칸 = 시기, 가장 긴 칸 = 내용, 남은 첫 칸 = 할 일
+    const monthish = Array.from({ length: width }, (_, i) => body.filter(r => parseMonthCell(r[i]).month).length);
+    const avgLen = Array.from({ length: width }, (_, i) => body.reduce((n, r) => n + (r[i] || "").length, 0) / body.length);
+    const mi = monthish.indexOf(Math.max(...monthish));
+    col.month = monthish[mi] >= Math.ceil(body.length / 3) ? mi : -1;
+    const rest = Array.from({ length: width }, (_, i) => i).filter(i => i !== col.month);
+    col.detail = rest.length > 1 ? rest.reduce((a, b) => (avgLen[b] > avgLen[a] ? b : a)) : -1;
+    col.title = rest.find(i => i !== col.detail) ?? col.detail;
+    if (col.title === col.detail) col.detail = -1;
+  }
+  let lastMonth = 0;
+  return body.map(r => {
+    const at = i => (i >= 0 ? r[i] || "" : "");
+    const parsed = parseMonthCell(at(col.month));
+    const month = parsed.month || (at(col.month) ? 0 : lastMonth);
+    if (parsed.month) lastMonth = parsed.month;
+    const links = Array.from(new Set(r.join(" ").match(URL_RE) || [])).map(url => newLink(linkKind(url).label, url));
+    const strip = v => v.replace(URL_RE, "").trim();
+    let title = strip(at(col.title)); let detail = strip(at(col.detail));
+    const extra = r.map((c, i) => (![col.month, col.title, col.detail, col.link].includes(i) ? strip(c) : "")).filter(Boolean).join(" / ");
+    if (extra) detail = [detail, extra].filter(Boolean).join("\n");
+    if (!title && detail) { title = detail.split("\n")[0].slice(0, 40); detail = detail.includes("\n") ? detail.split("\n").slice(1).join("\n") : (detail.length > 40 ? detail : ""); }
+    return newStep({ month, when: parsed.when || (!parsed.month && at(col.month) ? at(col.month) : ""), title, detail, links });
+  }).filter(step => step.title || step.detail || step.links.length);
+}
+
+// 나눠 맡는 업무: '따라체험(...) 1'과 '따라체험(...) 2'처럼 끝 번호만 다른 업무
+export const dutyBase = text => String(text || "").replace(/\s*(?:[①②③④⑤]|\(\d\)|\d)\s*$/, "").trim();
+export const dutyPartNo = text => { const m = String(text || "").match(/(?:([①②③④⑤])|\((\d)\)|(\d))\s*$/); if (!m) return ""; return m[1] ? String("①②③④⑤".indexOf(m[1]) + 1) : (m[2] || m[3]); };
+export function siblingDuties(structure, dutyId) {
+  const all = (structure?.roles || []).flatMap(role => role.duties.map(duty => ({ duty, role })));
+  const me = all.find(x => x.duty.id === dutyId);
+  if (!me || !dutyPartNo(me.duty.text)) return [];
+  const base = dutyBase(me.duty.text);
+  return all.filter(x => x.role.deptId === me.role.deptId && dutyPartNo(x.duty.text) && dutyBase(x.duty.text) === base).sort((a, b) => Number(dutyPartNo(a.duty.text)) - Number(dutyPartNo(b.duty.text)));
+}
+// '함께 쓰기'를 켠 업무들은 한 저장소(타임라인·자료·코멘트)를 같이 써요
+export const taskStoreKey = duty => (duty?.group ? handoverTaskKey(`grp_${duty.group}`) : handoverTaskKey(duty?.id));
+// 두 업무 내용을 하나로(함께 쓰기를 켤 때)
+export function mergeTasks(list = []) {
+  const ts = list.map(normalizeTask);
+  const join = key => ts.map(t => t[key].trim()).filter(Boolean).filter((v, i, arr) => arr.indexOf(v) === i).join("\n\n");
+  const seen = new Set();
+  const uniq = arr => arr.filter(x => { const k = x.id || x.url || x.dataKey || JSON.stringify(x); if (seen.has(k)) return false; seen.add(k); return true; });
+  return { ...emptyTask(), summary: join("summary"), must: join("must"), changes: join("changes"), steps: uniq(ts.flatMap(t => t.steps)), links: uniq(ts.flatMap(t => t.links)), files: uniq(ts.flatMap(t => t.files)), comments: uniq(ts.flatMap(t => t.comments)).sort((a, b) => String(a.at).localeCompare(String(b.at))) };
+}
+// 메신저에 붙여 넣을 글
+export function taskAsText(task, title = "") {
+  const t = normalizeTask(task);
+  const lines = [`[업무 인수인계] ${title}`];
+  if (t.summary.trim()) lines.push("", `요약: ${t.summary.trim()}`);
+  if (t.must.trim()) lines.push(`꼭 알아둘 것: ${t.must.trim()}`);
+  if (t.changes.trim()) lines.push(`달라진 점: ${t.changes.trim()}`);
+  if (t.steps.length) { lines.push("", "■ 타임라인"); groupSteps(t.steps).forEach(g => g.steps.forEach(s => lines.push(`${g.label}${s.when ? ` ${s.when}` : ""} ${s.done ? "✓ " : ""}${s.title}${s.detail ? ` - ${s.detail.replace(/\n+/g, " ")}` : ""}${s.links.length ? ` (${s.links.map(l => l.url).join(", ")})` : ""}`))); }
+  if (t.links.length) { lines.push("", "■ 자료"); t.links.forEach(l => lines.push(`- ${l.label || linkKind(l.url).label}: ${l.url}`)); }
+  return lines.join("\n");
 }

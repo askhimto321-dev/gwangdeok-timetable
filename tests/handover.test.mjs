@@ -29,3 +29,28 @@ test("인수인계: 진행 정도", () => {
   const p = taskProgress(normalizeTask({ summary: "x", steps: [{ title: "a", done: true, links: [{ url: "https://a.b" }] }, { title: "b" }], links: [{ url: "https://c.d" }], comments: [{ text: "q" }] }));
   assert.deepEqual([p.steps, p.done, p.files, p.comments], [2, 1, 2, 1]);
 });
+test("인수인계: 시트 붙여넣기(머리글 있음, 합친 칸 이어받기, 링크)", async () => {
+  const { parseSheetRows } = await import("../src/handover.js");
+  const steps = parseSheetRows("시기\t업무\t세부 내용\t자료\n3월\t계획 수립\t계획서 작성\thttps://docs.google.com/spreadsheets/d/a\n\t예산 협의\t행정실과 협의\t\n2026.5.15.\t체험 실시\t인솔\t");
+  assert.deepEqual(steps.map(s => [s.month, s.title]), [[3, "계획 수립"], [3, "예산 협의"], [5, "체험 실시"]]);
+  assert.equal(steps[0].links[0].url, "https://docs.google.com/spreadsheets/d/a");
+  assert.equal(steps[2].when, "15일");
+});
+test("인수인계: 시트 붙여넣기(머리글 없음)", async () => {
+  const { parseSheetRows } = await import("../src/handover.js");
+  const steps = parseSheetRows("4월\t희망 조사\t구글 설문으로 희망 분야 조사 후 인원 정리\n6월 2주\t사전교육\t안전교육과 학부모 동의서 회수");
+  assert.deepEqual(steps.map(s => [s.month, s.title, s.when]), [[4, "희망 조사", ""], [6, "사전교육", "2주"]]);
+  assert.ok(steps[0].detail.includes("구글 설문"));
+});
+test("인수인계: 나눠 맡는 업무 찾기·함께 쓰기 합치기·글로 복사", async () => {
+  const { siblingDuties, normalizeHandover, dutyBase, mergeTasks, taskAsText, newStep } = await import("../src/handover.js");
+  const v = normalizeHandover(null);
+  const one = v.roles.flatMap(r => r.duties).find(d => /따라체험.*1$/.test(d.text));
+  const sib = siblingDuties(v, one.id);
+  assert.equal(sib.length, 2);
+  assert.equal(dutyBase("따라체험(꿈따라 세상 속으로) 2"), "따라체험(꿈따라 세상 속으로)");
+  assert.equal(siblingDuties(v, v.roles[0].duties[0].id).length, 0);
+  const m = mergeTasks([{ summary: "a", steps: [newStep({ id: "x", title: "s1" })] }, { summary: "b", steps: [newStep({ id: "y", title: "s2" })] }]);
+  assert.equal(m.summary, "a\n\nb"); assert.equal(m.steps.length, 2);
+  assert.ok(taskAsText({ summary: "요약", steps: [newStep({ month: 3, title: "계획" })] }, "따라체험").includes("3월 계획"));
+});

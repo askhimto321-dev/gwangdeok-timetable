@@ -2068,6 +2068,15 @@ export default function App() {
   // 새 UI 대시보드(로그인 후 첫 화면)에 넘길 값. 훅은 로그인 여부와 관계없이 항상 같은 순서로 호출합니다.
   const canSeeMinimum = !!(loggedInAdmin || loggedInMonitor || ((loggedInTeacher || loggedInDepartment) && canUseFeature("minimum")));
   const canSeeTeacherZone = !!(loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor);
+  // 업무 인수인계 공유 링크(?handover=업무): 교직원으로 로그인하면 선생님 ZONE › 업무 인수인계로 열어요(업무는 화면이 주소를 읽어 엽니다).
+  useEffect(() => {
+    if (!canSeeTeacherZone || loggedInMonitor) return;
+    let linked = "";
+    try { linked = new URLSearchParams(window.location.search).get("handover") || ""; } catch { /* 주소 읽기 실패는 무시 */ }
+    if (!linked) return;
+    setTeacherZoneRequest({ mode: "handover", at: Date.now() });
+    switchSection("teacherZone");
+  }, [canSeeTeacherZone]); // eslint-disable-line react-hooks/exhaustive-deps
   // 최성보 화면의 '성적 산출' 버튼 → 선생님 ZONE을 성적 산출 탭으로 엽니다.
   const openGradeCalc = canSeeTeacherZone ? () => { setTeacherZoneRequest({ mode: "grades", at: Date.now() }); switchSection("teacherZone"); } : undefined;
   const dashboardNavigate = (target, options = {}) => {
