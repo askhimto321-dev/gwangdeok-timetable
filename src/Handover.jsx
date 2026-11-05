@@ -138,6 +138,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
   const [shareOpen, setShareOpen] = React.useState(false);
   const [pasteOpen, setPasteOpen] = React.useState(false);
   const [whoFilter, setWhoFilter] = React.useState("");
+  const [monthFilter, setMonthFilter] = React.useState(-1); // -1 전체, 0 시기 미정, 1-12 달
   const ref = React.useRef(null);
   const timer = React.useRef(0);
   React.useEffect(() => { let on = true; readStorage(key, null).then(raw => { if (on) { const t = normalizeTask(raw); ref.current = t; setTask(t); } }).catch(() => on && setTask(emptyTask())); return () => { on = false; clearTimeout(timer.current); }; }, [key]);
@@ -254,12 +255,17 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
             <button type="button" data-kdn-bare className="kho-ghost" onClick={() => { setEditing(true); edit(t => ({ ...t, steps: [newStep()] })); }}><Plus size={14} /> 직접 적기</button>
           </div>}
         </div>}
+        {task.steps.length > 0 && (() => { const nowM = new Date().getMonth() + 1; const cnt = m => task.steps.filter(s => (s.month || 0) === m).length; return <div className="kho-month-filter" role="group" aria-label="달별 보기">
+          <button type="button" data-kdn-bare className={`all${monthFilter === -1 ? " on" : ""}`} onClick={() => setMonthFilter(-1)}>전체</button>
+          {SCHOOL_MONTHS.map(m => { const n = cnt(m); return <button key={m} type="button" data-kdn-bare disabled={!n} className={`${m >= 3 && m <= 8 ? "s1" : "s2"}${monthFilter === m ? " on" : ""}${m === nowM ? " now" : ""}`} onClick={() => setMonthFilter(v => (v === m ? -1 : m))} title={m === nowM ? "이번 달" : undefined}><b>{m}월</b>{n ? <small>{n}</small> : null}{m === nowM ? <i>이번 달</i> : null}</button>; })}
+          {cnt(0) > 0 && <button type="button" data-kdn-bare className={`nil${monthFilter === 0 ? " on" : ""}`} onClick={() => setMonthFilter(v => (v === 0 ? -1 : 0))}><b>미정</b><small>{cnt(0)}</small></button>}
+        </div>; })()}
         {people.length > 0 && task.steps.length > 0 && <div className="kho-who-filter" role="group" aria-label="담당별 보기">
           <button type="button" data-kdn-bare className={whoFilter ? "" : "on"} onClick={() => setWhoFilter("")}>전체 <small>{task.steps.length}</small></button>
           {people.map(p => <button key={p.id} type="button" data-kdn-bare className={`t${p.tone}${whoFilter === p.id ? " on" : ""}`} onClick={() => setWhoFilter(p.id)}>{p.label} <small>{task.steps.filter(s => s.who === p.id || s.who === "all").length}</small></button>)}
           {task.steps.some(s => !s.who) && <button type="button" data-kdn-bare className={whoFilter === "none" ? "on" : ""} onClick={() => setWhoFilter("none")}>담당 미정 <small>{task.steps.filter(s => !s.who).length}</small></button>}
         </div>}
-        <ol className={`kho-tl${editing ? " is-edit" : ""}`}>{groupSteps(task.steps.filter(s => !whoFilter || (whoFilter === "none" ? !s.who : s.who === whoFilter || s.who === "all"))).map(g => <li key={g.month} className={g.month ? (g.month >= 3 && g.month <= 8 ? "s1" : "s2") : "nil"}>
+        <ol className={`kho-tl${editing ? " is-edit" : ""}`}>{groupSteps(task.steps.filter(s => monthFilter < 0 || (s.month || 0) === monthFilter).filter(s => !whoFilter || (whoFilter === "none" ? !s.who : s.who === whoFilter || s.who === "all"))).map(g => <li key={g.month} className={g.month ? (g.month >= 3 && g.month <= 8 ? "s1" : "s2") : "nil"}>
           <span className={`mo${g.month ? (g.month >= 3 && g.month <= 8 ? " s1" : " s2") : " nil"}`}>{g.label}</span>
           <div className="steps">{g.steps.map(step => editing
             ? <StepEdit key={step.id} step={step} people={people} onChange={patch => editStep(step.id, patch)} onMove={dir => moveStep(step.id, dir)} onRemove={() => window.confirm("이 단계를 지울까요?") && edit(t => ({ ...t, steps: t.steps.filter(s => s.id !== step.id) }))} onUpload={list => upload(list, step.id)} showToast={showToast} />
@@ -269,6 +275,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
                 {(step.links.length > 0 || step.files.length > 0) && <Chips links={step.links} files={step.files} showToast={showToast} />}</div>
             </article>)}</div>
         </li>)}</ol>
+        {task.steps.length > 0 && monthFilter >= 0 && !task.steps.some(s => (s.month || 0) === monthFilter) && <p className="kho-nil">이 달에 적은 단계가 없어요.</p>}
         {editing && task.steps.length > 0 && <div className="kho-addrow"><button type="button" data-kdn-bare className="kho-ghost" onClick={() => edit(t => ({ ...t, steps: [...t.steps, newStep({ month: t.steps[t.steps.length - 1]?.month || 0 })] }))}><Plus size={14} /> 단계 추가</button><button type="button" data-kdn-bare className="kho-ghost" onClick={() => setPasteOpen(true)}><ClipboardPaste size={14} /> 시트에서 붙여넣기</button></div>}
       </>}
 
@@ -654,4 +661,22 @@ const CSS = `
 .kho-detail .dn{margin:0;display:flex;gap:6px;align-items:flex-start;padding:7px 10px;border-radius:8px;background:color-mix(in srgb,#ca8a04 9%,var(--kdn-surface,#fff));color:#854d0e;font-size:13px;line-height:1.55}
 .kho-detail .dn svg{flex:none;margin-top:3px}
 .kho-tl .steps{gap:10px}
+
+/* 달별 보기: 학교 달(3월→2월) 칸, 1학기 주황·2학기 파랑, 단계 있는 달만 누를 수 있어요 */
+.kho-month-filter{display:grid;grid-template-columns:auto repeat(12,minmax(0,1fr)) auto;gap:4px;margin-top:18px}
+.kho-month-filter button{position:relative;display:grid;justify-items:center;align-content:center;gap:1px;min-height:46px;padding:4px 2px;border-radius:10px;border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#3d4048);font:inherit;cursor:pointer}
+.kho-month-filter button b{font-size:13px;font-weight:800}
+.kho-month-filter button small{font-size:11px;font-weight:800;color:var(--kdn-muted,#8a8f99)}
+.kho-month-filter button.all{padding:0 12px;font-size:13px;font-weight:800}
+.kho-month-filter button:disabled{cursor:default;opacity:.45;background:var(--kho-soft);border-color:transparent}
+.kho-month-filter button.s1:not(:disabled){border-color:color-mix(in srgb,var(--kho-s1) 35%,var(--kdn-line,#e7e5e0))}
+.kho-month-filter button.s2:not(:disabled){border-color:color-mix(in srgb,var(--kho-s2) 35%,var(--kdn-line,#e7e5e0))}
+.kho-month-filter button.s1:not(:disabled) small{color:var(--kho-s1)}.kho-month-filter button.s2:not(:disabled) small{color:var(--kho-s2)}
+.kho-month-filter button.on{color:#fff;border-color:transparent}
+.kho-month-filter button.on small{color:#fff!important;opacity:.9}
+.kho-month-filter button.all.on{background:var(--kdn-ink,#17181d);color:var(--kdn-surface,#fff)}
+.kho-month-filter button.s1.on{background:var(--kho-s1)}.kho-month-filter button.s2.on{background:var(--kho-s2)}.kho-month-filter button.nil.on{background:var(--kdn-ink-soft,#5b606b)}
+.kho-month-filter button i{position:absolute;top:-8px;left:50%;transform:translateX(-50%);padding:0 5px;border-radius:99px;background:#16a34a;color:#fff;font-style:normal;font-size:9.5px;font-weight:800;line-height:15px;white-space:nowrap}
+.kho-month-filter button.now{box-shadow:inset 0 0 0 1.5px #16a34a}
+@media (max-width:760px){.kho-month-filter{grid-template-columns:repeat(7,minmax(0,1fr));row-gap:12px}.kho-month-filter button.all{grid-column:span 1;padding:0}}
 `;
