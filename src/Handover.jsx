@@ -73,6 +73,14 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
     .then(ok => ok && showToast(on ? "내 담당으로 정했어요." : "담당을 풀었어요.", "success"));
   const editRole = (roleId, patch) => saveStructure(v => ({ ...v, roles: v.roles.map(r => r.id === roleId ? { ...r, ...patch } : r) }));
   const editDuties = (roleId, fn) => saveStructure(v => ({ ...v, roles: v.roles.map(r => r.id === roleId ? { ...r, duties: fn(r.duties) } : r) }));
+  // 세부 업무 옮기기: 다른 담당(다른 부서 포함)으로. 업무 id가 그대로라 적은 내용·자료·코멘트도 함께 가요.
+  const moveDuty = (duty, fromRole, toRoleId) => {
+    const to = data.roles.find(r => r.id === toRoleId); if (!to || to.id === fromRole.id) return;
+    const toDept = data.depts.find(d => d.id === to.deptId);
+    if (!window.confirm(`'${duty.text}'을(를) ${toDept?.name || ""} ${roleNo(data, to)}${to.ownerName ? `(${to.ownerName})` : ""}(으)로 옮길까요? 적어 둔 내용도 함께 옮겨져요.`)) return;
+    saveStructure(v => ({ ...v, roles: v.roles.map(r => r.id === fromRole.id ? { ...r, duties: r.duties.filter(d => d.id !== duty.id) } : r.id === to.id ? { ...r, duties: [...r.duties, duty] } : r) }))
+      .then(ok => ok && showToast(`${roleNo(data, to)}(으)로 옮겼어요.`, "success"));
+  };
   const addRole = () => saveStructure(v => ({ ...v, roles: [...v.roles, { id: `role_${Date.now().toString(36)}`, deptId: dept.id, title: "", ownerId: "", ownerName: "", order: v.roles.length, duties: [{ id: `duty_${Date.now().toString(36)}`, text: "새 업무", part: "", group: "", editors: [] }] }] }));
   const removeRole = role => { if (window.confirm("이 담당을 지울까요? 적어 둔 업무 내용은 남지만 목록에서 사라져요.")) saveStructure(v => ({ ...v, roles: v.roles.filter(r => r.id !== role.id) })); };
   const addDept = () => { const name = window.prompt("새 부서 이름(예: 교무부, 1학년부)"); if (!name?.trim()) return; const id = `dept_${Date.now().toString(36)}`; saveStructure(v => ({ ...v, depts: [...v.depts, { id, name: name.trim(), order: v.depts.length, common: "" }] })).then(ok => ok && setDeptId(id)); };
@@ -92,7 +100,7 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
           <label className="srch"><Search size={14} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="업무 찾기" /></label>
           {isTeacher && <button type="button" data-kdn-bare className={`kho-ghost${mineOnly ? " on" : ""}`} onClick={() => setMineOnly(v => !v)}>내 업무</button>}
         </div>
-        {manage && <p className="mng-hint">업무 이름을 고치면 바로 저장돼요. 담당·세부 업무를 더하거나 지울 수 있고, 위에서 부서도 더할 수 있어요.</p>}
+        {manage && <p className="mng-hint">업무 이름을 고치면 바로 저장돼요. 담당·세부 업무를 더하거나 지우고, <b>옮기기</b>로 세부 업무를 다른 담당에게 넘길 수 있어요(적은 내용도 함께).</p>}
         {manage && dept && <div className="mng-dept"><span>{dept.name}</span><button type="button" data-kdn-bare onClick={renameDept}>이름 바꾸기</button><button type="button" data-kdn-bare onClick={removeDept}>지우기</button></div>}
         {visibleRoles.length === 0 && <p className="none">{mineOnly ? "내 담당이 아직 없어요. 맡은 담당의 '내 담당으로'를 눌러 주세요." : q ? "찾는 업무가 없어요." : "아직 담당이 없어요."}</p>}
         {visibleRoles.map(role => { const mine = role.ownerId && role.ownerId === myId; return <section key={role.id} className={`kho-role${mine ? " mine" : ""}`}>
@@ -105,7 +113,7 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
             {manage && <span className="mng"><input defaultValue={role.title} placeholder="담당 이름" onBlur={e => e.target.value !== role.title && editRole(role.id, { title: e.target.value.trim() })} /><button type="button" data-kdn-bare title="담당 지우기" onClick={() => removeRole(role)}><Trash2 size={13} /></button></span>}
           </header>
           <ul>{role.duties.map(duty => { const m = data.meta?.[duty.id]; const filled = !!(m && (m.steps || m.files || m.filled)); return <li key={duty.id}>
-            {manage ? <span className="mng-duty"><input defaultValue={duty.text} onBlur={e => e.target.value.trim() && e.target.value !== duty.text && editDuties(role.id, list => list.map(d => d.id === duty.id ? { ...d, text: e.target.value.trim() } : d))} /><button type="button" data-kdn-bare title="지우기" onClick={() => window.confirm("이 세부 업무를 목록에서 지울까요?") && editDuties(role.id, list => list.filter(d => d.id !== duty.id))}><X size={13} /></button></span>
+            {manage ? <span className="mng-duty"><input defaultValue={duty.text} onBlur={e => e.target.value.trim() && e.target.value !== duty.text && editDuties(role.id, list => list.map(d => d.id === duty.id ? { ...d, text: e.target.value.trim() } : d))} /><select className="mv" value="" title="다른 담당으로 옮기기" aria-label="다른 담당으로 옮기기" onChange={e => moveDuty(duty, role, e.target.value)}><option value="">옮기기</option>{data.depts.map(d => <optgroup key={d.id} label={d.name}>{data.roles.filter(r => r.deptId === d.id && r.id !== role.id).map(r => <option key={r.id} value={r.id}>{roleNo(data, r)}{r.ownerName ? ` · ${r.ownerName}` : ""}</option>)}</optgroup>)}</select><button type="button" data-kdn-bare title="지우기" onClick={() => window.confirm("이 세부 업무를 목록에서 지울까요?") && editDuties(role.id, list => list.filter(d => d.id !== duty.id))}><X size={13} /></button></span>
               : <button type="button" data-kdn-bare className={duty.id === dutyId ? "on" : ""} onClick={() => open(duty.id)} title={filled ? "정리된 업무" : "아직 비어 있는 업무"}>
                 {filled ? <CheckCircle2 size={15} className="st on" /> : <i className="st" />}<span className="tx">{duty.text}</span>{m?.steps ? <small>{m.steps}단계</small> : null}<ChevronRight size={14} className="go" /></button>}
           </li>; })}</ul>
@@ -679,4 +687,6 @@ const CSS = `
 .kho-month-filter button i{position:absolute;top:-8px;left:50%;transform:translateX(-50%);padding:0 5px;border-radius:99px;background:#16a34a;color:#fff;font-style:normal;font-size:9.5px;font-weight:800;line-height:15px;white-space:nowrap}
 .kho-month-filter button.now{box-shadow:inset 0 0 0 1.5px #16a34a}
 @media (max-width:760px){.kho-month-filter{grid-template-columns:repeat(7,minmax(0,1fr));row-gap:12px}.kho-month-filter button.all{grid-column:span 1;padding:0}}
+
+.kho-role .mng-duty select.mv{flex:none;width:72px;padding:0 4px;font-weight:700;color:var(--kho-acc-ink);border-color:color-mix(in srgb,var(--kho-acc) 40%,var(--kdn-line,#e2dfd8));cursor:pointer}
 `;
