@@ -2,6 +2,7 @@
 // 한눈 요약 · 타임라인(3월→2월) · 자료 · 코멘트를 남겨 다음 해 담당에게 넘깁니다.
 // - 처음에는 읽기 화면, '고치기'를 눌러야 입력 칸이 나와요(한 화면에 글이 너무 많지 않게).
 // - 보기·코멘트: 교직원 모두 / 고치기: 담당 선생님 · 함께 고칠 선생님 · 관리자 · 부서 계정 · 학년부장
+// - 업무분장(부서·담당·세부 업무) 추가·삭제: 교직원 모두('업무 추가·삭제')
 // - 나눠 맡는 업무(따라체험 1·2): 서로의 역할을 보여 주고, '타임라인 함께 쓰기'로 한 타임라인을 같이 써요.
 // - 공유: 링크 복사(로그인하면 이 업무가 바로 열림), 글로 복사(메신저용)
 import React from "react";
@@ -27,7 +28,7 @@ async function openFile(file) {
 }
 async function copyText(text) { try { await navigator.clipboard.writeText(text); return true; } catch { return false; } }
 
-export default function Handover({ actor = null, accounts = null, canManage = false, isTeacher = false, showToast = () => {} }) {
+export default function Handover({ actor = null, accounts = null, canManage = false, canEditStructure = canManage, isTeacher = false, showToast = () => {} }) {
   const [data, setData] = React.useState(null);
   const [deptId, setDeptId] = React.useState("");
   const [dutyId, setDutyId] = React.useState("");
@@ -83,7 +84,7 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
       <b className="ttl">업무 인수인계</b>
       <div className="depts" role="tablist">{data.depts.map(d => <button key={d.id} type="button" data-kdn-bare role="tab" aria-selected={d.id === dept?.id} className={d.id === dept?.id ? "on" : ""} onClick={() => { setDeptId(d.id); setDutyId(""); }}>{d.name}</button>)}
         {manage && <button type="button" data-kdn-bare className="add" onClick={addDept}><Plus size={13} /> 부서</button>}</div>
-      {canManage && <button type="button" data-kdn-bare className={`kho-ghost${manage ? " on" : ""}`} onClick={() => setManage(v => !v)}><Pencil size={13} /> {manage ? "다 고쳤어요" : "업무분장 고치기"}</button>}
+      {canEditStructure && <button type="button" data-kdn-bare className={`kho-ghost${manage ? " on" : ""}`} onClick={() => setManage(v => !v)}>{manage ? <><Check size={13} /> 다 고쳤어요</> : <><Pencil size={13} /> 업무 추가·삭제</>}</button>}
     </header>
     <div className={`kho-body${found ? " has-sel" : ""}`}>
       <aside className="kho-list">
@@ -91,6 +92,7 @@ export default function Handover({ actor = null, accounts = null, canManage = fa
           <label className="srch"><Search size={14} /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="업무 찾기" /></label>
           {isTeacher && <button type="button" data-kdn-bare className={`kho-ghost${mineOnly ? " on" : ""}`} onClick={() => setMineOnly(v => !v)}>내 업무</button>}
         </div>
+        {manage && <p className="mng-hint">업무 이름을 고치면 바로 저장돼요. 담당·세부 업무를 더하거나 지울 수 있고, 위에서 부서도 더할 수 있어요.</p>}
         {manage && dept && <div className="mng-dept"><span>{dept.name}</span><button type="button" data-kdn-bare onClick={renameDept}>이름 바꾸기</button><button type="button" data-kdn-bare onClick={removeDept}>지우기</button></div>}
         {visibleRoles.length === 0 && <p className="none">{mineOnly ? "내 담당이 아직 없어요. 맡은 담당의 '내 담당으로'를 눌러 주세요." : q ? "찾는 업무가 없어요." : "아직 담당이 없어요."}</p>}
         {visibleRoles.map(role => { const mine = role.ownerId && role.ownerId === myId; return <section key={role.id} className={`kho-role${mine ? " mine" : ""}`}>
@@ -204,7 +206,6 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
   return <div className="kho-task">
     <section className="kho-head">
       <button type="button" data-kdn-bare className="back" onClick={onClose}>← 목록</button>
-      <div className="crumb">{dept?.name} · {roleNo(data, role)} · {role.ownerName || "담당 미정"}</div>
       <div className="row">
         <h2>{duty.text}</h2>
         <div className="acts">
@@ -217,7 +218,8 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
           <button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={16} /></button>
         </div>
       </div>
-      <div className="meta">{editing ? (state === "saving" ? "저장 중…" : state === "dirty" ? "고치는 중 · 자동 저장" : state === "saved" ? "저장됨" : "적으면 자동 저장돼요") : task.updatedAt ? `${fmtAt(task.updatedAt)} ${task.updatedBy || ""} 수정` : "아직 정리 전"}{duty.editors.length ? ` · 함께 고침 ${duty.editors.map(e => e.name).join(", ")}` : ""}</div>
+      <div className="chips"><em className="d">{dept?.name}</em><em>{roleNo(data, role)}</em><em className={role.ownerName ? "o" : "o nil"}>{role.ownerName ? `${role.ownerName} 선생님` : "담당 미정"}</em>{duty.editors.length ? <em>함께 고침 {duty.editors.map(e => e.name).join(", ")}</em> : null}</div>
+      <div className="meta">{editing ? (state === "saving" ? "저장 중…" : state === "dirty" ? "고치는 중 · 자동 저장" : state === "saved" ? "저장됨" : "적으면 자동 저장돼요") : task.updatedAt ? `${fmtAt(task.updatedAt)} ${task.updatedBy || ""} 수정` : "아직 정리 전"}</div>
     </section>
 
     {siblings.length > 1 && <section className="kho-parts">
@@ -237,7 +239,7 @@ function TaskPanel({ data, duty, role, dept, canEdit, canEditOf, teachers, actor
     </section>}
 
     <section className="kho-card">
-      <div className="kho-tabs" role="tablist">{tabs.map(([k, label, n]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{label}{n ? <small>{n}</small> : null}</button>)}</div>
+      <div className="kho-tabs" role="tablist">{tabs.map(([k, label, n]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={tab === k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}><b>{label}</b><span>{n || 0}</span></button>)}</div>
 
       {tab === "timeline" && <>
         {task.steps.length === 0 && <div className="kho-empty">
@@ -356,7 +358,7 @@ function Comments({ list, actor, canModerate, onAdd, onRemove }) {
 }
 
 const CSS = `
-.kho{display:grid;gap:12px;color:var(--kdn-ink,#17181d);--kho-acc:#ff7a3d;--kho-acc-ink:#c2410c}
+.kho{display:grid;gap:12px;color:var(--kdn-ink,#17181d);--kho-acc:#ff7a3d;--kho-acc-ink:#c2410c;--kho-soft:var(--kdn-surface-2,color-mix(in srgb,currentColor 7%,transparent))}
 .kho .spin{animation:kho-spin 1s linear infinite}@keyframes kho-spin{to{transform:rotate(360deg)}}
 .kho-loading{display:flex;align-items:center;gap:8px;color:var(--kdn-muted,#8a8f99);font-size:14px}
 .kho-pri,.kho-ghost{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 14px;border-radius:10px;font:inherit;font-size:13.5px;font-weight:700;cursor:pointer;white-space:nowrap}
@@ -394,7 +396,7 @@ const CSS = `
 .kho-role .mng button,.kho-role .mng-duty button{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:#b42318;cursor:pointer}
 .kho-role ul{list-style:none;margin:0;padding:2px 4px 6px}
 .kho-role li>button{display:flex;align-items:center;gap:8px;width:100%;min-height:36px;padding:6px 8px;border-radius:9px;border:0;background:transparent;text-align:left;color:inherit;font:inherit;cursor:pointer}
-.kho-role li>button:hover{background:var(--kdn-surface-2,#f6f5f2)}
+.kho-role li>button:hover{background:var(--kho-soft)}
 .kho-role li>button.on{background:color-mix(in srgb,var(--kho-acc) 11%,var(--kdn-surface,#fff))}
 .kho .dot{flex:none;display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--kdn-line,#d9d6cf)}.kho .dot.on{background:#22a06b}
 .kho-role li .tx{flex:1;min-width:0;font-size:13.5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:keep-all}
@@ -414,16 +416,16 @@ const CSS = `
 .kho-head .row{display:flex;align-items:flex-start;gap:10px}
 .kho-head h2{flex:1;min-width:0;margin:0;font-size:21px;font-weight:800;line-height:1.35;letter-spacing:-.02em;word-break:keep-all}
 .kho-head .acts{display:flex;align-items:center;gap:6px;flex:none}
-.kho-head .x{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;border:0;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}.kho-head .x:hover{background:var(--kdn-surface-2,#f3f2ee)}
+.kho-head .x{display:grid;place-items:center;width:36px;height:36px;border-radius:10px;border:0;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}.kho-head .x:hover{background:var(--kho-soft)}
 .kho-head .meta{font-size:12.5px;color:var(--kdn-muted,#8a8f99)}
 @media (max-width:960px){.kho-head .back{display:inline-flex;align-items:center}.kho-head .x{display:none}}
 @media (max-width:560px){.kho-head .row{flex-direction:column}.kho-head .acts{align-self:stretch}.kho-head .acts>*{flex:1}.kho-head .acts .share-wrap .kho-ghost{width:100%}}
 .share-wrap{position:relative;display:inline-flex}
 .kho-pop{position:absolute;right:0;top:calc(100% + 6px);z-index:30;width:280px;display:grid;gap:2px;padding:6px;border-radius:14px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e2dfd8);box-shadow:0 16px 40px rgba(20,24,33,.16)}
-.kho-pop>button{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border-radius:10px;border:0;background:transparent;text-align:left;color:inherit;font:inherit;cursor:pointer}.kho-pop>button:hover{background:var(--kdn-surface-2,#f6f5f2)}
+.kho-pop>button{display:flex;gap:10px;align-items:flex-start;padding:9px 10px;border-radius:10px;border:0;background:transparent;text-align:left;color:inherit;font:inherit;cursor:pointer}.kho-pop>button:hover{background:var(--kho-soft)}
 .kho-pop>button svg{margin-top:2px;color:var(--kdn-ink-soft,#5b606b)}.kho-pop span{display:grid;gap:1px}.kho-pop b{font-size:13.5px}.kho-pop small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .kho-pop .eds{display:grid;gap:6px;margin-top:4px;padding:10px;border-top:1px solid var(--kdn-line,#eceae5)}.kho-pop .eds>b{display:flex;align-items:center;gap:5px}
-.kho-pop .eds ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px}.kho-pop .eds li{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 4px 0 9px;border-radius:99px;background:var(--kdn-surface-2,#f3f2ee);font-size:12.5px;font-weight:700}
+.kho-pop .eds ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px}.kho-pop .eds li{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 4px 0 9px;border-radius:99px;background:var(--kho-soft);font-size:12.5px;font-weight:700}
 .kho-pop .eds li button{display:grid;place-items:center;width:18px;height:18px;border:0;border-radius:50%;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}
 .kho-pop select{height:32px;padding:0 8px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13px}
 .kho-parts{display:grid;gap:8px;padding:14px 16px;border-radius:16px;background:color-mix(in srgb,#2563eb 5%,var(--kdn-surface,#fff));border:1px solid color-mix(in srgb,#2563eb 18%,var(--kdn-line,#ebe9e4))}
@@ -434,7 +436,7 @@ const CSS = `
 .kho-parts .part{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:10px;row-gap:2px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0);cursor:pointer;text-align:left}
 .kho-parts .part.me{border-color:#2563eb;cursor:default;box-shadow:0 0 0 1px #2563eb}
 .kho-parts .part .no{grid-row:1/3;display:grid;place-items:center;width:26px;height:26px;border-radius:8px;background:#1d4ed8;color:#fff;font-size:13px;font-weight:800}
-.kho-parts .part:not(.me) .no{background:var(--kdn-surface-2,#eceae5);color:var(--kdn-ink-soft,#5b606b)}
+.kho-parts .part:not(.me) .no{background:var(--kho-soft);color:var(--kdn-ink-soft,#5b606b)}
 .kho-parts .who{font-size:12px;font-weight:700;color:var(--kdn-muted,#8a8f99)}
 .kho-parts .pt{font-size:13.5px;font-weight:700;line-height:1.45}.kho-parts .pt.nil{font-weight:500;color:var(--kdn-muted,#a4a8b1)}
 .kho-parts input{height:32px;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13px}
@@ -448,7 +450,7 @@ const CSS = `
 .kho-card{display:grid;gap:12px;padding:6px 18px 18px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#ebe9e4)}
 .kho-tabs{display:flex;gap:4px;border-bottom:1px solid var(--kdn-line,#eceae5);margin:0 -18px;padding:0 12px}
 .kho-tabs button{position:relative;display:inline-flex;align-items:center;gap:6px;height:44px;padding:0 10px;border:0;background:none;color:var(--kdn-muted,#8a8f99);font:inherit;font-size:14px;font-weight:700;cursor:pointer}
-.kho-tabs button small{font-size:11.5px;font-weight:800;padding:1px 7px;border-radius:99px;background:var(--kdn-surface-2,#f1f0ec);color:var(--kdn-ink-soft,#5b606b)}
+.kho-tabs button small{font-size:11.5px;font-weight:800;padding:1px 7px;border-radius:99px;background:var(--kho-soft);color:var(--kdn-ink-soft,#5b606b)}
 .kho-tabs button.on{color:var(--kdn-ink,#17181d)}.kho-tabs button.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:var(--kdn-ink,#17181d)}
 .kho-empty{display:grid;gap:12px;justify-items:start;padding:18px 0 6px}.kho-empty p{margin:0;font-size:14px;color:var(--kdn-ink-soft,#5b606b)}.kho-empty .row{display:flex;flex-wrap:wrap;gap:6px}
 .kho-tl{list-style:none;margin:4px 0 0;padding:0;display:grid}
@@ -456,7 +458,7 @@ const CSS = `
 .kho-tl>li::before{content:"";position:absolute;left:25px;top:30px;bottom:0;width:2px;background:var(--kdn-line,#eceae5)}
 .kho-tl>li:last-child::before{display:none}
 .kho-tl .mo{position:relative;z-index:1;align-self:start;display:grid;place-items:center;height:26px;margin-top:6px;border-radius:99px;background:var(--kdn-ink,#17181d);color:var(--kdn-surface,#fff);font-size:12px;font-weight:800}
-.kho-tl .mo.nil{background:var(--kdn-surface-2,#eceae5);color:var(--kdn-ink-soft,#5b606b)}
+.kho-tl .mo.nil{background:var(--kho-soft);color:var(--kdn-ink-soft,#5b606b)}
 .kho-tl .steps{display:grid;gap:2px;padding-bottom:14px}
 .kho-step{display:flex;gap:10px;padding:8px 6px;border-radius:10px}
 .kho-step .ck{flex:none;display:grid;place-items:center;width:20px;height:20px;margin-top:2px;border-radius:50%;border:1.5px solid var(--kdn-line,#c9c5bd);background:var(--kdn-surface,#fff);color:#fff;cursor:pointer;padding:0}
@@ -469,13 +471,13 @@ const CSS = `
 .kho-step.edit .er{display:flex;align-items:center;gap:6px}
 .kho-step.edit select,.kho-step.edit input{height:34px;padding:0 8px;border-radius:8px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13px}
 .kho-step.edit select{width:68px}.kho-step.edit .tt{flex:1;min-width:0;font-weight:700;font-size:14px}.kho-step.edit .wh{width:64px}
-.kho-step.edit .ops{display:inline-flex}.kho-step.edit .ops button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--kdn-muted,#a4a8b1);cursor:pointer}.kho-step.edit .ops button:hover{background:var(--kdn-surface-2,#f3f2ee);color:var(--kdn-ink,#17181d)}
+.kho-step.edit .ops{display:inline-flex}.kho-step.edit .ops button{display:grid;place-items:center;width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--kdn-muted,#a4a8b1);cursor:pointer}.kho-step.edit .ops button:hover{background:var(--kho-soft);color:var(--kdn-ink,#17181d)}
 @media (max-width:560px){.kho-step.edit .er{flex-wrap:wrap}.kho-step.edit .tt{flex-basis:100%;order:5}}
-.kho-more{justify-self:start;display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px;border-radius:8px;border:0;background:transparent;color:var(--kdn-muted,#8a8f99);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.kho-more:hover{background:var(--kdn-surface-2,#f3f2ee);color:var(--kdn-ink,#17181d)}
+.kho-more{justify-self:start;display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 8px;border-radius:8px;border:0;background:transparent;color:var(--kdn-muted,#8a8f99);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}.kho-more:hover{background:var(--kho-soft);color:var(--kdn-ink,#17181d)}
 .kho-addrow{display:flex;flex-wrap:wrap;gap:6px;padding-left:64px}
 @media (max-width:560px){.kho-addrow{padding-left:0}.kho-tl>li{grid-template-columns:44px minmax(0,1fr);gap:8px}.kho-tl>li::before{left:21px}}
 .kho-chips{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:6px}
-.kho-chips li{display:inline-flex;align-items:center;max-width:100%;border-radius:8px;background:var(--kdn-surface-2,#f4f3f0);overflow:hidden}
+.kho-chips li{display:inline-flex;align-items:center;max-width:100%;border-radius:8px;background:var(--kho-soft);overflow:hidden}
 .kho-chips li a,.kho-chips li .open{display:inline-flex;align-items:center;gap:6px;min-width:0;height:28px;padding:0 9px;color:var(--kdn-ink,#17181d);text-decoration:none;font:inherit;font-size:12.5px;font-weight:700;background:none;border:0;cursor:pointer}
 .kho-chips li span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}.kho-chips li small{font-size:11px;font-weight:600;color:var(--kdn-muted,#8a8f99)}
 .kho-chips li .ext{color:var(--kdn-muted,#a4a8b1)}
@@ -485,7 +487,7 @@ const CSS = `
 .kho-files{display:grid;gap:12px;padding-top:6px}
 .kho-addmat{display:flex;flex-wrap:wrap;gap:6px}.kho-addmat input{flex:2 1 220px;height:36px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);font:inherit;font-size:13px}.kho-addmat input.lb{flex:1 1 120px}
 .kho-cm{display:grid;gap:10px;padding-top:6px}.kho-cm ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
-.kho-cm li{padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f2)}.kho-cm li.me{background:color-mix(in srgb,var(--kho-acc) 7%,var(--kdn-surface,#fff))}
+.kho-cm li{padding:10px 12px;border-radius:12px;background:var(--kho-soft)}.kho-cm li.me{background:color-mix(in srgb,var(--kho-acc) 7%,var(--kdn-surface,#fff))}
 .kho-cm li header{display:flex;align-items:center;gap:8px}.kho-cm li header b{font-size:13px}.kho-cm li header small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}
 .kho-cm li header button{margin-left:auto;display:grid;place-items:center;width:24px;height:24px;border:0;border-radius:6px;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}
 .kho-cm li p{margin:4px 0 0;font-size:13.5px;line-height:1.6;white-space:pre-wrap}
@@ -494,14 +496,14 @@ const CSS = `
 .kho-modal .box{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto;display:grid;gap:10px;padding:18px;border-radius:18px;background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);box-shadow:0 24px 60px rgba(15,18,25,.3)}
 .kho-modal header{display:flex;align-items:center}.kho-modal header b{flex:1;font-size:17px}.kho-modal .x{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--kdn-muted,#8a8f99);cursor:pointer}
 .kho-modal p{margin:0;font-size:13.5px;line-height:1.6;color:var(--kdn-ink-soft,#5b606b)}.kho-modal p em{font-style:normal;font-weight:800;color:var(--kdn-ink,#17181d)}
-.kho-modal textarea{width:100%;box-sizing:border-box;min-height:150px;padding:10px;border-radius:12px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kdn-surface-2,#f8f7f4);color:var(--kdn-ink,#17181d);font:13px/1.6 ui-monospace,monospace;resize:vertical}
+.kho-modal textarea{width:100%;box-sizing:border-box;min-height:150px;padding:10px;border-radius:12px;border:1px solid var(--kdn-line,#e2dfd8);background:var(--kho-soft);color:var(--kdn-ink,#17181d);font:13px/1.6 ui-monospace,monospace;resize:vertical}
 .kho-modal .pv{display:grid;gap:6px}.kho-modal .pv small{font-size:12.5px;font-weight:800;color:#15803d}
 .kho-modal .pv ol{list-style:none;margin:0;padding:0;display:grid;gap:4px}.kho-modal .pv li{display:grid;grid-template-columns:44px minmax(0,auto) minmax(0,1fr);gap:8px;align-items:baseline;font-size:13px}
 .kho-modal .pv li em{font-style:normal;font-weight:800;color:var(--kdn-muted,#8a8f99)}.kho-modal .pv li span{color:var(--kdn-muted,#8a8f99);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.kho-modal .pv li.more{display:block;color:var(--kdn-muted,#8a8f99)}
 .kho-modal footer{display:flex;justify-content:flex-end;gap:6px}
 
 /* ── 구분감: 면 색·띠·배지 ── */
-.kho{--kho-s1:#ea580c;--kho-s1-soft:color-mix(in srgb,#ff7a3d 9%,var(--kdn-surface,#fff));--kho-s2:#2563eb;--kho-s2-soft:color-mix(in srgb,#2563eb 8%,var(--kdn-surface,#fff));--kho-soft:var(--kdn-surface-2,#f4f3f0)}
+.kho{--kho-s1:#ea580c;--kho-s1-soft:color-mix(in srgb,#ff7a3d 9%,var(--kdn-surface,#fff));--kho-s2:#2563eb;--kho-s2-soft:color-mix(in srgb,#2563eb 8%,var(--kdn-surface,#fff))}
 .kho-top{padding:12px 14px;border-radius:16px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#ebe9e4)}
 .kho-top .depts button{background:var(--kho-soft)}
 .kho-role{overflow:hidden;box-shadow:0 1px 2px rgba(20,24,33,.04)}
@@ -544,4 +546,57 @@ const CSS = `
 .kho-chips .k-drive{background:color-mix(in srgb,#0e7490 8%,var(--kdn-surface,#fff));border-color:color-mix(in srgb,#0e7490 30%,transparent)}
 .kho-chips .k-file{background:color-mix(in srgb,var(--kho-acc) 8%,var(--kdn-surface,#fff));border-color:color-mix(in srgb,var(--kho-acc) 30%,transparent)}
 .kho-cm li{border-left:3px solid var(--kdn-line,#d9d6cf)}.kho-cm li.me{border-left-color:var(--kho-acc)}
+
+/* ── 정렬·가독성(반편성 분리 화면 기준: 본문 14.5px, 줄 간격 1.55~1.65, 칸 폭 같은 탭) ── */
+.kho{line-height:1.55;font-size:14.5px}
+.kho p,.kho .tx,.kho .pt,.kho .bd b{word-break:keep-all;overflow-wrap:anywhere}
+.kho-top{padding:14px 18px}.kho-top .ttl{font-size:19px}
+.kho-role>header{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px}
+.kho-role>header .who{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kho-role>header .me,.kho-role>header .claim{margin-left:0;justify-self:end}
+.kho-role li>button{display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:start;gap:8px;padding:9px 10px}
+.kho-role li>button .st{margin-top:3px}
+.kho-role li .tx{display:block;-webkit-line-clamp:unset;overflow:visible;font-size:14px;line-height:1.5}
+.kho-role li small{margin-top:1px;align-self:start}
+.kho-role li .go{display:none}
+.kho-head{gap:8px;padding:20px 22px}
+.kho-head .row{align-items:center}
+.kho-head h2{font-size:22px;line-height:1.3}
+.kho-head .chips{display:flex;flex-wrap:wrap;gap:6px}
+.kho-head .chips em{font-style:normal;padding:3px 10px;border-radius:999px;background:var(--kho-soft);font-size:13px;font-weight:700;color:var(--kdn-ink-soft,#3d4048)}
+.kho-head .chips em.d{background:color-mix(in srgb,var(--kho-acc) 13%,transparent);color:var(--kho-acc-ink)}
+.kho-head .chips em.o.nil{color:var(--kdn-muted,#8a8f99)}
+.kho-head .meta{font-size:12.5px}
+.kho-parts{padding:16px 18px}
+.kho-parts .part{align-items:center;padding:12px 14px}
+.kho-parts .pt{font-size:14.5px;line-height:1.5}
+.kho-brief .it{padding:16px 18px;gap:8px}
+.kho-brief .it p{font-size:14.5px;line-height:1.65}
+.kho-card{padding:0 22px 20px}
+.kho-tabs{gap:4px;margin:0 -22px;padding:0 10px;border-bottom:1.5px solid var(--kdn-line,#e7e5e0);border-radius:16px 16px 0 0}
+.kho-tabs button{flex:1 1 0;justify-content:center;gap:10px;height:auto;min-height:52px;margin-bottom:-1.5px;border-bottom:3px solid transparent}
+.kho-tabs button::after{display:none}
+.kho-tabs button b{font-size:15px;font-weight:800}
+.kho-tabs button span{min-width:28px;padding:1px 9px;border-radius:999px;background:var(--kdn-surface,#fff);font-size:13px;font-weight:800;color:var(--kdn-ink-soft,#3d4048);text-align:center}
+.kho-tabs button.on{color:var(--kdn-ink,#17181d);border-bottom-color:var(--kho-acc)}
+.kho-tabs button.on span{background:var(--kho-acc);color:#fff}
+.kho-tl{margin-top:8px}
+.kho-tl>li{grid-template-columns:56px minmax(0,1fr);gap:14px}
+.kho-tl>li::before{left:27px}
+.kho-tl .mo{height:28px;margin-top:10px;font-size:13px}
+.kho-step:not(.edit){padding:12px 14px;gap:12px}
+.kho-step .bd{gap:5px}
+.kho-step .bd b{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;font-size:15px;line-height:1.45}
+.kho-step .bd b em{margin-left:0;padding:1px 8px;border-radius:99px;background:var(--kdn-surface,#fff);font-size:12px}
+.kho-step .bd p{font-size:14px;line-height:1.65}
+.kho-step .ck{margin-top:1px}
+.kho-cm li p{font-size:14px;line-height:1.65}
+.kho-empty p{font-size:14.5px;line-height:1.6}
+@media (max-width:560px){.kho-head{padding:16px}.kho-head h2{font-size:19px}.kho-card{padding:0 14px 16px}.kho-tabs{margin:0 -14px;padding:0 4px}.kho-tabs button{gap:6px;min-height:46px}.kho-tabs button b{font-size:14px}.kho-tl>li{grid-template-columns:46px minmax(0,1fr);gap:10px}.kho-tl>li::before{left:22px}}
+
+.kho-tabs button{min-width:0;white-space:nowrap}
+.kho-modal{--kho-soft:var(--kdn-surface-2,color-mix(in srgb,currentColor 7%,transparent))}
+@media (max-width:560px){.kho-head .row{flex-direction:column;align-items:stretch}.kho-head h2{text-align:left}.kho-tabs button{padding:8px 4px}.kho-tabs button span{min-width:22px;padding:0 6px;font-size:12px}}
+
+.kho-list .mng-hint{margin:0;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--kho-acc) 9%,var(--kdn-surface,#fff));border:1px solid color-mix(in srgb,var(--kho-acc) 30%,transparent);font-size:13px;line-height:1.55;color:var(--kho-acc-ink)}
 `;
