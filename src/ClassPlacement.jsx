@@ -274,9 +274,9 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
               <button type="button" data-kdn-bare className={`all${!rowFilter ? " on" : ""}`} onClick={() => setRowFilter("")}>전체 <b>{base.length}</b></button>
               {FILTERS.map(f => { const n = base.filter(f.test).length; return <button key={f.key} type="button" data-kdn-bare disabled={!n && rowFilter !== f.key} className={`t-${f.tone}${rowFilter === f.key ? " on" : ""}`} onClick={() => setRowFilter(v => (v === f.key ? "" : f.key))}>{f.label} <b>{n}</b></button>; })}
             </div>
-            {!q && placement.kind === "program" || (!q && Object.values(placement.students).some(x => x.can)) ? <div className="kpl-filter kpl-to" role="group" aria-label="옮길 수 있는 반으로 거르기"><small>{curTab}반에서 옮길 수 있는 반 <em>숫자 = 갈 수 있는 학생 · ↔ = 그 반에서 올 수 있는 학생</em></small>
+            {!q && placement.kind === "program" || (!q && Object.values(placement.students).some(x => x.can)) ? <div className="kpl-filter kpl-to" role="group" aria-label="옮길 수 있는 반으로 거르기"><small>{curTab}반 → 옮길 반</small>
               <button type="button" data-kdn-bare className={`all${!toF ? " on" : ""}`} onClick={() => setToFilter(0)}>전체</button>
-              {classes.filter(c => c !== curTab).map(c => { const n = base.filter(([sid]) => canGo(sid, c)).length; const back = Object.entries(placement.students).filter(([id, x]) => Number(x.cls) === c && movableClasses(placement, id).includes(curTab)).length; return <button key={c} type="button" data-kdn-bare disabled={!n && toF !== c} className={`t-info${toF === c ? " on" : ""}`} title={`${curTab}반 → ${c}반으로 갈 수 있는 학생 ${n}명 · ${c}반 → ${curTab}반으로 올 수 있는 학생 ${back}명`} onClick={() => { setToFilter(v => (v === c ? 0 : c)); setOpenSid(""); }}>→ {c}반 <b>{n}</b><i>↔{back}</i></button>; })}
+              {classes.filter(c => c !== curTab).map(c => { const n = base.filter(([sid]) => canGo(sid, c)).length; const back = Object.entries(placement.students).filter(([id, x]) => Number(x.cls) === c && movableClasses(placement, id).includes(curTab)).length; return <button key={c} type="button" data-kdn-bare disabled={!n && toF !== c} className={`t-info${toF === c ? " on" : ""}`} title={`${curTab}반 → ${c}반으로 갈 수 있는 학생 ${n}명 · ${c}반 → ${curTab}반으로 올 수 있는 학생 ${back}명`} onClick={() => { setToFilter(v => (v === c ? 0 : c)); setOpenSid(""); }}>{c}반</button>; })}
             </div> : null}
             <div className="scroll"><table className="kpl-grid">
               <thead><tr>{q && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th>{canManage ? <th className="c">이동</th> : <th />}</tr></thead>
@@ -769,4 +769,5 @@ const CSS = `
 .kpl-sres b{font-size:14.5px}.kpl-sres small{font-size:12.5px;color:var(--kdn-ink-soft,#334155)}
 .kpl-sres button{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 12px;border-radius:9px;border:1px solid #93c5fd;background:var(--kdn-surface,#fff);color:#1d4ed8;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
 .kpl-grid .go-cls{display:inline-flex;align-items:center;height:28px;padding:0 10px;border-radius:99px;border:0;background:#2563eb;color:#fff;font:inherit;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap}
+.kpl-filter.kpl-to button{min-width:52px;justify-content:center;font-size:13.5px;font-weight:800}
 `;
