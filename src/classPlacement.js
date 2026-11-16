@@ -12,6 +12,7 @@ export const STUDENT_FLAGS = [
   { key: "combo", label: "조합 우려", hint: "같은 반이면 서로 영향이 큰 학생", tone: "warn" },
   { key: "care", label: "배려 필요", hint: "적응·관계에서 세심한 배려가 필요한 학생", tone: "info" },
   { key: "guide", label: "생활지도 주의", hint: "생활지도 부담이 큰 학생", tone: "bad" },
+  { key: "move", label: "이동 희망", hint: "다른 반으로 옮기는 게 좋겠다고 보는 학생", tone: "mv" },
 ];
 // 반 점검(새 반 단위)
 export const CLASS_CHECKS = [
