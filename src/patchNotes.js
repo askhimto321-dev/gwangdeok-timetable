@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-16-c",
+    date: "2026-11-16",
+    title: "과세특 소감문 올리기",
+    items: [
+      { audience: "staff", text: "교과담임 자료 칸 '소감문'에서 구글 설문 응답 같은 엑셀(학번 + 글 응답)을 올리면 학생마다 소감문이 붙어요. 활동 누가기록에 담거나 AI 도우미 요청문에 넣을 수 있어요." },
+    ],
+  },
+  {
     id: "2026-11-16-b",
     date: "2026-11-16",
     title: "반편성 개선",
