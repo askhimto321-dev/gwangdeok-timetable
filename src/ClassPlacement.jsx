@@ -3,7 +3,7 @@
 // ③ 선생님들이 학생·반에 검토 표시를 남기고 ④ 이동 결과를 한눈에 보고 엑셀로 받아요.
 // 보기·검토 표시: 반편성 탭을 볼 수 있는 교직원 / 파일 올리기·이동: 관리자·부서·학년부장
 import React from "react";
-import { AlertTriangle, ArrowLeftRight, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Tag, ArrowLeftRight, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { readStorage, updateStorage, writeStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs } from "./classSeparation.js";
@@ -30,6 +30,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const [moveSid, setMoveSid] = React.useState("");
   const [moveTo, setMoveTo] = React.useState(0);
   const [find, setFind] = React.useState("");
+  const [rowFilter, setRowFilter] = React.useState("");
   const input = React.useRef(null);
   const me = { id: String(actor?.id || actor?.name || "me"), name: String(actor?.name || "선생님") };
   const oldClasses = React.useMemo(() => Array.from(new Set(Object.values(roster || {}).map(s => Number(s?.class)).filter(Boolean))).sort((a, b) => a - b), [roster]);
@@ -143,6 +144,12 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const checked = checkPairs(pairs, bySid);
   const results = studentResults(checked);
   const missSet = new Set(results.filter(s => s.status === "same").map(s => s.sid));
+  // 조합 우려 상대: 내가 적은 상대 + 상대가 나를 적은 것(서로 보이게). 같은 새 반이면 경고
+  const comboPairs = (() => { const m = new Map(); Object.entries(review.students || {}).forEach(([sid, it]) => (it.combos || []).forEach(c => { const [a, b] = [sid, c.with].sort(); const k = `${a}|${b}`; if (!m.has(k)) m.set(k, { a, b, by: [] }); m.get(k).by.push(c.by); })); return Array.from(m.values()); })();
+  const combosOf = sid => comboPairs.filter(p => p.a === sid || p.b === sid).map(p => ({ other: p.a === sid ? p.b : p.a, by: p.by }));
+  const comboSame = sid => combosOf(sid).filter(c => Number(placement.students[c.other]?.cls) === Number(placement.students[sid]?.cls));
+  const addCombo = (sid, other) => saveReview(v => { const item = { ...(v.students[sid] || {}) }; const list = item.combos || []; if (list.some(c => c.with === other && c.byId === me.id)) return v; item.combos = [...list, { with: other, byId: me.id, by: me.name, at: new Date().toISOString() }]; const marks = { ...(item.marks || {}) }; if (!(marks.combo || []).some(m => m.byId === me.id)) marks.combo = [...(marks.combo || []), { byId: me.id, by: me.name, at: new Date().toISOString() }]; item.marks = marks; v.students[sid] = item; return v; });
+  const removeCombo = (sid, other) => saveReview(v => { [sid, other].forEach(a => { const b = a === sid ? other : sid; const item = { ...(v.students[a] || {}) }; item.combos = (item.combos || []).filter(c => !(c.with === b && c.byId === me.id)); v.students[a] = item; }); return v; });
   const resultOf = sid => results.find(x => x.sid === sid);
   const count = s => checked.filter(p => p.status === s).length;
   const mustMiss = checked.filter(p => p.status === "same" && p.level === SEPARATION_LEVELS[0]).length;
@@ -160,37 +167,67 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
 
     {view === "roster" && (() => {
       const q = find.trim();
-      const list = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : Number(s.cls) === curTab)).sort((a, b) => (q ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+      const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : Number(s.cls) === curTab));
+      const FILTERS = [...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
+        { key: "miss", label: "분리 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", label: "조합 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 }, { key: "moved", label: "옮겨 온 학생", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) },
+        { key: "memo", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 }, { key: "m", label: "남", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", label: "여", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
+      const activeF = FILTERS.find(f => f.key === rowFilter);
+      const list = base.filter(e => !activeF || activeF.test(e)).sort((a, b) => (q ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
       const sm = summary.find(s => s.cls === curTab) || {};
       const cls = review.classes[curTab] || {};
-      const leaders = list.filter(([sid]) => (review.students[sid]?.marks?.leader || []).length).length;
+      const flagCount = key => base.filter(([sid]) => (review.students[sid]?.marks?.[key] || []).length).length;
+      const missN = base.filter(([sid]) => missSet.has(sid)).length;
+      const ob = placement.classOb?.[curTab] || [];
       return <>
-        <div className="kpl-ctabs">{summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const checks = Object.keys(review.classes[s.cls]?.marks || {}).length; return <button key={s.cls} type="button" data-kdn-bare className={s.cls === curTab && !q ? "on" : ""} onClick={() => { setTab(s.cls); setFind(""); setOpenSid(""); setMoveSid(""); }}>
-          <b>{s.cls}반</b><small>{s.n}명 · 남{s.m} 여{s.f}</small><span className="dots">{s.inn || s.out ? <i className="mv" title={`들어옴 ${s.inn} · 나감 ${s.out}`}>±{s.inn + s.out}</i> : null}{miss ? <i className="bad" title={`분리 미반영 ${miss}명`}>{miss}</i> : null}{checks ? <i className="warn" title={`반 점검 ${checks}개`}>!</i> : null}</span></button>; })}</div>
-        <label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기(예: 4-15)" /></label>
-        {!q && <section className="kpl-class">
-          <div className="hd"><b>{nextGrade}학년 {curTab}반</b><span>{sm.n}명 · 남 {sm.m} · 여 {sm.f} · 리더 후보 {leaders}명{sm.inn || sm.out ? ` · 들어옴 ${sm.inn} · 나감 ${sm.out}` : ""}</span></div>
-          {(placement.classOb?.[curTab] || []).length > 0 ? <p className="ob"><b>원반 과목</b>{placement.classOb[curTab].map(x => <span key={x}>{x}</span>)}</p> : placement.kind === "program" ? <p className="ob"><b>원반 과목</b><span className="nil">없음</span></p> : null}
-          <div className="checks"><small>반 점검</small>{CLASS_CHECKS.map(c => { const marks = cls.marks?.[c.key] || []; const mine = marks.some(m => m.byId === me.id); return <button key={c.key} type="button" data-kdn-bare className={`${marks.length ? "on" : ""}${mine ? " mine" : ""}`} title={`${c.hint}${marks.length ? `\n표시: ${marks.map(m => m.by).join(", ")}` : ""}`} onClick={() => toggleMark("classes", curTab, c.key)}>{c.label}{marks.length ? <small>{marks.length}</small> : null}</button>; })}</div>
-          <Memos item={cls} me={me} onAdd={t => addMemo("classes", curTab, t)} onRemove={at => removeMemo("classes", curTab, at)} placeholder={`${curTab}반 의견(예: 리더 후보가 없어 ○반과 1명 교환 검토)`} />
-        </section>}
-        <div className="kpl-legend">{STUDENT_FLAGS.map(f => <span key={f.key} className={`fl t-${f.tone}`} title={f.hint}>{f.label}</span>)}<small>눌러서 표시해요. 여러 선생님 표시가 모여요.</small></div>
-        <table className="kpl-roster"><thead><tr>{q && <th>새 반</th>}<th>구반-번호</th><th>이름</th><th>성별</th><th>분리</th><th>검토 표시</th><th /></tr></thead><tbody>
-          {list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableClasses(placement, sid); return <React.Fragment key={sid}><tr className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${moveSid === sid ? " moving" : ""}`}>
-            {q && <td className="c"><b>{s.cls}반</b></td>}
-            <td className="c">{oldLabel(sid)}</td><td><b>{s.name || roster[sid]?.name || sid}</b>{moved && <span className="mvtag">{s.orig}반에서 옴</span>}</td><td className="c">{genderOf(sid)}</td>
-            <td className="c">{r ? <span className={`st ${STATUS[r.status].tone}`} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"}</span> : ""}</td>
-            <td><div className="flags">{STUDENT_FLAGS.map(f => { const marks = item.marks?.[f.key] || []; const mine = marks.some(m => m.byId === me.id); return <button key={f.key} type="button" data-kdn-bare className={`fl t-${f.tone}${marks.length ? " on" : ""}${mine ? " mine" : ""}`} title={`${f.hint}${marks.length ? `\n표시: ${marks.map(m => m.by).join(", ")}` : ""}`} onClick={() => toggleMark("students", sid, f.key)}>{f.label}{marks.length > 1 ? <small>{marks.length}</small> : null}</button>; })}</div></td>
-            <td className="c acts"><button type="button" data-kdn-bare className={`memo${memoN ? " has" : ""}`} onClick={() => setOpenSid(v => (v === sid ? "" : sid))} title="메모"><MessageSquare size={14} />{memoN ? <small>{memoN}</small> : null}</button>
-              {canManage && <button type="button" data-kdn-bare className={`mvbtn${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(0); }}><ArrowLeftRight size={14} /> 이동</button>}</td>
-          </tr>
-          {moveSid === sid && <tr className="sub-row"><td colSpan={q ? 7 : 6}><MovePanel placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={checked} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
-          {openSid === sid && <tr className="sub-row"><td colSpan={q ? 7 : 6}><Memos item={item} me={me} onAdd={t => addMemo("students", sid, t)} onRemove={at => removeMemo("students", sid, at)} placeholder={`${s.name || ""} 학생에 대한 의견`} /></td></tr>}</React.Fragment>; })}
-        </tbody></table>
-        {!list.length && <p className="kpl-nil">찾는 학생이 없어요.</p>}
+        <div className="kpl-ctabs" role="tablist" aria-label="새 반">{summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const checks = Object.keys(review.classes[s.cls]?.marks || {}).length; const mPct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q} data-kdn-bare className={s.cls === curTab && !q ? "on" : ""} onClick={() => { setTab(s.cls); setFind(""); setOpenSid(""); setMoveSid(""); }}>
+          <span className="top"><b>{s.cls}반</b>{miss ? <em className="bad" title={`분리 미반영 ${miss}명`}>분리 {miss}</em> : checks ? <em className="warn" title={`반 점검 ${checks}개`}>점검 {checks}</em> : s.inn || s.out ? <em className="mv" title={`들어옴 ${s.inn} · 나감 ${s.out}`}>이동 {s.inn + s.out}</em> : null}</span>
+          <span className="gbar" title={`남 ${s.m} · 여 ${s.f}`}><i style={{ width: `${mPct}%` }} /></span>
+          <span className="sub">{s.n}명 <small>남{s.m}·여{s.f}</small></span></button>; })}</div>
+        <div className="kpl-split">
+          {!q && <aside className="kpl-cside">
+            <div className="hd"><b>{nextGrade}학년 {curTab}반</b><span>{sm.n}명</span></div>
+            <div className="stats">
+              <div><small>남 · 여</small><b>{sm.m} · {sm.f}</b></div>
+              <div className={flagCount("leader") ? "" : "warn"}><small>리더 후보</small><b>{flagCount("leader")}명</b></div>
+              <div className={missN ? "bad" : ""}><small>분리 미반영</small><b>{missN}명</b></div>
+              <div className={base.some(([sid]) => comboSame(sid).length) ? "warn" : ""}><small>조합 같은 반</small><b>{comboPairs.filter(p => Number(placement.students[p.a]?.cls) === curTab && Number(placement.students[p.b]?.cls) === curTab).length}쌍</b></div>
+              <div><small>들어옴 · 나감</small><b>{sm.inn || 0} · {sm.out || 0}</b></div>
+            </div>
+            {placement.kind === "program" && <div className="sec"><small>원반 과목</small><p className="ob">{ob.length ? ob.map(x => <span key={x}>{x}</span>) : <span className="nil">없음 · 원반 과목 제한 없음</span>}</p></div>}
+            <div className="sec"><small>반 점검 <em>해당되면 눌러요</em></small><div className="checks">{CLASS_CHECKS.map(c => { const marks = cls.marks?.[c.key] || []; const mine = marks.some(m => m.byId === me.id); return <button key={c.key} type="button" data-kdn-bare className={`${marks.length ? "on" : ""}${mine ? " mine" : ""}`} title={`${c.hint}${marks.length ? `\n표시: ${marks.map(m => m.by).join(", ")}` : ""}`} onClick={() => toggleMark("classes", curTab, c.key)}>{mine ? <CheckCircle2 size={13} /> : null}{c.label}{marks.length ? <small>{marks.length}</small> : null}</button>; })}</div></div>
+            <div className="sec"><small>반 의견</small><Memos item={cls} me={me} onAdd={t => addMemo("classes", curTab, t)} onRemove={at => removeMemo("classes", curTab, at)} placeholder="예: 리더 후보가 없어 교환 검토" /></div>
+          </aside>}
+          <section className="kpl-slist">
+            <div className="tools"><label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기(예: 4-15)" /></label>
+</div>
+            <div className="kpl-filter" role="group" aria-label="학생 거르기"><small>거르기</small>
+              <button type="button" data-kdn-bare className={`all${!rowFilter ? " on" : ""}`} onClick={() => setRowFilter("")}>전체 <b>{base.length}</b></button>
+              {FILTERS.map(f => { const n = base.filter(f.test).length; return <button key={f.key} type="button" data-kdn-bare disabled={!n && rowFilter !== f.key} className={`t-${f.tone}${rowFilter === f.key ? " on" : ""}`} onClick={() => setRowFilter(v => (v === f.key ? "" : f.key))}>{f.label} <b>{n}</b></button>; })}
+            </div>
+            <ul className="rows">{list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableClasses(placement, sid); const marked = STUDENT_FLAGS.filter(f => (item.marks?.[f.key] || []).length); const g = genderOf(sid); const open = openSid === sid; return <li key={sid} className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${moveSid === sid || open ? " active" : ""}`}>
+              <div className="row">
+                {q && <span className="ncls">{s.cls}반</span>}
+                <span className="no">{oldLabel(sid)}</span>
+                <span className="nm"><b>{s.name || roster[sid]?.name || sid}</b>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}{moved && <span className="mvtag">{s.orig}반에서 옴</span>}</span>
+                <span className="tags">{r && <span className={`st ${STATUS[r.status].tone}`} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "분리 미반영" : r.status === "ok" ? "분리 반영" : "분리 확인"}</span>}
+                  {marked.filter(f => f.key !== "combo").map(f => <span key={f.key} className={`fl t-${f.tone} on`} title={`표시: ${(item.marks[f.key] || []).map(m => m.by).join(", ")}`}>{f.label}{item.marks[f.key].length > 1 ? <small>{item.marks[f.key].length}</small> : null}</span>)}
+                  {(marked.some(f => f.key === "combo") || combosOf(sid).length > 0) && (() => { const cs = combosOf(sid); const same = comboSame(sid); return <span className={`fl t-warn on${same.length ? " hot" : ""}`} title={cs.length ? cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)${Number(placement.students[c.other]?.cls) === Number(s.cls) ? " · 같은 반" : ""}`).join("\n") : "상대 학생 미지정"}>조합 우려{cs.length ? `: ${cs.slice(0, 2).map(c => nameOf(c.other)).join(", ")}${cs.length > 2 ? ` 외 ${cs.length - 2}` : ""}` : ""}{same.length ? <em>같은 반 {same.length}</em> : null}</span>; })()}
+                  {memoN ? <span className="memo-n" title="메모"><MessageSquare size={12} />{memoN}</span> : null}</span>
+                <span className="acts"><button type="button" data-kdn-bare className={`act${open ? " on" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }}><Tag size={13} /> 표시</button>
+                  {canManage && <button type="button" data-kdn-bare className={`act mv${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이동</button>}</span>
+              </div>
+              {open && <div className="panel">
+                <div className="flags">{STUDENT_FLAGS.map(f => { const marks = item.marks?.[f.key] || []; const mine = marks.some(m => m.byId === me.id); return <button key={f.key} type="button" data-kdn-bare className={`fl big t-${f.tone}${marks.length ? " on" : ""}${mine ? " mine" : ""}`} onClick={() => toggleMark("students", sid, f.key)}><span><b>{mine ? "✓ " : ""}{f.label}</b><small>{marks.length ? marks.map(m => m.by).join(", ") : f.hint}</small></span></button>; })}</div>
+                <ComboPicker sid={sid} placement={placement} combos={combosOf(sid)} mine={(item.combos || []).filter(c => c.byId === me.id).map(c => c.with)} theirsMine={comboPairs.filter(p => (p.a === sid || p.b === sid)).map(p => (p.a === sid ? p.b : p.a)).filter(o => (review.students[o]?.combos || []).some(c => c.with === sid && c.byId === me.id))} nameOf={nameOf} onAdd={o => addCombo(sid, o)} onRemove={o => removeCombo(sid, o)} />
+                <Memos item={item} me={me} onAdd={t => addMemo("students", sid, t)} onRemove={at => removeMemo("students", sid, at)} placeholder={`${s.name || ""} 학생에 대한 의견`} />
+              </div>}
+              {moveSid === sid && <div className="panel"><MovePanel placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} onMove={doMove} onClose={() => setMoveSid("")} /></div>}
+            </li>; })}</ul>
+            {!list.length && <p className="kpl-nil">{activeF ? `'${activeF.label}' 학생이 없어요.` : "찾는 학생이 없어요."}</p>}
+          </section>
+        </div>
       </>;
     })()}
-
     {view === "check" && <>
       <div className="kpl-sum">
         <div><small>분리희망 쌍</small><b>{checked.length}</b></div>
@@ -233,6 +270,20 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   </div>;
 }
 
+// 조합 우려 상대 고르기: 이름·구반-번호로 찾아 추가, 같은 새 반이면 경고
+function ComboPicker({ sid, placement, combos, mine, theirsMine = [], nameOf, onAdd, onRemove }) {
+  const [q, setQ] = React.useState("");
+  const me = placement.students[sid];
+  const taken = new Set([sid, ...combos.map(c => c.other)]);
+  const hits = q.trim() ? Object.entries(placement.students).filter(([id, x]) => !taken.has(id) && (String(x.name || nameOf(id)).includes(q.trim()) || oldLabel(id).includes(q.trim()))).slice(0, 8) : [];
+  return <div className="kpl-combo">
+    <b>조합 우려 상대 <small>같은 반이면 서로 영향이 큰 학생</small></b>
+    {combos.length > 0 && <div className="list">{combos.map(c => { const o = placement.students[c.other] || {}; const same = Number(o.cls) === Number(me?.cls); const removable = mine.includes(c.other) || theirsMine.includes(c.other); return <span key={c.other} className={same ? "same" : ""} title={`표시: ${c.by.join(", ")}`}><b>{nameOf(c.other)}</b><small>{oldLabel(c.other)} → {o.cls || "?"}반</small>{same ? <em>같은 반</em> : <i>다른 반</i>}{removable && <button type="button" data-kdn-bare onClick={() => onRemove(c.other)} aria-label="빼기"><X size={11} /></button>}</span>; })}</div>}
+    <label className="find"><Search size={13} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="상대 학생 이름 또는 구반-번호로 찾기" /></label>
+    {hits.length > 0 && <div className="hits">{hits.map(([id, x]) => <button key={id} type="button" data-kdn-bare onClick={() => { onAdd(id); setQ(""); }}><b>{x.name || nameOf(id)}</b><small>{oldLabel(id)} · {x.cls}반{Number(x.cls) === Number(me?.cls) ? " · 같은 반" : ""}</small></button>)}</div>}
+  </div>;
+}
+
 // 이동 패널: 갈 수 있는 반(인원 변화) → 그냥 옮기기 또는 맞바꿀 학생 고르기
 function MovePanel({ placement, sid, to, setTo, summary, nameOf, genderOf, missSet, pairs, onMove, onClose }) {
   const s = placement.students[sid];
@@ -242,11 +293,11 @@ function MovePanel({ placement, sid, to, setTo, summary, nameOf, genderOf, missS
   const cands = to ? swapCandidates(placement, sid, to) : [];
   return <div className="kpl-move">
     <div className="hd"><b>{nameOf(sid)}</b><span>{s.cls}반 → 어디로?</span><small>원반 과목 기준 갈 수 있는 반만 보여요</small><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={14} /></button></div>
-    <div className="tgts">{targets.map(c => <button key={c} type="button" data-kdn-bare className={`${to === c ? "on" : ""}${clash(sid, c) ? " clash" : ""}`} onClick={() => setTo(c)} title={clash(sid, c) ? "이 반에 분리희망 학생이 있어요" : ""}><b>{c}반</b><small>{size(c)}명</small>{clash(sid, c) && <em>분리 학생 있음</em>}</button>)}</div>
+    <div className="tgts">{targets.map(c => <button key={c} type="button" data-kdn-bare className={`${to === c ? "on" : ""}${clash(sid, c) ? " clash" : ""}`} onClick={() => setTo(c)} title={clash(sid, c) ? "이 반에 분리희망 또는 조합 우려 학생이 있어요" : ""}><b>{c}반</b><small>{size(c)}명</small>{clash(sid, c) && <em>분리·조합 학생 있음</em>}</button>)}</div>
     {to ? <div className="swap">
       <div className="opt"><button type="button" className="kpl-btn" onClick={() => onMove(sid, to)}>그냥 옮기기</button><small>{s.cls}반 {size(s.cls) - 1}명 · {to}반 {size(to) + 1}명이 돼요</small></div>
       <b className="sh">맞바꾸기 <small>{to}반에서 {s.cls}반으로 올 수 있는 학생 {cands.length}명 (같은 성별 먼저)</small></b>
-      {cands.length ? <ul>{cands.map(x => { const bad = clash(x.sid, s.cls); return <li key={x.sid} className={bad ? "clash" : ""}><span><b>{x.name || nameOf(x.sid)}</b> <small>{oldLabel(x.sid)} · {genderOf(x.sid)}{missSet.has(x.sid) ? " · 분리 미반영" : ""}{bad ? ` · ${s.cls}반에 분리 학생 있음` : ""}</small></span><button type="button" className="kpl-btn pri sm" onClick={() => onMove(sid, to, x.sid)}><ArrowLeftRight size={13} /> 맞바꾸기</button></li>; })}</ul> : <p className="kpl-nil">원반 과목 때문에 {to}반에서 {s.cls}반으로 올 수 있는 학생이 없어요.</p>}
+      {cands.length ? <ul>{cands.map(x => { const bad = clash(x.sid, s.cls); return <li key={x.sid} className={bad ? "clash" : ""}><span><b>{x.name || nameOf(x.sid)}</b> <small>{oldLabel(x.sid)} · {genderOf(x.sid)}{missSet.has(x.sid) ? " · 분리 미반영" : ""}{bad ? ` · ${s.cls}반에 분리·조합 학생 있음` : ""}</small></span><button type="button" className="kpl-btn pri sm" onClick={() => onMove(sid, to, x.sid)}><ArrowLeftRight size={13} /> 맞바꾸기</button></li>; })}</ul> : <p className="kpl-nil">원반 과목 때문에 {to}반에서 {s.cls}반으로 올 수 있는 학생이 없어요.</p>}
     </div> : <p className="kpl-nil">옮길 반을 골라 주세요.</p>}
   </div>;
 }
@@ -365,4 +416,90 @@ const CSS = `
 @media (max-width:760px){.kpl-roster th:nth-child(4),.kpl-roster td:nth-child(4){display:none}.kpl-students{grid-template-columns:1fr}.kpl-roster{font-size:13px}.kpl-roster td,.kpl-roster th{padding:8px 6px}}
 .kpl-csum th{text-align:center!important}.kpl-csum th:last-child{text-align:left!important}
 .kpl-mvt th{text-align:center!important}.kpl-mvt th:nth-child(2),.kpl-mvt th:nth-child(4){text-align:left!important}
+
+/* ── 반별 명단 새 디자인 ── */
+.kpl-ctabs{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))!important;gap:8px!important}
+.kpl-ctabs button{justify-items:stretch!important;gap:6px!important;padding:10px 12px!important;text-align:left;border-radius:14px!important}
+.kpl-ctabs .top{display:flex;align-items:center;justify-content:space-between;gap:4px}.kpl-ctabs .top b{font-size:17px}
+.kpl-ctabs .top em{font-style:normal;padding:1px 7px;border-radius:99px;font-size:10.5px;font-weight:800;color:#fff;white-space:nowrap}
+.kpl-ctabs .top em.bad{background:#dc2626}.kpl-ctabs .top em.warn{background:#d97706}.kpl-ctabs .top em.mv{background:#2563eb}
+.kpl-ctabs .gbar{display:block;height:6px;border-radius:99px;background:#f9a8d4;overflow:hidden}.kpl-ctabs .gbar i{display:block;height:100%;background:#60a5fa}
+.kpl-ctabs .sub{font-size:12.5px;font-weight:800;color:var(--kdn-ink-soft,#334155)}.kpl-ctabs .sub small{font-weight:600;color:var(--kdn-muted,#64748b);margin-left:2px}
+.kpl-ctabs button.on{box-shadow:0 0 0 3px color-mix(in srgb,var(--kdn-accent,#2563eb) 18%,transparent)}
+.kpl-split{display:grid;grid-template-columns:minmax(260px,300px) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:980px){.kpl-split{grid-template-columns:1fr}}
+.kpl-cside{position:sticky;top:76px;display:grid;gap:14px;padding:16px;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff)}
+@media (max-width:980px){.kpl-cside{position:static}}
+.kpl-cside .hd{display:flex;align-items:baseline;justify-content:space-between}.kpl-cside .hd b{font-size:20px}.kpl-cside .hd span{font-size:14px;font-weight:800;color:var(--kdn-muted,#64748b)}
+.kpl-cside .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kpl-cside .stats>div{display:grid;gap:1px;padding:9px 11px;border-radius:11px;background:var(--kdn-surface-2,#f4f6fa)}
+.kpl-cside .stats small{font-size:11.5px;font-weight:700;color:var(--kdn-muted,#64748b)}.kpl-cside .stats b{font-size:16px;font-variant-numeric:tabular-nums}
+.kpl-cside .stats .warn{background:#fffbeb}.kpl-cside .stats .warn b{color:#b45309}.kpl-cside .stats .bad{background:#fef2f2}.kpl-cside .stats .bad b{color:#b91c1c}
+.kpl-cside .sec{display:grid;gap:6px}.kpl-cside .sec>small{font-size:12px;font-weight:800;color:var(--kdn-muted,#64748b)}.kpl-cside .sec>small em{font-style:normal;font-weight:600;margin-left:4px}
+.kpl-cside .ob{margin:0;display:flex;flex-wrap:wrap;gap:4px}.kpl-cside .ob span{padding:3px 10px;border-radius:99px;background:#ede9fe;color:#6d28d9;font-size:12.5px;font-weight:700}.kpl-cside .ob span.nil{background:var(--kdn-surface-2,#f1f5f9);color:var(--kdn-muted,#64748b)}
+.kpl-cside .checks{display:flex;flex-wrap:wrap;gap:5px}
+.kpl-cside .checks button{display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 10px;border-radius:99px;border:1px dashed var(--kdn-line,#cbd5e1);background:transparent;color:var(--kdn-ink-soft,#334155);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.kpl-cside .checks button.on{border-style:solid;border-color:#d97706;background:#fffbeb;color:#b45309}.kpl-cside .checks button.mine{background:#d97706;border-color:#d97706;color:#fff}
+.kpl-cside .checks button small{font-size:10.5px;font-weight:800}
+.kpl-cside .kpl-memos .new{flex-direction:column}.kpl-cside .kpl-memos .new .kpl-btn{align-self:flex-end;min-height:32px}
+.kpl-slist{display:grid;gap:10px;min-width:0}
+.kpl-slist .tools{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}.kpl-slist .kpl-find{flex:1 1 260px;max-width:none}
+.kpl-slist .legend{display:flex;flex-wrap:wrap;gap:4px}.kpl-slist .legend .fl{cursor:default;height:26px;font-size:12px}
+.kpl-slist .rows{list-style:none;margin:0;padding:0;display:grid;border-radius:16px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);overflow:hidden}
+.kpl-slist .rows>li{border-bottom:1px solid var(--kdn-line,#eef2f7)}.kpl-slist .rows>li:last-child{border-bottom:0}
+.kpl-slist .row{display:grid;grid-template-columns:auto 56px minmax(120px,190px) minmax(0,1fr) auto;align-items:center;gap:10px;min-height:50px;padding:6px 14px}
+.kpl-slist .row:not(:has(.ncls)){grid-template-columns:56px minmax(120px,190px) minmax(0,1fr) auto}
+.kpl-slist .ncls{font-weight:800;color:var(--kdn-accent,#2563eb);font-size:13.5px}
+.kpl-slist .no{font-size:13px;font-weight:700;color:var(--kdn-muted,#64748b);font-variant-numeric:tabular-nums}
+.kpl-slist .nm{display:flex;align-items:center;gap:6px;min-width:0}.kpl-slist .nm b{font-size:15px;white-space:nowrap}
+.kpl-slist .g{font-style:normal;display:inline-grid;place-items:center;width:20px;height:20px;border-radius:6px;font-size:11px;font-weight:800}.kpl-slist .g.m{background:#dbeafe;color:#1d4ed8}.kpl-slist .g.f{background:#fce7f3;color:#be185d}
+.kpl-slist .tags{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+.kpl-slist .memo-n{display:inline-flex;align-items:center;gap:3px;height:24px;padding:0 8px;border-radius:99px;background:#eff6ff;color:#1d4ed8;font-size:11.5px;font-weight:800}
+.kpl-slist .tags .fl{height:24px;font-size:11.5px;cursor:default}
+.kpl-slist .acts{display:flex;gap:4px;white-space:nowrap}
+.kpl-slist .act{display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 10px;border-radius:9px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#334155);font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
+.kpl-slist .act.on{background:var(--kdn-ink,#111827);border-color:var(--kdn-ink,#111827);color:var(--kdn-surface,#fff)}
+.kpl-slist .act.mv{border-color:#93c5fd;color:#1d4ed8}.kpl-slist .act.mv.on{background:#2563eb;border-color:#2563eb;color:#fff}.kpl-slist .act:disabled{opacity:.35;cursor:not-allowed}
+.kpl-slist li.miss .row{background:#fef2f2}.kpl-slist li.moved .row{box-shadow:inset 4px 0 0 #2563eb}.kpl-slist li.active .row{background:color-mix(in srgb,var(--kdn-accent,#2563eb) 7%,var(--kdn-surface,#fff))}
+.kpl-slist .panel{display:grid;gap:10px;padding:12px 14px 14px;background:var(--kdn-surface-2,#f8fafc);border-top:1px dashed var(--kdn-line,#e2e8f0)}
+.kpl-slist .panel .flags{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px}
+.kpl .fl.big{height:auto;padding:8px 12px;border-radius:12px;justify-content:flex-start;text-align:left;white-space:normal;background:var(--kdn-surface,#fff)}
+.kpl .fl.big span{display:grid;gap:1px}.kpl .fl.big b{font-size:13.5px}.kpl .fl.big small{font-size:11.5px;font-weight:600;opacity:.85}
+@media (max-width:760px){.kpl-slist .row,.kpl-slist .row:not(:has(.ncls)){grid-template-columns:44px minmax(0,1fr) auto;row-gap:4px}.kpl-slist .tags{grid-column:2/4;grid-row:2}.kpl-slist .ncls{display:none}}
+
+/* 구분선 대신 카드형 줄 */
+.kpl-slist .rows{gap:6px;border:0!important;background:transparent!important;overflow:visible!important;border-radius:0!important}
+.kpl-slist .rows>li{border:1px solid var(--kdn-line,#e5e9f0)!important;border-radius:12px;background:var(--kdn-surface,#fff);overflow:hidden;transition:border-color .12s,box-shadow .12s}
+.kpl-slist .rows>li:hover{border-color:color-mix(in srgb,var(--kdn-accent,#2563eb) 35%,var(--kdn-line,#e5e9f0))}
+.kpl-slist .rows>li.active{border-color:var(--kdn-accent,#2563eb)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--kdn-accent,#2563eb) 14%,transparent)}
+.kpl-slist .rows>li.miss{border-color:#fca5a5!important}
+.kpl-slist .rows>li.moved{box-shadow:inset 4px 0 0 #2563eb}.kpl-slist li.moved .row{box-shadow:none!important}
+.kpl-slist .panel{border-top:1px solid var(--kdn-line,#eef2f7)!important}
+/* 거르기 */
+.kpl-filter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;border-radius:12px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e5e9f0)}
+.kpl-filter>small{font-size:12px;font-weight:800;color:var(--kdn-muted,#64748b);margin-right:2px}
+.kpl-filter button{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 11px;border-radius:99px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#334155);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.kpl-filter button b{font-size:11.5px;font-weight:800;color:var(--kdn-muted,#64748b)}
+.kpl-filter button:disabled{opacity:.4;cursor:default}
+.kpl-filter button.t-good{color:#15803d;border-color:#bbf7d0}.kpl-filter button.t-warn{color:#b45309;border-color:#fde68a}.kpl-filter button.t-info{color:#1d4ed8;border-color:#bfdbfe}.kpl-filter button.t-bad{color:#b91c1c;border-color:#fecaca}
+.kpl-filter button.on{color:#fff!important;border-color:transparent}.kpl-filter button.on b{color:#fff}
+.kpl-filter button.all.on,.kpl-filter button.t-mute.on{background:var(--kdn-ink,#111827)}.kpl-filter button.t-good.on{background:#16a34a}.kpl-filter button.t-warn.on{background:#d97706}.kpl-filter button.t-info.on{background:#2563eb}.kpl-filter button.t-bad.on{background:#dc2626}
+
+/* 조합 우려 상대 */
+.kpl .fl.hot{border-color:#dc2626!important;background:#fef2f2!important;color:#b91c1c!important}
+.kpl .fl em{font-style:normal;margin-left:4px;padding:0 6px;border-radius:99px;background:#dc2626;color:#fff;font-size:10.5px;font-weight:800}
+.kpl-combo{display:grid;gap:6px;padding:10px 12px;border-radius:12px;background:#fffbeb;border:1px solid #fde68a}
+.kpl-combo>b{font-size:13.5px;color:#92400e}.kpl-combo>b small{margin-left:6px;font-weight:600;color:#a16207}
+.kpl-combo .list{display:flex;flex-wrap:wrap;gap:6px}
+.kpl-combo .list>span{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 6px 0 12px;border-radius:99px;background:var(--kdn-surface,#fff);border:1px solid #fde68a;font-size:13px}
+.kpl-combo .list>span small{font-size:11.5px;color:var(--kdn-muted,#64748b)}.kpl-combo .list>span i{font-style:normal;font-size:11px;font-weight:800;color:#15803d}
+.kpl-combo .list>span em{font-style:normal;font-size:11px;font-weight:800;padding:1px 7px;border-radius:99px;background:#dc2626;color:#fff}
+.kpl-combo .list>span.same{border-color:#fca5a5;background:#fef2f2}
+.kpl-combo .list button{display:grid;place-items:center;width:20px;height:20px;border:0;border-radius:50%;background:transparent;color:var(--kdn-muted,#64748b);cursor:pointer}
+.kpl-combo .find{display:flex;align-items:center;gap:6px;height:34px;padding:0 10px;border-radius:9px;border:1px solid #fde68a;background:var(--kdn-surface,#fff);color:#a16207}
+.kpl-combo .find input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#111827)}
+.kpl-combo .hits{display:flex;flex-wrap:wrap;gap:6px}
+.kpl-combo .hits button{display:grid;gap:0;padding:6px 10px;border-radius:10px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);text-align:left;font:inherit;cursor:pointer}
+.kpl-combo .hits button b{font-size:13px}.kpl-combo .hits button small{font-size:11.5px;color:var(--kdn-muted,#64748b)}.kpl-combo .hits button:hover{border-color:#d97706}
+.kpl-cside .kpl-memos .new input{flex:none;height:38px}
 `;

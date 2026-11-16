@@ -45,6 +45,7 @@ const LessonStamps = lazy(() => import("./LessonStamps.jsx"));
 const RecordWriter = lazy(() => import("./RecordWriter.jsx"));
 const Handover = lazy(() => import("./Handover.jsx"));
 const ClassPlacement = lazy(() => import("./ClassPlacement.jsx"));
+const PlacementNotice = lazy(() => import("./PlacementNotice.jsx"));
 import InstallPrompt from "./InstallPrompt.jsx";
 import { serverLogin, exchangeTicket, googleAuth, kakaoAuth, signOutAccount, takeAuthReturn, KAKAO_ERRORS, changePassword, verifySession, isLocalDev, submitTeacherSignup, saveAccountsOnServer, syncPublicAccounts, finishPasswordSealing } from "./authClient.js";
 import { HASHED_PW, isHashedPw, randomInitialPassword } from "./accountSecret.js";
@@ -2240,6 +2241,7 @@ export default function App() {
         {overlayUserKey && <PatchNotesPopup userKey={overlayUserKey} audience={loggedInStudent ? "student" : "staff"} onDone={() => setPatchPopupDone(true)} />}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && !loggedInAdmin && canUseMockAnalysis && gdb?.mockData && <MockUploadPopup mockData={gdb.mockData} userKey={overlayUserKey}
           onOpen={latest => { const year = new Date().getFullYear(); const g = latest.entryYear ? String(year - latest.entryYear + 1) : ""; if (["1", "2", "3"].includes(g)) setGrade(g); setTeacherZoneRequest({ mode: "mock", at: Date.now() }); switchSection("teacherZone"); }} />}
+        {patchPopupDone && !loggedInStudent && (loggedInAdmin || (loggedInDepartment && (!departmentGradeAccess(loggedInDepartment).length || departmentGradeAccess(loggedInDepartment).includes("2"))) || (loggedInTeacher && teacherRoleGrade(loggedInTeacher) === "2" && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher)))) && <Suspense fallback={null}><PlacementNotice userKey={overlayUserKey} onOpen={() => { setGrade("2"); setTeacherZoneRequest({ mode: "placement", at: Date.now() }); switchSection("teacherZone"); }} /></Suspense>}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && <PlannerReminders owner={plannerOwnerOf({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin })} onOpen={() => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); }} />}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && <GradeCheckPopup calendar={db.academicCalendar} workspaces={db.teacherGradeWorkspaces} teacher={loggedInTeacher || viewedTeacher} isAdmin={!!loggedInAdmin} semester={semester} userKey={overlayUserKey}
           homeroomClass={loggedInTeacher?.homeroomClass && canUseFeature("classGrades") ? loggedInTeacher.homeroomClass : ""} homeroomGrade={loggedInTeacher?.homeroomClass ? (teacherRoleGrade(loggedInTeacher) || grade) : ""}
