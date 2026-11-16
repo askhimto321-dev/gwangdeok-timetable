@@ -146,8 +146,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const downloadXlsx = async () => {
     const mod = await import("xlsx"); const XLSX = mod.default?.utils ? mod.default : mod;
     const list = Object.entries(placement.students).sort((a, b) => a[1].cls - b[1].cls || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
-    const rows = [["새 반", "원래 배정 반", "이동", "구반", "구번호", "이름", "성별", "원반 과목"]];
-    list.forEach(([sid, s]) => rows.push([s.cls, s.orig, s.cls !== s.orig ? `${s.orig}반 → ${s.cls}반` : "", Number(sid.slice(1, 3)), Number(sid.slice(3, 5)), s.name || roster[sid]?.name || "", s.gender || roster[sid]?.gender || "", (placement.classOb?.[s.cls] || []).join(", ")]));
+    const rows = [["새 반", "원래 배정 반", "이동", "구반", "구번호", "이름", "성별", "원반 과목", "검토 표시", "조합 상대", "메모"]];
+    const rv = { students: review?.students || {} };
+    const nm = id => placement.students[id]?.name || roster[id]?.name || id;
+    list.forEach(([sid, s]) => { const it = rv.students[sid] || {}; const flags = STUDENT_FLAGS.filter(f => (it.marks?.[f.key] || []).length).map(f => f.label).join(", "); const partners = Array.from(new Set((it.combos || []).map(c => c.with))).map(o => `${nm(o)}(${placement.students[o]?.cls || "?"}반)`).join(", "); const memos = (it.memos || []).map(m => `${m.by}: ${m.text}`).join(" / ");
+      rows.push([s.cls, s.orig, s.cls !== s.orig ? `${s.orig}반 → ${s.cls}반` : "", Number(sid.slice(1, 3)), Number(sid.slice(3, 5)), s.name || roster[sid]?.name || "", s.gender || roster[sid]?.gender || "", (placement.classOb?.[s.cls] || []).join(", "), flags, partners, memos]); });
     const moves = [["시각", "학생", "구반-번호", "옮긴 반", "맞바꾼 학생", "옮긴 사람"], ...placement.moves.map(m => [new Date(m.at).toLocaleString("ko-KR"), placement.students[m.sid]?.name || m.sid, oldLabel(m.sid), `${m.from}반 → ${m.to}반`, m.swap ? `${placement.students[m.swap]?.name || m.swap} (${m.to}반 → ${m.from}반)` : "", m.by])];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "반편성 결과");
@@ -210,6 +213,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const genderOf = sid => placement.students[sid]?.gender || roster?.[sid]?.gender || "";
   const summary = classSummary(placement);
   const classes = summary.map(s => s.cls);
+  const allView = tab === "all";
   const curTab = classes.includes(tab) ? tab : classes[0];
 
   return <div className="kpl"><style>{CSS}</style>
@@ -223,13 +227,14 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       <div className="ft"><button type="button" className="kpl-btn" onClick={() => { setAlertSeen(v => ({ ...v, [groupAlert.sig]: true })); setGroupAlert(null); }}>이 반은 그만 알리기</button><button type="button" className="kpl-btn pri" onClick={() => setGroupAlert(null)}>확인</button></div>
     </div></div>}
     <div className="kpl-views four" role="tablist">
-      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["moves", "이동 결과", `${placement.moves.length}건`], ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`${curView === k ? "on" : ""}${k === "check" && count("same") ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster") openClassAlert(curTab); }}><b>{l}</b><span>{sub}</span></button>)}
+      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["moves", "이동 결과", `${placement.moves.length}건`], ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`${curView === k ? "on" : ""}${k === "check" && count("same") ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster" && !allView) openClassAlert(curTab); }}><b>{l}</b><span>{sub}</span></button>)}
     </div>
 
     {curView === "sep" && separation}
     {curView === "roster" && (() => {
       const q = find.trim();
-      const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : Number(s.cls) === curTab));
+      const wide = !!q || allView; // 검색·전체 보기: 모든 반 학생을 한 표로
+      const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : allView || Number(s.cls) === curTab));
       const FILTERS = [...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
         { key: "miss", label: "분리 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", label: "조합 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
         { key: "moved", label: "다른 반에서 옴", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
@@ -237,7 +242,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const activeF = FILTERS.find(f => f.key === rowFilter);
       const canGo = (sid, c) => movableClasses(placement, sid).includes(Number(c));
       const toF = toFilter && toFilter !== curTab ? toFilter : 0;
-      const list = base.filter(e => !activeF || activeF.test(e)).filter(([sid]) => !toF || canGo(sid, toF)).sort((a, b) => (q ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+      const list = base.filter(e => !activeF || activeF.test(e)).filter(([sid]) => !toF || canGo(sid, toF)).sort((a, b) => (wide ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
       const sm = summary.find(s => s.cls === curTab) || {};
       const cls = review.classes[curTab] || {};
       const flagCount = key => base.filter(([sid]) => (review.students[sid]?.marks?.[key] || []).length).length;
@@ -245,15 +250,22 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const groupN = groupsIn(curTab).length;
       const comboN = pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === curTab && Number(placement.students[p.b]?.cls) === curTab).length;
       const ob = placement.classOb?.[curTab] || [];
-      const cols = q ? 11 : 10;
+      const cols = wide ? 11 : 10;
+      const total = summary.reduce((t, x) => ({ n: t.n + (x.n || 0), m: t.m + (x.m || 0), f: t.f + (x.f || 0) }), { n: 0, m: 0, f: 0 });
+      const totalMiss = Object.keys(placement.students).filter(id => missSet.has(id)).length;
+      const goClass = c => { setTab(Number(c)); setFind(""); setOpenSid(""); setMoveSid(""); openClassAlert(Number(c)); };
       const mPct = sm.n ? Math.round((sm.m / sm.n) * 100) : 0;
       const Stat = ({ icon = "", label, n, unit = "", tone = "", hint = "" }) => <div className={`st-row ${tone}`} title={hint}><i className={`ic-${icon}`} /><span>{label}</span><b>{n}<small>{unit}</small></b></div>;
       return <>
-        <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length }}>{summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q} data-kdn-bare className={s.cls === curTab && !q ? "on" : ""} onClick={() => { setTab(s.cls); setFind(""); setOpenSid(""); setMoveSid(""); openClassAlert(s.cls); }}>
+        <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length + 1 }}>
+          <button type="button" role="tab" aria-selected={allView && !q} data-kdn-bare className={`all${allView && !q ? " on" : ""}`} onClick={() => { setTab("all"); setFind(""); setOpenSid(""); setMoveSid(""); setToFilter(0); }}>
+            {totalMiss ? <i className="dot" title={`분리 미반영 ${totalMiss}명`}>{totalMiss}</i> : null}
+            <b>전체</b><span className="n">{total.n}명</span><span className="gbar"><i style={{ width: `${total.n ? Math.round((total.m / total.n) * 100) : 0}%` }} /></span><small>남 {total.m} · 여 {total.f}</small></button>
+          {summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q && !allView} data-kdn-bare className={s.cls === curTab && !q && !allView ? "on" : ""} onClick={() => goClass(s.cls)}>
           {miss ? <i className="dot" title={`분리 미반영 ${miss}명`}>{miss}</i> : null}
           <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small></button>; })}</div>
-        <div className={`kpl-split2${q ? " searching" : ""}`}>
-          {!q && <aside className="kpl-side2">
+        <div className={`kpl-split2${wide ? " searching" : ""}`}>
+          {!wide && <aside className="kpl-side2">
             <header><b>{nextGrade}학년 {curTab}반</b><span>{sm.n}명</span></header>
             <div className="gender"><span className="m">남 {sm.m}</span><span className="bar"><i style={{ width: `${mPct}%` }} /></span><span className="f">여 {sm.f}</span></div>
             <div className="stat-list">
@@ -275,21 +287,23 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
           <section className="kpl-tbl">
             <div className="tools"><label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기(예: 4-15)" /></label>
               <button type="button" data-kdn-bare className="kpl-btn grp-add" onClick={() => setGroupEdit({ name: "", memo: "", members: [] })}><Users size={15} /> 조합 그룹 만들기</button></div>
-            {(() => { const related = (review.groups || []).filter(g => q || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
+            {(() => { const related = (review.groups || []).filter(g => wide || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
+            {allView && !q && <div className="kpl-sres all"><Users size={15} /><b>전체 학생 {list.length}명{activeF ? ` · '${activeF.label}'` : ""}</b><small>모든 반을 한 번에 봐요. 새 반을 누르면 그 반으로 가요.</small></div>}
             {q && <div className="kpl-sres"><Search size={15} /><b>'{q}' 검색 결과 {list.length}명</b><small>모든 반에서 찾았어요. 새 반을 누르면 그 반으로 가요.</small><button type="button" data-kdn-bare onClick={() => setFind("")}><X size={13} /> 검색 지우기</button></div>}
             <div className="kpl-filter" role="group" aria-label="학생 거르기"><small>거르기</small>
               <button type="button" data-kdn-bare className={`all${!rowFilter ? " on" : ""}`} onClick={() => setRowFilter("")}>전체 <b>{base.length}</b></button>
               {FILTERS.map(f => { const n = base.filter(f.test).length; return <button key={f.key} type="button" data-kdn-bare disabled={!n && rowFilter !== f.key} className={`t-${f.tone}${rowFilter === f.key ? " on" : ""}`} onClick={() => setRowFilter(v => (v === f.key ? "" : f.key))}>{f.label} <b>{n}</b></button>; })}
             </div>
-            {!q && placement.kind === "program" || (!q && Object.values(placement.students).some(x => x.can)) ? <div className="kpl-filter kpl-to" role="group" aria-label="옮길 수 있는 반으로 거르기"><small>{curTab}반 → 옮길 반</small>
+            {wide && activeF && <div className="kpl-dist" aria-label="반별 인원"><small>반별</small>{classes.map(c => { const n = list.filter(([, x]) => Number(x.cls) === c).length; return <button key={c} type="button" data-kdn-bare className={n ? "has" : ""} onClick={() => goClass(c)} title={`${c}반 명단으로`}>{c}반 <b>{n}</b></button>; })}</div>}
+            {!wide && placement.kind === "program" || (!wide && Object.values(placement.students).some(x => x.can)) ? <div className="kpl-filter kpl-to" role="group" aria-label="옮길 수 있는 반으로 거르기"><small>{curTab}반 → 옮길 반</small>
               <button type="button" data-kdn-bare className={`all${!toF ? " on" : ""}`} onClick={() => setToFilter(0)}>전체</button>
               {classes.filter(c => c !== curTab).map(c => { const n = base.filter(([sid]) => canGo(sid, c)).length; const back = Object.entries(placement.students).filter(([id, x]) => Number(x.cls) === c && movableClasses(placement, id).includes(curTab)).length; return <button key={c} type="button" data-kdn-bare disabled={!n && toF !== c} className={`t-info${toF === c ? " on" : ""}`} title={`${curTab}반 → ${c}반으로 갈 수 있는 학생 ${n}명 · ${c}반 → ${curTab}반으로 올 수 있는 학생 ${back}명`} onClick={() => { setToFilter(v => (v === c ? 0 : c)); setOpenSid(""); }}>{c}반</button>; })}
             </div> : null}
             <div className="scroll"><table className="kpl-grid">
-              <thead><tr>{q && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th><th className="c">이동</th></tr></thead>
+              <thead><tr>{wide && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th><th className="c">이동</th></tr></thead>
               <tbody>{list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableClasses(placement, sid); const g = genderOf(sid); const cs = combosOf(sid); const same = comboSame(sid); return <React.Fragment key={sid}>
                 <tr className={`${missSet.has(sid) ? "miss" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
-                  {q && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => { setTab(Number(s.cls)); setFind(""); openClassAlert(Number(s.cls)); }} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
+                  {wide && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => goClass(s.cls)} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
                   <td className="c no">{oldLabel(sid)}</td>
                   <td className="nm"><b>{s.name || roster[sid]?.name || sid}</b>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}{moved && <span className="mvtag">{s.orig}반에서</span>}</td>
                   <td className="c">{r ? <span className={`st ${STATUS[r.status].tone}`} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"}</span> : <span className="dash">-</span>}</td>
@@ -779,6 +793,11 @@ const CSS = `
 .kpl-filter.kpl-to>small em{font-style:normal;font-weight:600;color:var(--kdn-muted,#64748b);margin-left:6px}
 
 .kpl-split2.searching{grid-template-columns:1fr!important}
+.kpl-ctabs2 button.all b{color:var(--kdn-accent,#2563eb)}
+.kpl-sres.all{color:var(--kdn-ink,#111827);background:var(--kdn-surface-2,#f1f5f9);border-color:var(--kdn-line,#e2e8f0)}
+.kpl-dist{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.kpl-dist small{font-size:12.5px;font-weight:800;color:var(--kdn-muted,#64748b);margin-right:2px}
+.kpl-dist button{height:30px;padding:0 10px;border-radius:99px;border:1px solid var(--kdn-line,#e2e8f0);background:var(--kdn-surface,#fff);color:var(--kdn-muted,#64748b);font:inherit;font-size:12.5px;cursor:pointer}
+.kpl-dist button b{margin-left:3px;font-variant-numeric:tabular-nums}.kpl-dist button.has{color:var(--kdn-ink,#111827);border-color:#93c5fd}.kpl-dist button.has b{color:#1d4ed8}
 .kpl-sres{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:10px 14px;border-radius:12px;background:color-mix(in srgb,#2563eb 7%,var(--kdn-surface,#fff));border:1px solid #bfdbfe;color:#1d4ed8}
 .kpl-sres b{font-size:14.5px}.kpl-sres small{font-size:12.5px;color:var(--kdn-ink-soft,#334155)}
 .kpl-sres button{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 12px;border-radius:9px;border:1px solid #93c5fd;background:var(--kdn-surface,#fff);color:#1d4ed8;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
