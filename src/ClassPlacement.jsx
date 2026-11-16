@@ -14,13 +14,14 @@ const fmt = iso => { const d = new Date(iso || ""); return Number.isNaN(d.getTim
 const oldLabel = sid => `${Number(String(sid).slice(1, 3))}-${Number(String(sid).slice(3, 5))}`;
 const ORDER = ["same", "unknown", "ok"];
 
-export default function ClassPlacement({ roster = {}, actor = null, canManage = false, showToast = () => {} }) {
+export default function ClassPlacement({ roster = {}, actor = null, canManage = false, showToast = () => {}, separation = null, initialView = "", viewRequest = 0 }) {
   const year = schoolYearOf();
   const nextGrade = 3;
   const [placement, setPlacement] = React.useState(undefined);
   const [review, setReview] = React.useState({ students: {}, classes: {} });
   const [sepData, setSepData] = React.useState({});
-  const [view, setView] = React.useState("roster");
+  const [view, setView] = React.useState(initialView || "");
+  React.useEffect(() => { if (initialView) setView(initialView); }, [viewRequest]); // eslint-disable-line react-hooks/exhaustive-deps
   const [tab, setTab] = React.useState(0);
   const [filter, setFilter] = React.useState("");
   const [by, setBy] = React.useState("student");
@@ -49,6 +50,13 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     });
     return () => { on = false; };
   }, [year, oldClasses.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 분리희망 입력에서 고친 내용이 확인 화면에 바로 반영되게 다시 읽어요
+  React.useEffect(() => {
+    if (view === "sep" || !oldClasses.length) return;
+    let on = true;
+    Promise.all(oldClasses.map(async c => [c, await readStorage(separationKey(year, "2", c), { entries: {} }).catch(() => ({ entries: {} }))])).then(seps => on && setSepData(Object.fromEntries(seps)));
+    return () => { on = false; };
+  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const readFile = async file => {
     if (!file) return;
@@ -95,9 +103,18 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   };
   const toggleMark = (bucket, id, key) => saveReview(v => {
     const item = { ...(v[bucket][id] || {}) }; const marks = { ...(item.marks || {}) }; const list = marks[key] || [];
-    marks[key] = list.some(m => m.byId === me.id) ? list.filter(m => m.byId !== me.id) : [...list, { byId: me.id, by: me.name, at: new Date().toISOString() }];
+    const turningOff = list.some(m => m.byId === me.id);
+    marks[key] = turningOff ? list.filter(m => m.byId !== me.id) : [...list, { byId: me.id, by: me.name, at: new Date().toISOString() }];
     if (!marks[key].length) delete marks[key];
-    v[bucket][id] = { ...item, marks }; return v;
+    v[bucket][id] = { ...item, marks };
+    // 조합 우려를 풀면 내가 지정한 상대(양쪽 기록)도 함께 지워요
+    if (bucket === "students" && key === "combo" && turningOff) {
+      const partners = new Set((item.combos || []).filter(c => c.byId === me.id).map(c => c.with));
+      Object.entries(v.students).forEach(([other, it]) => { if ((it.combos || []).some(c => c.with === id && c.byId === me.id)) partners.add(other); });
+      v.students[id] = { ...v.students[id], combos: (v.students[id].combos || []).filter(c => c.byId !== me.id) };
+      partners.forEach(o => { if (v.students[o]) v.students[o] = { ...v.students[o], combos: (v.students[o].combos || []).filter(c => !(c.with === id && c.byId === me.id)) }; });
+    }
+    return v;
   });
   const addMemo = (bucket, id, text) => saveReview(v => { const item = { ...(v[bucket][id] || {}) }; item.memos = [...(item.memos || []), { byId: me.id, by: me.name, at: new Date().toISOString(), text: text.trim() }]; v[bucket][id] = item; return v; });
   const removeMemo = (bucket, id, at) => saveReview(v => { const item = { ...(v[bucket][id] || {}) }; item.memos = (item.memos || []).filter(m => !(m.at === at && m.byId === me.id)); v[bucket][id] = item; return v; });
@@ -137,7 +154,12 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     </ul>
     <div className="ft"><button type="button" className="kpl-btn" onClick={() => setPreview(null)}>취소</button><button type="button" className="kpl-btn pri" onClick={save}>이대로 반영</button></div>
   </section>;
-  if (!placement) return <div className="kpl"><style>{CSS}</style>{head}{previewBox}</div>;
+  const sepPairsN = separationPairs(sepData).length;
+  const curView = view || (placement ? "roster" : "sep");
+  if (!placement) return <div className="kpl"><style>{CSS}</style>{head}{previewBox}
+    <div className="kpl-views four" role="tablist">{[["sep", "분리희망 입력", `${sepPairsN}쌍`], ["roster", "반별 명단", "결과 전"], ["moves", "이동 결과", "결과 전"], ["check", "분리희망 확인", "결과 전"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={curView === k ? "on" : ""} onClick={() => setView(k)}><b>{l}</b><span>{sub}</span></button>)}</div>
+    {curView === "sep" ? separation : <p className="kpl-empty">{canManage ? "반편성 결과 파일을 올리면 새 반 명단 · 이동 · 분리희망 확인을 할 수 있어요." : "관리자·학년부장이 반편성 결과를 올리면 볼 수 있어요. 그 전까지는 분리희망 입력을 해 주세요."}</p>}
+  </div>;
 
   const bySid = bySidOf(placement);
   const pairs = separationPairs(sepData);
@@ -161,11 +183,12 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
 
   return <div className="kpl"><style>{CSS}</style>
     {head}{previewBox}
-    <div className="kpl-views" role="tablist">
-      {[["roster", "반별 명단", `${classes.length}개 반`], ["moves", "이동 결과", `${placement.moves.length}건`], ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={view === k} className={`${view === k ? "on" : ""}${k === "check" && count("same") ? " alert" : ""}`} onClick={() => setView(k)}><b>{l}</b><span>{sub}</span></button>)}
+    <div className="kpl-views four" role="tablist">
+      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["moves", "이동 결과", `${placement.moves.length}건`], ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`${curView === k ? "on" : ""}${k === "check" && count("same") ? " alert" : ""}`} onClick={() => setView(k)}><b>{l}</b><span>{sub}</span></button>)}
     </div>
 
-    {view === "roster" && (() => {
+    {curView === "sep" && separation}
+    {curView === "roster" && (() => {
       const q = find.trim();
       const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : Number(s.cls) === curTab));
       const FILTERS = [...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
@@ -182,7 +205,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const ob = placement.classOb?.[curTab] || [];
       const cols = q ? 11 : 10;
       const mPct = sm.n ? Math.round((sm.m / sm.n) * 100) : 0;
-      const Stat = ({ label, value, tone = "", hint = "" }) => <div className={`st-row ${tone}`} title={hint}><span>{label}</span><b>{value}</b></div>;
+      const Stat = ({ icon = "", label, n, unit = "", tone = "", hint = "" }) => <div className={`st-row ${tone}`} title={hint}><i className={`ic-${icon}`} /><span>{label}</span><b>{n}<small>{unit}</small></b></div>;
       return <>
         <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length }}>{summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q} data-kdn-bare className={s.cls === curTab && !q ? "on" : ""} onClick={() => { setTab(s.cls); setFind(""); setOpenSid(""); setMoveSid(""); }}>
           {miss ? <i className="dot" title={`분리 미반영 ${miss}명`}>{miss}</i> : null}
@@ -192,11 +215,15 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             <header><b>{nextGrade}학년 {curTab}반</b><span>{sm.n}명</span></header>
             <div className="gender"><span className="m">남 {sm.m}</span><span className="bar"><i style={{ width: `${mPct}%` }} /></span><span className="f">여 {sm.f}</span></div>
             <div className="stat-list">
-              <Stat label="리더 후보" value={`${flagCount("leader")}명`} tone={flagCount("leader") ? "" : "warn"} hint="선생님들이 리더 후보로 표시한 학생" />
-              <Stat label="분리희망 미반영" value={`${missN}명`} tone={missN ? "bad" : ""} />
-              <Stat label="조합 우려 같은 반" value={`${comboN}쌍`} tone={comboN ? "bad" : ""} />
-              <Stat label="배려 필요 · 생활지도 주의" value={`${flagCount("care")} · ${flagCount("guide")}명`} />
-              <Stat label="받은 학생 · 보낸 학생" value={`${sm.inn || 0} · ${sm.out || 0}명`} tone={sm.inn || sm.out ? "info" : ""} hint="이동으로 이 반에 온 학생 · 다른 반으로 간 학생" />
+              <h6>학생 표시</h6>
+              <Stat icon="good" label="리더 후보" n={flagCount("leader")} unit="명" tone={flagCount("leader") ? "" : "warn"} hint="선생님들이 리더 후보로 표시한 학생" />
+              <Stat icon="info" label="배려 필요" n={flagCount("care")} unit="명" />
+              <Stat icon="bad" label="생활지도 주의" n={flagCount("guide")} unit="명" />
+              <h6>배정 점검</h6>
+              <Stat icon="bad" label="분리희망 미반영" n={missN} unit="명" tone={missN ? "bad" : ""} />
+              <Stat icon="warn" label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} />
+              <Stat icon="mv" label="받은 학생" n={sm.inn || 0} unit="명" hint="이동으로 이 반에 온 학생" />
+              <Stat icon="mv" label="보낸 학생" n={sm.out || 0} unit="명" hint="이동으로 다른 반에 간 학생" />
             </div>
             {placement.kind === "program" && <div className="blk"><h5>원반 과목</h5>{ob.length ? <div className="ob">{ob.map(x => <span key={x}>{x}</span>)}</div> : <p className="nil">없음 (원반 과목 제한 없음)</p>}</div>}
             <div className="blk"><h5>반 점검 <small>해당되면 체크</small></h5><ul className="chk">{CLASS_CHECKS.map(c => { const marks = cls.marks?.[c.key] || []; const mine = marks.some(m => m.byId === me.id); return <li key={c.key}><button type="button" data-kdn-bare className={`${marks.length ? "on" : ""}${mine ? " mine" : ""}`} title={c.hint} onClick={() => toggleMark("classes", curTab, c.key)}><i>{mine ? "✓" : ""}</i><span>{c.label}</span>{marks.length ? <small>{marks.map(m => m.by).join(", ")}</small> : null}</button></li>; })}</ul></div>
@@ -235,7 +262,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         </div>
       </>;
     })()}
-    {view === "check" && <>
+    {curView === "check" && <>
       <div className="kpl-sum">
         <div><small>분리희망 쌍</small><b>{checked.length}</b></div>
         <div className="good"><small>반영 (다른 반)</small><b>{count("ok")}</b></div>
@@ -260,7 +287,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       {!checked.length && <p className="kpl-nil">입력된 분리희망이 없어요. 분리희망학생 탭에서 입력해요.</p>}
     </>}
 
-    {view === "moves" && <>
+    {curView === "moves" && <>
       <div className="kpl-sum">
         <div><small>이동</small><b>{placement.moves.length}</b></div>
         <div><small>옮긴 학생</small><b>{Object.values(placement.students).filter(s => s.cls !== s.orig).length}</b></div>
@@ -281,13 +308,22 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
 function ComboPicker({ sid, placement, combos, mine, theirsMine = [], nameOf, onAdd, onRemove }) {
   const [q, setQ] = React.useState("");
   const me = placement.students[sid];
-  const taken = new Set([sid, ...combos.map(c => c.other)]);
-  const hits = q.trim() ? Object.entries(placement.students).filter(([id, x]) => !taken.has(id) && (String(x.name || nameOf(id)).includes(q.trim()) || oldLabel(id).includes(q.trim()))).slice(0, 8) : [];
+  const myCls = Number(me?.cls);
+  const partnerIds = new Set(combos.map(c => c.other));
+  const removable = id => mine.includes(id) || theirsMine.includes(id);
+  const sameClass = Object.entries(placement.students).filter(([id, x]) => id !== sid && Number(x.cls) === myCls).sort((a, b) => (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+  const others = combos.filter(c => Number(placement.students[c.other]?.cls) !== myCls);
+  const hits = q.trim() ? Object.entries(placement.students).filter(([id, x]) => id !== sid && Number(x.cls) !== myCls && !partnerIds.has(id) && (String(x.name || nameOf(id)).includes(q.trim()) || oldLabel(id).includes(q.trim()))).slice(0, 10) : [];
+  const toggle = id => { if (partnerIds.has(id)) { if (removable(id)) onRemove(id); } else onAdd(id); };
   return <div className="kpl-combo">
-    <b>조합 우려 상대 <small>같은 반이면 서로 영향이 큰 학생</small></b>
-    {combos.length > 0 && <div className="list">{combos.map(c => { const o = placement.students[c.other] || {}; const same = Number(o.cls) === Number(me?.cls); const removable = mine.includes(c.other) || theirsMine.includes(c.other); return <span key={c.other} className={same ? "same" : ""} title={`표시: ${c.by.join(", ")}`}><b>{nameOf(c.other)}</b><small>{oldLabel(c.other)} → {o.cls || "?"}반</small>{same ? <em>같은 반</em> : <i>다른 반</i>}{removable && <button type="button" data-kdn-bare onClick={() => onRemove(c.other)} aria-label="빼기"><X size={11} /></button>}</span>; })}</div>}
-    <label className="find"><Search size={13} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="상대 학생 이름 또는 구반-번호로 찾기" /></label>
-    {hits.length > 0 && <div className="hits">{hits.map(([id, x]) => <button key={id} type="button" data-kdn-bare onClick={() => { onAdd(id); setQ(""); }}><b>{x.name || nameOf(id)}</b><small>{oldLabel(id)} · {x.cls}반{Number(x.cls) === Number(me?.cls) ? " · 같은 반" : ""}</small></button>)}</div>}
+    <div className="ch"><b>조합 우려 상대</b><small>같은 반이 되면 서로 영향이 큰 학생을 골라요. 같은 반이면 빨갛게 표시돼요.</small></div>
+    <div className="part"><h6>우리 반({myCls}반) 학생에서 고르기 <small>눌러서 선택 · 다시 누르면 빼기</small></h6>
+      <div className="pick">{sameClass.map(([id, x]) => { const on = partnerIds.has(id); return <button key={id} type="button" data-kdn-bare className={on ? "on" : ""} disabled={on && !removable(id)} title={on && !removable(id) ? "다른 선생님이 지정한 상대예요" : ""} onClick={() => toggle(id)}><b>{x.name || nameOf(id)}</b><small>{oldLabel(id)}</small></button>; })}</div></div>
+    <div className="part"><h6>다른 반 학생 찾기 <small>이름 또는 구반-번호</small></h6>
+      {others.length > 0 && <div className="list">{others.map(c => { const o = placement.students[c.other] || {}; return <span key={c.other} title={`표시: ${c.by.join(", ")}`}><b>{nameOf(c.other)}</b><small>{oldLabel(c.other)} · 지금 {o.cls || "?"}반</small>{removable(c.other) && <button type="button" data-kdn-bare onClick={() => onRemove(c.other)} aria-label="빼기"><X size={11} /></button>}</span>; })}</div>}
+      <label className="find"><Search size={14} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="예: 김○○, 4-15" /></label>
+      {q.trim() && <div className="hits">{hits.length ? hits.map(([id, x]) => <button key={id} type="button" data-kdn-bare onClick={() => { onAdd(id); setQ(""); }}><b>{x.name || nameOf(id)}</b><small>{oldLabel(id)} · 지금 {x.cls}반</small></button>) : <p className="nil">다른 반에서 찾는 학생이 없어요.</p>}</div>}
+    </div>
   </div>;
 }
 
@@ -584,4 +620,43 @@ const CSS = `
 .kpl-move li .swp{flex:none;display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border-radius:9px;border:1px solid #93c5fd;background:var(--kdn-surface,#fff);color:#1d4ed8;font:inherit;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap}
 .kpl-move li .swp:hover{background:#2563eb;border-color:#2563eb;color:#fff}
 .kpl-move li.clash .swp{border-color:#fca5a5;color:#b91c1c}.kpl-move li.clash .swp:hover{background:#dc2626;border-color:#dc2626;color:#fff}
+
+/* ── 표 구분선(사이트 공통 스타일보다 우선) ── */
+.kpl-grid{border-collapse:separate!important;border-spacing:0!important}
+.kpl-grid th,.kpl-grid td{border-bottom:1px solid #e3e7ee!important}
+.kpl-grid tbody tr:last-child>td{border-bottom:0!important}
+.kpl-grid th:not(:last-child),.kpl-grid td:not(:last-child){border-right:1px solid #f0f2f6!important}
+.kpl-grid th.fh,.kpl-grid td.fc{background-clip:padding-box}
+.kpl-grid thead th{border-bottom:2px solid #d5dbe5!important}
+.kpl-grid tr.sub>td{border-right:0!important}
+.kpl-grid tbody tr:nth-child(even):not(.sub):not(.miss):not(.active)>td{background:#fbfcfe}
+/* ── 반 현황 ── */
+.kpl-side2 .stat-list{padding:4px 0}
+.kpl-side2 .stat-list h6{margin:8px 16px 2px;font-size:11.5px;font-weight:800;letter-spacing:.02em;color:var(--kdn-muted,#64748b)}
+.kpl-side2 .st-row{display:grid!important;grid-template-columns:10px minmax(0,1fr) auto;gap:10px!important;padding:8px 16px!important;border-bottom:0!important;border-radius:0}
+.kpl-side2 .st-row+.st-row{box-shadow:inset 0 1px 0 #f1f3f7}
+.kpl-side2 .st-row>i{width:8px;height:8px;border-radius:50%;background:#cbd5e1}
+.kpl-side2 .st-row>i.ic-good{background:#16a34a}.kpl-side2 .st-row>i.ic-info{background:#2563eb}.kpl-side2 .st-row>i.ic-bad{background:#dc2626}.kpl-side2 .st-row>i.ic-warn{background:#d97706}.kpl-side2 .st-row>i.ic-mv{background:#7c3aed}
+.kpl-side2 .st-row span{font-size:13.5px}
+.kpl-side2 .st-row b{font-size:17px!important;font-weight:800;text-align:right;min-width:42px}.kpl-side2 .st-row b small{font-size:12px;font-weight:700;margin-left:2px;color:var(--kdn-muted,#64748b)}
+.kpl-side2 .st-row.warn{background:#fffbeb!important}.kpl-side2 .st-row.bad{background:#fef2f2!important}
+.kpl-side2 .stat-list{border-bottom:1px solid var(--kdn-line,#eef1f5)}
+/* ── 조합 우려 상대 고르기 ── */
+.kpl-combo{gap:12px!important;padding:14px 16px!important;justify-items:stretch;text-align:left}
+.kpl-combo .ch{display:grid;gap:2px}.kpl-combo .ch b{font-size:14.5px;color:#92400e}.kpl-combo .ch small{font-size:12.5px;color:#a16207}
+.kpl-combo .part{display:grid;gap:8px;padding:10px 12px;border-radius:12px;background:var(--kdn-surface,#fff);border:1px solid #fde68a}
+.kpl-combo h6{margin:0;font-size:13px;font-weight:800;color:var(--kdn-ink,#111827)}.kpl-combo h6 small{margin-left:6px;font-weight:600;color:var(--kdn-muted,#64748b)}
+.kpl-combo .pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:6px}
+.kpl-combo .pick button{display:grid;gap:1px;padding:7px 10px;border-radius:10px;border:1px solid var(--kdn-line,#dfe4ec);background:var(--kdn-surface,#fff);text-align:left;font:inherit;cursor:pointer}
+.kpl-combo .pick button b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpl-combo .pick button small{font-size:11.5px;color:var(--kdn-muted,#64748b)}
+.kpl-combo .pick button:hover{border-color:#f59e0b}
+.kpl-combo .pick button.on{background:#dc2626;border-color:#dc2626;color:#fff}.kpl-combo .pick button.on small{color:#fee2e2}
+.kpl-combo .pick button:disabled{cursor:not-allowed;opacity:.85}
+.kpl-combo .list>span{border-color:#e5e7eb!important}
+.kpl-combo .find{height:38px!important;border-color:var(--kdn-line,#dfe4ec)!important;color:var(--kdn-muted,#64748b)!important}
+.kpl-combo .hits .nil{margin:0;font-size:13px;color:var(--kdn-muted,#64748b)}
+
+.kpl-views.four{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:760px){.kpl-views.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpl-empty{margin:0;padding:28px;border-radius:16px;border:1px dashed var(--kdn-line,#cbd5e1);text-align:center;font-size:14px;color:var(--kdn-muted,#64748b)}
 `;
