@@ -1,7 +1,7 @@
 // 선생님 ZONE '반편성': 반편성 프로그램 결과(엑셀)를 올려 새 반 명단을 보고,
 // ① 배정가능학급(원반 과목 기준) 안에서 학생을 옮기거나 맞바꾸고 ② 분리희망이 반영됐는지 확인하고
 // ③ 선생님들이 학생·반에 검토 표시를 남기고 ④ 이동 결과를 한눈에 보고 엑셀로 받아요.
-// 보기·검토 표시: 반편성 탭을 볼 수 있는 교직원 / 파일 올리기·이동: 관리자·부서·학년부장
+// 보기·검토 표시·이동: 반편성 탭을 볼 수 있는 교직원(이동은 기록되고 되돌릴 수 있음) / 파일 올리기·지우기: 관리자·부서·학년부장
 import React from "react";
 import { AlertTriangle, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { readStorage, updateStorage, writeStorage } from "./storage.js";
@@ -14,7 +14,7 @@ const fmt = iso => { const d = new Date(iso || ""); return Number.isNaN(d.getTim
 const oldLabel = sid => `${Number(String(sid).slice(1, 3))}-${Number(String(sid).slice(3, 5))}`;
 const ORDER = ["same", "unknown", "ok"];
 
-export default function ClassPlacement({ roster = {}, actor = null, canManage = false, showToast = () => {}, separation = null, initialView = "", viewRequest = 0 }) {
+export default function ClassPlacement({ roster = {}, actor = null, canManage = false, canMove = true, showToast = () => {}, separation = null, initialView = "", viewRequest = 0 }) {
   const year = schoolYearOf();
   const nextGrade = 3;
   const [placement, setPlacement] = React.useState(undefined);
@@ -279,7 +279,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
               {classes.filter(c => c !== curTab).map(c => { const n = base.filter(([sid]) => canGo(sid, c)).length; const back = Object.entries(placement.students).filter(([id, x]) => Number(x.cls) === c && movableClasses(placement, id).includes(curTab)).length; return <button key={c} type="button" data-kdn-bare disabled={!n && toF !== c} className={`t-info${toF === c ? " on" : ""}`} title={`${curTab}반 → ${c}반으로 갈 수 있는 학생 ${n}명 · ${c}반 → ${curTab}반으로 올 수 있는 학생 ${back}명`} onClick={() => { setToFilter(v => (v === c ? 0 : c)); setOpenSid(""); }}>{c}반</button>; })}
             </div> : null}
             <div className="scroll"><table className="kpl-grid">
-              <thead><tr>{q && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th>{canManage ? <th className="c">이동</th> : <th />}</tr></thead>
+              <thead><tr>{q && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th><th className="c">이동</th></tr></thead>
               <tbody>{list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableClasses(placement, sid); const g = genderOf(sid); const cs = combosOf(sid); const same = comboSame(sid); return <React.Fragment key={sid}>
                 <tr className={`${missSet.has(sid) ? "miss" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
                   {q && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => { setTab(Number(s.cls)); setFind(""); openClassAlert(Number(s.cls)); }} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
@@ -292,7 +292,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                     {isCombo && (marks.length > 0 || cs.length > 0) && <button type="button" data-kdn-bare className={`cmb${same.length ? " hot" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }} title={cs.length ? cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join("\n") : "상대 학생 지정"}>{cs.length ? `상대 ${cs.length}${same.length ? " · 같은 반" : ""}` : "상대 지정"}</button>}
                   </td>; })}
                   <td className="c"><button type="button" data-kdn-bare className={`ic${memoN ? " has" : ""}${openSid === sid ? " on" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }} title="메모·조합 상대"><MessageSquare size={14} />{memoN ? <small>{memoN}</small> : null}</button></td>
-                  <td className="c">{canManage && <button type="button" data-kdn-bare className={`mvb${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이동</button>}</td>
+                  <td className="c">{canMove && <button type="button" data-kdn-bare className={`mvb${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이동</button>}</td>
                 </tr>
                 {openSid === sid && <tr className="sub"><td colSpan={cols}><div className="panel2">
                   <ComboPicker sid={sid} placement={placement} combos={cs} mine={(item.combos || []).filter(c => c.byId === me.id).map(c => c.with)} theirsMine={cs.map(c => c.other).filter(o => (review.students[o]?.combos || []).some(c => c.with === sid && c.byId === me.id))} nameOf={nameOf} onAdd={o => addCombo(sid, o)} onRemove={o => removeCombo(sid, o)} />
@@ -320,7 +320,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       </div>
       {by === "student" ? <div className="kpl-students">{results.filter(s => !filter || s.status === filter).sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status) || a.sid.localeCompare(b.sid)).map(s => { const st = STATUS[s.status]; return <article key={s.sid} className={`t-${st.tone}`}>
           <header><b>{nameOf(s.sid)}</b><small>{oldLabel(s.sid)}</small><span className="to">{s.cls ? `→ ${s.cls}반` : "→ 결과 없음"}</span><span className={`st ${st.tone}`}><st.Icon size={13} /> {s.status === "same" ? "미반영 있음" : s.status === "ok" ? "모두 반영" : "확인 필요"}</span>
-            {canManage && s.cls && s.status === "same" && <button type="button" data-kdn-bare className="go" onClick={() => { setView("roster"); setTab(s.cls); setFind(""); setMoveSid(s.sid); setMoveTo(0); }}>옮기러 가기 <ArrowRight size={12} /></button>}</header>
+            {canMove && s.cls && s.status === "same" && <button type="button" data-kdn-bare className="go" onClick={() => { setView("roster"); setTab(s.cls); setFind(""); setMoveSid(s.sid); setMoveTo(0); }}>옮기러 가기 <ArrowRight size={12} /></button>}</header>
           <ul>{[...s.items].sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status)).map(i => <li key={i.other} className={i.status}><span className={`lv t-${LEVEL_INFO[i.level]?.tone || "low"}`}>{i.level}</span><b>{nameOf(i.other)}</b><small>{oldLabel(i.other)}{i.otherCls ? ` → ${i.otherCls}반` : ""}</small><em>{STATUS[i.status].label}</em></li>)}</ul>
         </article>; })}</div>
         : <table className="kpl-pairs"><thead><tr><th>분리 등급</th><th>학생</th><th>학생</th><th>결과</th></tr></thead><tbody>{checked.filter(p => !filter || p.status === filter).sort((a, b) => ORDER.indexOf(a.status) - ORDER.indexOf(b.status)).map(p => <tr key={`${p.a}|${p.b}`} className={p.status}>
@@ -343,7 +343,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       <h4 className="kpl-h">이동 내역</h4>
       {placement.moves.length ? <table className="kpl-pairs kpl-mvt"><thead><tr><th>시각</th><th>학생</th><th>옮김</th><th>맞바꾼 학생</th><th>옮긴 사람</th><th /></tr></thead><tbody>{[...placement.moves].reverse().map(m => <tr key={m.id}>
         <td className="c">{fmt(m.at)}</td><td><b>{nameOf(m.sid)}</b> <small>{oldLabel(m.sid)}</small></td><td className="c"><b>{m.from}반 → {m.to}반</b></td><td>{m.swap ? <><b>{nameOf(m.swap)}</b> <small>{m.to}반 → {m.from}반</small></> : <small>-</small>}</td><td className="c">{m.by}</td>
-        <td className="c">{canManage && <button type="button" data-kdn-bare className="undo" onClick={() => window.confirm("이 이동을 되돌릴까요?") && doUndo(m.id)}><RotateCcw size={13} /> 되돌리기</button>}</td></tr>)}</tbody></table> : <p className="kpl-nil">아직 옮긴 학생이 없어요. 반별 명단에서 '이동'으로 옮겨요.</p>}
+        <td className="c">{(canManage || m.by === me.name) && <button type="button" data-kdn-bare className="undo" onClick={() => window.confirm("이 이동을 되돌릴까요?") && doUndo(m.id)}><RotateCcw size={13} /> 되돌리기</button>}</td></tr>)}</tbody></table> : <p className="kpl-nil">아직 옮긴 학생이 없어요. 반별 명단에서 '이동'으로 옮겨요.</p>}
     </>}
   </div>;
 }
