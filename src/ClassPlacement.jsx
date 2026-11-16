@@ -31,6 +31,8 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const [busy, setBusy] = React.useState(false);
   const [preview, setPreview] = React.useState(null);
   const [openSid, setOpenSid] = React.useState("");
+  const [openKind, setOpenKind] = React.useState("memo"); // memo: 메모만 · combo: 조합 상대 고르기
+  const openPanel = (sid, kind, toggle = true) => { setOpenSid(v => (toggle && v === sid && openKind === kind ? "" : sid)); setOpenKind(kind); };
   const [moveSid, setMoveSid] = React.useState("");
   const [moveTo, setMoveTo] = React.useState(0);
   const [find, setFind] = React.useState("");
@@ -292,16 +294,20 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                   <td className="nm"><b>{s.name || roster[sid]?.name || sid}</b>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}{moved && <span className="mvtag">{s.orig}반에서</span>}</td>
                   <td className="c">{r ? <span className={`st ${STATUS[r.status].tone}`} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"}</span> : <span className="dash">-</span>}</td>
                   {STUDENT_FLAGS.map(f => { const marks = item.marks?.[f.key] || []; const mine = marks.some(m => m.byId === me.id); const isCombo = f.key === "combo"; return <td key={f.key} className="c fc">
-                    <button type="button" data-kdn-bare className={`ck t-${f.tone}${marks.length ? " on" : ""}${mine ? " mine" : ""}`} title={`${f.label}: ${f.hint}${marks.length ? `\n표시: ${marks.map(m => m.by).join(", ")}` : "\n눌러서 표시"}`} onClick={() => { toggleMark("students", sid, f.key); if (isCombo && !mine) { setOpenSid(sid); setMoveSid(""); } }}>{marks.length ? (marks.length > 1 ? marks.length : "✓") : ""}</button>
+                    <button type="button" data-kdn-bare className={`ck t-${f.tone}${marks.length ? " on" : ""}${mine ? " mine" : ""}`} title={`${f.label}: ${f.hint}${marks.length ? `\n표시: ${marks.map(m => m.by).join(", ")}` : "\n눌러서 표시"}`} onClick={() => { toggleMark("students", sid, f.key); if (isCombo && !mine) { openPanel(sid, "combo", false); setMoveSid(""); } }}>{marks.length ? (marks.length > 1 ? marks.length : "✓") : ""}</button>
                     {isCombo && groupsOf(sid).length > 0 && <span className={`gtag${groupsOf(sid).some(g => g.members.some(m => m !== sid && Number(placement.students[m]?.cls) === Number(s.cls))) ? " hot" : ""}`} title={groupsOf(sid).map(g => g.name).join(", ")}>그룹</span>}
-                    {isCombo && (marks.length > 0 || cs.length > 0) && <button type="button" data-kdn-bare className={`cmb${same.length ? " hot" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }} title={cs.length ? cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join("\n") : "상대 학생 지정"}>{cs.length ? `상대 ${cs.length}${same.length ? " · 같은 반" : ""}` : "상대 지정"}</button>}
+                    {isCombo && (marks.length > 0 || cs.length > 0) && <button type="button" data-kdn-bare className={`cmb${same.length ? " hot" : ""}`} onClick={() => { openPanel(sid, "combo"); setMoveSid(""); }} title={cs.length ? cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join("\n") : "상대 학생 지정"}>{cs.length ? `상대 ${cs.length}${same.length ? " · 같은 반" : ""}` : "상대 지정"}</button>}
                   </td>; })}
-                  <td className="c"><button type="button" data-kdn-bare className={`ic${memoN ? " has" : ""}${openSid === sid ? " on" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }} title="메모·조합 상대"><MessageSquare size={14} />{memoN ? <small>{memoN}</small> : null}</button></td>
+                  <td className="c"><button type="button" data-kdn-bare className={`ic${memoN ? " has" : ""}${openSid === sid && openKind === "memo" ? " on" : ""}`} onClick={() => { openPanel(sid, "memo"); setMoveSid(""); }} title="메모"><MessageSquare size={14} />{memoN ? <small>{memoN}</small> : null}</button></td>
                   <td className="c">{canMove && <button type="button" data-kdn-bare className={`mvb${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이동</button>}</td>
                 </tr>
-                {openSid === sid && <tr className="sub"><td colSpan={cols}><div className="panel2">
-                  <ComboPicker sid={sid} placement={placement} combos={cs} mine={(item.combos || []).filter(c => c.byId === me.id).map(c => c.with)} theirsMine={cs.map(c => c.other).filter(o => (review.students[o]?.combos || []).some(c => c.with === sid && c.byId === me.id))} nameOf={nameOf} onAdd={o => addCombo(sid, o)} onRemove={o => removeCombo(sid, o)} />
+                {openSid === sid && openKind === "memo" && <tr className="sub"><td colSpan={cols}><div className="panel2 memo">
+                  <div className="ph"><b>메모</b><small>{(item.memos || []).length ? `${(item.memos || []).length}개` : "아직 없어요"}</small>
+                    {cs.length > 0 && <button type="button" data-kdn-bare className={`cmb${same.length ? " hot" : ""}`} onClick={() => openPanel(sid, "combo", false)} title={cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join("\n")}>조합 상대 {cs.length}{same.length ? " · 같은 반" : ""}</button>}</div>
                   <Memos item={item} me={me} onAdd={t => addMemo("students", sid, t)} onRemove={at => removeMemo("students", sid, at)} placeholder={`${s.name || ""} 학생에 대한 의견`} />
+                </div></td></tr>}
+                {openSid === sid && openKind === "combo" && <tr className="sub"><td colSpan={cols}><div className="panel2">
+                  <ComboPicker sid={sid} placement={placement} combos={cs} mine={(item.combos || []).filter(c => c.byId === me.id).map(c => c.with)} theirsMine={cs.map(c => c.other).filter(o => (review.students[o]?.combos || []).some(c => c.with === sid && c.byId === me.id))} nameOf={nameOf} onAdd={o => addCombo(sid, o)} onRemove={o => removeCombo(sid, o)} />
                 </div></td></tr>}
                 {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
               </React.Fragment>; })}</tbody>
@@ -420,7 +426,7 @@ function Memos({ item = {}, me, onAdd, onRemove, placeholder }) {
   const list = item.memos || [];
   const send = () => { if (!text.trim()) return; onAdd(text); setText(""); };
   return <div className="kpl-memos">
-    {list.length > 0 && <ul>{list.map(m => <li key={`${m.byId}-${m.at}`}><b>{m.by}</b><small>{fmt(m.at)}</small><span>{m.text}</span>{m.byId === me.id && <button type="button" data-kdn-bare onClick={() => onRemove(m.at)} title="지우기"><X size={12} /></button>}</li>)}</ul>}
+    {list.length > 0 && <ul>{list.map(m => <li key={`${m.byId}-${m.at}`}><b>{m.by}</b><small>{fmt(m.at)}</small>{m.byId === me.id && <button type="button" data-kdn-bare onClick={() => onRemove(m.at)} title="지우기"><X size={12} /></button>}<span>{m.text}</span></li>)}</ul>}
     <div className="new"><input value={text} onChange={e => setText(e.target.value)} placeholder={placeholder} onKeyDown={e => { if (e.key === "Enter" && !e.nativeEvent.isComposing && e.keyCode !== 229) send(); }} /><button type="button" className="kpl-btn" disabled={!text.trim()} onClick={send}>남기기</button></div>
   </div>;
 }
@@ -677,7 +683,10 @@ const CSS = `
 .kpl-grid .ic{display:inline-flex;align-items:center;gap:3px;height:28px;padding:0 8px;border-radius:8px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-muted,#64748b);cursor:pointer}.kpl-grid .ic.has{color:#1d4ed8;border-color:#93c5fd}.kpl-grid .ic.on{background:var(--kdn-ink,#111827);color:#fff;border-color:var(--kdn-ink,#111827)}.kpl-grid .ic small{font-size:11px;font-weight:800}
 .kpl-grid .mvb{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:8px;border:1px solid #93c5fd;background:var(--kdn-surface,#fff);color:#1d4ed8;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer;white-space:nowrap}.kpl-grid .mvb.on{background:#2563eb;color:#fff}.kpl-grid .mvb:disabled{opacity:.35;cursor:not-allowed}
 .kpl-grid tr.sub>td{height:auto;padding:12px 14px;background:var(--kdn-surface-2,#f8fafc)}
-.kpl-grid .panel2{display:grid;gap:10px}
+.kpl-grid .panel2{display:grid;gap:10px;text-align:left}
+.kpl-grid .panel2.memo{padding:12px 14px;border-radius:12px;border:1.5px solid var(--kdn-accent,#2563eb);background:color-mix(in srgb,var(--kdn-accent,#2563eb) 4%,var(--kdn-surface,#fff))}
+.kpl-grid .panel2.memo .ph{display:flex;align-items:center;gap:8px}.kpl-grid .panel2.memo .ph b{font-size:15px;font-weight:800}.kpl-grid .panel2.memo .ph small{font-size:12.5px;color:var(--kdn-muted,#64748b)}.kpl-grid .panel2.memo .ph .cmb{margin:0 0 0 auto!important}
+.kpl-grid .panel2.memo .kpl-memos li{font-size:14.5px;padding:8px 12px}
 
 /* 맞바꾸기 후보: 이름 크게, 정보·경고 줄 나눔 */
 .kpl-move ul{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))!important;gap:8px!important;max-height:360px!important}
