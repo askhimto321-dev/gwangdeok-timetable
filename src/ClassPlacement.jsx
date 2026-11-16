@@ -35,6 +35,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const [moveTo, setMoveTo] = React.useState(0);
   const [find, setFind] = React.useState("");
   const [rowFilter, setRowFilter] = React.useState("");
+  const [toFilter, setToFilter] = React.useState(0); // 이 반으로 옮길 수 있는 학생만
   const input = React.useRef(null);
   const me = { id: String(actor?.id || actor?.name || "me"), name: String(actor?.name || "선생님") };
   const oldClasses = React.useMemo(() => Array.from(new Set(Object.values(roster || {}).map(s => Number(s?.class)).filter(Boolean))).sort((a, b) => a - b), [roster]);
@@ -229,7 +230,9 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         { key: "moved", label: "다른 반에서 옴", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
         { key: "m", label: "남", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", label: "여", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
       const activeF = FILTERS.find(f => f.key === rowFilter);
-      const list = base.filter(e => !activeF || activeF.test(e)).sort((a, b) => (q ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+      const canGo = (sid, c) => movableClasses(placement, sid).includes(Number(c));
+      const toF = toFilter && toFilter !== curTab ? toFilter : 0;
+      const list = base.filter(e => !activeF || activeF.test(e)).filter(([sid]) => !toF || canGo(sid, toF)).sort((a, b) => (q ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
       const sm = summary.find(s => s.cls === curTab) || {};
       const cls = review.classes[curTab] || {};
       const flagCount = key => base.filter(([sid]) => (review.students[sid]?.marks?.[key] || []).length).length;
@@ -270,6 +273,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
               <button type="button" data-kdn-bare className={`all${!rowFilter ? " on" : ""}`} onClick={() => setRowFilter("")}>전체 <b>{base.length}</b></button>
               {FILTERS.map(f => { const n = base.filter(f.test).length; return <button key={f.key} type="button" data-kdn-bare disabled={!n && rowFilter !== f.key} className={`t-${f.tone}${rowFilter === f.key ? " on" : ""}`} onClick={() => setRowFilter(v => (v === f.key ? "" : f.key))}>{f.label} <b>{n}</b></button>; })}
             </div>
+            {!q && placement.kind === "program" || (!q && Object.values(placement.students).some(x => x.can)) ? <div className="kpl-filter kpl-to" role="group" aria-label="옮길 수 있는 반으로 거르기"><small>{curTab}반에서 옮길 수 있는 반 <em>숫자 = 갈 수 있는 학생 · ↔ = 그 반에서 올 수 있는 학생</em></small>
+              <button type="button" data-kdn-bare className={`all${!toF ? " on" : ""}`} onClick={() => setToFilter(0)}>전체</button>
+              {classes.filter(c => c !== curTab).map(c => { const n = base.filter(([sid]) => canGo(sid, c)).length; const back = Object.entries(placement.students).filter(([id, x]) => Number(x.cls) === c && movableClasses(placement, id).includes(curTab)).length; return <button key={c} type="button" data-kdn-bare disabled={!n && toF !== c} className={`t-info${toF === c ? " on" : ""}`} title={`${curTab}반 → ${c}반으로 갈 수 있는 학생 ${n}명 · ${c}반 → ${curTab}반으로 올 수 있는 학생 ${back}명`} onClick={() => { setToFilter(v => (v === c ? 0 : c)); setOpenSid(""); }}>→ {c}반 <b>{n}</b><i>↔{back}</i></button>; })}
+            </div> : null}
             <div className="scroll"><table className="kpl-grid">
               <thead><tr>{q && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th>{canManage ? <th className="c">이동</th> : <th />}</tr></thead>
               <tbody>{list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableClasses(placement, sid); const g = genderOf(sid); const cs = combosOf(sid); const same = comboSame(sid); return <React.Fragment key={sid}>
@@ -284,7 +291,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                     {isCombo && (marks.length > 0 || cs.length > 0) && <button type="button" data-kdn-bare className={`cmb${same.length ? " hot" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }} title={cs.length ? cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join("\n") : "상대 학생 지정"}>{cs.length ? `상대 ${cs.length}${same.length ? " · 같은 반" : ""}` : "상대 지정"}</button>}
                   </td>; })}
                   <td className="c"><button type="button" data-kdn-bare className={`ic${memoN ? " has" : ""}${openSid === sid ? " on" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }} title="메모·조합 상대"><MessageSquare size={14} />{memoN ? <small>{memoN}</small> : null}</button></td>
-                  <td className="c">{canManage && <button type="button" data-kdn-bare className={`mvb${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이동</button>}</td>
+                  <td className="c">{canManage && <button type="button" data-kdn-bare className={`mvb${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이동</button>}</td>
                 </tr>
                 {openSid === sid && <tr className="sub"><td colSpan={cols}><div className="panel2">
                   <ComboPicker sid={sid} placement={placement} combos={cs} mine={(item.combos || []).filter(c => c.byId === me.id).map(c => c.with)} theirsMine={cs.map(c => c.other).filter(o => (review.students[o]?.combos || []).some(c => c.with === sid && c.byId === me.id))} nameOf={nameOf} onAdd={o => addCombo(sid, o)} onRemove={o => removeCombo(sid, o)} />
@@ -293,7 +300,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                 {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
               </React.Fragment>; })}</tbody>
             </table></div>
-            {!list.length && <p className="kpl-nil">{activeF ? `'${activeF.label}' 학생이 없어요.` : "찾는 학생이 없어요."}</p>}
+            {!list.length && <p className="kpl-nil">{toF ? `${curTab}반에서 ${toF}반으로 옮길 수 있는 학생이 없어요.` : activeF ? `'${activeF.label}' 학생이 없어요.` : "찾는 학생이 없어요."}</p>}
           </section>
         </div>
       </>;
@@ -749,4 +756,10 @@ const CSS = `
 .kpl-modal .ga{justify-self:stretch;display:grid;gap:3px;padding:10px 12px;border-radius:12px;background:#fef2f2;border:1px solid #fecaca}.kpl-modal .ga b{display:flex;align-items:center;gap:5px;font-size:14px;color:#b91c1c}.kpl-modal .ga span{font-size:14px;font-weight:700}.kpl-modal .ga small{font-size:12.5px;color:var(--kdn-muted,#64748b)}
 .kpl-modal .box.alert p{margin:0;font-size:13.5px;color:var(--kdn-ink-soft,#334155)}
 .kpl-modal .box.alert .ft{justify-self:stretch;display:flex;justify-content:flex-end;gap:8px}
+
+.kpl-filter.kpl-to{background:color-mix(in srgb,#2563eb 4%,var(--kdn-surface,#fff));border-color:#dbeafe}
+.kpl-filter.kpl-to>small{color:#1d4ed8}
+.kpl-filter.kpl-to button i{font-style:normal;font-size:10.5px;font-weight:700;color:var(--kdn-muted,#64748b);margin-left:1px}
+.kpl-filter.kpl-to button.on i{color:#dbeafe}
+.kpl-filter.kpl-to>small em{font-style:normal;font-weight:600;color:var(--kdn-muted,#64748b);margin-left:6px}
 `;
