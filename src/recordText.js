@@ -529,3 +529,49 @@ export function eventInField(field = "", text = "") {
   let hit = 0; gt.forEach(g => { if (gf.has(g)) hit += 1; });
   return hit / gt.size >= 0.5;
 }
+
+// ── 교과 소감문(구글 설문 응답 등) 엑셀 읽기 ──────────────────────────────
+// 학번 열이 있고 글 응답 열이 있는 시트를 찾아, 학생마다 '질문: 답'으로 묶어요. 같은 학번이 여러 번이면 마지막(최근) 응답을 써요.
+const REFL_SKIP_RE = /타임\s*스탬프|timestamp|학번|이름|성명|번호|이메일|e-?mail|점수|총점|^\s*반\b|반을\s*(쓰|적)/i;
+export function cleanQuestion(header) {
+  return String(header || "").replace(/\[[^\]]*\]/g, " ").replace(/\([^)]*예\)[^)]*\)/g, " ").replace(/\s+/g, " ").trim()
+    .replace(/\s*(을|를)?\s*(쓰세요|적으세요|작성하세요|써\s*주세요|적어\s*주세요|쓰시오|적으시오)[.!]?$/, "").replace(/[\s.:?]+$/, "").trim() || "응답";
+}
+const reflDate = value => {
+  if (typeof value === "number" && value > 30000) { const d = new Date(Math.round((value - 25569) * 86400000)); return `${d.getUTCMonth() + 1}.${d.getUTCDate()}`; }
+  const text = String(value || "");
+  const m = text.match(/(\d{4})\s*[.\-/]\s*(\d{1,2})\s*[.\-/]\s*(\d{1,2})/);
+  if (m) return `${Number(m[2])}.${Number(m[3])}`;
+  const us = text.match(/^(\d{1,2})\/(\d{1,2})\/\d{2,4}/); // 11/16/2026 (엑셀 미국식 표시)
+  return us ? `${Number(us[1])}.${Number(us[2])}` : "";
+};
+export function parseReflectionSheets(sheets = []) {
+  const out = [];
+  sheets.forEach(({ name, rows = [] }) => {
+    const hi = rows.slice(0, 6).findIndex(row => (row || []).some(cell => /학번/.test(String(cell))));
+    if (hi < 0) return;
+    const header = rows[hi].map(cell => String(cell ?? "").trim());
+    const sidCol = header.findIndex(h => /학번/.test(h));
+    const tsCol = header.findIndex(h => /타임\s*스탬프|timestamp|제출\s*(시각|일시)/i.test(h));
+    const data = rows.slice(hi + 1).filter(row => /^\d{4,6}$/.test(String(row?.[sidCol] ?? "").replace(/\D/g, "")) && String(row?.[sidCol] ?? "").replace(/[\d\s]/g, "").length === 0);
+    if (!data.length) return;
+    const textCols = header.map((h, c) => c).filter(c => {
+      if (c === sidCol || c === tsCol || !header[c] || REFL_SKIP_RE.test(header[c])) return false;
+      const vals = data.map(row => String(row[c] ?? "").trim()).filter(Boolean);
+      return vals.length > 0 && vals.filter(v => v.length >= 8 && !/^[\d.\s]+$/.test(v)).length >= Math.max(1, vals.length * 0.3);
+    });
+    if (!textCols.length) return;
+    const bySid = new Map();
+    let dupes = 0;
+    data.forEach(row => {
+      const sid = String(row[sidCol]).replace(/\D/g, "");
+      const answers = textCols.map(c => String(row[c] ?? "").replace(/\r/g, "").trim());
+      if (!answers.some(Boolean)) return;
+      if (bySid.has(sid)) dupes += 1;
+      bySid.set(sid, { sid, answers, date: tsCol >= 0 ? reflDate(row[tsCol]) : "" });
+    });
+    if (bySid.size) out.push({ name: String(name || "").trim(), questions: textCols.map(c => cleanQuestion(header[c])), items: Array.from(bySid.values()), dupes });
+  });
+  return out.sort((a, b) => b.items.length - a.items.length);
+}
+export const reflectionResponse = (questions = [], answers = []) => questions.map((q, i) => (answers[i] ? `${q}: ${answers[i]}` : "")).filter(Boolean).join("\n");

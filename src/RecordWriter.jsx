@@ -12,7 +12,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt, AI_FILL, AI_FILL_DEFAULT, aiFillRange } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, parseReflectionSheets, reflectionResponse, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt, AI_FILL, AI_FILL_DEFAULT, aiFillRange } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -458,7 +458,7 @@ function StandardsTab({ targets, targetKey, setTarget, standardsFor, onPick, add
 const sidKey = value => String(value ?? "").replace(/\D/g, "");
 const memoCats = targets => [{ key: "memo", label: "공통" }, { key: "memo_att", label: "수업 태도" }, ...targets.map(t => ({ key: `memo_${t.key}`, label: t.label, target: t.key }))];
 
-function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {}, standardsFor = null, onPickStandards = null, reflections = null, focus = "", onBulkReflections = null }) {
+function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, showToast, onClose, targets = [], budgetFor = () => 1500, aiContext = {}, standardsFor = null, onPickStandards = null, reflections = null, focus = "", onBulkReflections = null, renderRefl = null }) {
   const [tab, setTab] = useState("memo");
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -528,6 +528,7 @@ function SidePanel({ rec, sid, studentLabel, studentName = "", scopeLabel, by, s
       <button type="button" data-kdn-bare className="krw-btn ghost" onClick={() => rec.edit(`s|${sid}|${cat.key}`, `${memo}${memo && !memo.endsWith("\n") ? "\n" : ""}${todayLabel()} `)}><Plus size={14} /> 오늘 날짜로 한 줄 추가</button></>}
     </div> : tab === "std" && standardsFor ? <StandardsTab targets={targets} targetKey={targetKey} setTarget={setTarget} standardsFor={standardsFor} onPick={onPickStandards}
       addToMemo={item => { const key = `memo_${targetKey}`; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev && !prev.endsWith("\n") ? "\n" : ""}[성취기준] ${standardLine(item)}\n`); showToast?.(`'${targets.find(t => t.key === targetKey)?.label}' 누가기록에 넣었어요.`, "success"); }} />
+    : tab === "refl" && renderRefl ? renderRefl({ putText })
     : tab === "refl" ? <ReflectionPane onBulk={onBulkReflections} focus={focus} items={reflections || []} studentLabel={studentLabel} targets={targets} rec={rec} sid={sid} putText={putText} showToast={showToast} />
     : tab === "ai" ? <AiHelper rec={rec} sid={sid} studentName={studentName} targets={targets} targetKey={targetKey} setTarget={setTarget} budgetFor={budgetFor} aiContext={aiContext} cats={cats} putText={putText} showToast={showToast} reflections={reflections} />
     : <div className="krw-files">
@@ -1338,6 +1339,115 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
 }
 
 // ── 교과담임 ───────────────────────────────────────────────────────────────
+// ── 교과 소감문: 엑셀(구글 설문 응답 등)을 올려 학생별로 보관 · 활동 누가기록에 담기 ──────────
+// 학생별 's|학번|refl' 칸에 JSON으로 보관해요(이 과목·반 생기부 문서 안). 올린 파일 목록은 's|__cfg|reflsrc'.
+const readJson = (text, fallback) => { try { const v = JSON.parse(text || ""); return v ?? fallback; } catch { return fallback; } };
+const subjReflOf = (rec, sid) => readJson(rec.textOf(sid, "refl"), []).filter(item => item && item.response);
+const subjReflKey = (acts, item) => (item.actId && acts.some(a => a.id === item.actId) ? `memo_${item.actId}` : "memo");
+function subjReflToMemo(rec, acts, sid, list) {
+  const byKey = {};
+  list.forEach(item => { const key = subjReflKey(acts, item); if (rec.textOf(sid, key).includes(reflTag(item))) return; (byKey[key] ||= []).push(`${reflTag(item)}\n${item.response.trim()}`); });
+  let count = 0;
+  Object.entries(byKey).forEach(([key, parts]) => { const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev.trim() ? "\n\n" : ""}${parts.join("\n\n")}`); count += parts.length; });
+  return count;
+}
+function SubjectReflectionPane({ items, acts, rec, sid, studentLabel, showToast, onUpload, onBulk }) {
+  const readOnlyView = useContext(ReadOnlyContext);
+  const inMemo = item => rec.textOf(sid, subjReflKey(acts, item)).includes(reflTag(item));
+  const toMemo = list => { const n = subjReflToMemo(rec, acts, sid, list); showToast?.(n ? `소감문 ${n}개를 누가기록에 담았어요. AI 도우미 요청문에도 넣을 수 있어요.` : "이미 누가기록에 담겨 있어요.", "success"); };
+  const actName = item => acts.find(a => a.id === item.actId)?.name || "공통";
+  const left = items.filter(item => !inMemo(item));
+  return <div className="krw-refl">
+    {!readOnlyView && <div className="krw-refl-bar wrap"><button type="button" data-kdn-bare className="krw-btn" onClick={onUpload}><FileSpreadsheet size={14} /> 소감문 엑셀 올리기</button>
+      {items.length > 0 && <button type="button" data-kdn-bare className="krw-btn" disabled={!left.length} onClick={() => toMemo(items)}><ClipboardPaste size={14} /> 이 학생 담기{left.length ? ` (${left.length})` : ""}</button>}
+      <button type="button" data-kdn-bare className="krw-btn" onClick={onBulk} title="이 반 학생 모두의 소감문을 활동별 누가기록에 한 번에 담아요(이미 담긴 건 건너뜀)"><Users size={14} /> 반 전체 담기</button></div>}
+    {!items.length ? <p className="krw-side-empty">{studentLabel} 소감문이 없어요. 구글 설문 응답처럼 <b>학번 열</b>과 글 응답 열이 있는 엑셀을 올리면 학생마다 붙어요.</p>
+    : <p className="krw-side-note">{studentLabel} <b>소감문</b>이에요. 학생 글이라 <b>누가기록에 담아</b> 관찰 사실과 함께 다듬어 쓰거나, AI 도우미에서 골라 요청문에 넣어요.</p>}
+    {items.map(item => { const done = inMemo(item); return <article key={item.id}>
+      <header><b>{item.activity}</b>{item.date && <small>{item.date}</small>}<span className="krw-refl-tag" title="담을 누가기록 활동">{actName(item)}</span></header>
+      <p>{item.response}</p>
+      {!readOnlyView && <div className="acts"><button type="button" data-kdn-bare className="krw-mini" disabled={done} onClick={() => toMemo([item])}>{done ? <><Check size={12} /> 누가기록에 있음</> : <><ClipboardPaste size={12} /> 누가기록에 담기</>}</button><CopyBtn text={item.response} /></div>}
+    </article>; })}
+  </div>;
+}
+function SubjectReflectionModal({ year, book, books, acts, rec, by, showToast, onClose }) {
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [file, setFile] = useState(null); // { name, sheets }
+  const [sheetName, setSheetName] = useState("");
+  const [activity, setActivity] = useState("");
+  const [actId, setActId] = useState(acts[0]?.id || "");
+  const [allBooks, setAllBooks] = useState(true);
+  const [named, setNamed] = useState(false); // 이름을 직접 고쳤는지
+  // 기본 이름: 시트 이름이 과목 이름뿐이면(예: '미적분 설문') 담을 활동 이름을 써요.
+  const defaultName = (sheetTitle, id) => { const base = String(sheetTitle || "").replace(/\s*(설문|응답|소감문|결과)\s*$/, "").trim(); const act = acts.find(a => a.id === id)?.name || ""; return (!base || String(book.subject).replace(/\s|I+$/g, "").includes(base.replace(/\s/g, ""))) && act ? act : base || act || "소감문"; };
+  const sources = readJson(rec.textOf("__cfg", "reflsrc"), []);
+  const sheet = file?.sheets.find(x => x.name === sheetName) || file?.sheets[0] || null;
+  const peers = books.filter(b => b.id !== book.id && b.subject === book.subject);
+  const targetBooks = allBooks ? [book, ...peers] : [book];
+  const match = (b, items) => { const map = new Map((b.students || []).map(st => [sidKey(st.sid).slice(-5), st.sid])); return items.map(it => ({ ...it, to: map.get(it.sid.slice(-5)) })).filter(it => it.to); };
+  const counts = sheet ? targetBooks.map(b => ({ b, n: match(b, sheet.items).length })) : [];
+  const matched = counts.reduce((t, x) => t + x.n, 0);
+  const read = async picked => {
+    if (!picked) return;
+    setBusy(true);
+    try {
+      const mod = await import("xlsx-js-style"); const XLSX = mod.default?.utils ? mod.default : mod;
+      const wb = XLSX.read(await picked.arrayBuffer(), { type: "array" });
+      const sheets = parseReflectionSheets(wb.SheetNames.map(name => ({ name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }) })));
+      if (!sheets.length) showToast?.("학번 열과 글 응답 열이 있는 시트를 찾지 못했어요.", "error");
+      else { setFile({ name: picked.name, sheets }); setSheetName(sheets[0].name); if (!named) setActivity(defaultName(sheets[0].name, actId)); }
+    } catch (error) { showToast?.(/password|encrypt/i.test(String(error?.message)) ? "암호가 걸린 파일이에요. 엑셀에서 암호를 풀고 다시 올려 주세요." : `읽지 못했어요. (${error?.message || error})`, "error"); }
+    setBusy(false);
+  };
+  const save = async () => {
+    const name = activity.trim();
+    if (!sheet || !name) return;
+    const src = { id: uid(), file: file.name, sheet: sheet.name, activity: name, actId, at: nowIso(), by };
+    const plan = targetBooks.map(b => ({ b, rows: match(b, sheet.items) })).filter(x => x.rows.length);
+    const build = (prevText, it) => JSON.stringify([...readJson(prevText, []).filter(x => x && x.activity !== name), { id: `${src.id}:${it.sid}`, src: src.id, activity: name, actId, date: it.date, response: reflectionResponse(sheet.questions, it.answers) }]);
+    const srcList = (prevText, n) => JSON.stringify([...readJson(prevText, []).filter(x => x && x.activity !== name), { ...src, count: n }]);
+    setBusy(true);
+    let failed = 0;
+    for (const { b, rows } of plan) {
+      if (b.id === book.id) { rows.forEach(it => rec.edit(`s|${it.to}|refl`, build(rec.textOf(it.to, "refl"), it))); rec.edit("s|__cfg|reflsrc", srcList(rec.textOf("__cfg", "reflsrc"), rows.length)); continue; }
+      const result = await updateStorage(sjKey(year, b.id), emptyDoc(), cur => {
+        const doc = cur && typeof cur === "object" ? cur : emptyDoc(); const pending = {}; const at = nowIso();
+        rows.forEach(it => { pending[`s|${it.to}|refl`] = { value: build(doc.students?.[it.to]?.refl?.t, it), at }; });
+        pending["s|__cfg|reflsrc"] = { value: srcList(doc.students?.__cfg?.reflsrc?.t, rows.length), at };
+        return applyPending(doc, pending, by);
+      });
+      if (!result?.ok) failed += 1;
+    }
+    setBusy(false);
+    showToast?.(failed ? `${failed}개 반은 저장하지 못했어요. 다시 해 주세요.` : `소감문 ${plan.reduce((t, x) => t + x.rows.length, 0)}명분을 ${plan.length}개 반에 담았어요.`, failed ? "error" : "success");
+    if (!failed) onClose();
+  };
+  const removeSrc = item => {
+    if (!window.confirm(`'${item.activity}' 소감문을 이 반 학생들에게서 뺄까요? (누가기록에 담은 글은 그대로 둬요)`)) return;
+    (book.students || []).forEach(st => { const list = readJson(rec.textOf(st.sid, "refl"), []); if (list.some(x => x.activity === item.activity)) rec.edit(`s|${st.sid}|refl`, JSON.stringify(list.filter(x => x.activity !== item.activity))); });
+    rec.edit("s|__cfg|reflsrc", JSON.stringify(sources.filter(x => x.activity !== item.activity)));
+    showToast?.(`'${item.activity}' 소감문을 뺐어요.`, "success");
+  };
+  return createPortal(<div className="krw krw-modal" role="dialog" aria-modal="true" aria-label="소감문 엑셀 올리기" onClick={event => { if (event.target === event.currentTarget && !busy) onClose(); }}><div className="krw-modal-box krw-reflup">
+    <header><b>소감문 엑셀 올리기</b><small>{book.subject} · {book.label}</small><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
+    <p className="krw-side-note">구글 설문 응답 엑셀처럼 <b>학번 열</b>과 학생이 쓴 <b>글 응답 열</b>이 있으면 돼요. 질문마다 '질문: 답'으로 묶어 학생별로 붙여요. 같은 학번이 여러 번이면 마지막 응답을 써요.</p>
+    {sources.length > 0 && <div className="srcs"><small>이 반에 올린 소감문</small>{sources.map(item => <div key={item.id} className="src"><b>{item.activity}</b><span>{item.count}명 · {acts.find(a => a.id === item.actId)?.name || "공통"}</span><button type="button" data-kdn-bare className="krw-mini" onClick={() => removeSrc(item)}><Trash2 size={12} /> 빼기</button></div>)}</div>}
+    <div className="row"><button type="button" data-kdn-bare className="krw-btn pri" disabled={busy} onClick={() => inputRef.current?.click()}>{busy ? <Loader2 size={14} className="spin" /> : <FileSpreadsheet size={14} />} {file ? "다른 파일 고르기" : "엑셀 파일 고르기"}</button>{file && <span className="fn">{file.name}</span>}
+      <input ref={inputRef} type="file" hidden accept=".xlsx,.xls,.xlsm,.csv" onChange={event => { const picked = event.target.files?.[0]; event.target.value = ""; read(picked); }} /></div>
+    {sheet && <>
+      {file.sheets.length > 1 && <label className="fld"><span>시트</span><select value={sheet.name} onChange={event => { setSheetName(event.target.value); if (!named) setActivity(defaultName(event.target.value, actId)); }}>{file.sheets.map(x => <option key={x.name} value={x.name}>{x.name} ({x.items.length}명)</option>)}</select></label>}
+      <label className="fld"><span>소감문 이름</span><input value={activity} onChange={event => { setActivity(event.target.value); setNamed(true); }} placeholder="예: 미적분 탐구 보고서" /></label>
+      <label className="fld"><span>담을 활동</span><select value={actId} onChange={event => { setActId(event.target.value); if (!named) setActivity(defaultName(sheet.name, event.target.value)); }}>{acts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="">공통 누가기록</option></select></label>
+      <div className="qs"><small>질문 {sheet.questions.length}개</small><ol>{sheet.questions.map((q, i) => <li key={i}>{q}</li>)}</ol></div>
+      {peers.length > 0 && <label className="chk"><input type="checkbox" checked={allBooks} onChange={event => setAllBooks(event.target.checked)} /> 같은 과목({book.subject}) 다른 반에도 함께 담기</label>}
+      <div className="sum"><b>{matched}명</b>에게 담아요 <small>파일 {sheet.items.length}명 중 · {counts.map(x => `${x.b.label} ${x.n}명`).join(" · ")}</small></div>
+      {sources.some(x => x.activity === activity.trim()) && <p className="warn">같은 이름 소감문이 이미 있어요. 새 파일 내용으로 바뀌어요.</p>}
+    </>}
+    <footer><button type="button" data-kdn-bare className="krw-btn" onClick={onClose}>닫기</button><button type="button" data-kdn-bare className="krw-btn pri" disabled={busy || !sheet || !matched || !activity.trim()} onClick={save}>{busy ? <Loader2 size={14} className="spin" /> : <Check size={14} />} 담기</button></footer>
+  </div></div>, document.body);
+}
+
 function ActivityManager({ activities, onChange, sources = [], onImport, onApplyAll, onStandards = null, standardsCount = () => 0 }) {
   const [name, setName] = useState("");
   const live = activities.filter(act => !act.removed);
@@ -1382,6 +1492,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
   const [paste, setPaste] = useState(false);
   const [dupOpen, setDupOpen] = useState(false);
   const [stdFor, setStdFor] = useState(null); // 성취기준 고르는 활동 id
+  const [reflUp, setReflUp] = useState(false);
   const std = useStandards(!!book);
   const stdSubjects = std.data?.subjects || [];
   const stdMatched = useMemo(() => resolveStandardSubject(book?.subject, grade, semester, stdSubjects).subject, [book?.subject, grade, semester, stdSubjects]);
@@ -1408,6 +1519,14 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
   const saveNow = useCallback(async () => { if (await rec.save()) showToast?.("저장했어요.", "success"); }, [rec, showToast]);
   useWriterKeys({ onNext: () => go(1), onPrev: () => go(-1), onSave: saveNow });
   const who = s => book?.kind === "common" ? `${s.number}번 ${s.name}` : `${s.class}반 ${s.number}번 ${s.name}`;
+  // 소감문 일괄: 이 반 학생 모두의 소감문을 활동별 누가기록에 담기(이미 담긴 건 건너뜀)
+  const bulkRefl = () => {
+    const plan = students.map(st => [st, subjReflOf(rec, st.sid)]).filter(([, list]) => list.length);
+    if (!plan.length) { showToast?.("이 반 학생의 소감문이 없어요. 먼저 소감문 엑셀을 올려 주세요.", "error"); return; }
+    if (!window.confirm(`학생 ${plan.length}명의 소감문을 활동별 누가기록 끝에 담을까요? (이미 담긴 건 건너뛰고, 과세특 칸에는 넣지 않아요)`)) return;
+    const total = plan.reduce((sum, [st, list]) => sum + subjReflToMemo(rec, acts, st.sid, list), 0);
+    showToast?.(total ? `소감문 ${total}개를 ${plan.length}명의 누가기록에 담았어요.` : "이미 모두 누가기록에 담겨 있어요.", "success");
+  };
 
   // 활동 가져오기·같은 과목 다른 반에 적용(이름이 같은 활동은 건너뜀, 글은 옮기지 않음)
   const sources = books.filter(b => b.id !== book?.id);
@@ -1490,6 +1609,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
     {rec.loaded && <DupBanner dups={dups} onOpen={() => setDupOpen(true)} />}
     {dupOpen && <DuplicateModal title={`${book?.subject} ${book?.label}`} dups={dups} onPick={setSid} onClose={() => setDupOpen(false)} />}
     {rec.loaded && <ActivityManager activities={rec.activities} onChange={list => rec.edit("acts", list)} sources={sources} onImport={importFrom} onApplyAll={books.some(b => b.id !== book?.id && b.subject === book?.subject) ? applyAll : null} onStandards={setStdFor} standardsCount={act => act.std?.length || 0} />}
+    {reflUp && book && <SubjectReflectionModal year={year} book={book} books={books} acts={acts} rec={rec} by={by} showToast={showToast} onClose={() => setReflUp(false)} />}
     {stdFor && <StandardsModal chosen={!!acts.find(a => a.id === stdFor)?.stdSub} grade={grade} semester={semester} subjectName={acts.find(a => a.id === stdFor)?.stdSub || book?.subject || ""} picked={acts.find(a => a.id === stdFor)?.std || []} title={acts.find(a => a.id === stdFor)?.name || "활동"} onSave={saveStandards} onClose={() => setStdFor(null)} />}
     {!rec.loaded ? <div className="krw-empty"><Loader2 size={18} className="spin" /> 불러오는 중이에요.</div>
       : !acts.length ? <div className="krw-empty"><b>먼저 수행평가 영역(활동)을 추가해 주세요.</b><span>다른 반에서 만든 목록이 있으면 '다른 반 활동 가져오기'로 복사할 수 있어요.</span></div>
@@ -1517,7 +1637,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
             {check && <IssueList text={total} ok={okOf(current.sid)} onToggle={readOnlyView ? null : toggleOk(current.sid)} />}
           </div>; })()}
         </section>}
-        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: stdMatched?.n || book.subject, standardsFor }} standardsFor={standardsFor} onPickStandards={setStdFor} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: stdMatched?.n || book.subject, standardsFor }} reflections={subjReflOf(rec, current.sid)} renderRefl={() => <SubjectReflectionPane items={subjReflOf(rec, current.sid)} acts={acts} rec={rec} sid={current.sid} studentLabel={who(current)} showToast={showToast} onUpload={() => setReflUp(true)} onBulk={bulkRefl} />} standardsFor={standardsFor} onPickStandards={setStdFor} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -1888,6 +2008,16 @@ const CSS = `
 .krw-neis-tbl td.b{font-variant-numeric:tabular-nums}.krw-neis-tbl td.b.over{color:#dc2626;font-weight:800}
 .krw-neis-tbl .tag{padding:2px 8px;border-radius:99px;font-size:11.5px;font-weight:800;background:#f3f4f6;color:#6b7280}.krw-neis-tbl .tag.is-diff{background:#fef3c7;color:#92400e}.krw-neis-tbl .tag.is-new{background:#dbeafe;color:#1d4ed8}
 .krw-neis-tbl tr.detail td{background:var(--kdn-surface-2,#f8f7f4);text-align:left}.krw-neis-tbl tr.detail td>div{display:grid;gap:2px;margin-bottom:6px}.krw-neis-tbl tr.detail small{font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-neis-tbl tr.detail p{margin:0;white-space:pre-wrap;line-height:1.6}
+.krw-reflup{max-height:calc(100vh - 40px);overflow:auto}.krw-reflup>header{display:flex;align-items:baseline;gap:8px}.krw-reflup>header b{font-size:17px}.krw-reflup>header small{font-size:12.5px;color:var(--kdn-muted,#8a8f99)}.krw-reflup>header .x{margin-left:auto;border:0;background:transparent;cursor:pointer;color:inherit}
+.krw-reflup .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.krw-reflup .fn{font-size:13px;font-weight:700}
+.krw-reflup .fld{display:grid;grid-template-columns:96px 1fr;align-items:center;gap:8px;font-size:13.5px}.krw-reflup .fld span{font-weight:800;color:var(--kdn-ink-soft,#3f4652)}.krw-reflup .fld input,.krw-reflup .fld select{min-height:38px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#e2e0da);background:var(--kdn-surface,#fff);color:inherit;font:inherit}
+.krw-reflup .qs{padding:10px 12px;border-radius:12px;background:var(--kdn-surface-2,#f6f5f2)}.krw-reflup .qs small,.krw-reflup .srcs>small{font-size:12px;font-weight:800;color:var(--kdn-muted,#8a8f99)}.krw-reflup .qs ol{margin:4px 0 0;padding-left:20px;font-size:13.5px;line-height:1.6}
+.krw-reflup .chk{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700}.krw-reflup .chk input{width:16px;height:16px;accent-color:#ea580c}
+.krw-reflup .sum{padding:10px 12px;border-radius:12px;background:color-mix(in srgb,#ea580c 8%,var(--kdn-surface,#fff));font-size:14px}.krw-reflup .sum b{font-size:16px;color:#c2410c}.krw-reflup .sum small{display:block;margin-top:2px;font-size:12px;color:var(--kdn-muted,#8a8f99)}
+.krw-reflup .warn{margin:0;font-size:12.5px;font-weight:700;color:#b45309}
+.krw-reflup .srcs{display:grid;gap:6px}.krw-reflup .src{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;border:1px solid var(--kdn-line,#e7e5e0);font-size:13px}.krw-reflup .src span{color:var(--kdn-muted,#8a8f99)}.krw-reflup .src .krw-mini{margin-left:auto}
+.krw-reflup footer{display:flex;justify-content:flex-end;gap:8px}
+.krw-refl-bar.wrap{flex-wrap:wrap}
 .krw-neis .same{margin:0;font-size:12px;color:var(--kdn-muted,#8a8f99)}
 .krw-modal-box.krw-sjx{width:min(640px,100%);max-height:calc(100vh - 32px);overflow:auto}.krw-sjx section{display:grid;gap:8px;padding-top:10px;border-top:1px solid var(--kdn-line,#efede8)}.krw-sjx h4{margin:0;font-size:14.5px}
 .krw-sjx .row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}.krw-sjx .cols{display:grid;gap:4px;margin:0;padding:0;list-style:none}.krw-sjx .cols li{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:10px;background:var(--kdn-surface-2,#f6f5f3);font-size:13px}.krw-sjx .cols li.off{opacity:.55}.krw-sjx .cols label{display:flex;align-items:center;gap:6px;flex:1;min-width:0}.krw-sjx .cols span{font-size:12px;color:var(--kdn-muted,#8a8f99)}
