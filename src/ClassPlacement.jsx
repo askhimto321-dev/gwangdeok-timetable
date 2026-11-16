@@ -3,7 +3,7 @@
 // ③ 선생님들이 학생·반에 검토 표시를 남기고 ④ 이동 결과를 한눈에 보고 엑셀로 받아요.
 // 보기·검토 표시: 반편성 탭을 볼 수 있는 교직원 / 파일 올리기·이동: 관리자·부서·학년부장
 import React from "react";
-import { AlertTriangle, Tag, ArrowLeftRight, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { readStorage, updateStorage, writeStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs } from "./classSeparation.js";
@@ -18,7 +18,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const year = schoolYearOf();
   const nextGrade = 3;
   const [placement, setPlacement] = React.useState(undefined);
-  const [review, setReview] = React.useState({ students: {}, classes: {} });
+  const [review, setReview] = React.useState({ students: {}, classes: {}, groups: [] });
+  const [groupEdit, setGroupEdit] = React.useState(null); // { id?, name, memo, members: [] }
+  const [groupAlert, setGroupAlert] = React.useState(null); // { cls, groups }
+  const [alertSeen, setAlertSeen] = React.useState({});
   const [sepData, setSepData] = React.useState({});
   const [view, setView] = React.useState(initialView || "");
   React.useEffect(() => { if (initialView) setView(initialView); }, [viewRequest]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -45,7 +48,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     ]).then(([p, r, seps]) => {
       if (!on) return;
       setPlacement(normalizePlacement(p, roster));
-      setReview({ students: r?.students || {}, classes: r?.classes || {} });
+      setReview({ students: r?.students || {}, classes: r?.classes || {}, groups: r?.groups || [] });
       setSepData(Object.fromEntries(seps));
     });
     return () => { on = false; };
@@ -89,17 +92,35 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return false; }
     setPlacement(normalizePlacement(result?.value, roster)); if (okMsg) showToast(okMsg, "success"); return true;
   };
+  // 조합 그룹: 함께 고른 학생들(서로 모두 조합 우려). 한 반에 2명 이상이면 경고
+  const groupsIn = cls => (review.groups || []).map(g => ({ ...g, here: g.members.filter(m => Number(placement?.students?.[m]?.cls) === Number(cls)) })).filter(g => g.here.length >= 2);
+  const openClassAlert = cls => { const gs = groupsIn(cls); const sig = `${cls}:${gs.map(g => `${g.id}${g.here.join("")}`).join("|")}`; if (gs.length && !alertSeen[sig]) setGroupAlert({ cls, groups: gs, sig }); };
+  const saveGroup = async g => {
+    const members = Array.from(new Set(g.members)); if (members.length < 2) { showToast("학생을 2명 이상 골라 주세요.", "error"); return; }
+    const id = g.id || `grp${Date.now().toString(36)}`;
+    const ok = await saveReview(v => { const list = v.groups.filter(x => x.id !== id); list.push({ id, name: (g.name || "").trim() || `조합 그룹 ${list.length + 1}`, memo: (g.memo || "").trim(), members, by: me.name, byId: me.id, at: new Date().toISOString() }); v.groups = list; return v; });
+    if (ok) { setGroupEdit(null); showToast("조합 그룹을 저장했어요.", "success"); }
+  };
+  const removeGroup = async id => { if (!window.confirm("이 조합 그룹을 지울까요?")) return; const ok = await saveReview(v => { v.groups = v.groups.filter(x => x.id !== id); return v; }); if (ok) setGroupEdit(null); };
   const doMove = async (sid, to, swap = "") => {
     const name = placement.students[sid]?.name || roster[sid]?.name || sid;
+    // 옮겨 갈 반에 같은 조합 그룹 학생이 있으면 먼저 물어봐요
+    const clashes = [];
+    const nm = id => placement.students[id]?.name || roster[id]?.name || id;
+    (review.groups || []).forEach(g => {
+      if (g.members.includes(sid)) { const there = g.members.filter(m => m !== sid && m !== swap && Number(placement.students[m]?.cls) === Number(to)); if (there.length) clashes.push(`'${g.name}': ${nm(sid)} → ${to}반 (${there.map(nm).join(", ")} 있음)`); }
+      if (swap && g.members.includes(swap)) { const from = placement.students[sid]?.cls; const there = g.members.filter(m => m !== swap && m !== sid && Number(placement.students[m]?.cls) === Number(from)); if (there.length) clashes.push(`'${g.name}': ${nm(swap)} → ${from}반 (${there.map(nm).join(", ")} 있음)`); }
+    });
+    if (clashes.length && !window.confirm(`조합 우려 그룹 학생과 같은 반이 돼요.\n\n${clashes.join("\n")}\n\n그래도 옮길까요?`)) return;
     const ok = await commit(p => applyMove(p, { sid, to, swap, by: me.name }), swap ? `${name} ↔ ${placement.students[swap]?.name || ""} 맞바꿨어요.` : `${name} 학생을 ${to}반으로 옮겼어요.`);
     if (ok) { setMoveSid(""); setMoveTo(0); }
   };
   const doUndo = id => commit(p => undoMove(p, id), "되돌렸어요.");
 
   const saveReview = async change => {
-    const result = await updateStorage(placementReviewKey(year), { students: {}, classes: {} }, cur => change({ students: { ...(cur?.students || {}) }, classes: { ...(cur?.classes || {}) } }));
-    if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
-    setReview({ students: result?.value?.students || {}, classes: result?.value?.classes || {} });
+    const result = await updateStorage(placementReviewKey(year), { students: {}, classes: {}, groups: [] }, cur => change({ students: { ...(cur?.students || {}) }, classes: { ...(cur?.classes || {}) }, groups: [...(cur?.groups || [])] }));
+    if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return false; }
+    setReview({ students: result?.value?.students || {}, classes: result?.value?.classes || {}, groups: result?.value?.groups || [] }); return true;
   };
   const toggleMark = (bucket, id, key) => saveReview(v => {
     const item = { ...(v[bucket][id] || {}) }; const marks = { ...(item.marks || {}) }; const list = marks[key] || [];
@@ -167,7 +188,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const results = studentResults(checked);
   const missSet = new Set(results.filter(s => s.status === "same").map(s => s.sid));
   // 조합 우려 상대: 내가 적은 상대 + 상대가 나를 적은 것(서로 보이게). 같은 새 반이면 경고
-  const comboPairs = (() => { const m = new Map(); Object.entries(review.students || {}).forEach(([sid, it]) => (it.combos || []).forEach(c => { const [a, b] = [sid, c.with].sort(); const k = `${a}|${b}`; if (!m.has(k)) m.set(k, { a, b, by: [] }); m.get(k).by.push(c.by); })); return Array.from(m.values()); })();
+  const comboPairs = (() => { const m = new Map(); const put = (x, y, by, group = "") => { const [a, b] = [x, y].sort(); const k = `${a}|${b}`; if (!m.has(k)) m.set(k, { a, b, by: [], groups: [] }); m.get(k).by.push(by); if (group) m.get(k).groups.push(group); };
+    Object.entries(review.students || {}).forEach(([sid, it]) => (it.combos || []).forEach(c => put(sid, c.with, c.by)));
+    (review.groups || []).forEach(g => g.members.forEach((x, i) => g.members.slice(i + 1).forEach(y => put(x, y, `그룹 ${g.name}`, g.name))));
+    return Array.from(m.values()); })();
+  const groupsOf = sid => (review.groups || []).filter(g => g.members.includes(sid));
   const combosOf = sid => comboPairs.filter(p => p.a === sid || p.b === sid).map(p => ({ other: p.a === sid ? p.b : p.a, by: p.by }));
   const comboSame = sid => combosOf(sid).filter(c => Number(placement.students[c.other]?.cls) === Number(placement.students[sid]?.cls));
   const addCombo = (sid, other) => saveReview(v => { const item = { ...(v.students[sid] || {}) }; const list = item.combos || []; if (list.some(c => c.with === other && c.byId === me.id)) return v; item.combos = [...list, { with: other, byId: me.id, by: me.name, at: new Date().toISOString() }]; const marks = { ...(item.marks || {}) }; if (!(marks.combo || []).some(m => m.byId === me.id)) marks.combo = [...(marks.combo || []), { byId: me.id, by: me.name, at: new Date().toISOString() }]; item.marks = marks; v.students[sid] = item; return v; });
@@ -183,8 +208,16 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
 
   return <div className="kpl"><style>{CSS}</style>
     {head}{previewBox}
+    {groupEdit && <GroupModal group={groupEdit} placement={placement} nameOf={nameOf} curTab={curTab} onSave={saveGroup} onRemove={groupEdit.id ? () => removeGroup(groupEdit.id) : null} onClose={() => setGroupEdit(null)} />}
+    {groupAlert && <div className="kpl-modal" role="alertdialog" aria-modal="true" onClick={e => e.target === e.currentTarget && setGroupAlert(null)}><div className="box alert">
+      <span className="ico"><AlertTriangle size={22} /></span>
+      <b className="t">{groupAlert.cls}반에 같은 조합 그룹 학생이 함께 있어요</b>
+      {groupAlert.groups.map(g => <div key={g.id} className="ga"><b><Users size={13} /> {g.name}</b><span>{g.here.map(nameOf).join(", ")}</span>{g.memo && <small>{g.memo}</small>}</div>)}
+      <p>반별 명단에서 '이동'으로 다른 반으로 옮기거나, 괜찮다면 그대로 두세요.</p>
+      <div className="ft"><button type="button" className="kpl-btn" onClick={() => { setAlertSeen(v => ({ ...v, [groupAlert.sig]: true })); setGroupAlert(null); }}>이 반은 그만 알리기</button><button type="button" className="kpl-btn pri" onClick={() => setGroupAlert(null)}>확인</button></div>
+    </div></div>}
     <div className="kpl-views four" role="tablist">
-      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["moves", "이동 결과", `${placement.moves.length}건`], ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`${curView === k ? "on" : ""}${k === "check" && count("same") ? " alert" : ""}`} onClick={() => setView(k)}><b>{l}</b><span>{sub}</span></button>)}
+      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["moves", "이동 결과", `${placement.moves.length}건`], ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`${curView === k ? "on" : ""}${k === "check" && count("same") ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster") openClassAlert(curTab); }}><b>{l}</b><span>{sub}</span></button>)}
     </div>
 
     {curView === "sep" && separation}
@@ -207,7 +240,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const mPct = sm.n ? Math.round((sm.m / sm.n) * 100) : 0;
       const Stat = ({ icon = "", label, n, unit = "", tone = "", hint = "" }) => <div className={`st-row ${tone}`} title={hint}><i className={`ic-${icon}`} /><span>{label}</span><b>{n}<small>{unit}</small></b></div>;
       return <>
-        <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length }}>{summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q} data-kdn-bare className={s.cls === curTab && !q ? "on" : ""} onClick={() => { setTab(s.cls); setFind(""); setOpenSid(""); setMoveSid(""); }}>
+        <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length }}>{summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q} data-kdn-bare className={s.cls === curTab && !q ? "on" : ""} onClick={() => { setTab(s.cls); setFind(""); setOpenSid(""); setMoveSid(""); openClassAlert(s.cls); }}>
           {miss ? <i className="dot" title={`분리 미반영 ${miss}명`}>{miss}</i> : null}
           <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small></button>; })}</div>
         <div className="kpl-split2">
@@ -230,7 +263,9 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             <div className="blk"><h5>반 의견</h5><Memos item={cls} me={me} onAdd={t => addMemo("classes", curTab, t)} onRemove={at => removeMemo("classes", curTab, at)} placeholder="예: 리더 후보가 없어 교환 검토" /></div>
           </aside>}
           <section className="kpl-tbl">
-            <div className="tools"><label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기(예: 4-15)" /></label></div>
+            <div className="tools"><label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기(예: 4-15)" /></label>
+              <button type="button" data-kdn-bare className="kpl-btn grp-add" onClick={() => setGroupEdit({ name: "", memo: "", members: [] })}><Users size={15} /> 조합 그룹 만들기</button></div>
+            {(() => { const related = (review.groups || []).filter(g => q || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
             <div className="kpl-filter" role="group" aria-label="학생 거르기"><small>거르기</small>
               <button type="button" data-kdn-bare className={`all${!rowFilter ? " on" : ""}`} onClick={() => setRowFilter("")}>전체 <b>{base.length}</b></button>
               {FILTERS.map(f => { const n = base.filter(f.test).length; return <button key={f.key} type="button" data-kdn-bare disabled={!n && rowFilter !== f.key} className={`t-${f.tone}${rowFilter === f.key ? " on" : ""}`} onClick={() => setRowFilter(v => (v === f.key ? "" : f.key))}>{f.label} <b>{n}</b></button>; })}
@@ -245,6 +280,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                   <td className="c">{r ? <span className={`st ${STATUS[r.status].tone}`} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"}</span> : <span className="dash">-</span>}</td>
                   {STUDENT_FLAGS.map(f => { const marks = item.marks?.[f.key] || []; const mine = marks.some(m => m.byId === me.id); const isCombo = f.key === "combo"; return <td key={f.key} className="c fc">
                     <button type="button" data-kdn-bare className={`ck t-${f.tone}${marks.length ? " on" : ""}${mine ? " mine" : ""}`} title={`${f.label}: ${f.hint}${marks.length ? `\n표시: ${marks.map(m => m.by).join(", ")}` : "\n눌러서 표시"}`} onClick={() => { toggleMark("students", sid, f.key); if (isCombo && !mine) { setOpenSid(sid); setMoveSid(""); } }}>{marks.length ? (marks.length > 1 ? marks.length : "✓") : ""}</button>
+                    {isCombo && groupsOf(sid).length > 0 && <span className={`gtag${groupsOf(sid).some(g => g.members.some(m => m !== sid && Number(placement.students[m]?.cls) === Number(s.cls))) ? " hot" : ""}`} title={groupsOf(sid).map(g => g.name).join(", ")}>그룹</span>}
                     {isCombo && (marks.length > 0 || cs.length > 0) && <button type="button" data-kdn-bare className={`cmb${same.length ? " hot" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }} title={cs.length ? cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join("\n") : "상대 학생 지정"}>{cs.length ? `상대 ${cs.length}${same.length ? " · 같은 반" : ""}` : "상대 지정"}</button>}
                   </td>; })}
                   <td className="c"><button type="button" data-kdn-bare className={`ic${memoN ? " has" : ""}${openSid === sid ? " on" : ""}`} onClick={() => { setOpenSid(v => (v === sid ? "" : sid)); setMoveSid(""); }} title="메모·조합 상대"><MessageSquare size={14} />{memoN ? <small>{memoN}</small> : null}</button></td>
@@ -325,6 +361,27 @@ function ComboPicker({ sid, placement, combos, mine, theirsMine = [], nameOf, on
       {q.trim() && <div className="hits">{hits.length ? hits.map(([id, x]) => <button key={id} type="button" data-kdn-bare onClick={() => { onAdd(id); setQ(""); }}><b>{x.name || nameOf(id)}</b><small>{oldLabel(id)} · 지금 {x.cls}반</small></button>) : <p className="nil">다른 반에서 찾는 학생이 없어요.</p>}</div>}
     </div>
   </div>;
+}
+
+// 조합 그룹 만들기·고치기: 이름 · 메모 · 학생(우리 반 체크 + 다른 반 검색)
+function GroupModal({ group, placement, nameOf, curTab, onSave, onRemove, onClose }) {
+  const [g, setG] = React.useState({ name: group.name || "", memo: group.memo || "", members: group.members || [], id: group.id });
+  const [q, setQ] = React.useState("");
+  const has = id => g.members.includes(id);
+  const toggle = id => setG(v => ({ ...v, members: has(id) ? v.members.filter(x => x !== id) : [...v.members, id] }));
+  const mine = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === Number(curTab)).sort((a, b) => (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+  const hits = q.trim() ? Object.entries(placement.students).filter(([id, x]) => Number(x.cls) !== Number(curTab) && !has(id) && (String(x.name || nameOf(id)).includes(q.trim()) || oldLabel(id).includes(q.trim()))).slice(0, 10) : [];
+  return <div className="kpl-modal" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onClose()}><div className="box grp">
+    <header><b><Users size={17} /> {group.id ? "조합 그룹 고치기" : "조합 그룹 만들기"}</b><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
+    <p className="lead">같은 반이 되면 서로 영향이 큰 학생들을 한 묶음으로 골라요. 그룹 학생이 한 반에 2명 이상이면 자동으로 알림이 떠요.</p>
+    <label className="fld"><span>그룹 이름</span><input value={g.name} onChange={e => setG(v => ({ ...v, name: e.target.value }))} placeholder="예: 쉬는 시간 다툼 그룹" /></label>
+    <label className="fld"><span>메모 <small>(선택)</small></span><input value={g.memo} onChange={e => setG(v => ({ ...v, memo: e.target.value }))} placeholder="예: 같은 반이면 수업 방해가 잦음" /></label>
+    <div className="sel"><span>고른 학생 <b>{g.members.length}</b>명</span><div className="chips">{g.members.length ? g.members.map(id => <span key={id}>{nameOf(id)}<small>{placement.students[id]?.cls}반</small><button type="button" data-kdn-bare onClick={() => toggle(id)} aria-label="빼기"><X size={11} /></button></span>) : <em>아래에서 학생을 골라 주세요</em>}</div></div>
+    <div className="part"><h6>{curTab}반 학생에서 고르기</h6><div className="pick">{mine.map(([id, x]) => <button key={id} type="button" data-kdn-bare className={has(id) ? "on" : ""} onClick={() => toggle(id)}><b>{x.name || nameOf(id)}</b><small>{oldLabel(id)}</small></button>)}</div></div>
+    <div className="part"><h6>다른 반 학생 찾기</h6><label className="find"><Search size={14} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="이름 또는 구반-번호" /></label>
+      {q.trim() && <div className="pick">{hits.length ? hits.map(([id, x]) => <button key={id} type="button" data-kdn-bare onClick={() => { toggle(id); setQ(""); }}><b>{x.name || nameOf(id)}</b><small>{oldLabel(id)} · {x.cls}반</small></button>) : <p className="nil">찾는 학생이 없어요.</p>}</div>}</div>
+    <footer>{onRemove && <button type="button" className="kpl-btn del" onClick={onRemove}><Trash2 size={14} /> 그룹 지우기</button>}<span className="sp" /><button type="button" className="kpl-btn" onClick={onClose}>취소</button><button type="button" className="kpl-btn pri" disabled={g.members.length < 2} onClick={() => onSave(g)}><Plus size={14} /> 저장</button></footer>
+  </div></div>;
 }
 
 // 이동 패널: 갈 수 있는 반(인원 변화) → 그냥 옮기기 또는 맞바꿀 학생 고르기
@@ -659,4 +716,37 @@ const CSS = `
 .kpl-views.four{grid-template-columns:repeat(4,minmax(0,1fr))}
 @media (max-width:760px){.kpl-views.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .kpl-empty{margin:0;padding:28px;border-radius:16px;border:1px dashed var(--kdn-line,#cbd5e1);text-align:center;font-size:14px;color:var(--kdn-muted,#64748b)}
+
+/* 조합 그룹 */
+.kpl-tbl .tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.kpl-tbl .tools .kpl-find{flex:1 1 280px}
+.kpl-btn.grp-add{border-color:#fcd34d;color:#b45309}.kpl-btn.grp-add:hover{background:#fffbeb}
+.kpl-groups{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.kpl-groups>small{font-size:12px;font-weight:800;color:var(--kdn-muted,#64748b);margin-right:2px}
+.kpl-groups button{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:99px;border:1px solid #fcd34d;background:#fffbeb;color:#92400e;font:inherit;font-size:13px;cursor:pointer}
+.kpl-groups button span{font-size:12px;font-weight:700;color:#a16207}
+.kpl-groups button.hot{border-color:#dc2626;background:#fef2f2;color:#b91c1c}.kpl-groups button.hot span{color:#b91c1c;font-weight:800}
+.kpl-grid .gtag{display:inline-block;margin-left:4px;padding:0 5px;border-radius:5px;background:#fef3c7;color:#92400e;font-size:10.5px;font-weight:800;vertical-align:middle}.kpl-grid .gtag.hot{background:#dc2626;color:#fff}
+.kpl-modal{position:fixed;inset:0;z-index:1100;display:grid;place-items:center;padding:16px;background:rgba(15,18,25,.48)}
+.kpl-modal .box{width:min(620px,100%);max-height:calc(100vh - 32px);overflow:auto;display:grid;gap:12px;padding:20px 22px;border-radius:18px;background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);box-shadow:0 24px 60px rgba(15,18,25,.3)}
+.kpl-modal header{display:flex;align-items:center}.kpl-modal header b{flex:1;display:flex;align-items:center;gap:6px;font-size:17px}
+.kpl-modal .x{display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:8px;background:transparent;color:var(--kdn-muted,#64748b);cursor:pointer}
+.kpl-modal .lead{margin:0;font-size:13.5px;color:var(--kdn-ink-soft,#334155);line-height:1.6}
+.kpl-modal .fld{display:grid;gap:4px}.kpl-modal .fld span{font-size:12.5px;font-weight:800;color:var(--kdn-muted,#64748b)}.kpl-modal .fld input{height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);font:inherit;font-size:14px}
+.kpl-modal .sel{display:grid;gap:6px;padding:10px 12px;border-radius:12px;background:#fffbeb;border:1px solid #fde68a}.kpl-modal .sel>span{font-size:13px;font-weight:700;color:#92400e}
+.kpl-modal .sel .chips{display:flex;flex-wrap:wrap;gap:6px}.kpl-modal .sel .chips>span{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 6px 0 12px;border-radius:99px;background:var(--kdn-surface,#fff);border:1px solid #fde68a;font-size:13px;font-weight:700}
+.kpl-modal .sel .chips small{font-size:11.5px;color:var(--kdn-muted,#64748b);font-weight:600}.kpl-modal .sel .chips button{display:grid;place-items:center;width:20px;height:20px;border:0;border-radius:50%;background:transparent;color:var(--kdn-muted,#64748b);cursor:pointer}
+.kpl-modal .sel em{font-style:normal;font-size:13px;color:#a16207}
+.kpl-modal .part{display:grid;gap:8px}.kpl-modal h6{margin:0;font-size:13px;font-weight:800}
+.kpl-modal .pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
+.kpl-modal .pick button{display:grid;gap:1px;padding:7px 10px;border-radius:10px;border:1px solid var(--kdn-line,#dfe4ec);background:var(--kdn-surface,#fff);text-align:left;font:inherit;cursor:pointer}
+.kpl-modal .pick button b{font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpl-modal .pick button small{font-size:11.5px;color:var(--kdn-muted,#64748b)}
+.kpl-modal .pick button.on{background:#d97706;border-color:#d97706;color:#fff}.kpl-modal .pick button.on small{color:#fef3c7}
+.kpl-modal .find{display:flex;align-items:center;gap:6px;height:38px;padding:0 10px;border-radius:10px;border:1px solid var(--kdn-line,#d5dbe3);color:var(--kdn-muted,#64748b)}.kpl-modal .find input{flex:1;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:14px;color:var(--kdn-ink,#111827)}
+.kpl-modal .nil{margin:0;font-size:13px;color:var(--kdn-muted,#64748b)}
+.kpl-modal footer{display:flex;gap:8px;align-items:center}.kpl-modal footer .sp{flex:1}.kpl-modal .kpl-btn.del{color:#b91c1c;border-color:#fecaca}
+.kpl-modal .box.alert{width:min(440px,100%);justify-items:start;border-top:6px solid #dc2626}
+.kpl-modal .box.alert .ico{display:grid;place-items:center;width:44px;height:44px;border-radius:14px;background:#fee2e2;color:#b91c1c}
+.kpl-modal .box.alert .t{font-size:18px;line-height:1.4}
+.kpl-modal .ga{justify-self:stretch;display:grid;gap:3px;padding:10px 12px;border-radius:12px;background:#fef2f2;border:1px solid #fecaca}.kpl-modal .ga b{display:flex;align-items:center;gap:5px;font-size:14px;color:#b91c1c}.kpl-modal .ga span{font-size:14px;font-weight:700}.kpl-modal .ga small{font-size:12.5px;color:var(--kdn-muted,#64748b)}
+.kpl-modal .box.alert p{margin:0;font-size:13.5px;color:var(--kdn-ink-soft,#334155)}
+.kpl-modal .box.alert .ft{justify-self:stretch;display:flex;justify-content:flex-end;gap:8px}
 `;
