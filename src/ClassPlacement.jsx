@@ -235,10 +235,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const q = find.trim();
       const wide = !!q || allView; // 검색·전체 보기: 모든 반 학생을 한 표로
       const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : allView || Number(s.cls) === curTab));
-      const FILTERS = [...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
-        { key: "miss", label: "분리 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", label: "조합 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
-        { key: "moved", label: "다른 반에서 옴", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
-        { key: "m", label: "남", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", label: "여", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
+      const markedAny = sid => STUDENT_FLAGS.some(f => (review.students[sid]?.marks?.[f.key] || []).length > 0);
+      const FILTERS = [{ key: "marked", label: "표시한 학생 전체", tone: "mute", test: ([sid]) => markedAny(sid) }, ...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
+        { key: "miss", label: "분리희망 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", label: "조합 우려 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
+        { key: "moved", label: "받은 학생", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
+        { key: "m", label: "남학생", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", label: "여학생", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
       const activeF = FILTERS.find(f => f.key === rowFilter);
       const canGo = (sid, c) => movableClasses(placement, sid).includes(Number(c));
       const toF = toFilter && toFilter !== curTab ? toFilter : 0;
@@ -273,6 +274,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
               <Stat icon="good" label="리더 후보" n={flagCount("leader")} unit="명" tone={flagCount("leader") ? "" : "warn"} hint="선생님들이 리더 후보로 표시한 학생" />
               <Stat icon="info" label="배려 필요" n={flagCount("care")} unit="명" />
               <Stat icon="bad" label="생활지도 주의" n={flagCount("guide")} unit="명" />
+              <Stat icon="mv" label="이동 희망" n={flagCount("move")} unit="명" hint="다른 반으로 옮기는 게 좋겠다고 표시한 학생" />
               <h6>배정 점검</h6>
               <Stat icon="bad" label="분리희망 미반영" n={missN} unit="명" tone={missN ? "bad" : ""} />
               <Stat icon="warn" label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} hint="학생마다 지목한 조합 상대가 같은 반인 쌍" />
@@ -290,7 +292,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             {(() => { const related = (review.groups || []).filter(g => wide || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
             {allView && !q && <div className="kpl-sres all"><Users size={15} /><b>전체 학생 {list.length}명{activeF ? ` · '${activeF.label}'` : ""}</b><small>모든 반을 한 번에 봐요. 새 반을 누르면 그 반으로 가요.</small></div>}
             {q && <div className="kpl-sres"><Search size={15} /><b>'{q}' 검색 결과 {list.length}명</b><small>모든 반에서 찾았어요. 새 반을 누르면 그 반으로 가요.</small><button type="button" data-kdn-bare onClick={() => setFind("")}><X size={13} /> 검색 지우기</button></div>}
-            <div className="kpl-filter" role="group" aria-label="학생 거르기"><small>거르기</small>
+            <div className="kpl-filter" role="group" aria-label="학생 필터"><small>필터</small>
               <button type="button" data-kdn-bare className={`all${!rowFilter ? " on" : ""}`} onClick={() => setRowFilter("")}>전체 <b>{base.length}</b></button>
               {FILTERS.map(f => { const n = base.filter(f.test).length; return <button key={f.key} type="button" data-kdn-bare disabled={!n && rowFilter !== f.key} className={`t-${f.tone}${rowFilter === f.key ? " on" : ""}`} onClick={() => setRowFilter(v => (v === f.key ? "" : f.key))}>{f.label} <b>{n}</b></button>; })}
             </div>
@@ -608,7 +610,12 @@ const CSS = `
 .kpl-slist .rows>li.miss{border-color:#fca5a5!important}
 .kpl-slist .rows>li.moved{box-shadow:inset 4px 0 0 #2563eb}.kpl-slist li.moved .row{box-shadow:none!important}
 .kpl-slist .panel{border-top:1px solid var(--kdn-line,#eef2f7)!important}
-/* 거르기 */
+/* 필터 */
+.kpl .fl.t-mv.on,.kpl-legend .fl.t-mv{border-color:#7c3aed;color:#6d28d9;background:#f5f3ff}.kpl .fl.mine.t-mv{background:#7c3aed;color:#fff}
+.kpl-filter button.t-mv{color:#6d28d9;border-color:#ddd6fe}.kpl-filter button.t-mv.on{background:#7c3aed}
+.kpl-grid th.fh.t-mv{color:#6d28d9}.kpl-grid .ck.on.t-mv{border-color:#7c3aed;background:#ede9fe;color:#6d28d9}.kpl-grid .ck.mine.t-mv{background:#7c3aed;color:#fff}
+.kpl-students article.t-mv{border-left-color:#7c3aed}
+
 .kpl-filter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;border-radius:12px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e5e9f0)}
 .kpl-filter>small{font-size:12px;font-weight:800;color:var(--kdn-muted,#64748b);margin-right:2px}
 .kpl-filter button{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 11px;border-radius:99px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#334155);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
