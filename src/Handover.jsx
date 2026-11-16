@@ -988,4 +988,12 @@ const CSS = `
 .kho-assign .tools{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
 .kho-assign .chk{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:var(--kdn-ink-soft,#3d4048);cursor:pointer}
 .kho-assign p.free{margin:0;display:flex;gap:6px;align-items:flex-start;font-size:12.5px;line-height:1.6;color:var(--kdn-muted,#8a8f99)}.kho-assign p.free svg{flex:none;margin-top:3px}
+
+/* 목록 ↔ 인수인계서, 위 머리 줄 ↔ 내용 간격 넓히기 */
+.kho{gap:20px!important}
+.kho-body{gap:28px!important;grid-template-columns:minmax(270px,320px) minmax(0,1fr)!important}
+.kho-main{padding-left:28px;border-left:1px solid var(--kdn-line,#e7e5e0)}
+.kho-task{gap:16px!important}
+.kho-list{top:84px!important}
+@media (max-width:960px){.kho-body{grid-template-columns:1fr!important;gap:16px!important}.kho-main{padding-left:0;border-left:0}}
 `;
