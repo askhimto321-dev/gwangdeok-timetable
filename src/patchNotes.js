@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-16-b",
+    date: "2026-11-16",
+    title: "반편성 개선",
+    items: [
+      { audience: "staff", text: "반별 명단에 '전체' 탭을 추가해 모든 반 학생을 한 번에 거르고 볼 수 있어요. 결과 엑셀에 검토 표시·조합 상대·메모도 함께 담겨요." },
+    ],
+  },
+  {
     id: "2026-11-16-a",
     date: "2026-11-16",
     title: "새 기능: 반편성",
