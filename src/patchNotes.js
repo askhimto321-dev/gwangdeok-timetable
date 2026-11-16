@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-16-d",
+    date: "2026-11-16",
+    title: "반편성 필터·인쇄",
+    items: [
+      { audience: "staff", text: "반편성 필터를 여러 개 함께 고를 수 있고, '이동 희망' 표시가 생겼어요. '인쇄·PDF'로 반별 현황표와 반별 명단을 보기 좋게 인쇄하거나 PDF로 저장할 수 있어요." },
+    ],
+  },
+  {
     id: "2026-11-16-c",
     date: "2026-11-16",
     title: "과세특 소감문 올리기",

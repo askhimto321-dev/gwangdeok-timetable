@@ -3,10 +3,11 @@
 // ③ 선생님들이 학생·반에 검토 표시를 남기고 ④ 이동 결과를 한눈에 보고 엑셀로 받아요.
 // 보기·검토 표시·이동: 반편성 탭을 볼 수 있는 교직원(이동은 기록되고 되돌릴 수 있음) / 파일 올리기·지우기: 관리자·부서·학년부장
 import React from "react";
-import { AlertTriangle, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Check, Printer, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { readStorage, updateStorage, writeStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs } from "./classSeparation.js";
+import { printPlacement } from "./placementPrint.js";
 import { placementKey, placementReviewKey, parsePlacementFile, normalizePlacement, bySidOf, movableClasses, swapCandidates, applyMove, undoMove, classSummary, checkPairs, studentResults, STUDENT_FLAGS, CLASS_CHECKS } from "./classPlacement.js";
 
 const STATUS = { same: { label: "같은 반", tone: "bad", Icon: AlertTriangle }, ok: { label: "다른 반", tone: "good", Icon: CheckCircle2 }, unknown: { label: "확인 필요", tone: "mute", Icon: CircleHelp } };
@@ -36,8 +37,13 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const [moveSid, setMoveSid] = React.useState("");
   const [moveTo, setMoveTo] = React.useState(0);
   const [find, setFind] = React.useState("");
-  const [rowFilter, setRowFilter] = React.useState("");
-  const [toFilter, setToFilter] = React.useState(0); // 이 반으로 옮길 수 있는 학생만
+  // 필터 여러 개: 같은 줄(묶음) 안에서는 '하나라도', 다른 줄끼리는 '모두' 맞는 학생. 이 브라우저에 기억해요.
+  const [rowFilter, setRowFilterRaw] = React.useState(() => { try { const v = JSON.parse(localStorage.getItem("kd_kpl_filter_v1") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } });
+  const setRowFilter = next => setRowFilterRaw(prev => { const v = typeof next === "function" ? next(prev) : next; try { localStorage.setItem("kd_kpl_filter_v1", JSON.stringify(v)); } catch { /* 저장 못 해도 화면은 그대로 */ } return v; });
+  const toggleFilter = key => setRowFilter(v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]));
+  const [toFilter, setToFilter] = React.useState(0);
+  const [printOpen, setPrintOpen] = React.useState(false);
+  const [printOpt, setPrintOpt] = React.useState({ scope: "all", overview: true, roster: true, memos: true }); // 이 반으로 옮길 수 있는 학생만
   const input = React.useRef(null);
   const me = { id: String(actor?.id || actor?.name || "me"), name: String(actor?.name || "선생님") };
   const oldClasses = React.useMemo(() => Array.from(new Set(Object.values(roster || {}).map(s => Number(s?.class)).filter(Boolean))).sort((a, b) => a - b), [roster]);
@@ -166,6 +172,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const head = <section className="kpl-head">
     <div className="t"><b>{year + 1}학년도 {nextGrade}학년 반편성</b><small>{placement ? `${placement.fileName || "반편성 결과"} · ${fmt(placement.at)} ${placement.by} 반영 · 학생 ${Object.keys(placement.students).length}명${placement.moves?.length ? ` · 이동 ${placement.moves.length}건` : ""}` : canManage ? "반편성 프로그램 결과 엑셀(학생배정현황 시트)을 올리면 새 반 명단·이동·분리희망 확인을 할 수 있어요." : "관리자·학년부장이 반편성 결과를 올리면 여기서 볼 수 있어요."}</small></div>
     <div className="acts">
+      {placement && <button type="button" className="kpl-btn" onClick={() => setPrintOpen(true)}><Printer size={15} /> 인쇄·PDF</button>}
       {placement && <button type="button" className="kpl-btn" onClick={downloadXlsx}><Download size={15} /> 결과 엑셀</button>}
       {canManage && <button type="button" className="kpl-btn pri" disabled={busy} onClick={() => input.current?.click()}>{busy ? <Loader2 size={15} className="spin" /> : <Upload size={15} />} {placement ? "다시 올리기" : "반편성 결과 올리기"}</button>}
       {canManage && placement && <button type="button" className="kpl-btn" onClick={clear} title="결과 지우기"><Trash2 size={14} /></button>}
@@ -214,11 +221,57 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const summary = classSummary(placement);
   const classes = summary.map(s => s.cls);
   const allView = tab === "all";
+  // 인쇄·PDF: 반별 현황표 + 반마다 한 장(학생 명단·표시·메모)
+  const doPrint = () => {
+    const marksOf = (sid, key) => (review.students[sid]?.marks?.[key] || []).length > 0;
+    const flagN = (c, key) => Object.entries(placement.students).filter(([sid, x]) => Number(x.cls) === c && marksOf(sid, key)).length;
+    const missN = c => Object.entries(placement.students).filter(([sid, x]) => Number(x.cls) === c && missSet.has(sid)).length;
+    const comboN = c => pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === c && Number(placement.students[p.b]?.cls) === c).length;
+    const columns = [{ key: "n", label: "인원" }, { key: "m", label: "남" }, { key: "f", label: "여" }, { key: "inn", label: "받은 학생" }, { key: "out", label: "보낸 학생" },
+      ...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, low: f.key === "leader" })),
+      { key: "miss", label: "분리희망 미반영", warn: true }, { key: "combo2", label: "조합 우려 같은 반(쌍)", warn: true }, { key: "group2", label: "조합 그룹 같은 반", warn: true }];
+    const classRows = summary.map(x => ({ cls: x.cls, cells: { n: x.n, m: x.m, f: x.f, inn: x.inn || 0, out: x.out || 0, ...Object.fromEntries(STUDENT_FLAGS.map(f => [f.key, flagN(x.cls, f.key)])), miss: missN(x.cls), combo2: comboN(x.cls), group2: groupsIn(x.cls).length } }));
+    const pick = printOpt.scope === "all" ? summary : summary.filter(x => x.cls === curTab);
+    const classesOut = pick.map(x => {
+      const cls = review.classes[x.cls] || {};
+      const ids = Object.entries(placement.students).filter(([, v]) => Number(v.cls) === x.cls).sort((a, b) => (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+      return { cls: x.cls, head: `${x.n}명 (남 ${x.m} · 여 ${x.f})`,
+        chips: [...STUDENT_FLAGS.map(f => [f.label, flagN(x.cls, f.key), f.key === "leader" && !flagN(x.cls, f.key)]), ["분리희망 미반영", missN(x.cls), missN(x.cls) > 0], ["조합 우려 같은 반", comboN(x.cls), comboN(x.cls) > 0], ["받은", x.inn || 0], ["보낸", x.out || 0]],
+        checks: CLASS_CHECKS.filter(c => (cls.marks?.[c.key] || []).length).map(c => c.label),
+        notes: (cls.memos || []).map(m => `${m.text} (${m.by})`),
+        flags: STUDENT_FLAGS.map(f => f.label),
+        students: ids.map(([sid, v]) => { const r = resultOf(sid); const cs = combosOf(sid); const notes = [];
+          if (Number(v.cls) !== Number(v.orig)) notes.push(`${v.orig}반에서 옴`);
+          if (cs.length) notes.push(`조합 상대: ${cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join(", ")}`);
+          groupsOf(sid).forEach(g => notes.push(`그룹 ${g.name}`));
+          return { no: v.no || "", old: oldLabel(sid), name: nameOf(sid), gender: genderOf(sid), flags: STUDENT_FLAGS.map(f => marksOf(sid, f.key)),
+            sep: r ? (r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인") : "", sepTone: r ? (r.status === "same" ? "bad" : r.status === "ok" ? "good" : "") : "",
+            alert: missSet.has(sid) || comboSame(sid).length > 0, notes, memos: (review.students[sid]?.memos || []).map(m => `${m.text} (${m.by})`) }; }) };
+    });
+    const ok = printPlacement({ title: `${year + 1}학년도 ${nextGrade}학년 반편성 현황`, subtitle: `${placement.fileName || "반편성 결과"} · ${fmt(placement.at)} ${placement.by} 반영`,
+      totals: [["학생", `${Object.keys(placement.students).length}명`], ["반", `${summary.length}개`], ["이동", `${placement.moves.length}건`], ["분리희망 미반영", `${count("same")}쌍`, count("same") > 0], ["리더 후보 없는 반", `${classRows.filter(r => !r.cells.leader).length}개`, classRows.some(r => !r.cells.leader)]],
+      columns, classRows,
+      moves: placement.moves.map(m => [fmt(m.at), `${nameOf(m.sid)} (${oldLabel(m.sid)})`, `${m.from}반 → ${m.to}반`, m.swap ? `${nameOf(m.swap)} (${m.to}반 → ${m.from}반)` : "", m.by || ""]),
+      classes: classesOut }, { overview: printOpt.overview && printOpt.scope === "all", roster: printOpt.roster || printOpt.scope !== "all", memos: printOpt.memos });
+    if (!ok) showToast?.("인쇄 창을 열지 못했어요. 팝업 차단을 풀어 주세요.", "error");
+    else setPrintOpen(false);
+  };
   const curTab = classes.includes(tab) ? tab : classes[0];
 
   return <div className="kpl"><style>{CSS}</style>
     {head}{previewBox}
     {groupEdit && <GroupModal group={groupEdit} placement={placement} nameOf={nameOf} curTab={curTab} onSave={saveGroup} onRemove={groupEdit.id ? () => removeGroup(groupEdit.id) : null} onClose={() => setGroupEdit(null)} />}
+    {printOpen && <div className="kpl-modal" role="dialog" aria-modal="true" aria-label="인쇄·PDF" onClick={e => e.target === e.currentTarget && setPrintOpen(false)}><div className="box prn">
+      <b className="t"><Printer size={18} /> 반편성 현황 인쇄·PDF</b>
+      <div className="opt"><small>범위</small><div className="seg">{[["all", "전체 반"], ["cur", `지금 반(${curTab}반)`]].map(([k, l]) => <button key={k} type="button" data-kdn-bare className={printOpt.scope === k ? "on" : ""} onClick={() => setPrintOpt(o => ({ ...o, scope: k }))}>{l}</button>)}</div></div>
+      <div className="opt"><small>넣을 것</small><div className="cks">
+        {printOpt.scope === "all" && <label><input type="checkbox" checked={printOpt.overview} onChange={e => setPrintOpt(o => ({ ...o, overview: e.target.checked }))} /> 반별 현황표 · 이동 내역 (1쪽)</label>}
+        {printOpt.scope === "all" && <label><input type="checkbox" checked={printOpt.roster} onChange={e => setPrintOpt(o => ({ ...o, roster: e.target.checked }))} /> 반별 학생 명단 (반마다 한 장)</label>}
+        <label><input type="checkbox" checked={printOpt.memos} onChange={e => setPrintOpt(o => ({ ...o, memos: e.target.checked }))} /> 선생님 메모·반 의견</label>
+      </div></div>
+      <p>인쇄 창에서 '대상'을 <b>PDF로 저장</b>으로 바꾸면 PDF 파일로 받을 수 있어요. 학생 정보가 담겨 있으니 보관에 주의해 주세요.</p>
+      <div className="ft"><button type="button" className="kpl-btn" onClick={() => setPrintOpen(false)}>닫기</button><button type="button" className="kpl-btn pri" disabled={printOpt.scope === "all" && !printOpt.overview && !printOpt.roster} onClick={doPrint}><Printer size={15} /> 인쇄 미리보기</button></div>
+    </div></div>}
     {groupAlert && <div className="kpl-modal" role="alertdialog" aria-modal="true" onClick={e => e.target === e.currentTarget && setGroupAlert(null)}><div className="box alert">
       <span className="ico"><AlertTriangle size={22} /></span>
       <b className="t">{groupAlert.cls}반에 같은 조합 그룹 학생이 함께 있어요</b>
@@ -236,14 +289,18 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const wide = !!q || allView; // 검색·전체 보기: 모든 반 학생을 한 표로
       const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : allView || Number(s.cls) === curTab));
       const markedAny = sid => STUDENT_FLAGS.some(f => (review.students[sid]?.marks?.[f.key] || []).length > 0);
-      const FILTERS = [{ key: "marked", label: "표시한 학생 전체", tone: "mute", test: ([sid]) => markedAny(sid) }, ...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
-        { key: "miss", label: "분리희망 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", label: "조합 우려 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
-        { key: "moved", label: "받은 학생", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
-        { key: "m", label: "남학생", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", label: "여학생", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
-      const activeF = FILTERS.find(f => f.key === rowFilter);
+      const FILTERS = [{ key: "marked", group: "mark", label: "표시한 학생 전체", tone: "mute", test: ([sid]) => markedAny(sid) }, ...STUDENT_FLAGS.map(f => ({ key: f.key, group: "mark", label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
+        { key: "miss", group: "check", label: "분리희망 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", group: "check", label: "조합 우려 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
+        { key: "moved", group: "check", label: "받은 학생", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", group: "check", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
+        { key: "m", group: "gender", label: "남학생", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", group: "gender", label: "여학생", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
+      const FGROUPS = [["mark", "학생 표시"], ["check", "배정 점검"], ["gender", "성별"]];
+      const picked = FILTERS.filter(f => rowFilter.includes(f.key));
+      // 묶음마다: 고른 것 중 하나라도 맞으면 통과. except: 그 묶음은 빼고(칩 옆 숫자 = 다른 조건과 함께 골랐을 때 인원)
+      const passes = (e, except = "") => FGROUPS.every(([g]) => { if (g === except) return true; const fs = picked.filter(f => f.group === g); return !fs.length || fs.some(f => f.test(e)); });
+      const activeF = picked.length ? { label: picked.map(f => f.label).join(" · ") } : null;
       const canGo = (sid, c) => movableClasses(placement, sid).includes(Number(c));
       const toF = toFilter && toFilter !== curTab ? toFilter : 0;
-      const list = base.filter(e => !activeF || activeF.test(e)).filter(([sid]) => !toF || canGo(sid, toF)).sort((a, b) => (wide ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+      const list = base.filter(e => passes(e)).filter(([sid]) => !toF || canGo(sid, toF)).sort((a, b) => (wide ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
       const sm = summary.find(s => s.cls === curTab) || {};
       const cls = review.classes[curTab] || {};
       const flagCount = key => base.filter(([sid]) => (review.students[sid]?.marks?.[key] || []).length).length;
@@ -292,9 +349,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             {(() => { const related = (review.groups || []).filter(g => wide || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
             {allView && !q && <div className="kpl-sres all"><Users size={15} /><b>전체 학생 {list.length}명{activeF ? ` · '${activeF.label}'` : ""}</b><small>모든 반을 한 번에 봐요. 새 반을 누르면 그 반으로 가요.</small></div>}
             {q && <div className="kpl-sres"><Search size={15} /><b>'{q}' 검색 결과 {list.length}명</b><small>모든 반에서 찾았어요. 새 반을 누르면 그 반으로 가요.</small><button type="button" data-kdn-bare onClick={() => setFind("")}><X size={13} /> 검색 지우기</button></div>}
-            <div className="kpl-filter" role="group" aria-label="학생 필터"><small>필터</small>
-              <button type="button" data-kdn-bare className={`all${!rowFilter ? " on" : ""}`} onClick={() => setRowFilter("")}>전체 <b>{base.length}</b></button>
-              {FILTERS.map(f => { const n = base.filter(f.test).length; return <button key={f.key} type="button" data-kdn-bare disabled={!n && rowFilter !== f.key} className={`t-${f.tone}${rowFilter === f.key ? " on" : ""}`} onClick={() => setRowFilter(v => (v === f.key ? "" : f.key))}>{f.label} <b>{n}</b></button>; })}
+            <div className="kpl-filter multi" role="group" aria-label="학생 필터">
+              <div className="fhd"><b>필터</b><small>여러 개 고를 수 있어요 · 같은 줄은 하나라도, 다른 줄끼리는 모두 맞는 학생</small>
+                {picked.length > 0 ? <><span className="cnt">{list.length}명</span><button type="button" data-kdn-bare className="reset" onClick={() => setRowFilter([])}><X size={12} /> 필터 지우기</button></> : <span className="cnt mute">전체 {base.length}명</span>}</div>
+              {FGROUPS.map(([g, gl]) => <div key={g} className="frow"><small>{gl}</small>{FILTERS.filter(f => f.group === g).map(f => { const on = rowFilter.includes(f.key); const n = base.filter(e => passes(e, g) && f.test(e)).length; return <button key={f.key} type="button" data-kdn-bare aria-pressed={on} disabled={!n && !on} className={`t-${f.tone}${on ? " on" : ""}`} onClick={() => toggleFilter(f.key)}>{on && <Check size={12} />}{f.label} <b>{n}</b></button>; })}</div>)}
             </div>
             {wide && activeF && <div className="kpl-dist" aria-label="반별 인원"><small>반별</small>{classes.map(c => { const n = list.filter(([, x]) => Number(x.cls) === c).length; return <button key={c} type="button" data-kdn-bare className={n ? "has" : ""} onClick={() => goClass(c)} title={`${c}반 명단으로`}>{c}반 <b>{n}</b></button>; })}</div>}
             {!wide && placement.kind === "program" || (!wide && Object.values(placement.students).some(x => x.can)) ? <div className="kpl-filter kpl-to" role="group" aria-label="옮길 수 있는 반으로 거르기"><small>{curTab}반 → 옮길 반</small>
@@ -328,7 +386,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                 {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
               </React.Fragment>; })}</tbody>
             </table></div>
-            {!list.length && <p className="kpl-nil">{toF ? `${curTab}반에서 ${toF}반으로 옮길 수 있는 학생이 없어요.` : activeF ? `'${activeF.label}' 학생이 없어요.` : "찾는 학생이 없어요."}</p>}
+            {!list.length && <p className="kpl-nil">{toF ? `${curTab}반에서 ${toF}반으로 옮길 수 있는 학생이 없어요.` : activeF ? "고른 필터에 맞는 학생이 없어요."  : "찾는 학생이 없어요."}</p>}
           </section>
         </div>
       </>;
@@ -617,6 +675,18 @@ const CSS = `
 .kpl-students article.t-mv{border-left-color:#7c3aed}
 
 .kpl-filter{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;border-radius:12px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e5e9f0)}
+.kpl-modal .box.prn{display:grid;gap:12px;width:min(460px,100%)}.kpl-modal .box.prn .t{display:flex;align-items:center;gap:8px;font-size:17px}
+.kpl-modal .box.prn .opt{display:grid;gap:6px}.kpl-modal .box.prn .opt>small{font-size:12.5px;font-weight:800;color:var(--kdn-muted,#64748b)}
+.kpl-modal .box.prn .seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:3px;border-radius:11px;background:var(--kdn-surface-2,#eef2f7)}.kpl-modal .box.prn .seg button{min-height:36px;border-radius:9px;border:0;background:transparent;font:inherit;font-weight:700;color:var(--kdn-muted,#64748b);cursor:pointer}.kpl-modal .box.prn .seg button.on{background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);box-shadow:0 1px 3px rgba(15,23,42,.12)}
+.kpl-modal .box.prn .cks{display:grid;gap:6px}.kpl-modal .box.prn .cks label{display:flex;align-items:center;gap:8px;font-size:14px}.kpl-modal .box.prn .cks input{width:16px;height:16px;accent-color:#2563eb}
+.kpl-modal .box.prn p{margin:0;font-size:13px;color:var(--kdn-muted,#64748b)}.kpl-modal .box.prn .ft{display:flex;justify-content:flex-end;gap:8px}
+.kpl-filter.multi{display:grid;gap:6px;padding:10px 12px}
+.kpl-filter.multi .fhd{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}.kpl-filter.multi .fhd b{font-size:14px}.kpl-filter.multi .fhd small{font-size:12px;color:var(--kdn-muted,#64748b)}
+.kpl-filter.multi .fhd .cnt{margin-left:auto;padding:2px 10px;border-radius:99px;background:#2563eb;color:#fff;font-size:12.5px;font-weight:800}.kpl-filter.multi .fhd .cnt.mute{background:var(--kdn-surface-2,#eef2f7);color:var(--kdn-ink-soft,#334155)}
+.kpl-filter.multi .fhd .reset{height:28px;padding:0 10px;font-size:12.5px;font-weight:800;color:#b91c1c;border-color:#fecaca}
+.kpl-filter.multi .frow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-top:6px;border-top:1px dashed var(--kdn-line,#e5e9f0)}
+.kpl-filter.multi .frow>small{flex:0 0 64px;font-size:12px;font-weight:800;color:var(--kdn-muted,#64748b)}
+@media (max-width:560px){.kpl-filter.multi .frow>small{flex-basis:100%}}
 .kpl-filter>small{font-size:12px;font-weight:800;color:var(--kdn-muted,#64748b);margin-right:2px}
 .kpl-filter button{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 11px;border-radius:99px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#334155);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
 .kpl-filter button b{font-size:11.5px;font-weight:800;color:var(--kdn-muted,#64748b)}
