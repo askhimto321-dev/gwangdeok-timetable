@@ -194,8 +194,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     (review.groups || []).forEach(g => g.members.forEach((x, i) => g.members.slice(i + 1).forEach(y => put(x, y, `그룹 ${g.name}`, g.name))));
     return Array.from(m.values()); })();
   const groupsOf = sid => (review.groups || []).filter(g => g.members.includes(sid));
-  const combosOf = sid => comboPairs.filter(p => p.a === sid || p.b === sid).map(p => ({ other: p.a === sid ? p.b : p.a, by: p.by }));
+  // 지목(학생마다 고른 상대)만: 조합 그룹으로만 묶인 쌍은 '그룹'으로 따로 보여요
+  const pickedPairs = comboPairs.filter(p => p.by.some(b => !String(b).startsWith("그룹 ")));
+  const combosOf = sid => pickedPairs.filter(p => p.a === sid || p.b === sid).map(p => ({ other: p.a === sid ? p.b : p.a, by: p.by.filter(b => !String(b).startsWith("그룹 ")) }));
   const comboSame = sid => combosOf(sid).filter(c => Number(placement.students[c.other]?.cls) === Number(placement.students[sid]?.cls));
+  const groupSame = sid => (review.groups || []).some(g => g.members.includes(sid) && g.members.some(m => m !== sid && Number(placement.students[m]?.cls) === Number(placement.students[sid]?.cls)));
   const addCombo = (sid, other) => saveReview(v => { const item = { ...(v.students[sid] || {}) }; const list = item.combos || []; if (list.some(c => c.with === other && c.byId === me.id)) return v; item.combos = [...list, { with: other, byId: me.id, by: me.name, at: new Date().toISOString() }]; const marks = { ...(item.marks || {}) }; if (!(marks.combo || []).some(m => m.byId === me.id)) marks.combo = [...(marks.combo || []), { byId: me.id, by: me.name, at: new Date().toISOString() }]; item.marks = marks; v.students[sid] = item; return v; });
   const removeCombo = (sid, other) => saveReview(v => { [sid, other].forEach(a => { const b = a === sid ? other : sid; const item = { ...(v.students[a] || {}) }; item.combos = (item.combos || []).filter(c => !(c.with === b && c.byId === me.id)); v.students[a] = item; }); return v; });
   const resultOf = sid => results.find(x => x.sid === sid);
@@ -226,7 +229,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const q = find.trim();
       const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : Number(s.cls) === curTab));
       const FILTERS = [...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
-        { key: "miss", label: "분리 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", label: "조합 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 },
+        { key: "miss", label: "분리 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", label: "조합 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
         { key: "moved", label: "다른 반에서 옴", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
         { key: "m", label: "남", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", label: "여", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
       const activeF = FILTERS.find(f => f.key === rowFilter);
@@ -237,7 +240,8 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const cls = review.classes[curTab] || {};
       const flagCount = key => base.filter(([sid]) => (review.students[sid]?.marks?.[key] || []).length).length;
       const missN = base.filter(([sid]) => missSet.has(sid)).length;
-      const comboN = comboPairs.filter(p => Number(placement.students[p.a]?.cls) === curTab && Number(placement.students[p.b]?.cls) === curTab).length;
+      const groupN = groupsIn(curTab).length;
+      const comboN = pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === curTab && Number(placement.students[p.b]?.cls) === curTab).length;
       const ob = placement.classOb?.[curTab] || [];
       const cols = q ? 11 : 10;
       const mPct = sm.n ? Math.round((sm.m / sm.n) * 100) : 0;
@@ -257,7 +261,8 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
               <Stat icon="bad" label="생활지도 주의" n={flagCount("guide")} unit="명" />
               <h6>배정 점검</h6>
               <Stat icon="bad" label="분리희망 미반영" n={missN} unit="명" tone={missN ? "bad" : ""} />
-              <Stat icon="warn" label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} />
+              <Stat icon="warn" label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} hint="학생마다 지목한 조합 상대가 같은 반인 쌍" />
+              <Stat icon="warn" label="조합 그룹 같은 반" n={groupN} unit="그룹" tone={groupN ? "bad" : ""} hint="같은 조합 그룹 학생이 이 반에 2명 이상인 그룹" />
               <Stat icon="mv" label="받은 학생" n={sm.inn || 0} unit="명" hint="이동으로 이 반에 온 학생" />
               <Stat icon="mv" label="보낸 학생" n={sm.out || 0} unit="명" hint="이동으로 다른 반에 간 학생" />
             </div>
