@@ -1,0 +1,54 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { parseOldSid, parsePlacementSheets, checkPairs, studentResults } from "../src/classPlacement.js";
+
+const roster = { "20101": { name: "가나", gender: "남" }, "20102": { name: "다라", gender: "여" }, "20201": { name: "마바", gender: "남" }, "20202": { name: "사아", gender: "여" }, "20203": { name: "가나", gender: "여" } };
+
+test("반편성: 이전 학번 여러 모양", () => {
+  assert.equal(parseOldSid("20415"), "20415");
+  assert.equal(parseOldSid("2-4-15"), "20415");
+  assert.equal(parseOldSid("2학년 4반 15번"), "20415");
+  assert.equal(parseOldSid("30415"), "");
+});
+test("반편성: 반·번호·성명 + 이전학적 열", () => {
+  const aoa = [["2027학년도 3학년 반편성"], ["반", "번호", "성명", "성별", "이전학적"], ["1", "1", "가나", "남", "2-1-1"], ["1", "2", "마바", "남", "2-2-1"], ["2", "1", "다라", "여", "2-1-2"]];
+  const r = parsePlacementSheets([{ name: "Sheet1", aoa }], roster);
+  assert.deepEqual(r.bySid, { "20101": 1, "20201": 1, "20102": 2 });
+});
+test("반편성: 반마다 시트, 새 학번만 있고 이름으로 맞추기(동명이인은 성별로)", () => {
+  const s1 = { name: "1반", aoa: [["번호", "이름", "성별"], ["1", "가나", "여"], ["2", "마바", "남"]] };
+  const s2 = { name: "2반", aoa: [["학번", "이름", "성별"], ["30201", "사아", "여"], ["30202", "없는학생", "남"]] };
+  const r = parsePlacementSheets([s1, s2], roster);
+  assert.deepEqual(r.bySid, { "20203": 1, "20201": 1, "20202": 2 });
+  assert.equal(r.stats.unmatched.length, 1);
+});
+test("반편성: 분리 쌍 반영 확인", () => {
+  const checked = checkPairs([{ a: "20101", b: "20201", level: "반드시 분리" }, { a: "20101", b: "20102", level: "참고" }, { a: "20102", b: "20999", level: "참고" }], { "20101": 1, "20201": 1, "20102": 2 });
+  assert.deepEqual(checked.map(p => p.status), ["same", "ok", "unknown"]);
+  const st = Object.fromEntries(studentResults(checked).map(s => [s.sid, s.status]));
+  assert.deepEqual(st, { "20101": "same", "20201": "same", "20102": "unknown", "20999": "unknown" });
+});
+import { parseAssignmentSheet, parsePlacementFile, movableClasses, swapCandidates, applyMove, undoMove, classSummary, normalizePlacement } from "../src/classPlacement.js";
+test("반편성 프로그램 시트: 구반·구번호·원반·배정가능학급", () => {
+  const aoa = [[], [], [], ["", "", "", "", "", "", "", "", "", "", "1학기_선택1_택5", "", "배정가능학급", "", "", ""], ["", "연번", "구반", "구번호", "반", "번호", "이름", "성별", "성적", "비고", "윤리", "지리", "합", "1", "2", "3"], [],
+    ["", "1", "1", "1", "1", "1", "가나", "남", "", "", "A", "", "2", "1", "", "1"],
+    ["", "2", "2", "1", "2", "1", "마바", "남", "", "", "원반", "B", "2", "", "1", "1"],
+    ["", "3", "1", "2", "3", "1", "다라", "여", "", "", "B", "", "1", "", "", "1"]];
+  const r = parseAssignmentSheet(aoa);
+  assert.deepEqual(Object.keys(r.students).sort(), ["20101", "20102", "20201"]);
+  assert.deepEqual(r.students["20101"].can, [1, 3]);
+  assert.deepEqual(r.students["20201"].ob, ["1학기 윤리"]);
+  assert.deepEqual(r.classOb[2], ["1학기 윤리"]);
+  const f = parsePlacementFile([{ name: "대시보드", aoa: [["x"]] }, { name: "학생배정현황", aoa }], {});
+  assert.equal(f.kind, "program");
+  let p = normalizePlacement({ students: f.students });
+  assert.deepEqual(movableClasses(p, "20101"), [3]);
+  assert.deepEqual(swapCandidates(p, "20101", 3).map(x => x.sid), []); // 3반 학생은 1반으로 못 감
+  assert.deepEqual(swapCandidates(p, "20201", 3).map(x => x.sid), []);
+  p = applyMove(p, { sid: "20101", to: 3, by: "t" });
+  assert.equal(p.students["20101"].cls, 3);
+  const s = Object.fromEntries(classSummary(p).map(x => [x.cls, x]));
+  assert.equal(s[3].n, 2); assert.equal(s[3].inn, 1); assert.equal(s[1].out, 1);
+  p = undoMove(p, p.moves[0].id);
+  assert.equal(p.students["20101"].cls, 1); assert.equal(p.moves.length, 0);
+});
