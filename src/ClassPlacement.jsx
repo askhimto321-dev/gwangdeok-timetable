@@ -224,33 +224,24 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   // 인쇄·PDF: 반별 현황표 + 반마다 한 장(학생 명단·표시·메모)
   const doPrint = () => {
     const marksOf = (sid, key) => (review.students[sid]?.marks?.[key] || []).length > 0;
-    const flagN = (c, key) => Object.entries(placement.students).filter(([sid, x]) => Number(x.cls) === c && marksOf(sid, key)).length;
-    const missN = c => Object.entries(placement.students).filter(([sid, x]) => Number(x.cls) === c && missSet.has(sid)).length;
-    const comboN = c => pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === c && Number(placement.students[p.b]?.cls) === c).length;
-    const columns = [{ key: "n", label: "인원" }, { key: "m", label: "남" }, { key: "f", label: "여" }, { key: "inn", label: "받은 학생" }, { key: "out", label: "보낸 학생" },
-      ...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, low: f.key === "leader" })),
-      { key: "miss", label: "분리희망 미반영", warn: true }, { key: "combo2", label: "조합 우려 같은 반(쌍)", warn: true }, { key: "group2", label: "조합 그룹 같은 반", warn: true }];
-    const classRows = summary.map(x => ({ cls: x.cls, cells: { n: x.n, m: x.m, f: x.f, inn: x.inn || 0, out: x.out || 0, ...Object.fromEntries(STUDENT_FLAGS.map(f => [f.key, flagN(x.cls, f.key)])), miss: missN(x.cls), combo2: comboN(x.cls), group2: groupsIn(x.cls).length } }));
+    const inCls = c => Object.entries(placement.students).filter(([, x]) => Number(x.cls) === c);
+    const classRows = summary.map(x => { const ids = inCls(x.cls).map(([sid]) => sid); const cls = review.classes[x.cls] || {};
+      return { cls: x.cls, n: x.n, m: x.m, f: x.f, inn: x.inn || 0, out: x.out || 0,
+        flags: Object.fromEntries(STUDENT_FLAGS.map(f => [f.key, ids.filter(sid => marksOf(sid, f.key)).length])),
+        miss: ids.filter(sid => missSet.has(sid)).length,
+        combo: pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === x.cls && Number(placement.students[p.b]?.cls) === x.cls).length,
+        group: groupsIn(x.cls).length, checks: CLASS_CHECKS.filter(c => (cls.marks?.[c.key] || []).length).map(c => c.label) }; });
     const pick = printOpt.scope === "all" ? summary : summary.filter(x => x.cls === curTab);
-    const classesOut = pick.map(x => {
-      const cls = review.classes[x.cls] || {};
-      const ids = Object.entries(placement.students).filter(([, v]) => Number(v.cls) === x.cls).sort((a, b) => (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
-      return { cls: x.cls, head: `${x.n}명 (남 ${x.m} · 여 ${x.f})`,
-        chips: [...STUDENT_FLAGS.map(f => [f.label, flagN(x.cls, f.key), f.key === "leader" && !flagN(x.cls, f.key)]), ["분리희망 미반영", missN(x.cls), missN(x.cls) > 0], ["조합 우려 같은 반", comboN(x.cls), comboN(x.cls) > 0], ["받은", x.inn || 0], ["보낸", x.out || 0]],
-        checks: CLASS_CHECKS.filter(c => (cls.marks?.[c.key] || []).length).map(c => c.label),
-        notes: (cls.memos || []).map(m => `${m.text} (${m.by})`),
-        flags: STUDENT_FLAGS.map(f => f.label),
-        students: ids.map(([sid, v]) => { const r = resultOf(sid); const cs = combosOf(sid); const notes = [];
-          if (Number(v.cls) !== Number(v.orig)) notes.push(`${v.orig}반에서 옴`);
-          if (cs.length) notes.push(`조합 상대: ${cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join(", ")}`);
-          groupsOf(sid).forEach(g => notes.push(`그룹 ${g.name}`));
-          return { no: v.no || "", old: oldLabel(sid), name: nameOf(sid), gender: genderOf(sid), flags: STUDENT_FLAGS.map(f => marksOf(sid, f.key)),
-            sep: r ? (r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인") : "", sepTone: r ? (r.status === "same" ? "bad" : r.status === "ok" ? "good" : "") : "",
-            alert: missSet.has(sid) || comboSame(sid).length > 0, notes, memos: (review.students[sid]?.memos || []).map(m => `${m.text} (${m.by})`) }; }) };
-    });
-    const ok = printPlacement({ title: `${year + 1}학년도 ${nextGrade}학년 반편성 현황`, subtitle: `${placement.fileName || "반편성 결과"} · ${fmt(placement.at)} ${placement.by} 반영`,
-      totals: [["학생", `${Object.keys(placement.students).length}명`], ["반", `${summary.length}개`], ["이동", `${placement.moves.length}건`], ["분리희망 미반영", `${count("same")}쌍`, count("same") > 0], ["리더 후보 없는 반", `${classRows.filter(r => !r.cells.leader).length}개`, classRows.some(r => !r.cells.leader)]],
-      columns, classRows,
+    const classesOut = pick.map(x => ({ cls: x.cls, notes: ((review.classes[x.cls] || {}).memos || []).map(m => `${m.text} (${m.by})`),
+      students: inCls(x.cls).sort((a, b) => (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0])).map(([sid, v]) => { const r = resultOf(sid); const cs = combosOf(sid); const notes = [];
+        if (Number(v.cls) !== Number(v.orig)) notes.push(`${v.orig}반에서 옴`);
+        if (cs.length) notes.push(`조합 상대: ${cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join(", ")}`);
+        groupsOf(sid).forEach(g => notes.push(`그룹 ${g.name}`));
+        return { no: v.no || "", old: oldLabel(sid), name: nameOf(sid), gender: genderOf(sid), flags: STUDENT_FLAGS.filter(f => marksOf(sid, f.key)).map(f => f.key),
+          sep: r ? (r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인") : "", alert: missSet.has(sid) || comboSame(sid).length > 0, notes,
+          memos: (review.students[sid]?.memos || []).map(m => `${m.text} (${m.by})`) }; }) }));
+    const ok = printPlacement({ title: `${year + 1}학년도 ${nextGrade}학년 반편성`, subtitle: `${placement.fileName || "반편성 결과"} · ${fmt(placement.at)} ${placement.by} 반영`,
+      flags: STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone })), classRows,
       moves: placement.moves.map(m => [fmt(m.at), `${nameOf(m.sid)} (${oldLabel(m.sid)})`, `${m.from}반 → ${m.to}반`, m.swap ? `${nameOf(m.swap)} (${m.to}반 → ${m.from}반)` : "", m.by || ""]),
       classes: classesOut }, { overview: printOpt.overview && printOpt.scope === "all", roster: printOpt.roster || printOpt.scope !== "all", memos: printOpt.memos });
     if (!ok) showToast?.("인쇄 창을 열지 못했어요. 팝업 차단을 풀어 주세요.", "error");
