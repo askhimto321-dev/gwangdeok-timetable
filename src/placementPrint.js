@@ -29,7 +29,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   const lowLeader = classRows.filter(r => level("leader", r.flags.leader || 0)).length;
   const highN = classRows.reduce((t, r) => t + flags.filter(f => level(f.key, r.flags[f.key] || 0) === "high").length, 0);
   const kpis = [
-    ["학생", `${total}`, "명", ""], ["반", `${classRows.length}`, "개", ""], ["이동", `${data.moves.length}`, `건 · ${data.moves.reduce((t, m) => t + (m.swap ? 2 : 1), 0)}명`, ""],
+    ["학생", `${total}`, "명", ""], ["반", `${classRows.length}`, "개", ""], ["초기 엑셀과 달라진 학생", `${data.changed ?? sum(r => r.inn)}`, `명 · 기록 ${data.moves.length}건`, ""],
     ["분리희망 미반영", `${sum(r => r.miss)}`, "명", sum(r => r.miss) ? "bad" : "ok"],
     ["조합 우려 같은 반", `${sum(r => r.combo)}`, "쌍", sum(r => r.combo) ? "bad" : "ok"],
     ["리더 후보 없는 반", `${lowLeader}`, "개", lowLeader ? "bad" : "ok"],
@@ -62,7 +62,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   // 이동 내역: 현황과 따로 한 장(많으면 다음 장으로 이어지고 머리글 반복)
   const movesPage = overview ? `<section class="page">
     <header class="top sm"><span>${esc(data.title)}</span><span>${esc(printedAt)}</span></header>
-    <h2>이동 내역 <small>${data.moves.length ? `모두 ${data.moves.length}건 · 맞바꿈 ${data.moves.filter(m => m.swap).length}건 · 옮기기만 ${data.moves.filter(m => !m.swap).length}건 · 이동한 학생 ${data.moves.reduce((t, m) => t + (m.swap ? 2 : 1), 0)}명` : ""}</small></h2>
+    <h2>이동 내역 <small>${data.moves.length ? `모두 ${data.moves.length}건 · 맞바꿈 ${data.moves.filter(m => m.swap).length}건 · 옮기기만 ${data.moves.filter(m => !m.swap).length}건 · 초기 엑셀과 달라진 학생 ${data.changed ?? sum(r => r.inn)}명` : ""}</small></h2>
     ${data.moves.length ? `<table class="ov mvsum"><thead><tr><th class="c">반</th>${classRows.map(r => `<th class="c">${esc(r.cls)}반</th>`).join("")}<th class="c gs">합계</th></tr></thead><tbody>
       <tr><td class="c cls">받음</td>${classRows.map(r => cell(r.inn)).join("")}<td class="c gs b">${sum(r => r.inn)}</td></tr>
       <tr><td class="c cls">보냄</td>${classRows.map(r => cell(r.out)).join("")}<td class="c gs b">${sum(r => r.out)}</td></tr></tbody></table>
