@@ -15,7 +15,7 @@ export function classAlerts(classRows, flags) {
 }
 
 // data: { title, subtitle, flags: [{ key, label, tone }], classRows: [{ cls, n, m, f, inn, out, flags: {key: n}, miss, combo, group, checks: [] }],
-//   moves: [[시각, 학생, 이동, 맞바꾼 학생, 옮긴 사람]], classes: [{ cls, notes: [], students: [{ no, old, name, gender, flags: [key], sep, alert, notes: [], memos: [] }] }] }
+//   moves: [{ from, to, name, old, swap, swapOld, by, at }], classes: [{ cls, notes: [], students: [{ no, old, name, gender, flags: [key], sep, move: { from, partner } | null, alert, notes: [], memos: [] }] }] }
 export function printPlacement(data, { overview = true, roster = true, memos = true } = {}) {
   const win = window.open("", "_blank");
   if (!win) return false;
@@ -38,6 +38,13 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   const genderBar = r => { const p = r.n ? Math.round((r.m / r.n) * 100) : 0; return `<span class="gb"><i style="width:${p}%"></i></span>`; };
   const cell = (v, lv = "", alert = false, gs = false) => `<td class="c${gs ? " gs" : ""}${lv ? ` ${lv}` : ""}${alert && v ? " bad" : ""}${!v && !lv ? " z" : ""}">${v || (lv ? "0" : "–")}</td>`;
 
+  // 이동 내역 표: 한 줄 = 한 번의 이동(맞바꿈이면 두 학생이 서로 반을 바꿈)
+  const moveTable = (list, cls = 0) => `<table class="mvt"><thead><tr><th class="c n">#</th><th class="c kd">종류</th><th>학생</th><th class="c dir">이동</th><th>맞바꾼 학생</th><th class="c dir">이동</th><th class="c by">옮긴 사람 · 시각</th></tr></thead><tbody>
+    ${list.map((m, i) => { const mark = n => cls ? (Number(n) === Number(cls) ? ' class="me"' : "") : ""; return `<tr class="${m.swap ? "sw" : "one"}"><td class="c n">${i + 1}</td><td class="c kd"><span class="${m.swap ? "ksw" : "kone"}">${m.swap ? "↔ 맞바꿈" : "→ 옮기기"}</span></td>
+      <td><b>${esc(m.name)}</b> <small>${esc(m.old)}</small></td><td class="c dir"><span${mark(m.from)}>${m.from}반</span> → <span${mark(m.to)}>${m.to}반</span></td>
+      <td>${m.swap ? `<b>${esc(m.swap)}</b> <small>${esc(m.swapOld)}</small>` : '<i class="z">–</i>'}</td><td class="c dir">${m.swap ? `<span${mark(m.to)}>${m.to}반</span> → <span${mark(m.from)}>${m.from}반</span>` : '<i class="z">–</i>'}</td>
+      <td class="c by">${esc(m.by)}<br><small>${esc(m.at)}</small></td></tr>`; }).join("")}
+  </tbody></table>`;
   const cover = overview ? `<section class="page">
     <header class="top"><div><small>반편성 현황</small><h1>${esc(data.title)}</h1></div><span>${esc(data.subtitle)}<br>출력 ${esc(printedAt)}</span></header>
     <div class="kpis">${kpis.map(([l, v, u, t]) => `<div class="${t}"><small>${esc(l)}</small><b>${esc(v)}<em>${esc(u)}</em></b></div>`).join("")}</div>
@@ -50,7 +57,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
     </tbody><tfoot><tr><td class="c">합계</td><td class="c gs">${total}</td><td class="c">${sum(r => r.m)}</td><td class="c">${sum(r => r.f)}</td><td></td><td class="c gs">${sum(r => r.inn) || "–"}</td><td class="c">${sum(r => r.out) || "–"}</td>${flags.map((f, i) => `<td class="c${i ? "" : " gs"}">${sum(r => r.flags[f.key]) || "–"}</td>`).join("")}<td class="c gs">${sum(r => r.miss) || "–"}</td><td class="c">${sum(r => r.combo) || "–"}</td><td class="c">${sum(r => r.group) || "–"}</td></tr></tfoot></table>
     <p class="legend"><span class="sw high"></span> 쏠림: 다른 반 평균보다 많이 몰림(3명 이상) <span class="sw low"></span> 부족: 리더 후보 없음 <b class="r">빨강</b> 확인이 필요한 수 · 남녀 막대: 파랑 남 / 분홍 여</p>
     ${classRows.some(r => r.checks.length) ? `<h2>반 점검 <small>선생님들이 체크한 반</small></h2><table class="ckl"><tbody>${classRows.filter(r => r.checks.length).map(r => `<tr><th class="c">${esc(r.cls)}반</th><td>${r.checks.map(c => `<span class="ckt">${esc(c)}</span>`).join("")}</td></tr>`).join("")}</tbody></table>` : ""}
-    ${data.moves.length ? `<h2>이동 내역 <small>${data.moves.length}건</small></h2><table class="ov mv"><thead><tr><th>시각</th><th>학생</th><th>이동</th><th>맞바꾼 학생</th><th>옮긴 사람</th></tr></thead><tbody>${data.moves.map(m => `<tr>${m.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>` : ""}
+    ${data.moves.length ? `<h2>이동 내역 <small>맞바꿈 ${data.moves.filter(m => m.swap).length}건 · 옮기기만 ${data.moves.filter(m => !m.swap).length}건</small></h2>${moveTable(data.moves)}` : `<h2>이동 내역</h2><p class="legend">아직 이동한 학생이 없어요.</p>`}
   </section>` : "";
 
   const pages = roster ? data.classes.map(c => {
@@ -63,10 +70,11 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
       <div class="stats">${flags.map(f => stat(f.label, r.flags[f.key] || 0, level(f.key, r.flags[f.key] || 0))).join("")}${stat("분리희망 미반영", r.miss || 0, r.miss ? "bad" : "")}${stat("조합 같은 반", r.combo || 0, r.combo ? "bad" : "")}${stat("받음 · 보냄", `${r.inn || 0} · ${r.out || 0}`)}</div>
     </div>
     ${r.checks.length || (memos && c.notes.length) ? `<div class="notes">${r.checks.length ? `<div class="row"><b>반 점검</b><div>${r.checks.map(x => `<span class="ckt">${esc(x)}</span>`).join("")}</div></div>` : ""}${memos && c.notes.length ? `<div class="row"><b>의견</b><ul>${c.notes.map(n => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}</div>` : ""}
+    ${(() => { const mv = data.moves.filter(m => Number(m.from) === Number(c.cls) || Number(m.to) === Number(c.cls)); return mv.length ? `<div class="mvbox"><div class="mvh"><b>이 반 이동</b><span>받음 ${r.inn || 0}명 · 보냄 ${r.out || 0}명</span><small>굵은 반 = ${esc(c.cls)}반</small></div>${moveTable(mv, c.cls)}</div>` : ""; })()}
     <table class="st"><thead><tr><th class="c n">번호</th><th class="c o">구반-번호</th><th class="nm">이름</th><th class="c g">성별</th><th class="fl">표시</th><th class="c sp">분리희망</th><th>비고${memos ? " · 메모" : ""}</th><th class="c k">확인</th></tr></thead><tbody>
-    ${c.students.map(s => `<tr class="${s.alert ? "alert" : ""}"><td class="c n">${esc(s.no)}</td><td class="c o">${esc(s.old)}</td><td class="nm">${esc(s.name)}</td><td class="c g ${s.gender === "남" ? "m" : "f"}">${esc(s.gender)}</td><td class="fl">${s.flags.map(k => flagOf[k] ? tag(flagOf[k]) : "").join("")}</td><td class="c sp">${s.sep === "미반영" ? '<b class="r">미반영</b>' : s.sep === "반영" ? '<span class="ok">✓ 반영</span>' : s.sep ? `<span>${esc(s.sep)}</span>` : ""}</td><td class="rm">${s.notes.map(n => `<span class="nt">${esc(n)}</span>`).join("")}${memos ? s.memos.map(m => `<span class="memo">${esc(m)}</span>`).join("") : ""}</td><td class="c k"><i class="box"></i></td></tr>`).join("")}
+    ${c.students.map(s => `<tr class="${s.alert ? "alert" : ""}${s.move ? " moved" : ""}"><td class="c n">${esc(s.no)}</td><td class="c o">${esc(s.old)}</td><td class="nm">${esc(s.name)}${s.move ? `<span class="mvb">${s.move.from}반에서 옴${s.move.partner ? ` · ↔ ${esc(s.move.partner)}` : ""}</span>` : ""}</td><td class="c g ${s.gender === "남" ? "m" : "f"}">${esc(s.gender)}</td><td class="fl">${s.flags.map(k => flagOf[k] ? tag(flagOf[k]) : "").join("")}</td><td class="c sp">${s.sep === "미반영" ? '<b class="r">미반영</b>' : s.sep === "반영" ? '<span class="ok">✓ 반영</span>' : s.sep ? `<span>${esc(s.sep)}</span>` : ""}</td><td class="rm">${s.notes.map(n => `<span class="nt">${esc(n)}</span>`).join("")}${memos ? s.memos.map(m => `<span class="memo">${esc(m)}</span>`).join("") : ""}</td><td class="c k"><i class="box"></i></td></tr>`).join("")}
     </tbody></table>
-    <p class="legend">표시: ${flags.map(f => `${tag(f)} ${esc(f.label)}`).join(" ")} · 분리희망 '✓ 반영'은 분리희망이 있는 학생이 다른 반으로 잘 나뉜 경우예요.</p>
+    <p class="legend">표시: ${flags.map(f => `${tag(f)} ${esc(f.label)}`).join(" ")} · <span style="background:#f1ecff;padding:0 1mm;border-left:1mm solid #7c3aed">보라 줄</span> = 이동으로 이 반에 온 학생(↔ 맞바꾼 학생) · 분리희망 '✓ 반영'은 분리희망이 있는 학생이 다른 반으로 잘 나뉜 경우예요.</p>
   </section>`; }).join("") : "";
 
   win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(data.title)}</title><style>
@@ -109,6 +117,13 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   table.st .n{width:9mm}table.st .o{width:17mm}table.st .nm{width:21mm;font-weight:800;white-space:nowrap}table.st .g{width:9mm}table.st .fl{width:33mm}table.st .sp{width:16mm}table.st .k{width:10mm}
   table.st td.n{font-weight:700;color:#4b5060}table.st td.g.m{color:#1d4ed8;font-weight:700}table.st td.g.f{color:#be185d;font-weight:700}table.st td.sp{font-size:8.5pt}table.st td.sp .ok{color:#6b7280}table.st td.sp .r{font-size:9pt}
   table.st tr.alert td{background:#fdecea!important}
+  table.st tr.moved td{background:#f1ecff!important}table.st tr.moved td.n{box-shadow:inset 1.2mm 0 0 #7c3aed}
+  table.st .mvb{display:block;margin-top:0.3mm;font-size:7.5pt;font-weight:800;color:#6d28d9;white-space:nowrap}
+  table.mvt{font-size:9pt}table.mvt th{background:#efeafe}table.mvt .n{width:7mm;color:#4b5060}table.mvt .kd{width:20mm}table.mvt .dir{width:24mm;white-space:nowrap}table.mvt .by{width:30mm;font-size:8.5pt;line-height:1.3}
+  table.mvt small{color:#4b5060;font-weight:600}table.mvt tbody tr:nth-child(even) td{background:#faf8ff}
+  .ksw,.kone{display:inline-block;padding:0 1.6mm;border-radius:1mm;font-size:8pt;font-weight:800;white-space:nowrap}.ksw{background:#ede9fe;color:#6d28d9;border:1px solid #c4b5fd}.kone{background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc}
+  table.mvt .me{font-weight:900;color:#6d28d9;text-decoration:underline;text-underline-offset:0.6mm}
+  .mvbox{display:grid;gap:1.5mm}.mvh{display:flex;align-items:baseline;gap:3mm}.mvh b{font-size:10.5pt;color:#6d28d9}.mvh span{font-size:9pt;font-weight:700}.mvh small{margin-left:auto;font-size:8pt;color:#4b5060}
   table.st td.rm{font-size:8pt;line-height:1.35}td.rm .nt{display:inline-block;margin:0 2mm 0.3mm 0;font-weight:700;color:#111318}td.rm .memo{display:block;color:#2f333b}td.rm .memo::before{content:"✎ ";color:#6b7280}
   .box{display:inline-block;width:3.6mm;height:3.6mm;border:1.2px solid #2f333b;border-radius:0.8mm;vertical-align:middle;background:#fff}
   thead{display:table-header-group}tr{break-inside:avoid}
