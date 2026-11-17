@@ -261,7 +261,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       <b className="t"><Printer size={18} /> 반편성 현황 인쇄·PDF</b>
       <div className="opt"><small>범위</small><div className="seg">{[["all", "전체 반"], ["cur", `지금 반(${curTab}반)`]].map(([k, l]) => <button key={k} type="button" data-kdn-bare className={printOpt.scope === k ? "on" : ""} onClick={() => setPrintOpt(o => ({ ...o, scope: k }))}>{l}</button>)}</div></div>
       <div className="opt"><small>넣을 것</small><div className="cks">
-        {printOpt.scope === "all" && <label><input type="checkbox" checked={printOpt.overview} onChange={e => setPrintOpt(o => ({ ...o, overview: e.target.checked }))} /> 반별 현황표 · 이동 내역 (1쪽)</label>}
+        {printOpt.scope === "all" && <label><input type="checkbox" checked={printOpt.overview} onChange={e => setPrintOpt(o => ({ ...o, overview: e.target.checked }))} /> 반별 현황표 · 이동 내역 (각각 한 장)</label>}
         {printOpt.scope === "all" && <label><input type="checkbox" checked={printOpt.roster} onChange={e => setPrintOpt(o => ({ ...o, roster: e.target.checked }))} /> 반별 학생 명단 (반마다 한 장)</label>}
         <label><input type="checkbox" checked={printOpt.memos} onChange={e => setPrintOpt(o => ({ ...o, memos: e.target.checked }))} /> 선생님 메모·반 의견</label>
       </div></div>
@@ -314,10 +314,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length + 1 }}>
           <button type="button" role="tab" aria-selected={allView && !q} data-kdn-bare className={`all${allView && !q ? " on" : ""}`} onClick={() => { setTab("all"); setFind(""); setOpenSid(""); setMoveSid(""); setToFilter(0); }}>
             {totalMiss ? <i className="dot" title={`분리 미반영 ${totalMiss}명`}>{totalMiss}</i> : null}
-            <b>전체</b><span className="n">{total.n}명</span><span className="gbar"><i style={{ width: `${total.n ? Math.round((total.m / total.n) * 100) : 0}%` }} /></span><small>남 {total.m} · 여 {total.f}</small></button>
+            <b>전체</b><span className="n">{total.n}명</span><span className="gbar"><i style={{ width: `${total.n ? Math.round((total.m / total.n) * 100) : 0}%` }} /></span><small>남 {total.m} · 여 {total.f}</small><span className={`mvc${placement.moves.length ? " on" : ""}`}>이동 {placement.moves.length}건</span></button>
           {summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q && !allView} data-kdn-bare className={s.cls === curTab && !q && !allView ? "on" : ""} onClick={() => goClass(s.cls)}>
           {miss ? <i className="dot" title={`분리 미반영 ${miss}명`}>{miss}</i> : null}
-          <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small></button>; })}</div>
+          <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small><span className={`mvc${s.inn || s.out ? " on" : ""}`} title={`이동으로 받은 학생 ${s.inn || 0}명 · 보낸 학생 ${s.out || 0}명`}>받음 {s.inn || 0} · 보냄 {s.out || 0}</span></button>; })}</div>
         <div className={`kpl-split2${wide ? " searching" : ""}`}>
           {!wide && <aside className="kpl-side2">
             <header><b>{nextGrade}학년 {curTab}반</b><span>{sm.n}명</span></header>
@@ -949,6 +949,7 @@ const CSS = `
 .kpl-filter.kpl-to>small em{font-style:normal;font-weight:600;color:var(--kdn-muted,#64748b);margin-left:6px}
 
 .kpl-split2.searching{grid-template-columns:1fr!important}
+.kpl-ctabs2 .mvc{margin-top:2px;padding:1px 8px;border-radius:99px;background:var(--kdn-surface-2,#f1f5f9);color:var(--kdn-muted,#94a3b8);font-size:11px;font-weight:800;white-space:nowrap}.kpl-ctabs2 .mvc.on{background:#ede9fe;color:#6d28d9}
 .kpl-ctabs2 button.all b{color:var(--kdn-accent,#2563eb)}
 .kpl-sres.all{color:var(--kdn-ink,#111827);background:var(--kdn-surface-2,#f1f5f9);border-color:var(--kdn-line,#e2e8f0)}
 .kpl-dist{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.kpl-dist small{font-size:12.5px;font-weight:800;color:var(--kdn-muted,#64748b);margin-right:2px}
