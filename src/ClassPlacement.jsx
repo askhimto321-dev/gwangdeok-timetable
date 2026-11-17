@@ -214,6 +214,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const addCombo = (sid, other) => saveReview(v => { const item = { ...(v.students[sid] || {}) }; const list = item.combos || []; if (list.some(c => c.with === other && c.byId === me.id)) return v; item.combos = [...list, { with: other, byId: me.id, by: me.name, at: new Date().toISOString() }]; const marks = { ...(item.marks || {}) }; if (!(marks.combo || []).some(m => m.byId === me.id)) marks.combo = [...(marks.combo || []), { byId: me.id, by: me.name, at: new Date().toISOString() }]; item.marks = marks; v.students[sid] = item; return v; });
   const removeCombo = (sid, other) => saveReview(v => { [sid, other].forEach(a => { const b = a === sid ? other : sid; const item = { ...(v.students[a] || {}) }; item.combos = (item.combos || []).filter(c => !(c.with === b && c.byId === me.id)); v.students[a] = item; }); return v; });
   const resultOf = sid => results.find(x => x.sid === sid);
+  // 이동 기록으로 학생마다 마지막 이동(어디서 왔는지 · 누구와 맞바꿨는지)
+  const moveInfo = (() => { const m = new Map(); (placement?.moves || []).forEach(mv => {
+    m.set(mv.sid, { from: mv.from, to: mv.to, partner: mv.swap || "", by: mv.by, at: mv.at });
+    if (mv.swap) m.set(mv.swap, { from: mv.to, to: mv.from, partner: mv.sid, by: mv.by, at: mv.at }); }); return m; })();
   const count = s => checked.filter(p => p.status === s).length;
   const mustMiss = checked.filter(p => p.status === "same" && p.level === SEPARATION_LEVELS[0]).length;
   const nameOf = sid => placement.students[sid]?.name || roster?.[sid]?.name || sid;
@@ -338,6 +342,13 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             <div className="tools"><label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기(예: 4-15)" /></label>
               <button type="button" data-kdn-bare className="kpl-btn grp-add" onClick={() => setGroupEdit({ name: "", memo: "", members: [] })}><Users size={15} /> 조합 그룹 만들기</button></div>
             {(() => { const related = (review.groups || []).filter(g => wide || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
+            {!wide && (() => { const mv = (placement.moves || []).filter(m => Number(m.from) === curTab || Number(m.to) === curTab).slice().reverse(); return mv.length > 0 && <details className="kpl-mvlog" open={mv.length <= 4}>
+              <summary><ArrowLeftRight size={14} /><b>{curTab}반 이동 기록 {mv.length}건</b><small>받은 학생 {mv.filter(m => Number(m.to) === curTab).length + mv.filter(m => m.swap && Number(m.from) === curTab).length} · 보낸 학생 {mv.filter(m => Number(m.from) === curTab).length + mv.filter(m => m.swap && Number(m.to) === curTab).length}</small></summary>
+              <ul>{mv.map(m => { const outMe = Number(m.from) === curTab; const a = outMe ? m.sid : m.swap; const b = outMe ? m.swap : m.sid; return <li key={m.id}>
+                {m.swap ? <><span className="out">보냄 <b>{nameOf(a)}</b> → {outMe ? m.to : m.from}반</span><span className="ar"><ArrowLeftRight size={13} /></span><span className="in">받음 <b>{nameOf(b)}</b> ← {outMe ? m.to : m.from}반</span><em>맞바꿈</em></>
+                  : outMe ? <><span className="out">보냄 <b>{nameOf(m.sid)}</b> → {m.to}반</span><em className="one">옮기기만</em></> : <><span className="in">받음 <b>{nameOf(m.sid)}</b> ← {m.from}반</span><em className="one">옮기기만</em></>}
+                <small>{m.by} · {fmt(m.at)}</small></li>; })}</ul>
+            </details>; })()}
             {allView && !q && <div className="kpl-sres all"><Users size={15} /><b>전체 학생 {list.length}명{activeF ? ` · '${activeF.label}'` : ""}</b><small>모든 반을 한 번에 봐요. 새 반을 누르면 그 반으로 가요.</small></div>}
             {q && <div className="kpl-sres"><Search size={15} /><b>'{q}' 검색 결과 {list.length}명</b><small>모든 반에서 찾았어요. 새 반을 누르면 그 반으로 가요.</small><button type="button" data-kdn-bare onClick={() => setFind("")}><X size={13} /> 검색 지우기</button></div>}
             <div className="kpl-filter multi" role="group" aria-label="학생 필터">
@@ -353,10 +364,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             <div className="scroll"><table className="kpl-grid">
               <thead><tr>{wide && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th><th className="c">이동</th></tr></thead>
               <tbody>{list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableClasses(placement, sid); const g = genderOf(sid); const cs = combosOf(sid); const same = comboSame(sid); return <React.Fragment key={sid}>
-                <tr className={`${missSet.has(sid) ? "miss" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
+                <tr className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
                   {wide && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => goClass(s.cls)} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
                   <td className="c no">{oldLabel(sid)}</td>
-                  <td className="nm"><b>{s.name || roster[sid]?.name || sid}</b>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}{moved && <span className="mvtag">{s.orig}반에서</span>}</td>
+                  <td className="nm"><b>{s.name || roster[sid]?.name || sid}</b>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null; const from = mi && Number(mi.to) === Number(s.cls) ? mi.from : s.orig;
+                    return <span className={`mvbadge${mi?.partner ? " sw" : ""}`} title={mi ? `${mi.from}반 → ${mi.to}반${mi.partner ? ` · 맞바꾼 학생: ${nameOf(mi.partner)}` : ""} · ${mi.by || ""} ${fmt(mi.at)}` : ""}><ArrowLeftRight size={11} />{from}반에서 옴{mi?.partner ? <> · 맞바꾼 학생 <b>{nameOf(mi.partner)}</b></> : ""}</span>; })()}</td>
                   <td className="c">{r ? <span className={`st ${STATUS[r.status].tone}`} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"}</span> : <span className="dash">-</span>}</td>
                   {STUDENT_FLAGS.map(f => { const marks = item.marks?.[f.key] || []; const mine = marks.some(m => m.byId === me.id); const isCombo = f.key === "combo"; return <td key={f.key} className="c fc">
                     <button type="button" data-kdn-bare className={`ck t-${f.tone}${marks.length ? " on" : ""}${mine ? " mine" : ""}`} title={`${f.label}: ${f.hint}${marks.length ? `\n표시: ${marks.map(m => m.by).join(", ")}` : "\n눌러서 표시"}`} onClick={() => { toggleMark("students", sid, f.key); if (isCombo && !mine) { openPanel(sid, "combo", false); setMoveSid(""); } }}>{marks.length ? (marks.length > 1 ? marks.length : "✓") : ""}</button>
@@ -777,6 +789,16 @@ const CSS = `
 .kpl-grid .c{text-align:center}.kpl-grid td.no{font-size:13px;font-weight:700;color:var(--kdn-muted,#64748b);font-variant-numeric:tabular-nums;width:76px}
 .kpl-grid td.nm{white-space:nowrap}.kpl-grid td.nm b{font-size:14.5px}
 .kpl-grid .g{font-style:normal;display:inline-grid;place-items:center;width:20px;height:20px;margin-left:6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px}.kpl-grid .g.m{background:#dbeafe;color:#1d4ed8}.kpl-grid .g.f{background:#fce7f3;color:#be185d}
+.kpl-grid .mvbadge{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:2px 9px;border-radius:7px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:800;white-space:nowrap}.kpl-grid .mvbadge.sw{background:#ede9fe;color:#6d28d9}.kpl-grid .mvbadge b{font-weight:900;text-decoration:underline;text-underline-offset:2px}
+.kpl-grid tr.moved td{background:#f5f3ff}.kpl-grid tr.moved td.nm{box-shadow:inset 4px 0 0 #7c3aed}
+.kpl-mvlog{border:1.5px solid #c4b5fd;border-radius:12px;background:#faf8ff;overflow:hidden}
+.kpl-mvlog summary{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:10px 14px;cursor:pointer;color:#5b21b6;list-style:none}.kpl-mvlog summary::-webkit-details-marker{display:none}.kpl-mvlog summary b{font-size:14.5px}.kpl-mvlog summary small{font-size:12.5px;color:#6b7280}
+.kpl-mvlog ul{list-style:none;margin:0;padding:0;border-top:1px solid #ddd6fe}
+.kpl-mvlog li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:9px 14px;border-top:1px solid #ede9fe;font-size:13.5px;background:var(--kdn-surface,#fff)}.kpl-mvlog li:first-child{border-top:0}
+.kpl-mvlog li .out{color:#b91c1c}.kpl-mvlog li .in{color:#15803d}.kpl-mvlog li b{color:var(--kdn-ink,#111827);font-weight:800;margin:0 2px}
+.kpl-mvlog li .ar{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:99px;background:#ede9fe;color:#6d28d9}
+.kpl-mvlog li em{font-style:normal;padding:1px 8px;border-radius:6px;background:#ede9fe;color:#6d28d9;font-size:11.5px;font-weight:800}.kpl-mvlog li em.one{background:#e0f2fe;color:#0369a1}
+.kpl-mvlog li small{margin-left:auto;font-size:12px;color:#6b7280}
 .kpl-grid .mvtag{margin-left:6px;padding:1px 7px;border-radius:99px;background:#dbeafe;color:#1d4ed8;font-size:11px;font-weight:800}
 .kpl-grid .dash{color:#cbd5e1}
 .kpl-grid td.fc{width:84px}
