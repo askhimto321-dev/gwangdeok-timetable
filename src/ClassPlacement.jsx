@@ -257,6 +257,16 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const allView = tab === "all";
   // 인쇄·PDF: 반별 현황표 + 반마다 한 장(학생 명단·표시·메모)
   const doPrint = () => {
+    // 인쇄용 이동: 초기 엑셀과 지금이 다른 학생만(갔다가 돌아온 건 빼요). 서로 반이 바뀐 두 학생은 맞바꿈 한 줄로.
+    const netPartner = {};
+    changedIds.forEach(id => { if (netPartner[id]) return; const x = placement.students[id]; const mv = lastMoveOf(id); const other = mv?.swap ? (mv.sid === id ? mv.swap : mv.sid) : "";
+      const y = other && placement.students[other];
+      if (y && !netPartner[other] && Number(y.orig) === Number(x.cls) && Number(y.cls) === Number(x.orig)) { netPartner[id] = other; netPartner[other] = id; } });
+    const done = new Set();
+    const netMoves = changedIds.slice().sort((a, b) => Number(placement.students[a].orig) - Number(placement.students[b].orig) || a.localeCompare(b)).flatMap(id => {
+      if (done.has(id)) return []; done.add(id); const x = placement.students[id]; const pt = netPartner[id] || ""; if (pt) done.add(pt);
+      const mv = lastMoveOf(id);
+      return [{ from: Number(x.orig), to: Number(x.cls), name: nameOf(id), old: oldLabel(id), swap: pt ? nameOf(pt) : "", swapOld: pt ? oldLabel(pt) : "", by: mv?.by || "", at: mv ? fmt(mv.at) : "" }]; });
     const marksOf = (sid, key) => (review.students[sid]?.marks?.[key] || []).length > 0;
     const inCls = c => Object.entries(placement.students).filter(([, x]) => Number(x.cls) === c);
     const classRows = summary.map(x => { const ids = inCls(x.cls).map(([sid]) => sid); const cls = review.classes[x.cls] || {};
@@ -268,16 +278,16 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     const pick = printOpt.scope === "all" ? summary : summary.filter(x => x.cls === curTab);
     const classesOut = pick.map(x => ({ cls: x.cls, notes: ((review.classes[x.cls] || {}).memos || []).map(m => `${m.text} (${m.by})`),
       students: inCls(x.cls).sort((a, b) => (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0])).map(([sid, v]) => { const r = resultOf(sid); const cs = combosOf(sid); const notes = [];
-        const mi = moveInfo.get(sid); const moved = Number(v.cls) !== Number(v.orig) || !!mi;
+        const moved = Number(v.cls) !== Number(v.orig);
         if (cs.length) notes.push(`조합 상대: ${cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join(", ")}`);
         groupsOf(sid).forEach(g => notes.push(`그룹 ${g.name}`));
         return { no: v.no || "", old: oldLabel(sid), name: nameOf(sid), gender: genderOf(sid), flags: STUDENT_FLAGS.filter(f => marksOf(sid, f.key)).map(f => f.key),
           sep: r ? (r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인") : "",
-          move: moved ? { from: mi && Number(mi.to) === Number(v.cls) ? mi.from : v.orig, partner: mi?.partner ? nameOf(mi.partner) : "" } : null, alert: missSet.has(sid) || comboSame(sid).length > 0, notes,
+          move: moved ? { from: v.orig, partner: netPartner[sid] ? nameOf(netPartner[sid]) : "" } : null, alert: missSet.has(sid) || comboSame(sid).length > 0, notes,
           memos: (review.students[sid]?.memos || []).map(m => `${m.text} (${m.by})`) }; }) }));
     const ok = printPlacement({ title: `${year + 1}학년도 ${nextGrade}학년 반편성`, subtitle: `${placement.fileName || "반편성 결과"} · ${fmt(placement.at)} ${placement.by} 반영`,
       flags: STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone })), classRows, changed: changedIds.length,
-      moves: placement.moves.map(m => ({ from: m.from, to: m.to, name: nameOf(m.sid), old: oldLabel(m.sid), swap: m.swap ? nameOf(m.swap) : "", swapOld: m.swap ? oldLabel(m.swap) : "", by: m.by || "", at: fmt(m.at) })),
+      moves: netMoves,
       classes: classesOut }, { overview: printOpt.overview && printOpt.scope === "all", roster: printOpt.roster || printOpt.scope !== "all", memos: printOpt.memos });
     if (!ok) showToast?.("인쇄 창을 열지 못했어요. 팝업 차단을 풀어 주세요.", "error");
     else setPrintOpen(false);

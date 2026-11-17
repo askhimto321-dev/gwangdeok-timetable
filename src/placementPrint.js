@@ -29,7 +29,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   const lowLeader = classRows.filter(r => level("leader", r.flags.leader || 0)).length;
   const highN = classRows.reduce((t, r) => t + flags.filter(f => level(f.key, r.flags[f.key] || 0) === "high").length, 0);
   const kpis = [
-    ["학생", `${total}`, "명", ""], ["반", `${classRows.length}`, "개", ""], ["초기 엑셀과 달라진 학생", `${data.changed ?? sum(r => r.inn)}`, `명 · 기록 ${data.moves.length}건`, ""],
+    ["학생", `${total}`, "명", ""], ["반", `${classRows.length}`, "개", ""], ["초기 엑셀과 달라진 학생", `${data.changed ?? sum(r => r.inn)}`, `명`, ""],
     ["분리희망 미반영", `${sum(r => r.miss)}`, "명", sum(r => r.miss) ? "bad" : "ok"],
     ["조합 우려 같은 반", `${sum(r => r.combo)}`, "쌍", sum(r => r.combo) ? "bad" : "ok"],
     ["리더 후보 없는 반", `${lowLeader}`, "개", lowLeader ? "bad" : "ok"],
@@ -39,7 +39,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   const cell = (v, lv = "", alert = false, gs = false) => `<td class="c${gs ? " gs" : ""}${lv ? ` ${lv}` : ""}${alert && v ? " bad" : ""}${!v && !lv ? " z" : ""}">${v || (lv ? "0" : "–")}</td>`;
 
   // 이동 내역 표: 한 줄 = 한 번의 이동(맞바꿈이면 두 학생이 서로 반을 바꿈)
-  const moveTable = (list, cls = 0) => `<table class="mvt"><thead><tr><th class="c n">#</th><th class="c kd">종류</th><th>학생</th><th class="c dir">이동</th><th>맞바꾼 학생</th><th class="c dir">이동</th><th class="c by">옮긴 사람 · 시각</th></tr></thead><tbody>
+  const moveTable = (list, cls = 0) => `<table class="mvt"><thead><tr><th class="c n">#</th><th class="c kd">종류</th><th>학생</th><th class="c dir">초기 → 지금</th><th>맞바꾼 학생</th><th class="c dir">초기 → 지금</th><th class="c by">마지막으로 옮긴 사람</th></tr></thead><tbody>
     ${list.map((m, i) => { const mark = n => cls ? (Number(n) === Number(cls) ? ' class="me"' : "") : ""; return `<tr class="${m.swap ? "sw" : "one"}"><td class="c n">${i + 1}</td><td class="c kd"><span class="${m.swap ? "ksw" : "kone"}">${m.swap ? "↔ 맞바꿈" : "→ 옮기기"}</span></td>
       <td><b>${esc(m.name)}</b> <small>${esc(m.old)}</small></td><td class="c dir"><span${mark(m.from)}>${m.from}반</span> → <span${mark(m.to)}>${m.to}반</span></td>
       <td>${m.swap ? `<b>${esc(m.swap)}</b> <small>${esc(m.swapOld)}</small>` : '<i class="z">–</i>'}</td><td class="c dir">${m.swap ? `<span${mark(m.to)}>${m.to}반</span> → <span${mark(m.from)}>${m.from}반</span>` : '<i class="z">–</i>'}</td>
@@ -62,7 +62,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   // 이동 내역: 현황과 따로 한 장(많으면 다음 장으로 이어지고 머리글 반복)
   const movesPage = overview ? `<section class="page">
     <header class="top sm"><span>${esc(data.title)}</span><span>${esc(printedAt)}</span></header>
-    <h2>이동 내역 <small>${data.moves.length ? `모두 ${data.moves.length}건 · 맞바꿈 ${data.moves.filter(m => m.swap).length}건 · 옮기기만 ${data.moves.filter(m => !m.swap).length}건 · 초기 엑셀과 달라진 학생 ${data.changed ?? sum(r => r.inn)}명` : ""}</small></h2>
+    <h2>이동 내역 <small>${data.moves.length ? `초기 엑셀 기준 · 맞바꿈 ${data.moves.filter(m => m.swap).length}건 · 옮기기만 ${data.moves.filter(m => !m.swap).length}건 · 초기 엑셀과 달라진 학생 ${data.changed ?? sum(r => r.inn)}명` : ""}</small></h2>
     ${data.moves.length ? `<table class="ov mvsum"><thead><tr><th class="c">반</th>${classRows.map(r => `<th class="c">${esc(r.cls)}반</th>`).join("")}<th class="c gs">합계</th></tr></thead><tbody>
       <tr><td class="c cls">받음</td>${classRows.map(r => cell(r.inn)).join("")}<td class="c gs b">${sum(r => r.inn)}</td></tr>
       <tr><td class="c cls">보냄</td>${classRows.map(r => cell(r.out)).join("")}<td class="c gs b">${sum(r => r.out)}</td></tr></tbody></table>
