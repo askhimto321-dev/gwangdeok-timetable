@@ -29,7 +29,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   const lowLeader = classRows.filter(r => level("leader", r.flags.leader || 0)).length;
   const highN = classRows.reduce((t, r) => t + flags.filter(f => level(f.key, r.flags[f.key] || 0) === "high").length, 0);
   const kpis = [
-    ["학생", `${total}`, "명", ""], ["반", `${classRows.length}`, "개", ""], ["이동", `${data.moves.length}`, "건", ""],
+    ["학생", `${total}`, "명", ""], ["반", `${classRows.length}`, "개", ""], ["이동", `${data.moves.length}`, `건 · ${data.moves.reduce((t, m) => t + (m.swap ? 2 : 1), 0)}명`, ""],
     ["분리희망 미반영", `${sum(r => r.miss)}`, "명", sum(r => r.miss) ? "bad" : "ok"],
     ["조합 우려 같은 반", `${sum(r => r.combo)}`, "쌍", sum(r => r.combo) ? "bad" : "ok"],
     ["리더 후보 없는 반", `${lowLeader}`, "개", lowLeader ? "bad" : "ok"],
@@ -57,9 +57,17 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
     </tbody><tfoot><tr><td class="c">합계</td><td class="c gs">${total}</td><td class="c">${sum(r => r.m)}</td><td class="c">${sum(r => r.f)}</td><td></td><td class="c gs">${sum(r => r.inn) || "–"}</td><td class="c">${sum(r => r.out) || "–"}</td>${flags.map((f, i) => `<td class="c${i ? "" : " gs"}">${sum(r => r.flags[f.key]) || "–"}</td>`).join("")}<td class="c gs">${sum(r => r.miss) || "–"}</td><td class="c">${sum(r => r.combo) || "–"}</td><td class="c">${sum(r => r.group) || "–"}</td></tr></tfoot></table>
     <p class="legend"><span class="sw high"></span> 쏠림: 다른 반 평균보다 많이 몰림(3명 이상) <span class="sw low"></span> 부족: 리더 후보 없음 <b class="r">빨강</b> 확인이 필요한 수 · 남녀 막대: 파랑 남 / 분홍 여</p>
     ${classRows.some(r => r.checks.length) ? `<h2>반 점검 <small>선생님들이 체크한 반</small></h2><table class="ckl"><tbody>${classRows.filter(r => r.checks.length).map(r => `<tr><th class="c">${esc(r.cls)}반</th><td>${r.checks.map(c => `<span class="ckt">${esc(c)}</span>`).join("")}</td></tr>`).join("")}</tbody></table>` : ""}
-    ${data.moves.length ? `<h2>이동 내역 <small>맞바꿈 ${data.moves.filter(m => m.swap).length}건 · 옮기기만 ${data.moves.filter(m => !m.swap).length}건</small></h2>${moveTable(data.moves)}` : `<h2>이동 내역</h2><p class="legend">아직 이동한 학생이 없어요.</p>`}
   </section>` : "";
 
+  // 이동 내역: 현황과 따로 한 장(많으면 다음 장으로 이어지고 머리글 반복)
+  const movesPage = overview ? `<section class="page">
+    <header class="top sm"><span>${esc(data.title)}</span><span>${esc(printedAt)}</span></header>
+    <h2>이동 내역 <small>${data.moves.length ? `모두 ${data.moves.length}건 · 맞바꿈 ${data.moves.filter(m => m.swap).length}건 · 옮기기만 ${data.moves.filter(m => !m.swap).length}건 · 이동한 학생 ${data.moves.reduce((t, m) => t + (m.swap ? 2 : 1), 0)}명` : ""}</small></h2>
+    ${data.moves.length ? `<table class="ov mvsum"><thead><tr><th class="c">반</th>${classRows.map(r => `<th class="c">${esc(r.cls)}반</th>`).join("")}<th class="c gs">합계</th></tr></thead><tbody>
+      <tr><td class="c cls">받음</td>${classRows.map(r => cell(r.inn)).join("")}<td class="c gs b">${sum(r => r.inn)}</td></tr>
+      <tr><td class="c cls">보냄</td>${classRows.map(r => cell(r.out)).join("")}<td class="c gs b">${sum(r => r.out)}</td></tr></tbody></table>
+      ${moveTable(data.moves)}` : `<p class="legend">아직 이동한 학생이 없어요.</p>`}
+  </section>` : "";
   const pages = roster ? data.classes.map(c => {
     const r = classRows.find(x => x.cls === c.cls) || { n: 0, m: 0, f: 0, flags: {}, checks: [] };
     const stat = (label, v, lv = "") => `<div class="${lv}"><small>${esc(label)}</small><b>${v}</b></div>`;
@@ -129,7 +137,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   thead{display:table-header-group}tr{break-inside:avoid}
   @media screen{body{background:#e4e2dd}.pages{transform-origin:top left}.page{width:210mm;min-height:297mm;margin:8mm auto;padding:10mm;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.14)}}
   @media print{.bar{display:none}}
-  </style></head><body><div class="bar"><b>${esc(data.title)}</b><small>인쇄 창에서 '대상'을 'PDF로 저장'으로 바꾸면 PDF로 받아요</small><button onclick="window.print()">인쇄 · PDF 저장</button></div><div class="pages">${cover}${pages}</div><script>
+  </style></head><body><div class="bar"><b>${esc(data.title)}</b><small>인쇄 창에서 '대상'을 'PDF로 저장'으로 바꾸면 PDF로 받아요</small><button onclick="window.print()">인쇄 · PDF 저장</button></div><div class="pages">${cover}${movesPage}${pages}</div><script>
   function fit(){var w=document.documentElement.clientWidth,pw=document.querySelector('.page')?document.querySelector('.page').offsetWidth+24:0,el=document.querySelector('.pages');if(!pw)return;var s=Math.min(1,w/pw);el.style.zoom=s<1?s:'';}
   window.addEventListener('resize',fit);window.onload=function(){fit();setTimeout(function(){window.print()},400)};
   window.onbeforeprint=function(){document.querySelector('.pages').style.zoom=''};window.onafterprint=fit;
