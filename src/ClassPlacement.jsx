@@ -125,6 +125,25 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     if (ok) { setMoveSid(""); setMoveTo(0); }
   };
   const doUndo = id => commit(p => undoMove(p, id), "되돌렸어요.");
+  // 원래 반으로 되돌리기: 마지막 이동을 그대로 되돌리면 원래 반이 되는 경우 그 이동을 취소(맞바꾼 학생도 함께), 아니면 원래 반으로 새로 옮겨요.
+  const restoreOrig = async sid => {
+    const s0 = placement.students[sid]; if (!s0 || Number(s0.cls) === Number(s0.orig)) return;
+    const nm = id => placement.students[id]?.name || roster[id]?.name || id;
+    const mv = [...(placement.moves || [])].reverse().find(m => m.sid === sid || m.swap === sid);
+    const mine = mv && mv.sid === sid;
+    const partner = mv?.swap ? (mine ? mv.swap : mv.sid) : "";
+    const undoable = mv && Number(mine ? mv.from : mv.to) === Number(s0.orig) && Number(s0.cls) === Number(mine ? mv.to : mv.from)
+      && (!partner || Number(placement.students[partner]?.cls) === Number(mine ? mv.from : mv.to)) && (canManage || mv.by === me.name);
+    if (undoable) {
+      if (!window.confirm(`${nm(sid)} 학생을 원래 반(${s0.orig}반)으로 되돌릴까요?${partner ? `\n맞바꾼 ${nm(partner)} 학생도 원래 반(${s0.cls}반)으로 돌아가요.` : ""}`)) return;
+      const ok = await commit(p => undoMove(p, mv.id), partner ? `${nm(sid)} · ${nm(partner)} 학생을 원래 반으로 되돌렸어요.` : `${nm(sid)} 학생을 원래 반(${s0.orig}반)으로 되돌렸어요.`);
+      if (ok) { setOpenSid(""); setMoveSid(""); }
+      return;
+    }
+    if (!window.confirm(`${nm(sid)} 학생을 원래 반(${s0.orig}반)으로 옮길까요?${partner ? `\n(맞바꾼 ${nm(partner)} 학생은 그대로 있어요. 같이 되돌리려면 그 학생도 '원래 반'을 눌러 주세요.)` : ""}\n새 이동으로 기록돼요.`)) return;
+    const ok = await commit(p => applyMove(p, { sid, to: Number(s0.orig), by: me.name }), `${nm(sid)} 학생을 원래 반(${s0.orig}반)으로 옮겼어요.`);
+    if (ok) { setOpenSid(""); setMoveSid(""); }
+  };
 
   const saveReview = async change => {
     const result = await updateStorage(placementReviewKey(year), { students: {}, classes: {}, groups: [] }, cur => change({ students: { ...(cur?.students || {}) }, classes: { ...(cur?.classes || {}) }, groups: [...(cur?.groups || [])] }));
@@ -378,7 +397,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                     {isCombo && (marks.length > 0 || cs.length > 0) && <button type="button" data-kdn-bare className={`cmb${same.length ? " hot" : ""}`} onClick={() => { openPanel(sid, "combo"); setMoveSid(""); }} title={cs.length ? cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join("\n") : "상대 학생 지정"}>{cs.length ? `상대 ${cs.length}${same.length ? " · 같은 반" : ""}` : "상대 지정"}</button>}
                   </td>; })}
                   <td className="c"><button type="button" data-kdn-bare className={`ic${memoN ? " has" : ""}${openSid === sid && openKind === "memo" ? " on" : ""}`} onClick={() => { openPanel(sid, "memo"); setMoveSid(""); }} title="메모"><MessageSquare size={14} />{memoN ? <small>{memoN}</small> : null}</button></td>
-                  <td className="c">{canMove && <button type="button" data-kdn-bare className={`mvb${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이동</button>}</td>
+                  <td className="c">{canMove && <button type="button" data-kdn-bare className={`mvb${moveSid === sid ? " on" : ""}`} disabled={!targets.length} title={targets.length ? `갈 수 있는 반: ${targets.join(", ")}반` : "원반 과목 때문에 갈 수 있는 다른 반이 없어요"} onClick={() => { setMoveSid(v => (v === sid ? "" : sid)); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이동</button>}{canMove && moved && <button type="button" data-kdn-bare className="rst" onClick={() => restoreOrig(sid)} title={`원래 배정 반(${s.orig}반)으로 되돌리기`}><RotateCcw size={12} /> {s.orig}반으로</button>}</td>
                 </tr>
                 {openSid === sid && openKind === "sep" && <tr className="sub"><td colSpan={cols}><div className="panel2 sepp">
                   <div className="ph"><b>{s.name || nameOf(sid)}</b><small>{oldLabel(sid)} · 지금 {s.cls}반</small><button type="button" data-kdn-bare className="x" onClick={() => setOpenSid("")} aria-label="닫기"><X size={14} /></button></div>
@@ -387,7 +406,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                       {r.items.map(i => { const oc = placement.students[i.other]?.cls; return <tr key={i.other} className={i.status}><td><b>{nameOf(i.other)}</b></td><td className="c">{oldLabel(i.other)}</td><td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => { setTab(Number(oc)); setFind(""); setOpenSid(""); }} title={`${oc}반 명단으로`}>{oc || "?"}반</button></td><td className="c"><span className="lv">{i.level}</span></td><td className="c"><span className={`st ${STATUS[i.status].tone}`}>{STATUS[i.status].label}</span></td><td className="rs">{(i.reasons || []).join(", ") || <span className="dash">-</span>}</td></tr>; })}
                     </tbody></table> : <p className="kpl-nil">이 학생은 분리희망이 없어요.</p>}</div>
                   {(cs.length > 0 || groupsOf(sid).length > 0) && <div className="sec"><h6>조합 우려</h6><div className="chips">{cs.map(c => { const oc = placement.students[c.other]?.cls; return <span key={c.other} className={Number(oc) === Number(s.cls) ? "hot" : ""}>{nameOf(c.other)} · {oc || "?"}반</span>; })}{groupsOf(sid).map(g => <span key={g.id} className="grp"><Users size={12} /> 그룹 {g.name}</span>)}</div></div>}
-                  {canMove && targets.length > 0 && <div className="act"><button type="button" data-kdn-bare className="mvb" onClick={() => { setMoveSid(sid); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이 학생 옮기기</button></div>}
+                  {canMove && targets.length > 0 && <div className="act"><button type="button" data-kdn-bare className="mvb" onClick={() => { setMoveSid(sid); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이 학생 옮기기</button>{moved && <button type="button" data-kdn-bare className="mvb rst2" onClick={() => restoreOrig(sid)}><RotateCcw size={13} /> 원래 반({s.orig}반)으로</button>}</div>}
                 </div></td></tr>}
                 {openSid === sid && openKind === "memo" && <tr className="sub"><td colSpan={cols}><div className="panel2 memo">
                   <div className="ph"><b>메모</b><small>{(item.memos || []).length ? `${(item.memos || []).length}개` : "아직 없어요"}</small>
@@ -811,6 +830,8 @@ const CSS = `
 .kpl-grid .sept .lv{padding:1px 8px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:12px;font-weight:800;white-space:nowrap}
 .kpl-grid .panel2.sepp .chips{display:flex;flex-wrap:wrap;gap:6px}.kpl-grid .panel2.sepp .chips span{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;border:1px solid #fde68a;background:#fffbeb;color:#92400e;font-size:13px;font-weight:700}.kpl-grid .panel2.sepp .chips span.hot{border-color:#fca5a5;background:#fee2e2;color:#b91c1c}.kpl-grid .panel2.sepp .chips span.grp{border-color:#ddd6fe;background:#f5f3ff;color:#6d28d9}
 .kpl-grid .panel2.sepp .act{display:flex;justify-content:flex-end}.kpl-grid .panel2.sepp .act .mvb{display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 14px;border-radius:9px;border:1px solid #93c5fd;background:var(--kdn-surface,#fff);color:#1d4ed8;font:inherit;font-weight:800;cursor:pointer}
+.kpl-grid td .rst{display:flex;align-items:center;justify-content:center;gap:3px;margin:4px auto 0;height:26px;padding:0 9px;border-radius:8px;border:1px solid #c4b5fd;background:#f5f3ff;color:#6d28d9;font:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}.kpl-grid td .rst:hover{background:#7c3aed;border-color:#7c3aed;color:#fff}
+.kpl-grid .panel2.sepp .act{gap:8px}.kpl-grid .panel2.sepp .act .rst2{border-color:#c4b5fd;color:#6d28d9;background:#f5f3ff}
 .kpl-grid .mvbadge{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:2px 9px;border-radius:7px;background:#dbeafe;color:#1d4ed8;font-size:12px;font-weight:800;white-space:nowrap}.kpl-grid .mvbadge.sw{background:#ede9fe;color:#6d28d9}.kpl-grid .mvbadge b{font-weight:900;text-decoration:underline;text-underline-offset:2px}
 .kpl-grid tr.moved td{background:#f5f3ff}.kpl-grid tr.moved td.nm{box-shadow:inset 4px 0 0 #7c3aed}
 .kpl-mvlog{border:1.5px solid #c4b5fd;border-radius:12px;background:#faf8ff;overflow:hidden}
