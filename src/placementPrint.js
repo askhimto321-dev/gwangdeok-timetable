@@ -36,19 +36,20 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
     ["표시 쏠림", `${highN}`, "곳", highN ? "warn" : "ok"],
   ];
   const genderBar = r => { const p = r.n ? Math.round((r.m / r.n) * 100) : 0; return `<span class="gb"><i style="width:${p}%"></i></span>`; };
-  const cell = (v, lv = "", alert = false) => `<td class="c${lv ? ` ${lv}` : ""}${alert && v ? " bad" : ""}${!v && !lv ? " z" : ""}">${v || (lv ? "0" : "–")}</td>`;
+  const cell = (v, lv = "", alert = false, gs = false) => `<td class="c${gs ? " gs" : ""}${lv ? ` ${lv}` : ""}${alert && v ? " bad" : ""}${!v && !lv ? " z" : ""}">${v || (lv ? "0" : "–")}</td>`;
 
   const cover = overview ? `<section class="page">
     <header class="top"><div><small>반편성 현황</small><h1>${esc(data.title)}</h1></div><span>${esc(data.subtitle)}<br>출력 ${esc(printedAt)}</span></header>
     <div class="kpis">${kpis.map(([l, v, u, t]) => `<div class="${t}"><small>${esc(l)}</small><b>${esc(v)}<em>${esc(u)}</em></b></div>`).join("")}</div>
     <h2>반별 현황</h2>
     <table class="ov"><thead>
-      <tr class="g"><th rowspan="2" class="c">반</th><th colspan="4" class="c gl">인원</th><th colspan="2" class="c gl">이동</th><th colspan="${flags.length}" class="c gl">학생 표시</th><th colspan="3" class="c gl">배정 점검</th><th rowspan="2" class="gl">반 점검</th></tr>
-      <tr><th class="c">계</th><th class="c">남</th><th class="c">여</th><th class="c">남녀</th><th class="c">받음</th><th class="c">보냄</th>${flags.map(f => `<th class="c">${tag(f)}</th>`).join("")}<th class="c">분리<br>미반영</th><th class="c">조합<br>같은 반</th><th class="c">그룹<br>같은 반</th></tr>
+      <tr class="g"><th rowspan="2" class="c">반</th><th colspan="4" class="c gs">인원</th><th colspan="2" class="c gs">이동</th><th colspan="${flags.length}" class="c gs">학생 표시</th><th colspan="3" class="c gs">배정 점검</th></tr>
+      <tr><th class="c gs">계</th><th class="c">남</th><th class="c">여</th><th class="c">남녀</th><th class="c gs">받음</th><th class="c">보냄</th>${flags.map((f, i) => `<th class="c${i ? "" : " gs"}">${tag(f)}</th>`).join("")}<th class="c gs">분리희망<br>미반영</th><th class="c">조합<br>같은 반</th><th class="c">그룹<br>같은 반</th></tr>
     </thead><tbody>
-    ${classRows.map(r => `<tr><td class="c cls">${esc(r.cls)}반</td><td class="c b">${r.n}</td><td class="c">${r.m}</td><td class="c">${r.f}</td><td class="c">${genderBar(r)}</td>${cell(r.inn)}${cell(r.out)}${flags.map(f => cell(r.flags[f.key] || 0, level(f.key, r.flags[f.key] || 0))).join("")}${cell(r.miss, "", true)}${cell(r.combo, "", true)}${cell(r.group, "", true)}<td class="ck">${r.checks.map(c => `<span>${esc(c)}</span>`).join("") || '<i class="z">–</i>'}</td></tr>`).join("")}
-    </tbody><tfoot><tr><td class="c">합계</td><td class="c">${total}</td><td class="c">${sum(r => r.m)}</td><td class="c">${sum(r => r.f)}</td><td></td><td class="c">${sum(r => r.inn) || "–"}</td><td class="c">${sum(r => r.out) || "–"}</td>${flags.map(f => `<td class="c">${sum(r => r.flags[f.key]) || "–"}</td>`).join("")}<td class="c">${sum(r => r.miss) || "–"}</td><td class="c">${sum(r => r.combo) || "–"}</td><td class="c">${sum(r => r.group) || "–"}</td><td></td></tr></tfoot></table>
+    ${classRows.map(r => `<tr><td class="c cls">${esc(r.cls)}반</td><td class="c b gs">${r.n}</td><td class="c">${r.m}</td><td class="c">${r.f}</td><td class="c">${genderBar(r)}</td>${cell(r.inn, "", false, true)}${cell(r.out)}${flags.map((f, i) => cell(r.flags[f.key] || 0, level(f.key, r.flags[f.key] || 0), false, !i)).join("")}${cell(r.miss, "", true, true)}${cell(r.combo, "", true)}${cell(r.group, "", true)}</tr>`).join("")}
+    </tbody><tfoot><tr><td class="c">합계</td><td class="c gs">${total}</td><td class="c">${sum(r => r.m)}</td><td class="c">${sum(r => r.f)}</td><td></td><td class="c gs">${sum(r => r.inn) || "–"}</td><td class="c">${sum(r => r.out) || "–"}</td>${flags.map((f, i) => `<td class="c${i ? "" : " gs"}">${sum(r => r.flags[f.key]) || "–"}</td>`).join("")}<td class="c gs">${sum(r => r.miss) || "–"}</td><td class="c">${sum(r => r.combo) || "–"}</td><td class="c">${sum(r => r.group) || "–"}</td></tr></tfoot></table>
     <p class="legend"><span class="sw high"></span> 쏠림: 다른 반 평균보다 많이 몰림(3명 이상) <span class="sw low"></span> 부족: 리더 후보 없음 <b class="r">빨강</b> 확인이 필요한 수 · 남녀 막대: 파랑 남 / 분홍 여</p>
+    ${classRows.some(r => r.checks.length) ? `<h2>반 점검 <small>선생님들이 체크한 반</small></h2><table class="ckl"><tbody>${classRows.filter(r => r.checks.length).map(r => `<tr><th class="c">${esc(r.cls)}반</th><td>${r.checks.map(c => `<span class="ckt">${esc(c)}</span>`).join("")}</td></tr>`).join("")}</tbody></table>` : ""}
     ${data.moves.length ? `<h2>이동 내역 <small>${data.moves.length}건</small></h2><table class="ov mv"><thead><tr><th>시각</th><th>학생</th><th>이동</th><th>맞바꾼 학생</th><th>옮긴 사람</th></tr></thead><tbody>${data.moves.map(m => `<tr>${m.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}</tbody></table>` : ""}
   </section>` : "";
 
@@ -69,38 +70,49 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   </section>`; }).join("") : "";
 
   win.document.write(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>${esc(data.title)}</title><style>
-  @page{size:A4;margin:11mm 11mm 12mm}*{box-sizing:border-box}html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  body{margin:0;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:#17181d;font-size:9.5pt;line-height:1.45}
-  .bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:10px 16px;background:#17181d;color:#fff;font-size:13px}.bar b{flex:1}.bar button{height:34px;padding:0 16px;border:0;border-radius:9px;background:#2563eb;color:#fff;font:inherit;font-weight:800;cursor:pointer}.bar small{color:#c9cdd4}
-  .page{break-after:page;page-break-after:always;display:flex;flex-direction:column;gap:9px}.page:last-child{break-after:auto;page-break-after:auto}
-  .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-bottom:7px;border-bottom:2.5px solid #17181d}.top small{font-size:8.5pt;font-weight:800;color:#2563eb;letter-spacing:.04em}.top h1{margin:0;font-size:17pt;line-height:1.2}.top>span{font-size:8pt;color:#5b606b;text-align:right}
-  .top.sm{border-bottom:1px solid #d6d3cc;padding-bottom:4px}.top.sm span{font-size:7.5pt;color:#8a8f99}
-  h2{margin:4px 0 0;font-size:11pt}h2 small{font-size:8.5pt;color:#6b7280;font-weight:600;margin-left:4px}
-  .kpis{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}.kpis div{padding:6px 8px;border:1px solid #dfe3ea;border-radius:8px}.kpis small{display:block;font-size:7.5pt;color:#5b606b;white-space:nowrap}.kpis b{font-size:15pt;line-height:1.2}.kpis em{font-style:normal;font-size:8pt;font-weight:600;color:#6b7280;margin-left:1px}
-  .kpis .bad{border-color:#f2b8b5;background:#fdf1f0}.kpis .bad b{color:#b91c1c}.kpis .warn{border-color:#f6d58e;background:#fffaeb}.kpis .warn b{color:#b45309}.kpis .ok b{color:#15803d}
-  table{width:100%;border-collapse:collapse}th{padding:4px 3px;font-size:7.5pt;font-weight:800;color:#3d4048;text-align:left;vertical-align:bottom;line-height:1.25}td{padding:4px 3px;border-bottom:1px solid #e6e3dc;vertical-align:middle}.c{text-align:center}
-  table.ov thead tr:last-child th{border-bottom:1.5px solid #17181d}table.ov thead tr.g th{border-top:1.5px solid #17181d}table.ov th.gl{border-left:1px solid #d6d3cc}table.ov td{font-size:9.5pt;font-variant-numeric:tabular-nums}
-  table.ov td.cls{font-weight:800;white-space:nowrap}table.ov td.b{font-weight:800}table.ov td.z,.z{color:#c3c7ce}table.ov td.bad{color:#b91c1c;font-weight:800}
-  td.high{background:#fde7c4;color:#9a3412;font-weight:800}td.low{background:#fde2e1;color:#b91c1c;font-weight:800}
-  table.ov tfoot td{border-top:1.5px solid #17181d;border-bottom:0;font-weight:800;white-space:nowrap}table.ov td.ck span{display:inline-block;margin:1px 3px 1px 0;padding:0 5px;border-radius:4px;background:#fee2e2;color:#b91c1c;font-size:7pt;font-weight:700}
-  table.mv th{border-top:1.5px solid #17181d;border-bottom:1px solid #17181d}table.mv td{font-size:8.5pt}
-  .gb{display:inline-block;width:12mm;height:2.2mm;border-radius:2mm;background:#f9a8d4;overflow:hidden;vertical-align:middle}.gb i{display:block;height:100%;background:#60a5fa}
-  .tg{display:inline-block;margin:0 2px 1px 0;padding:0 5px;border-radius:4px;font-size:7.5pt;font-weight:800;line-height:1.6;white-space:nowrap}
-  .legend{margin:0;font-size:7.5pt;color:#6b7280;line-height:1.8}.legend .sw{display:inline-block;width:3mm;height:3mm;border-radius:1mm;vertical-align:-0.5mm;margin-left:6px}.sw.high{background:#fde7c4}.sw.low{background:#fde2e1}.r{color:#b91c1c}
-  .cls-hd{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;padding:9px 12px;border-radius:10px;background:#f4f3f0}
-  .cls-hd .nm{display:grid;gap:3px;padding-right:12px;border-right:1px solid #d6d3cc}.cls-hd strong{font-size:22pt;line-height:1}.cls-hd strong em{font-style:normal;font-size:12pt;margin-left:2px}.cls-hd .nm span{font-size:8.5pt;font-weight:700;color:#3d4048;white-space:nowrap}.cls-hd .gb{width:100%}
-  .cls-hd .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.cls-hd .stats div{padding:3px 7px;border-radius:6px;background:#fff}.cls-hd .stats small{display:block;font-size:7pt;color:#6b7280;white-space:nowrap}.cls-hd .stats b{font-size:11pt}
-  .cls-hd .stats .high{background:#fde7c4}.cls-hd .stats .high b{color:#9a3412}.cls-hd .stats .low,.cls-hd .stats .bad{background:#fde2e1}.cls-hd .stats .low b,.cls-hd .stats .bad b{color:#b91c1c}
-  .notes{display:grid;gap:4px;padding:7px 10px;border:1px solid #dbe4f5;border-left:3px solid #2563eb;border-radius:6px;background:#f7f9fe;font-size:8.5pt}.notes .row{display:grid;grid-template-columns:13mm 1fr;gap:6px}.notes .row>b{color:#1d4ed8}.notes ul{margin:0;padding-left:14px}.notes li{margin:1px 0}
-  .ckt{display:inline-block;margin:0 4px 2px 0;padding:0 6px;border-radius:4px;background:#fee2e2;color:#b91c1c;font-weight:700}
-  table.st thead th{border-top:1.5px solid #17181d;border-bottom:1px solid #17181d}table.st td{font-size:9pt;padding:3.5px 3px}
-  table.st .n{width:8mm}table.st .o{width:15mm}table.st .nm{width:19mm;font-weight:800;white-space:nowrap}table.st .g{width:8mm}table.st .fl{width:30mm}table.st .sp{width:15mm}table.st .k{width:9mm}
-  table.st td.g.m{color:#2563eb}table.st td.g.f{color:#db2777}table.st td.sp{font-size:8pt}table.st td.sp .ok{color:#8a8f99}
-  table.st tbody tr:nth-child(even) td{background:#fafaf8}table.st tr.alert td{background:#fdf1f0!important}
-  table.st td.rm{font-size:8pt;line-height:1.4}td.rm .nt{display:inline-block;margin:0 5px 1px 0;color:#3d4048;font-weight:700}td.rm .memo{display:block;color:#3d4048}td.rm .memo::before{content:"✎ ";color:#9aa0ab}
-  .box{display:inline-block;width:3.6mm;height:3.6mm;border:1px solid #5b606b;border-radius:1mm;vertical-align:middle}
+  @page{size:A4;margin:10mm 10mm 11mm}*{box-sizing:border-box}html{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{margin:0;font-family:"Pretendard","Noto Sans KR","Malgun Gothic",sans-serif;color:#111318;font-size:10pt;line-height:1.45}
+  .bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px;padding:10px 16px;background:#111318;color:#fff;font-size:13px}.bar b{flex:1}.bar button{height:34px;padding:0 16px;border:0;border-radius:8px;background:#2563eb;color:#fff;font:inherit;font-weight:800;cursor:pointer}.bar small{color:#c9cdd4}
+  .page{break-after:page;page-break-after:always;display:flex;flex-direction:column;gap:2.8mm}.page:last-child{break-after:auto;page-break-after:auto}
+  .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-bottom:2.5mm;border-bottom:2px solid #111318}.top small{font-size:9pt;font-weight:800;color:#1d4ed8}.top h1{margin:0;font-size:18pt;line-height:1.2}.top>span{font-size:8.5pt;color:#4b5060;text-align:right;line-height:1.5}
+  .top.sm{border-bottom:1px solid #9aa0ab;padding-bottom:1.5mm}.top.sm span{font-size:8pt;color:#4b5060}
+  h2{margin:1mm 0 -1mm;font-size:12pt;padding-left:2.5mm;border-left:4px solid #111318;line-height:1.2}h2 small{font-size:9pt;color:#4b5060;font-weight:600;margin-left:4px}
+  .kpis{display:grid;grid-template-columns:repeat(7,1fr);border:1.5px solid #111318;border-radius:2mm;overflow:hidden}.kpis div{padding:2mm 2.5mm;border-left:1px solid #9aa0ab}.kpis div:first-child{border-left:0}
+  .kpis small{display:block;font-size:8pt;font-weight:700;color:#4b5060;white-space:nowrap}.kpis b{font-size:16pt;line-height:1.25}.kpis em{font-style:normal;font-size:9pt;font-weight:600;color:#4b5060;margin-left:1px}
+  .kpis .bad{background:#fdecea}.kpis .bad b{color:#b91c1c}.kpis .warn{background:#fff4dc}.kpis .warn b{color:#9a3412}.kpis .ok b{color:#15803d}
+  table{width:100%;border-collapse:collapse;border:1.5px solid #111318}
+  th,td{border:1px solid #a9aeb8;padding:1.6mm 1.4mm;vertical-align:middle}
+  th{background:#e9ecf1;font-size:8.5pt;font-weight:800;color:#111318;text-align:left;line-height:1.25;white-space:nowrap}
+  .c{text-align:center}
+  thead tr:last-child th{border-bottom:1.5px solid #111318}
+  .gs{border-left:1.5px solid #111318!important}
+  table.ov th{text-align:center}table.ov tr.g th{background:#d9dee6;font-size:9pt}
+  table.ov td{font-size:10.5pt;font-variant-numeric:tabular-nums}table.ov tbody tr:nth-child(even) td{background:#f6f7f9}
+  table.ov td.cls{font-weight:800;white-space:nowrap;background:#f0f2f5!important}table.ov td.b{font-weight:800}
+  table.ov td.z,.z{color:#b3b8c2}table.ov td.bad{color:#b91c1c;font-weight:800}
+  td.high{background:#fbd9a5!important;color:#7c2d12;font-weight:800}td.low{background:#f9d0cd!important;color:#991b1b;font-weight:800}
+  table.ov tfoot td{border-top:1.5px solid #111318;background:#e9ecf1;font-weight:800;white-space:nowrap}
+  table.ckl th{width:16mm;font-size:10pt}table.ckl td{font-size:9.5pt}table.ov td.ck span{display:inline-block;margin:0.4mm 1mm 0.4mm 0;padding:0 1.4mm;border:1px solid #f1a9a3;border-radius:1mm;background:#fdecea;color:#991b1b;font-size:8pt;font-weight:700}
+  table.mv td{font-size:9.5pt}
+  .gb{display:inline-block;width:14mm;height:2.6mm;border-radius:1.3mm;background:#f472b6;overflow:hidden;vertical-align:middle;border:0.5px solid #9aa0ab}.gb i{display:block;height:100%;background:#3b82f6}
+  .tg{display:inline-block;margin:0.2mm 1mm 0.2mm 0;padding:0 1.3mm;border:1px solid currentColor;border-radius:1mm;font-size:8pt;font-weight:800;line-height:1.45;white-space:nowrap}
+  .legend{margin:0;padding:1.6mm 2.5mm;border:1px solid #c9cdd4;border-radius:1.5mm;background:#f6f7f9;font-size:8.5pt;color:#2f333b;line-height:1.9}.legend .sw{display:inline-block;width:3.4mm;height:3.4mm;border:1px solid #9aa0ab;border-radius:0.8mm;vertical-align:-0.6mm;margin-left:6px}.sw.high{background:#fbd9a5}.sw.low{background:#f9d0cd}.r{color:#b91c1c}
+  .cls-hd{display:grid;grid-template-columns:42mm 1fr;border:1.5px solid #111318;border-radius:2mm;overflow:hidden}
+  .cls-hd .nm{display:grid;align-content:center;gap:1.2mm;padding:2.5mm 3.5mm;background:#111318;color:#fff}.cls-hd strong{font-size:24pt;line-height:1}.cls-hd strong em{font-style:normal;font-size:13pt;margin-left:1mm}.cls-hd .nm span{font-size:9.5pt;font-weight:700;white-space:nowrap}.cls-hd .gb{width:100%;border-color:#fff}
+  .cls-hd .stats{display:grid;grid-template-columns:repeat(4,1fr)}.cls-hd .stats div{padding:1.1mm 2.5mm;border-left:1px solid #a9aeb8;border-top:1px solid #a9aeb8}.cls-hd .stats div:nth-child(-n+4){border-top:0}
+  .cls-hd .stats small{display:block;font-size:8pt;font-weight:700;color:#4b5060;white-space:nowrap}.cls-hd .stats b{font-size:13pt;line-height:1.25}
+  .cls-hd .stats .high{background:#fbd9a5}.cls-hd .stats .high b{color:#7c2d12}.cls-hd .stats .low,.cls-hd .stats .bad{background:#f9d0cd}.cls-hd .stats .low b,.cls-hd .stats .bad b{color:#991b1b}
+  .notes{display:grid;border:1.5px solid #1d4ed8;border-radius:2mm;overflow:hidden;font-size:9.5pt}.notes .row{display:grid;grid-template-columns:17mm 1fr;border-top:1px solid #bfd0f3}.notes .row:first-child{border-top:0}
+  .notes .row>b{display:flex;align-items:center;justify-content:center;background:#e6eefc;color:#1d4ed8;border-right:1px solid #bfd0f3}.notes .row>div,.notes ul{padding:1.6mm 2.5mm}.notes ul{margin:0;padding-left:7mm}.notes li{margin:0.4mm 0}
+  .ckt{display:inline-block;margin:0.3mm 1.2mm 0.3mm 0;padding:0 1.6mm;border:1px solid #f1a9a3;border-radius:1mm;background:#fdecea;color:#991b1b;font-weight:700}
+  table.st td{font-size:9.5pt;padding:0.9mm 1.4mm;line-height:1.35}table.st tbody tr:nth-child(even) td{background:#f6f7f9}
+  table.st .n{width:9mm}table.st .o{width:17mm}table.st .nm{width:21mm;font-weight:800;white-space:nowrap}table.st .g{width:9mm}table.st .fl{width:33mm}table.st .sp{width:16mm}table.st .k{width:10mm}
+  table.st td.n{font-weight:700;color:#4b5060}table.st td.g.m{color:#1d4ed8;font-weight:700}table.st td.g.f{color:#be185d;font-weight:700}table.st td.sp{font-size:8.5pt}table.st td.sp .ok{color:#6b7280}table.st td.sp .r{font-size:9pt}
+  table.st tr.alert td{background:#fdecea!important}
+  table.st td.rm{font-size:8pt;line-height:1.35}td.rm .nt{display:inline-block;margin:0 2mm 0.3mm 0;font-weight:700;color:#111318}td.rm .memo{display:block;color:#2f333b}td.rm .memo::before{content:"✎ ";color:#6b7280}
+  .box{display:inline-block;width:3.6mm;height:3.6mm;border:1.2px solid #2f333b;border-radius:0.8mm;vertical-align:middle;background:#fff}
   thead{display:table-header-group}tr{break-inside:avoid}
-  @media screen{body{background:#e9e7e2}.pages{transform-origin:top left}.page{width:210mm;min-height:297mm;margin:8mm auto;padding:11mm;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.12)}}
+  @media screen{body{background:#e4e2dd}.pages{transform-origin:top left}.page{width:210mm;min-height:297mm;margin:8mm auto;padding:10mm;background:#fff;box-shadow:0 4px 20px rgba(0,0,0,.14)}}
   @media print{.bar{display:none}}
   </style></head><body><div class="bar"><b>${esc(data.title)}</b><small>인쇄 창에서 '대상'을 'PDF로 저장'으로 바꾸면 PDF로 받아요</small><button onclick="window.print()">인쇄 · PDF 저장</button></div><div class="pages">${cover}${pages}</div><script>
   function fit(){var w=document.documentElement.clientWidth,pw=document.querySelector('.page')?document.querySelector('.page').offsetWidth+24:0,el=document.querySelector('.pages');if(!pw)return;var s=Math.min(1,w/pw);el.style.zoom=s<1?s:'';}
