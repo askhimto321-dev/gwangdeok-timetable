@@ -374,7 +374,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                 {openSid === sid && openKind === "combo" && <tr className="sub"><td colSpan={cols}><div className="panel2">
                   <ComboPicker sid={sid} placement={placement} combos={cs} mine={(item.combos || []).filter(c => c.byId === me.id).map(c => c.with)} theirsMine={cs.map(c => c.other).filter(o => (review.students[o]?.combos || []).some(c => c.with === sid && c.byId === me.id))} nameOf={nameOf} onAdd={o => addCombo(sid, o)} onRemove={o => removeCombo(sid, o)} />
                 </div></td></tr>}
-                {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
+                {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} flagsOf={x => STUDENT_FLAGS.filter(f => (review.students[x]?.marks?.[f.key] || []).length)} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
               </React.Fragment>; })}</tbody>
             </table></div>
             {!list.length && <p className="kpl-nil">{toF ? `${curTab}반에서 ${toF}반으로 옮길 수 있는 학생이 없어요.` : activeF ? "고른 필터에 맞는 학생이 없어요."  : "찾는 학생이 없어요."}</p>}
@@ -469,7 +469,10 @@ function GroupModal({ group, placement, nameOf, curTab, onSave, onRemove, onClos
 }
 
 // 이동 패널: 갈 수 있는 반(인원 변화) → 그냥 옮기기 또는 맞바꿀 학생 고르기
-function MovePanel({ placement, sid, to, setTo, summary, nameOf, genderOf, missSet, pairs, onMove, onClose }) {
+function MovePanel({ placement, sid, to, setTo, summary, nameOf, genderOf, missSet, pairs, onMove, onClose, flagsOf = () => [] }) {
+  const [q, setQ] = React.useState("");
+  const [sameG, setSameG] = React.useState(false);
+  const [safe, setSafe] = React.useState(false);
   const s = placement.students[sid];
   const targets = movableClasses(placement, sid);
   const size = c => summary.find(x => x.cls === c)?.n || 0;
@@ -480,8 +483,28 @@ function MovePanel({ placement, sid, to, setTo, summary, nameOf, genderOf, missS
     <div className="tgts">{targets.map(c => <button key={c} type="button" data-kdn-bare className={`${to === c ? "on" : ""}${clash(sid, c) ? " clash" : ""}`} onClick={() => setTo(c)} title={clash(sid, c) ? "이 반에 분리희망 또는 조합 우려 학생이 있어요" : ""}><b>{c}반</b><small>{size(c)}명</small>{clash(sid, c) && <em>분리·조합 학생 있음</em>}</button>)}</div>
     {to ? <div className="swap">
       <div className="opt"><button type="button" className="kpl-btn" onClick={() => onMove(sid, to)}>그냥 옮기기</button><small>{s.cls}반 {size(s.cls) - 1}명 · {to}반 {size(to) + 1}명이 돼요</small></div>
-      <b className="sh">맞바꾸기 <small>{to}반에서 {s.cls}반으로 올 수 있는 학생 {cands.length}명 (같은 성별 먼저)</small></b>
-      {cands.length ? <ul>{cands.map(x => { const bad = clash(x.sid, s.cls); return <li key={x.sid} className={bad ? "clash" : ""}><div className="who"><b>{x.name || nameOf(x.sid)}</b><span className="meta"><span>{oldLabel(x.sid)}</span><i className={`g ${/남/.test(genderOf(x.sid)) ? "m" : "f"}`}>{genderOf(x.sid)}</i></span>{(bad || missSet.has(x.sid)) && <span className="warns">{bad && <em>{s.cls}반에 분리·조합 학생</em>}{missSet.has(x.sid) && <em>분리 미반영</em>}</span>}</div><button type="button" data-kdn-bare className="swp" onClick={() => onMove(sid, to, x.sid)}><ArrowLeftRight size={13} /> 맞바꾸기</button></li>; })}</ul> : <p className="kpl-nil">원반 과목 때문에 {to}반에서 {s.cls}반으로 올 수 있는 학생이 없어요.</p>}
+      {(() => {
+        const myG = genderOf(sid);
+        const rows = cands.map(x => { const bad = clash(x.sid, s.cls); const same = !!myG && genderOf(x.sid) === myG; return { ...x, bad, same, miss: missSet.has(x.sid), flags: flagsOf(x.sid), rec: same && !bad && !missSet.has(x.sid) }; })
+          .sort((a, b) => (b.rec - a.rec) || (a.bad - b.bad) || (b.same - a.same) || a.sid.localeCompare(b.sid));
+        const shown = rows.filter(x => (!sameG || x.same) && (!safe || !x.bad) && (!q.trim() || String(x.name || nameOf(x.sid)).includes(q.trim()) || oldLabel(x.sid).includes(q.trim())));
+        return <>
+          <div className="sh2"><b>맞바꾸기</b><small>{to}반에서 {s.cls}반으로 올 수 있는 학생 {cands.length}명 · <em>추천</em> = 같은 성별이고 걸리는 것 없음</small></div>
+          {cands.length > 0 && <div className="stools"><label className="sq"><Search size={13} /><input value={q} onChange={e => setQ(e.target.value)} placeholder="이름·구반-번호" /></label>
+            <button type="button" data-kdn-bare aria-pressed={sameG} className={sameG ? "on" : ""} onClick={() => setSameG(v => !v)}>{sameG && <Check size={12} />}같은 성별({myG || "-"})만</button>
+            <button type="button" data-kdn-bare aria-pressed={safe} className={safe ? "on" : ""} onClick={() => setSafe(v => !v)}>{safe && <Check size={12} />}분리·조합 걸리는 학생 빼기</button>
+            <span className="n">{shown.length}명</span></div>}
+          {cands.length ? (shown.length ? <div className="stbl"><table><thead><tr><th>이름</th><th className="c">구반-번호</th><th className="c">성별</th><th>학생 표시</th><th>주의</th><th className="c">맞바꾸기</th></tr></thead><tbody>
+            {shown.map(x => <tr key={x.sid} className={x.bad ? "clash" : x.rec ? "rec" : ""}>
+              <td className="nm"><b title={x.name || nameOf(x.sid)}>{x.name || nameOf(x.sid)}</b>{x.rec && <span className="rec">추천</span>}</td>
+              <td className="c no">{oldLabel(x.sid)}</td>
+              <td className="c"><i className={`g ${/남/.test(genderOf(x.sid)) ? "m" : "f"}`}>{genderOf(x.sid)}</i></td>
+              <td className="flg">{x.flags.length ? x.flags.map(f => <span key={f.key} className={`tg t-${f.tone}`}>{f.label}</span>) : <span className="dash">-</span>}</td>
+              <td className="wr">{x.bad || x.miss ? <>{x.bad && <em>{s.cls}반에 분리·조합 학생</em>}{x.miss && <em>분리희망 미반영</em>}</> : <span className="dash">-</span>}</td>
+              <td className="c"><button type="button" data-kdn-bare className="swp" onClick={() => onMove(sid, to, x.sid)}><ArrowLeftRight size={13} /> 맞바꾸기</button></td>
+            </tr>)}</tbody></table></div> : <p className="kpl-nil">조건에 맞는 학생이 없어요.</p>) : <p className="kpl-nil">원반 과목 때문에 {to}반에서 {s.cls}반으로 올 수 있는 학생이 없어요.</p>}
+        </>;
+      })()}
     </div> : <p className="kpl-nil">옮길 반을 골라 주세요.</p>}
   </div>;
 }
@@ -771,6 +794,27 @@ const CSS = `
 .kpl-grid .panel2.memo .kpl-memos li{font-size:14.5px;padding:8px 12px}
 
 /* 맞바꾸기 후보: 이름 크게, 정보·경고 줄 나눔 */
+.kpl-move .sh2{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}.kpl-move .sh2 b{font-size:14.5px}.kpl-move .sh2 small{font-size:12.5px;color:var(--kdn-muted,#64748b)}.kpl-move .sh2 em{font-style:normal;padding:0 6px;border-radius:5px;background:#dcfce7;color:#15803d;font-weight:800}
+.kpl-move .stools{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.kpl-move .stools .sq{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:9px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-muted,#64748b)}.kpl-move .stools .sq input{width:130px;border:0;outline:0;background:transparent;font:inherit;font-size:13.5px;color:var(--kdn-ink,#111827)}
+.kpl-move .stools button{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border-radius:99px;border:1px solid var(--kdn-line,#d5dbe3);background:var(--kdn-surface,#fff);color:var(--kdn-ink-soft,#334155);font:inherit;font-size:13px;font-weight:700;cursor:pointer}.kpl-move .stools button.on{background:var(--kdn-ink,#111827);border-color:transparent;color:#fff}
+.kpl-move .stools .n{margin-left:auto;font-size:12.5px;font-weight:800;color:var(--kdn-muted,#64748b)}
+.kpl-move .stbl{max-height:400px;overflow:auto;border:1px solid #cbd5e1!important;border-radius:12px;background:var(--kdn-surface,#fff)}
+.kpl-move .stbl table{width:100%;border-collapse:collapse;font-size:14px}
+.kpl-move .stbl th{position:sticky;top:0;z-index:1;padding:8px 10px;background:#f1f5f9;border-bottom:1.5px solid #94a3b8!important;font-size:12.5px;font-weight:800;color:#334155;text-align:left;white-space:nowrap}
+.kpl-move .stbl td{padding:8px 10px;border-bottom:1px solid #e2e8f0!important;vertical-align:middle}
+.kpl-move .stbl th+th,.kpl-move .stbl td+td{border-left:1px solid #e2e8f0!important}
+.kpl-move .stbl .c{text-align:center}.kpl-move .stbl td{height:auto!important;padding:7px 10px!important}.kpl-move .stbl th{padding:8px 10px!important}.kpl-move .stbl tbody tr:last-child td{border-bottom:0!important}.kpl-move .stbl tbody tr:hover td{background:#f8fafc}
+.kpl-move .stbl td.nm{min-width:120px}.kpl-move .stbl td.nm b{font-size:14.5px;font-weight:800;color:var(--kdn-ink,#111827)}.kpl-move .stbl td.nm .rec{margin-left:6px;padding:1px 7px;border-radius:6px;background:#dcfce7;color:#15803d;font-size:11.5px;font-weight:800;white-space:nowrap}
+.kpl-move .stbl td.no{font-variant-numeric:tabular-nums;font-weight:700;color:#475569;white-space:nowrap}
+.kpl-move .stbl .g{font-style:normal;display:inline-grid;place-items:center;width:22px;height:22px;border-radius:6px;font-size:12px;font-weight:800}.kpl-move .stbl .g.m{background:#dbeafe;color:#1d4ed8}.kpl-move .stbl .g.f{background:#fce7f3;color:#be185d}
+.kpl-move .stbl .tg{display:inline-block;margin:1px 4px 1px 0;padding:1px 7px;border-radius:6px;font-size:11.5px;font-weight:800;white-space:nowrap;background:#f1f5f9;color:#334155}
+.kpl-move .stbl .tg.t-good{background:#dcfce7;color:#15803d}.kpl-move .stbl .tg.t-warn{background:#fef3c7;color:#b45309}.kpl-move .stbl .tg.t-info{background:#dbeafe;color:#1d4ed8}.kpl-move .stbl .tg.t-bad{background:#fee2e2;color:#b91c1c}.kpl-move .stbl .tg.t-mv{background:#ede9fe;color:#6d28d9}
+.kpl-move .stbl td.wr em{display:inline-block;margin:1px 4px 1px 0;padding:1px 8px;border-radius:6px;background:#fee2e2;color:#b91c1c;font-style:normal;font-size:12px;font-weight:800;white-space:nowrap}
+.kpl-move .stbl .dash{color:#cbd5e1}
+.kpl-move .stbl tr.clash td{background:#fff5f5}.kpl-move .stbl tr.rec td.nm{box-shadow:inset 3px 0 0 #16a34a}
+.kpl-move .stbl .swp{display:inline-flex;align-items:center;gap:4px;height:32px;padding:0 12px;border-radius:9px;border:1px solid #93c5fd;background:var(--kdn-surface,#fff);color:#1d4ed8;font:inherit;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap}.kpl-move .stbl .swp:hover{background:#2563eb;border-color:#2563eb;color:#fff}
+.kpl-move .stbl tr.clash .swp{border-color:#fca5a5;color:#b91c1c}.kpl-move .stbl tr.clash .swp:hover{background:#dc2626;border-color:#dc2626;color:#fff}
 .kpl-move ul{grid-template-columns:repeat(auto-fill,minmax(240px,1fr))!important;gap:8px!important;max-height:360px!important}
 .kpl-move li{align-items:center!important;padding:10px 10px 10px 14px!important;border-radius:12px!important;min-height:62px}
 .kpl-move li .who{display:grid;gap:3px;min-width:0}
