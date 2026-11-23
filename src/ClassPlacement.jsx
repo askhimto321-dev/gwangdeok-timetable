@@ -16,6 +16,9 @@ const COMMON_SUBJECTS = { 1: ["화법과 언어", "확률과 통계", "영어 �
 const CROSS_SUBJECTS = ["음악 감상과 비평", "미술 감상과 비평"];
 const commonFor = (cls, sem, classes) => { const first = classes.indexOf(Number(cls)) < Math.ceil(classes.length / 2); const cross = (String(sem) === "1") === first ? CROSS_SUBJECTS[0] : CROSS_SUBJECTS[1]; return [...(COMMON_SUBJECTS[sem] || []), cross]; };
 
+// 받음·보냄 글: 0인 쪽은 빼요(예: '보냄 1')
+const inOutText = (inn, out) => [inn ? `받음 ${inn}` : "", out ? `보냄 ${out}` : ""].filter(Boolean).join(" · ");
+
 const STATUS = { same: { label: "같은 반", tone: "bad", Icon: AlertTriangle }, ok: { label: "다른 반", tone: "good", Icon: CheckCircle2 }, unknown: { label: "확인 필요", tone: "mute", Icon: CircleHelp } };
 const fmt = iso => { const d = new Date(iso || ""); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 const oldLabel = sid => `${Number(String(sid).slice(1, 3))}-${Number(String(sid).slice(3, 5))}`;
@@ -50,7 +53,8 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const [toFilter, setToFilter] = React.useState(0);
   const [printOpen, setPrintOpen] = React.useState(false);
   const [ttSel, setTtSel] = React.useState(0);
-  const [fOpen, setFOpen] = React.useState(false);
+  const [fOpen, setFOpenRaw] = React.useState(() => { try { return localStorage.getItem("kd_kpl_fopen_v1") !== "0"; } catch { return true; } });
+  const setFOpen = f => setFOpenRaw(v => { const n = typeof f === "function" ? f(v) : f; try { localStorage.setItem("kd_kpl_fopen_v1", n ? "1" : "0"); } catch { /* 저장 못 해도 그대로 */ } return n; });
   const [printOpt, setPrintOpt] = React.useState({ scope: "all", overview: true, roster: true, memos: true }); // 이 반으로 옮길 수 있는 학생만
   const input = React.useRef(null);
   const me = { id: String(actor?.id || actor?.name || "me"), name: String(actor?.name || "선생님") };
@@ -412,29 +416,31 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length + 1 }}>
           <button type="button" role="tab" aria-selected={allView && !q} data-kdn-bare className={`all${allView && !q ? " on" : ""}`} onClick={() => { setTab("all"); setFind(""); setOpenSid(""); setMoveSid(""); setToFilter(0); }}>
             {totalMiss ? <i className="dot" title={`분리 미반영 ${totalMiss}명`}>{totalMiss}</i> : null}
-            <b>전체</b><span className="n">{total.n}명</span><span className="gbar"><i style={{ width: `${total.n ? Math.round((total.m / total.n) * 100) : 0}%` }} /></span><small>남 {total.m} · 여 {total.f}</small><span className={`mvc${placement.moves.length ? " on" : ""}`}>이동 {placement.moves.length}건</span></button>
+            <b>전체</b><span className="n">{total.n}명</span><span className="gbar"><i style={{ width: `${total.n ? Math.round((total.m / total.n) * 100) : 0}%` }} /></span><small>남 {total.m} · 여 {total.f}</small><span className={`mvc${changedIds.length ? " on" : ""}`}>바뀐 {changedIds.length}명</span></button>
           {summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q && !allView} data-kdn-bare className={s.cls === curTab && !q && !allView ? "on" : ""} onClick={() => goClass(s.cls)}>
           {miss ? <i className="dot" title={`분리 미반영 ${miss}명`}>{miss}</i> : null}
-          <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small><span className={`mvc${s.inn || s.out ? " on" : ""}`} title={`이동으로 받은 학생 ${s.inn || 0}명 · 보낸 학생 ${s.out || 0}명`}>받음 {s.inn || 0} · 보냄 {s.out || 0}</span></button>; })}</div>
+          <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small><span className={`mvc${s.inn || s.out ? " on" : ""}`} title={`초기 엑셀 대비 받은 학생 ${s.inn || 0}명 · 보낸 학생 ${s.out || 0}명`}>{inOutText(s.inn, s.out)}</span></button>; })}</div>
         <div className={`kpl-split2${wide ? " searching" : ""}`}>
           {!wide && <aside className="kpl-side2">
             <header><b>{nextGrade}학년 {curTab}반</b><span>{sm.n}명</span></header>
             <div className="gender"><span className="m">남 {sm.m}</span><span className="bar"><i style={{ width: `${mPct}%` }} /></span><span className="f">여 {sm.f}</span></div>
             {(() => { const courseN = placement.rooms ? base.filter(([sid]) => courseBad.has(sid)).length : 0; const fixedN = placement.rooms ? base.filter(([sid, x]) => !movableOk(sid).some(c => Number(c) !== Number(x.cls))).length : 0;
-              const T = ({ label, n, unit = "명", tone = "", hint = "" }) => <div className={`tile ${tone}`} title={hint}><small>{label}</small><b>{n}<em>{unit}</em></b></div>;
+              const T = ({ label, n, unit = "명", tone = "", hint = "", dot = "" }) => <div className={`tile ${n ? tone : ""}`} title={hint}><small>{dot && <i className={`dot ${dot}`} />}{label}</small><b>{n}<em>{unit}</em></b></div>;
               return <div className="tiles">
                 <h6>학생 표시</h6>
-                <T label="리더 후보" n={flagCount("leader")} tone={flagCount("leader") ? "good" : "warn"} hint="선생님들이 리더 후보로 표시한 학생" />
-                <T label="배려 필요" n={flagCount("care")} />
-                <T label="생활지도 주의" n={flagCount("guide")} tone={flagCount("guide") ? "bad" : ""} />
-                <T label="이동 희망" n={flagCount("move")} hint="다른 반으로 옮기는 게 좋겠다고 표시한 학생" />
+                <T label="리더 후보" dot="good" n={flagCount("leader")} tone="good" hint="선생님들이 리더 후보로 표시한 학생" />
+                <T label="조합 우려" dot="warn" n={flagCount("combo")} tone="warn" />
+                <T label="배려 필요" dot="info" n={flagCount("care")} tone="info" />
+                <T label="생활지도 주의" dot="bad" n={flagCount("guide")} tone="bad" />
+                <T label="이동 희망" dot="mv" n={flagCount("move")} tone="mv" hint="다른 반으로 옮기는 게 좋겠다고 표시한 학생" />
                 <h6>배정 점검</h6>
                 <T label="분리희망 미반영" n={missN} tone={missN ? "bad" : ""} />
                 <T label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} hint="학생마다 지목한 조합 상대가 같은 반인 쌍" />
                 <T label="조합 그룹 같은 반" n={groupN} unit="그룹" tone={groupN ? "bad" : ""} hint="같은 조합 그룹 학생이 이 반에 2명 이상인 그룹" />
                 {placement.rooms && <T label="수강 불가 과목" n={courseN} tone={courseN ? "bad" : ""} hint="옮겨 와서 들을 수 없는 과목이 생긴 학생" />}
                 {placement.rooms && <T label="이동 불가(고정)" n={fixedN} hint="원반 과목·시간표 규칙상 다른 반으로 못 가는 학생" />}
-                <T label="받은 · 보낸" n={`${sm.inn || 0} · ${sm.out || 0}`} unit="" hint="이동으로 이 반에 온 학생 · 다른 반에 간 학생" />
+                <T label="받은 학생" n={sm.inn || 0} tone={sm.inn ? "mv" : ""} hint="초기 엑셀 대비 이 반에 온 학생" />
+                <T label="보낸 학생" n={sm.out || 0} tone={sm.out ? "mv" : ""} hint="초기 엑셀 대비 다른 반에 간 학생" />
               </div>; })()}
             {placement.kind === "program" && <div className="blk row"><h5>원반 과목</h5>{placement.rooms ? (() => { const o = placement.rooms.ob?.[curTab] || {}; const sems = Object.keys(placement.rooms.letters || {}); return <div className="obs">{sems.map(sem => <span key={sem} className="r"><small>{sem}학기</small>{(o[sem] || []).length ? (o[sem] || []).map(x => <i key={x}>{x}</i>) : <em>없음</em>}</span>)}</div>; })() : ob.length ? <div className="ob">{ob.map(x => <span key={x}>{x}</span>)}</div> : <p className="nil">없음</p>}</div>}
             {placement.rooms && (() => { const bad = base.filter(([sid]) => courseBad.has(sid)); return bad.length > 0 && <div className="blk"><h5>수강 불가 과목 <small>옮겨 온 학생</small></h5><ul className="cbl">{bad.map(([sid]) => <li key={sid}><button type="button" data-kdn-bare onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }}>{nameOf(sid)}</button><span>{courseBad.get(sid).map(i => `${i.n}(${i.sem}학기)`).join(", ")}</span></li>)}</ul></div>; })()}
@@ -450,10 +456,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                 {(allView ? classes : classes.filter(c => c !== curTab)).map(c => { const n = allView ? base.filter(([sid, x]) => Number(x.cls) !== c && canGo(sid, c)).length : base.filter(([sid]) => canGo(sid, c)).length; return <option key={c} value={c} disabled={!n && toF !== c}>{allView ? `${c}반으로 갈 수 있는 학생 (${n}명)` : `${c}반 (${n}명 가능)`}</option>; })}
               </select></label>}
               <button type="button" data-kdn-bare className="tb grp" onClick={() => setGroupEdit({ name: "", memo: "", members: [] })}><Users size={14} /> 조합 그룹</button></div>
-            {(picked.length > 0 || toF) && <div className="achips"><span className="res">{list.length}명</span>{picked.map(f => <button key={f.key} type="button" data-kdn-bare className={`t-${f.tone}`} onClick={() => toggleFilter(f.key)}>{f.label}<X size={11} /></button>)}{toF ? <button type="button" data-kdn-bare className="t-info" onClick={() => setToFilter(0)}>{allView ? `${toF}반으로 갈 수 있음` : `${curTab}반 → ${toF}반 가능`}<X size={11} /></button> : null}<button type="button" data-kdn-bare className="clr" onClick={() => { setRowFilter([]); setToFilter(0); }}>모두 지우기</button></div>}
+            {(picked.length > 0 || !!toF) && <div className="achips"><span className="res">{list.length}명</span>{picked.map(f => <button key={f.key} type="button" data-kdn-bare className={`t-${f.tone}`} onClick={() => toggleFilter(f.key)}>{f.label}<X size={11} /></button>)}{toF ? <button type="button" data-kdn-bare className="t-info" onClick={() => setToFilter(0)}>{allView ? `${toF}반으로 갈 수 있음` : `${curTab}반 → ${toF}반 가능`}<X size={11} /></button> : null}<button type="button" data-kdn-bare className="clr" onClick={() => { setRowFilter([]); setToFilter(0); }}>모두 지우기</button></div>}
             {(() => { const related = (review.groups || []).filter(g => wide || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
             {!wide && (() => { const mv = (placement.moves || []).filter(m => Number(m.from) === curTab || Number(m.to) === curTab).slice().reverse(); return mv.length > 0 && <details className="kpl-mvlog">
-              <summary><ArrowLeftRight size={14} /><b>{curTab}반 이동 기록 {mv.length}건</b><small>받은 학생 {mv.filter(m => Number(m.to) === curTab).length + mv.filter(m => m.swap && Number(m.from) === curTab).length} · 보낸 학생 {mv.filter(m => Number(m.from) === curTab).length + mv.filter(m => m.swap && Number(m.to) === curTab).length}</small></summary>
+              <summary><ArrowLeftRight size={14} /><b>{curTab}반 이동 기록 {mv.length}건</b><small>{inOutText(sm.inn, sm.out) || "초기 엑셀과 같아요(갔다가 돌아온 이동만 있어요)"}</small></summary>
               <ul>{mv.map(m => { const outMe = Number(m.from) === curTab; const a = outMe ? m.sid : m.swap; const b = outMe ? m.swap : m.sid; return <li key={m.id}>
                 {m.swap ? <><span className="out">보냄 <b>{nameOf(a)}</b> → {outMe ? m.to : m.from}반</span><span className="ar"><ArrowLeftRight size={13} /></span><span className="in">받음 <b>{nameOf(b)}</b> ← {outMe ? m.to : m.from}반</span><em>맞바꿈</em></>
                   : outMe ? <><span className="out">보냄 <b>{nameOf(m.sid)}</b> → {m.to}반</span><em className="one">옮기기만</em></> : <><span className="in">받음 <b>{nameOf(m.sid)}</b> ← {m.from}반</span><em className="one">옮기기만</em></>}
@@ -517,7 +523,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       return <div className="kpl-ttv">
         <div className="note"><b>반별 시간표 검증</b><small>반마다 공통 과목 5개 + 그룹 과목(1학기 A~E, 2학기 F~I)으로 시간표를 짤 수 있는지 봐요. 반 학생 모두가 그룹마다 한 과목씩 들을 수 있으면 ✓예요(이동 반영).</small></div>
         <div className="ctiles">{ttCheck.map(x => <button key={x.cls} type="button" data-kdn-bare className={`${x.bad ? "bad" : "ok"}${sel?.cls === x.cls ? " on" : ""}`} onClick={() => setTtSel(x.cls)}>
-          <b>{x.cls}반</b><span className="st">{x.bad ? `✗ ${badIds(x).length}명` : "✓ 가능"}</span><small>{x.sems.map(t => `${t.sem}학기 ${t.bad.length ? "✗" : "✓"}`).join(" · ")}</small></button>)}</div>
+          <span className="top"><b>{x.cls}반</b><span className="st">{x.bad ? `문제 ${badIds(x).length}` : "가능"}</span></span><span className="sems">{x.sems.map(t => <i key={t.sem} className={t.bad.length ? "no" : "ok"} title={`${t.sem}학기 ${t.bad.length ? `문제 ${t.bad.length}명` : "가능"}`}>{t.sem}학기</i>)}</span></button>)}</div>
         {sel && <section className={`card${sel.bad ? " bad" : ""}`}>
           <header><b>{sel.cls}반</b><span>{sel.n}명</span>{sel.bad ? <em className="no">문제 학생 {badIds(sel).length}명</em> : <em className="ok">시간표 가능</em>}<button type="button" data-kdn-bare className="go" onClick={() => { setView("roster"); setTab(sel.cls); setFind(""); }}>명단 보기</button></header>
           {sel.sems.map(t => <div key={t.sem} className="sem">
@@ -1196,4 +1202,22 @@ const CSS = `
 .kpl-side2 .blk.row{padding:10px 14px!important}.kpl-side2 .obs i{background:#f5f3ff!important}.kpl-side2 .obs .r small{min-width:0}
 .kpl-side2 .fold summary{padding:10px 14px!important}.kpl-side2 .fold .pill{background:#fff7ed!important;color:#c2410c!important;font-weight:700!important}
 .kpl-split2{gap:14px!important}
+
+/* 옆 현황: 표와 같은 결 */
+.kpl-side2 .tiles{padding:0 0 6px!important}
+.kpl-side2 .tiles h6{margin:0!important;padding:6px 14px!important;background:var(--kdn-surface-2,#f6f8fb);border-top:1px solid var(--kdn-line,#e5e9f0);border-bottom:1px solid var(--kdn-line,#e5e9f0);font-size:11.5px!important;color:var(--kdn-ink-soft,#475569)!important}
+.kpl-side2 .tile{padding:7px 14px!important}.kpl-side2 .tile:last-child{border-bottom:0!important}
+.kpl-side2 .tile small{display:inline-flex;align-items:center;gap:7px}.kpl-side2 .tile .dot{width:7px;height:7px;border-radius:2px;background:#cbd5e1}
+.kpl-side2 .tile .dot.good{background:#16a34a}.kpl-side2 .tile .dot.warn{background:#d97706}.kpl-side2 .tile .dot.info{background:#2563eb}.kpl-side2 .tile .dot.bad{background:#dc2626}.kpl-side2 .tile .dot.mv{background:#7c3aed}
+.kpl-side2 .tile b{color:var(--kdn-ink,#111827)}.kpl-side2 .tile:not(.bad):not(.warn):not(.good):not(.info):not(.mv) b{color:#9ca3af!important}
+.kpl-side2 .tile.info b{color:#1d4ed8!important}.kpl-side2 .tile.mv b{color:#6d28d9!important}
+.kpl-side2 .tile.bad small,.kpl-side2 .tile.warn small{color:var(--kdn-ink-soft,#4b5563)!important}
+/* 시간표 검증 반 타일 */
+.kpl-ttv .ctiles{grid-template-columns:repeat(auto-fill,minmax(96px,1fr))!important;gap:6px!important}
+.kpl-ttv .ctiles button{gap:6px!important;padding:8px 10px!important;border-radius:10px!important;border:1px solid var(--kdn-line,#e5e7eb)!important;background:var(--kdn-surface,#fff)!important}
+.kpl-ttv .ctiles .top{display:flex;align-items:center;justify-content:space-between;width:100%;gap:6px}.kpl-ttv .ctiles .top b{font-size:14.5px!important}
+.kpl-ttv .ctiles .st{padding:1px 7px;border-radius:99px;background:#dcfce7;color:#15803d!important;font-size:11.5px!important;font-weight:800;white-space:nowrap}
+.kpl-ttv .ctiles button.bad .st{background:#fee2e2;color:#b91c1c!important}.kpl-ttv .ctiles button.bad{border-color:#fecaca!important}
+.kpl-ttv .ctiles .sems{display:flex;gap:4px}.kpl-ttv .ctiles .sems i{font-style:normal;padding:0 5px;border-radius:5px;font-size:10.5px;font-weight:700;white-space:nowrap}.kpl-ttv .ctiles .sems i.ok{background:#f0fdf4;color:#15803d}.kpl-ttv .ctiles .sems i.no{background:#fef2f2;color:#b91c1c}
+.kpl-ttv .ctiles button.on{border-color:#2563eb!important;background:#eff6ff!important;box-shadow:inset 0 0 0 1px #2563eb!important}
 `;
