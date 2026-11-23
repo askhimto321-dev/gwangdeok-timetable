@@ -8,6 +8,7 @@ import { readStorage, updateStorage, writeStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs } from "./classSeparation.js";
 import { printPlacement } from "./placementPrint.js";
+import { courseCheck, courseIssueText } from "./classPlacement.js";
 import { placementKey, placementReviewKey, parsePlacementFile, normalizePlacement, bySidOf, movableClasses, swapCandidates, applyMove, undoMove, classSummary, checkPairs, studentResults, STUDENT_FLAGS, CLASS_CHECKS } from "./classPlacement.js";
 
 const STATUS = { same: { label: "같은 반", tone: "bad", Icon: AlertTriangle }, ok: { label: "다른 반", tone: "good", Icon: CheckCircle2 }, unknown: { label: "확인 필요", tone: "mute", Icon: CircleHelp } };
@@ -87,8 +88,21 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   };
   const save = async () => {
     if (!preview) return;
+    // 같은 반편성 파일(학생·처음 반이 같음)이면 이동 기록은 두고 과목·강의실 정보만 새로 반영할 수 있어요
+    if (placement?.students && preview.kind === "program") {
+      const ids = Object.keys(preview.students); const same = ids.filter(id => placement.students[id] && Number(placement.students[id].orig) === Number(preview.students[id].cls)).length;
+      if (ids.length && same / ids.length >= 0.95 && window.confirm(`지금 반편성과 같은 파일이에요.\n이동 기록 ${placement.moves?.length || 0}건은 그대로 두고, 과목·강의실 배정 정보만 새로 반영할까요?\n(취소를 누르면 새 파일로 바꿀지 다시 물어요)`)) {
+        const students = Object.fromEntries(Object.entries(placement.students).map(([id, x]) => { const n = preview.students[id]; return [id, n ? { ...x, name: n.name || x.name, gender: n.gender || x.gender, can: n.can, ob: n.ob, sj: n.sj, no: x.no || n.no } : x]; }));
+        const value = { ...placement, students, classOb: preview.classOb || placement.classOb || {}, rooms: preview.rooms || null, infoAt: new Date().toISOString(), infoBy: me.name };
+        const result = await writeStorage(placementKey(year), value);
+        if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
+        setPlacement(value); setPreview(null);
+        showToast(preview.rooms ? "과목·강의실 정보를 반영했어요. 옮긴 학생 중 들을 수 없는 과목이 생긴 학생을 표시해요." : "과목 정보를 반영했어요.", "success");
+        return;
+      }
+    }
     if (placement?.moves?.length && !window.confirm(`지금까지 옮긴 ${placement.moves.length}건이 있어요. 새 파일로 바꾸면 이동 기록이 지워져요. 바꿀까요?`)) return;
-    const value = { students: preview.students, classOb: preview.classOb || {}, moves: [], fileName: preview.fileName, kind: preview.kind, at: new Date().toISOString(), by: me.name, stats: { students: preview.stats.students, hasCan: !!preview.stats.hasCan, unmatched: (preview.stats.unmatched || []).slice(0, 60) } };
+    const value = { students: preview.students, classOb: preview.classOb || {}, rooms: preview.rooms || null, moves: [], fileName: preview.fileName, kind: preview.kind, at: new Date().toISOString(), by: me.name, stats: { students: preview.stats.students, hasCan: !!preview.stats.hasCan, unmatched: (preview.stats.unmatched || []).slice(0, 60) } };
     const result = await writeStorage(placementKey(year), value);
     if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
     setPlacement(value); setPreview(null); setTab(0);
@@ -113,6 +127,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const removeGroup = async id => { if (!window.confirm("이 조합 그룹을 지울까요?")) return; const ok = await saveReview(v => { v.groups = v.groups.filter(x => x.id !== id); return v; }); if (ok) setGroupEdit(null); };
   const doMove = async (sid, to, swap = "") => {
     const name = placement.students[sid]?.name || roster[sid]?.name || sid;
+    if (placement?.rooms) {
+      const nmx = id => placement.students[id]?.name || roster[id]?.name || id;
+      const probs = [[sid, to], ...(swap ? [[swap, placement.students[sid]?.cls]] : [])].map(([id, c]) => { const k = courseCheck(placement, id, c); return k && !k.ok && Number(c) !== Number(placement.students[id]?.orig) ? `${nmx(id)} → ${c}반: ${k.issues.map(courseIssueText).join(", ")}` : ""; }).filter(Boolean);
+      if (probs.length && !window.confirm(`옮기면 들을 수 없는 과목이 생겨요.\n\n${probs.join("\n")}\n\n그래도 옮길까요?`)) return;
+    }
     // 옮겨 갈 반에 같은 조합 그룹 학생이 있으면 먼저 물어봐요
     const clashes = [];
     const nm = id => placement.students[id]?.name || roster[id]?.name || id;
@@ -214,6 +233,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     <ul>
       <li>{preview.kind === "program" ? `'${preview.sheet}' 시트` : "명단"}에서 학생 <em>{preview.stats.students}</em>명, 새 반 <em>{(preview.stats.classes || []).length}</em>개</li>
       <li>{preview.stats.hasCan ? "배정가능학급(원반 과목 기준)이 있어 학생마다 갈 수 있는 반으로만 옮길 수 있어요." : "배정가능학급 정보가 없어 어느 반으로든 옮길 수 있어요."}</li>
+      {preview.rooms && <li>'강의실배정' 시트로 반마다 원반 수업 시간(동시그룹)을 확인해요. 옮긴 반에서 <em>들을 시간이 없는 과목</em>이 생기면 알려 줘요.</li>}
       {(preview.stats.unmatched || []).length > 0 && <li className="warn">지금 2학년 명단에 없는 학번 {preview.stats.unmatched.length}개(전입·전출 등): {preview.stats.unmatched.slice(0, 10).map(x => (typeof x === "string" ? oldLabel(x) : x.name)).join(", ")}</li>}
     </ul>
     <div className="ft"><button type="button" className="kpl-btn" onClick={() => setPreview(null)}>취소</button><button type="button" className="kpl-btn pri" onClick={save}>이대로 반영</button></div>
@@ -254,6 +274,8 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const genderOf = sid => placement.students[sid]?.gender || roster?.[sid]?.gender || "";
   const summary = classSummary(placement);
   const classes = summary.map(s => s.cls);
+  // 수강 확인(강의실배정 시트가 있을 때): 지금 반에서 들을 수 없는 과목이 있는 학생
+  const courseBad = new Map(); if (placement?.rooms) Object.entries(placement.students).forEach(([id, x]) => { if (Number(x.cls) === Number(x.orig)) return; const k = courseCheck(placement, id, x.cls); if (k && !k.ok) courseBad.set(id, k.issues); });
   const allView = tab === "all";
   // 인쇄·PDF: 반별 현황표 + 반마다 한 장(학생 명단·표시·메모)
   const doPrint = () => {
@@ -281,9 +303,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         const moved = Number(v.cls) !== Number(v.orig);
         if (cs.length) notes.push(`조합 상대: ${cs.map(c => `${nameOf(c.other)}(${placement.students[c.other]?.cls || "?"}반)`).join(", ")}`);
         groupsOf(sid).forEach(g => notes.push(`그룹 ${g.name}`));
+        if (courseBad.has(sid)) notes.push(`⚠ 수강 불가: ${courseBad.get(sid).map(courseIssueText).join(", ")}`);
         return { no: v.no || "", old: oldLabel(sid), name: nameOf(sid), gender: genderOf(sid), flags: STUDENT_FLAGS.filter(f => marksOf(sid, f.key)).map(f => f.key),
           sep: r ? (r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인") : "",
-          move: moved ? { from: v.orig, partner: netPartner[sid] ? nameOf(netPartner[sid]) : "" } : null, alert: missSet.has(sid) || comboSame(sid).length > 0, notes,
+          move: moved ? { from: v.orig, partner: netPartner[sid] ? nameOf(netPartner[sid]) : "" } : null, alert: missSet.has(sid) || comboSame(sid).length > 0 || courseBad.has(sid), notes,
           memos: (review.students[sid]?.memos || []).map(m => `${m.text} (${m.by})`) }; }) }));
     const ok = printPlacement({ title: `${year + 1}학년도 ${nextGrade}학년 반편성`, subtitle: `${placement.fileName || "반편성 결과"} · ${fmt(placement.at)} ${placement.by} 반영`,
       flags: STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, tone: f.tone })), classRows, changed: changedIds.length,
@@ -327,7 +350,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const markedAny = sid => STUDENT_FLAGS.some(f => (review.students[sid]?.marks?.[f.key] || []).length > 0);
       const FILTERS = [{ key: "marked", group: "mark", label: "표시한 학생 전체", tone: "mute", test: ([sid]) => markedAny(sid) }, ...STUDENT_FLAGS.map(f => ({ key: f.key, group: "mark", label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
         { key: "miss", group: "check", label: "분리희망 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", group: "check", label: "조합 우려 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
-        { key: "moved", group: "check", label: "받은 학생", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", group: "check", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
+        ...(placement.rooms ? [{ key: "course", group: "check", label: "수강 불가 과목", tone: "bad", test: ([sid]) => courseBad.has(sid) }] : []), { key: "moved", group: "check", label: "받은 학생", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", group: "check", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
         { key: "m", group: "gender", label: "남학생", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", group: "gender", label: "여학생", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
       const FGROUPS = [["mark", "학생 표시"], ["check", "배정 점검"], ["gender", "성별"]];
       const picked = FILTERS.filter(f => rowFilter.includes(f.key));
@@ -372,6 +395,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
               <Stat icon="bad" label="분리희망 미반영" n={missN} unit="명" tone={missN ? "bad" : ""} />
               <Stat icon="warn" label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} hint="학생마다 지목한 조합 상대가 같은 반인 쌍" />
               <Stat icon="warn" label="조합 그룹 같은 반" n={groupN} unit="그룹" tone={groupN ? "bad" : ""} hint="같은 조합 그룹 학생이 이 반에 2명 이상인 그룹" />
+              {placement.rooms && (() => { const n = base.filter(([sid]) => courseBad.has(sid)).length; return <Stat icon="bad" label="수강 불가 과목" n={n} unit="명" tone={n ? "bad" : ""} hint="옮겨 와서 이 반 원반 시간과 겹쳐 들을 수 없는 과목이 생긴 학생" />; })()}
               <Stat icon="mv" label="받은 학생" n={sm.inn || 0} unit="명" hint="이동으로 이 반에 온 학생" />
               <Stat icon="mv" label="보낸 학생" n={sm.out || 0} unit="명" hint="이동으로 다른 반에 간 학생" />
             </div>
@@ -406,10 +430,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             <div className="scroll"><table className="kpl-grid">
               <thead><tr>{wide && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th><th className="c">이동</th></tr></thead>
               <tbody>{list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableClasses(placement, sid); const g = genderOf(sid); const cs = combosOf(sid); const same = comboSame(sid); return <React.Fragment key={sid}>
-                <tr className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
+                <tr className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${courseBad.has(sid) ? " nocourse" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
                   {wide && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => goClass(s.cls)} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
                   <td className="c no">{oldLabel(sid)}</td>
-                  <td className="nm"><button type="button" data-kdn-bare className={`nmb${openSid === sid && openKind === "sep" ? " on" : ""}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title="눌러서 분리희망·조합 상대 보기">{s.name || roster[sid]?.name || sid}</button>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null;
+                  <td className="nm"><button type="button" data-kdn-bare className={`nmb${openSid === sid && openKind === "sep" ? " on" : ""}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title="눌러서 분리희망·조합 상대 보기">{s.name || roster[sid]?.name || sid}</button>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}{courseBad.has(sid) && <button type="button" data-kdn-bare className="cbad" onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={courseBad.get(sid).map(courseIssueText).join("\n")}><AlertTriangle size={11} /> 수강 불가 {courseBad.get(sid).length}</button>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null;
                     if (!moved) { const pth = pathOf(sid); return <span className="mvbadge back" title={`이동 기록: ${pth.map(c => `${c}반`).join(" → ")}`}><RotateCcw size={11} />{pth.slice(1, -1).map(c => `${c}반`).join("·")} 다녀옴 · 초기 반</span>; } const from = mi && Number(mi.to) === Number(s.cls) ? mi.from : s.orig;
                     return <span className={`mvbadge${mi?.partner ? " sw" : ""}`} title={mi ? `${mi.from}반 → ${mi.to}반${mi.partner ? ` · 맞바꾼 학생: ${nameOf(mi.partner)}` : ""} · ${mi.by || ""} ${fmt(mi.at)}` : ""}><ArrowLeftRight size={11} />{from}반에서 옴{mi?.partner ? <> · 맞바꾼 학생 <b>{nameOf(mi.partner)}</b></> : ""}</span>; })()}</td>
                   <td className="c">{r ? <button type="button" data-kdn-bare className={`st ${STATUS[r.status].tone}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"} {r.items.length}</button> : <span className="dash">-</span>}</td>
@@ -427,6 +451,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                     {r ? <table className="sept"><thead><tr><th>학생</th><th className="c">구반-번호</th><th className="c">지금 반</th><th className="c">정도</th><th className="c">결과</th><th>사유</th></tr></thead><tbody>
                       {r.items.map(i => { const oc = placement.students[i.other]?.cls; return <tr key={i.other} className={i.status}><td><b>{nameOf(i.other)}</b></td><td className="c">{oldLabel(i.other)}</td><td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => { setTab(Number(oc)); setFind(""); setOpenSid(""); }} title={`${oc}반 명단으로`}>{oc || "?"}반</button></td><td className="c"><span className="lv">{i.level}</span></td><td className="c"><span className={`st ${STATUS[i.status].tone}`}>{STATUS[i.status].label}</span></td><td className="rs">{(i.reasons || []).join(", ") || <span className="dash">-</span>}</td></tr>; })}
                     </tbody></table> : <p className="kpl-nil">이 학생은 분리희망이 없어요.</p>}</div>
+                  {placement.rooms && moved && (() => { const k = courseCheck(placement, sid, s.cls); if (!k) return null; return <div className="sec"><h6>수강 확인 <small>{s.orig}반 → {s.cls}반으로 옮겨서 바뀌는 수업</small></h6>
+                    {k.issues.length > 0 && <div className="cissue">{k.issues.map((i, n) => <span key={n}><AlertTriangle size={12} /> {courseIssueText(i)}</span>)}</div>}
+                    {k.plan.length > 0 && <div className="cplan">{k.plan.map((x, n) => <span key={n}>{x.sem}학기 {x.n}: {x.from === "원반" ? "원반" : `${x.from}그룹`} → {x.to === "원반" ? "원반(반 전체 수업)" : `${x.to}그룹`}</span>)}</div>}
+                    {!k.issues.length && !k.plan.length && <p className="kpl-nil">바뀌는 수업 없이 그대로 들을 수 있어요.</p>}</div>; })()}
                   {(cs.length > 0 || groupsOf(sid).length > 0) && <div className="sec"><h6>조합 우려</h6><div className="chips">{cs.map(c => { const oc = placement.students[c.other]?.cls; return <span key={c.other} className={Number(oc) === Number(s.cls) ? "hot" : ""}>{nameOf(c.other)} · {oc || "?"}반</span>; })}{groupsOf(sid).map(g => <span key={g.id} className="grp"><Users size={12} /> 그룹 {g.name}</span>)}</div></div>}
                   {canMove && targets.length > 0 && <div className="act"><button type="button" data-kdn-bare className="mvb" onClick={() => { setMoveSid(sid); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이 학생 옮기기</button>{moved && <button type="button" data-kdn-bare className="mvb rst2" onClick={() => restoreOrig(sid)}><RotateCcw size={13} /> 원래 반({s.orig}반)으로</button>}</div>}
                 </div></td></tr>}
@@ -438,7 +466,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                 {openSid === sid && openKind === "combo" && <tr className="sub"><td colSpan={cols}><div className="panel2">
                   <ComboPicker sid={sid} placement={placement} combos={cs} mine={(item.combos || []).filter(c => c.byId === me.id).map(c => c.with)} theirsMine={cs.map(c => c.other).filter(o => (review.students[o]?.combos || []).some(c => c.with === sid && c.byId === me.id))} nameOf={nameOf} onAdd={o => addCombo(sid, o)} onRemove={o => removeCombo(sid, o)} />
                 </div></td></tr>}
-                {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} flagsOf={x => STUDENT_FLAGS.filter(f => (review.students[x]?.marks?.[f.key] || []).length)} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
+                {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel course={placement.rooms ? (id, c) => courseCheck(placement, id, c) : null} placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} flagsOf={x => STUDENT_FLAGS.filter(f => (review.students[x]?.marks?.[f.key] || []).length)} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
               </React.Fragment>; })}</tbody>
             </table></div>
             {!list.length && <p className="kpl-nil">{toF ? (allView ? `${toF}반으로 옮길 수 있는 학생이 없어요.` : `${curTab}반에서 ${toF}반으로 옮길 수 있는 학생이 없어요.`) : activeF ? "고른 필터에 맞는 학생이 없어요."  : "찾는 학생이 없어요."}</p>}
@@ -482,10 +510,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         <td className="c"><button type="button" data-kdn-bare className="lnk" onClick={() => { setView("roster"); setTab(s.cls); setFind(""); }}>{s.cls}반</button></td><td className="c">{s.orig}</td><td className={`c${s.n !== s.orig ? " chg" : ""}`}><b>{s.n}</b>{s.n !== s.orig ? <small> ({s.n > s.orig ? "+" : ""}{s.n - s.orig})</small> : null}</td><td className="c">{s.m}</td><td className="c">{s.f}</td><td className="c">{s.inn || ""}</td><td className="c">{s.out || ""}</td><td className="c">{miss ? <span className="st bad">{miss}</span> : ""}</td><td className="ob">{(placement.classOb?.[s.cls] || []).join(", ")}</td></tr>; })}</tbody></table>
       <div className="kpl-diff">
         <div className="hd"><h4 className="kpl-h">초기 엑셀과 달라진 학생 <small>{changedIds.length}명 · 처음 올린 엑셀의 반과 지금 반이 다른 학생</small></h4>{canManage && changedIds.length > 0 && <button type="button" data-kdn-bare className="reset" onClick={resetAll}><RotateCcw size={13} /> 모두 초기 엑셀대로</button>}</div>
-        {changedIds.length ? <table className="kpl-pairs kpl-dtbl"><thead><tr><th>학생</th><th className="c">구반-번호</th><th className="c">초기 반</th><th className="c">지금 반</th><th>거쳐 간 반</th><th className="c">되돌리기</th></tr></thead><tbody>
+        {changedIds.length ? <table className="kpl-pairs kpl-dtbl"><thead><tr><th>학생</th><th className="c">구반-번호</th><th className="c">초기 반</th><th className="c">지금 반</th><th>거쳐 간 반</th>{placement.rooms && <th>수강 확인</th>}<th className="c">되돌리기</th></tr></thead><tbody>
           {changedIds.sort((a, b) => Number(placement.students[a].orig) - Number(placement.students[b].orig) || a.localeCompare(b)).map(id => { const x = placement.students[id]; return <tr key={id}>
             <td><b>{nameOf(id)}</b></td><td className="c">{oldLabel(id)}</td><td className="c"><b>{x.orig}반</b></td><td className="c"><button type="button" data-kdn-bare className="lnk" onClick={() => { setView("roster"); setTab(Number(x.cls)); setFind(""); }}>{x.cls}반</button></td>
             <td className="path">{pathOf(id).map((c, i) => <React.Fragment key={i}>{i > 0 && <span className="ar">→</span>}<span className={i === 0 ? "o" : ""}>{c}반</span></React.Fragment>)}</td>
+            {placement.rooms && <td className="ck2">{courseBad.has(id) ? courseBad.get(id).map((i, n) => <em key={n}>{courseIssueText(i)}</em>) : <span className="ok">문제없음</span>}</td>}
             <td className="c">{canMove && <button type="button" data-kdn-bare className="undo" onClick={() => restoreOrig(id)}><RotateCcw size={13} /> {x.orig}반으로</button>}</td></tr>; })}
         </tbody></table> : <p className="kpl-nil">모든 학생이 초기 엑셀의 반에 있어요.</p>}
       </div>
@@ -542,7 +571,7 @@ function GroupModal({ group, placement, nameOf, curTab, onSave, onRemove, onClos
 }
 
 // 이동 패널: 갈 수 있는 반(인원 변화) → 그냥 옮기기 또는 맞바꿀 학생 고르기
-function MovePanel({ placement, sid, to, setTo, summary, nameOf, genderOf, missSet, pairs, onMove, onClose, flagsOf = () => [] }) {
+function MovePanel({ course = null, placement, sid, to, setTo, summary, nameOf, genderOf, missSet, pairs, onMove, onClose, flagsOf = () => [] }) {
   const [q, setQ] = React.useState("");
   const [sameG, setSameG] = React.useState(false);
   const [safe, setSafe] = React.useState(false);
@@ -553,13 +582,17 @@ function MovePanel({ placement, sid, to, setTo, summary, nameOf, genderOf, missS
   const cands = to ? swapCandidates(placement, sid, to) : [];
   return <div className="kpl-move">
     <div className="hd"><b>{nameOf(sid)}</b><span>{s.cls}반 → 어디로?</span><small>원반 과목 기준 갈 수 있는 반만 보여요</small><button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={14} /></button></div>
-    <div className="tgts">{targets.map(c => <button key={c} type="button" data-kdn-bare className={`${to === c ? "on" : ""}${clash(sid, c) ? " clash" : ""}`} onClick={() => setTo(c)} title={clash(sid, c) ? "이 반에 분리희망 또는 조합 우려 학생이 있어요" : ""}><b>{c}반</b><small>{size(c)}명</small>{clash(sid, c) && <em>분리·조합 학생 있음</em>}</button>)}</div>
+    <div className="tgts">{targets.map(c => { const k = course && Number(c) !== Number(s.orig) ? course(sid, c) : null; const nc = k && !k.ok; return <button key={c} type="button" data-kdn-bare className={`${to === c ? "on" : ""}${clash(sid, c) ? " clash" : ""}${nc ? " nocourse" : ""}`} onClick={() => setTo(c)} title={[clash(sid, c) ? "이 반에 분리희망 또는 조합 우려 학생이 있어요" : "", nc ? k.issues.map(courseIssueText).join("\n") : ""].filter(Boolean).join("\n")}><b>{c}반</b><small>{size(c)}명</small>{clash(sid, c) && <em>분리·조합 학생 있음</em>}{nc && <em className="nc">수강 불가 {k.issues.length}</em>}</button>; })}</div>
     {to ? <div className="swap">
+      {course && Number(to) !== Number(s.orig) && (() => { const k = course(sid, to); if (!k || (!k.issues.length && !k.plan.length)) return null; return <div className={`cinfo${k.ok ? "" : " bad"}`}><b>{k.ok ? `${to}반으로 가면 바뀌는 수업` : `${to}반에서 들을 수 없는 과목이 있어요`}</b>
+        {k.issues.map((i, n) => <span key={`i${n}`} className="i"><AlertTriangle size={12} /> {courseIssueText(i)}</span>)}
+        {k.plan.map((x, n) => <span key={`p${n}`}>{x.sem}학기 {x.n}: {x.from === "원반" ? "원반" : `${x.from}그룹`} → {x.to === "원반" ? "원반" : `${x.to}그룹`}</span>)}</div>; })()}
       <div className="opt"><button type="button" className="kpl-btn" onClick={() => onMove(sid, to)}>그냥 옮기기</button><small>{s.cls}반 {size(s.cls) - 1}명 · {to}반 {size(to) + 1}명이 돼요</small></div>
       {(() => {
         const myG = genderOf(sid);
-        const rows = cands.map(x => { const bad = clash(x.sid, s.cls); const same = !!myG && genderOf(x.sid) === myG; return { ...x, bad, same, miss: missSet.has(x.sid), flags: flagsOf(x.sid), rec: same && !bad && !missSet.has(x.sid) }; })
-          .sort((a, b) => (b.rec - a.rec) || (a.bad - b.bad) || (b.same - a.same) || a.sid.localeCompare(b.sid));
+        const meBad = course && Number(to) !== Number(s.orig) ? course(sid, to)?.ok === false : false;
+        const rows = cands.map(x => { const bad = clash(x.sid, s.cls); const same = !!myG && genderOf(x.sid) === myG; const ck = course && Number(s.cls) !== Number(x.orig) ? course(x.sid, s.cls) : null; const nc = ck && !ck.ok ? ck.issues : null; return { ...x, bad, same, nc, miss: missSet.has(x.sid), flags: flagsOf(x.sid), rec: same && !bad && !nc && !meBad && !missSet.has(x.sid) }; })
+          .sort((a, b) => (b.rec - a.rec) || (!!a.nc - !!b.nc) || (a.bad - b.bad) || (b.same - a.same) || a.sid.localeCompare(b.sid));
         const shown = rows.filter(x => (!sameG || x.same) && (!safe || !x.bad) && (!q.trim() || String(x.name || nameOf(x.sid)).includes(q.trim()) || oldLabel(x.sid).includes(q.trim())));
         return <>
           <div className="sh2"><b>맞바꾸기</b><small>{to}반에서 {s.cls}반으로 올 수 있는 학생 {cands.length}명 · <em>추천</em> = 같은 성별이고 걸리는 것 없음</small></div>
@@ -573,7 +606,7 @@ function MovePanel({ placement, sid, to, setTo, summary, nameOf, genderOf, missS
               <td className="c no">{oldLabel(x.sid)}</td>
               <td className="c"><i className={`g ${/남/.test(genderOf(x.sid)) ? "m" : "f"}`}>{genderOf(x.sid)}</i></td>
               <td className="flg">{x.flags.length ? x.flags.map(f => <span key={f.key} className={`tg t-${f.tone}`}>{f.label}</span>) : <span className="dash">-</span>}</td>
-              <td className="wr">{x.bad || x.miss ? <>{x.bad && <em>{s.cls}반에 분리·조합 학생</em>}{x.miss && <em>분리희망 미반영</em>}</> : <span className="dash">-</span>}</td>
+              <td className="wr">{x.bad || x.miss || x.nc ? <>{x.bad && <em>{s.cls}반에 분리·조합 학생</em>}{x.miss && <em>분리희망 미반영</em>}{x.nc && <em title={x.nc.map(courseIssueText).join("\n")}>{s.cls}반에서 수강 불가: {x.nc.map(i => i.n).join(", ")}</em>}</> : <span className="dash">-</span>}</td>
               <td className="c"><button type="button" data-kdn-bare className="swp" onClick={() => onMove(sid, to, x.sid)}><ArrowLeftRight size={13} /> 맞바꾸기</button></td>
             </tr>)}</tbody></table></div> : <p className="kpl-nil">조건에 맞는 학생이 없어요.</p>) : <p className="kpl-nil">원반 과목 때문에 {to}반에서 {s.cls}반으로 올 수 있는 학생이 없어요.</p>}
         </>;
@@ -863,6 +896,13 @@ const CSS = `
 .kpl-grid .panel2.sepp .act{display:flex;justify-content:flex-end}.kpl-grid .panel2.sepp .act .mvb{display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 14px;border-radius:9px;border:1px solid #93c5fd;background:var(--kdn-surface,#fff);color:#1d4ed8;font:inherit;font-weight:800;cursor:pointer}
 .kpl-grid td .rst{display:flex;align-items:center;justify-content:center;gap:3px;margin:4px auto 0;height:26px;padding:0 9px;border-radius:8px;border:1px solid #c4b5fd;background:#f5f3ff;color:#6d28d9;font:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}.kpl-grid td .rst:hover{background:#7c3aed;border-color:#7c3aed;color:#fff}
 .kpl-grid .panel2.sepp .act{gap:8px}.kpl-grid .panel2.sepp .act .rst2{border-color:#c4b5fd;color:#6d28d9;background:#f5f3ff}
+.kpl-grid .cbad{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:2px 8px;border-radius:7px;border:1px solid #fca5a5;background:#fee2e2;color:#b91c1c;font:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
+.kpl-grid tr.nocourse td{background:#fff1f1!important}.kpl-grid tr.nocourse td.nm{box-shadow:inset 4px 0 0 #dc2626!important}
+.kpl-grid .panel2.sepp .cissue,.kpl-grid .panel2.sepp .cplan{display:flex;flex-wrap:wrap;gap:6px}.kpl-grid .panel2.sepp .cissue span{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:8px;background:#fee2e2;color:#b91c1c;font-size:13px;font-weight:800}.kpl-grid .panel2.sepp .cplan span{padding:3px 10px;border-radius:8px;background:#e0f2fe;color:#0369a1;font-size:13px;font-weight:700}
+.kpl-move .tgts button em.nc{color:#b91c1c}.kpl-move .tgts button.on em.nc{color:#fff;background:#dc2626;padding:0 5px;border-radius:5px}.kpl-move .tgts button.nocourse:not(.on){border-color:#fca5a5;background:#fff5f5}
+.kpl-move .cinfo{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:10px 12px;border-radius:12px;border:1px solid #bae6fd;background:#f0f9ff;font-size:13px}.kpl-move .cinfo b{flex-basis:100%;font-size:13.5px;color:#0369a1}.kpl-move .cinfo span{padding:2px 9px;border-radius:7px;background:#e0f2fe;color:#0369a1;font-weight:700}
+.kpl-move .cinfo.bad{border-color:#fca5a5;background:#fff5f5}.kpl-move .cinfo.bad b{color:#b91c1c}.kpl-move .cinfo span.i{display:inline-flex;align-items:center;gap:4px;background:#fee2e2;color:#b91c1c;font-weight:800}
+.kpl-dtbl td.ck2 em{display:inline-block;margin:1px 4px 1px 0;padding:1px 8px;border-radius:6px;background:#fee2e2;color:#b91c1c;font-style:normal;font-size:12px;font-weight:800}.kpl-dtbl td.ck2 .ok{font-size:12.5px;color:#15803d;font-weight:700}
 .kpl-grid .mvbadge.back{background:#f1f5f9;color:#475569}
 .kpl-diff{display:grid;gap:8px;padding:12px 14px;border-radius:14px;border:1.5px solid #c4b5fd;background:#faf8ff}.kpl-diff .hd{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.kpl-diff .hd .kpl-h{margin:0}.kpl-h small{font-size:12.5px;font-weight:600;color:var(--kdn-muted,#64748b);margin-left:6px}
 .kpl-diff .reset{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:34px;padding:0 14px;border-radius:9px;border:1px solid #fca5a5;background:var(--kdn-surface,#fff);color:#b91c1c;font:inherit;font-size:13px;font-weight:800;cursor:pointer}.kpl-diff .reset:hover{background:#dc2626;color:#fff;border-color:#dc2626}

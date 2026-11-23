@@ -52,3 +52,29 @@ test("반편성 프로그램 시트: 구반·구번호·원반·배정가능학�
   p = undoMove(p, p.moves[0].id);
   assert.equal(p.students["20101"].cls, 1); assert.equal(p.moves.length, 0);
 });
+
+import { parseRoomSheet, courseCheck } from "../src/classPlacement.js";
+test("강의실배정: 반의 원반 시간과 겹치는 과목은 남는 그룹 시간에 열린 반이 있어야 해요", () => {
+  const room = parseRoomSheet([
+    [], ["연번", "선택구분", "운영학기", "과목", "동시그룹", "세부그룹", "1", "2", "합계"],
+    [1, "선택1", "1학기", "화학", "A", 1, 5, 5, 10],
+    [2, "선택1", "1학기", "물리", "B", 1, 5, 0, 5],
+    [3, "선택1", "1학기", "지리", "원반", "", 0, 24, 24],
+    [4, "선택1", "1학기", "지리", "A", 1, 3, 0, 3],
+  ]);
+  assert.deepEqual(room.letters, { 1: ["A", "B"] });
+  assert.deepEqual(room.ob, { 2: { 1: ["지리"] } });
+  const placement = { rooms: room, students: {
+    s1: { cls: 1, orig: 1, sj: [{ sem: "1", n: "화학", g: "A" }, { sem: "1", n: "물리", g: "B" }] },
+    s2: { cls: 1, orig: 1, sj: [{ sem: "1", n: "지리", g: "A" }, { sem: "1", n: "물리", g: "B" }] },
+  } };
+  // s1 → 2반: 2반 원반 '지리'를 안 골랐고, 2반은 B 시간이 원반이라 물리도 들을 시간 없음
+  const a = courseCheck(placement, "s1", 2);
+  assert.equal(a.ok, false);
+  assert.deepEqual(a.issues.map(i => i.kind).sort(), ["ob", "slot"]);
+  // s2 → 2반: 지리는 원반으로, 물리(B)는 원반 시간과 겹쳐 남는 A 시간에 물리 반이 없어 못 들음
+  const b = courseCheck(placement, "s2", 2);
+  assert.equal(b.ok, false);
+  assert.deepEqual(b.issues.map(i => i.n), ["물리"]);
+  assert.ok(courseCheck(placement, "s1", 1).ok);
+});
