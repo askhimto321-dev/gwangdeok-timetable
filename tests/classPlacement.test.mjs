@@ -54,27 +54,37 @@ test("반편성 프로그램 시트: 구반·구번호·원반·배정가능학�
 });
 
 import { parseRoomSheet, courseCheck } from "../src/classPlacement.js";
-test("강의실배정: 반의 원반 시간과 겹치는 과목은 남는 그룹 시간에 열린 반이 있어야 해요", () => {
+test("시간표: 그룹마다 한 과목씩, 새 반에 같은 과목·그룹 듣는 학생이 있어야 수강 가능", () => {
   const room = parseRoomSheet([
     [], ["연번", "선택구분", "운영학기", "과목", "동시그룹", "세부그룹", "1", "2", "합계"],
     [1, "선택1", "1학기", "화학", "A", 1, 5, 5, 10],
     [2, "선택1", "1학기", "물리", "B", 1, 5, 0, 5],
     [3, "선택1", "1학기", "지리", "원반", "", 0, 24, 24],
     [4, "선택1", "1학기", "지리", "A", 1, 3, 0, 3],
+    [5, "선택1", "1학기", "물리", "A", 1, 0, 2, 2],
   ]);
   assert.deepEqual(room.letters, { 1: ["A", "B"] });
   assert.deepEqual(room.ob, { 2: { 1: ["지리"] } });
   const placement = { rooms: room, students: {
     s1: { cls: 1, orig: 1, sj: [{ sem: "1", n: "화학", g: "A" }, { sem: "1", n: "물리", g: "B" }] },
     s2: { cls: 1, orig: 1, sj: [{ sem: "1", n: "지리", g: "A" }, { sem: "1", n: "물리", g: "B" }] },
+    t1: { cls: 2, orig: 2, sj: [{ sem: "1", n: "지리", g: "원반" }, { sem: "1", n: "화학", g: "A" }] },
+    t2: { cls: 2, orig: 2, sj: [{ sem: "1", n: "지리", g: "원반" }, { sem: "1", n: "물리", g: "A" }] },
   } };
-  // s1 → 2반: 2반 원반 '지리'를 안 골랐고, 2반은 B 시간이 원반이라 물리도 들을 시간 없음
+  // s1 → 2반: 원반 '지리'를 안 골랐고, 2반은 B가 원반 시간 · 화학 A는 2반 학생이 들으니 가능, 물리는 A에 넣으면 화학과 겹침
   const a = courseCheck(placement, "s1", 2);
   assert.equal(a.ok, false);
-  assert.deepEqual(a.issues.map(i => i.kind).sort(), ["ob", "slot"]);
-  // s2 → 2반: 지리는 원반으로, 물리(B)는 원반 시간과 겹쳐 남는 A 시간에 물리 반이 없어 못 들음
+  assert.ok(a.issues.some(i => i.kind === "ob"));
+  assert.equal(a.tt[1].by.A, "화학");
+  // s2 → 2반: 지리는 원반, 물리는 2반 학생이 듣는 A로 옮겨 들어요
   const b = courseCheck(placement, "s2", 2);
-  assert.equal(b.ok, false);
-  assert.deepEqual(b.issues.map(i => i.n), ["물리"]);
+  assert.equal(b.ok, true);
+  assert.deepEqual(b.tt[1].by, { A: "물리" });
+  assert.deepEqual(b.plan.map(x => `${x.n}:${x.from}>${x.to}`).sort(), ["물리:B>A", "지리:A>원반"]);
+  // 2반에서 물리 A를 듣던 학생이 다른 반으로 가면, 2반에 물리 A 듣는 학생이 없어 s2는 수강 불가
+  placement.students.t2 = { ...placement.students.t2, cls: 1 };
+  const c = courseCheck(placement, "s2", 2);
+  assert.equal(c.ok, false);
+  assert.equal(c.issues[0].kind, "none");
   assert.ok(courseCheck(placement, "s1", 1).ok);
 });

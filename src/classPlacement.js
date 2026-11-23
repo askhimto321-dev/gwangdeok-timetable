@@ -182,13 +182,26 @@ export function parseRoomSheet(aoa = []) {
   return { letters, sections: Array.from(sections), part, ob };
 }
 
-// 반을 옮겼을 때 과목을 다 들을 수 있는지: 새 반 원반 과목을 골랐는지, 원반 시간과 겹치는 과목·옛 원반 과목을 남는 그룹 시간에 들을 반이 있는지
-// 돌려주는 값: null(정보 없음) 또는 { ok, issues: [{ sem, n, kind: "ob" | "slot" }], plan: [{ sem, n, from, to }] }
-export function courseCheck(placement, sid, to) {
+// 시간표 배정용: 지금 반에 그대로 있는 학생들이 듣는 과목·그룹별 반 인원 { "학기|과목|그룹": Map(반 → 인원) }
+export function sectionMembers(placement) {
+  const m = new Map();
+  Object.values(placement?.students || {}).forEach(x => {
+    if (Number(x.cls) !== Number(x.orig) || !Array.isArray(x.sj)) return;
+    x.sj.forEach(s => { if (s.g === "원반") return; const k = `${s.sem}|${s.n}|${s.g}`; if (!m.has(k)) m.set(k, new Map()); const c = Number(x.cls); m.get(k).set(c, (m.get(k).get(c) || 0) + 1); });
+  });
+  return m;
+}
+
+// 반을 옮겼을 때 시간표: 새 반 원반 과목은 원반으로, 나머지 과목은 그룹(A~E · F~I)마다 하나씩 겹치지 않게.
+// 과목·그룹은 그 반에 같은 과목·그룹을 듣는 학생이 있어야 들을 수 있어요(아무도 없으면 수강 불가). 원래 그룹을 먼저 써요.
+// 돌려주는 값: null(정보 없음) 또는 { ok, issues: [{ sem, n, kind: "ob" | "none" | "clash" }], plan: [{ sem, n, from, to }], tt: { 학기: { letters, by: {그룹: 과목}, ob: [원반 과목], lost: [못 넣은 과목] } } }
+export function courseCheck(placement, sid, to, members = null) {
   const rm = placement?.rooms; const s = placement?.students?.[sid];
   if (!rm?.letters || !Array.isArray(s?.sj) || !s.sj.length) return null;
-  const has = new Set(rm.sections || []);
-  const issues = []; const plan = [];
+  const mem = members || sectionMembers(placement);
+  // 그 반에 그대로 있는 학생 중 같은 과목·그룹을 듣는 학생 수(옮기는 학생 자신은 다른 반에 있거나 이미 그 반 학생이라 그대로 세요)
+  const cnt = (sem, n, l) => mem.get(`${sem}|${n}|${l}`)?.get(Number(to)) || 0;
+  const issues = []; const plan = []; const tt = {};
   Object.keys(rm.letters).forEach(sem => {
     const L = rm.letters[sem] || [];
     const mine = s.sj.filter(x => String(x.sem) === String(sem));
@@ -197,22 +210,28 @@ export function courseCheck(placement, sid, to) {
     const names = mine.map(x => x.n);
     obc.filter(n => !names.includes(n)).forEach(n => issues.push({ sem, n, kind: "ob" }));
     const blocked = L.filter(l => !(rm.part?.[sem]?.[l] || []).map(Number).includes(Number(to)));
-    const keep = mine.filter(x => x.g !== "원반" && !obc.includes(x.n) && !blocked.includes(x.g));
-    const used = new Set(keep.map(x => x.g));
-    const free = L.filter(l => !used.has(l) && !blocked.includes(l));
+    const avail = L.filter(l => !blocked.includes(l));
     mine.filter(x => obc.includes(x.n) && x.g !== "원반").forEach(x => plan.push({ sem, n: x.n, from: x.g, to: "원반" }));
-    const toPlace = mine.filter(x => !obc.includes(x.n) && (x.g === "원반" || blocked.includes(x.g)));
-    const solve = (i, avail) => { if (i === toPlace.length) return []; for (let j = 0; j < avail.length; j += 1) { if (!has.has(`${sem}|${toPlace[i].n}|${avail[j]}`)) continue; const rest = solve(i + 1, avail.filter((_, k) => k !== j)); if (rest) return [[toPlace[i], avail[j]], ...rest]; } return null; };
-    const sol = solve(0, free);
-    if (sol) sol.forEach(([x, l]) => { if (x.g !== l) plan.push({ sem, n: x.n, from: x.g, to: l }); });
-    else {
-      const lone = toPlace.filter(x => !free.some(l => has.has(`${sem}|${x.n}|${l}`)));
-      (lone.length ? lone : toPlace).forEach(x => issues.push({ sem, n: x.n, kind: "slot" }));
-    }
+    const todo = mine.filter(x => !obc.includes(x.n));
+    const opts = todo.map(x => { const o = avail.filter(l => cnt(sem, x.n, l) > 0); return o.includes(x.g) ? [x.g, ...o.filter(l => l !== x.g)] : o; });
+    // 고를 수 있는 그룹이 적은 과목부터 채워요
+    const order = todo.map((x, i) => i).sort((a, b) => opts[a].length - opts[b].length);
+    let best = null;
+    const go = (k, used, pick) => {
+      if (best && best.size === todo.length) return;
+      if (k === order.length) { if (!best || pick.size > best.size) best = new Map(pick); return; }
+      const i = order[k]; let placed = false;
+      for (const l of opts[i]) { if (used.has(l)) continue; placed = true; used.add(l); pick.set(i, l); go(k + 1, used, pick); pick.delete(i); used.delete(l); if (best && best.size === todo.length) return; }
+      if (!placed || !best || best.size < todo.length) go(k + 1, used, pick);
+    };
+    go(0, new Set(), new Map());
+    const by = {}; const lost = [];
+    todo.forEach((x, i) => { const l = best?.get(i); if (l) { by[l] = x.n; if (l !== x.g) plan.push({ sem, n: x.n, from: x.g, to: l }); } else { lost.push(x.n); issues.push({ sem, n: x.n, kind: opts[i].length ? "clash" : "none", to }); } });
+    tt[sem] = { letters: L, blocked, by, ob: obc.filter(n => names.includes(n)), lost };
   });
-  return { ok: !issues.length, issues, plan };
+  return { ok: !issues.length, issues, plan, tt };
 }
-export const courseIssueText = i => (i.kind === "ob" ? `${i.sem}학기 원반 '${i.n}' 안 고름` : `${i.sem}학기 '${i.n}' 들을 시간 없음`);
+export const courseIssueText = i => (i.kind === "ob" ? `${i.sem}학기 원반 '${i.n}' 안 고름` : i.kind === "none" ? `${i.sem}학기 '${i.n}': ${i.to ? `${i.to}반에 ` : ""}같은 과목·그룹 듣는 학생 없음` : `${i.sem}학기 '${i.n}': 다른 과목과 시간이 겹침`);
 
 // 파일 전체 읽기: '학생배정현황' 같은 프로그램 시트가 있으면 그것, 없으면 일반 명단(parsePlacementSheets)
 export function parsePlacementFile(sheets = [], roster = {}, opts = {}) {
