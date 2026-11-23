@@ -138,7 +138,7 @@ export function parseAssignmentSheet(aoa = [], { grade = "2" } = {}) {
   const canCols = []; const subjCols = [];
   head.forEach((h, i) => {
     if (/배정가능/.test(groupOf[i]) && /^\d{1,2}$/.test(h)) canCols.push({ i, cls: Number(h) });
-    else if (/학기/.test(groupOf[i]) && h && i > c.gender) subjCols.push({ i, label: `${(groupOf[i].match(/(\d)학기/) || [])[1] || ""}학기 ${String(rows[headIdx][i]).trim()}` });
+    else if (/학기/.test(groupOf[i]) && h && i > c.gender) { const sem = (groupOf[i].match(/(\d)학기/) || [])[1] || ""; subjCols.push({ i, sem, name: String(rows[headIdx][i]).trim(), label: `${sem}학기 ${String(rows[headIdx][i]).trim()}` }); }
   });
   const students = {}; const classOb = {}; const stats = { rows: 0, noSid: 0 };
   rows.slice(headIdx + 1).forEach(r => {
@@ -149,17 +149,79 @@ export function parseAssignmentSheet(aoa = [], { grade = "2" } = {}) {
     const sid = `${grade}${pad2(oc)}${pad2(on)}`;
     const ob = subjCols.filter(s => r[s.i] === "원반").map(s => s.label);
     const can = canCols.filter(x => String(r[x.i]).trim() === "1").map(x => x.cls);
-    students[sid] = { name, gender: c.gender >= 0 ? r[c.gender] : "", cls, orig: cls, no: Number(r[c.no]) || 0, can: can.length ? Array.from(new Set([...can, cls])).sort((a, b) => a - b) : null, ob };
+    // 학기별 과목과 동시그룹(A~I 또는 '원반')
+    const sj = subjCols.filter(s => r[s.i]).map(s => ({ sem: s.sem, n: s.name, g: r[s.i] }));
+    students[sid] = { name, gender: c.gender >= 0 ? r[c.gender] : "", cls, orig: cls, no: Number(r[c.no]) || 0, can: can.length ? Array.from(new Set([...can, cls])).sort((a, b) => a - b) : null, ob, sj };
     if (!classOb[cls]) classOb[cls] = ob;
   });
   return { students, classOb, stats: { ...stats, students: Object.keys(students).length, classes: Object.keys(classOb).map(Number).sort((a, b) => a - b), hasCan: canCols.length > 0 } };
 }
+
+// ── '강의실배정' 시트: 과목·동시그룹(A~I 또는 원반)마다 반별 인원 ──────────────
+// 돌려주는 값: { letters: {학기: [그룹]}, sections: ["학기|과목|그룹"], part: {학기: {그룹: [반]}}, ob: {반: {학기: [원반 과목]}} }
+// part = 그 그룹 시간에 수업이 있는 반. 반의 원반 수업은 그 반이 빠지는 그룹 시간에 들어가요.
+export function parseRoomSheet(aoa = []) {
+  const rows = (aoa || []).map(r => (r || []).map(c => String(c ?? "").trim()));
+  const hi = rows.slice(0, 15).findIndex(r => r.includes("과목") && r.some(c => /동시\s*그룹/.test(c)));
+  if (hi < 0) return null;
+  const h = rows[hi];
+  const cSub = h.indexOf("과목"); const cG = h.findIndex(c => /동시\s*그룹/.test(c)); const cSem = h.findIndex(c => /학기/.test(c));
+  const clsCols = h.map((x, i) => ({ i, cls: Number(x) })).filter(x => x.i > cG && /^\d{1,2}$/.test(h[x.i]));
+  const sections = new Set(); const part = {}; const ob = {}; const letters = {};
+  rows.slice(hi + 1).forEach(r => {
+    const sub = r[cSub]; const g = r[cG]; const sem = ((cSem >= 0 ? r[cSem] : "").match(/(\d)/) || [])[1];
+    if (!sub || !g || !sem) return;
+    const classes = clsCols.filter(x => Number(r[x.i]) > 0).map(x => x.cls);
+    if (g === "원반") { classes.forEach(c => { const list = ((ob[c] ||= {})[sem] ||= []); if (!list.includes(sub)) list.push(sub); }); return; }
+    sections.add(`${sem}|${sub}|${g}`);
+    if (!(letters[sem] ||= []).includes(g)) letters[sem].push(g);
+    const list = ((part[sem] ||= {})[g] ||= []); classes.forEach(c => { if (!list.includes(c)) list.push(c); });
+  });
+  if (!sections.size) return null;
+  Object.values(letters).forEach(l => l.sort());
+  return { letters, sections: Array.from(sections), part, ob };
+}
+
+// 반을 옮겼을 때 과목을 다 들을 수 있는지: 새 반 원반 과목을 골랐는지, 원반 시간과 겹치는 과목·옛 원반 과목을 남는 그룹 시간에 들을 반이 있는지
+// 돌려주는 값: null(정보 없음) 또는 { ok, issues: [{ sem, n, kind: "ob" | "slot" }], plan: [{ sem, n, from, to }] }
+export function courseCheck(placement, sid, to) {
+  const rm = placement?.rooms; const s = placement?.students?.[sid];
+  if (!rm?.letters || !Array.isArray(s?.sj) || !s.sj.length) return null;
+  const has = new Set(rm.sections || []);
+  const issues = []; const plan = [];
+  Object.keys(rm.letters).forEach(sem => {
+    const L = rm.letters[sem] || [];
+    const mine = s.sj.filter(x => String(x.sem) === String(sem));
+    if (!mine.length) return;
+    const obc = rm.ob?.[to]?.[sem] || [];
+    const names = mine.map(x => x.n);
+    obc.filter(n => !names.includes(n)).forEach(n => issues.push({ sem, n, kind: "ob" }));
+    const blocked = L.filter(l => !(rm.part?.[sem]?.[l] || []).map(Number).includes(Number(to)));
+    const keep = mine.filter(x => x.g !== "원반" && !obc.includes(x.n) && !blocked.includes(x.g));
+    const used = new Set(keep.map(x => x.g));
+    const free = L.filter(l => !used.has(l) && !blocked.includes(l));
+    mine.filter(x => obc.includes(x.n) && x.g !== "원반").forEach(x => plan.push({ sem, n: x.n, from: x.g, to: "원반" }));
+    const toPlace = mine.filter(x => !obc.includes(x.n) && (x.g === "원반" || blocked.includes(x.g)));
+    const solve = (i, avail) => { if (i === toPlace.length) return []; for (let j = 0; j < avail.length; j += 1) { if (!has.has(`${sem}|${toPlace[i].n}|${avail[j]}`)) continue; const rest = solve(i + 1, avail.filter((_, k) => k !== j)); if (rest) return [[toPlace[i], avail[j]], ...rest]; } return null; };
+    const sol = solve(0, free);
+    if (sol) sol.forEach(([x, l]) => { if (x.g !== l) plan.push({ sem, n: x.n, from: x.g, to: l }); });
+    else {
+      const lone = toPlace.filter(x => !free.some(l => has.has(`${sem}|${x.n}|${l}`)));
+      (lone.length ? lone : toPlace).forEach(x => issues.push({ sem, n: x.n, kind: "slot" }));
+    }
+  });
+  return { ok: !issues.length, issues, plan };
+}
+export const courseIssueText = i => (i.kind === "ob" ? `${i.sem}학기 원반 '${i.n}' 안 고름` : `${i.sem}학기 '${i.n}' 들을 시간 없음`);
 
 // 파일 전체 읽기: '학생배정현황' 같은 프로그램 시트가 있으면 그것, 없으면 일반 명단(parsePlacementSheets)
 export function parsePlacementFile(sheets = [], roster = {}, opts = {}) {
   const prog = sheets.find(s => /학생배정현황/.test(s.name)) || sheets.find(s => parseAssignmentSheet(s.aoa, opts));
   const parsed = prog ? parseAssignmentSheet(prog.aoa, opts) : null;
   if (parsed && parsed.stats.students) {
+    const roomSheet = sheets.find(s => /강의실\s*배정/.test(s.name));
+    const rooms = roomSheet ? parseRoomSheet(roomSheet.aoa) : null;
+    if (rooms) parsed.rooms = rooms;
     const unmatched = Object.keys(parsed.students).filter(sid => Object.keys(roster || {}).length && !roster[sid]);
     return { kind: "program", sheet: prog.name, ...parsed, stats: { ...parsed.stats, unmatched } };
   }
