@@ -50,6 +50,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const [toFilter, setToFilter] = React.useState(0);
   const [printOpen, setPrintOpen] = React.useState(false);
   const [ttSel, setTtSel] = React.useState(0);
+  const [fOpen, setFOpen] = React.useState(false);
   const [printOpt, setPrintOpt] = React.useState({ scope: "all", overview: true, roster: true, memos: true }); // 이 반으로 옮길 수 있는 학생만
   const input = React.useRef(null);
   const me = { id: String(actor?.id || actor?.name || "me"), name: String(actor?.name || "선생님") };
@@ -442,10 +443,16 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             <details className="blk fold"><summary><h5>반 의견</h5><small>{(cls.memos || []).length ? `${(cls.memos || []).length}개` : "없음"}</small></summary><Memos item={cls} me={me} onAdd={t => addMemo("classes", curTab, t)} onRemove={at => removeMemo("classes", curTab, at)} placeholder="예: 리더 후보가 없어 교환 검토" /></details>
           </aside>}
           <section className="kpl-tbl">
-            <div className="tools"><label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기(예: 4-15)" /></label>
-              <button type="button" data-kdn-bare className="kpl-btn grp-add" onClick={() => setGroupEdit({ name: "", memo: "", members: [] })}><Users size={15} /> 조합 그룹 만들기</button></div>
+            <div className="tools2"><label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기" /></label>
+              <button type="button" data-kdn-bare className={`tb${fOpen ? " open" : ""}${picked.length ? " act" : ""}`} onClick={() => setFOpen(v => !v)} aria-expanded={fOpen}>필터{picked.length ? <em>{picked.length}</em> : null}<span className="car">{fOpen ? "▴" : "▾"}</span></button>
+              {(!wide || (allView && !q)) && (placement.kind === "program" || Object.values(placement.students).some(x => x.can)) && <label className={`tsel${toF ? " act" : ""}`}><span>{allView ? "옮길 반" : `${curTab}반 →`}</span><select value={toF || 0} onChange={e => { setToFilter(Number(e.target.value)); setOpenSid(""); }}>
+                <option value={0}>{allView ? "전체" : "옮길 반 전체"}</option>
+                {(allView ? classes : classes.filter(c => c !== curTab)).map(c => { const n = allView ? base.filter(([sid, x]) => Number(x.cls) !== c && canGo(sid, c)).length : base.filter(([sid]) => canGo(sid, c)).length; return <option key={c} value={c} disabled={!n && toF !== c}>{allView ? `${c}반으로 갈 수 있는 학생 (${n}명)` : `${c}반 (${n}명 가능)`}</option>; })}
+              </select></label>}
+              <button type="button" data-kdn-bare className="tb grp" onClick={() => setGroupEdit({ name: "", memo: "", members: [] })}><Users size={14} /> 조합 그룹</button></div>
+            {(picked.length > 0 || toF) && <div className="achips"><span className="res">{list.length}명</span>{picked.map(f => <button key={f.key} type="button" data-kdn-bare className={`t-${f.tone}`} onClick={() => toggleFilter(f.key)}>{f.label}<X size={11} /></button>)}{toF ? <button type="button" data-kdn-bare className="t-info" onClick={() => setToFilter(0)}>{allView ? `${toF}반으로 갈 수 있음` : `${curTab}반 → ${toF}반 가능`}<X size={11} /></button> : null}<button type="button" data-kdn-bare className="clr" onClick={() => { setRowFilter([]); setToFilter(0); }}>모두 지우기</button></div>}
             {(() => { const related = (review.groups || []).filter(g => wide || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
-            {!wide && (() => { const mv = (placement.moves || []).filter(m => Number(m.from) === curTab || Number(m.to) === curTab).slice().reverse(); return mv.length > 0 && <details className="kpl-mvlog" open={mv.length <= 4}>
+            {!wide && (() => { const mv = (placement.moves || []).filter(m => Number(m.from) === curTab || Number(m.to) === curTab).slice().reverse(); return mv.length > 0 && <details className="kpl-mvlog">
               <summary><ArrowLeftRight size={14} /><b>{curTab}반 이동 기록 {mv.length}건</b><small>받은 학생 {mv.filter(m => Number(m.to) === curTab).length + mv.filter(m => m.swap && Number(m.from) === curTab).length} · 보낸 학생 {mv.filter(m => Number(m.from) === curTab).length + mv.filter(m => m.swap && Number(m.to) === curTab).length}</small></summary>
               <ul>{mv.map(m => { const outMe = Number(m.from) === curTab; const a = outMe ? m.sid : m.swap; const b = outMe ? m.swap : m.sid; return <li key={m.id}>
                 {m.swap ? <><span className="out">보냄 <b>{nameOf(a)}</b> → {outMe ? m.to : m.from}반</span><span className="ar"><ArrowLeftRight size={13} /></span><span className="in">받음 <b>{nameOf(b)}</b> ← {outMe ? m.to : m.from}반</span><em>맞바꿈</em></>
@@ -454,17 +461,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             </details>; })()}
             {allView && !q && <div className="kpl-sres all"><Users size={15} /><b>{toF ? `${toF}반으로 옮길 수 있는 학생 ${list.length}명` : `전체 학생 ${list.length}명`}{activeF ? ` · '${activeF.label}'` : ""}</b><small>모든 반을 한 번에 봐요. 새 반을 누르면 그 반으로 가요.</small></div>}
             {q && <div className="kpl-sres"><Search size={15} /><b>'{q}' 검색 결과 {list.length}명</b><small>모든 반에서 찾았어요. 새 반을 누르면 그 반으로 가요.</small><button type="button" data-kdn-bare onClick={() => setFind("")}><X size={13} /> 검색 지우기</button></div>}
-            <div className="kpl-filter multi" role="group" aria-label="학생 필터">
-              <div className="fhd"><b>필터</b><small>여러 개 고를 수 있어요 · 같은 줄은 하나라도, 다른 줄끼리는 모두 맞는 학생</small>
-                {picked.length > 0 ? <><span className="cnt">{list.length}명</span><button type="button" data-kdn-bare className="reset" onClick={() => setRowFilter([])}><X size={12} /> 필터 지우기</button></> : <span className="cnt mute">전체 {base.length}명</span>}</div>
+            {fOpen && <div className="kpl-filter multi" role="group" aria-label="학생 필터">
+              <div className="fhd"><small>같은 줄은 하나라도, 다른 줄끼리는 모두 맞는 학생</small></div>
               {FGROUPS.map(([g, gl]) => <div key={g} className="frow"><small>{gl}</small>{FILTERS.filter(f => f.group === g).map(f => { const on = rowFilter.includes(f.key); const n = base.filter(e => passes(e, g) && f.test(e)).length; return <button key={f.key} type="button" data-kdn-bare aria-pressed={on} disabled={!n && !on} className={`t-${f.tone}${on ? " on" : ""}`} onClick={() => toggleFilter(f.key)}>{on && <Check size={12} />}{f.label} <b>{n}</b></button>; })}</div>)}
-            </div>
+            </div>}
             {wide && activeF && <div className="kpl-dist" aria-label="반별 인원"><small>반별</small>{classes.map(c => { const n = list.filter(([, x]) => Number(x.cls) === c).length; return <button key={c} type="button" data-kdn-bare className={n ? "has" : ""} onClick={() => goClass(c)} title={`${c}반 명단으로`}>{c}반 <b>{n}</b></button>; })}</div>}
-            {(!wide || (allView && !q)) && (placement.kind === "program" || Object.values(placement.students).some(x => x.can)) ? <div className="kpl-filter kpl-to" role="group" aria-label="옮길 수 있는 반으로 거르기"><small>{allView ? <>옮길 반 <em>그 반으로 옮길 수 있는 다른 반 학생</em></> : `${curTab}반 → 옮길 반`}</small>
-              <button type="button" data-kdn-bare className={`all${!toF ? " on" : ""}`} onClick={() => setToFilter(0)}>전체</button>
-              {allView && classes.map(c => { const n = base.filter(([sid, x]) => Number(x.cls) !== c && canGo(sid, c)).length; return <button key={c} type="button" data-kdn-bare disabled={!n && toF !== c} className={`t-info${toF === c ? " on" : ""}`} title={`다른 반에서 ${c}반으로 옮길 수 있는 학생 ${n}명`} onClick={() => { setToFilter(v => (v === c ? 0 : c)); setOpenSid(""); }}>→ {c}반 <i>{n}</i></button>; })}
-              {!allView && classes.filter(c => c !== curTab).map(c => { const n = base.filter(([sid]) => canGo(sid, c)).length; const back = Object.entries(placement.students).filter(([id, x]) => Number(x.cls) === c && movableClasses(placement, id).includes(curTab)).length; return <button key={c} type="button" data-kdn-bare disabled={!n && toF !== c} className={`t-info${toF === c ? " on" : ""}`} title={`${curTab}반 → ${c}반으로 갈 수 있는 학생 ${n}명 · ${c}반 → ${curTab}반으로 올 수 있는 학생 ${back}명`} onClick={() => { setToFilter(v => (v === c ? 0 : c)); setOpenSid(""); }}>{c}반</button>; })}
-            </div> : null}
             <div className="scroll"><table className="kpl-grid">
               <thead><tr>{wide && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th><th className="c">이동</th></tr></thead>
               <tbody>{list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableOk(sid); const g = genderOf(sid); const cs = combosOf(sid); const same = comboSame(sid); return <React.Fragment key={sid}>
@@ -1153,4 +1154,46 @@ const CSS = `
 .kpl-sres button{margin-left:auto;display:inline-flex;align-items:center;gap:4px;height:30px;padding:0 12px;border-radius:9px;border:1px solid #93c5fd;background:var(--kdn-surface,#fff);color:#1d4ed8;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
 .kpl-grid .go-cls{display:inline-flex;align-items:center;height:28px;padding:0 10px;border-radius:99px;border:0;background:#2563eb;color:#fff;font:inherit;font-size:13px;font-weight:800;cursor:pointer;white-space:nowrap}
 .kpl-filter.kpl-to button{min-width:52px;justify-content:center;font-size:13.5px;font-weight:800}
+
+/* ── 리디자인(차분하게) ── */
+.kpl-views{display:flex!important;gap:4px!important;padding:4px;border-radius:12px;background:var(--kdn-surface-2,#f1f3f6);border:1px solid var(--kdn-line,#e5e7eb)}
+.kpl-views button{flex:1 1 0;min-height:40px!important;padding:0 10px!important;border:0!important;border-radius:9px!important;background:transparent!important;box-shadow:none!important;gap:8px!important;flex-direction:row!important;color:var(--kdn-muted,#6b7280)!important}
+.kpl-views button b{font-size:14px!important;font-weight:800}.kpl-views button span{padding:1px 8px!important;border-radius:99px;background:rgba(0,0,0,.06)!important;color:inherit!important;font-size:12px!important;font-weight:800}
+.kpl-views button.on{background:var(--kdn-surface,#fff)!important;color:var(--kdn-ink,#111827)!important;box-shadow:0 1px 3px rgba(15,23,42,.12)!important}.kpl-views button.on span{background:#e0e7ff!important;color:#3730a3!important}
+.kpl-views button.alert span{background:#fee2e2!important;color:#b91c1c!important}
+@media (max-width:760px){.kpl-views{flex-wrap:wrap}.kpl-views button{flex:1 1 45%}}
+.kpl-ctabs2{gap:6px!important}
+.kpl-ctabs2 button{gap:2px!important;padding:8px 4px 7px!important;border-radius:10px!important;border:1px solid var(--kdn-line,#e5e7eb)!important;box-shadow:none!important;background:var(--kdn-surface,#fff)!important}
+.kpl-ctabs2 button b{font-size:14.5px!important}.kpl-ctabs2 .n{font-size:12px!important;font-weight:700!important;color:var(--kdn-muted,#6b7280)!important}
+.kpl-ctabs2 .gbar{height:3px!important;max-width:44px!important;margin-top:2px}.kpl-ctabs2 button small{display:none!important}
+.kpl-ctabs2 .mvc{margin:3px 0 0!important;padding:0 6px!important;font-size:10.5px!important}.kpl-ctabs2 .mvc:not(.on){display:none!important}
+.kpl-ctabs2 button.on{border-color:#2563eb!important;background:#eff6ff!important;box-shadow:inset 0 0 0 1px #2563eb!important}.kpl-ctabs2 button.all b{color:inherit!important}
+.kpl-ctabs2 .dot{top:-6px!important;right:-4px!important;min-width:18px!important;height:18px!important;font-size:10.5px!important}
+.tools2{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.tools2 .kpl-find{flex:1 1 240px;height:38px!important;border-radius:10px!important}
+.tools2 .tb{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--kdn-line,#d1d5db);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);font:inherit;font-size:13.5px;font-weight:700;cursor:pointer}
+.tools2 .tb em{font-style:normal;min-width:18px;padding:0 6px;border-radius:99px;background:#2563eb;color:#fff;font-size:11.5px;text-align:center}.tools2 .tb .car{font-size:10px;color:var(--kdn-muted,#9ca3af)}
+.tools2 .tb.open,.tools2 .tb.act{border-color:#93c5fd;background:#eff6ff}.tools2 .tb.grp{color:#92400e}
+.tools2 .tsel{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 4px 0 12px;border-radius:10px;border:1px solid var(--kdn-line,#d1d5db);background:var(--kdn-surface,#fff);font-size:13px;font-weight:700;color:var(--kdn-muted,#6b7280)}
+.tools2 .tsel select{height:32px;border:0;background:transparent;font:inherit;font-size:13.5px;font-weight:800;color:var(--kdn-ink,#111827);cursor:pointer;max-width:220px}.tools2 .tsel.act{border-color:#93c5fd;background:#eff6ff}
+.achips{display:flex;flex-wrap:wrap;align-items:center;gap:6px}.achips .res{font-size:13px;font-weight:800;color:#1d4ed8;margin-right:2px}
+.achips button{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border-radius:99px;border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.achips button.t-bad{border-color:#fecaca;background:#fef2f2;color:#b91c1c}.achips button.t-warn{border-color:#fde68a;background:#fffbeb;color:#b45309}.achips button.t-good{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}.achips button.t-mv{border-color:#ddd6fe;background:#f5f3ff;color:#6d28d9}.achips button.t-mute{border-color:#e5e7eb;background:#f9fafb;color:#374151}
+.achips .clr{border:0!important;background:transparent!important;color:var(--kdn-muted,#6b7280)!important;text-decoration:underline}
+.kpl-filter.multi{padding:8px 12px!important;border-radius:12px!important;box-shadow:0 4px 14px rgba(15,23,42,.06)}.kpl-filter.multi .fhd small{font-size:12px}
+.kpl-filter.multi .frow{border-top:1px solid var(--kdn-line,#f1f3f6)!important}
+.kpl-mvlog{border:1px solid #e9d5ff!important;border-radius:10px!important;background:#faf5ff!important}.kpl-mvlog summary{padding:8px 12px!important}.kpl-mvlog summary b{font-size:13.5px!important}
+.kpl-groups{gap:6px!important}
+/* 옆 현황: 목록형 */
+.kpl-side2>header{padding:12px 14px 8px!important}.kpl-side2>header b{font-size:17px!important}
+.kpl-side2 .gender{padding:0 14px 10px!important}
+.kpl-side2 .tiles{grid-template-columns:1fr!important;gap:0!important;padding:4px 14px 10px!important;background:transparent}
+.kpl-grid td{height:auto!important;padding-top:7px!important;padding-bottom:7px!important}
+.kpl-side2 .tiles h6{margin:8px 0 2px!important;font-size:11px!important;letter-spacing:.04em}
+.kpl-side2 .tile{display:flex!important;align-items:baseline;justify-content:space-between;gap:6px;padding:6px 0!important;border-radius:0!important;background:transparent!important;border:0!important;border-bottom:1px solid var(--kdn-line,#f1f3f6)!important}
+.kpl-side2 .tile small{font-size:12.5px!important;color:var(--kdn-ink-soft,#4b5563)!important}.kpl-side2 .tile b{font-size:15px!important}.kpl-side2 .tile b em{font-size:11px!important}
+.kpl-side2 .tile.bad small,.kpl-side2 .tile.bad b{color:#b91c1c!important}.kpl-side2 .tile.warn small,.kpl-side2 .tile.warn b{color:#b45309!important}.kpl-side2 .tile.good b{color:#15803d!important}
+.kpl-side2 .blk.row{padding:10px 14px!important}.kpl-side2 .obs i{background:#f5f3ff!important}.kpl-side2 .obs .r small{min-width:0}
+.kpl-side2 .fold summary{padding:10px 14px!important}.kpl-side2 .fold .pill{background:#fff7ed!important;color:#c2410c!important;font-weight:700!important}
+.kpl-split2{gap:14px!important}
 `;
