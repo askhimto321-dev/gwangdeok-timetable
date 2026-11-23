@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-23-c",
+    date: "2026-11-23",
+    title: "반편성 반별 현황 그래프",
+    items: [
+      { audience: "staff", text: "반편성에 '반별 현황' 탭을 추가했어요. 리더 후보·조합 우려·생활지도 주의 등을 반끼리 그래프로 비교하고, 막대를 누르면 그 반 명단을 그 조건으로 열어요." },
+    ],
+  },
+  {
     id: "2026-11-23-b",
     date: "2026-11-23",
     title: "교과세특 AI 요청문 개선",
