@@ -1279,4 +1279,25 @@ const CSS = `
 
 .kpl-stv .gcard.low .chart .b{background:var(--c)}.kpl-stv .chart .col.hot.zero .v{color:#dc2626!important;font-size:11px}
 .kpl-stv .chart .allzero{position:absolute;inset:16px 0 0;display:grid;place-items:center;font-size:12.5px;font-weight:700;color:var(--kdn-muted,#9ca3af);pointer-events:none}
+
+/* 시간표 검증 다듬기 */
+.kpl-ttv{font-size:13px}
+.kpl-ttv .ctiles .top b{color:var(--kdn-ink,#111827)!important}
+.kpl-ttv .card{gap:14px!important;padding:16px 18px!important}
+.kpl-ttv .card header b{font-size:17px!important}.kpl-ttv .card header span{font-size:12.5px!important}
+.kpl-ttv .sem{gap:8px!important}
+.kpl-ttv .sem .semh>b{font-size:14px!important;min-width:44px}
+.kpl-ttv .sem .semh .cm small{font-size:11.5px!important;color:var(--kdn-muted,#6b7280)!important;font-weight:800}
+.kpl-ttv .sem .semh .cm i{font-size:12px!important;font-weight:600!important;padding:2px 8px!important;background:#f1f5f9!important;color:#334155!important;border:1px solid #e2e8f0}
+.kpl-ttv .sem .grid{border-color:#e2e8f0!important;border-radius:10px!important}
+.kpl-ttv .sem .g{padding:0 0 8px!important;gap:0!important}
+.kpl-ttv .sem .gl{margin:0 0 4px!important;padding:6px 10px!important;background:#f8fafc!important;color:#374151!important;border-bottom:1px solid #e2e8f0!important;font-size:12.5px!important;font-weight:800}
+.kpl-ttv .sem .g.ob .gl{background:#f5f3ff!important;color:#6d28d9!important;border-color:#ede9fe!important}
+.kpl-ttv .sem .sub{padding:4px 10px!important;border-bottom:0!important;font-size:13px;line-height:1.4;color:var(--kdn-ink,#1f2937)}
+.kpl-ttv .sem .sub span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kpl-ttv .sem .sub i{font-size:12px!important;font-weight:700!important;color:#64748b!important;flex:none}
+.kpl-ttv .sem .sub:nth-child(odd){background:#fcfcfd}
+.kpl-ttv .sem .obn{padding:6px 10px;font-size:13px!important}.kpl-ttv .sem .none{padding:6px 10px}
+.kpl-ttv ul.bad{font-size:12.5px!important}.kpl-ttv ul.bad b{font-size:13px}
+.kpl-ttv>.kpl-nil{font-size:12px!important}
 `;
