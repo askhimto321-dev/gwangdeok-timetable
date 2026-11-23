@@ -270,6 +270,15 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   // 지목(학생마다 고른 상대)만: 조합 그룹으로만 묶인 쌍은 '그룹'으로 따로 보여요
   const pickedPairs = comboPairs.filter(p => p.by.some(b => !String(b).startsWith("그룹 ")));
   const combosOf = sid => pickedPairs.filter(p => p.a === sid || p.b === sid).map(p => ({ other: p.a === sid ? p.b : p.a, by: p.by.filter(b => !String(b).startsWith("그룹 ")) }));
+  // 같은 반 조합 우려 묶음: 그 반 안에서 지목 쌍·조합 그룹으로 이어진 학생들을 한 묶음(1건)으로 세요
+  const comboClusters = c => {
+    const inC = id => Number(placement?.students?.[id]?.cls) === Number(c);
+    const parent = {}; const find = x => (parent[x] === x ? x : (parent[x] = find(parent[x]))); const join = (a, b) => { parent[a] ??= a; parent[b] ??= b; parent[find(a)] = find(b); };
+    pickedPairs.forEach(p => { if (inC(p.a) && inC(p.b)) join(p.a, p.b); });
+    (review.groups || []).forEach(g => { const here = g.members.filter(inC); for (let i = 1; i < here.length; i += 1) join(here[0], here[i]); });
+    const out = {}; Object.keys(parent).forEach(x => { (out[find(x)] ||= []).push(x); });
+    return Object.values(out).filter(m => m.length >= 2);
+  };
   const comboSame = sid => combosOf(sid).filter(c => Number(placement.students[c.other]?.cls) === Number(placement.students[sid]?.cls));
   const groupSame = sid => (review.groups || []).some(g => g.members.includes(sid) && g.members.some(m => m !== sid && Number(placement.students[m]?.cls) === Number(placement.students[sid]?.cls)));
   const addCombo = (sid, other) => saveReview(v => { const item = { ...(v.students[sid] || {}) }; const list = item.combos || []; if (list.some(c => c.with === other && c.byId === me.id)) return v; item.combos = [...list, { with: other, byId: me.id, by: me.name, at: new Date().toISOString() }]; const marks = { ...(item.marks || {}) }; if (!(marks.combo || []).some(m => m.byId === me.id)) marks.combo = [...(marks.combo || []), { byId: me.id, by: me.name, at: new Date().toISOString() }]; item.marks = marks; v.students[sid] = item; return v; });
@@ -333,7 +342,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       return { cls: x.cls, n: x.n, m: x.m, f: x.f, inn: x.inn || 0, out: x.out || 0,
         flags: Object.fromEntries(STUDENT_FLAGS.map(f => [f.key, ids.filter(sid => marksOf(sid, f.key)).length])),
         miss: ids.filter(sid => missSet.has(sid)).length,
-        combo: pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === x.cls && Number(placement.students[p.b]?.cls) === x.cls).length,
+        combo: comboClusters(x.cls).length,
         group: groupsIn(x.cls).length, checks: CLASS_CHECKS.filter(c => (cls.marks?.[c.key] || []).length).map(c => c.label) }; });
     const pick = printOpt.scope === "all" ? summary : summary.filter(x => x.cls === curTab);
     const classesOut = pick.map(x => ({ cls: x.cls, notes: ((review.classes[x.cls] || {}).memos || []).map(m => `${m.text} (${m.by})`),
@@ -405,8 +414,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const cls = review.classes[curTab] || {};
       const flagCount = key => base.filter(([sid]) => (review.students[sid]?.marks?.[key] || []).length).length;
       const missN = base.filter(([sid]) => missSet.has(sid)).length;
-      const groupN = groupsIn(curTab).length;
-      const comboN = pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === curTab && Number(placement.students[p.b]?.cls) === curTab).length;
+      const comboN = comboClusters(curTab).length;
       const ob = placement.classOb?.[curTab] || [];
       const cols = wide ? 11 : 10;
       const total = summary.reduce((t, x) => ({ n: t.n + (x.n || 0), m: t.m + (x.m || 0), f: t.f + (x.f || 0) }), { n: 0, m: 0, f: 0 });
@@ -440,8 +448,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                 <T label="이동 희망" dot="mv" n={flagCount("move")} tone="mv" hint="다른 반으로 옮기는 게 좋겠다고 표시한 학생" />
                 <h6>배정 점검</h6>
                 <T label="분리희망 미반영" n={missN} tone={missN ? "bad" : ""} />
-                <T label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} hint="학생마다 지목한 조합 상대가 같은 반인 쌍" />
-                <T label="조합 그룹 같은 반" n={groupN} unit="그룹" tone={groupN ? "bad" : ""} hint="같은 조합 그룹 학생이 이 반에 2명 이상인 그룹" />
+                <T label="조합 우려 같은 반" n={comboN} unit="묶음" tone={comboN ? "bad" : ""} hint="이 반 안에서 조합 우려(지목·조합 그룹)로 이어진 학생들을 한 묶음으로 센 수" />
                 {placement.rooms && <T label="수강 불가 과목" n={courseN} tone={courseN ? "bad" : ""} hint="옮겨 와서 들을 수 없는 과목이 생긴 학생" />}
                 {placement.rooms && <T label="이동 불가(고정)" n={fixedN} hint="원반 과목·시간표 규칙상 다른 반으로 못 가는 학생" />}
                 <T label="받은 학생" dot="in" n={sm.inn || 0} tone="in" hint="초기 엑셀 대비 이 반에 온 학생" />
@@ -531,7 +538,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const metrics = [
         ...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, color: COLORS[f.tone] || "#475569", unit: "명", val: c => marked(c, f.key), filter: f.key, low: f.key === "leader" })),
         { key: "miss", label: "분리희망 미반영", color: "#dc2626", unit: "명", val: c => byCls[c].filter(id => missSet.has(id)).length, filter: "miss", alert: true },
-        { key: "comboSame", label: "조합 우려 같은 반", color: "#d97706", unit: "쌍", val: c => pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === c && Number(placement.students[p.b]?.cls) === c).length + groupsIn(c).length, filter: "comboSame", alert: true },
+        { key: "comboSame", label: "조합 우려 같은 반", color: "#d97706", unit: "묶음", val: c => comboClusters(c).length, filter: "comboSame", alert: true },
         ...(placement.rooms ? [{ key: "course", label: "수강 불가 과목", color: "#dc2626", unit: "명", val: c => byCls[c].filter(id => courseBad.has(id)).length, filter: "course", alert: true }] : []),
       ];
       const go = (c, f) => { setView("roster"); setTab(c); setFind(""); setToFilter(0); if (f) setRowFilter([f]); };
