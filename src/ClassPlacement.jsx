@@ -536,15 +536,20 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       ];
       const go = (c, f) => { setView("roster"); setTab(c); setFind(""); setToFilter(0); if (f) setRowFilter([f]); };
       return <div className="kpl-stv">
-        <div className="note"><b>반별 현황</b><small>표시와 배정 점검을 반끼리 비교해요. 점선은 반 평균, 진한 막대는 평균보다 크게 몰린 반이에요. 막대를 누르면 그 반 명단을 그 조건으로 걸러서 열어요.</small></div>
-        <section className="gcard wide heat"><header><b>한눈에 보기</b><small>칸이 진할수록 그 반에 많아요 · 칸을 누르면 그 반 명단을 그 조건으로 열어요</small></header>
-          <div className="hscroll"><table className="hm"><thead><tr><th />{classes.map(c => <th key={c}>{c}반</th>)}<th className="sum">합계</th></tr></thead><tbody>
-            {metrics.map(m => { const vals = classes.map(c => m.val(c)); const max = Math.max(1, ...vals); const total = vals.reduce((a, b) => a + b, 0); return <tr key={m.key} style={{ "--c": m.color }}><th><i className="sw" />{m.label}</th>
-              {vals.map((v, k) => { const a = m.low ? (v ? 0.12 + 0.5 * (v / max) : 0) : (v ? 0.14 + 0.76 * (v / max) : 0); const dark = !m.low && v / max > 0.55; return <td key={k}><button type="button" data-kdn-bare className={`${v ? "" : "z"}${m.low && !v ? " none" : ""}${dark ? " dk" : ""}`} style={{ "--a": a }} onClick={() => go(classes[k], m.filter)} title={`${classes[k]}반 ${m.label} ${v}${m.unit}`}>{m.low && !v ? "없음" : v}</button></td>; })}
-              <td className="sum">{total}</td></tr>; })}
-          </tbody></table></div></section>
-        <section className="gcard wide"><header><b>남녀 비율</b><small>반마다 남(파랑)·여(분홍) 인원</small></header>
-          <div className="gender">{summary.map(x => <button key={x.cls} type="button" data-kdn-bare onClick={() => go(x.cls)} title={`${x.cls}반 남 ${x.m}명 · 여 ${x.f}명`}><span className="lab">{x.cls}반</span><span className="bar"><i className="m" style={{ flex: x.m || 0.0001 }}>{x.m}</i><i className="f" style={{ flex: x.f || 0.0001 }}>{x.f}</i></span><span className="n">{x.n}명</span></button>)}</div></section>
+        
+        <section className="gcard wide ov"><header><b>반별 한눈에</b><small>진한 칸 = 다른 반보다 몰림 · 숫자를 누르면 그 반 명단을 그 조건으로 열어요</small></header>
+          <div className="hscroll"><table className="ovt"><thead><tr><th className="cl">반</th><th className="nn">인원</th><th className="gd">남 · 여</th>
+            {metrics.map(m => { const vals = classes.map(c => m.val(c)); const tot = vals.reduce((a, b) => a + b, 0); return <th key={m.key} style={{ "--c": m.color }}><span className="hd"><i className="sw" />{m.label}</span><small>{tot ? `합 ${tot}` : "없음"}</small></th>; })}
+            <th className="io">받음 · 보냄</th></tr></thead>
+            <tbody>{summary.map(x => <tr key={x.cls}>
+              <th className="cl"><button type="button" data-kdn-bare onClick={() => go(x.cls)}>{x.cls}반</button></th>
+              <td className="nn">{x.n}</td>
+              <td className="gd"><span className="gb"><i className="m" style={{ flex: x.m || 0.0001 }} /><i className="f" style={{ flex: x.f || 0.0001 }} /></span><small><b className="m">{x.m}</b> · <b className="f">{x.f}</b></small></td>
+              {metrics.map(m => { const vals = classes.map(c => m.val(c)); const v = m.val(x.cls); const max = Math.max(1, ...vals); const avg = vals.reduce((a, b) => a + b, 0) / Math.max(1, vals.length); const hot = m.low ? v === 0 : (m.alert ? v > 0 : v >= 3 && v >= avg * 1.6);
+                return <td key={m.key} style={{ "--c": m.color }}>{v || (m.low && !v) ? <button type="button" data-kdn-bare className={`cv${hot ? " hot" : ""}${m.low && !v ? " none" : ""}`} onClick={() => go(x.cls, m.filter)} title={`${x.cls}반 ${m.label} ${v}${m.unit}`}><b>{m.low && !v ? "없음" : v}</b>{v ? <span className="db"><i style={{ width: `${(v / max) * 100}%` }} /></span> : null}</button> : <span className="z">·</span>}</td>; })}
+              <td className="io">{x.inn ? <i className="in">+{x.inn}</i> : null}{x.out ? <i className="out">−{x.out}</i> : null}{!x.inn && !x.out ? <span className="z">·</span> : null}</td>
+            </tr>)}</tbody></table></div></section>
+        <details className="morecharts"><summary>지표별 그래프 펼치기</summary>
         <div className="grid">{metrics.filter(m => classes.some(c => m.val(c))).map(m => { const vals = classes.map(c => m.val(c)); const total = vals.reduce((a, b) => a + b, 0); const avg = total / Math.max(1, classes.length); const max = Math.max(1, ...vals, Math.ceil(avg));
           const hot = v => (m.low ? v === 0 : v >= 3 && v >= avg * 1.6) || (m.alert && v > 0);
           return <section key={m.key} className={`gcard${m.low ? " low" : ""}`} style={{ "--c": m.color }}><header><i className="sw" /><b>{m.label}</b><small>합계 {total}{m.unit} · 평균 {avg.toFixed(1)}</small></header>
@@ -554,7 +559,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             </div>
             <div className="xs">{classes.map(c => <span key={c}>{c}반</span>)}</div>
           </section>; })}</div>
-        {(() => { const zero = metrics.filter(m => !classes.some(c => m.val(c))); return zero.length > 0 && <p className="zline">모든 반 0: {zero.map(m => m.label).join(" · ")}</p>; })()}
+        </details>
       </div>; })()}
     {curView === "tt" && placement.rooms && (() => {
       const sel = ttCheck.find(x => x.cls === ttSel) || ttCheck.find(x => x.bad) || ttCheck[0];
@@ -1329,4 +1334,24 @@ const CSS = `
 .kpl-stv .hm td.sum{text-align:center;font-weight:800;color:var(--kdn-ink-soft,#374151)}.kpl-stv .hm th.sum{color:var(--kdn-ink-soft,#374151)}
 
 .kpl-stv .zline{margin:0;padding:10px 14px;border-radius:10px;background:var(--kdn-surface-2,#f8fafc);border:1px dashed var(--kdn-line,#e2e8f0);font-size:12.5px;color:var(--kdn-muted,#6b7280)}
+
+/* 반별 한눈에 표 */
+.kpl-stv .ov{padding:14px 16px!important}
+.kpl-stv .ovt{width:100%;border-collapse:collapse;font-size:13px;min-width:820px}
+.kpl-stv .ovt th,.kpl-stv .ovt td{padding:6px 6px;border-bottom:1px solid var(--kdn-line,#eef1f5);text-align:center;vertical-align:middle}
+.kpl-stv .ovt thead th{background:var(--kdn-surface-2,#f8fafc);border-bottom:1.5px solid #cbd5e1;font-size:12px;font-weight:800;color:var(--kdn-ink-soft,#374151);white-space:nowrap}
+.kpl-stv .ovt thead th .hd{display:inline-flex;align-items:center;gap:5px}.kpl-stv .ovt thead th .sw{width:8px;height:8px;border-radius:2px;background:var(--c)}.kpl-stv .ovt thead th small{display:block;font-size:10.5px;font-weight:600;color:var(--kdn-muted,#9ca3af)}
+.kpl-stv .ovt th.cl{width:52px}.kpl-stv .ovt tbody th.cl button{border:0;background:transparent;font:inherit;font-size:13.5px;font-weight:800;color:var(--kdn-ink,#111827);cursor:pointer;text-decoration:underline dotted #cbd5e1;text-underline-offset:3px}
+.kpl-stv .ovt td.nn{font-weight:800;width:44px}
+.kpl-stv .ovt td.gd{width:110px}.kpl-stv .ovt td.gd .gb{display:flex;gap:1px;height:6px;border-radius:3px;overflow:hidden}.kpl-stv .ovt td.gd .gb .m{background:#60a5fa}.kpl-stv .ovt td.gd .gb .f{background:#f472b6}.kpl-stv .ovt td.gd small{font-size:11.5px;color:var(--kdn-muted,#6b7280)}.kpl-stv .ovt td.gd b.m{color:#1d4ed8}.kpl-stv .ovt td.gd b.f{color:#be185d}
+.kpl-stv .ovt tbody tr:hover td,.kpl-stv .ovt tbody tr:hover th{background:#f8fafc}
+.kpl-stv .ovt .cv{display:inline-grid;justify-items:center;gap:3px;min-width:44px;padding:3px 6px;border:0;border-radius:7px;background:transparent;font:inherit;cursor:pointer}
+.kpl-stv .ovt .cv b{font-size:13.5px;font-weight:800;color:var(--kdn-ink,#111827);font-variant-numeric:tabular-nums}
+.kpl-stv .ovt .cv .db{display:block;width:36px;height:4px;border-radius:2px;background:#eef1f5;overflow:hidden}.kpl-stv .ovt .cv .db i{display:block;height:100%;background:color-mix(in srgb,var(--c) 55%,#fff);border-radius:2px}
+.kpl-stv .ovt .cv:hover{background:color-mix(in srgb,var(--c) 10%,#fff)}
+.kpl-stv .ovt .cv.hot{background:var(--c)}.kpl-stv .ovt .cv.hot b{color:#fff}.kpl-stv .ovt .cv.hot .db{background:rgba(255,255,255,.35)}.kpl-stv .ovt .cv.hot .db i{background:#fff}
+.kpl-stv .ovt .cv.none{background:#fee2e2}.kpl-stv .ovt .cv.none b{color:#b91c1c;font-size:12px}
+.kpl-stv .ovt .z{color:#d1d5db;font-weight:800}
+.kpl-stv .ovt td.io i{display:inline-block;margin:0 2px;padding:0 6px;border-radius:5px;font-style:normal;font-size:11.5px;font-weight:800}.kpl-stv .ovt td.io i.in{background:#dcfce7;color:#15803d}.kpl-stv .ovt td.io i.out{background:#ffedd5;color:#c2410c}
+.kpl-stv .morecharts{border-radius:12px;border:1px solid var(--kdn-line,#e5e7eb);background:var(--kdn-surface,#fff)}.kpl-stv .morecharts>summary{padding:10px 14px;font-size:13.5px;font-weight:700;color:var(--kdn-ink-soft,#4b5563);cursor:pointer}.kpl-stv .morecharts>.grid{padding:0 12px 12px}
 `;
