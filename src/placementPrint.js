@@ -31,7 +31,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
   const kpis = [
     ["학생", `${total}`, "명", ""], ["반", `${classRows.length}`, "개", ""], ["초기 엑셀과 달라진 학생", `${data.changed ?? sum(r => r.inn)}`, `명`, ""],
     ["분리희망 미반영", `${sum(r => r.miss)}`, "명", sum(r => r.miss) ? "bad" : "ok"],
-    ["조합 우려 같은 반", `${sum(r => r.combo)}`, "쌍", sum(r => r.combo) ? "bad" : "ok"],
+    ["조합 우려 같은 반", `${sum(r => r.combo)}`, "묶음", sum(r => r.combo) ? "bad" : "ok"],
     ["리더 후보 없는 반", `${lowLeader}`, "개", lowLeader ? "bad" : "ok"],
     ["표시 쏠림", `${highN}`, "곳", highN ? "warn" : "ok"],
   ];
@@ -51,7 +51,7 @@ export function printPlacement(data, { overview = true, roster = true, memos = t
     <h2>반별 현황</h2>
     <table class="ov"><thead>
       <tr class="g"><th rowspan="2" class="c">반</th><th colspan="4" class="c gs">인원</th><th colspan="2" class="c gs">이동</th><th colspan="${flags.length}" class="c gs">학생 표시</th><th colspan="3" class="c gs">배정 점검</th></tr>
-      <tr><th class="c gs">계</th><th class="c">남</th><th class="c">여</th><th class="c">남녀</th><th class="c gs">받음</th><th class="c">보냄</th>${flags.map((f, i) => `<th class="c${i ? "" : " gs"}">${tag(f)}</th>`).join("")}<th class="c gs">분리희망<br>미반영</th><th class="c">조합<br>같은 반</th><th class="c">그룹<br>같은 반</th></tr>
+      <tr><th class="c gs">계</th><th class="c">남</th><th class="c">여</th><th class="c">남녀</th><th class="c gs">받음</th><th class="c">보냄</th>${flags.map((f, i) => `<th class="c${i ? "" : " gs"}">${tag(f)}</th>`).join("")}<th class="c gs">분리희망<br>미반영</th><th class="c">조합<br>같은 반(묶음)</th><th class="c">그룹<br>같은 반</th></tr>
     </thead><tbody>
     ${classRows.map(r => `<tr><td class="c cls">${esc(r.cls)}반</td><td class="c b gs">${r.n}</td><td class="c">${r.m}</td><td class="c">${r.f}</td><td class="c">${genderBar(r)}</td>${cell(r.inn, "", false, true)}${cell(r.out)}${flags.map((f, i) => cell(r.flags[f.key] || 0, level(f.key, r.flags[f.key] || 0), false, !i)).join("")}${cell(r.miss, "", true, true)}${cell(r.combo, "", true)}${cell(r.group, "", true)}</tr>`).join("")}
     </tbody><tfoot><tr><td class="c">합계</td><td class="c gs">${total}</td><td class="c">${sum(r => r.m)}</td><td class="c">${sum(r => r.f)}</td><td></td><td class="c gs">${sum(r => r.inn) || "–"}</td><td class="c">${sum(r => r.out) || "–"}</td>${flags.map((f, i) => `<td class="c${i ? "" : " gs"}">${sum(r => r.flags[f.key]) || "–"}</td>`).join("")}<td class="c gs">${sum(r => r.miss) || "–"}</td><td class="c">${sum(r => r.combo) || "–"}</td><td class="c">${sum(r => r.group) || "–"}</td></tr></tfoot></table>
