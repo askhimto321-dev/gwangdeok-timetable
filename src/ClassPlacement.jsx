@@ -397,7 +397,10 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const activeF = picked.length ? { label: picked.map(f => f.label).join(" · ") } : null;
       const canGo = (sid, c) => movableOk(sid).includes(Number(c));
       const toF = allView && !q ? toFilter || 0 : toFilter && toFilter !== curTab && !wide ? toFilter : 0;
-      const list = base.filter(e => passes(e)).filter(([sid, x]) => !toF || (canGo(sid, toF) && Number(x.cls) !== toF)).sort((a, b) => (wide ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+      // '옮길 반'까지 건 학생(필터 칩 숫자도 이 학생들 기준)
+      const inTo = ([sid, x]) => !toF || (canGo(sid, toF) && Number(x.cls) !== toF);
+      const baseTo = base.filter(inTo);
+      const list = baseTo.filter(e => passes(e)).sort((a, b) => (wide ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
       const sm = summary.find(s => s.cls === curTab) || {};
       const cls = review.classes[curTab] || {};
       const flagCount = key => base.filter(([sid]) => (review.students[sid]?.marks?.[key] || []).length).length;
@@ -471,11 +474,11 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             {q && <div className="kpl-sres"><Search size={15} /><b>'{q}' 검색 결과 {list.length}명</b><small>모든 반에서 찾았어요. 새 반을 누르면 그 반으로 가요.</small><button type="button" data-kdn-bare onClick={() => setFind("")}><X size={13} /> 검색 지우기</button></div>}
             {fOpen && <div className="kpl-filter multi" role="group" aria-label="학생 필터">
               <div className="fhd"><small>같은 줄은 하나라도, 다른 줄끼리는 모두 맞는 학생</small></div>
-              {FGROUPS.map(([g, gl]) => <div key={g} className="frow"><small>{gl}</small>{FILTERS.filter(f => f.group === g).map(f => { const on = rowFilter.includes(f.key); const n = base.filter(e => passes(e, g) && f.test(e)).length; return <button key={f.key} type="button" data-kdn-bare aria-pressed={on} disabled={!n && !on} className={`t-${f.tone}${on ? " on" : ""}`} onClick={() => toggleFilter(f.key)}>{on && <Check size={12} />}{f.label} <b>{n}</b></button>; })}</div>)}
+              {FGROUPS.map(([g, gl]) => <div key={g} className="frow"><small>{gl}</small>{FILTERS.filter(f => f.group === g).map(f => { const on = rowFilter.includes(f.key); const n = baseTo.filter(e => passes(e, g) && f.test(e)).length; return <button key={f.key} type="button" data-kdn-bare aria-pressed={on} disabled={!n && !on} className={`t-${f.tone}${on ? " on" : ""}`} onClick={() => toggleFilter(f.key)}>{on && <Check size={12} />}{f.label} <b>{n}</b></button>; })}</div>)}
             </div>}
             {wide && activeF && <div className="kpl-dist" aria-label="반별 인원"><small>반별</small>{classes.map(c => { const n = list.filter(([, x]) => Number(x.cls) === c).length; return <button key={c} type="button" data-kdn-bare className={n ? "has" : ""} onClick={() => goClass(c)} title={`${c}반 명단으로`}>{c}반 <b>{n}</b></button>; })}</div>}
             <div className="scroll"><table className="kpl-grid">
-              <thead><tr>{wide && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{flagCount(f.key)}</small></th>)}<th className="c">메모</th><th className="c">이동</th></tr></thead>
+              <thead><tr>{wide && <th className="c">새 반</th>}<th className="c">구반-번호</th><th>이름</th><th className="c">분리희망</th>{STUDENT_FLAGS.map(f => <th key={f.key} className={`c fh t-${f.tone}`} title={f.hint}>{f.label}<small>{list.filter(([sid]) => (review.students[sid]?.marks?.[f.key] || []).length).length}</small></th>)}<th className="c">메모</th><th className="c">이동</th></tr></thead>
               <tbody>{list.map(([sid, s]) => { const item = review.students[sid] || {}; const memoN = (item.memos || []).length; const r = resultOf(sid); const moved = Number(s.cls) !== Number(s.orig); const targets = movableOk(sid); const g = genderOf(sid); const cs = combosOf(sid); const same = comboSame(sid); return <React.Fragment key={sid}>
                 <tr className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${courseBad.has(sid) ? " nocourse" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
                   {wide && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => goClass(s.cls)} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
