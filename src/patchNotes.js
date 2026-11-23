@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-23-b",
+    date: "2026-11-23",
+    title: "교과세특 AI 요청문 개선",
+    items: [
+      { audience: "staff", text: "교과담임 AI 도우미 요청문을 탐구 동기부터 교사 총평까지의 구성과 문장 원칙, 고치기 전·후 예시를 담아 다듬었어요." },
+    ],
+  },
+  {
     id: "2026-11-23-a",
     date: "2026-11-23",
     title: "반편성 수강 확인",
