@@ -376,8 +376,8 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       <p>반별 명단에서 '이동'으로 다른 반으로 옮기거나, 괜찮다면 그대로 두세요.</p>
       <div className="ft"><button type="button" className="kpl-btn" onClick={() => { setAlertSeen(v => ({ ...v, [groupAlert.sig]: true })); setGroupAlert(null); }}>이 반은 그만 알리기</button><button type="button" className="kpl-btn pri" onClick={() => setGroupAlert(null)}>확인</button></div>
     </div></div>}
-    <div className={`kpl-views ${placement.rooms ? "five" : "four"}`} role="tablist">
-      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["moves", "이동 결과", `${changedIds.length}명 바뀜`], ...(placement.rooms ? [["tt", "시간표 검증", ttBadN ? `문제 ${ttBadN}개 반` : "모두 가능"]] : []), ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`${curView === k ? "on" : ""}${(k === "check" && count("same")) || (k === "tt" && ttBadN) ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster" && !allView) openClassAlert(curTab); }}><b>{l}</b><span>{sub}</span></button>)}
+    <div className="kpl-views" role="tablist">
+      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["stats", "반별 현황", "그래프"], ["moves", "이동 결과", `${changedIds.length}명 바뀜`], ...(placement.rooms ? [["tt", "시간표 검증", ttBadN ? `문제 ${ttBadN}개 반` : "모두 가능"]] : []), ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`${curView === k ? "on" : ""}${(k === "check" && count("same")) || (k === "tt" && ttBadN) ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster" && !allView) openClassAlert(curTab); }}><b>{l}</b><span>{sub}</span></button>)}
     </div>
 
     {curView === "sep" && separation}
@@ -522,6 +522,33 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         </div>
       </>;
     })()}
+    {curView === "stats" && (() => {
+      // 반별 현황 그래프: 지표마다 반 10개 막대 + 평균선, 평균보다 크게 몰린 반(3명 이상, 평균의 1.6배 이상)은 진하게
+      const ids = c => Object.entries(placement.students).filter(([, x]) => Number(x.cls) === c).map(([id]) => id);
+      const byCls = Object.fromEntries(classes.map(c => [c, ids(c)]));
+      const marked = (c, key) => byCls[c].filter(id => (review.students[id]?.marks?.[key] || []).length).length;
+      const COLORS = { good: "#16a34a", warn: "#d97706", info: "#2563eb", bad: "#dc2626", mv: "#7c3aed" };
+      const metrics = [
+        ...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, color: COLORS[f.tone] || "#475569", unit: "명", val: c => marked(c, f.key), filter: f.key, low: f.key === "leader" })),
+        { key: "miss", label: "분리희망 미반영", color: "#dc2626", unit: "명", val: c => byCls[c].filter(id => missSet.has(id)).length, filter: "miss", alert: true },
+        { key: "comboSame", label: "조합 우려 같은 반", color: "#d97706", unit: "쌍", val: c => pickedPairs.filter(p => Number(placement.students[p.a]?.cls) === c && Number(placement.students[p.b]?.cls) === c).length + groupsIn(c).length, filter: "comboSame", alert: true },
+        ...(placement.rooms ? [{ key: "course", label: "수강 불가 과목", color: "#dc2626", unit: "명", val: c => byCls[c].filter(id => courseBad.has(id)).length, filter: "course", alert: true }] : []),
+      ];
+      const go = (c, f) => { setView("roster"); setTab(c); setFind(""); setToFilter(0); if (f) setRowFilter([f]); };
+      return <div className="kpl-stv">
+        <div className="note"><b>반별 현황</b><small>표시와 배정 점검을 반끼리 비교해요. 점선은 반 평균, 진한 막대는 평균보다 크게 몰린 반이에요. 막대를 누르면 그 반 명단을 그 조건으로 걸러서 열어요.</small></div>
+        <section className="gcard wide"><header><b>남녀 비율</b><small>반마다 남(파랑)·여(분홍) 인원</small></header>
+          <div className="gender">{summary.map(x => <button key={x.cls} type="button" data-kdn-bare onClick={() => go(x.cls)} title={`${x.cls}반 남 ${x.m}명 · 여 ${x.f}명`}><span className="lab">{x.cls}반</span><span className="bar"><i className="m" style={{ flex: x.m || 0.0001 }}>{x.m}</i><i className="f" style={{ flex: x.f || 0.0001 }}>{x.f}</i></span><span className="n">{x.n}명</span></button>)}</div></section>
+        <div className="grid">{metrics.map(m => { const vals = classes.map(c => m.val(c)); const total = vals.reduce((a, b) => a + b, 0); const avg = total / Math.max(1, classes.length); const max = Math.max(1, ...vals, Math.ceil(avg));
+          const hot = v => (m.low ? v === 0 : v >= 3 && v >= avg * 1.6) || (m.alert && v > 0);
+          return <section key={m.key} className={`gcard${m.low ? " low" : ""}`} style={{ "--c": m.color }}><header><i className="sw" /><b>{m.label}</b><small>합계 {total}{m.unit} · 평균 {avg.toFixed(1)}</small></header>
+            <div className="chart"><span className="avg" style={{ bottom: `${(avg / max) * 100}%` }} title={`평균 ${avg.toFixed(1)}`} />
+              {classes.map((c, k) => { const v = vals[k]; return <button key={c} type="button" data-kdn-bare className={`col${hot(v) ? " hot" : ""}${v ? "" : " zero"}`} onClick={() => go(c, m.filter)} title={`${c}반 ${m.label} ${v}${m.unit}${hot(v) ? (m.low ? " · 없음" : " · 몰림") : ""}`}><span className="v">{m.low && !v ? "없음" : v}</span><span className="b" style={{ height: `${(v / max) * 100}%` }} /></button>; })}
+              {!total && <span className="allzero">모든 반 0{m.unit}</span>}
+            </div>
+            <div className="xs">{classes.map(c => <span key={c}>{c}반</span>)}</div>
+          </section>; })}</div>
+      </div>; })()}
     {curView === "tt" && placement.rooms && (() => {
       const sel = ttCheck.find(x => x.cls === ttSel) || ttCheck.find(x => x.bad) || ttCheck[0];
       const badIds = x => Array.from(new Set(x.sems.flatMap(t => t.bad.map(b => b.id))));
@@ -1232,4 +1259,24 @@ const CSS = `
 .kpl-ctabs2 .io{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;margin-top:4px}
 .kpl-ctabs2 .io i{font-style:normal;padding:0 6px;border-radius:5px;font-size:10.5px;font-weight:800;line-height:1.6;white-space:nowrap}
 .kpl-ctabs2 .io i.in{background:#dcfce7;color:#15803d}.kpl-ctabs2 .io i.out{background:#ffedd5;color:#c2410c}.kpl-ctabs2 .io i.chg{background:#ede9fe;color:#6d28d9}
+
+.kpl-stv{display:grid;gap:12px}.kpl-stv .note{display:grid;gap:3px;padding:12px 16px;border-radius:14px;border:1px solid #bfdbfe;background:#eff6ff}.kpl-stv .note b{font-size:15px;color:#1d4ed8}.kpl-stv .note small{font-size:13px;color:#334155;line-height:1.55}
+.kpl-stv .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.kpl-stv .gcard{display:grid;gap:8px;padding:14px 16px 12px;border-radius:14px;border:1px solid var(--kdn-line,#e5e7eb);background:var(--kdn-surface,#fff)}
+.kpl-stv .gcard header{display:flex;align-items:center;gap:8px}.kpl-stv .gcard header b{font-size:14.5px}.kpl-stv .gcard header small{margin-left:auto;font-size:12px;color:var(--kdn-muted,#6b7280)}.kpl-stv .gcard .sw{width:10px;height:10px;border-radius:3px;background:var(--c)}
+.kpl-stv .chart{position:relative;display:grid;grid-template-columns:repeat(var(--n,10),minmax(0,1fr));align-items:end;gap:6px;height:130px;padding-top:16px;border-bottom:1px solid #cbd5e1}
+.kpl-stv .chart{grid-template-columns:repeat(auto-fit,minmax(0,1fr))}
+.kpl-stv .chart .avg{position:absolute;left:0;right:0;border-top:1.5px dashed #94a3b8;pointer-events:none}
+.kpl-stv .chart .col{position:relative;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;border:0;background:transparent;padding:0;cursor:pointer;font:inherit}
+.kpl-stv .chart .col:hover{background:rgba(15,23,42,.04);border-radius:6px 6px 0 0}
+.kpl-stv .chart .b{display:block;width:100%;max-width:26px;min-height:0;border-radius:4px 4px 0 0;background:color-mix(in srgb,var(--c) 38%,#fff)}
+.kpl-stv .chart .col.hot .b{background:var(--c)}
+.kpl-stv .chart .v{font-size:11.5px;font-weight:800;color:var(--kdn-ink-soft,#374151);margin-bottom:2px;font-variant-numeric:tabular-nums}.kpl-stv .chart .col.zero .v{color:#cbd5e1}.kpl-stv .chart .col.hot .v{color:var(--kdn-ink,#111827)}
+.kpl-stv .xs{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));gap:6px;font-size:11px;color:var(--kdn-muted,#6b7280);text-align:center}
+.kpl-stv .gender{display:grid;gap:5px}.kpl-stv .gender button{display:grid;grid-template-columns:44px 1fr 44px;align-items:center;gap:8px;border:0;background:transparent;padding:2px 0;font:inherit;cursor:pointer}.kpl-stv .gender button:hover .bar{opacity:.85}
+.kpl-stv .gender .lab{font-size:12.5px;font-weight:800;text-align:right}.kpl-stv .gender .n{font-size:12px;color:var(--kdn-muted,#6b7280)}
+.kpl-stv .gender .bar{display:flex;gap:2px;height:18px}.kpl-stv .gender .bar i{display:flex;align-items:center;padding:0 6px;font-style:normal;font-size:11px;font-weight:800;color:#fff;min-width:0;overflow:hidden}.kpl-stv .gender .bar i.m{background:#3b82f6;border-radius:4px 0 0 4px}.kpl-stv .gender .bar i.f{background:#ec4899;border-radius:0 4px 4px 0;justify-content:flex-end}
+
+.kpl-stv .gcard.low .chart .b{background:var(--c)}.kpl-stv .chart .col.hot.zero .v{color:#dc2626!important;font-size:11px}
+.kpl-stv .chart .allzero{position:absolute;inset:16px 0 0;display:grid;place-items:center;font-size:12.5px;font-weight:700;color:var(--kdn-muted,#9ca3af);pointer-events:none}
 `;
