@@ -3,7 +3,7 @@
 // ③ 선생님들이 학생·반에 검토 표시를 남기고 ④ 이동 결과를 한눈에 보고 엑셀로 받아요.
 // 보기·검토 표시·이동: 반편성 탭을 볼 수 있는 교직원(이동은 기록되고 되돌릴 수 있음) / 파일 올리기·지우기: 관리자·부서·학년부장
 import React from "react";
-import { AlertTriangle, Check, Printer, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, ListChecks, ShieldCheck, Check, Printer, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { readStorage, updateStorage, writeStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs } from "./classSeparation.js";
@@ -377,7 +377,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       <div className="ft"><button type="button" className="kpl-btn" onClick={() => { setAlertSeen(v => ({ ...v, [groupAlert.sig]: true })); setGroupAlert(null); }}>이 반은 그만 알리기</button><button type="button" className="kpl-btn pri" onClick={() => setGroupAlert(null)}>확인</button></div>
     </div></div>}
     <div className="kpl-views" role="tablist">
-      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["stats", "반별 현황", "그래프"], ["moves", "이동 결과", `${changedIds.length}명 바뀜`], ...(placement.rooms ? [["tt", "시간표 검증", ttBadN ? `문제 ${ttBadN}개 반` : "모두 가능"]] : []), ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`${curView === k ? "on" : ""}${(k === "check" && count("same")) || (k === "tt" && ttBadN) ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster" && !allView) openClassAlert(curTab); }}><b>{l}</b><span>{sub}</span></button>)}
+      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["stats", "반별 현황", "그래프"], ["moves", "이동 결과", `${changedIds.length}명 바뀜`], ...(placement.rooms ? [["tt", "시간표 검증", ttBadN ? `문제 ${ttBadN}개 반` : "모두 가능"]] : []), ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => { const Ic = { sep: ClipboardList, roster: Users, stats: BarChart3, moves: ArrowLeftRight, tt: CalendarCheck, check: ShieldCheck }[k] || ListChecks; return <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`vt-${k}${curView === k ? " on" : ""}${(k === "check" && count("same")) || (k === "tt" && ttBadN) ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster" && !allView) openClassAlert(curTab); }}><Ic size={16} className="vi" /><b>{l}</b><span>{sub}</span></button>; })}
     </div>
 
     {curView === "sep" && separation}
@@ -537,9 +537,15 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const go = (c, f) => { setView("roster"); setTab(c); setFind(""); setToFilter(0); if (f) setRowFilter([f]); };
       return <div className="kpl-stv">
         <div className="note"><b>반별 현황</b><small>표시와 배정 점검을 반끼리 비교해요. 점선은 반 평균, 진한 막대는 평균보다 크게 몰린 반이에요. 막대를 누르면 그 반 명단을 그 조건으로 걸러서 열어요.</small></div>
+        <section className="gcard wide heat"><header><b>한눈에 보기</b><small>칸이 진할수록 그 반에 많아요 · 칸을 누르면 그 반 명단을 그 조건으로 열어요</small></header>
+          <div className="hscroll"><table className="hm"><thead><tr><th />{classes.map(c => <th key={c}>{c}반</th>)}<th className="sum">합계</th></tr></thead><tbody>
+            {metrics.map(m => { const vals = classes.map(c => m.val(c)); const max = Math.max(1, ...vals); const total = vals.reduce((a, b) => a + b, 0); return <tr key={m.key} style={{ "--c": m.color }}><th><i className="sw" />{m.label}</th>
+              {vals.map((v, k) => { const a = m.low ? (v ? 0.12 + 0.5 * (v / max) : 0) : (v ? 0.14 + 0.76 * (v / max) : 0); const dark = !m.low && v / max > 0.55; return <td key={k}><button type="button" data-kdn-bare className={`${v ? "" : "z"}${m.low && !v ? " none" : ""}${dark ? " dk" : ""}`} style={{ "--a": a }} onClick={() => go(classes[k], m.filter)} title={`${classes[k]}반 ${m.label} ${v}${m.unit}`}>{m.low && !v ? "없음" : v}</button></td>; })}
+              <td className="sum">{total}</td></tr>; })}
+          </tbody></table></div></section>
         <section className="gcard wide"><header><b>남녀 비율</b><small>반마다 남(파랑)·여(분홍) 인원</small></header>
           <div className="gender">{summary.map(x => <button key={x.cls} type="button" data-kdn-bare onClick={() => go(x.cls)} title={`${x.cls}반 남 ${x.m}명 · 여 ${x.f}명`}><span className="lab">{x.cls}반</span><span className="bar"><i className="m" style={{ flex: x.m || 0.0001 }}>{x.m}</i><i className="f" style={{ flex: x.f || 0.0001 }}>{x.f}</i></span><span className="n">{x.n}명</span></button>)}</div></section>
-        <div className="grid">{metrics.map(m => { const vals = classes.map(c => m.val(c)); const total = vals.reduce((a, b) => a + b, 0); const avg = total / Math.max(1, classes.length); const max = Math.max(1, ...vals, Math.ceil(avg));
+        <div className="grid">{metrics.filter(m => classes.some(c => m.val(c))).map(m => { const vals = classes.map(c => m.val(c)); const total = vals.reduce((a, b) => a + b, 0); const avg = total / Math.max(1, classes.length); const max = Math.max(1, ...vals, Math.ceil(avg));
           const hot = v => (m.low ? v === 0 : v >= 3 && v >= avg * 1.6) || (m.alert && v > 0);
           return <section key={m.key} className={`gcard${m.low ? " low" : ""}`} style={{ "--c": m.color }}><header><i className="sw" /><b>{m.label}</b><small>합계 {total}{m.unit} · 평균 {avg.toFixed(1)}</small></header>
             <div className="chart"><span className="avg" style={{ bottom: `${(avg / max) * 100}%` }} title={`평균 ${avg.toFixed(1)}`} />
@@ -548,6 +554,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             </div>
             <div className="xs">{classes.map(c => <span key={c}>{c}반</span>)}</div>
           </section>; })}</div>
+        {(() => { const zero = metrics.filter(m => !classes.some(c => m.val(c))); return zero.length > 0 && <p className="zline">모든 반 0: {zero.map(m => m.label).join(" · ")}</p>; })()}
       </div>; })()}
     {curView === "tt" && placement.rooms && (() => {
       const sel = ttCheck.find(x => x.cls === ttSel) || ttCheck.find(x => x.bad) || ttCheck[0];
@@ -1300,4 +1307,26 @@ const CSS = `
 .kpl-ttv .sem .obn{padding:6px 10px;font-size:13px!important}.kpl-ttv .sem .none{padding:6px 10px}
 .kpl-ttv ul.bad{font-size:12.5px!important}.kpl-ttv ul.bad b{font-size:13px}
 .kpl-ttv>.kpl-nil{font-size:12px!important}
+
+/* 위 탭: 아이콘·구분선·밑줄 */
+.kpl-views{gap:0!important;padding:0!important;border-radius:14px!important;background:var(--kdn-surface,#fff)!important;border:1px solid var(--kdn-line,#e5e7eb)!important;overflow:hidden}
+.kpl-views button{position:relative;border-radius:0!important;min-height:48px!important;gap:7px!important;color:var(--kdn-ink-soft,#4b5563)!important}
+.kpl-views button+button::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:1px;background:var(--kdn-line,#e5e7eb)}
+.kpl-views button .vi{flex:none;color:var(--kdn-muted,#9ca3af)}
+.kpl-views button:hover{background:var(--kdn-surface-2,#f8fafc)!important}
+.kpl-views button.on{background:#eff6ff!important;color:#1d4ed8!important;box-shadow:inset 0 -3px 0 #2563eb!important}.kpl-views button.on .vi{color:#2563eb}
+.kpl-views button.on span{background:#dbeafe!important;color:#1d4ed8!important}
+.kpl-views button.alert span{background:#fee2e2!important;color:#b91c1c!important}
+@media (max-width:900px){.kpl-views{flex-wrap:wrap}.kpl-views button{flex:1 1 32%}.kpl-views button+button::before{display:none}}
+/* 히트맵 */
+.kpl-stv .hscroll{overflow-x:auto}
+.kpl-stv .hm{width:100%;border-collapse:separate;border-spacing:3px;font-size:12.5px;min-width:560px}
+.kpl-stv .hm th{font-size:12px;font-weight:800;color:var(--kdn-muted,#6b7280);text-align:center;padding:2px 4px;white-space:nowrap}
+.kpl-stv .hm tbody th{text-align:left;color:var(--kdn-ink,#111827);font-size:12.5px;padding-right:10px}.kpl-stv .hm tbody th .sw{display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--c);margin-right:6px}
+.kpl-stv .hm td{padding:0}.kpl-stv .hm td button{display:block;width:100%;min-width:38px;height:30px;border:0;border-radius:6px;background:color-mix(in srgb,var(--c) calc(var(--a) * 100%),#f8fafc);font:inherit;font-size:12.5px;font-weight:800;color:var(--kdn-ink,#111827);cursor:pointer;font-variant-numeric:tabular-nums}
+.kpl-stv .hm td button.dk{color:#fff}.kpl-stv .hm td button.z{color:#cbd5e1;background:#f8fafc}.kpl-stv .hm td button.none{background:#fee2e2;color:#b91c1c;font-size:11.5px}
+.kpl-stv .hm td button:hover{outline:2px solid var(--c);outline-offset:-2px}
+.kpl-stv .hm td.sum{text-align:center;font-weight:800;color:var(--kdn-ink-soft,#374151)}.kpl-stv .hm th.sum{color:var(--kdn-ink-soft,#374151)}
+
+.kpl-stv .zline{margin:0;padding:10px 14px;border-radius:10px;background:var(--kdn-surface-2,#f8fafc);border:1px dashed var(--kdn-line,#e2e8f0);font-size:12.5px;color:var(--kdn-muted,#6b7280)}
 `;
