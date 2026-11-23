@@ -49,6 +49,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   const toggleFilter = key => setRowFilter(v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]));
   const [toFilter, setToFilter] = React.useState(0);
   const [printOpen, setPrintOpen] = React.useState(false);
+  const [ttSel, setTtSel] = React.useState(0);
   const [printOpt, setPrintOpt] = React.useState({ scope: "all", overview: true, roster: true, memos: true }); // 이 반으로 옮길 수 있는 학생만
   const input = React.useRef(null);
   const me = { id: String(actor?.id || actor?.name || "me"), name: String(actor?.name || "선생님") };
@@ -418,24 +419,27 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
           {!wide && <aside className="kpl-side2">
             <header><b>{nextGrade}학년 {curTab}반</b><span>{sm.n}명</span></header>
             <div className="gender"><span className="m">남 {sm.m}</span><span className="bar"><i style={{ width: `${mPct}%` }} /></span><span className="f">여 {sm.f}</span></div>
-            <div className="stat-list">
-              <h6>학생 표시</h6>
-              <Stat icon="good" label="리더 후보" n={flagCount("leader")} unit="명" tone={flagCount("leader") ? "" : "warn"} hint="선생님들이 리더 후보로 표시한 학생" />
-              <Stat icon="info" label="배려 필요" n={flagCount("care")} unit="명" />
-              <Stat icon="bad" label="생활지도 주의" n={flagCount("guide")} unit="명" />
-              <Stat icon="mv" label="이동 희망" n={flagCount("move")} unit="명" hint="다른 반으로 옮기는 게 좋겠다고 표시한 학생" />
-              <h6>배정 점검</h6>
-              <Stat icon="bad" label="분리희망 미반영" n={missN} unit="명" tone={missN ? "bad" : ""} />
-              <Stat icon="warn" label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} hint="학생마다 지목한 조합 상대가 같은 반인 쌍" />
-              <Stat icon="warn" label="조합 그룹 같은 반" n={groupN} unit="그룹" tone={groupN ? "bad" : ""} hint="같은 조합 그룹 학생이 이 반에 2명 이상인 그룹" />
-              {placement.rooms && (() => { const n = base.filter(([sid]) => courseBad.has(sid)).length; return <Stat icon="bad" label="수강 불가 과목" n={n} unit="명" tone={n ? "bad" : ""} hint="옮겨 와서 이 반 원반 시간과 겹쳐 들을 수 없는 과목이 생긴 학생" />; })()}
-              <Stat icon="mv" label="받은 학생" n={sm.inn || 0} unit="명" hint="이동으로 이 반에 온 학생" />
-              <Stat icon="mv" label="보낸 학생" n={sm.out || 0} unit="명" hint="이동으로 다른 반에 간 학생" />
-            </div>
-            {placement.kind === "program" && <div className="blk"><h5>원반 과목</h5>{placement.rooms ? (() => { const o = placement.rooms.ob?.[curTab] || {}; const sems = Object.keys(placement.rooms.letters || {}); return <div className="obs">{sems.map(sem => <div key={sem} className="r"><small>{sem}학기</small>{(o[sem] || []).length ? (o[sem] || []).map(x => <span key={x}>{x}</span>) : <em>없음</em>}</div>)}</div>; })() : ob.length ? <div className="ob">{ob.map(x => <span key={x}>{x}</span>)}</div> : <p className="nil">없음 (원반 과목 제한 없음)</p>}</div>}
-            {placement.rooms && (() => { const bad = base.filter(([sid]) => courseBad.has(sid)); return <div className="blk"><h5>수강 불가 과목 <small>옮겨 온 학생</small></h5>{bad.length ? <ul className="cbl">{bad.map(([sid]) => <li key={sid}><button type="button" data-kdn-bare onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }}>{nameOf(sid)}</button><span>{courseBad.get(sid).map(i => `${i.n}(${i.sem}학기)`).join(", ")}</span></li>)}</ul> : <p className="nil">없음 · 이 반 학생 모두 들을 수 있어요</p>}</div>; })()}
-            <div className="blk"><h5>반 점검 <small>해당되면 체크</small></h5><ul className="chk">{CLASS_CHECKS.map(c => { const marks = cls.marks?.[c.key] || []; const mine = marks.some(m => m.byId === me.id); return <li key={c.key}><button type="button" data-kdn-bare className={`${marks.length ? "on" : ""}${mine ? " mine" : ""}`} title={c.hint} onClick={() => toggleMark("classes", curTab, c.key)}><i>{mine ? "✓" : ""}</i><span>{c.label}</span>{marks.length ? <small>{marks.map(m => m.by).join(", ")}</small> : null}</button></li>; })}</ul></div>
-            <div className="blk"><h5>반 의견</h5><Memos item={cls} me={me} onAdd={t => addMemo("classes", curTab, t)} onRemove={at => removeMemo("classes", curTab, at)} placeholder="예: 리더 후보가 없어 교환 검토" /></div>
+            {(() => { const courseN = placement.rooms ? base.filter(([sid]) => courseBad.has(sid)).length : 0; const fixedN = placement.rooms ? base.filter(([sid, x]) => !movableOk(sid).some(c => Number(c) !== Number(x.cls))).length : 0;
+              const T = ({ label, n, unit = "명", tone = "", hint = "" }) => <div className={`tile ${tone}`} title={hint}><small>{label}</small><b>{n}<em>{unit}</em></b></div>;
+              return <div className="tiles">
+                <h6>학생 표시</h6>
+                <T label="리더 후보" n={flagCount("leader")} tone={flagCount("leader") ? "good" : "warn"} hint="선생님들이 리더 후보로 표시한 학생" />
+                <T label="배려 필요" n={flagCount("care")} />
+                <T label="생활지도 주의" n={flagCount("guide")} tone={flagCount("guide") ? "bad" : ""} />
+                <T label="이동 희망" n={flagCount("move")} hint="다른 반으로 옮기는 게 좋겠다고 표시한 학생" />
+                <h6>배정 점검</h6>
+                <T label="분리희망 미반영" n={missN} tone={missN ? "bad" : ""} />
+                <T label="조합 우려 같은 반" n={comboN} unit="쌍" tone={comboN ? "bad" : ""} hint="학생마다 지목한 조합 상대가 같은 반인 쌍" />
+                <T label="조합 그룹 같은 반" n={groupN} unit="그룹" tone={groupN ? "bad" : ""} hint="같은 조합 그룹 학생이 이 반에 2명 이상인 그룹" />
+                {placement.rooms && <T label="수강 불가 과목" n={courseN} tone={courseN ? "bad" : ""} hint="옮겨 와서 들을 수 없는 과목이 생긴 학생" />}
+                {placement.rooms && <T label="이동 불가(고정)" n={fixedN} hint="원반 과목·시간표 규칙상 다른 반으로 못 가는 학생" />}
+                <T label="받은 · 보낸" n={`${sm.inn || 0} · ${sm.out || 0}`} unit="" hint="이동으로 이 반에 온 학생 · 다른 반에 간 학생" />
+              </div>; })()}
+            {placement.kind === "program" && <div className="blk row"><h5>원반 과목</h5>{placement.rooms ? (() => { const o = placement.rooms.ob?.[curTab] || {}; const sems = Object.keys(placement.rooms.letters || {}); return <div className="obs">{sems.map(sem => <span key={sem} className="r"><small>{sem}학기</small>{(o[sem] || []).length ? (o[sem] || []).map(x => <i key={x}>{x}</i>) : <em>없음</em>}</span>)}</div>; })() : ob.length ? <div className="ob">{ob.map(x => <span key={x}>{x}</span>)}</div> : <p className="nil">없음</p>}</div>}
+            {placement.rooms && (() => { const bad = base.filter(([sid]) => courseBad.has(sid)); return bad.length > 0 && <div className="blk"><h5>수강 불가 과목 <small>옮겨 온 학생</small></h5><ul className="cbl">{bad.map(([sid]) => <li key={sid}><button type="button" data-kdn-bare onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }}>{nameOf(sid)}</button><span>{courseBad.get(sid).map(i => `${i.n}(${i.sem}학기)`).join(", ")}</span></li>)}</ul></div>; })()}
+            {(() => { const on = CLASS_CHECKS.filter(c => (cls.marks?.[c.key] || []).length); return <details className="blk fold"><summary><h5>반 점검</h5>{on.length ? on.map(c => <span key={c.key} className="pill">{c.label}</span>) : <small>체크 없음</small>}</summary>
+              <ul className="chk">{CLASS_CHECKS.map(c => { const marks = cls.marks?.[c.key] || []; const mine = marks.some(m => m.byId === me.id); return <li key={c.key}><button type="button" data-kdn-bare className={`${marks.length ? "on" : ""}${mine ? " mine" : ""}`} title={c.hint} onClick={() => toggleMark("classes", curTab, c.key)}><i>{mine ? "✓" : ""}</i><span>{c.label}</span>{marks.length ? <small>{marks.map(m => m.by).join(", ")}</small> : null}</button></li>; })}</ul></details>; })()}
+            <details className="blk fold"><summary><h5>반 의견</h5><small>{(cls.memos || []).length ? `${(cls.memos || []).length}개` : "없음"}</small></summary><Memos item={cls} me={me} onAdd={t => addMemo("classes", curTab, t)} onRemove={at => removeMemo("classes", curTab, at)} placeholder="예: 리더 후보가 없어 교환 검토" /></details>
           </aside>}
           <section className="kpl-tbl">
             <div className="tools"><label className="kpl-find"><Search size={14} /><input value={find} onChange={e => setFind(e.target.value)} placeholder="이름·구반-번호로 전체에서 찾기(예: 4-15)" /></label>
@@ -467,9 +471,9 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                 <tr className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${courseBad.has(sid) ? " nocourse" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
                   {wide && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => goClass(s.cls)} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
                   <td className="c no">{oldLabel(sid)}</td>
-                  <td className="nm"><div className="nl"><button type="button" data-kdn-bare className={`nmb${openSid === sid && openKind === "sep" ? " on" : ""}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title="눌러서 분리희망·조합 상대 보기">{s.name || roster[sid]?.name || sid}</button>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}</div>{(courseBad.has(sid) || moved || moveInfo.has(sid)) && <div className="tags">{courseBad.has(sid) && <button type="button" data-kdn-bare className="cbad" onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={courseBad.get(sid).map(courseIssueText).join("\n")}><AlertTriangle size={11} /> 수강 불가 {courseBad.get(sid).length}</button>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null;
+                  <td className="nm"><div className="nl"><button type="button" data-kdn-bare className={`nmb${openSid === sid && openKind === "sep" ? " on" : ""}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title="눌러서 분리희망·조합 상대 보기">{s.name || roster[sid]?.name || sid}</button>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}</div>{(() => { const fixed = canMove && !targets.length; return (courseBad.has(sid) || moved || moveInfo.has(sid) || fixed) && <div className="tags">{fixed && <span className="fixed" title="원반 과목·시간표 규칙상 옮길 수 있는 다른 반이 없어요">🔒 {s.cls}반 고정</span>}{courseBad.has(sid) && <button type="button" data-kdn-bare className="cbad" onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={courseBad.get(sid).map(courseIssueText).join("\n")}><AlertTriangle size={11} /> 수강 불가 {courseBad.get(sid).length}</button>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null;
                     if (!moved) { const pth = pathOf(sid); return <span className="mvbadge back" title={`이동 기록: ${pth.map(c => `${c}반`).join(" → ")}`}><RotateCcw size={11} />{pth.slice(1, -1).map(c => `${c}반`).join("·")} 다녀옴 · 초기 반</span>; } const from = mi && Number(mi.to) === Number(s.cls) ? mi.from : s.orig;
-                    return <span className={`mvbadge${mi?.partner ? " sw" : ""}`} title={mi ? `${mi.from}반 → ${mi.to}반${mi.partner ? ` · 맞바꾼 학생: ${nameOf(mi.partner)}` : ""} · ${mi.by || ""} ${fmt(mi.at)}` : ""}><ArrowLeftRight size={11} />{from}반에서 옴{mi?.partner ? <> · 맞바꾼 학생 <b>{nameOf(mi.partner)}</b></> : ""}</span>; })()}</div>}</td>
+                    return <span className={`mvbadge${mi?.partner ? " sw" : ""}`} title={mi ? `${mi.from}반 → ${mi.to}반${mi.partner ? ` · 맞바꾼 학생: ${nameOf(mi.partner)}` : ""} · ${mi.by || ""} ${fmt(mi.at)}` : ""}><ArrowLeftRight size={11} />{from}반에서 옴{mi?.partner ? <> · 맞바꾼 학생 <b>{nameOf(mi.partner)}</b></> : ""}</span>; })()}</div>; })()}</td>
                   <td className="c">{r ? <button type="button" data-kdn-bare className={`st ${STATUS[r.status].tone}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"} {r.items.length}</button> : <span className="dash">-</span>}</td>
                   {STUDENT_FLAGS.map(f => { const marks = item.marks?.[f.key] || []; const mine = marks.some(m => m.byId === me.id); const isCombo = f.key === "combo"; return <td key={f.key} className="c fc">
                     <button type="button" data-kdn-bare className={`ck t-${f.tone}${marks.length ? " on" : ""}${mine ? " mine" : ""}`} title={`${f.label}: ${f.hint}${marks.length ? `\n표시: ${marks.map(m => m.by).join(", ")}` : "\n눌러서 표시"}`} onClick={() => { toggleMark("students", sid, f.key); if (isCombo && !mine) { openPanel(sid, "combo", false); setMoveSid(""); } }}>{marks.length ? (marks.length > 1 ? marks.length : "✓") : ""}</button>
@@ -506,24 +510,27 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         </div>
       </>;
     })()}
-    {curView === "tt" && placement.rooms && <div className="kpl-ttv">
-      <div className="note"><b>반별 시간표 검증</b><small>반마다 공통 과목 5개 + 그룹(1학기 A~E, 2학기 F~I) 과목으로 시간표를 짤 수 있는지 봐요. 그룹 칸에는 그 반 학생이 그 시간에 듣는 과목과 인원이, 원반 시간에는 반 전체가 듣는 원반 과목이 나와요. 학생 한 명이라도 그룹 시간에 과목이 비거나 들을 수 없는 과목이 있으면 '문제'예요.</small></div>
-      <table className="kpl-pairs ttsum"><thead><tr><th className="c">반</th><th className="c">인원</th>{Object.keys(placement.rooms.letters).map(sem => <th key={sem} className="c">{sem}학기</th>)}<th>문제 학생</th></tr></thead><tbody>
-        {ttCheck.map(x => <tr key={x.cls} className={x.bad ? "bad" : ""}><td className="c"><a href={`#tt-${x.cls}`}><b>{x.cls}반</b></a></td><td className="c">{x.n}</td>{x.sems.map(t => <td key={t.sem} className="c">{t.bad.length ? <span className="no">✗ {t.bad.length}명</span> : <span className="ok">✓ 가능</span>}</td>)}<td>{x.bad ? Array.from(new Set(x.sems.flatMap(t => t.bad.map(b => b.id)))).map(id => nameOf(id)).join(", ") : <span className="dash">-</span>}</td></tr>)}
-      </tbody></table>
-      {ttCheck.map(x => <section key={x.cls} id={`tt-${x.cls}`} className={`card${x.bad ? " bad" : ""}`}>
-        <header><b>{x.cls}반</b><span>{x.n}명</span>{x.bad ? <em className="no">문제 학생 {Array.from(new Set(x.sems.flatMap(t => t.bad.map(b => b.id)))).length}명</em> : <em className="ok">시간표 가능</em>}<button type="button" data-kdn-bare className="go" onClick={() => { setView("roster"); setTab(x.cls); setFind(""); }}>명단 보기</button></header>
-        {x.sems.map(t => <div key={t.sem} className="sem">
-          <table><thead><tr><th className="sl" rowSpan={2}>{t.sem}학기</th><th colSpan={t.common.length} className="grp cm">공통 과목</th><th colSpan={t.letters.length} className="grp gr">그룹 과목</th></tr>
-            <tr>{t.common.map((n, i) => <th key={`c${i}`} className="cm">공통{i + 1}</th>)}{t.letters.map(l => <th key={l} className={t.blocked.includes(l) ? "ob" : "gr"}>{l}</th>)}</tr></thead>
-            <tbody><tr><td className="sl">과목<small>인원</small></td>{t.common.map((n, i) => <td key={`c${i}`} className="cm"><b>{n}</b><small>반 전체</small></td>)}
-              {t.letters.map(l => t.blocked.includes(l) ? <td key={l} className="ob"><b>{t.obc.join(", ") || "원반"}</b><small>원반 · 반 전체</small></td>
-                : <td key={l} className={t.slot[l].size ? "" : "empty"}>{t.slot[l].size ? Array.from(t.slot[l]).sort((a, b) => b[1] - a[1]).map(([n, k]) => <div key={n} className="sub"><span>{n}</span><i>{k}</i></div>) : "—"}</td>)}</tr></tbody></table>
-          {t.bad.length > 0 && <ul className="bad">{t.bad.map(b => <li key={b.id}><b>{nameOf(b.id)}</b> <small>{oldLabel(b.id)}</small> {b.why.map((w, i) => <em key={i}>{w}</em>)}</li>)}</ul>}
-        </div>)}
-      </section>)}
-      <p className="kpl-nil">공통 과목은 교육과정 편성표 기준이에요(음악·미술 감상과 비평은 1~{Math.ceil(classes.length / 2)}반과 {Math.ceil(classes.length / 2) + 1}~{classes[classes.length - 1]}반이 학기마다 엇갈려요).</p>
-    </div>}
+    {curView === "tt" && placement.rooms && (() => {
+      const sel = ttCheck.find(x => x.cls === ttSel) || ttCheck.find(x => x.bad) || ttCheck[0];
+      const badIds = x => Array.from(new Set(x.sems.flatMap(t => t.bad.map(b => b.id))));
+      return <div className="kpl-ttv">
+        <div className="note"><b>반별 시간표 검증</b><small>반마다 공통 과목 5개 + 그룹 과목(1학기 A~E, 2학기 F~I)으로 시간표를 짤 수 있는지 봐요. 반 학생 모두가 그룹마다 한 과목씩 들을 수 있으면 ✓예요(이동 반영).</small></div>
+        <div className="ctiles">{ttCheck.map(x => <button key={x.cls} type="button" data-kdn-bare className={`${x.bad ? "bad" : "ok"}${sel?.cls === x.cls ? " on" : ""}`} onClick={() => setTtSel(x.cls)}>
+          <b>{x.cls}반</b><span className="st">{x.bad ? `✗ ${badIds(x).length}명` : "✓ 가능"}</span><small>{x.sems.map(t => `${t.sem}학기 ${t.bad.length ? "✗" : "✓"}`).join(" · ")}</small></button>)}</div>
+        {sel && <section className={`card${sel.bad ? " bad" : ""}`}>
+          <header><b>{sel.cls}반</b><span>{sel.n}명</span>{sel.bad ? <em className="no">문제 학생 {badIds(sel).length}명</em> : <em className="ok">시간표 가능</em>}<button type="button" data-kdn-bare className="go" onClick={() => { setView("roster"); setTab(sel.cls); setFind(""); }}>명단 보기</button></header>
+          {sel.sems.map(t => <div key={t.sem} className="sem">
+            <div className="semh"><b>{t.sem}학기</b><span className="cm"><small>공통</small>{t.common.map(n => <i key={n}>{n}</i>)}</span></div>
+            <div className="grid" style={{ "--n": t.letters.length }}>{t.letters.map(l => <div key={l} className={`g${t.blocked.includes(l) ? " ob" : ""}${!t.blocked.includes(l) && !t.slot[l].size ? " empty" : ""}`}>
+              <div className="gl">{l}그룹{t.blocked.includes(l) && <small>원반</small>}</div>
+              {t.blocked.includes(l) ? <div className="obn">{t.obc.join(", ") || "원반 수업"}<small>반 전체</small></div>
+                : t.slot[l].size ? Array.from(t.slot[l]).sort((a, b) => b[1] - a[1]).map(([n, k]) => <div key={n} className="sub"><span>{n}</span><i>{k}</i></div>) : <div className="none">수업 없음</div>}
+            </div>)}</div>
+            {t.bad.length > 0 && <ul className="bad">{t.bad.map(b => <li key={b.id}><b>{nameOf(b.id)}</b> <small>{oldLabel(b.id)}</small> {b.why.map((w, k) => <em key={k}>{w}</em>)}</li>)}</ul>}
+          </div>)}
+        </section>}
+        <p className="kpl-nil">공통 과목은 교육과정 편성표 기준이에요(음악·미술 감상과 비평은 1~{Math.ceil(classes.length / 2)}반과 {Math.ceil(classes.length / 2) + 1}~{classes[classes.length - 1]}반이 학기마다 엇갈려요). 그룹 칸 숫자는 그 반에서 그 과목을 듣는 학생 수예요.</p>
+      </div>; })()}
     {curView === "check" && <>
       <div className="kpl-sum">
         <div><small>분리희망 쌍</small><b>{checked.length}</b></div>
@@ -950,7 +957,14 @@ const CSS = `
 .kpl-grid td .rst{display:flex;align-items:center;justify-content:center;gap:3px;margin:4px auto 0;height:26px;padding:0 9px;border-radius:8px;border:1px solid #c4b5fd;background:#f5f3ff;color:#6d28d9;font:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}.kpl-grid td .rst:hover{background:#7c3aed;border-color:#7c3aed;color:#fff}
 .kpl-grid .panel2.sepp .act{gap:8px}.kpl-grid .panel2.sepp .act .rst2{border-color:#c4b5fd;color:#6d28d9;background:#f5f3ff}
 .kpl-noinfo{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;padding:12px 16px;border-radius:14px;border:1.5px solid #fcd34d;background:#fffbeb;color:#92400e}.kpl-noinfo>div{flex:1 1 320px;display:grid;gap:2px}.kpl-noinfo b{font-size:14.5px}.kpl-noinfo small{font-size:13px;color:#78350f;line-height:1.5}
-.kpl-side2 .obs{display:grid;gap:5px}.kpl-side2 .obs .r{display:flex;flex-wrap:wrap;align-items:center;gap:4px}.kpl-side2 .obs small{min-width:40px;font-size:12px;font-weight:800;color:var(--kdn-muted,#64748b)}.kpl-side2 .obs span{padding:2px 9px;border-radius:7px;background:#ede9fe;color:#6d28d9;font-size:12.5px;font-weight:800}.kpl-side2 .obs em{font-style:normal;font-size:12.5px;color:var(--kdn-muted,#94a3b8)}
+.kpl-side2 .tiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px 12px;border-top:1px solid var(--kdn-line,#eef1f5);border-bottom:1px solid var(--kdn-line,#eef1f5)}.kpl-side2 .tiles h6{grid-column:1/-1;margin:4px 2px 0;font-size:11.5px;font-weight:800;color:var(--kdn-muted,#64748b)}
+.kpl-side2 .tile{display:grid;gap:0;padding:6px 9px;border-radius:9px;background:var(--kdn-surface-2,#f6f8fb);border:1px solid transparent;min-width:0}.kpl-side2 .tile small{font-size:11.5px;color:var(--kdn-ink-soft,#475569);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpl-side2 .tile b{font-size:17px;font-weight:800;line-height:1.2;font-variant-numeric:tabular-nums}.kpl-side2 .tile b em{font-style:normal;font-size:11.5px;font-weight:700;color:var(--kdn-muted,#64748b);margin-left:2px}
+.kpl-side2 .tile.bad{background:#fef2f2;border-color:#fecaca}.kpl-side2 .tile.bad b{color:#b91c1c}.kpl-side2 .tile.warn{background:#fffbeb;border-color:#fde68a}.kpl-side2 .tile.warn b{color:#b45309}.kpl-side2 .tile.good b{color:#15803d}
+.kpl-side2 .blk.row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.kpl-side2 .fold{padding:0!important}.kpl-side2 .fold summary{display:flex;flex-wrap:wrap;align-items:center;gap:5px;padding:11px 16px;cursor:pointer;list-style:none}.kpl-side2 .fold summary::-webkit-details-marker{display:none}.kpl-side2 .fold summary::after{content:"▾";margin-left:auto;color:var(--kdn-muted,#94a3b8);font-size:12px}.kpl-side2 .fold[open] summary::after{content:"▴"}
+.kpl-side2 .fold summary h5{margin-right:4px}.kpl-side2 .fold summary small{font-size:12px;color:var(--kdn-muted,#94a3b8)}.kpl-side2 .fold .pill{padding:1px 8px;border-radius:99px;background:#fef3c7;color:#b45309;font-size:11.5px;font-weight:800}.kpl-side2 .fold>.chk,.kpl-side2 .fold>.kpl-memos{padding:0 12px 12px}
+.kpl-grid td.nm .tags .fixed{display:inline-flex;align-items:center;gap:3px;border-radius:7px;background:#f1f5f9;color:#475569;font-weight:800;border:1px solid #cbd5e1}
+.kpl-side2 .obs{display:flex;flex-wrap:wrap;gap:4px 10px}.kpl-side2 .obs .r{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px}.kpl-side2 .obs i{font-style:normal;padding:2px 8px;border-radius:7px;background:#ede9fe;color:#6d28d9;font-size:12px;font-weight:800}.kpl-side2 .obs small{min-width:40px;font-size:12px;font-weight:800;color:var(--kdn-muted,#64748b)}.kpl-side2 .obs span{padding:2px 9px;border-radius:7px;background:#ede9fe;color:#6d28d9;font-size:12.5px;font-weight:800}.kpl-side2 .obs em{font-style:normal;font-size:12.5px;color:var(--kdn-muted,#94a3b8)}
 .kpl-side2 .cbl{list-style:none;margin:0;padding:0;display:grid;gap:5px}.kpl-side2 .cbl li{display:grid;gap:1px;padding:6px 8px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca}.kpl-side2 .cbl button{justify-self:start;border:0;background:transparent;padding:0;font:inherit;font-size:13.5px;font-weight:800;color:#991b1b;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}.kpl-side2 .cbl span{font-size:12.5px;color:#7f1d1d}
 .kpl-grid .cbad{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:2px 8px;border-radius:7px;border:1px solid #fca5a5;background:#fee2e2;color:#b91c1c;font:inherit;font-size:12px;font-weight:800;cursor:pointer;white-space:nowrap}
 .kpl-grid tr.nocourse td{background:#fff1f1!important}.kpl-grid tr.nocourse td.nm{box-shadow:inset 4px 0 0 #dc2626!important}
@@ -1064,7 +1078,17 @@ const CSS = `
 .kpl-views.four{grid-template-columns:repeat(4,minmax(0,1fr))}.kpl-views.five{grid-template-columns:repeat(5,minmax(0,1fr))}
 @media (max-width:900px){.kpl-views.five{grid-template-columns:repeat(3,minmax(0,1fr))}}
 .kpl-grid th.fh{white-space:normal!important;line-height:1.25;min-width:58px}
-.kpl-ttv{display:grid;gap:12px}.kpl-ttv .note{display:grid;gap:3px;padding:12px 16px;border-radius:14px;border:1px solid #bfdbfe;background:#eff6ff}.kpl-ttv .note b{font-size:15px;color:#1d4ed8}.kpl-ttv .note small{font-size:13px;color:#334155;line-height:1.55}
+.kpl-ttv{display:grid;gap:12px}
+.kpl-ttv .ctiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:8px}
+.kpl-ttv .ctiles button{display:grid;gap:2px;justify-items:start;padding:10px 12px;border-radius:12px;border:1.5px solid #bbf7d0;background:#f0fdf4;font:inherit;text-align:left;cursor:pointer}.kpl-ttv .ctiles button b{font-size:16px}.kpl-ttv .ctiles button .st{font-size:13px;font-weight:800;color:#15803d}.kpl-ttv .ctiles button small{font-size:11px;color:#64748b}
+.kpl-ttv .ctiles button.bad{border-color:#fca5a5;background:#fef2f2}.kpl-ttv .ctiles button.bad .st{color:#b91c1c}.kpl-ttv .ctiles button.on{box-shadow:0 0 0 3px #2563eb55;border-color:#2563eb}
+.kpl-ttv .sem .semh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}.kpl-ttv .sem .semh>b{font-size:15px}.kpl-ttv .sem .semh .cm{display:flex;flex-wrap:wrap;align-items:center;gap:4px}.kpl-ttv .sem .semh .cm small{font-size:12px;font-weight:800;color:#0369a1;margin-right:2px}.kpl-ttv .sem .semh .cm i{font-style:normal;padding:2px 9px;border-radius:7px;background:#e0f2fe;color:#075985;font-size:12.5px;font-weight:700}
+.kpl-ttv .sem .grid{display:grid;grid-template-columns:repeat(var(--n),minmax(0,1fr));border:1px solid #cbd5e1;border-radius:12px;overflow:hidden;background:var(--kdn-surface,#fff)}
+@media (max-width:760px){.kpl-ttv .sem .grid{grid-template-columns:1fr 1fr}}
+.kpl-ttv .sem .g{display:grid;align-content:start;gap:2px;padding:8px 10px 10px;border-left:1px solid #e2e8f0;min-width:0}.kpl-ttv .sem .g:first-child{border-left:0}
+.kpl-ttv .sem .gl{display:flex;align-items:center;gap:6px;margin:-8px -10px 6px;padding:6px 10px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:900;border-bottom:1px solid #fde68a}.kpl-ttv .sem .g.ob .gl{background:#ede9fe;color:#6d28d9;border-color:#ddd6fe}.kpl-ttv .sem .gl small{font-size:11px;font-weight:800}
+.kpl-ttv .sem .g.ob{background:#faf8ff}.kpl-ttv .sem .obn{font-size:13px;font-weight:800;color:#5b21b6}.kpl-ttv .sem .obn small{display:block;font-size:11px;font-weight:600;color:#7c3aed}
+.kpl-ttv .sem .g.empty{background:#fff5f5}.kpl-ttv .sem .none{font-size:12.5px;color:#b91c1c;font-weight:700}.kpl-ttv .note{display:grid;gap:3px;padding:12px 16px;border-radius:14px;border:1px solid #bfdbfe;background:#eff6ff}.kpl-ttv .note b{font-size:15px;color:#1d4ed8}.kpl-ttv .note small{font-size:13px;color:#334155;line-height:1.55}
 .kpl-ttv .ttsum tr.bad td{background:#fff5f5}.kpl-ttv .ttsum a{color:inherit;text-decoration:none}.kpl-ttv .ok{color:#15803d;font-weight:800}.kpl-ttv .no{color:#b91c1c;font-weight:800}
 .kpl-ttv .card{display:grid;gap:10px;padding:14px 16px;border-radius:14px;border:1.5px solid var(--kdn-line,#dbe1ea);background:var(--kdn-surface,#fff);scroll-margin-top:80px}.kpl-ttv .card.bad{border-color:#fca5a5}
 .kpl-ttv .card header{display:flex;flex-wrap:wrap;align-items:center;gap:8px}.kpl-ttv .card header b{font-size:18px}.kpl-ttv .card header span{font-size:13px;color:var(--kdn-muted,#64748b)}.kpl-ttv .card header em{font-style:normal;padding:2px 10px;border-radius:99px;font-size:12.5px}.kpl-ttv .card header em.ok{background:#dcfce7}.kpl-ttv .card header em.no{background:#fee2e2}
