@@ -641,9 +641,14 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const readOnlyView = useContext(ReadOnlyContext);
   // 활동 이름: 소감문 파일의 시트 이름이라 생기부 이름과 다를 수 있어요. 반에서 고쳐 두면 요청문에 그 이름이 들어가요('__cfg' an:원래이름).
   const refls = (reflections || []).map((item, i) => ({ ...item, key: item.id || `${item.activity}-${i}`, name: rec.textOf("__cfg", `an:${item.activity}`).trim() || item.activity }));
-  const [reflPick, setReflPick] = useState({});
-  useEffect(() => { setReflPick({}); }, [sid]);
-  const reflNotes = refls.filter(item => reflPick[item.key]).map(item => [`소감문: ${item.name} — 학생이 쓴 글, 활동 사실만 근거로`, item.response]);
+  // 소감문: 기본으로 모두 넣어요(선생님 기기에 기억, 끌 수 있음). 학생을 바꾸면 고른 것·단계·붙여넣은 답을 새로 시작해요.
+  const [reflAuto, setReflAutoRaw] = useState(() => { try { return localStorage.getItem("kd_rec_ai_reflauto") !== "0"; } catch { return true; } });
+  const setReflAuto = v => { setReflAutoRaw(v); try { localStorage.setItem("kd_rec_ai_reflauto", v ? "1" : "0"); } catch { /* 기억은 편의 기능 */ } };
+  const [reflPick, setReflPick] = useState(null);
+  useEffect(() => { setReflPick(null); setStep("prompt"); setAnswer(""); }, [sid]);
+  const reflOn = key => (reflPick ? !!reflPick[key] : reflAuto);
+  const toggleRefl = key => setReflPick(v => { const base = v || Object.fromEntries(refls.map(r => [r.key, reflAuto])); return { ...base, [key]: !base[key] }; });
+  const reflNotes = refls.filter(item => reflOn(item.key)).map(item => [`소감문: ${item.name} — 학생이 쓴 글, 활동 사실만 근거로`, item.response]);
   const hope = String(aiContext.hope || "").trim();
   const [useHope, setUseHope] = useState(true);
   // 활동마다 줄 바꾸기: 담임 자율·진로는 기본으로 켜고(여러 행사·활동), 소감문을 2개 이상 넣으면 켜요.
@@ -693,8 +698,8 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
         <p>'{target?.label}' 칸 요청문에 함께 보낼 자료를 골라요. 학생 이름은 들어가지 않아요.</p>
         <div className="krw-pick-body">
           <section><h4>누가기록 <small>선생님 관찰 기록</small></h4>{filledCats.length ? filledCats.map(c => <label key={c.key} className="opt"><input type="checkbox" checked={isPicked(c)} onChange={() => togglePick(c.key)} /><span><b>{c.label}</b><em>{clip(rec.textOf(sid, c.key), 90)}</em></span></label>) : <p className="none">이 학생 누가기록이 아직 없어요.</p>}</section>
-          {refls.length > 0 && <section><h4>학생 소감문 <small>학생이 쓴 글 · 사실 확인용</small></h4>{refls.map(item => <label key={item.key} className="opt"><input type="checkbox" checked={!!reflPick[item.key]} onChange={() => setReflPick(v => ({ ...v, [item.key]: !v[item.key] }))} /><span><b>{item.name}{item.date ? ` · ${item.date}` : ""}</b><em>{clip(item.response, 90)}</em>
-            {reflPick[item.key] && !readOnlyView && <span className="krw-actname" onClick={event => event.preventDefault()}>생기부에 쓸 활동 이름<input value={rec.textOf("__cfg", `an:${item.activity}`) || item.activity} onChange={event => rec.edit(`s|__cfg|an:${item.activity}`, event.target.value === item.activity ? "" : event.target.value)} /><small>반 전체에 적용돼요</small></span>}</span></label>)}</section>}
+          {refls.length > 0 && <section><h4>학생 소감문 <small>학생이 쓴 글 · 사실 확인용</small><label className="auto"><input type="checkbox" checked={reflAuto} onChange={event => { setReflAuto(event.target.checked); setReflPick(null); }} /> 학생마다 소감문 모두 자동으로 넣기</label></h4>{refls.map(item => <label key={item.key} className="opt"><input type="checkbox" checked={reflOn(item.key)} onChange={() => toggleRefl(item.key)} /><span><b>{item.name}{item.date ? ` · ${item.date}` : ""}</b><em>{clip(item.response, 90)}</em>
+            {reflOn(item.key) && !readOnlyView && <span className="krw-actname" onClick={event => event.preventDefault()}>생기부에 쓸 활동 이름<input value={rec.textOf("__cfg", `an:${item.activity}`) || item.activity} onChange={event => rec.edit(`s|__cfg|an:${item.activity}`, event.target.value === item.activity ? "" : event.target.value)} /><small>반 전체에 적용돼요</small></span>}</span></label>)}</section>}
           {aiContext.standardsFor && <section><h4>성취기준</h4>{stdList.length ? <label className="opt"><input type="checkbox" checked={useStd} onChange={event => setUseStd(event.target.checked)} /><span><b>이 활동 성취기준 {stdList.length}개</b><em>{stdList.map(item => item.code).join(" ")}</em></span></label> : <p className="none">연결한 성취기준이 없어요. '성취기준' 탭에서 연결해요.</p>}</section>}
           {aiContext.subject && <section><h4>쓰는 방식</h4>
             <label className="opt"><input type="checkbox" checked={useFrame} onChange={event => setUseFrame(event.target.checked)} /><span><b>교과세특 구성 틀</b><em>성취수준 → 수행 과정·결과 → 역량 → 교사 총평</em></span></label>
@@ -713,11 +718,12 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
         <button type="button" data-kdn-bare className="krw-btn pri copy" onClick={copy}><Copy size={14} /> 요청문 복사</button>
         <button type="button" data-kdn-bare className="krw-btn ai-claude" onClick={() => openAi("claude")} title="요청문을 담아 Claude 새 창 열기"><ExternalLink size={14} /> Claude</button>
         <button type="button" data-kdn-bare className="krw-btn ai-gpt" onClick={() => openAi("chatgpt")} title="요청문을 담아 ChatGPT 새 창 열기"><ExternalLink size={14} /> ChatGPT</button>
+        {aiContext.next && <button type="button" data-kdn-bare className="krw-btn next" onClick={aiContext.next} title="다음 학생으로 넘어가 요청문을 바로 만들어요(Alt+↓)">다음 학생 <ChevronRight size={14} /></button>}
       </div>
       <p className="krw-ai-tip">학교 방침에 맞는 AI를 써 주세요. 받은 답은 <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => setStep("answer")}>2 답 점검</button>에 붙여넣어 확인해요.</p>
     </div>}
     {step === "answer" && <div className="krw-ai-body">
-      <p className="krw-ai-lead">AI 답을 붙여넣으면 바이트와 기재요령을 바로 점검해요. <b>관찰하지 않은 내용</b>이 없는지 꼭 읽어 보세요.</p>
+      <p className="krw-ai-lead">AI 답을 붙여넣으면 바이트와 기재요령을 바로 점검해요. <b>관찰하지 않은 내용</b>이 없는지 꼭 읽어 보세요.{aiContext.next && <button type="button" data-kdn-bare className="krw-linkbtn nextlink" onClick={aiContext.next}>다음 학생 요청문으로 →</button>}</p>
       {filledCats.length > 0 && <div className="krw-ai-load"><select value={loadKey || defaultLoad} onChange={event => setLoadKey(event.target.value)} aria-label="가져올 누가기록">{filledCats.map(c => <option key={c.key} value={c.key}>{c.label} 누가기록</option>)}</select><button type="button" data-kdn-bare className="krw-btn" onClick={() => { const text = rec.textOf(sid, loadKey || defaultLoad); setAnswer(value => value.trim() ? `${value.trim()}\n${text}` : text); }}><ClipboardPaste size={14} /> 누가기록 가져오기</button></div>}
       <textarea value={answer} spellCheck={false} onChange={event => setAnswer(event.target.value)} placeholder="AI 답을 붙여넣거나, 위에서 누가기록(보관해 둔 AI 초안 등)을 가져와 다듬어요" />
       <div className="krw-ai-meter"><ByteMeter text={answer} limit={budget || 1} />{autoFixRecordText(answer) !== answer && <button type="button" data-kdn-bare className="krw-fix" onClick={() => setAnswer(autoFixRecordText(answer))}><Wand2 size={13} /> 기호 자동 고치기</button>}</div>
@@ -1333,7 +1339,7 @@ function HomeroomWriter({ year, grade, classOptions, rosterFor, by, view, setVie
           {HOMEROOM_AREAS.filter(key => focus === "all" || focus === key).map(key => <React.Fragment key={key}><EventBox items={eventsOf(current, key)} rec={rec} sid={current.sid} area={key} /><Field label={RECORD_AREAS[key].label} color={AREA_COLOR[key]} text={rec.textOf(current.sid, key)} limit={lim(key)} check={check} ok={okOf(current.sid)} onOk={toggleOk(current.sid)} rows={focus === "all" ? (key === "career" ? 8 : 6) : 12} meta={rec.metaOf(current.sid, key)} onChange={value => rec.edit(`s|${current.sid}|${key}`, value)} />
             </React.Fragment>)}
         </section>}
-        {current && side && <SidePanel aiContext={{ hope: rec.textOf(current.sid, "hope") }} targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => lim(key)} focus={focus === "all" ? "" : focus} onBulkReflections={bulkReflections} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel aiContext={{ hope: rec.textOf(current.sid, "hope"), next: idx < order.length - 1 ? () => go(1) : null }} targets={HOMEROOM_AREAS.map(key => ({ key, label: RECORD_AREAS[key].label }))} budgetFor={key => lim(key)} focus={focus === "all" ? "" : focus} onBulkReflections={bulkReflections} studentName={current.name} reflections={reflectionsBySid ? reflectionsBySid.get(sidKey(current.sid)) || [] : null} rec={rec} sid={current.sid} studentLabel={`${current.number}번 ${current.name}`} scopeLabel={`${grade}-${cls} 학급`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -1637,7 +1643,7 @@ function SubjectWriter({ year, books, by, view, setView, check, showToast, grade
             {check && <IssueList text={total} ok={okOf(current.sid)} onToggle={readOnlyView ? null : toggleOk(current.sid)} />}
           </div>; })()}
         </section>}
-        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: stdMatched?.n || book.subject, standardsFor }} reflections={subjReflOf(rec, current.sid)} renderRefl={() => <SubjectReflectionPane items={subjReflOf(rec, current.sid)} acts={acts} rec={rec} sid={current.sid} studentLabel={who(current)} showToast={showToast} onUpload={() => setReflUp(true)} onBulk={bulkRefl} />} standardsFor={standardsFor} onPickStandards={setStdFor} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
+        {current && side && <SidePanel targets={acts.map(act => ({ key: act.id, label: act.name }))} budgetFor={key => { const others = acts.filter(a => a.id !== key && rec.textOf(current.sid, a.id).trim()); return limit - neisBytes(mergeActivities(others, texts(current))) - (others.length ? 2 : 0); }} aiContext={{ area: "과목별 세부능력 및 특기사항", subject: stdMatched?.n || book.subject, standardsFor, next: idx < order.length - 1 ? () => go(1) : null }} reflections={subjReflOf(rec, current.sid)} renderRefl={() => <SubjectReflectionPane items={subjReflOf(rec, current.sid)} acts={acts} rec={rec} sid={current.sid} studentLabel={who(current)} showToast={showToast} onUpload={() => setReflUp(true)} onBulk={bulkRefl} />} standardsFor={standardsFor} onPickStandards={setStdFor} studentName={current.name} rec={rec} sid={current.sid} studentLabel={who(current)} scopeLabel={`${book.subject} ${book.label}`} by={by} showToast={showToast} onClose={() => setSide(false)} />}
       </div>}
   </div>;
 }
@@ -2066,6 +2072,8 @@ const CSS = `
 .krw-fill{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.krw-fill button{display:grid;gap:2px;padding:9px 10px;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#17181d);text-align:left;cursor:pointer;font:inherit}.krw-fill button b{font-size:14px;font-weight:800}.krw-fill button small{font-size:11.5px;color:var(--kdn-muted,#8a8f99)}.krw-fill button.on{border-color:#ff7a3d;background:color-mix(in srgb,#ff7a3d 8%,var(--kdn-surface,#fff));box-shadow:inset 0 0 0 1px #ff7a3d}
 .krw-pick-body .none{margin:0;font-size:13px;color:var(--kdn-muted,#8a8f99)}
 .krw-refl{display:grid;gap:10px}
+.krw-pick h4 .auto{display:inline-flex;align-items:center;gap:5px;margin-left:10px;font-size:12px;font-weight:700;color:#c2410c}.krw-pick h4 .auto input{width:14px;height:14px;accent-color:#ea580c}
+.krw-ai-go .krw-btn.next{margin-left:auto;border-color:#fdba74;color:#c2410c}.krw-ai-lead .nextlink{margin-left:8px;font-weight:800;color:#c2410c}
 .krw-refl-seg{display:flex;gap:2px;padding:3px;border-radius:11px;background:var(--kdn-surface-2,#f3f2ef)}.krw-refl-seg button{flex:1;display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:30px;border:0;border-radius:8px;background:transparent;font:inherit;font-size:12.5px;font-weight:700;color:#3d4048;cursor:pointer}.krw-refl-seg button em{font-style:normal;font-size:11px;color:var(--kdn-muted,#8a8f99)}.krw-refl-seg button[aria-selected="true"]{background:#17181d;color:#fff}.krw-refl-seg button[aria-selected="true"] em{color:#ffb089}
 button.krw-refl-tag{border:0;font-family:inherit;cursor:pointer}button.krw-refl-tag:disabled{cursor:default}.krw-refl-bar{display:flex;gap:6px}.krw-refl-bar select{min-height:34px;padding:0 8px;border-radius:10px;border:1px solid var(--kdn-line,#dcd9d2);background:var(--kdn-surface,#fff);font:inherit;font-size:12.5px;font-weight:700;color:inherit}.krw-refl-bar .krw-btn{flex:1;min-height:34px;justify-content:center;font-size:12.5px}
 .krw-refl article{display:grid;gap:6px;padding:10px 12px;border-radius:12px;border:1px solid var(--kdn-line,#e7e5e0)}.krw-refl header{display:flex;align-items:center;gap:6px}.krw-refl header b{font-size:13.5px}.krw-refl header small{font-size:12px;color:var(--kdn-muted,#8a8f99)}
