@@ -538,16 +538,18 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       return <div className="kpl-stv">
         
         <section className="gcard wide ov"><header><b>반별 한눈에</b><small>진한 칸 = 다른 반보다 몰림 · 숫자를 누르면 그 반 명단을 그 조건으로 열어요</small></header>
-          <div className="hscroll"><table className="ovt"><thead><tr><th className="cl">반</th><th className="nn">인원</th><th className="gd">남 · 여</th>
-            {metrics.map(m => { const vals = classes.map(c => m.val(c)); const tot = vals.reduce((a, b) => a + b, 0); return <th key={m.key} style={{ "--c": m.color }}><span className="hd"><i className="sw" />{m.label}</span><small>{tot ? `합 ${tot}` : "없음"}</small></th>; })}
-            <th className="io">받음 · 보냄</th></tr></thead>
+          <div className="hscroll"><table className="ovt"><thead>
+            <tr className="grp"><th colSpan={3} className="g0">기본</th><th colSpan={STUDENT_FLAGS.length} className="g1">학생 표시</th><th colSpan={metrics.length - STUDENT_FLAGS.length} className="g2">배정 점검</th><th className="g3">이동</th></tr>
+            <tr><th className="cl">반</th><th className="nn">인원</th><th className="gd">남 · 여</th>
+            {metrics.map((m, mi) => { const vals = classes.map(c => m.val(c)); const tot = vals.reduce((a, b) => a + b, 0); return <th key={m.key} className={mi === 0 || mi === STUDENT_FLAGS.length ? "gs" : ""} style={{ "--c": m.color }}><span className="hd"><i className="sw" />{m.label}</span><small>{tot ? `합 ${tot}` : "없음"}</small></th>; })}
+            <th className="io gs">받음 · 보냄</th></tr></thead>
             <tbody>{summary.map(x => <tr key={x.cls}>
               <th className="cl"><button type="button" data-kdn-bare onClick={() => go(x.cls)}>{x.cls}반</button></th>
               <td className="nn">{x.n}</td>
-              <td className="gd"><span className="gb"><i className="m" style={{ flex: x.m || 0.0001 }} /><i className="f" style={{ flex: x.f || 0.0001 }} /></span><small><b className="m">{x.m}</b> · <b className="f">{x.f}</b></small></td>
-              {metrics.map(m => { const vals = classes.map(c => m.val(c)); const v = m.val(x.cls); const max = Math.max(1, ...vals); const avg = vals.reduce((a, b) => a + b, 0) / Math.max(1, vals.length); const hot = m.low ? v === 0 : (m.alert ? v > 0 : v >= 3 && v >= avg * 1.6);
-                return <td key={m.key} style={{ "--c": m.color }}>{v || (m.low && !v) ? <button type="button" data-kdn-bare className={`cv${hot ? " hot" : ""}${m.low && !v ? " none" : ""}`} onClick={() => go(x.cls, m.filter)} title={`${x.cls}반 ${m.label} ${v}${m.unit}`}><b>{m.low && !v ? "없음" : v}</b>{v ? <span className="db"><i style={{ width: `${(v / max) * 100}%` }} /></span> : null}</button> : <span className="z">·</span>}</td>; })}
-              <td className="io">{x.inn ? <i className="in">+{x.inn}</i> : null}{x.out ? <i className="out">−{x.out}</i> : null}{!x.inn && !x.out ? <span className="z">·</span> : null}</td>
+              <td className="gd"><b className="m">남 {x.m}</b><b className="f">여 {x.f}</b></td>
+              {metrics.map((m, mi) => { const vals = classes.map(c => m.val(c)); const v = m.val(x.cls); const max = Math.max(1, ...vals); const avg = vals.reduce((a, b) => a + b, 0) / Math.max(1, vals.length); const hot = m.low ? v === 0 : (m.alert ? v > 0 : v >= 3 && v >= avg * 1.6);
+                return <td key={m.key} className={mi === 0 || mi === STUDENT_FLAGS.length ? "gs" : ""} style={{ "--c": m.color }}>{v || (m.low && !v) ? <button type="button" data-kdn-bare className={`cv${hot ? " hot" : ""}${m.low && !v ? " none" : ""}`} onClick={() => go(x.cls, m.filter)} title={`${x.cls}반 ${m.label} ${v}${m.unit} (가장 많은 반 ${max})`}>{m.low && !v ? "없음" : v}</button> : <span className="z">–</span>}</td>; })}
+              <td className="io gs">{x.inn ? <i className="in">+{x.inn}</i> : null}{x.out ? <i className="out">−{x.out}</i> : null}{!x.inn && !x.out ? <span className="z">–</span> : null}</td>
             </tr>)}</tbody></table></div></section>
         <details className="morecharts"><summary>지표별 그래프 펼치기</summary>
         <div className="grid">{metrics.filter(m => classes.some(c => m.val(c))).map(m => { const vals = classes.map(c => m.val(c)); const total = vals.reduce((a, b) => a + b, 0); const avg = total / Math.max(1, classes.length); const max = Math.max(1, ...vals, Math.ceil(avg));
@@ -1354,4 +1356,20 @@ const CSS = `
 .kpl-stv .ovt .z{color:#d1d5db;font-weight:800}
 .kpl-stv .ovt td.io i{display:inline-block;margin:0 2px;padding:0 6px;border-radius:5px;font-style:normal;font-size:11.5px;font-weight:800}.kpl-stv .ovt td.io i.in{background:#dcfce7;color:#15803d}.kpl-stv .ovt td.io i.out{background:#ffedd5;color:#c2410c}
 .kpl-stv .morecharts{border-radius:12px;border:1px solid var(--kdn-line,#e5e7eb);background:var(--kdn-surface,#fff)}.kpl-stv .morecharts>summary{padding:10px 14px;font-size:13.5px;font-weight:700;color:var(--kdn-ink-soft,#4b5563);cursor:pointer}.kpl-stv .morecharts>.grid{padding:0 12px 12px}
+
+/* 반별 한눈에 표: 구분선·묶음 머리글, 막대 없이 숫자만 */
+.kpl-stv .ovt{border:1px solid #cbd5e1;border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden;font-size:13.5px}
+.kpl-stv .ovt th,.kpl-stv .ovt td{padding:8px 6px!important;border-bottom:1px solid #e5e7eb!important;border-left:1px solid #f1f3f6}
+.kpl-stv .ovt tr>*:first-child{border-left:0}
+.kpl-stv .ovt .gs{border-left:1.5px solid #94a3b8!important}
+.kpl-stv .ovt thead tr.grp th{padding:5px 6px!important;background:#eef2f7;font-size:11.5px;letter-spacing:.02em;color:#475569;border-bottom:1px solid #cbd5e1!important}
+.kpl-stv .ovt thead tr.grp th.g1,.kpl-stv .ovt thead tr.grp th.g2,.kpl-stv .ovt thead tr.grp th.g3{border-left:1.5px solid #94a3b8!important}
+.kpl-stv .ovt thead tr:last-child th{background:#f8fafc;border-bottom:1.5px solid #94a3b8!important;font-size:12px}
+.kpl-stv .ovt tbody tr:last-child>*{border-bottom:0!important}
+.kpl-stv .ovt tbody tr:nth-child(even)>*{background:#fbfcfd}
+.kpl-stv .ovt tbody th.cl{background:#f8fafc!important}
+.kpl-stv .ovt td.gd{white-space:nowrap}.kpl-stv .ovt td.gd b{font-size:12.5px;font-weight:700;margin:0 3px}.kpl-stv .ovt td.gd b.m{color:#1d4ed8}.kpl-stv .ovt td.gd b.f{color:#be185d}
+.kpl-stv .ovt .cv{display:inline-block;min-width:34px;padding:2px 8px;border-radius:6px;font-size:13.5px;font-weight:700;color:var(--kdn-ink,#1f2937);font-variant-numeric:tabular-nums}
+.kpl-stv .ovt .cv.hot{color:#fff;font-weight:800}.kpl-stv .ovt .cv.none{font-size:12px;font-weight:800;background:#fee2e2!important;color:#b91c1c!important}
+.kpl-stv .ovt .z{color:#d1d5db;font-weight:400}
 `;
