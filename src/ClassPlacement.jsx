@@ -416,10 +416,12 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length + 1 }}>
           <button type="button" role="tab" aria-selected={allView && !q} data-kdn-bare className={`all${allView && !q ? " on" : ""}`} onClick={() => { setTab("all"); setFind(""); setOpenSid(""); setMoveSid(""); setToFilter(0); }}>
             {totalMiss ? <i className="dot" title={`분리 미반영 ${totalMiss}명`}>{totalMiss}</i> : null}
-            <b>전체</b><span className="n">{total.n}명</span><span className="gbar"><i style={{ width: `${total.n ? Math.round((total.m / total.n) * 100) : 0}%` }} /></span><small>남 {total.m} · 여 {total.f}</small><span className={`mvc${changedIds.length ? " on" : ""}`}>바뀐 {changedIds.length}명</span></button>
+            {courseBad.size ? <i className="cwarn" title={`수강 불가 과목이 있는 학생 ${courseBad.size}명`}>⚠ {courseBad.size}</i> : null}
+            <b>전체</b><span className="n">{total.n}명</span><span className="gbar"><i style={{ width: `${total.n ? Math.round((total.m / total.n) * 100) : 0}%` }} /></span><small>남 {total.m} · 여 {total.f}</small>{changedIds.length ? <span className="io"><i className="chg">바뀐 {changedIds.length}명</i></span> : null}</button>
           {summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q && !allView} data-kdn-bare className={s.cls === curTab && !q && !allView ? "on" : ""} onClick={() => goClass(s.cls)}>
           {miss ? <i className="dot" title={`분리 미반영 ${miss}명`}>{miss}</i> : null}
-          <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small><span className={`mvc${s.inn || s.out ? " on" : ""}`} title={`초기 엑셀 대비 받은 학생 ${s.inn || 0}명 · 보낸 학생 ${s.out || 0}명`}>{inOutText(s.inn, s.out)}</span></button>; })}</div>
+          {(() => { const nc = ids.filter(id => courseBad.has(id)).length; return nc ? <i className="cwarn" title={`수강 불가 과목이 있는 학생 ${nc}명`}>⚠ {nc}</i> : null; })()}
+          <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small>{(s.inn || s.out) ? <span className="io" title={`초기 엑셀 대비 받은 학생 ${s.inn || 0}명 · 보낸 학생 ${s.out || 0}명`}>{s.inn ? <i className="in">+{s.inn} 받음</i> : null}{s.out ? <i className="out">−{s.out} 보냄</i> : null}</span> : null}</button>; })}</div>
         <div className={`kpl-split2${wide ? " searching" : ""}`}>
           {!wide && <aside className="kpl-side2">
             <header><b>{nextGrade}학년 {curTab}반</b><span>{sm.n}명</span></header>
@@ -439,8 +441,8 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
                 <T label="조합 그룹 같은 반" n={groupN} unit="그룹" tone={groupN ? "bad" : ""} hint="같은 조합 그룹 학생이 이 반에 2명 이상인 그룹" />
                 {placement.rooms && <T label="수강 불가 과목" n={courseN} tone={courseN ? "bad" : ""} hint="옮겨 와서 들을 수 없는 과목이 생긴 학생" />}
                 {placement.rooms && <T label="이동 불가(고정)" n={fixedN} hint="원반 과목·시간표 규칙상 다른 반으로 못 가는 학생" />}
-                <T label="받은 학생" n={sm.inn || 0} tone={sm.inn ? "mv" : ""} hint="초기 엑셀 대비 이 반에 온 학생" />
-                <T label="보낸 학생" n={sm.out || 0} tone={sm.out ? "mv" : ""} hint="초기 엑셀 대비 다른 반에 간 학생" />
+                <T label="받은 학생" dot="in" n={sm.inn || 0} tone="in" hint="초기 엑셀 대비 이 반에 온 학생" />
+                <T label="보낸 학생" dot="out" n={sm.out || 0} tone="out" hint="초기 엑셀 대비 다른 반에 간 학생" />
               </div>; })()}
             {placement.kind === "program" && <div className="blk row"><h5>원반 과목</h5>{placement.rooms ? (() => { const o = placement.rooms.ob?.[curTab] || {}; const sems = Object.keys(placement.rooms.letters || {}); return <div className="obs">{sems.map(sem => <span key={sem} className="r"><small>{sem}학기</small>{(o[sem] || []).length ? (o[sem] || []).map(x => <i key={x}>{x}</i>) : <em>없음</em>}</span>)}</div>; })() : ob.length ? <div className="ob">{ob.map(x => <span key={x}>{x}</span>)}</div> : <p className="nil">없음</p>}</div>}
             {placement.rooms && (() => { const bad = base.filter(([sid]) => courseBad.has(sid)); return bad.length > 0 && <div className="blk"><h5>수강 불가 과목 <small>옮겨 온 학생</small></h5><ul className="cbl">{bad.map(([sid]) => <li key={sid}><button type="button" data-kdn-bare onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }}>{nameOf(sid)}</button><span>{courseBad.get(sid).map(i => `${i.n}(${i.sem}학기)`).join(", ")}</span></li>)}</ul></div>; })()}
@@ -951,7 +953,7 @@ const CSS = `
 .kpl-grid td.nm{white-space:normal;text-align:left!important;min-width:150px}.kpl-grid td.nm .nl{display:flex;align-items:center;gap:6px;white-space:nowrap}.kpl-grid td.nm .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.kpl-grid td.nm .tags>*{margin-left:0!important;font-size:11.5px!important;padding:1px 7px!important}.kpl-grid td.nm b{font-size:14.5px}
 .kpl-grid .g{font-style:normal;display:inline-grid;place-items:center;width:20px;height:20px;margin-left:6px;border-radius:6px;font-size:11px;font-weight:800;vertical-align:1px}.kpl-grid .g.m{background:#dbeafe;color:#1d4ed8}.kpl-grid .g.f{background:#fce7f3;color:#be185d}
 .kpl-grid td.nm .nmb{border:0;background:transparent;padding:0;font:inherit;font-size:14.5px;font-weight:800;color:var(--kdn-ink,#111827);cursor:pointer;text-decoration:underline dotted #94a3b8;text-underline-offset:4px}.kpl-grid td.nm .nmb:hover,.kpl-grid td.nm .nmb.on{color:#1d4ed8;text-decoration-color:#1d4ed8}
-.kpl-grid td button.st{border:0;cursor:pointer;font:inherit}
+.kpl-grid td button.st{border:0;cursor:pointer;font-family:inherit;font-size:12px;font-weight:800;line-height:1.5}
 .kpl-grid .panel2.sepp{padding:12px 14px;border-radius:12px;border:1.5px solid #f59e0b;background:#fffdf5;text-align:left}
 .kpl-grid .panel2.sepp .ph{display:flex;align-items:baseline;gap:8px}.kpl-grid .panel2.sepp .ph b{font-size:15.5px}.kpl-grid .panel2.sepp .ph small{font-size:12.5px;color:var(--kdn-muted,#64748b)}.kpl-grid .panel2.sepp .ph .x{margin-left:auto;border:0;background:transparent;cursor:pointer;color:var(--kdn-muted,#64748b)}
 .kpl-grid .panel2.sepp .sec{display:grid;gap:6px}.kpl-grid .panel2.sepp h6{margin:0;font-size:13.5px;font-weight:800}.kpl-grid .panel2.sepp h6 small{font-weight:600;color:var(--kdn-muted,#64748b);margin-left:6px}
@@ -1209,7 +1211,7 @@ const CSS = `
 .kpl-side2 .tile{padding:7px 14px!important}.kpl-side2 .tile:last-child{border-bottom:0!important}
 .kpl-side2 .tile small{display:inline-flex;align-items:center;gap:7px}.kpl-side2 .tile .dot{width:7px;height:7px;border-radius:2px;background:#cbd5e1}
 .kpl-side2 .tile .dot.good{background:#16a34a}.kpl-side2 .tile .dot.warn{background:#d97706}.kpl-side2 .tile .dot.info{background:#2563eb}.kpl-side2 .tile .dot.bad{background:#dc2626}.kpl-side2 .tile .dot.mv{background:#7c3aed}
-.kpl-side2 .tile b{color:var(--kdn-ink,#111827)}.kpl-side2 .tile:not(.bad):not(.warn):not(.good):not(.info):not(.mv) b{color:#9ca3af!important}
+.kpl-side2 .tile b{color:var(--kdn-ink,#111827)}.kpl-side2 .tile:not(.bad):not(.warn):not(.good):not(.info):not(.mv):not(.in):not(.out) b{color:#9ca3af!important}.kpl-side2 .tile.in b{color:#15803d!important}.kpl-side2 .tile.out b{color:#c2410c!important}.kpl-side2 .tile .dot.in{background:#16a34a;border-radius:50%}.kpl-side2 .tile .dot.out{background:#ea580c;border-radius:50%}
 .kpl-side2 .tile.info b{color:#1d4ed8!important}.kpl-side2 .tile.mv b{color:#6d28d9!important}
 .kpl-side2 .tile.bad small,.kpl-side2 .tile.warn small{color:var(--kdn-ink-soft,#4b5563)!important}
 /* 시간표 검증 반 타일 */
@@ -1220,4 +1222,11 @@ const CSS = `
 .kpl-ttv .ctiles button.bad .st{background:#fee2e2;color:#b91c1c!important}.kpl-ttv .ctiles button.bad{border-color:#fecaca!important}
 .kpl-ttv .ctiles .sems{display:flex;gap:4px}.kpl-ttv .ctiles .sems i{font-style:normal;padding:0 5px;border-radius:5px;font-size:10.5px;font-weight:700;white-space:nowrap}.kpl-ttv .ctiles .sems i.ok{background:#f0fdf4;color:#15803d}.kpl-ttv .ctiles .sems i.no{background:#fef2f2;color:#b91c1c}
 .kpl-ttv .ctiles button.on{border-color:#2563eb!important;background:#eff6ff!important;box-shadow:inset 0 0 0 1px #2563eb!important}
+
+.kpl-ctabs2 .cwarn{position:absolute;top:-7px;left:-5px;display:inline-flex;align-items:center;gap:2px;height:18px;padding:0 6px;border-radius:99px;background:#f59e0b;color:#fff;font-style:normal;font-size:10.5px;font-weight:900;box-shadow:0 0 0 2px var(--kdn-surface,#fff)}
+.kpl-ctabs2 button:has(.cwarn){border-color:#fbbf24!important}
+
+.kpl-ctabs2 .io{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;margin-top:4px}
+.kpl-ctabs2 .io i{font-style:normal;padding:0 6px;border-radius:5px;font-size:10.5px;font-weight:800;line-height:1.6;white-space:nowrap}
+.kpl-ctabs2 .io i.in{background:#dcfce7;color:#15803d}.kpl-ctabs2 .io i.out{background:#ffedd5;color:#c2410c}.kpl-ctabs2 .io i.chg{background:#ede9fe;color:#6d28d9}
 `;
