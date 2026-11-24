@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-24-c",
+    date: "2026-11-24",
+    title: "선생님 ZONE 메뉴 정리",
+    items: [
+      { audience: "staff", text: "선생님 ZONE 위쪽 메뉴를 홈 · 수업·평가 · 학생·학년 · 내 업무로 묶고, 보는 학년·학기는 오른쪽에 따로 두었어요." },
+    ],
+  },
+  {
     id: "2026-11-24-b",
     date: "2026-11-24",
     title: "같은 반 희망",

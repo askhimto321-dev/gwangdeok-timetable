@@ -3153,40 +3153,43 @@ function TeacherZoneWorkspace({
           ? <div style={styles.warnBanner}><AlertTriangle size={14} /> 부서 계정은 성적 자료와 최성보 현황을 열람할 수 있습니다. 과목 공지 작성은 담당 교사 계정에서 진행해주세요.</div>
           : <div style={styles.warnBanner}><AlertTriangle size={14} /> 공지 관리 권한이 없습니다.</div>;
   return <div style={styles.body}>
-    <div className="no-print" style={teacherZoneWorkspaceStyles.toolbar}>
+    <div className="no-print kd-tz-toolbar" style={teacherZoneWorkspaceStyles.toolbar}>
       <div style={teacherZoneWorkspaceStyles.modeTabs}>
-        {isNewUi() && <div style={{ ...teacherZoneWorkspaceStyles.modeGroup, borderLeft: 0, paddingLeft: 0 }}><small style={teacherZoneWorkspaceStyles.modeGroupLabel}>&nbsp;</small><div style={teacherZoneWorkspaceStyles.modeRow}>
-            {isNewUi() && <button type="button" onClick={() => setWorkspaceMode("home")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "home" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 홈</button>}
+        {isNewUi() && <div style={teacherZoneWorkspaceStyles.modeGroup}><small style={teacherZoneWorkspaceStyles.modeGroupLabel}>&nbsp;</small><div style={teacherZoneWorkspaceStyles.modeRow}>
+            {isNewUi() && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("home")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "home" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 홈</button>}
         </div></div>}
-        {true && <div style={isNewUi() ? teacherZoneWorkspaceStyles.modeGroup : { ...teacherZoneWorkspaceStyles.modeGroup, borderLeft: 0, paddingLeft: 0 }}>
+        {true && <div style={teacherZoneWorkspaceStyles.modeGroup}>
           <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>수업·평가</small>
           <div style={teacherZoneWorkspaceStyles.modeRow}>
-            <button type="button" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
-            {onOpenMinimum && <button type="button" onClick={onOpenMinimum} title="최소성취수준 화면으로 이동" style={{ ...teacherZoneWorkspaceStyles.modeButton, marginLeft: -2 }}><ShieldCheck size={15} /> 최성보 ↗</button>}
-            {(activeTeacher || loggedInAdmin) && <button type="button" onClick={() => setWorkspaceMode("stamps")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "stamps" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ClipboardList size={15} /> 수업 포트폴리오</button>}
-            {canUseMock && <button type="button" onClick={() => setWorkspaceMode("mock")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "mock" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BarChart3 size={15} /> 모의고사 분석</button>}
-            {canUseNotice && <button type="button" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
+            <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
+            {onOpenMinimum && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={onOpenMinimum} title="최소성취수준 화면으로 이동" style={teacherZoneWorkspaceStyles.modeButton}><ShieldCheck size={15} /> 최성보 ↗</button>}
+            {(activeTeacher || loggedInAdmin) && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("stamps")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "stamps" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ClipboardList size={15} /> 수업 포트폴리오</button>}
+            {canUseMock && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("mock")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "mock" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BarChart3 size={15} /> 모의고사 분석</button>}
+            {canUseNotice && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
           </div>
         </div>}
         {(canUseGradeDepartmentTools || separationEligible) && <div style={teacherZoneWorkspaceStyles.modeGroup}>
           <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>학생·학년</small>
           <div style={teacherZoneWorkspaceStyles.modeRow}>
-            {canUseGradeDepartmentTools && <button type="button" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
-            {separationEligible && <button type="button" onClick={() => openWorkspaceMode("placement")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(["placement", "separation"].includes(workspaceMode) ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 반편성 · 분리희망</button>}
+            {canUseGradeDepartmentTools && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
+            {separationEligible && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => openWorkspaceMode("placement")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(["placement", "separation"].includes(workspaceMode) ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 반편성 · 분리희망</button>}
           </div>
         </div>}
         {(plannerOwner || activeTeacher || loggedInAdmin || loggedInDepartment) && <div style={teacherZoneWorkspaceStyles.modeGroup}>
           <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>내 업무</small>
           <div style={teacherZoneWorkspaceStyles.modeRow}>
-            {(activeTeacher || loggedInAdmin || loggedInDepartment) && <button type="button" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무</button>}
-            {(activeTeacher || loggedInAdmin || loggedInDepartment) && <button type="button" onClick={() => setWorkspaceMode("handover")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "handover" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ArrowLeftRight size={15} /> 업무 인수인계</button>}
-            {plannerOwner && <button type="button" onClick={() => setWorkspaceMode("planner")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "planner" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><CalendarDays size={15} /> 내 일정</button>}
+            {(activeTeacher || loggedInAdmin || loggedInDepartment) && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무</button>}
+            {(activeTeacher || loggedInAdmin || loggedInDepartment) && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("handover")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "handover" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ArrowLeftRight size={15} /> 업무 인수인계</button>}
+            {plannerOwner && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("planner")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "planner" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><CalendarDays size={15} /> 내 일정</button>}
           </div>
         </div>}
       </div>
-      <div className="kd-scope-bar" style={teacherZoneWorkspaceStyles.gradeGroup}>
-        <ScopeGroup label="학년">{visibleGrades.map(item => <ScopeBtn key={item} active={String(grade) === item} onClick={() => setGrade(item)}>{item}학년</ScopeBtn>)}</ScopeGroup>
-        {setSemester && <SemesterScope semester={semester} setSemester={setSemester} />}
+      <div className="kd-scope-bar kd-tz-scope" style={teacherZoneWorkspaceStyles.gradeGroup}>
+        <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>보는 학년·학기</small>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <ScopeGroup label="학년">{visibleGrades.map(item => <ScopeBtn key={item} active={String(grade) === item} onClick={() => setGrade(item)}>{item}학년</ScopeBtn>)}</ScopeGroup>
+          {setSemester && <SemesterScope semester={semester} setSemester={setSemester} />}
+        </div>
       </div>
     </div>
     {workspaceMode === "home" && <TeacherZoneHome plannerOwner={plannerOwner} onOpenPlanner={() => setWorkspaceMode("planner")} calendar={db?.academicCalendar} actor={actor} activeTeacher={activeTeacher} grade={grade} lastMode={lastWorkMode} canUseMock={canUseMock} canUseNotice={canUseNotice} canUseDept={canUseGradeDepartmentTools} canUseSeparation={separationEligible} canUsePlacement={!!separationEligible} canUseHandover={!!(activeTeacher || loggedInAdmin || loggedInDepartment)} isAdmin={!!loggedInAdmin} onOpen={openWorkspaceMode} onOpenMinimum={onOpenMinimum}  onEditProfile={onEditProfile} onOpenGrade={openGradeAt} workspaces={db?.teacherGradeWorkspaces} semester={semester} />}
@@ -3394,15 +3397,15 @@ function TeacherZoneHome({ plannerOwner = "", onOpenPlanner, calendar, actor, ac
 }
 
 const teacherZoneWorkspaceStyles = {
-  // 새 UI 색 변수(라이트·다크 공통)로: 선택한 업무 탭은 강조색으로 분명하게, 글자는 크게
-  toolbar: { display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "8px 12px", marginBottom: 16, padding: "8px 10px", border: "1px solid var(--kdn-line)", borderRadius: 16, background: "var(--kdn-surface)", flexWrap: "wrap" },
-  modeTabs: { display: "flex", alignItems: "stretch", gap: 0, flexWrap: "wrap", rowGap: 6 },
-  modeGroup: { display: "grid", gap: 3, padding: "0 8px", borderLeft: "1px solid var(--kdn-line)" },
-  modeGroupLabel: { fontSize: 11, fontWeight: 800, color: "var(--kdn-muted)", letterSpacing: ".02em", paddingLeft: 4, lineHeight: 1.2 },
-  modeRow: { display: "flex", gap: 2, flexWrap: "wrap" },
-  modeButton: { display: "inline-flex", alignItems: "center", gap: 5, border: "1px solid transparent", borderRadius: 9, padding: "7px 9px", color: "var(--kdn-ink-soft)", background: "transparent", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 13.5, whiteSpace: "nowrap", fontWeight: 850, cursor: "pointer" },
-  modeButtonActive: { color: "var(--kdn-accent-text)", background: "var(--kdn-accent-soft)", borderColor: "var(--kdn-accent)", boxShadow: "inset 0 -3px 0 var(--kdn-accent)" },
-  gradeGroup: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginLeft: "auto" },
+  // 새 UI: 업무 탭을 묶음(수업·평가 / 학생·학년 / 내 업무)으로, 묶음은 옅은 바탕 안에 테두리 없는 탭. 학년·학기는 마지막 묶음처럼 같은 줄에.
+  toolbar: { display: "flex", alignItems: "flex-end", gap: "10px 14px", marginBottom: 16, padding: "10px 12px", border: "1px solid var(--kdn-line, #e5e7eb)", borderRadius: 16, background: "var(--kdn-surface, #ffffff)", flexWrap: "wrap" },
+  modeTabs: { display: "flex", alignItems: "flex-end", gap: "8px 8px", flexWrap: "wrap", flex: "1 1 auto", minWidth: 0 },
+  modeGroup: { display: "grid", gap: 4 },
+  modeGroupLabel: { fontSize: 11, fontWeight: 800, color: "var(--kdn-muted, #9ca3af)", letterSpacing: ".02em", paddingLeft: 6, lineHeight: 1.2 },
+  modeRow: { display: "flex", gap: 0, flexWrap: "wrap", padding: 3, borderRadius: 12, background: "var(--kdn-surface-2, #f3f4f6)", border: "1px solid var(--kdn-line, #e5e7eb)" },
+  modeButton: { display: "inline-flex", alignItems: "center", gap: 5, border: 0, borderRadius: 9, padding: "6px 9px", color: "var(--kdn-ink-soft, #374151)", background: "transparent", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 13.5, whiteSpace: "nowrap", fontWeight: 800, cursor: "pointer", lineHeight: 1.3 },
+  modeButtonActive: { color: "var(--kdn-accent-text, #c2410c)", background: "var(--kdn-surface, #ffffff)", boxShadow: "0 1px 3px rgba(15,23,42,.14), inset 0 -2px 0 var(--kdn-accent, #ea580c)" },
+  gradeGroup: { display: "grid", gap: 4, marginLeft: "auto" },
 };
 
 function MegaNav(props) {
