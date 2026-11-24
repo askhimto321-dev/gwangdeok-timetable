@@ -136,11 +136,11 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
     if (ok) { setGroupEdit(null); showToast("조합 그룹을 저장했어요.", "success"); }
   };
   const removeGroup = async id => { if (!window.confirm("이 조합 그룹을 지울까요?")) return; const ok = await saveReview(v => { v.groups = v.groups.filter(x => x.id !== id); return v; }); if (ok) setGroupEdit(null); };
-  const doMove = async (sid, to, swap = "") => {
+  const doMove = async (sid, to, swap = "", mates = []) => {
     const name = placement.students[sid]?.name || roster[sid]?.name || sid;
     if (placement?.rooms) {
       const nmx = id => placement.students[id]?.name || roster[id]?.name || id;
-      const probs = [[sid, to], ...(swap ? [[swap, placement.students[sid]?.cls]] : [])].map(([id, c]) => { const k = courseCheck(placement, id, c); return k && !k.ok && Number(c) !== Number(placement.students[id]?.orig) ? `${nmx(id)} → ${c}반: ${k.issues.map(courseIssueText).join(", ")}` : ""; }).filter(Boolean);
+      const probs = [[sid, to], ...mates.map(m => [m, to]), ...(swap ? [[swap, placement.students[sid]?.cls]] : [])].map(([id, c]) => { const k = courseCheck(placement, id, c); return k && !k.ok && Number(c) !== Number(placement.students[id]?.orig) ? `${nmx(id)} → ${c}반: ${k.issues.map(courseIssueText).join(", ")}` : ""; }).filter(Boolean);
       if (probs.length && !window.confirm(`옮기면 들을 수 없는 과목이 생겨요.\n\n${probs.join("\n")}\n\n그래도 옮길까요?`)) return;
     }
     // 옮겨 갈 반에 같은 조합 그룹 학생이 있으면 먼저 물어봐요
@@ -150,11 +150,11 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       if (g.members.includes(sid)) { const there = g.members.filter(m => m !== sid && m !== swap && Number(placement.students[m]?.cls) === Number(to)); if (there.length) clashes.push(`'${g.name}': ${nm(sid)} → ${to}반 (${there.map(nm).join(", ")} 있음)`); }
       if (swap && g.members.includes(swap)) { const from = placement.students[sid]?.cls; const there = g.members.filter(m => m !== swap && m !== sid && Number(placement.students[m]?.cls) === Number(from)); if (there.length) clashes.push(`'${g.name}': ${nm(swap)} → ${from}반 (${there.map(nm).join(", ")} 있음)`); }
     });
-    { const cls0 = id => Number(placement.students[id]?.cls); const after = id => (id === sid ? Number(to) : id === swap ? cls0(sid) : cls0(id));
-      const broke = together.filter(p => [p.a, p.b].some(id => id === sid || id === swap) && cls0(p.a) === cls0(p.b) && after(p.a) !== after(p.b));
+    { const cls0 = id => Number(placement.students[id]?.cls); const after = id => (id === sid || mates.includes(id) ? Number(to) : id === swap ? cls0(sid) : cls0(id));
+      const broke = together.filter(p => [p.a, p.b].some(id => id === sid || id === swap || mates.includes(id)) && cls0(p.a) === cls0(p.b) && after(p.a) !== after(p.b));
       if (broke.length && !window.confirm(`같은 반 희망 학생과 떨어지게 돼요.\n\n${broke.map(p => `${nm(p.a)} · ${nm(p.b)}`).join("\n")}\n\n그래도 옮길까요?`)) return; }
     if (clashes.length && !window.confirm(`조합 우려 그룹 학생과 같은 반이 돼요.\n\n${clashes.join("\n")}\n\n그래도 옮길까요?`)) return;
-    const ok = await commit(p => applyMove(p, { sid, to, swap, by: me.name }), swap ? `${name} ↔ ${placement.students[swap]?.name || ""} 맞바꿨어요.` : `${name} 학생을 ${to}반으로 옮겼어요.`);
+    const ok = await commit(p => mates.reduce((acc, m) => applyMove(acc, { sid: m, to, by: me.name }), applyMove(p, { sid, to, swap, by: me.name })), swap ? `${name} ↔ ${placement.students[swap]?.name || ""} 맞바꿨어요.` : mates.length ? `${name} 학생과 세트 ${mates.length}명을 ${to}반으로 함께 옮겼어요.` : `${name} 학생을 ${to}반으로 옮겼어요.`);
     if (ok) { setMoveSid(""); setMoveTo(0); }
   };
   // 이동 기록 되돌리기는 그 학생(맞바꿈이면 두 학생)의 마지막 이동일 때만: 중간 기록을 되돌리면 반이 꼬여요
@@ -502,7 +502,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
                 <tr className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${courseBad.has(sid) ? " nocourse" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
                   {wide && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => goClass(s.cls)} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
                   <td className="c no">{oldLabel(sid)}</td>
-                  <td className="nm"><div className="nl"><button type="button" data-kdn-bare className={`nmb${openSid === sid && openKind === "sep" ? " on" : ""}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title="눌러서 분리희망·조합 상대 보기">{s.name || roster[sid]?.name || sid}</button>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}</div>{(() => { const fixed = canMove && !targets.length; const ap = apartSet.has(sid); return (courseBad.has(sid) || moved || moveInfo.has(sid) || fixed || setNo[sid]) && <div className="tags">{setNo[sid] ? <span className={`tset c${(setNo[sid] - 1) % 6}${ap ? " apart" : ""}`} title={`같은 반 희망: ${togetherOf(sid).map(t => `${nameOf(t.other)}(${placement.students[t.other]?.cls || "?"}반)`).join(", ")}`}>세트 {setNo[sid]}{ap ? " · 떨어짐" : ""}</span> : null}{fixed && <span className="fixed" title="원반 과목·시간표 규칙상 옮길 수 있는 다른 반이 없어요">🔒 {s.cls}반 고정</span>}{courseBad.has(sid) && <button type="button" data-kdn-bare className="cbad" onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={courseBad.get(sid).map(courseIssueText).join("\n")}><AlertTriangle size={11} /> 수강 불가 {courseBad.get(sid).length}</button>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null;
+                  <td className="nm"><div className="nl"><button type="button" data-kdn-bare className={`nmb${openSid === sid && openKind === "sep" ? " on" : ""}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title="눌러서 분리희망·조합 상대 보기">{s.name || roster[sid]?.name || sid}</button>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}</div>{(() => { const fixed = canMove && !targets.length; const ap = apartSet.has(sid); return (courseBad.has(sid) || moved || moveInfo.has(sid) || fixed || setNo[sid]) && <div className="tags">{setNo[sid] ? <span className={`tset${ap ? " apart" : ""}`} style={{ "--sc": ["#22c55e", "#06b6d4", "#a855f7", "#f59e0b", "#ec4899", "#3b82f6"][(setNo[sid] - 1) % 6] }} title={`같은 반 희망: ${togetherOf(sid).map(t => `${nameOf(t.other)}(${placement.students[t.other]?.cls || "?"}반)`).join(", ")}`}><i className="dot" />🔗 세트 {setNo[sid]}{ap ? " · 떨어짐" : ""}</span> : null}{fixed && <span className="fixed" title="원반 과목·시간표 규칙상 옮길 수 있는 다른 반이 없어요">🔒 {s.cls}반 고정</span>}{courseBad.has(sid) && <button type="button" data-kdn-bare className="cbad" onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={courseBad.get(sid).map(courseIssueText).join("\n")}><AlertTriangle size={11} /> 수강 불가 {courseBad.get(sid).length}</button>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null;
                     if (!moved) { const pth = pathOf(sid); return <span className="mvbadge back" title={`이동 기록: ${pth.map(c => `${c}반`).join(" → ")}`}><RotateCcw size={11} />{pth.slice(1, -1).map(c => `${c}반`).join("·")} 다녀옴 · 초기 반</span>; } const from = mi && Number(mi.to) === Number(s.cls) ? mi.from : s.orig;
                     return <span className={`mvbadge${mi?.partner ? " sw" : ""}`} title={mi ? `${mi.from}반 → ${mi.to}반${mi.partner ? ` · 맞바꾼 학생: ${nameOf(mi.partner)}` : ""} · ${mi.by || ""} ${fmt(mi.at)}` : ""}><ArrowLeftRight size={11} />{from}반에서 옴{mi?.partner ? <> · 맞바꾼 학생 <b>{nameOf(mi.partner)}</b></> : ""}</span>; })()}</div>; })()}</td>
                   <td className="c">{r ? <button type="button" data-kdn-bare className={`st ${STATUS[r.status].tone}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"} {r.items.length}</button> : <span className="dash">-</span>}</td>
@@ -534,7 +534,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
                 {openSid === sid && openKind === "combo" && <tr className="sub"><td colSpan={cols}><div className="panel2">
                   <ComboPicker sid={sid} placement={placement} combos={cs} mine={(item.combos || []).filter(c => c.byId === me.id).map(c => c.with)} theirsMine={cs.map(c => c.other).filter(o => (review.students[o]?.combos || []).some(c => c.with === sid && c.byId === me.id))} nameOf={nameOf} onAdd={o => addCombo(sid, o)} onRemove={o => removeCombo(sid, o)} />
                 </div></td></tr>}
-                {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel course={placement.rooms ? cc : null} placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} flagsOf={x => STUDENT_FLAGS.filter(f => (review.students[x]?.marks?.[f.key] || []).length)} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
+                {moveSid === sid && <tr className="sub"><td colSpan={cols}><MovePanel course={placement.rooms ? cc : null} setMates={setNo[sid] ? Object.keys(setNo).filter(id => id !== sid && setNo[id] === setNo[sid] && Number(placement.students[id]?.cls) === Number(s.cls)) : []} setNum={setNo[sid] || 0} canGoTo={(id, c) => movableOk(id).includes(Number(c))} placement={placement} sid={sid} to={moveTo} setTo={setMoveTo} summary={summary} nameOf={nameOf} genderOf={genderOf} missSet={missSet} pairs={[...checked, ...comboPairs]} flagsOf={x => STUDENT_FLAGS.filter(f => (review.students[x]?.marks?.[f.key] || []).length)} onMove={doMove} onClose={() => setMoveSid("")} /></td></tr>}
               </React.Fragment>; })}</tbody>
             </table></div>
             {!list.length && <p className="kpl-nil">{toF ? (allView ? `${toF}반으로 옮길 수 있는 학생이 없어요.` : `${curTab}반에서 ${toF}반으로 옮길 수 있는 학생이 없어요.`) : activeF ? "고른 필터에 맞는 학생이 없어요."  : "찾는 학생이 없어요."}</p>}
@@ -704,10 +704,11 @@ function GroupModal({ group, placement, nameOf, curTab, onSave, onRemove, onClos
 }
 
 // 이동 패널: 갈 수 있는 반(인원 변화) → 그냥 옮기기 또는 맞바꿀 학생 고르기
-function MovePanel({ course = null, placement, sid, to, setTo, summary, nameOf, genderOf, missSet, pairs, onMove, onClose, flagsOf = () => [] }) {
+function MovePanel({ course = null, setMates = [], setNum = 0, canGoTo = () => true, placement, sid, to, setTo, summary, nameOf, genderOf, missSet, pairs, onMove, onClose, flagsOf = () => [] }) {
   const [q, setQ] = React.useState("");
   const [sameG, setSameG] = React.useState(false);
   const [safe, setSafe] = React.useState(false);
+  const [withSet, setWithSet] = React.useState(true);
   const s = placement.students[sid];
   const targets = movableClasses(placement, sid);
   const size = c => summary.find(x => x.cls === c)?.n || 0;
@@ -723,7 +724,8 @@ function MovePanel({ course = null, placement, sid, to, setTo, summary, nameOf, 
     <div className="tgts">{targets.map(c => { const k = course && Number(c) !== Number(s.orig) ? course(sid, c) : null; const nc = k && !k.ok; return <button key={c} type="button" data-kdn-bare disabled={nc} className={`${to === c && !nc ? "on" : ""}${clash(sid, c) ? " clash" : ""}${nc ? " nocourse" : ""}`} onClick={() => !nc && setTo(c)} title={[clash(sid, c) ? "이 반에 분리희망 또는 조합 우려 학생이 있어요" : "", nc ? k.issues.map(courseIssueText).join("\n") : ""].filter(Boolean).join("\n")}><b>{c}반</b><small>{size(c)}명</small>{clash(sid, c) && <em>분리·조합 학생 있음</em>}{nc && <em className="nc">이동 불가</em>}</button>; })}</div>
     {course && (() => { const bl = targets.map(c => [c, Number(c) !== Number(s.orig) ? course(sid, c) : null]).filter(([, k]) => k && !k.ok); return bl.length > 0 && <div className="nolist"><b><AlertTriangle size={13} /> 이동 불가 반 <small>옮기면 수강 불가 과목이 생겨요</small></b>{bl.map(([c, k]) => <div key={c} className="row"><span className="c">{c}반</span><span className="why">{k.issues.map((i, n) => <em key={n}>{courseIssueText(i)}</em>)}</span></div>)}</div>; })()}
     {to ? <div className="swap">
-      <div className="opt"><button type="button" className="kpl-btn" onClick={() => onMove(sid, to)}>그냥 옮기기</button><small>{s.cls}반 {size(s.cls) - 1}명 · {to}반 {size(to) + 1}명이 돼요</small></div>
+      {setMates.length > 0 && (() => { const okM = setMates.filter(m => canGoTo(m, to)); const noM = setMates.filter(m => !canGoTo(m, to)); return <label className={`setmv${withSet ? " on" : ""}`}><input type="checkbox" checked={withSet} disabled={!okM.length} onChange={e => setWithSet(e.target.checked)} /><span className="tag">🔗 세트 {setNum}</span><span>같은 반 희망 학생 <b>{okM.map(nameOf).join(", ") || "-"}</b>도 {to}반으로 함께 옮기기{noM.length ? <small> · {noM.map(nameOf).join(", ")}은(는) {to}반으로 갈 수 없어 그대로 있어요</small> : null}</span></label>; })()}
+      <div className="opt"><button type="button" className="kpl-btn" onClick={() => onMove(sid, to, "", withSet ? setMates.filter(m => canGoTo(m, to)) : [])}>{withSet && setMates.some(m => canGoTo(m, to)) ? "세트와 함께 옮기기" : "그냥 옮기기"}</button><small>{(() => { const k = 1 + (withSet ? setMates.filter(m => canGoTo(m, to)).length : 0); return `${s.cls}반 ${size(s.cls) - k}명 · ${to}반 ${size(to) + k}명이 돼요`; })()}</small></div>
       {(() => {
         const myG = genderOf(sid);
         const meBad = course && Number(to) !== Number(s.orig) ? course(sid, to)?.ok === false : false;
@@ -1403,4 +1405,10 @@ const CSS = `
 .kpl-grid td.nm .tags .tset{display:inline-flex;align-items:center;border-radius:7px;font-weight:800;border:1.5px solid transparent}
 .kpl-grid td.nm .tags .tset.c0{background:#dcfce7;color:#166534}.kpl-grid td.nm .tags .tset.c1{background:#ccfbf1;color:#115e59}.kpl-grid td.nm .tags .tset.c2{background:#e0f2fe;color:#075985}.kpl-grid td.nm .tags .tset.c3{background:#fef9c3;color:#854d0e}.kpl-grid td.nm .tags .tset.c4{background:#fae8ff;color:#86198f}.kpl-grid td.nm .tags .tset.c5{background:#ffe4e6;color:#9f1239}
 .kpl-grid td.nm .tags .tset.apart{border-color:#f59e0b;box-shadow:0 0 0 1px #fde68a}
+
+.kpl-grid td.nm .tags .tset{gap:4px;background:#1e293b!important;color:#fff!important;border:0!important;box-shadow:none!important;font-weight:700}
+.kpl-grid td.nm .tags .tset .dot{width:7px;height:7px;border-radius:50%;background:var(--sc)}
+.kpl-grid td.nm .tags .tset.apart{background:#fff7ed!important;color:#9a3412!important;outline:1.5px dashed #f59e0b}
+.kpl-move .setmv{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:9px 12px;border-radius:10px;border:1px solid #cbd5e1;background:#f8fafc;font-size:13.5px;cursor:pointer}.kpl-move .setmv.on{border-color:#1e293b;background:#f1f5f9}
+.kpl-move .setmv input{width:16px;height:16px;accent-color:#1e293b}.kpl-move .setmv .tag{padding:1px 8px;border-radius:6px;background:#1e293b;color:#fff;font-size:12px;font-weight:700}.kpl-move .setmv small{color:#b45309}
 `;
