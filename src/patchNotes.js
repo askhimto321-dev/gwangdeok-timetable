@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-24-b",
+    date: "2026-11-24",
+    title: "같은 반 희망",
+    items: [
+      { audience: "staff", text: "분리희망 입력에 '같은 반 희망' 등급이 생겼어요. 반편성에서 두 학생이 다른 반이면 '같은 반 희망 떨어짐'으로 알려 주고, 옮길 때 떨어지게 되면 한 번 더 물어봐요." },
+    ],
+  },
+  {
     id: "2026-11-24-a",
     date: "2026-11-24",
     title: "1학년 → 2학년 반편성",

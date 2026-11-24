@@ -6,7 +6,7 @@ import React from "react";
 import { Download, Plus, Save, Trash2, Users, X, Loader2, Search, ArrowLeftRight, ArrowRight, Printer, Upload } from "lucide-react";
 import { readStorage, updateStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
-import { MAX_TARGETS, SEPARATION_LEVELS, LEVEL_INFO, REASON_PRESETS, CUSTOM_REASON, SEPARATION_COL_WIDTHS, levelRank, separationKey, normalizeTargets, searchStudents, separationRows, separationHeader, separationPairs, reverseTargets, parseSeparationSheet } from "./classSeparation.js";
+import { MAX_TARGETS, SEPARATION_LEVELS, INPUT_LEVELS, TOGETHER_LEVEL, LEVEL_INFO, REASON_PRESETS, CUSTOM_REASON, SEPARATION_COL_WIDTHS, levelRank, separationKey, normalizeTargets, searchStudents, separationRows, separationHeader, separationPairs, reverseTargets, parseSeparationSheet } from "./classSeparation.js";
 
 const emptyData = () => ({ entries: {} });
 const classOf = student => Number(student?.class) || 0;
@@ -162,8 +162,12 @@ const CSS = `
 .kcs-imp .warn{margin:0;padding:8px 12px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:12.5px;line-height:1.5}
 .kcs-imp .mg{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13.5px;font-weight:700}.kcs-imp .mg small{font-weight:500;color:var(--kdn-muted,#64748b)}
 .kcs-imp footer{display:flex;justify-content:flex-end;gap:8px}
+
+.kcs-imp .ok{margin:0;padding:8px 12px;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;font-size:12.5px;line-height:1.5}
+
+.kcs-level button.is-on.together{background:#16a34a;border-color:#16a34a;color:#fff}.kcs-level button.together:not(.is-on){color:#15803d;border-color:#bbf7d0}
 `;
-const BAR_COLORS = { must: "#dc2626", high: "#ea580c", mid: "#ca8a04", low: "#94a3b8" };
+const BAR_COLORS = { must: "#dc2626", high: "#ea580c", mid: "#ca8a04", low: "#94a3b8", together: "#16a34a" };
 
 function TargetPicker({ value, roster, exclude, onChange }) {
   const [query, setQuery] = React.useState("");
@@ -200,7 +204,7 @@ function LevelScale() {
   const toggle = () => setOpen(value => { try { localStorage.setItem("kd_sep_scale_open", value ? "0" : "1"); } catch { /* ignore */ } return !value; });
   return <div className="kcs-scale" aria-label="분리 등급 기준">
     <div className="kcs-scale-hd"><b>분리 등급 기준</b><small>왼쪽일수록 강하게 분리</small><span className="sp" /><button type="button" data-kdn-bare onClick={toggle} aria-expanded={open}>{open ? "예시 접기" : "등급별 예시 보기"}</button></div>
-    <ol>{SEPARATION_LEVELS.map(level => <li key={level} style={{ "--c": BAR_COLORS[toneOf(level)] }}><b><i />{level}</b><span>{LEVEL_INFO[level].hint}</span>{open && <small>예: {LEVEL_INFO[level].example}</small>}</li>)}</ol>
+    <ol>{INPUT_LEVELS.map(level => <li key={level} style={{ "--c": BAR_COLORS[toneOf(level)] }}><b><i />{level}</b><span>{LEVEL_INFO[level].hint}</span>{open && <small>예: {LEVEL_INFO[level].example}</small>}</li>)}</ol>
   </div>;
 }
 
@@ -455,9 +459,10 @@ export default function ClassSeparationTool({ grade: GRADE = "2", roster = {}, h
     {imp && <div className="kcs-imp" role="dialog" aria-modal="true" aria-label="분리희망 엑셀 넣기" onClick={e => e.target === e.currentTarget && !busy && setImp(null)}><div className="box">
       <header><b><Upload size={17} /> 분리희망 엑셀 넣기</b><button type="button" data-kdn-bare onClick={() => setImp(null)} aria-label="닫기"><X size={16} /></button></header>
       <p className="src">{imp.file} · '{imp.sheet}' 시트</p>
-      <div className="nums"><span><b>{imp.rows.filter(x => roster?.[x.sid]).length}</b>명</span><span><b>{imp.rows.filter(x => roster?.[x.sid]).reduce((a, x) => a + x.targets.length, 0)}</b>건 분리 관계</span>{SEPARATION_LEVELS.map(l => { const n = imp.rows.reduce((a, x) => a + x.targets.filter(t => t.level === l).length, 0); return n ? <span key={l}>{l} <b>{n}</b></span> : null; })}</div>
+      <div className="nums"><span><b>{imp.rows.filter(x => roster?.[x.sid]).length}</b>명</span><span><b>{imp.rows.filter(x => roster?.[x.sid]).reduce((a, x) => a + x.targets.length, 0)}</b>건 (분리 + 같은 반 희망)</span>{INPUT_LEVELS.map(l => { const n = imp.rows.reduce((a, x) => a + x.targets.filter(t => t.level === l).length, 0); return n ? <span key={l}>{l} <b>{n}</b></span> : null; })}</div>
       <ul className="by">{Object.entries(imp.rows.reduce((m, x) => { const c = roster?.[x.sid] ? classOf(roster[x.sid]) : "?"; m[c] = (m[c] || 0) + 1; return m; }, {})).sort((a, b) => Number(a[0]) - Number(b[0])).map(([c, n]) => <li key={c}>{c}반 <b>{n}</b>명</li>)}</ul>
-      {imp.skipped.length > 0 && <p className="warn">분리가 아닌 등급(예: '{imp.skipped[0].raw}') {imp.skipped.length}건은 넣지 않아요. 분리희망 화면에는 '같은 반 희망' 칸이 없어요.</p>}
+      {imp.rows.some(x => x.targets.some(t => t.level === TOGETHER_LEVEL)) && <p className="ok">'반드시 세트'처럼 붙여 주길 바라는 관계는 <b>같은 반 희망</b>으로 넣어요. 반편성에서 두 학생이 다른 반이면 알려 줘요.</p>}
+      {imp.skipped.length > 0 && <p className="warn">알 수 없는 등급(예: '{imp.skipped[0].raw}') {imp.skipped.length}건은 넣지 않아요.</p>}
       {imp.unknown.length > 0 && <p className="warn">지금 {GRADE}학년 명단에 없는 학번 {imp.unknown.length}개: {imp.unknown.slice(0, 8).join(", ")}{imp.unknown.length > 8 ? " …" : ""} — 이 학번이 학생이면 그 줄은 빠지고, 상대이면 학번만 저장돼요.</p>}
       <label className="mg"><input type="checkbox" checked={imp.merge} onChange={e => setImp(v => ({ ...v, merge: e.target.checked }))} /> 이미 입력한 분리희망은 그대로 두고 합치기 <small>(끄면 이 파일에 있는 학생은 파일 내용으로 바뀌어요)</small></label>
       <footer><button type="button" className="kcs-btn" onClick={() => setImp(null)} disabled={busy}>취소</button><button type="button" className="kcs-btn pri" onClick={applyImport} disabled={busy}>{busy ? <Loader2 size={15} className="spin" /> : <Save size={15} />} 넣기</button></footer>
@@ -521,7 +526,7 @@ export default function ClassSeparationTool({ grade: GRADE = "2", roster = {}, h
               <div className="kcs-rows">{draft.map((item, index) => <div key={index} className="kcs-row">
                 <span className="i">{index + 1}</span>
                 {canEdit ? <TargetPicker value={item.sid} roster={roster} exclude={[sid, ...draft.map(t => t.sid).filter(Boolean)]} onChange={value => edit(index, { sid: value })} /> : <div className="kcs-chosen pick">{label(item.sid, roster)} <small>{classOf(roster?.[item.sid])}반</small></div>}
-                <div className="kcs-level" role="group" aria-label="분리 등급">{SEPARATION_LEVELS.map(level => <button key={level} type="button" data-kdn-bare disabled={!canEdit} aria-pressed={item.level === level} title={`${LEVEL_INFO[level].hint} · 예: ${LEVEL_INFO[level].example}`} className={`${item.level === level ? "is-on " : ""}${toneOf(level)}`} onClick={() => edit(index, { level })}>{level}</button>)}</div>
+                <div className="kcs-level" role="group" aria-label="분리 등급">{INPUT_LEVELS.map(level => <button key={level} type="button" data-kdn-bare disabled={!canEdit} aria-pressed={item.level === level} title={`${LEVEL_INFO[level].hint} · 예: ${LEVEL_INFO[level].example}`} className={`${item.level === level ? "is-on " : ""}${toneOf(level)}`} onClick={() => edit(index, { level })}>{level}</button>)}</div>
                 <div className="rs"><ReasonPicker key={`${sid}-${index}`} value={item.reason} disabled={!canEdit} onChange={reason => edit(index, { reason })} /></div>
                 {canEdit ? <button type="button" className="kcs-del" aria-label={`${index + 1}번째 학생 지우기`} onClick={() => { setDraft(list => list.filter((_, i) => i !== index)); setDirty(true); }}><Trash2 size={15} /></button> : <span />}
               </div>)}</div>

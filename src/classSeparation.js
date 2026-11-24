@@ -8,7 +8,11 @@ export const LEVEL_INFO = {
   "되도록 분리": { tone: "high", hint: "특별한 사정이 없으면 분리", example: "지속적인 갈등, 괴롭힘·따돌림 의심" },
   "가능하면 분리": { tone: "mid", hint: "반 배정 여유가 있으면 분리", example: "교우관계 불편, 본인·보호자 요청" },
   "참고": { tone: "low", hint: "배정할 때 참고만", example: "서로 영향이 큰 관계(수업 방해 등)" },
+  "같은 반 희망": { tone: "together", hint: "같은 반에 배정하면 좋음(분리가 아님)", example: "서로 의지하는 관계, 적응 지원이 필요한 학생" },
 };
+// 같은 반 희망(분리와 반대): 입력은 같은 칸에 하고, 분리 관계에는 넣지 않아요.
+export const TOGETHER_LEVEL = "같은 반 희망";
+export const INPUT_LEVELS = [...SEPARATION_LEVELS, TOGETHER_LEVEL];
 export const levelRank = level => { const i = SEPARATION_LEVELS.indexOf(level); return i < 0 ? SEPARATION_LEVELS.length : i; };
 // 사유 고르기(마지막 '직접 입력'을 고르면 글로 적습니다)
 export const REASON_PRESETS = ["학교폭력 가해·피해", "학교폭력 심의·조치 중", "지속적인 갈등", "괴롭힘·따돌림 의심", "교우관계 불편", "본인·보호자 요청", "이성 문제", "수업 방해·서로 영향", "담임 판단"];
@@ -24,7 +28,7 @@ export function normalizeTargets(targets = [], selfSid = "") {
   const seen = new Set();
   return (targets || []).map(item => ({
     sid: clean(item?.sid),
-    level: SEPARATION_LEVELS.includes(item?.level) ? item.level : SEPARATION_LEVELS[0],
+    level: INPUT_LEVELS.includes(item?.level) ? item.level : SEPARATION_LEVELS[0],
     reason: clean(item?.reason).slice(0, 200),
   })).filter(item => {
     if (!item.sid || item.sid === clean(selfSid) || seen.has(item.sid)) return false;
@@ -84,7 +88,7 @@ export const SEPARATION_COL_WIDTHS = [5.2, 9.2, 11.2, 5.2, ...Array.from({ lengt
 export function separationPairs(classData = {}) {
   const map = new Map();
   Object.values(classData || {}).forEach(data => Object.entries(data?.entries || {}).forEach(([sid, entry]) => {
-    normalizeTargets(entry?.targets, sid).forEach(target => {
+    normalizeTargets(entry?.targets, sid).filter(target => target.level !== TOGETHER_LEVEL).forEach(target => {
       const [a, b] = [sid, target.sid].sort();
       const key = `${a}|${b}`;
       const pair = map.get(key) || { a, b, level: target.level, reasons: [], from: [] };
@@ -96,6 +100,21 @@ export function separationPairs(classData = {}) {
   }));
   return Array.from(map.values()).map(pair => ({ ...pair, mutual: pair.from.length > 1 }))
     .sort((x, y) => levelRank(x.level) - levelRank(y.level) || x.a.localeCompare(y.a) || x.b.localeCompare(y.b));
+}
+
+// 같은 반 희망 쌍: { a, b, reasons, from }
+export function togetherPairs(classData = {}) {
+  const map = new Map();
+  Object.values(classData || {}).forEach(data => Object.entries(data?.entries || {}).forEach(([sid, entry]) => {
+    normalizeTargets(entry?.targets, sid).filter(target => target.level === TOGETHER_LEVEL).forEach(target => {
+      const [a, b] = [sid, target.sid].sort(); const key = `${a}|${b}`;
+      const pair = map.get(key) || { a, b, reasons: [], from: [] };
+      if (target.reason && !pair.reasons.includes(target.reason)) pair.reasons.push(target.reason);
+      if (!pair.from.includes(sid)) pair.from.push(sid);
+      map.set(key, pair);
+    });
+  }));
+  return Array.from(map.values());
 }
 
 // 이 학생을 분리 희망으로 적은 다른 학생들
@@ -110,7 +129,7 @@ export function reverseTargets(classData = {}, sid = "") {
 }
 
 // 분리희망 엑셀 한꺼번에 읽기(학년부에서 모은 시트·학교 양식): 한 줄 = 학생 1명(학번) + '분리희망학생N' 묶음(학번·이름·분리 등급·사유)
-// 돌려주는 값: { rows: [{ sid, targets: [{ sid, level, reason }] }], skipped: [{ sid, target, raw }] } — 분리가 아닌 등급(예: '반드시 세트')은 건너뛰어요.
+// 돌려주는 값: { rows: [{ sid, targets: [{ sid, level, reason }] }], skipped: [{ sid, target, raw }] } — '반드시 세트' 같은 등급은 '같은 반 희망'으로, 알 수 없는 등급은 건너뛰어요.
 export function parseSeparationSheet(aoa = []) {
   const rows = (aoa || []).map(r => (r || []).map(c => String(c ?? "").replace(/\s+/g, " ").trim()));
   const hi = rows.slice(0, 10).findIndex(r => r.some(c => /분리\s*희망\s*학생\s*1/.test(c)));
@@ -121,7 +140,7 @@ export function parseSeparationSheet(aoa = []) {
   if (sidCol < 0 || !starts.length) return null;
   const sub = rows[hi + 1] || [];
   const dataFrom = sub.some(c => /^학번$/.test(c)) ? hi + 2 : hi + 1;
-  const levelOf = raw => { const v = raw.replace(/\s+/g, ""); if (/세트|동반|함께|같은반/.test(v)) return ""; if (/반드시/.test(v)) return "반드시 분리"; if (/되도록/.test(v)) return "되도록 분리"; if (/가능/.test(v)) return "가능하면 분리"; if (/참고/.test(v)) return "참고"; return v ? "" : "되도록 분리"; };
+  const levelOf = raw => { const v = raw.replace(/\s+/g, ""); if (/세트|동반|함께|같은반|붙/.test(v)) return TOGETHER_LEVEL; if (/반드시/.test(v)) return "반드시 분리"; if (/되도록/.test(v)) return "되도록 분리"; if (/가능/.test(v)) return "가능하면 분리"; if (/참고/.test(v)) return "참고"; return v ? "" : "되도록 분리"; };
   const out = []; const skipped = [];
   rows.slice(dataFrom).forEach(r => {
     const sid = String(r[sidCol] || "").replace(/\D/g, "");

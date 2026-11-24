@@ -38,7 +38,7 @@ test("분리 쌍은 양쪽 입력을 하나로 묶고 강한 등급을 쓴다", 
 });
 
 import { parseSeparationSheet } from "../src/classSeparation.js";
-test("분리희망 엑셀 한꺼번에 읽기: 학번 + 분리희망학생 묶음, 세트는 건너뜀", () => {
+test("분리희망 엑셀 한꺼번에 읽기: 학번 + 분리희망학생 묶음, 세트는 같은 반 희망", () => {
   const aoa = [
     ["연번", "학번", "이름", "성별", "분리희망학생1", "", "학생1 분리 등급", "학생1 사유", "분리희망학생2", "", "학생2 분리 등급", "학생2 사유"],
     ["", "", "", "", "학번", "이름", "", "", "학번", "이름", "", ""],
@@ -48,6 +48,14 @@ test("분리희망 엑셀 한꺼번에 읽기: 학번 + 분리희망학생 묶�
   const r = parseSeparationSheet(aoa);
   assert.equal(r.rows.length, 2);
   assert.deepEqual(r.rows[0], { sid: "10118", targets: [{ sid: "10111", level: "반드시 분리", reason: "갈등" }] });
-  assert.equal(r.rows[1].targets.length, 1);
-  assert.deepEqual(r.skipped, [{ sid: "10213", target: "10315", raw: "반드시 세트" }]);
+  assert.equal(r.rows[1].targets.length, 2);
+  assert.equal(r.rows[1].targets[1].level, "같은 반 희망");
+  assert.deepEqual(r.skipped, []);
+});
+
+import { togetherPairs, separationPairs as sp2 } from "../src/classSeparation.js";
+test("같은 반 희망은 분리 관계에 넣지 않고 따로 세요", () => {
+  const data = { 1: { entries: { "10101": { targets: [{ sid: "10102", level: "같은 반 희망", reason: "적응" }, { sid: "10103", level: "반드시 분리" }] } } } };
+  assert.equal(sp2(data).length, 1);
+  assert.deepEqual(togetherPairs(data).map(p => `${p.a}|${p.b}`), ["10101|10102"]);
 });
