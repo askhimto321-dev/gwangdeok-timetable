@@ -166,6 +166,11 @@ const CSS = `
 .kcs-imp .ok{margin:0;padding:8px 12px;border-radius:10px;background:#f0fdf4;border:1px solid #bbf7d0;color:#166534;font-size:12.5px;line-height:1.5}
 
 .kcs-level button.is-on.together{background:#16a34a;border-color:#16a34a;color:#fff}.kcs-level button.together:not(.is-on){color:#15803d;border-color:#bbf7d0}
+
+.kcs-together{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin-top:8px;padding:8px 12px;border-radius:10px;border:1px dashed #86efac;background:#f0fdf4}.kcs-together b{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;color:#166534}.kcs-together b i{width:9px;height:9px;border-radius:50%;background:#16a34a}.kcs-together span{font-size:12.5px;color:#166534}.kcs-together small{flex-basis:100%;font-size:12px;color:#4b5563}
+.kcs-badge.t-together{background:#dcfce7;color:#15803d}
+.kcs-recv-card.tone-together{--c:#16a34a}
+.kcs-pill.t-together{background:#dcfce7;color:#15803d}
 `;
 const BAR_COLORS = { must: "#dc2626", high: "#ea580c", mid: "#ca8a04", low: "#94a3b8", together: "#16a34a" };
 
@@ -204,7 +209,8 @@ function LevelScale() {
   const toggle = () => setOpen(value => { try { localStorage.setItem("kd_sep_scale_open", value ? "0" : "1"); } catch { /* ignore */ } return !value; });
   return <div className="kcs-scale" aria-label="분리 등급 기준">
     <div className="kcs-scale-hd"><b>분리 등급 기준</b><small>왼쪽일수록 강하게 분리</small><span className="sp" /><button type="button" data-kdn-bare onClick={toggle} aria-expanded={open}>{open ? "예시 접기" : "등급별 예시 보기"}</button></div>
-    <ol>{INPUT_LEVELS.map(level => <li key={level} style={{ "--c": BAR_COLORS[toneOf(level)] }}><b><i />{level}</b><span>{LEVEL_INFO[level].hint}</span>{open && <small>예: {LEVEL_INFO[level].example}</small>}</li>)}</ol>
+    <ol>{SEPARATION_LEVELS.map(level => <li key={level} style={{ "--c": BAR_COLORS[toneOf(level)] }}><b><i />{level}</b><span>{LEVEL_INFO[level].hint}</span>{open && <small>예: {LEVEL_INFO[level].example}</small>}</li>)}</ol>
+    <div className="kcs-together"><b><i />{TOGETHER_LEVEL}</b><span>분리와 반대예요. 두 학생을 같은 반에 배정하면 좋은 관계(세트)</span>{open && <small>예: {LEVEL_INFO[TOGETHER_LEVEL].example}</small>}</div>
   </div>;
 }
 
@@ -488,9 +494,9 @@ export default function ClassSeparationTool({ grade: GRADE = "2", roster = {}, h
       <div className={`kcs-split${sid ? " has-sel" : ""}`}>
         <nav className="kcs-list" aria-label={`${viewClass}반 학생`}>
           <div className="kcs-list-find"><input value={findText} placeholder={`${viewClass}반에서 이름·학번 찾기`} aria-label="학생 찾기" onChange={event => setFindText(event.target.value)} /></div>
-          {shownStudents.map(([id, s]) => { const own = ownTargets(id); const rev = (reverseMap[id] || []).filter(r => !own.some(t => t.sid === r.sid)); return <button key={id} type="button" data-kdn-bare className={id === sid ? "is-on" : ""} onClick={() => pick(id)}>
+          {shownStudents.map(([id, s]) => { const ownAll = ownTargets(id); const own = ownAll.filter(t => t.level !== TOGETHER_LEVEL); const revAll = (reverseMap[id] || []).filter(r => !ownAll.some(t => t.sid === r.sid)); const rev = revAll.filter(r => r.level !== TOGETHER_LEVEL); const tog = new Set([...ownAll, ...revAll].filter(t => t.level === TOGETHER_LEVEL).map(t => t.sid)).size; return <button key={id} type="button" data-kdn-bare className={id === sid ? "is-on" : ""} onClick={() => pick(id)}>
             <span className="no">{s?.number || id.slice(-2)}</span><span className="nm">{s?.name || id}<GenderTag g={s?.gender} /></span>
-            <span className="kcs-marks">{own.length > 0 && <span className={`kcs-badge t-${toneOf(strongest(own))}`} title="이 학생 기준으로 등록한 분리 대상 수">분리 {own.length}</span>}{rev.length > 0 && <span className={`kcs-badge rev t-${toneOf(strongest(rev))}`} title="다른 학생 쪽에서 이 학생을 분리 대상으로 등록한 수(이 학생 쪽에는 아직 없음)">지목 {rev.length}</span>}</span>
+            <span className="kcs-marks">{own.length > 0 && <span className={`kcs-badge t-${toneOf(strongest(own))}`} title="이 학생 기준으로 등록한 분리 대상 수">분리 {own.length}</span>}{rev.length > 0 && <span className={`kcs-badge rev t-${toneOf(strongest(rev))}`} title="다른 학생 쪽에서 이 학생을 분리 대상으로 등록한 수(이 학생 쪽에는 아직 없음)">지목 {rev.length}</span>}{tog > 0 && <span className="kcs-badge t-together" title="같은 반 희망(세트)으로 등록된 상대 수">같은 반 {tog}</span>}</span>
           </button>; })}
           {!shownStudents.length && <div className="kcs-empty">{students.length ? "찾는 학생이 없습니다." : `${viewClass}반 명단이 없습니다.`}</div>}
         </nav>
