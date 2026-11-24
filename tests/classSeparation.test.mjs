@@ -36,3 +36,18 @@ test("분리 쌍은 양쪽 입력을 하나로 묶고 강한 등급을 쓴다", 
   assert.equal(pairs[0].reasons.length, 2);
   assert.deepEqual(reverseTargets(data, "20101").map(r => [r.sid, r.level]), [["20301", "반드시 분리"]]);
 });
+
+import { parseSeparationSheet } from "../src/classSeparation.js";
+test("분리희망 엑셀 한꺼번에 읽기: 학번 + 분리희망학생 묶음, 세트는 건너뜀", () => {
+  const aoa = [
+    ["연번", "학번", "이름", "성별", "분리희망학생1", "", "학생1 분리 등급", "학생1 사유", "분리희망학생2", "", "학생2 분리 등급", "학생2 사유"],
+    ["", "", "", "", "학번", "이름", "", "", "학번", "이름", "", ""],
+    [1, "10118", "가", "여자", "10111", "나", "반드시 분리", "갈등", "", "", "", ""],
+    [2, "10213", "다", "여자", "10202", "라", "되도록 분리", "교우 갈등", "10315", "마", "반드시 세트", ""],
+  ];
+  const r = parseSeparationSheet(aoa);
+  assert.equal(r.rows.length, 2);
+  assert.deepEqual(r.rows[0], { sid: "10118", targets: [{ sid: "10111", level: "반드시 분리", reason: "갈등" }] });
+  assert.equal(r.rows[1].targets.length, 1);
+  assert.deepEqual(r.skipped, [{ sid: "10213", target: "10315", raw: "반드시 세트" }]);
+});
