@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-25-c",
+    date: "2026-11-25",
+    title: "선택과목 표 보기 개선",
+    items: [
+      { audience: "staff", text: "반편성 '선택과목' 표를 학기·그룹(A, B, C…) 칸으로 나눠 같은 그룹 과목이 한 줄로 맞춰 보여요. 구분선과 반별 경계도 넣었어요." },
+    ],
+  },
+  {
     id: "2026-11-25-b",
     date: "2026-11-25",
     title: "반편성 선택과목 탭",
