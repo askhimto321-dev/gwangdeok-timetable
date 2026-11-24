@@ -6,7 +6,7 @@ import React from "react";
 import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, ListChecks, ShieldCheck, Check, Printer, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { readStorage, updateStorage, writeStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
-import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs } from "./classSeparation.js";
+import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs, togetherPairs } from "./classSeparation.js";
 import { printPlacement } from "./placementPrint.js";
 import { courseCheck, courseIssueText, sectionMembers } from "./classPlacement.js";
 import { placementKey, placementReviewKey, parsePlacementFile, normalizePlacement, bySidOf, movableClasses, swapCandidates, applyMove, undoMove, classSummary, checkPairs, studentResults, STUDENT_FLAGS, CLASS_CHECKS } from "./classPlacement.js";
@@ -150,6 +150,9 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       if (g.members.includes(sid)) { const there = g.members.filter(m => m !== sid && m !== swap && Number(placement.students[m]?.cls) === Number(to)); if (there.length) clashes.push(`'${g.name}': ${nm(sid)} → ${to}반 (${there.map(nm).join(", ")} 있음)`); }
       if (swap && g.members.includes(swap)) { const from = placement.students[sid]?.cls; const there = g.members.filter(m => m !== swap && m !== sid && Number(placement.students[m]?.cls) === Number(from)); if (there.length) clashes.push(`'${g.name}': ${nm(swap)} → ${from}반 (${there.map(nm).join(", ")} 있음)`); }
     });
+    { const cls0 = id => Number(placement.students[id]?.cls); const after = id => (id === sid ? Number(to) : id === swap ? cls0(sid) : cls0(id));
+      const broke = together.filter(p => [p.a, p.b].some(id => id === sid || id === swap) && cls0(p.a) === cls0(p.b) && after(p.a) !== after(p.b));
+      if (broke.length && !window.confirm(`같은 반 희망 학생과 떨어지게 돼요.\n\n${broke.map(p => `${nm(p.a)} · ${nm(p.b)}`).join("\n")}\n\n그래도 옮길까요?`)) return; }
     if (clashes.length && !window.confirm(`조합 우려 그룹 학생과 같은 반이 돼요.\n\n${clashes.join("\n")}\n\n그래도 옮길까요?`)) return;
     const ok = await commit(p => applyMove(p, { sid, to, swap, by: me.name }), swap ? `${name} ↔ ${placement.students[swap]?.name || ""} 맞바꿨어요.` : `${name} 학생을 ${to}반으로 옮겼어요.`);
     if (ok) { setMoveSid(""); setMoveTo(0); }
@@ -258,6 +261,10 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
 
   const bySid = bySidOf(placement);
   const pairs = separationPairs(sepData);
+  // 같은 반 희망(분리와 반대): 두 학생이 다른 반이면 '떨어짐'
+  const together = togetherPairs(sepData).map(p => { const ca = Number(placement?.students?.[p.a]?.cls) || 0, cb = Number(placement?.students?.[p.b]?.cls) || 0; return { ...p, ca, cb, apart: !!(ca && cb && ca !== cb) }; });
+  const apartSet = new Set(together.filter(p => p.apart).flatMap(p => [p.a, p.b]));
+  const togetherOf = sid => together.filter(p => p.a === sid || p.b === sid).map(p => ({ other: p.a === sid ? p.b : p.a, reasons: p.reasons }));
   const checked = checkPairs(pairs, bySid);
   const results = studentResults(checked);
   const missSet = new Set(results.filter(s => s.status === "same").map(s => s.sid));
@@ -397,7 +404,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : allView || Number(s.cls) === curTab));
       const markedAny = sid => STUDENT_FLAGS.some(f => (review.students[sid]?.marks?.[f.key] || []).length > 0);
       const FILTERS = [{ key: "marked", group: "mark", label: "표시한 학생 전체", tone: "mute", test: ([sid]) => markedAny(sid) }, ...STUDENT_FLAGS.map(f => ({ key: f.key, group: "mark", label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
-        { key: "miss", group: "check", label: "분리희망 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, { key: "comboSame", group: "check", label: "조합 우려 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
+        { key: "miss", group: "check", label: "분리희망 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, ...(together.length ? [{ key: "apart", group: "check", label: "같은 반 희망 떨어짐", tone: "warn", test: ([sid]) => apartSet.has(sid) }] : []), { key: "comboSame", group: "check", label: "조합 우려 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
         ...(placement.rooms ? [{ key: "course", group: "check", label: "수강 불가 과목", tone: "bad", test: ([sid]) => courseBad.has(sid) }, { key: "nomove", group: "check", label: "이동 불가 학생", tone: "bad", test: ([sid, x]) => !movableOk(sid).some(c => Number(c) !== Number(x.cls)) }] : []), { key: "moved", group: "check", label: "받은 학생", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", group: "check", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
         { key: "m", group: "gender", label: "남학생", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", group: "gender", label: "여학생", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
       const FGROUPS = [["mark", "학생 표시"], ["check", "배정 점검"], ["gender", "성별"]];
@@ -449,6 +456,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
                 <T label="이동 희망" dot="mv" n={flagCount("move")} tone="mv" hint="다른 반으로 옮기는 게 좋겠다고 표시한 학생" />
                 <h6>배정 점검</h6>
                 <T label="분리희망 미반영" n={missN} tone={missN ? "bad" : ""} />
+                {together.length > 0 && (() => { const n = base.filter(([sid]) => apartSet.has(sid)).length; return <T label="같은 반 희망 떨어짐" n={n} tone="warn" hint="같은 반 희망 학생이 다른 반에 배정된 학생" />; })()}
                 <T label="조합 우려 같은 반" n={comboN} unit="묶음" tone={comboN ? "bad" : ""} hint="이 반 안에서 조합 우려(지목·조합 그룹)로 이어진 학생들을 한 묶음으로 센 수" />
                 {placement.rooms && <T label="수강 불가 과목" n={courseN} tone={courseN ? "bad" : ""} hint="옮겨 와서 들을 수 없는 과목이 생긴 학생" />}
                 {placement.rooms && <T label="이동 불가(고정)" n={fixedN} hint="원반 과목·시간표 규칙상 다른 반으로 못 가는 학생" />}
@@ -491,7 +499,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
                 <tr className={`${missSet.has(sid) ? "miss" : ""}${moved ? " moved" : ""}${courseBad.has(sid) ? " nocourse" : ""}${moveSid === sid || openSid === sid ? " active" : ""}`}>
                   {wide && <td className="c"><button type="button" data-kdn-bare className="go-cls" onClick={() => goClass(s.cls)} title={`${s.cls}반 명단으로`}>{s.cls}반</button></td>}
                   <td className="c no">{oldLabel(sid)}</td>
-                  <td className="nm"><div className="nl"><button type="button" data-kdn-bare className={`nmb${openSid === sid && openKind === "sep" ? " on" : ""}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title="눌러서 분리희망·조합 상대 보기">{s.name || roster[sid]?.name || sid}</button>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}</div>{(() => { const fixed = canMove && !targets.length; return (courseBad.has(sid) || moved || moveInfo.has(sid) || fixed) && <div className="tags">{fixed && <span className="fixed" title="원반 과목·시간표 규칙상 옮길 수 있는 다른 반이 없어요">🔒 {s.cls}반 고정</span>}{courseBad.has(sid) && <button type="button" data-kdn-bare className="cbad" onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={courseBad.get(sid).map(courseIssueText).join("\n")}><AlertTriangle size={11} /> 수강 불가 {courseBad.get(sid).length}</button>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null;
+                  <td className="nm"><div className="nl"><button type="button" data-kdn-bare className={`nmb${openSid === sid && openKind === "sep" ? " on" : ""}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title="눌러서 분리희망·조합 상대 보기">{s.name || roster[sid]?.name || sid}</button>{g && <i className={`g ${/남/.test(g) ? "m" : "f"}`}>{g}</i>}</div>{(() => { const fixed = canMove && !targets.length; const ap = apartSet.has(sid); return (courseBad.has(sid) || moved || moveInfo.has(sid) || fixed || ap) && <div className="tags">{ap && <span className="apart" title={togetherOf(sid).map(t => `${nameOf(t.other)}(${placement.students[t.other]?.cls || "?"}반)`).join(", ")}>같은 반 희망 떨어짐</span>}{fixed && <span className="fixed" title="원반 과목·시간표 규칙상 옮길 수 있는 다른 반이 없어요">🔒 {s.cls}반 고정</span>}{courseBad.has(sid) && <button type="button" data-kdn-bare className="cbad" onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={courseBad.get(sid).map(courseIssueText).join("\n")}><AlertTriangle size={11} /> 수강 불가 {courseBad.get(sid).length}</button>}{(() => { const mi = moveInfo.get(sid); if (!moved && !mi) return null;
                     if (!moved) { const pth = pathOf(sid); return <span className="mvbadge back" title={`이동 기록: ${pth.map(c => `${c}반`).join(" → ")}`}><RotateCcw size={11} />{pth.slice(1, -1).map(c => `${c}반`).join("·")} 다녀옴 · 초기 반</span>; } const from = mi && Number(mi.to) === Number(s.cls) ? mi.from : s.orig;
                     return <span className={`mvbadge${mi?.partner ? " sw" : ""}`} title={mi ? `${mi.from}반 → ${mi.to}반${mi.partner ? ` · 맞바꾼 학생: ${nameOf(mi.partner)}` : ""} · ${mi.by || ""} ${fmt(mi.at)}` : ""}><ArrowLeftRight size={11} />{from}반에서 옴{mi?.partner ? <> · 맞바꾼 학생 <b>{nameOf(mi.partner)}</b></> : ""}</span>; })()}</div>; })()}</td>
                   <td className="c">{r ? <button type="button" data-kdn-bare className={`st ${STATUS[r.status].tone}`} onClick={() => { openPanel(sid, "sep"); setMoveSid(""); }} title={r.items.map(i => `${nameOf(i.other)}(${i.level}) ${STATUS[i.status].label}`).join("\n")}>{r.status === "same" ? "미반영" : r.status === "ok" ? "반영" : "확인"} {r.items.length}</button> : <span className="dash">-</span>}</td>
@@ -511,6 +519,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
                     </tbody></table> : <p className="kpl-nil">이 학생은 분리희망이 없어요.</p>}</div>
                   {placement.rooms && moved && (() => { const k = cc(sid, s.cls); if (!k) return null; return <div className="sec"><h6>수강 확인 <small>{s.orig}반 → {s.cls}반</small></h6>
                     {k.issues.length ? <div className="cissue">{k.issues.map((i, n) => <span key={n}><AlertTriangle size={12} /> 수강 불가: {courseIssueText(i)}</span>)}</div> : <p className="kpl-nil">{s.cls}반에서 모든 과목을 들을 수 있어요.</p>}</div>; })()}
+                  {togetherOf(sid).length > 0 && <div className="sec"><h6>같은 반 희망 <small>분리와 반대 · 같은 반이면 초록</small></h6><div className="chips">{togetherOf(sid).map(t => { const oc = placement.students[t.other]?.cls; const ok = Number(oc) === Number(s.cls); return <span key={t.other} className={ok ? "tok" : "hot"}>{nameOf(t.other)} · {oc || "?"}반 {ok ? "✓ 같은 반" : "떨어짐"}{t.reasons.length ? ` · ${t.reasons.join(", ")}` : ""}</span>; })}</div></div>}
                   {(cs.length > 0 || groupsOf(sid).length > 0) && <div className="sec"><h6>조합 우려</h6><div className="chips">{cs.map(c => { const oc = placement.students[c.other]?.cls; return <span key={c.other} className={Number(oc) === Number(s.cls) ? "hot" : ""}>{nameOf(c.other)} · {oc || "?"}반</span>; })}{groupsOf(sid).map(g => <span key={g.id} className="grp"><Users size={12} /> 그룹 {g.name}</span>)}</div></div>}
                   {canMove && targets.length > 0 && <div className="act"><button type="button" data-kdn-bare className="mvb" onClick={() => { setMoveSid(sid); setMoveTo(toF && targets.includes(toF) ? toF : 0); setOpenSid(""); }}><ArrowLeftRight size={13} /> 이 학생 옮기기</button>{moved && <button type="button" data-kdn-bare className="mvb rst2" onClick={() => restoreOrig(sid)}><RotateCcw size={13} /> 원래 반({s.orig}반)으로</button>}</div>}
                 </div></td></tr>}
@@ -539,6 +548,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       const metrics = [
         ...STUDENT_FLAGS.map(f => ({ key: f.key, label: f.label, color: COLORS[f.tone] || "#475569", unit: "명", val: c => marked(c, f.key), filter: f.key, low: f.key === "leader" })),
         { key: "miss", label: "분리희망 미반영", color: "#dc2626", unit: "명", val: c => byCls[c].filter(id => missSet.has(id)).length, filter: "miss", alert: true },
+        ...(together.length ? [{ key: "apart", label: "같은 반 희망 떨어짐", color: "#16a34a", unit: "명", val: c => byCls[c].filter(id => apartSet.has(id)).length, filter: "apart", alert: true }] : []),
         { key: "comboSame", label: "조합 우려 같은 반", color: "#d97706", unit: "묶음", val: c => comboClusters(c).length, filter: "comboSame", alert: true },
         ...(placement.rooms ? [{ key: "course", label: "수강 불가 과목", color: "#dc2626", unit: "명", val: c => byCls[c].filter(id => courseBad.has(id)).length, filter: "course", alert: true }] : []),
       ];
@@ -593,6 +603,8 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
         <p className="kpl-nil">{placement.rooms.common ? "공통 과목은 반편성 파일의 시수배당표에서 반마다 읽었어요." : `공통 과목은 교육과정 편성표 기준이에요(음악·미술 감상과 비평은 1~${Math.ceil(classes.length / 2)}반과 ${Math.ceil(classes.length / 2) + 1}~${classes[classes.length - 1]}반이 학기마다 엇갈려요).`} 그룹 칸 숫자는 그 반에서 그 과목을 듣는 학생 수예요.</p>
       </div>; })()}
     {curView === "check" && <>
+      {together.length > 0 && <section className="kpl-tg"><header><b>같은 반 희망</b><small>{together.length}쌍 · 떨어짐 {together.filter(p => p.apart).length}쌍</small></header>
+        <table className="kpl-pairs"><thead><tr><th>학생</th><th>학생</th><th className="c">결과</th><th>사유</th></tr></thead><tbody>{together.slice().sort((x, y) => y.apart - x.apart).map(p => <tr key={`${p.a}|${p.b}`} className={p.apart ? "bad" : ""}><td><b>{nameOf(p.a)}</b> <small>{oldLabel(p.a)} → {p.ca || "?"}반</small></td><td><b>{nameOf(p.b)}</b> <small>{oldLabel(p.b)} → {p.cb || "?"}반</small></td><td className="c">{p.apart ? <span className="st bad">떨어짐</span> : <span className="st good">같은 반</span>}</td><td><small>{p.reasons.join(", ") || "-"}</small></td></tr>)}</tbody></table></section>}
       <div className="kpl-sum">
         <div><small>분리희망 쌍</small><b>{checked.length}</b></div>
         <div className="good"><small>반영 (다른 반)</small><b>{count("ok")}</b></div>
@@ -1380,4 +1392,8 @@ const CSS = `
 .kpl-stv .ovt .cv{display:inline-block;min-width:34px;padding:2px 8px;border-radius:6px;font-size:13.5px;font-weight:700;color:var(--kdn-ink,#1f2937);font-variant-numeric:tabular-nums}
 .kpl-stv .ovt .cv.hot{color:#fff;font-weight:800}.kpl-stv .ovt .cv.none{font-size:12px;font-weight:800;background:#fee2e2!important;color:#b91c1c!important}
 .kpl-stv .ovt .z{color:#d1d5db;font-weight:400}
+
+.kpl-grid td.nm .tags .apart{display:inline-flex;align-items:center;border-radius:7px;background:#fef3c7;color:#b45309;border:1px solid #fde68a;font-weight:800}
+.kpl-grid .panel2.sepp .chips span.tok{border-color:#bbf7d0;background:#f0fdf4;color:#15803d}
+.kpl-tg{display:grid;gap:8px;padding:14px 16px;border-radius:14px;border:1px solid #bbf7d0;background:#f7fdf9}.kpl-tg header{display:flex;align-items:baseline;gap:8px}.kpl-tg header b{font-size:15px;color:#166534}.kpl-tg header small{font-size:12.5px;color:#4b5563}.kpl-tg tr.bad td{background:#fffbeb}
 `;
