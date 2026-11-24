@@ -66,3 +66,17 @@ test("편제표 대조: 학급 고정 선택과목·개정 연도 붙은 약칭�
   assert.deepEqual(check.unknown, []);
   assert.deepEqual(check.issues, []);
 });
+
+import { subjectArea } from "../src/curriculum.js";
+test("2022 개정 교과(군): 제2외국어 문화 과목·사회·과학·교양 구분", () => {
+  assert.equal(subjectArea("중국 문화"), "lang2");
+  assert.equal(subjectArea("일본어 회화"), "lang2");
+  assert.equal(subjectArea("인문학과 윤리"), "soc");
+  assert.equal(subjectArea("기후변화와 환경생태"), "sci");
+  assert.equal(subjectArea("기후변화와 지속가능한 세계"), "soc");
+  assert.equal(subjectArea("미적분Ⅱ"), "math");
+  assert.equal(subjectArea("영어Ⅰ"), "eng");
+  assert.equal(subjectArea("프로그래밍"), "tech");
+  assert.equal(subjectArea("보건"), "lib");
+  assert.equal(subjectArea("스포츠 생활1"), "artpe");
+});
