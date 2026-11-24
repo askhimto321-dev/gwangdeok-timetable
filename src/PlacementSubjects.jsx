@@ -41,10 +41,17 @@ export default function PlacementSubjects({ placement, roster = {}, canEdit = fa
   Object.values(students).forEach(x => (x.sj || []).forEach(s => { const k = `${s.sem}|${s.n}`; counts[k] ||= { n: 0, g: {} }; counts[k].n += 1; counts[k].g[s.g] = (counts[k].g[s.g] || 0) + 1; }));
   const subjOptions = sems.flatMap(sem => Object.keys(counts).filter(k => k.startsWith(`${sem}|`)).sort((a, b) => a.localeCompare(b, "ko")));
 
-  const chips = (x, sem) => {
-    const now = (x.sj || []).filter(s => String(s.sem) === sem);
+  // 학기마다 그룹 열(A~E · F~J 등)과 원반 열: 같은 그룹 과목이 같은 칸에 줄 맞춰 보이게
+  const cols = sems.map(sem => {
+    const set = new Set(Object.values(catalog[sem] || {}).flat()); let ob = false;
+    Object.values(students).forEach(x => (x.sj || []).forEach(s => { if (String(s.sem) !== sem) return; if (s.g === "원반") ob = true; else if (s.g) set.add(s.g); }));
+    return { sem, letters: Array.from(set).sort(), ob };
+  });
+  const cell = (x, sem, g) => {
+    const now = (x.sj || []).filter(s => String(s.sem) === sem && s.g === g);
+    if (!now.length) return <span className="none">-</span>;
     const was = new Set((x.sj0 || x.sj || []).filter(s => String(s.sem) === sem).map(s => s.n));
-    return <div className="chips">{now.map(s => { const isNew = x.sj0 && !was.has(s.n); return <span key={s.n} className={`sj${s.g === "원반" ? " ob" : ""}${isNew ? " new" : ""}${subj === `${sem}|${s.n}` ? " hit" : ""}`} title={isNew ? "바꾼 과목" : s.g === "원반" ? "원반(반 전체가 함께 듣는) 과목" : `${s.g} 그룹`}><i>{s.g === "원반" ? "원반" : s.g}</i>{s.n}</span>; })}</div>;
+    return now.map(s => { const isNew = x.sj0 && !was.has(s.n); return <span key={s.n} className={`sn${isNew ? " new" : ""}${subj === `${sem}|${s.n}` ? " hit" : ""}`} title={`${sem}학기 ${g === "원반" ? "원반" : `${g} 그룹`} · ${s.n}${isNew ? " (바꾼 과목)" : ""}`}>{s.n}</span>; });
   };
 
   const cur = edit ? students[edit] : null;
@@ -59,12 +66,16 @@ export default function PlacementSubjects({ placement, roster = {}, canEdit = fa
     </div>
     <p className="kps-sum"><b>{list.length}명</b>{subj ? ` · ${subjSem}학기 ${subjName} 그룹별 ${Object.entries(counts[subj]?.g || {}).map(([g, n]) => `${g} ${n}`).join(", ")}` : ""}{canEdit ? <small>과목을 바꾸려면 학생 줄의 '바꾸기'를 눌러요. 그 반에서 시간표가 되는지 먼저 알려 줘요.</small> : <small>보기만 할 수 있어요.</small>}</p>
     <div className="kps-scroll"><table className="kps-grid">
-      <thead><tr><th className="c">새 반</th><th className="c">구반-번호</th><th>이름</th>{sems.map(sem => <th key={sem}>{sem}학기 선택과목</th>)}<th className="c">바꾸기</th></tr></thead>
-      <tbody>{list.map(([sid, x]) => { const diff = changedIds.includes(sid); return <tr key={sid} className={diff ? "chg" : ""}>
+      <colgroup><col style={{ width: 54 }} /><col style={{ width: 62 }} /><col style={{ width: 104 }} />{cols.flatMap(c => [...(c.ob ? [<col key={`${c.sem}ob`} />] : []), ...c.letters.map(l => <col key={`${c.sem}${l}`} />)])}<col style={{ width: 74 }} /></colgroup>
+      <thead>
+        <tr className="h1"><th rowSpan={2} className="c">새 반</th><th rowSpan={2} className="c">구반-번호</th><th rowSpan={2}>이름</th>{cols.map(c => <th key={c.sem} colSpan={c.letters.length + (c.ob ? 1 : 0)} className={`sem s${c.sem}`}>{c.sem}학기</th>)}<th rowSpan={2} className="c">{canEdit ? "바꾸기" : "보기"}</th></tr>
+        <tr className="h2">{cols.map(c => <React.Fragment key={c.sem}>{c.ob && <th className={`g ob first s${c.sem}`}>원반</th>}{c.letters.map((l, k) => <th key={l} className={`g s${c.sem}${!c.ob && !k ? " first" : ""}`}>{l}</th>)}</React.Fragment>)}</tr>
+      </thead>
+      <tbody>{list.map(([sid, x], idx) => { const diff = changedIds.includes(sid); const newCls = idx > 0 && Number(list[idx - 1][1].cls) !== Number(x.cls) && !old; return <tr key={sid} className={`${diff ? "chg" : ""}${newCls ? " brk" : ""}`}>
         <td className="c"><span className="cls">{x.cls}반</span></td><td className="c mono">{oldLabel(sid)}</td>
         <td className="nm"><b>{nameOf(sid)}</b>{diff && <em>바꿈</em>}</td>
-        {sems.map(sem => <td key={sem}>{chips(x, sem)}</td>)}
-        <td className="c">{canEdit ? <button type="button" data-kdn-bare className="eb" onClick={() => setEdit(sid)}>바꾸기</button> : <button type="button" data-kdn-bare className="eb" onClick={() => setEdit(sid)}>보기</button>}</td>
+        {cols.map(c => <React.Fragment key={c.sem}>{c.ob && <td className={`g ob first s${c.sem}`}>{cell(x, c.sem, "원반")}</td>}{c.letters.map((l, k) => <td key={l} className={`g s${c.sem}${!c.ob && !k ? " first" : ""}`}>{cell(x, c.sem, l)}</td>)}</React.Fragment>)}
+        <td className="c"><button type="button" data-kdn-bare className="eb" onClick={() => setEdit(sid)}>{canEdit ? "바꾸기" : "보기"}</button></td>
       </tr>; })}</tbody>
     </table>{!list.length && <p className="kps-nil">조건에 맞는 학생이 없어요.</p>}</div>
     <details className="kps-fold"><summary><History size={14} /><b>바꾼 기록 {logs.length}건</b><small>{changedIds.length ? `${changedIds.length}명` : "아직 없어요"}</small></summary>
@@ -124,20 +135,35 @@ const CSS = `
 .kps-tools .clr{border:0;background:transparent;color:var(--kdn-muted,#6b7280);font:inherit;font-size:13px;text-decoration:underline;cursor:pointer}
 .kps-sum{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;margin:0;font-size:13.5px;color:var(--kdn-ink-soft,#374151)}.kps-sum b{font-size:15px;color:var(--kdn-ink,#111827)}.kps-sum small{margin-left:auto;color:var(--kdn-muted,#6b7280);font-size:12.5px}
 .kps-scroll{overflow:auto;max-height:70vh;border:1px solid var(--kdn-line,#e5e7eb);border-radius:14px;background:var(--kdn-surface,#fff)}
-.kps-grid{width:100%;border-collapse:collapse;font-size:13.5px}
-.kps-grid th{position:sticky;top:0;z-index:1;background:var(--kdn-surface-2,#f3f4f6);color:var(--kdn-ink-soft,#374151);font-size:12.5px;font-weight:800;text-align:left;padding:9px 10px;border-bottom:1px solid var(--kdn-line,#e5e7eb);white-space:nowrap}
-.kps-grid td{padding:7px 10px;border-bottom:1px solid var(--kdn-line,#eef0f3);vertical-align:middle}
+.kps-grid{width:100%;min-width:980px;border-collapse:separate;border-spacing:0;font-size:13px;table-layout:fixed}
+.kps-grid th{position:sticky;z-index:1;background:var(--kdn-surface-2,#f3f4f6);color:var(--kdn-ink-soft,#374151);font-size:12.5px;font-weight:800;text-align:left;padding:8px 10px;border-bottom:1px solid var(--kdn-line,#e5e7eb);white-space:nowrap}
+.kps-grid tr.h1 th{top:0;height:36px}.kps-grid tr.h2 th{top:36px;padding:5px 8px;font-size:12px;text-align:center}
+.kps-grid th.sem{text-align:center;border-left:2px solid var(--kdn-line,#d1d5db)}
+.kps-grid th.sem.s1{background:color-mix(in srgb,#3b82f6 9%,var(--kdn-surface-2,#f3f4f6));color:#1d4ed8}.kps-grid th.sem.s2{background:color-mix(in srgb,#10a37f 9%,var(--kdn-surface-2,#f3f4f6));color:#047857}
+.kps-grid th.g.s1{background:color-mix(in srgb,#3b82f6 5%,var(--kdn-surface-2,#f3f4f6))}.kps-grid th.g.s2{background:color-mix(in srgb,#10a37f 5%,var(--kdn-surface-2,#f3f4f6))}
+.kps-grid td{padding:7px 8px;border-bottom:1px solid var(--kdn-line,#eef0f3);vertical-align:middle}
+.kps-grid td.g,.kps-grid th.g{border-left:1px solid var(--kdn-line,#eef0f3);text-align:center}
+.kps-grid td.first,.kps-grid th.first{border-left:2px solid var(--kdn-line,#d1d5db)}
+.kps-grid td.g{padding:6px 4px;line-height:1.3}
+.kps-grid tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--kdn-ink,#111827) 2%,transparent)}
+.kps-grid tbody tr:hover td{background:color-mix(in srgb,#3b82f6 6%,transparent)}
+.kps-grid tr.brk td{border-top:2px solid var(--kdn-line,#cbd5e1)}
+.kps-grid .sn{display:inline-block;font-size:12px;letter-spacing:-.02em;font-weight:700;color:var(--kdn-ink,#111827);word-break:keep-all}
+.kps-grid td.ob .sn{color:var(--kdn-ink-soft,#4b5563);font-weight:600}
+.kps-grid .sn.new{padding:1px 6px;border-radius:6px;background:#ede9fe;color:#5b21b6}
+.kps-grid .sn.hit{padding:1px 6px;border-radius:6px;background:#dbeafe;color:#1d4ed8;box-shadow:inset 0 0 0 1px #93c5fd}
+.kps-grid .none{color:var(--kdn-muted,#c0c4cc)}
 .kps-grid .c{text-align:center}.kps .mono{font-variant-numeric:tabular-nums;color:var(--kdn-ink-soft,#4b5563)}
-.kps-grid tr.chg td{background:color-mix(in srgb,#8b5cf6 5%,transparent)}
+.kps-grid tr.chg td.nm{box-shadow:inset 3px 0 0 #8b5cf6}
 .kps-grid .cls{display:inline-block;min-width:38px;padding:2px 8px;border-radius:99px;background:var(--kdn-surface-2,#f3f4f6);font-weight:800;font-size:12.5px}
-.kps-grid .nm{white-space:nowrap}.kps-grid .nm em{margin-left:6px;padding:1px 7px;border-radius:99px;background:#ede9fe;color:#5b21b6;font-style:normal;font-size:11.5px;font-weight:800}
+.kps-grid .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kps-grid .nm em{display:block;width:max-content;margin-top:2px;padding:1px 7px;border-radius:99px;background:#ede9fe;color:#5b21b6;font-style:normal;font-size:11.5px;font-weight:800}
 .kps .chips{display:flex;flex-wrap:wrap;gap:4px}
 .kps .sj{display:inline-flex;align-items:center;gap:5px;padding:2px 8px 2px 3px;border-radius:8px;border:1px solid var(--kdn-line,#e5e7eb);background:var(--kdn-surface,#fff);font-size:12.5px;font-weight:700;color:var(--kdn-ink,#111827);white-space:nowrap}
 .kps .sj i{font-style:normal;min-width:18px;padding:0 4px;border-radius:5px;background:var(--kdn-surface-2,#f3f4f6);color:var(--kdn-ink-soft,#4b5563);font-size:11px;font-weight:800;text-align:center}
 .kps .sj.ob{background:var(--kdn-surface-2,#f3f4f6);color:var(--kdn-ink-soft,#4b5563)}.kps .sj.ob i{background:transparent}
 .kps .sj.new{border-color:#a78bfa;background:#f5f3ff;color:#5b21b6}.kps .sj.new i{background:#ddd6fe;color:#5b21b6}
 .kps .sj.hit{box-shadow:0 0 0 2px #93c5fd}
-.kps-grid .eb{height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--kdn-line,#d1d5db);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
+.kps-grid .eb{height:28px;padding:0 10px;border-radius:8px;border:1px solid var(--kdn-line,#d1d5db);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}
 .kps-grid .eb:hover{border-color:#a78bfa;color:#5b21b6}
 .kps-fold{border:1px solid var(--kdn-line,#e5e7eb);border-radius:12px;background:var(--kdn-surface,#fff);padding:0 14px}
 .kps-fold summary{display:flex;align-items:center;gap:8px;padding:11px 0;cursor:pointer;font-size:13.5px}.kps-fold summary small{color:var(--kdn-muted,#6b7280)}
