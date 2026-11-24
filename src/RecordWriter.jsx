@@ -666,7 +666,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     aiContext.subject && useEx && exPick && "기재 예시",
     refine && current.trim() && "지금 쓴 글",
   ].filter(Boolean);
-  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi, fill, activities: refls.filter(item => reflPick[item.key]).map(item => item.name) });
+  const prompt = buildAiPrompt({ area: aiContext.area || target?.label || "", subject: aiContext.subject || "", activity: aiContext.subject ? target?.label : "", budget, notes: [...notes, ...reflNotes], existing: refine ? current : "", studentName, standards: useStd ? stdList.map(standardLine) : [], example: useEx && exPick ? exPick.t : "", frame: useFrame, hope: useHope ? hope : "", multi, fill, activities: refls.filter(item => reflOn(item.key)).map(item => item.name) });
   const copy = async () => { try { await navigator.clipboard.writeText(prompt); showToast?.("요청문을 복사했어요. 쓰시는 AI 대화창에 붙여넣어 주세요.", "success"); setStep("answer"); } catch { showToast?.("복사하지 못했어요. 아래 글을 직접 복사해 주세요.", "error"); } };
   // 바로 열기: 팝업 차단을 피하려고 창부터 열고, 요청문은 주소(?q=)에 담고 클립보드에도 복사해 둡니다.
   const openAi = async site => {
