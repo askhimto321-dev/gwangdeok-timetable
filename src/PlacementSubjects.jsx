@@ -4,8 +4,16 @@ import React from "react";
 import { BookOpen, Check, History, RotateCcw, Search, X } from "lucide-react";
 import { subjectCatalog, trySubjectChange, applySubjectChange, resetSubjects, subjectDiff, courseIssueText } from "./classPlacement.js";
 
-// 과목마다 옅은 색 하나(같은 과목은 어디서나 같은 색)
-const toneOf = name => { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 8; };
+// 과목 묶음(색): 이름에 든 낱말로 나눠요. 앞에 있는 묶음부터 맞춰 봐요(예: '음악 감상과 비평'은 예체능, '과학'이 든 과목은 과탐).
+export const SUBJECT_KINDS = [
+  { key: "art", label: "예체능", re: /음악|미술|체육|스포츠|연극|무용|영화|사진/ },
+  { key: "lang2", label: "일본어·중국어 등", re: /일본어|중국어|독일어|프랑스어|스페인어|러시아어|아랍어|베트남어|한문|제2외국어/ },
+  { key: "sci", label: "과탐", re: /과학|물리|화학|생명|지구|역학|에너지|물질|세포|우주|행성|기후|생태|천문|실험/ },
+  { key: "info", label: "정보·보건·교양", re: /정보|보건|인공지능|프로그래밍|데이터|진로|철학|논리|심리|교육|환경|논술|종교|가정|기술|농업|상업/ },
+  { key: "core", label: "국어·영어·수학", re: /(?<!인)문학|언어|화법|독서|작문|매체|국어|영어|영미|수학|미적분|확률|통계|기하|대수|함수|경제\s*수학/ },
+  { key: "soc", label: "사탐", re: /지리|사회|윤리|정치|법|경제|역사|세계사|한국사|동아시아|도시|인문|여행|사상|문화|국제|시민|금융/ },
+];
+const kindOf = name => (SUBJECT_KINDS.find(k => k.re.test(String(name))) || { key: "etc" }).key;
 const oldLabel = sid => `${Number(String(sid).slice(1, 3))}-${Number(String(sid).slice(3, 5))}`;
 const fmt = iso => { const d = new Date(iso || ""); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
@@ -53,7 +61,7 @@ export default function PlacementSubjects({ placement, roster = {}, canEdit = fa
     const now = (x.sj || []).filter(s => String(s.sem) === sem && s.g === g);
     if (!now.length) return <span className="none">-</span>;
     const was = new Set((x.sj0 || x.sj || []).filter(s => String(s.sem) === sem).map(s => s.n));
-    return <div className="blk">{now.map(s => { const isNew = x.sj0 && !was.has(s.n); return <span key={s.n} data-t={toneOf(s.n)} className={`sn${isNew ? " new" : ""}${subj === `${sem}|${s.n}` ? " hit" : ""}`} title={`${sem}학기 ${g === "원반" ? "원반" : `${g} 그룹`} · ${s.n}${isNew ? " (바꾼 과목)" : ""}`}>{s.n}</span>; })}</div>;
+    return <div className="blk">{now.map(s => { const isNew = x.sj0 && !was.has(s.n); return <span key={s.n} data-k={kindOf(s.n)} className={`sn${isNew ? " new" : ""}${subj === `${sem}|${s.n}` ? " hit" : ""}`} title={`${sem}학기 ${g === "원반" ? "원반" : `${g} 그룹`} · ${s.n}${isNew ? " (바꾼 과목)" : ""}`}>{s.n}</span>; })}</div>;
   };
 
   const cur = edit ? students[edit] : null;
@@ -67,6 +75,7 @@ export default function PlacementSubjects({ placement, roster = {}, canEdit = fa
       {(q || cls || old || subj || onlyChanged) ? <button type="button" data-kdn-bare className="clr" onClick={() => { setQ(""); setCls(0); setOld(0); setSubj(""); setOnlyChanged(false); }}>모두 지우기</button> : null}
     </div>
     <p className="kps-sum"><b>{list.length}명</b>{subj ? ` · ${subjSem}학기 ${subjName} 그룹별 ${Object.entries(counts[subj]?.g || {}).map(([g, n]) => `${g} ${n}`).join(", ")}` : ""}{canEdit ? <small>과목을 바꾸려면 학생 줄의 '바꾸기'를 눌러요. 그 반에서 시간표가 되는지 먼저 알려 줘요.</small> : <small>보기만 할 수 있어요.</small>}</p>
+    {(() => { const used = new Map(); Object.values(students).forEach(x => (x.sj || []).forEach(t => { if (t.g !== "원반") { const k = kindOf(t.n); used.set(k, (used.get(k) || new Set()).add(t.n)); } })); const list2 = ["soc", "sci", "core", "lang2", "info", "art", "etc"].map(key => [...SUBJECT_KINDS, { key: "etc", label: "기타" }].find(k => k.key === key)).filter(k => used.has(k.key)); return list2.length > 0 && <div className="kps-legend" aria-label="과목 묶음 색">{list2.map(k => <span key={k.key} data-k={k.key} title={Array.from(used.get(k.key)).join(", ")}><i />{k.label}<small>{used.get(k.key).size}과목</small></span>)}<span className="nw"><i style={{ background: "transparent", boxShadow: "none", border: "1.5px dashed currentColor" }} />바꾼 과목</span></div>; })()}
     <div className="kps-scroll"><table className="kps-grid">
       <colgroup><col style={{ width: 54 }} /><col style={{ width: 62 }} /><col style={{ width: 104 }} />{cols.flatMap(c => [...(c.ob ? [<col key={`${c.sem}ob`} />] : []), ...c.letters.map(l => <col key={`${c.sem}${l}`} />)])}<col style={{ width: 74 }} /></colgroup>
       <thead>
@@ -152,11 +161,12 @@ const CSS = `
 .kps-grid tbody tr:hover td{background:color-mix(in srgb,#3b82f6 5%,transparent)}
 .kps-grid tr.brk td{border-top:2px solid var(--ln2)}
 .kps-grid .blk{display:flex;flex-direction:column;gap:3px}
-.kps-grid .sn{display:flex;align-items:center;justify-content:center;min-height:26px;padding:3px 6px;border-radius:7px;border:1px solid transparent;font-size:12px;line-height:1.25;letter-spacing:-.02em;font-weight:700;color:var(--kdn-ink,#111827);word-break:keep-all;text-align:center;--c:#64748b;background:color-mix(in srgb,var(--c) 9%,var(--kdn-surface,#fff));box-shadow:inset 3px 0 0 color-mix(in srgb,var(--c) 55%,transparent)}
-.kps-grid .sn[data-t="0"]{--c:#3b82f6}.kps-grid .sn[data-t="1"]{--c:#0d9488}.kps-grid .sn[data-t="2"]{--c:#16a34a}.kps-grid .sn[data-t="3"]{--c:#d97706}.kps-grid .sn[data-t="4"]{--c:#e11d48}.kps-grid .sn[data-t="5"]{--c:#7c3aed}.kps-grid .sn[data-t="6"]{--c:#0891b2}.kps-grid .sn[data-t="7"]{--c:#ea580c}
+.kps-grid .sn{display:flex;align-items:center;justify-content:center;min-height:26px;padding:3px 6px;border-radius:7px;border:1px solid transparent;font-size:12px;line-height:1.25;letter-spacing:-.02em;font-weight:700;color:var(--kdn-ink,#111827);word-break:keep-all;text-align:center;--c:#64748b;background:color-mix(in srgb,var(--c) 15%,var(--kdn-surface,#fff));box-shadow:inset 4px 0 0 var(--c)}
+.kps-grid .sn[data-k="soc"],.kps-legend [data-k="soc"]{--c:#d97706}.kps-grid .sn[data-k="sci"],.kps-legend [data-k="sci"]{--c:#059669}.kps-grid .sn[data-k="lang2"],.kps-legend [data-k="lang2"]{--c:#db2777}.kps-grid .sn[data-k="info"],.kps-legend [data-k="info"]{--c:#0891b2}.kps-grid .sn[data-k="core"],.kps-legend [data-k="core"]{--c:#4f46e5}.kps-grid .sn[data-k="art"],.kps-legend [data-k="art"]{--c:#9333ea}.kps-grid .sn[data-k="etc"],.kps-legend [data-k="etc"]{--c:#64748b}
+.kps-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;font-size:12.5px;color:var(--kdn-ink-soft,#4b5563)}.kps-legend span{display:inline-flex;align-items:center;gap:6px;font-weight:700}.kps-legend i{width:14px;height:14px;border-radius:4px;background:color-mix(in srgb,var(--c) 18%,var(--kdn-surface,#fff));box-shadow:inset 3px 0 0 var(--c)}.kps-legend small{color:var(--kdn-muted,#9ca3af);font-weight:600}
 .kps-grid td.ob .sn{--c:#64748b;font-weight:600;color:var(--kdn-ink-soft,#4b5563)}
-.kps-grid .sn.new{border-color:#8b5cf6;box-shadow:inset 3px 0 0 #8b5cf6}
-.kps-grid .sn.hit{border-color:#2563eb;box-shadow:inset 3px 0 0 #2563eb,0 0 0 2px color-mix(in srgb,#2563eb 20%,transparent)}
+.kps-grid .sn.new{border:1.5px dashed var(--kdn-ink,#111827)}
+.kps-grid .sn.hit{border-color:var(--kdn-ink,#111827);box-shadow:inset 4px 0 0 var(--c),0 0 0 2px color-mix(in srgb,var(--kdn-ink,#111827) 25%,transparent)}
 .kps-grid .none{color:var(--kdn-muted,#c0c4cc)}
 .kps-grid .c{text-align:center}.kps .mono{font-variant-numeric:tabular-nums;color:var(--kdn-ink-soft,#4b5563)}
 .kps-grid tr.chg td.nm{box-shadow:inset 3px 0 0 #8b5cf6}
