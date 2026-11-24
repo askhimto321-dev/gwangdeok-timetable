@@ -4,6 +4,8 @@ import React from "react";
 import { BookOpen, Check, History, RotateCcw, Search, X } from "lucide-react";
 import { subjectCatalog, trySubjectChange, applySubjectChange, resetSubjects, subjectDiff, courseIssueText } from "./classPlacement.js";
 
+// 과목마다 옅은 색 하나(같은 과목은 어디서나 같은 색)
+const toneOf = name => { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 8; };
 const oldLabel = sid => `${Number(String(sid).slice(1, 3))}-${Number(String(sid).slice(3, 5))}`;
 const fmt = iso => { const d = new Date(iso || ""); return Number.isNaN(d.getTime()) ? "" : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
 
@@ -51,7 +53,7 @@ export default function PlacementSubjects({ placement, roster = {}, canEdit = fa
     const now = (x.sj || []).filter(s => String(s.sem) === sem && s.g === g);
     if (!now.length) return <span className="none">-</span>;
     const was = new Set((x.sj0 || x.sj || []).filter(s => String(s.sem) === sem).map(s => s.n));
-    return now.map(s => { const isNew = x.sj0 && !was.has(s.n); return <span key={s.n} className={`sn${isNew ? " new" : ""}${subj === `${sem}|${s.n}` ? " hit" : ""}`} title={`${sem}학기 ${g === "원반" ? "원반" : `${g} 그룹`} · ${s.n}${isNew ? " (바꾼 과목)" : ""}`}>{s.n}</span>; });
+    return <div className="blk">{now.map(s => { const isNew = x.sj0 && !was.has(s.n); return <span key={s.n} data-t={toneOf(s.n)} className={`sn${isNew ? " new" : ""}${subj === `${sem}|${s.n}` ? " hit" : ""}`} title={`${sem}학기 ${g === "원반" ? "원반" : `${g} 그룹`} · ${s.n}${isNew ? " (바꾼 과목)" : ""}`}>{s.n}</span>; })}</div>;
   };
 
   const cur = edit ? students[edit] : null;
@@ -141,17 +143,20 @@ const CSS = `
 .kps-grid th.sem{text-align:center;border-left:2px solid var(--kdn-line,#d1d5db)}
 .kps-grid th.sem.s1{background:color-mix(in srgb,#3b82f6 9%,var(--kdn-surface-2,#f3f4f6));color:#1d4ed8}.kps-grid th.sem.s2{background:color-mix(in srgb,#10a37f 9%,var(--kdn-surface-2,#f3f4f6));color:#047857}
 .kps-grid th.g.s1{background:color-mix(in srgb,#3b82f6 5%,var(--kdn-surface-2,#f3f4f6))}.kps-grid th.g.s2{background:color-mix(in srgb,#10a37f 5%,var(--kdn-surface-2,#f3f4f6))}
-.kps-grid td{padding:7px 8px;border-bottom:1px solid var(--kdn-line,#eef0f3);vertical-align:middle}
-.kps-grid td.g,.kps-grid th.g{border-left:1px solid var(--kdn-line,#eef0f3);text-align:center}
-.kps-grid td.first,.kps-grid th.first{border-left:2px solid var(--kdn-line,#d1d5db)}
-.kps-grid td.g{padding:6px 4px;line-height:1.3}
-.kps-grid tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--kdn-ink,#111827) 2%,transparent)}
-.kps-grid tbody tr:hover td{background:color-mix(in srgb,#3b82f6 6%,transparent)}
-.kps-grid tr.brk td{border-top:2px solid var(--kdn-line,#cbd5e1)}
-.kps-grid .sn{display:inline-block;font-size:12px;letter-spacing:-.02em;font-weight:700;color:var(--kdn-ink,#111827);word-break:keep-all}
-.kps-grid td.ob .sn{color:var(--kdn-ink-soft,#4b5563);font-weight:600}
-.kps-grid .sn.new{padding:1px 6px;border-radius:6px;background:#ede9fe;color:#5b21b6}
-.kps-grid .sn.hit{padding:1px 6px;border-radius:6px;background:#dbeafe;color:#1d4ed8;box-shadow:inset 0 0 0 1px #93c5fd}
+.kps-grid{--ln:color-mix(in srgb,var(--kdn-ink,#111827) 13%,transparent);--ln2:color-mix(in srgb,var(--kdn-ink,#111827) 30%,transparent)}
+.kps-grid th{border-bottom:1px solid var(--ln)!important}.kps-grid tr.h2 th{border-bottom:2px solid var(--ln2)!important}
+.kps-grid td{padding:7px 8px;border-bottom:1px solid var(--ln);vertical-align:middle}
+.kps-grid td.g,.kps-grid th.g{border-left:1px solid var(--ln);text-align:center}
+.kps-grid td.first,.kps-grid th.first,.kps-grid th.sem{border-left:2px solid var(--ln2)}
+.kps-grid td.g{padding:5px 5px}
+.kps-grid tbody tr:hover td{background:color-mix(in srgb,#3b82f6 5%,transparent)}
+.kps-grid tr.brk td{border-top:2px solid var(--ln2)}
+.kps-grid .blk{display:flex;flex-direction:column;gap:3px}
+.kps-grid .sn{display:flex;align-items:center;justify-content:center;min-height:26px;padding:3px 6px;border-radius:7px;border:1px solid transparent;font-size:12px;line-height:1.25;letter-spacing:-.02em;font-weight:700;color:var(--kdn-ink,#111827);word-break:keep-all;text-align:center;--c:#64748b;background:color-mix(in srgb,var(--c) 9%,var(--kdn-surface,#fff));box-shadow:inset 3px 0 0 color-mix(in srgb,var(--c) 55%,transparent)}
+.kps-grid .sn[data-t="0"]{--c:#3b82f6}.kps-grid .sn[data-t="1"]{--c:#0d9488}.kps-grid .sn[data-t="2"]{--c:#16a34a}.kps-grid .sn[data-t="3"]{--c:#d97706}.kps-grid .sn[data-t="4"]{--c:#e11d48}.kps-grid .sn[data-t="5"]{--c:#7c3aed}.kps-grid .sn[data-t="6"]{--c:#0891b2}.kps-grid .sn[data-t="7"]{--c:#ea580c}
+.kps-grid td.ob .sn{--c:#64748b;font-weight:600;color:var(--kdn-ink-soft,#4b5563)}
+.kps-grid .sn.new{border-color:#8b5cf6;box-shadow:inset 3px 0 0 #8b5cf6}
+.kps-grid .sn.hit{border-color:#2563eb;box-shadow:inset 3px 0 0 #2563eb,0 0 0 2px color-mix(in srgb,#2563eb 20%,transparent)}
 .kps-grid .none{color:var(--kdn-muted,#c0c4cc)}
 .kps-grid .c{text-align:center}.kps .mono{font-variant-numeric:tabular-nums;color:var(--kdn-ink-soft,#4b5563)}
 .kps-grid tr.chg td.nm{box-shadow:inset 3px 0 0 #8b5cf6}
