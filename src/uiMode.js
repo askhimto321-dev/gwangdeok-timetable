@@ -3036,7 +3036,10 @@ const SHARED_NEW_CSS = `
 .kd-scope-btn:hover:not(:disabled){color:var(--kdn-ink)!important;background:color-mix(in srgb,var(--kdn-ink) 6%,transparent)!important}
 .kd-scope-btn[aria-pressed="true"]{background:var(--kdn-ink)!important;color:var(--kdn-surface)!important;box-shadow:0 1px 3px rgba(15,18,26,.25)}
 .kd-scope-btn:disabled{opacity:.4!important;cursor:not-allowed}
+.kd-tz-scope .kd-scope-label{display:none!important}.kd-tz-scope .kd-scope-row{padding:3px!important;border-radius:12px!important}.kd-tz-scope .kd-scope-btn{min-height:29px!important;padding:0 10px!important;font-size:12.5px!important}
 .kd-scope-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.kd-tz-toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:end}
+@media (max-width:820px){.kd-tz-toolbar{grid-template-columns:1fr}.kd-tz-toolbar .kd-tz-scope{margin-left:0!important}}
 @media (max-width:760px){.kd-scope-label{font-size:12px!important}.kd-scope-btn{padding:0 10px!important;font-size:13px!important}*:has(> .kd-scope){flex-wrap:wrap!important;row-gap:6px!important;max-width:100%}}
 /* 저장 상태 표시 */
   .kdn-savestate{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:800;white-space:nowrap}
