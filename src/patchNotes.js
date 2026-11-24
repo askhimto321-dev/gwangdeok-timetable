@@ -9,7 +9,7 @@ export const PATCH_NOTES = [
     date: "2026-11-24",
     title: "선생님 ZONE 메뉴 정리",
     items: [
-      { audience: "staff", text: "선생님 ZONE 위쪽 메뉴를 홈 · 수업·평가 · 학생·학년 · 내 업무로 묶고, 보는 학년·학기는 오른쪽에 따로 두었어요." },
+      { audience: "staff", text: "선생님 ZONE 위쪽 메뉴를 홈 · 수업·평가 · 학생·학년 · 내 업무로 묶고, 보는 학년·학기는 오른쪽 선택 상자로 바꿔 한 줄에 다 보여요." },
     ],
   },
   {

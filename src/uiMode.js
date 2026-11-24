@@ -3036,10 +3036,14 @@ const SHARED_NEW_CSS = `
 .kd-scope-btn:hover:not(:disabled){color:var(--kdn-ink)!important;background:color-mix(in srgb,var(--kdn-ink) 6%,transparent)!important}
 .kd-scope-btn[aria-pressed="true"]{background:var(--kdn-ink)!important;color:var(--kdn-surface)!important;box-shadow:0 1px 3px rgba(15,18,26,.25)}
 .kd-scope-btn:disabled{opacity:.4!important;cursor:not-allowed}
-.kd-tz-scope .kd-scope-label{display:none!important}.kd-tz-scope .kd-scope-row{padding:3px!important;border-radius:12px!important}.kd-tz-scope .kd-scope-btn{min-height:29px!important;padding:0 10px!important;font-size:12.5px!important}
 .kd-scope-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.kd-tz-toolbar{display:grid!important;grid-template-columns:minmax(0,1fr) auto;align-items:end}
-@media (max-width:820px){.kd-tz-toolbar{grid-template-columns:1fr}.kd-tz-toolbar .kd-tz-scope{margin-left:0!important}}
+.kd-tz-toolbar{flex-wrap:nowrap!important;overflow:hidden}.kd-tz-toolbar .kd-tz-tabs{flex-wrap:nowrap!important}
+.kd-tz-sel{display:flex;gap:3px;padding:3px;border-radius:12px;background:var(--kdn-surface-2);border:1px solid var(--kdn-line)}
+.kd-tz-sel select{appearance:none;-webkit-appearance:none;border:0!important;box-shadow:0 1px 3px rgba(15,23,42,.14)!important;border-radius:9px!important;background:var(--kdn-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a8f99' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 9px center!important;color:var(--kdn-ink)!important;font-family:inherit;font-size:13.5px;font-weight:800;line-height:1.3;padding:6px 26px 6px 11px!important;min-height:0!important;height:auto!important;cursor:pointer}
+.kd-tz-sel select:focus-visible{outline:2px solid var(--kdn-accent);outline-offset:1px}
+@media (max-width:1720px){.kd-tz-tab svg{display:none}.kd-tz-tab{padding:6px 8px!important}}
+@media (max-width:1360px){.kd-tz-tab{padding:6px 6px!important;font-size:12.5px!important}.kd-tz-sel select{font-size:12.5px!important;padding:6px 22px 6px 9px!important;background-position:right 7px center!important}}
+@media (max-width:1260px){.kd-tz-toolbar{flex-wrap:wrap!important;gap:8px 6px!important}.kd-tz-toolbar .kd-tz-tabs{display:contents!important}.kd-tz-toolbar>div>div>div{flex-wrap:wrap!important}}
 @media (max-width:760px){.kd-scope-label{font-size:12px!important}.kd-scope-btn{padding:0 10px!important;font-size:13px!important}*:has(> .kd-scope){flex-wrap:wrap!important;row-gap:6px!important;max-width:100%}}
 /* 저장 상태 표시 */
   .kdn-savestate{display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:800;white-space:nowrap}
