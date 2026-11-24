@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-25-a",
+    date: "2026-11-25",
+    title: "반편성 구반 필터",
+    items: [
+      { audience: "staff", text: "반편성 반별 명단에서 구반(지금 반)으로 학생을 모아 볼 수 있어요. 담임 선생님은 '우리 반' 버튼 한 번으로 우리 반 학생만 보고 '생활지도 주의'를 표시할 수 있어요." },
+    ],
+  },
+  {
     id: "2026-11-24-e",
     date: "2026-11-24",
     title: "선생님 ZONE 메뉴 색 구분",

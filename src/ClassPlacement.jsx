@@ -24,7 +24,7 @@ const fmt = iso => { const d = new Date(iso || ""); return Number.isNaN(d.getTim
 const oldLabel = sid => `${Number(String(sid).slice(1, 3))}-${Number(String(sid).slice(3, 5))}`;
 const ORDER = ["same", "unknown", "ok"];
 
-export default function ClassPlacement({ grade = "2", roster = {}, actor = null, canManage = false, canMove = true, showToast = () => {}, separation = null, initialView = "", viewRequest = 0 }) {
+export default function ClassPlacement({ grade = "2", roster = {}, actor = null, homeroomClass = "", canManage = false, canMove = true, showToast = () => {}, separation = null, initialView = "", viewRequest = 0 }) {
   const year = schoolYearOf();
   const nextGrade = Number(grade) + 1;
   const [placement, setPlacement] = React.useState(undefined);
@@ -403,14 +403,20 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
     {curView === "sep" && separation}
     {curView === "roster" && (() => {
       const q = find.trim();
-      const wide = !!q || allView; // 검색·전체 보기: 모든 반 학생을 한 표로
-      const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : allView || Number(s.cls) === curTab));
+      // 구반 필터: 지금 반(구반) 학생을 새 반과 상관없이 모아 봐요(담임이 우리 반 학생 생활지도 표시할 때).
+      const oldOf = sid => Number(String(sid).slice(1, 3));
+      const oldClasses = Array.from(new Set(Object.keys(placement.students).map(oldOf))).filter(Boolean).sort((a, b) => a - b);
+      const oldPicked = rowFilter.filter(k => /^o\d+$/.test(k) && oldClasses.includes(Number(k.slice(1))));
+      const oldOn = oldPicked.length > 0;
+      const wide = !!q || allView || oldOn; // 검색·전체 보기·구반 필터: 모든 반 학생을 한 표로
+      const base = Object.entries(placement.students).filter(([sid, s]) => (q ? String(s.name || "").includes(q) || oldLabel(sid).includes(q) : allView || oldOn || Number(s.cls) === curTab));
       const markedAny = sid => STUDENT_FLAGS.some(f => (review.students[sid]?.marks?.[f.key] || []).length > 0);
       const FILTERS = [{ key: "marked", group: "mark", label: "표시한 학생 전체", tone: "mute", test: ([sid]) => markedAny(sid) }, ...STUDENT_FLAGS.map(f => ({ key: f.key, group: "mark", label: f.label, tone: f.tone, test: ([sid]) => (review.students[sid]?.marks?.[f.key] || []).length > 0 })),
         { key: "miss", group: "check", label: "분리희망 미반영", tone: "bad", test: ([sid]) => missSet.has(sid) }, ...(together.length ? [{ key: "apart", group: "check", label: "같은 반 희망 떨어짐", tone: "warn", test: ([sid]) => apartSet.has(sid) }] : []), { key: "comboSame", group: "check", label: "조합 우려 같은 반", tone: "warn", test: ([sid]) => comboSame(sid).length > 0 || groupSame(sid) },
         ...(placement.rooms ? [{ key: "course", group: "check", label: "수강 불가 과목", tone: "bad", test: ([sid]) => courseBad.has(sid) }, { key: "nomove", group: "check", label: "이동 불가 학생", tone: "bad", test: ([sid, x]) => !movableOk(sid).some(c => Number(c) !== Number(x.cls)) }] : []), { key: "moved", group: "check", label: "받은 학생", tone: "info", test: ([, x]) => Number(x.cls) !== Number(x.orig) }, { key: "memo", group: "check", label: "메모 있음", tone: "info", test: ([sid]) => (review.students[sid]?.memos || []).length > 0 },
+        ...oldClasses.map(c => ({ key: `o${c}`, group: "old", label: `구반 ${c}반`, tone: "mute", test: ([sid]) => oldOf(sid) === c })),
         { key: "m", group: "gender", label: "남학생", tone: "mute", test: ([sid]) => /남/.test(genderOf(sid)) }, { key: "f", group: "gender", label: "여학생", tone: "mute", test: ([sid]) => /여/.test(genderOf(sid)) }];
-      const FGROUPS = [["mark", "학생 표시"], ["check", "배정 점검"], ["gender", "성별"]];
+      const FGROUPS = [["old", "구반"], ["mark", "학생 표시"], ["check", "배정 점검"], ["gender", "성별"]];
       const picked = FILTERS.filter(f => rowFilter.includes(f.key));
       // 묶음마다: 고른 것 중 하나라도 맞으면 통과. except: 그 묶음은 빼고(칩 옆 숫자 = 다른 조건과 함께 골랐을 때 인원)
       const passes = (e, except = "") => FGROUPS.every(([g]) => { if (g === except) return true; const fs = picked.filter(f => f.group === g); return !fs.length || fs.some(f => f.test(e)); });
@@ -420,7 +426,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       // '옮길 반'까지 건 학생(필터 칩 숫자도 이 학생들 기준)
       const inTo = ([sid, x]) => !toF || (canGo(sid, toF) && Number(x.cls) !== toF);
       const baseTo = base.filter(inTo);
-      const list = baseTo.filter(e => passes(e)).sort((a, b) => (wide ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
+      const list = baseTo.filter(e => passes(e)).sort((a, b) => (oldOn && !allView && !q ? a[0].localeCompare(b[0]) : 0) || (wide ? a[1].cls - b[1].cls : 0) || (a[1].no || 99) - (b[1].no || 99) || a[0].localeCompare(b[0]));
       const sm = summary.find(s => s.cls === curTab) || {};
       const cls = review.classes[curTab] || {};
       const flagCount = key => base.filter(([sid]) => (review.students[sid]?.marks?.[key] || []).length).length;
@@ -436,11 +442,11 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       return <>
         {placement.kind === "program" && !placement.rooms && <div className="kpl-noinfo"><AlertTriangle size={16} /><div><b>수강 확인 정보가 없어요</b><small>이 반편성은 과목·강의실 배정 정보가 들어오기 전에 올린 거예요. {canManage ? "같은 반편성 파일을 '다시 올리기'로 올리고 확인 창에서 '확인'을 누르면 이동 기록은 그대로 두고 원반 과목·수강 불가 과목·이동 불가 반이 표시돼요." : "관리자·부장님이 같은 파일을 다시 올리면 원반 과목·수강 불가 과목·이동 불가 반이 표시돼요."}</small></div>{canManage && <button type="button" data-kdn-bare className="kpl-btn pri" onClick={() => input.current?.click()}><Upload size={14} /> 같은 파일 다시 올리기</button>}</div>}
         <div className="kpl-ctabs2" role="tablist" aria-label="새 반" style={{ "--n": summary.length + 1 }}>
-          <button type="button" role="tab" aria-selected={allView && !q} data-kdn-bare className={`all${allView && !q ? " on" : ""}`} onClick={() => { setTab("all"); setFind(""); setOpenSid(""); setMoveSid(""); setToFilter(0); }}>
+          <button type="button" role="tab" aria-selected={allView && !q} data-kdn-bare className={`all${allView && !q ? " on" : ""}`} onClick={() => { setTab("all"); setFind(""); setRowFilter(v => v.filter(k => !/^o\d+$/.test(k))); setOpenSid(""); setMoveSid(""); setToFilter(0); }}>
             {totalMiss ? <i className="dot" title={`분리 미반영 ${totalMiss}명`}>{totalMiss}</i> : null}
             {courseBad.size ? <i className="cwarn" title={`수강 불가 과목이 있는 학생 ${courseBad.size}명`}>⚠ {courseBad.size}</i> : null}
             <b>전체</b><span className="n">{total.n}명</span><span className="gbar"><i style={{ width: `${total.n ? Math.round((total.m / total.n) * 100) : 0}%` }} /></span><small>남 {total.m} · 여 {total.f}</small>{changedIds.length ? <span className="io"><i className="chg">바뀐 {changedIds.length}명</i></span> : null}</button>
-          {summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q && !allView} data-kdn-bare className={s.cls === curTab && !q && !allView ? "on" : ""} onClick={() => goClass(s.cls)}>
+          {summary.map(s => { const ids = Object.entries(placement.students).filter(([, x]) => Number(x.cls) === s.cls).map(([id]) => id); const miss = ids.filter(id => missSet.has(id)).length; const pct = s.n ? Math.round((s.m / s.n) * 100) : 0; return <button key={s.cls} type="button" role="tab" aria-selected={s.cls === curTab && !q && !allView && !oldOn} data-kdn-bare className={s.cls === curTab && !q && !allView && !oldOn ? "on" : ""} onClick={() => { if (oldOn) setRowFilter(v => v.filter(k => !/^o\d+$/.test(k))); goClass(s.cls); }}>
           {miss ? <i className="dot" title={`분리 미반영 ${miss}명`}>{miss}</i> : null}
           {(() => { const nc = ids.filter(id => courseBad.has(id)).length; return nc ? <i className="cwarn" title={`수강 불가 과목이 있는 학생 ${nc}명`}>⚠ {nc}</i> : null; })()}
           <b>{s.cls}반</b><span className="n">{s.n}명</span><span className="gbar"><i style={{ width: `${pct}%` }} /></span><small>남 {s.m} · 여 {s.f}</small>{(s.inn || s.out) ? <span className="io" title={`초기 엑셀 대비 받은 학생 ${s.inn || 0}명 · 보낸 학생 ${s.out || 0}명`}>{s.inn ? <i className="in">+{s.inn} 받음</i> : null}{s.out ? <i className="out">−{s.out} 보냄</i> : null}</span> : null}</button>; })}</div>
@@ -479,6 +485,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
                 <option value={0}>{allView ? "전체" : "옮길 반 전체"}</option>
                 {(allView ? classes : classes.filter(c => c !== curTab)).map(c => { const fb = base.filter(e => passes(e)); const n = allView ? fb.filter(([sid, x]) => Number(x.cls) !== c && canGo(sid, c)).length : fb.filter(([sid]) => canGo(sid, c)).length; return <option key={c} value={c} disabled={!n && toF !== c}>{allView ? `${c}반으로 갈 수 있는 학생 (${n}명)` : `${c}반 (${n}명 가능)`}</option>; })}
               </select></label>}
+              {Number(homeroomClass) > 0 && oldClasses.includes(Number(homeroomClass)) && (() => { const k = `o${Number(homeroomClass)}`; const on = rowFilter.includes(k); return <button type="button" data-kdn-bare className={`tb mine${on ? " act" : ""}`} aria-pressed={on} onClick={() => toggleFilter(k)} title="지금 우리 반(구반) 학생을 새 반과 상관없이 모아 봐요">{on ? <Check size={14} /> : <Users size={14} />} 우리 반(구반 {Number(homeroomClass)}반)</button>; })()}
               <button type="button" data-kdn-bare className="tb grp" onClick={() => setGroupEdit({ name: "", memo: "", members: [] })}><Users size={14} /> 조합 그룹</button></div>
             {(picked.length > 0 || !!toF) && <div className="achips"><span className="res">{list.length}명</span>{picked.map(f => <button key={f.key} type="button" data-kdn-bare className={`t-${f.tone}`} onClick={() => toggleFilter(f.key)}>{f.label}<X size={11} /></button>)}{toF ? <button type="button" data-kdn-bare className="t-info" onClick={() => setToFilter(0)}>{allView ? `${toF}반으로 갈 수 있음` : `${curTab}반 → ${toF}반 가능`}<X size={11} /></button> : null}<button type="button" data-kdn-bare className="clr" onClick={() => { setRowFilter([]); setToFilter(0); }}>모두 지우기</button></div>}
             {(() => { const related = (review.groups || []).filter(g => wide || g.members.some(m => Number(placement.students[m]?.cls) === curTab)); return related.length > 0 && <div className="kpl-groups"><small>조합 그룹</small>{related.map(g => { const here = g.members.filter(m => Number(placement.students[m]?.cls) === curTab); return <button key={g.id} type="button" data-kdn-bare className={here.length >= 2 ? "hot" : ""} onClick={() => setGroupEdit({ ...g })} title={g.members.map(m => `${nameOf(m)}(${placement.students[m]?.cls || "?"}반)`).join("\n")}><Users size={13} /><b>{g.name}</b><span>{here.length >= 2 ? `이 반에 ${here.length}명` : `${g.members.length}명`}</span></button>; })}</div>; })()}
@@ -489,6 +496,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
                   : outMe ? <><span className="out">보냄 <b>{nameOf(m.sid)}</b> → {m.to}반</span><em className="one">옮기기만</em></> : <><span className="in">받음 <b>{nameOf(m.sid)}</b> ← {m.from}반</span><em className="one">옮기기만</em></>}
                 <small>{m.by} · {fmt(m.at)}</small></li>; })}</ul>
             </details>; })()}
+            {oldOn && !allView && !q && <div className="kpl-sres old"><Users size={15} /><b>{oldPicked.map(k => `구반 ${k.slice(1)}반`).join(" · ")} 학생 {list.length}명{picked.some(f => f.group !== "old") ? ` · '${picked.filter(f => f.group !== "old").map(f => f.label).join(" · ")}'` : ""}</b><small>새 반과 상관없이 모아 봐요. '생활지도 주의' 칸을 눌러 표시할 수 있어요.</small><button type="button" data-kdn-bare onClick={() => setRowFilter(v => v.filter(k => !/^o\d+$/.test(k)))}><X size={13} /> 구반 필터 끄기</button></div>}
             {allView && !q && <div className="kpl-sres all"><Users size={15} /><b>{toF ? `${toF}반으로 옮길 수 있는 학생 ${list.length}명` : `전체 학생 ${list.length}명`}{activeF ? ` · '${activeF.label}'` : ""}</b><small>모든 반을 한 번에 봐요. 새 반을 누르면 그 반으로 가요.</small></div>}
             {q && <div className="kpl-sres"><Search size={15} /><b>'{q}' 검색 결과 {list.length}명</b><small>모든 반에서 찾았어요. 새 반을 누르면 그 반으로 가요.</small><button type="button" data-kdn-bare onClick={() => setFind("")}><X size={13} /> 검색 지우기</button></div>}
             {fOpen && <div className="kpl-filter multi" role="group" aria-label="학생 필터">
