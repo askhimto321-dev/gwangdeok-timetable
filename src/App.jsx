@@ -3154,7 +3154,7 @@ function TeacherZoneWorkspace({
           : <div style={styles.warnBanner}><AlertTriangle size={14} /> 공지 관리 권한이 없습니다.</div>;
   return <div style={styles.body}>
     <div className="no-print kd-tz-toolbar" style={teacherZoneWorkspaceStyles.toolbar}>
-      <div style={teacherZoneWorkspaceStyles.modeTabs}>
+      <div className="kd-tz-tabs" style={teacherZoneWorkspaceStyles.modeTabs}>
         {isNewUi() && <div style={teacherZoneWorkspaceStyles.modeGroup}><small style={teacherZoneWorkspaceStyles.modeGroupLabel}>&nbsp;</small><div style={teacherZoneWorkspaceStyles.modeRow}>
             {isNewUi() && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("home")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "home" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 홈</button>}
         </div></div>}
@@ -3184,11 +3184,11 @@ function TeacherZoneWorkspace({
           </div>
         </div>}
       </div>
-      <div className="kd-scope-bar kd-tz-scope" style={teacherZoneWorkspaceStyles.gradeGroup}>
+      <div className="kd-tz-scope" style={teacherZoneWorkspaceStyles.gradeGroup}>
         <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>보는 학년·학기</small>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <ScopeGroup label="학년">{visibleGrades.map(item => <ScopeBtn key={item} active={String(grade) === item} onClick={() => setGrade(item)}>{item}학년</ScopeBtn>)}</ScopeGroup>
-          {setSemester && <SemesterScope semester={semester} setSemester={setSemester} />}
+        <div className="kd-tz-sel">
+          <select aria-label="보는 학년" value={String(grade)} onChange={event => setGrade(event.target.value)}>{visibleGrades.map(item => <option key={item} value={item}>{item}학년</option>)}</select>
+          {setSemester && <select aria-label="보는 학기" value={semester} onChange={event => setSemester(event.target.value)}><option value="sem1">1학기</option><option value="sem2">2학기</option></select>}
         </div>
       </div>
     </div>
@@ -3397,12 +3397,12 @@ function TeacherZoneHome({ plannerOwner = "", onOpenPlanner, calendar, actor, ac
 }
 
 const teacherZoneWorkspaceStyles = {
-  // 새 UI: 업무 탭을 묶음(수업·평가 / 학생·학년 / 내 업무)으로, 묶음은 옅은 바탕 안에 테두리 없는 탭. 학년·학기는 마지막 묶음처럼 같은 줄에.
-  toolbar: { display: "flex", alignItems: "flex-end", gap: "10px 14px", marginBottom: 16, padding: "10px 12px", border: "1px solid var(--kdn-line, #e5e7eb)", borderRadius: 16, background: "var(--kdn-surface, #ffffff)", flexWrap: "wrap" },
-  modeTabs: { display: "flex", alignItems: "flex-end", gap: "8px 8px", flexWrap: "wrap", flex: "1 1 auto", minWidth: 0 },
+  // 새 UI: 업무 탭을 묶음(수업·평가 / 학생·학년 / 내 업무)으로, 묶음은 옅은 바탕 안에 테두리 없는 탭. 학년·학기까지 한 줄에(좁으면 아이콘을 숨기고, 아주 좁을 때만 줄을 바꿔요).
+  toolbar: { display: "flex", alignItems: "flex-end", gap: "10px 12px", marginBottom: 16, padding: "8px 10px", border: "1px solid var(--kdn-line, #e5e7eb)", borderRadius: 16, background: "var(--kdn-surface, #ffffff)", flexWrap: "wrap" },
+  modeTabs: { display: "flex", alignItems: "flex-end", gap: "8px 6px", flexWrap: "wrap", flex: "1 1 auto", minWidth: 0 },
   modeGroup: { display: "grid", gap: 4 },
   modeGroupLabel: { fontSize: 11, fontWeight: 800, color: "var(--kdn-muted, #9ca3af)", letterSpacing: ".02em", paddingLeft: 6, lineHeight: 1.2 },
-  modeRow: { display: "flex", gap: 0, flexWrap: "wrap", padding: 3, borderRadius: 12, background: "var(--kdn-surface-2, #f3f4f6)", border: "1px solid var(--kdn-line, #e5e7eb)" },
+  modeRow: { display: "flex", gap: 0, flexWrap: "nowrap", padding: 3, borderRadius: 12, background: "var(--kdn-surface-2, #f3f4f6)", border: "1px solid var(--kdn-line, #e5e7eb)" },
   modeButton: { display: "inline-flex", alignItems: "center", gap: 5, border: 0, borderRadius: 9, padding: "6px 9px", color: "var(--kdn-ink-soft, #374151)", background: "transparent", fontFamily: '"KDRound","Pretendard","SUIT","Noto Sans KR","Malgun Gothic",sans-serif', fontSize: 13.5, whiteSpace: "nowrap", fontWeight: 800, cursor: "pointer", lineHeight: 1.3 },
   modeButtonActive: { color: "var(--kdn-accent-text, #c2410c)", background: "var(--kdn-surface, #ffffff)", boxShadow: "0 1px 3px rgba(15,23,42,.14), inset 0 -2px 0 var(--kdn-accent, #ea580c)" },
   gradeGroup: { display: "grid", gap: 4, marginLeft: "auto" },
