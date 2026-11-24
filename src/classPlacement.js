@@ -321,3 +321,63 @@ export function classSummary(placement) {
   });
   return Object.values(out).sort((a, b) => a.cls - b.cls);
 }
+
+// ── 선택과목 보기·바꾸기 ─────────────────────────────────────────────
+// 학기마다 선택과목과 열리는 그룹: { 학기: { 과목: [그룹] } } (강의실배정이 있으면 그것, 없으면 학생들의 과목에서)
+export function subjectCatalog(placement) {
+  const out = {};
+  const add = (sem, n, g) => { const list = ((out[sem] ||= {})[n] ||= []); if (g && !list.includes(g)) list.push(g); };
+  if (placement?.rooms?.sections?.length) placement.rooms.sections.forEach(k => { const [sem, n, g] = k.split("|"); add(sem, n, g); });
+  else Object.values(placement?.students || {}).forEach(x => (x.sj || []).forEach(s => { if (s.g !== "원반") add(String(s.sem), s.n, s.g); }));
+  Object.values(out).forEach(m => Object.values(m).forEach(l => l.sort()));
+  return out;
+}
+// 한 학생의 과목 하나를 바꿨을 때: 그룹을 정하고 그 반에서 시간표가 되는지 확인해요(그 학생은 빼고 센 반 인원 기준).
+// 돌려주는 값: { g, check } — check는 courseCheck 결과(정보가 없으면 null)
+export function trySubjectChange(placement, sid, sem, from, to) {
+  const s = placement?.students?.[sid]; if (!s || !Array.isArray(s.sj)) return null;
+  const letters = subjectCatalog(placement)[String(sem)]?.[to] || [];
+  const others = s.sj.filter(x => String(x.sem) === String(sem) && x.n !== from && x.g !== "원반").map(x => x.g);
+  const old = s.sj.find(x => String(x.sem) === String(sem) && x.n === from);
+  const order = [...letters.filter(l => l === old?.g), ...letters.filter(l => l !== old?.g && !others.includes(l)), ...letters.filter(l => l !== old?.g && others.includes(l))];
+  if (!order.length) return { g: "", check: null };
+  const rest = { ...placement, students: Object.fromEntries(Object.entries(placement.students).filter(([id]) => id !== sid)) };
+  const members = sectionMembers(rest);
+  let first = null;
+  for (const g of order) {
+    const sj = s.sj.map(x => (String(x.sem) === String(sem) && x.n === from ? { ...x, n: to, g } : x));
+    const check = courseCheck({ ...placement, students: { ...placement.students, [sid]: { ...s, sj } } }, sid, s.cls, members);
+    const r = { g, check };
+    if (!check) return r;
+    if (check.ok && !check.plan.length) return r;
+    if (!first || (check.ok && !first.check?.ok)) first = r;
+  }
+  return first;
+}
+// 과목 바꾸기 기록(sj0 = 처음 엑셀 과목, subjChanges = 기록)
+export function applySubjectChange(placement, { sid, sem, from, to, g, by = "", at = new Date().toISOString() }) {
+  const s = placement?.students?.[sid]; if (!s || !Array.isArray(s.sj)) return placement;
+  const old = s.sj.find(x => String(x.sem) === String(sem) && x.n === from); if (!old) return placement;
+  const sj = s.sj.map(x => (x === old ? { ...x, n: to, g } : x));
+  const id = `sc${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  return { ...placement, students: { ...placement.students, [sid]: { ...s, sj, sj0: s.sj0 || s.sj } }, subjChanges: [...(placement.subjChanges || []), { id, sid, sem: String(sem), from: { n: old.n, g: old.g }, to: { n: to, g }, by, at }] };
+}
+// 처음 엑셀 과목으로 되돌리기(그 학생 기록도 지워요)
+export function resetSubjects(placement, sid) {
+  const s = placement?.students?.[sid]; if (!s?.sj0) return placement;
+  const { sj0, ...rest } = s;
+  return { ...placement, students: { ...placement.students, [sid]: { ...rest, sj: sj0 } }, subjChanges: (placement.subjChanges || []).filter(c => c.sid !== sid) };
+}
+// 처음과 달라진 과목: [{ sem, from, to }]
+export function subjectDiff(student) {
+  if (!student?.sj0) return [];
+  const key = x => `${x.sem}|${x.n}`;
+  const was = new Set(student.sj0.map(key)); const now = new Set((student.sj || []).map(key));
+  const out = [];
+  ["1", "2"].concat(Array.from(new Set(student.sj0.map(x => String(x.sem))))).filter((v, i, a) => a.indexOf(v) === i).forEach(sem => {
+    const gone = student.sj0.filter(x => String(x.sem) === sem && !now.has(key(x))).map(x => x.n);
+    const added = (student.sj || []).filter(x => String(x.sem) === sem && !was.has(key(x))).map(x => x.n);
+    gone.forEach((n, i) => out.push({ sem, from: n, to: added[i] || "" }));
+  });
+  return out;
+}

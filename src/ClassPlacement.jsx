@@ -3,11 +3,13 @@
 // ③ 선생님들이 학생·반에 검토 표시를 남기고 ④ 이동 결과를 한눈에 보고 엑셀로 받아요.
 // 보기·검토 표시·이동: 반편성 탭을 볼 수 있는 교직원(이동은 기록되고 되돌릴 수 있음) / 파일 올리기·지우기: 관리자·부서·학년부장
 import React from "react";
-import { AlertTriangle, BarChart3, CalendarCheck, ClipboardList, ListChecks, ShieldCheck, Check, Printer, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, BarChart3, BookOpen, CalendarCheck, ClipboardList, ListChecks, ShieldCheck, Check, Printer, Tag, ArrowLeftRight, Users, Plus, ArrowRight, CheckCircle2, CircleHelp, Download, FileSpreadsheet, Loader2, MessageSquare, RotateCcw, Search, Trash2, Upload, X } from "lucide-react";
 import { readStorage, updateStorage, writeStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
 import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs, togetherPairs } from "./classSeparation.js";
 import { printPlacement } from "./placementPrint.js";
+import PlacementSubjects from "./PlacementSubjects.jsx";
+import { subjectDiff } from "./classPlacement.js";
 import { courseCheck, courseIssueText, sectionMembers } from "./classPlacement.js";
 import { placementKey, placementReviewKey, parsePlacementFile, normalizePlacement, bySidOf, movableClasses, swapCandidates, applyMove, undoMove, classSummary, checkPairs, studentResults, STUDENT_FLAGS, CLASS_CHECKS } from "./classPlacement.js";
 
@@ -103,7 +105,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
     if (placement?.students && preview.kind === "program") {
       const ids = Object.keys(preview.students); const same = ids.filter(id => placement.students[id] && Number(placement.students[id].orig) === Number(preview.students[id].cls)).length;
       if (ids.length && same / ids.length >= 0.95 && window.confirm(`지금 반편성과 같은 파일이에요.\n이동 기록 ${placement.moves?.length || 0}건은 그대로 두고, 과목·강의실 배정 정보만 새로 반영할까요?\n(취소를 누르면 새 파일로 바꿀지 다시 물어요)`)) {
-        const students = Object.fromEntries(Object.entries(placement.students).map(([id, x]) => { const n = preview.students[id]; return [id, n ? { ...x, name: n.name || x.name, gender: n.gender || x.gender, can: n.can, ob: n.ob, sj: n.sj, no: x.no || n.no } : x]; }));
+        const students = Object.fromEntries(Object.entries(placement.students).map(([id, x]) => { const n = preview.students[id]; return [id, n ? { ...x, name: n.name || x.name, gender: n.gender || x.gender, can: n.can, ob: n.ob, sj: x.sj0 ? x.sj : n.sj, no: x.no || n.no } : x]; }));
         const value = { ...placement, students, classOb: preview.classOb || placement.classOb || {}, rooms: preview.rooms || null, infoAt: new Date().toISOString(), infoBy: me.name };
         const result = await writeStorage(placementKey(year, grade), value);
         if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
@@ -224,6 +226,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "반편성 결과");
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(moves), "이동 내역");
+    if ((placement.subjChanges || []).length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["시각", "학생", "구반-번호", "새 반", "학기", "처음 과목(그룹)", "바꾼 과목(그룹)", "바꾼 사람"], ...placement.subjChanges.map(c => [new Date(c.at).toLocaleString("ko-KR"), placement.students[c.sid]?.name || c.sid, oldLabel(c.sid), placement.students[c.sid]?.cls || "", `${c.sem}학기`, `${c.from.n}(${c.from.g})`, `${c.to.n}(${c.to.g})`, c.by])]), "선택과목 변경");
     const blob = new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
     const url = URL.createObjectURL(blob); const a = document.createElement("a");
     a.href = url; a.download = `${year + 1}학년도 ${nextGrade}학년 반편성(이동 반영).xlsx`; document.body.appendChild(a); a.click(); a.remove();
@@ -397,10 +400,11 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       <div className="ft"><button type="button" className="kpl-btn" onClick={() => { setAlertSeen(v => ({ ...v, [groupAlert.sig]: true })); setGroupAlert(null); }}>이 반은 그만 알리기</button><button type="button" className="kpl-btn pri" onClick={() => setGroupAlert(null)}>확인</button></div>
     </div></div>}
     <div className="kpl-views" role="tablist">
-      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["stats", "반별 현황", "그래프"], ["moves", "이동 결과", `${changedIds.length}명 바뀜`], ...(placement.rooms ? [["tt", "시간표 검증", ttBadN ? `문제 ${ttBadN}개 반` : "모두 가능"]] : []), ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => { const Ic = { sep: ClipboardList, roster: Users, stats: BarChart3, moves: ArrowLeftRight, tt: CalendarCheck, check: ShieldCheck }[k] || ListChecks; return <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`vt-${k}${curView === k ? " on" : ""}${(k === "check" && count("same")) || (k === "tt" && ttBadN) ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster" && !allView) openClassAlert(curTab); }}><Ic size={16} className="vi" /><b>{l}</b><span>{sub}</span></button>; })}
+      {[["sep", "분리희망 입력", `${pairs.length}쌍`], ["roster", "반별 명단", `${classes.length}개 반`], ["stats", "반별 현황", "그래프"], ["moves", "이동 결과", `${changedIds.length}명 바뀜`], ["sj", "선택과목", (() => { const n = Object.values(placement.students).filter(x => x.sj0 && subjectDiff(x).length).length; return n ? `${n}명 바꿈` : "보기·바꾸기"; })()], ...(placement.rooms ? [["tt", "시간표 검증", ttBadN ? `문제 ${ttBadN}개 반` : "모두 가능"]] : []), ["check", "분리희망 확인", count("same") ? `미반영 ${count("same")}` : "모두 반영"]].map(([k, l, sub]) => { const Ic = { sj: BookOpen, sep: ClipboardList, roster: Users, stats: BarChart3, moves: ArrowLeftRight, tt: CalendarCheck, check: ShieldCheck }[k] || ListChecks; return <button key={k} type="button" data-kdn-bare role="tab" aria-selected={curView === k} className={`vt-${k}${curView === k ? " on" : ""}${(k === "check" && count("same")) || (k === "tt" && ttBadN) ? " alert" : ""}`} onClick={() => { setView(k); if (k === "roster" && !allView) openClassAlert(curTab); }}><Ic size={16} className="vi" /><b>{l}</b><span>{sub}</span></button>; })}
     </div>
 
     {curView === "sep" && separation}
+    {curView === "sj" && <PlacementSubjects placement={placement} roster={roster} canEdit={canMove} commit={commit} me={me} homeroomClass={homeroomClass} />}
     {curView === "roster" && (() => {
       const q = find.trim();
       // 구반 필터: 지금 반(구반) 학생을 새 반과 상관없이 모아 봐요(담임이 우리 반 학생 생활지도 표시할 때).
@@ -1353,6 +1357,8 @@ const CSS = `
 .kpl-views button{position:relative;border-radius:0!important;min-height:48px!important;gap:7px!important;color:var(--kdn-ink-soft,#4b5563)!important}
 .kpl-views button+button::before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:1px;background:var(--kdn-line,#e5e7eb)}
 .kpl-views button .vi{flex:none;color:var(--kdn-muted,#9ca3af)}
+.kpl-views button b{white-space:nowrap}
+@media (max-width:1560px){.kpl-views button .vi{display:none}.kpl-views button{padding:0 6px!important;gap:6px!important}}
 .kpl-views button:hover{background:var(--kdn-surface-2,#f8fafc)!important}
 .kpl-views button.on{background:#eff6ff!important;color:#1d4ed8!important;box-shadow:inset 0 -3px 0 #2563eb!important}.kpl-views button.on .vi{color:#2563eb}
 .kpl-views button.on span{background:#dbeafe!important;color:#1d4ed8!important}
