@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-24-e",
+    date: "2026-11-24",
+    title: "선생님 ZONE 메뉴 색 구분",
+    items: [
+      { audience: "staff", text: "선생님 ZONE 위 메뉴 묶음마다 옅은 색을 넣어 구분하고, 묶음 사이 빈 곳이 뜨지 않게 간격을 고르게 맞췄어요." },
+    ],
+  },
+  {
     id: "2026-11-24-d",
     date: "2026-11-24",
     title: "교과세특 요청문 다듬기",

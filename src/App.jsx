@@ -3155,12 +3155,12 @@ function TeacherZoneWorkspace({
   return <div style={styles.body}>
     <div className="no-print kd-tz-toolbar" style={teacherZoneWorkspaceStyles.toolbar}>
       <div className="kd-tz-tabs" style={teacherZoneWorkspaceStyles.modeTabs}>
-        {isNewUi() && <div style={teacherZoneWorkspaceStyles.modeGroup}><small style={teacherZoneWorkspaceStyles.modeGroupLabel}>&nbsp;</small><div style={teacherZoneWorkspaceStyles.modeRow}>
+        {isNewUi() && <div className="kd-tz-group" data-tone="home" style={teacherZoneWorkspaceStyles.modeGroup}><small className="kd-tz-label" style={teacherZoneWorkspaceStyles.modeGroupLabel}>&nbsp;</small><div className="kd-tz-row" style={teacherZoneWorkspaceStyles.modeRow}>
             {isNewUi() && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("home")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "home" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 홈</button>}
         </div></div>}
-        {true && <div style={teacherZoneWorkspaceStyles.modeGroup}>
-          <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>수업·평가</small>
-          <div style={teacherZoneWorkspaceStyles.modeRow}>
+        {true && <div className="kd-tz-group" data-tone="class" style={teacherZoneWorkspaceStyles.modeGroup}>
+          <small className="kd-tz-label" style={teacherZoneWorkspaceStyles.modeGroupLabel}>수업·평가</small>
+          <div className="kd-tz-row" style={teacherZoneWorkspaceStyles.modeRow}>
             <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("grades")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "grades" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><FileSpreadsheet size={15} /> 성적 산출</button>
             {onOpenMinimum && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={onOpenMinimum} title="최소성취수준 화면으로 이동" style={teacherZoneWorkspaceStyles.modeButton}><ShieldCheck size={15} /> 최성보 ↗</button>}
             {(activeTeacher || loggedInAdmin) && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("stamps")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "stamps" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ClipboardList size={15} /> 수업 포트폴리오</button>}
@@ -3168,24 +3168,24 @@ function TeacherZoneWorkspace({
             {canUseNotice && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("notice")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "notice" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Megaphone size={15} /> 공지·수업자료</button>}
           </div>
         </div>}
-        {(canUseGradeDepartmentTools || separationEligible) && <div style={teacherZoneWorkspaceStyles.modeGroup}>
-          <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>학생·학년</small>
-          <div style={teacherZoneWorkspaceStyles.modeRow}>
+        {(canUseGradeDepartmentTools || separationEligible) && <div className="kd-tz-group" data-tone="student" style={teacherZoneWorkspaceStyles.modeGroup}>
+          <small className="kd-tz-label" style={teacherZoneWorkspaceStyles.modeGroupLabel}>학생·학년</small>
+          <div className="kd-tz-row" style={teacherZoneWorkspaceStyles.modeRow}>
             {canUseGradeDepartmentTools && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("contacts")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "contacts" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><Users size={15} /> 학생 비상연락망</button>}
             {separationEligible && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => openWorkspaceMode("placement")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(["placement", "separation"].includes(workspaceMode) ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><LayoutGrid size={15} /> 반편성 · 분리희망</button>}
           </div>
         </div>}
-        {(plannerOwner || activeTeacher || loggedInAdmin || loggedInDepartment) && <div style={teacherZoneWorkspaceStyles.modeGroup}>
-          <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>내 업무</small>
-          <div style={teacherZoneWorkspaceStyles.modeRow}>
+        {(plannerOwner || activeTeacher || loggedInAdmin || loggedInDepartment) && <div className="kd-tz-group" data-tone="work" style={teacherZoneWorkspaceStyles.modeGroup}>
+          <small className="kd-tz-label" style={teacherZoneWorkspaceStyles.modeGroupLabel}>내 업무</small>
+          <div className="kd-tz-row" style={teacherZoneWorkspaceStyles.modeRow}>
             {(activeTeacher || loggedInAdmin || loggedInDepartment) && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("records")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "records" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><BookOpen size={15} /> 생기부 업무</button>}
             {(activeTeacher || loggedInAdmin || loggedInDepartment) && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("handover")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "handover" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><ArrowLeftRight size={15} /> 업무 인수인계</button>}
             {plannerOwner && <button type="button" data-kdn-bare className="kd-tz-tab" onClick={() => setWorkspaceMode("planner")} style={{ ...teacherZoneWorkspaceStyles.modeButton, ...(workspaceMode === "planner" ? teacherZoneWorkspaceStyles.modeButtonActive : {}) }}><CalendarDays size={15} /> 내 일정</button>}
           </div>
         </div>}
       </div>
-      <div className="kd-tz-scope" style={teacherZoneWorkspaceStyles.gradeGroup}>
-        <small style={teacherZoneWorkspaceStyles.modeGroupLabel}>보는 학년·학기</small>
+      <div className="kd-tz-scope kd-tz-group" style={teacherZoneWorkspaceStyles.gradeGroup}>
+        <small className="kd-tz-label" style={teacherZoneWorkspaceStyles.modeGroupLabel}>보는 학년·학기</small>
         <div className="kd-tz-sel">
           <select aria-label="보는 학년" value={String(grade)} onChange={event => setGrade(event.target.value)}>{visibleGrades.map(item => <option key={item} value={item}>{item}학년</option>)}</select>
           {setSemester && <select aria-label="보는 학기" value={semester} onChange={event => setSemester(event.target.value)}><option value="sem1">1학기</option><option value="sem2">2학기</option></select>}
