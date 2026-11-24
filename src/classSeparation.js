@@ -108,3 +108,36 @@ export function reverseTargets(classData = {}, sid = "") {
   }));
   return out.sort((x, y) => levelRank(x.level) - levelRank(y.level) || x.sid.localeCompare(y.sid));
 }
+
+// 분리희망 엑셀 한꺼번에 읽기(학년부에서 모은 시트·학교 양식): 한 줄 = 학생 1명(학번) + '분리희망학생N' 묶음(학번·이름·분리 등급·사유)
+// 돌려주는 값: { rows: [{ sid, targets: [{ sid, level, reason }] }], skipped: [{ sid, target, raw }] } — 분리가 아닌 등급(예: '반드시 세트')은 건너뛰어요.
+export function parseSeparationSheet(aoa = []) {
+  const rows = (aoa || []).map(r => (r || []).map(c => String(c ?? "").replace(/\s+/g, " ").trim()));
+  const hi = rows.slice(0, 10).findIndex(r => r.some(c => /분리\s*희망\s*학생\s*1/.test(c)));
+  if (hi < 0) return null;
+  const head = rows[hi];
+  const sidCol = head.findIndex(c => /^학번$/.test(c));
+  const starts = head.map((c, i) => (/분리\s*희망\s*학생\s*\d+/.test(c) ? i : -1)).filter(i => i >= 0);
+  if (sidCol < 0 || !starts.length) return null;
+  const sub = rows[hi + 1] || [];
+  const dataFrom = sub.some(c => /^학번$/.test(c)) ? hi + 2 : hi + 1;
+  const levelOf = raw => { const v = raw.replace(/\s+/g, ""); if (/세트|동반|함께|같은반/.test(v)) return ""; if (/반드시/.test(v)) return "반드시 분리"; if (/되도록/.test(v)) return "되도록 분리"; if (/가능/.test(v)) return "가능하면 분리"; if (/참고/.test(v)) return "참고"; return v ? "" : "되도록 분리"; };
+  const out = []; const skipped = [];
+  rows.slice(dataFrom).forEach(r => {
+    const sid = String(r[sidCol] || "").replace(/\D/g, "");
+    if (!/^\d{5}$/.test(sid)) return;
+    const targets = [];
+    starts.forEach(i => {
+      const t = String(r[i] || "").replace(/\D/g, ""); if (!/^\d{5}$/.test(t)) return;
+      // 묶음 안 열: 학번, 이름, 등급, 사유(머리글에 '등급'·'사유'가 있으면 그 위치를 써요)
+      const span = head.slice(i + 1, i + 5);
+      const li = span.findIndex(c => /등급/.test(c)); const ri = span.findIndex(c => /사유/.test(c));
+      const rawLevel = r[i + 1 + (li >= 0 ? li : 1)] || ""; const reason = r[i + 1 + (ri >= 0 ? ri : 2)] || "";
+      const level = levelOf(rawLevel);
+      if (!level) { skipped.push({ sid, target: t, raw: rawLevel }); return; }
+      targets.push({ sid: t, level, reason });
+    });
+    if (targets.length) out.push({ sid, targets: normalizeTargets(targets, sid) });
+  });
+  return { rows: out, skipped };
+}

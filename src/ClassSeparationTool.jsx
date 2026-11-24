@@ -3,10 +3,10 @@
 // 다른 반 담임이 우리 반 학생을 적은 경우도 그 학생 화면에 보여 줍니다(양쪽 확인).
 // 관리자·2학년부: 전체 현황(등급별·반별·분리 관계)을 한눈에 보고, 학교 양식 그대로 엑셀로 받습니다.
 import React from "react";
-import { Download, Plus, Save, Trash2, Users, X, Loader2, Search, ArrowLeftRight, ArrowRight, Printer } from "lucide-react";
+import { Download, Plus, Save, Trash2, Users, X, Loader2, Search, ArrowLeftRight, ArrowRight, Printer, Upload } from "lucide-react";
 import { readStorage, updateStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
-import { MAX_TARGETS, SEPARATION_LEVELS, LEVEL_INFO, REASON_PRESETS, CUSTOM_REASON, SEPARATION_COL_WIDTHS, levelRank, separationKey, normalizeTargets, searchStudents, separationRows, separationHeader, separationPairs, reverseTargets } from "./classSeparation.js";
+import { MAX_TARGETS, SEPARATION_LEVELS, LEVEL_INFO, REASON_PRESETS, CUSTOM_REASON, SEPARATION_COL_WIDTHS, levelRank, separationKey, normalizeTargets, searchStudents, separationRows, separationHeader, separationPairs, reverseTargets, parseSeparationSheet } from "./classSeparation.js";
 
 const emptyData = () => ({ entries: {} });
 const classOf = student => Number(student?.class) || 0;
@@ -152,6 +152,16 @@ const CSS = `
 @media (max-width:640px){.kcs-list{max-height:none!important}.kcs-split:not(.has-sel) .kcs-pane,.kcs-split.has-sel .kcs-list{display:none}.kcs-back{display:inline-flex;align-items:center;min-height:40px;margin:0 0 6px;padding:0 4px;border:0;background:transparent;font:inherit;font-size:14px;font-weight:800;color:var(--kdn-accent-text,#c2410c);cursor:pointer}.kcs-list>button{min-height:52px}}
 @media (max-width:900px){.kcs-split,.kcs-grid2{grid-template-columns:minmax(0,1fr)}.kcs-list{max-height:280px}.kcs-scale ol{grid-template-columns:repeat(2,minmax(0,1fr))}.kcs-scale-hd small{display:none}.kcs-scale li:nth-child(3){border-left:0}
   .kcs-row{grid-template-columns:24px minmax(0,1fr) 38px;grid-template-areas:"i pick del" "i lv lv" "i rs rs"}.kcs-recv-card{grid-template-columns:minmax(0,1fr)}.kcs-recv-card .by{justify-items:start;text-align:left}.kcs-tabs button{min-height:54px;padding:8px 8px;flex-direction:column;gap:4px}.kcs-tabs button b{font-size:13.5px}.kcs-classes{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}}
+
+.kcs-imp{position:fixed;inset:0;z-index:1000;display:grid;place-items:center;padding:16px;background:rgba(15,23,42,.45)}
+.kcs-imp .box{display:grid;gap:12px;width:min(520px,100%);max-height:calc(100vh - 32px);overflow:auto;padding:18px 20px;border-radius:18px;background:var(--kdn-surface,#fff);box-shadow:0 24px 60px rgba(15,23,42,.3)}
+.kcs-imp header{display:flex;align-items:center;justify-content:space-between}.kcs-imp header b{display:inline-flex;align-items:center;gap:8px;font-size:17px}.kcs-imp header button{border:0;background:transparent;cursor:pointer;color:inherit}
+.kcs-imp .src{margin:0;font-size:12.5px;color:var(--kdn-muted,#64748b)}
+.kcs-imp .nums{display:flex;flex-wrap:wrap;gap:6px}.kcs-imp .nums span{padding:4px 12px;border-radius:99px;background:var(--kdn-surface-2,#f1f5f9);font-size:13px}.kcs-imp .nums b{font-size:15px}
+.kcs-imp .by{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px}.kcs-imp .by li{padding:2px 10px;border-radius:8px;border:1px solid var(--kdn-line,#e2e8f0);font-size:12.5px}
+.kcs-imp .warn{margin:0;padding:8px 12px;border-radius:10px;background:#fffbeb;border:1px solid #fde68a;color:#92400e;font-size:12.5px;line-height:1.5}
+.kcs-imp .mg{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13.5px;font-weight:700}.kcs-imp .mg small{font-weight:500;color:var(--kdn-muted,#64748b)}
+.kcs-imp footer{display:flex;justify-content:flex-end;gap:8px}
 `;
 const BAR_COLORS = { must: "#dc2626", high: "#ea580c", mid: "#ca8a04", low: "#94a3b8" };
 
@@ -244,6 +254,43 @@ export default function ClassSeparationTool({ grade: GRADE = "2", roster = {}, h
   const [draft, setDraft] = React.useState([]);
   const [dirty, setDirty] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  // 엑셀로 한 번에 넣기(관리자): 학년부에서 모은 분리희망 시트를 읽어 미리 보고 반영
+  const importRef = React.useRef(null);
+  const [imp, setImp] = React.useState(null); // { file, rows, skipped, unknown, merge }
+  const readImport = async file => {
+    if (!file) return;
+    try {
+      const mod = await import("xlsx"); const XLSX = mod.default?.utils ? mod.default : mod;
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      let parsed = null; let sheetName = "";
+      for (const name of wb.SheetNames) { const r = parseSeparationSheet(XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false })); if (r && r.rows.length && (!parsed || /분리/.test(name))) { parsed = r; sheetName = name; } }
+      if (!parsed) { showToast?.("'분리희망학생1' 칸이 있는 시트를 찾지 못했어요.", "error"); return; }
+      const all = parsed.rows.flatMap(x => [x.sid, ...x.targets.map(t => t.sid)]);
+      setImp({ file: file.name, sheet: sheetName, rows: parsed.rows, skipped: parsed.skipped, unknown: Array.from(new Set(all.filter(id => !roster?.[id]))), merge: true });
+    } catch (error) { showToast?.(/password/i.test(String(error?.message)) ? "암호가 걸린 파일이에요. 암호를 풀고 올려 주세요." : `읽지 못했어요. (${error?.message || error})`, "error"); }
+  };
+  const applyImport = async () => {
+    if (!imp) return;
+    const byClass = {};
+    imp.rows.filter(x => roster?.[x.sid]).forEach(x => { const c = classOf(roster[x.sid]); if (c) (byClass[c] ||= []).push(x); });
+    setBusy(true);
+    let ok = 0, fail = 0;
+    for (const [c, list] of Object.entries(byClass)) {
+      const result = await updateStorage(separationKey(year, GRADE, c), emptyData(), current => {
+        const next = { ...(current || emptyData()), entries: { ...(current?.entries || {}) } };
+        list.forEach(x => {
+          const before = imp.merge ? (next.entries[x.sid]?.targets || []) : [];
+          const merged = normalizeTargets([...x.targets, ...before.filter(t => !x.targets.some(n => n.sid === t.sid))], x.sid);
+          next.entries[x.sid] = { targets: merged, updatedAt: new Date().toISOString(), by: actor?.name || actor?.id || "" };
+        });
+        return { ...next, updatedAt: new Date().toISOString() };
+      });
+      if (result?.ok) { ok += list.length; setData(cur => ({ ...cur, [c]: result.value })); } else fail += list.length;
+    }
+    setBusy(false);
+    showToast?.(fail ? `${ok}명은 넣었고 ${fail}명은 저장하지 못했어요. 다시 해 주세요.` : `분리희망 ${ok}명분을 넣었어요.`, fail ? "error" : "success");
+    if (!fail) setImp(null);
+  };
   const [findText, setFindText] = React.useState("");
   const [levelFilter, setLevelFilter] = React.useState("");
   const [classFilter, setClassFilter] = React.useState("");
@@ -405,8 +452,18 @@ export default function ClassSeparationTool({ grade: GRADE = "2", roster = {}, h
 
   return <div className="kcs">
     <style dangerouslySetInnerHTML={{ __html: CSS }} />
+    {imp && <div className="kcs-imp" role="dialog" aria-modal="true" aria-label="분리희망 엑셀 넣기" onClick={e => e.target === e.currentTarget && !busy && setImp(null)}><div className="box">
+      <header><b><Upload size={17} /> 분리희망 엑셀 넣기</b><button type="button" data-kdn-bare onClick={() => setImp(null)} aria-label="닫기"><X size={16} /></button></header>
+      <p className="src">{imp.file} · '{imp.sheet}' 시트</p>
+      <div className="nums"><span><b>{imp.rows.filter(x => roster?.[x.sid]).length}</b>명</span><span><b>{imp.rows.filter(x => roster?.[x.sid]).reduce((a, x) => a + x.targets.length, 0)}</b>건 분리 관계</span>{SEPARATION_LEVELS.map(l => { const n = imp.rows.reduce((a, x) => a + x.targets.filter(t => t.level === l).length, 0); return n ? <span key={l}>{l} <b>{n}</b></span> : null; })}</div>
+      <ul className="by">{Object.entries(imp.rows.reduce((m, x) => { const c = roster?.[x.sid] ? classOf(roster[x.sid]) : "?"; m[c] = (m[c] || 0) + 1; return m; }, {})).sort((a, b) => Number(a[0]) - Number(b[0])).map(([c, n]) => <li key={c}>{c}반 <b>{n}</b>명</li>)}</ul>
+      {imp.skipped.length > 0 && <p className="warn">분리가 아닌 등급(예: '{imp.skipped[0].raw}') {imp.skipped.length}건은 넣지 않아요. 분리희망 화면에는 '같은 반 희망' 칸이 없어요.</p>}
+      {imp.unknown.length > 0 && <p className="warn">지금 {GRADE}학년 명단에 없는 학번 {imp.unknown.length}개: {imp.unknown.slice(0, 8).join(", ")}{imp.unknown.length > 8 ? " …" : ""} — 이 학번이 학생이면 그 줄은 빠지고, 상대이면 학번만 저장돼요.</p>}
+      <label className="mg"><input type="checkbox" checked={imp.merge} onChange={e => setImp(v => ({ ...v, merge: e.target.checked }))} /> 이미 입력한 분리희망은 그대로 두고 합치기 <small>(끄면 이 파일에 있는 학생은 파일 내용으로 바뀌어요)</small></label>
+      <footer><button type="button" className="kcs-btn" onClick={() => setImp(null)} disabled={busy}>취소</button><button type="button" className="kcs-btn pri" onClick={applyImport} disabled={busy}>{busy ? <Loader2 size={15} className="spin" /> : <Save size={15} />} 넣기</button></footer>
+    </div></div>}
     <section className="kcs-head">
-      <div className="t"><b>{year + 1} 반편성 · 분리희망학생</b><small>{canViewAll ? `${ownClass && !canEditAll ? `${ownClass}반 담임(우리 반만 입력) · ` : ""}2학년 ${tabs.length}개 반 · 입력한 반 ${startedClasses}개 · 입력한 학생 ${totalFilled}명 · 분리 관계 ${pairs.length}건` : `${ownClass}반 담임 · 입력한 학생 ${classStats[0]?.filled || 0}명 · 우리 반 관련 분리 관계 ${scopePairs.length}건`}</small></div>
+      <div className="t"><b>{year + 1} 반편성 · 분리희망학생</b><small>{canViewAll ? `${ownClass && !canEditAll ? `${ownClass}반 담임(우리 반만 입력) · ` : ""}${GRADE}학년 ${tabs.length}개 반 · 입력한 반 ${startedClasses}개 · 입력한 학생 ${totalFilled}명 · 분리 관계 ${pairs.length}건` : `${ownClass}반 담임 · 입력한 학생 ${classStats[0]?.filled || 0}명 · 우리 반 관련 분리 관계 ${scopePairs.length}건`}</small></div>
       <div className="kcs-seg" role="tablist" aria-label="화면 선택">
         <button type="button" data-kdn-bare role="tab" aria-selected={mode === "edit"} className={mode === "edit" ? "is-on" : ""} onClick={() => setMode("edit")}>학생별 입력</button>
         <button type="button" data-kdn-bare role="tab" aria-selected={mode === "summary"} className={mode === "summary" ? "is-on" : ""} onClick={() => setMode("summary")}>{canViewAll ? "전체 현황" : "우리 반 현황"}</button>
@@ -414,6 +471,8 @@ export default function ClassSeparationTool({ grade: GRADE = "2", roster = {}, h
       <div className="acts">
         <button type="button" className="kcs-btn" onClick={() => exportXlsx("class")} disabled={loading || !viewClass}><Download size={15} />{viewClass}반 엑셀</button>
         {canViewAll && <button type="button" className="kcs-btn" onClick={() => exportXlsx("all")} disabled={loading}><Download size={15} />전체 엑셀(학교 양식)</button>}
+        {canEditAll && <button type="button" className="kcs-btn" onClick={() => importRef.current?.click()} disabled={loading || busy}><Upload size={15} />엑셀로 한 번에 넣기</button>}
+        <input ref={importRef} type="file" hidden accept=".xlsx,.xls,.csv" onChange={e => { const f = e.target.files?.[0]; e.target.value = ""; readImport(f); }} />
         <button type="button" className="kcs-btn" onClick={() => setPrintOpen(true)} disabled={loading}><Printer size={15} />현황 인쇄·PDF</button>
       </div>
     </section>
