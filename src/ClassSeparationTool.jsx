@@ -6,9 +6,8 @@ import React from "react";
 import { Download, Plus, Save, Trash2, Users, X, Loader2, Search, ArrowLeftRight, ArrowRight, Printer } from "lucide-react";
 import { readStorage, updateStorage } from "./storage.js";
 import { schoolYearOf } from "./curriculum.js";
-import { MAX_TARGETS, SEPARATION_LEVELS, LEVEL_INFO, REASON_PRESETS, CUSTOM_REASON, SHEET_TITLE, SEPARATION_COL_WIDTHS, levelRank, separationKey, normalizeTargets, searchStudents, separationRows, separationHeader, separationPairs, reverseTargets } from "./classSeparation.js";
+import { MAX_TARGETS, SEPARATION_LEVELS, LEVEL_INFO, REASON_PRESETS, CUSTOM_REASON, SEPARATION_COL_WIDTHS, levelRank, separationKey, normalizeTargets, searchStudents, separationRows, separationHeader, separationPairs, reverseTargets } from "./classSeparation.js";
 
-const GRADE = "2";
 const emptyData = () => ({ entries: {} });
 const classOf = student => Number(student?.class) || 0;
 const nameOf = (sid, roster) => roster?.[sid]?.name || "";
@@ -231,7 +230,7 @@ function SeparationPrintDialog({ classes, defaultClasses, canOverview, onClose, 
 
 const LevelPill = ({ level }) => <span className={`kcs-pill t-${toneOf(level)}`}>{level}</span>;
 
-export default function ClassSeparationTool({ roster = {}, homeroomClass = "", canViewAll = false, canEditAll = false, actor = null, showToast }) {
+export default function ClassSeparationTool({ grade: GRADE = "2", roster = {}, homeroomClass = "", canViewAll = false, canEditAll = false, actor = null, showToast }) {
   const year = schoolYearOf();
   const ownClass = Number(homeroomClass) || 0;
   const classes = React.useMemo(() => Array.from(new Set(Object.values(roster || {}).map(classOf).filter(Boolean))).sort((a, b) => a - b), [roster]);
@@ -344,15 +343,15 @@ export default function ClassSeparationTool({ roster = {}, homeroomClass = "", c
       };
     }
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, SHEET_TITLE);
+    XLSX.utils.book_append_sheet(wb, ws, `분리희망학생(${GRADE}학년부)`);
     const rosterRows = Object.entries(roster || {}).sort((a, b) => a[0].localeCompare(b[0])).map(([id, s]) => [id, s?.name || "", s?.gender || ""]);
     const ws2 = XLSX.utils.aoa_to_sheet([["학번", "이름", "성별"], ...rosterRows]);
     ws2["!cols"] = [{ wch: 9 }, { wch: 12 }, { wch: 6 }];
     XLSX.utils.book_append_sheet(wb, ws2, "학적");
-    XLSX.writeFile(wb, `${year + 1} 3학년 반편성 분리희망학생(2학년부)${scope === "all" ? "" : `_${viewClass}반`}.xlsx`);
+    XLSX.writeFile(wb, `${year + 1} ${Number(GRADE) + 1}학년 반편성 분리희망학생(${GRADE}학년부)${scope === "all" ? "" : `_${viewClass}반`}.xlsx`);
   };
 
-  if (!tabs.length) return <div className="kcs"><style dangerouslySetInnerHTML={{ __html: CSS }} /><div className="kcs-empty">2학년 명단이 없거나, 담임 반 정보가 없습니다. 내 정보에서 담임 반을 확인해 주세요.</div></div>;
+  if (!tabs.length) return <div className="kcs"><style dangerouslySetInnerHTML={{ __html: CSS }} /><div className="kcs-empty">{GRADE}학년 명단이 없거나, 담임 반 정보가 없습니다. 내 정보에서 담임 반을 확인해 주세요.</div></div>;
 
   // ---- 현황 계산 ----
   const inClass = (id, c) => classOf(roster?.[id]) === c;

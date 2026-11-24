@@ -2132,7 +2132,7 @@ export default function App() {
       { key: "z-grades", label: "성적 산출", run: zoneGo("grades") },
       { key: "z-notice", label: "공지·자료", run: zoneGo("notice") },
       { key: "z-contacts", label: "비상연락망", run: zoneGo("contacts") },
-      ...(loggedInAdmin || loggedInDepartment || (loggedInTeacher && teacherRoleGrade(loggedInTeacher) === "2" && ["gradeHead", "homeroom"].includes(normalizedTeacherRole(loggedInTeacher))) ? [{ key: "z-placement", label: "반편성 · 분리희망", run: zoneGo("placement") }] : []),
+      ...(loggedInAdmin || loggedInDepartment || (loggedInTeacher && ["1", "2"].includes(teacherRoleGrade(loggedInTeacher)) && ["gradeHead", "homeroom"].includes(normalizedTeacherRole(loggedInTeacher))) ? [{ key: "z-placement", label: "반편성 · 분리희망", run: zoneGo("placement") }] : []),
       { key: "z-records", label: "생기부 업무", run: zoneGo("records") },
       ...(loggedInAdmin || loggedInDepartment || loggedInTeacher ? [{ key: "z-handover", label: "업무 인수인계", run: zoneGo("handover") }] : []),
       { key: "z-stamps", label: "수업 포트폴리오", run: zoneGo("stamps") },
@@ -2241,7 +2241,7 @@ export default function App() {
         {overlayUserKey && <PatchNotesPopup userKey={overlayUserKey} audience={loggedInStudent ? "student" : "staff"} onDone={() => setPatchPopupDone(true)} />}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && !loggedInAdmin && canUseMockAnalysis && gdb?.mockData && <MockUploadPopup mockData={gdb.mockData} userKey={overlayUserKey}
           onOpen={latest => { const year = new Date().getFullYear(); const g = latest.entryYear ? String(year - latest.entryYear + 1) : ""; if (["1", "2", "3"].includes(g)) setGrade(g); setTeacherZoneRequest({ mode: "mock", at: Date.now() }); switchSection("teacherZone"); }} />}
-        {patchPopupDone && !loggedInStudent && (loggedInAdmin || (loggedInDepartment && (!departmentGradeAccess(loggedInDepartment).length || departmentGradeAccess(loggedInDepartment).includes("2"))) || (loggedInTeacher && teacherRoleGrade(loggedInTeacher) === "2" && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher)))) && <Suspense fallback={null}><PlacementNotice userKey={overlayUserKey} onOpen={() => { setGrade("2"); setTeacherZoneRequest({ mode: "placement", at: Date.now() }); switchSection("teacherZone"); }} /></Suspense>}
+        {patchPopupDone && !loggedInStudent && (() => { const noticeGrades = ["1", "2"].filter(g => loggedInAdmin || (loggedInDepartment && (!departmentGradeAccess(loggedInDepartment).length || departmentGradeAccess(loggedInDepartment).includes(g))) || (loggedInTeacher && teacherRoleGrade(loggedInTeacher) === g && ["homeroom", "gradeHead"].includes(normalizedTeacherRole(loggedInTeacher)))); return noticeGrades.length > 0 && <Suspense fallback={null}><PlacementNotice userKey={overlayUserKey} grades={noticeGrades} onOpen={g => { setTeacherZoneRequest({ mode: "placement", placementGrade: g, at: Date.now() }); switchSection("teacherZone"); }} /></Suspense>; })()}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && <PlannerReminders owner={plannerOwnerOf({ loggedInTeacher, loggedInDepartment, loggedInMonitor, loggedInAdmin })} onOpen={() => { setTeacherZoneRequest({ mode: "planner", at: Date.now() }); switchSection("teacherZone"); }} />}
         {patchPopupDone && canSeeTeacherZone && !loggedInStudent && <GradeCheckPopup calendar={db.academicCalendar} workspaces={db.teacherGradeWorkspaces} teacher={loggedInTeacher || viewedTeacher} isAdmin={!!loggedInAdmin} semester={semester} userKey={overlayUserKey}
           homeroomClass={loggedInTeacher?.homeroomClass && canUseFeature("classGrades") ? loggedInTeacher.homeroomClass : ""} homeroomGrade={loggedInTeacher?.homeroomClass ? (teacherRoleGrade(loggedInTeacher) || grade) : ""}
@@ -3085,14 +3085,21 @@ function TeacherZoneWorkspace({
   const canUseGradeDepartmentTools = String(grade) === "2" && !!(loggedInAdmin || departmentCanUseSecondGradeTools || activeTeacherIsSecondGradeStaff);
   // 반편성 분리희망학생: 2학년 학급담임(자기 반 입력)·2학년부장·2학년부 부서 계정(전체 보기)·관리자(전체 보기·입력)만
   // 모든 반 보기: 관리자·2학년 부서·2학년 부장, 그리고 2학년 담임(보기만 전체, 입력·수정은 자기 반만).
-  const separationViewAll = !!(loggedInAdmin || departmentCanUseSecondGradeTools || (activeTeacher && teacherRoleGrade(activeTeacher) === "2" && ["gradeHead", "homeroom"].includes(normalizedTeacherRole(activeTeacher))));
-  const separationHomeroom = activeTeacher && teacherRoleGrade(activeTeacher) === "2" && normalizedTeacherRole(activeTeacher) === "homeroom" && activeTeacher.homeroomClass ? String(activeTeacher.homeroomClass) : "";
-  const separationEligible = !!(separationViewAll || separationHomeroom);
-  // 분리희망은 늘 2학년 명단으로: 지금 학기 명단이 비어 있으면 다른 학기 2학년 명단을 씁니다(반 구성은 한 해 동안 같음).
-  const separationRoster = useMemo(() => [`2-${semester}`, "2-sem2", "2-sem1"].map(key => allRosters?.[key]).find(item => item && Object.keys(item).length) || (String(grade) === "2" ? roster : {}) || {}, [allRosters, semester, grade, roster]);
-  const canUseSeparation = String(grade) === "2" && separationEligible;
-  // 분리희망은 2학년 전용이라, 다른 학년을 보고 있을 때 누르면 작업 학년을 2학년으로 바꿔서 엽니다.
-  const openWorkspaceMode = mode => { if (["separation", "placement"].includes(mode) && String(grade) !== "2") setGrade?.("2"); setWorkspaceMode(mode); };
+  // 반편성·분리희망: 지금 1학년(→2학년)과 2학년(→3학년)을 따로 다뤄요. 그 학년 담임·부장·그 학년 부서는 자기 학년만, 관리자는 모두.
+  const deptCanPlacementGrade = g => !!(loggedInDepartment && (!departmentGrades.length || departmentGrades.includes(g)));
+  const staffOfGrade = (g, roles = ["gradeHead", "homeroom"]) => !!(activeTeacher && teacherRoleGrade(activeTeacher) === g && roles.includes(normalizedTeacherRole(activeTeacher)));
+  const sepViewAllOf = g => !!(loggedInAdmin || deptCanPlacementGrade(g) || staffOfGrade(g));
+  const sepHomeroomOf = g => (staffOfGrade(g, ["homeroom"]) && activeTeacher.homeroomClass ? String(activeTeacher.homeroomClass) : "");
+  const placementGrades = ["1", "2"].filter(g => sepViewAllOf(g) || sepHomeroomOf(g));
+  const [placementGradePick, setPlacementGrade] = useState("");
+  const placementGrade = placementGrades.includes(placementGradePick) ? placementGradePick : placementGrades.includes(String(grade)) ? String(grade) : placementGrades[placementGrades.length - 1] || "2";
+  const separationViewAll = sepViewAllOf(placementGrade);
+  const separationHomeroom = sepHomeroomOf(placementGrade);
+  const separationEligible = placementGrades.length > 0;
+  // 분리희망·반편성 명단: 그 학년 명단(지금 학기 명단이 비어 있으면 다른 학기)
+  const separationRoster = useMemo(() => [`${placementGrade}-${semester}`, `${placementGrade}-sem2`, `${placementGrade}-sem1`].map(key => allRosters?.[key]).find(item => item && Object.keys(item).length) || (String(grade) === placementGrade ? roster : {}) || {}, [allRosters, semester, grade, roster, placementGrade]);
+  const canUseSeparation = separationEligible;
+  const openWorkspaceMode = mode => { setWorkspaceMode(mode); };
   const modeStorageKey = `kd_teacher_zone_mode_${actor?.id || actor?.name || "shared"}`;
   // 내 일정: 로그인한 본인 것만(관리자가 다른 선생님 화면을 볼 때도 관리자 본인 일정).
   const plannerUser = loggedInTeacher || loggedInDepartment || loggedInMonitor || loggedInAdmin || null;
@@ -3110,7 +3117,7 @@ function TeacherZoneWorkspace({
   });
   const [lastWorkMode] = useState(() => { try { const saved = localStorage.getItem(modeStorageKey); return ["grades", "stamps", "mock", "notice", "contacts", "records", "gradeData", "separation", "placement", "handover"].includes(saved) ? saved : ""; } catch { return ""; } });
   const [visitedWorkspaceModes, setVisitedWorkspaceModes] = useState(() => [workspaceMode]);
-  useEffect(() => { if (modeRequest?.mode) openWorkspaceMode(modeRequest.mode); }, [modeRequest?.at]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (modeRequest?.mode) openWorkspaceMode(modeRequest.mode); if (modeRequest?.placementGrade) setPlacementGrade(String(modeRequest.placementGrade)); }, [modeRequest?.at]); // eslint-disable-line react-hooks/exhaustive-deps
   // 홈에서 성적 산출 단계·과목으로 바로 가기: { step, id, nonce }를 성적 산출 화면에 넘깁니다.
   const [gradeJump, setGradeJump] = useState(null);
   const openGradeAt = (step, id = "", toGrade = "") => { if (toGrade && String(toGrade) !== String(grade)) setGrade(String(toGrade)); setGradeJump({ step, id, nonce: Date.now() }); setWorkspaceMode("grades"); };
@@ -3186,9 +3193,11 @@ function TeacherZoneWorkspace({
     </div>}
     {canUseNotice && visitedWorkspaceModes.includes("notice") && <div style={{ display: workspaceMode === "notice" ? "block" : "none" }} aria-hidden={workspaceMode !== "notice"}>{noticeContent}</div>}
     {plannerOwner && workspaceMode === "planner" && <TeacherPlanner initialDraft={modeRequest?.draft ? { ...modeRequest.draft, nonce: modeRequest.at } : null} owner={plannerOwner} ownerName={plannerUser?.name || ""} calendar={db?.academicCalendar} showToast={showToast} canAssign={canAssignPlanner} recipients={plannerRecipients} />}
-    {canUseSeparation && ["placement", "separation"].includes(workspaceMode) && <DeferredPanel label="반편성 화면을 불러오는 중입니다."><ClassPlacement roster={separationRoster} actor={actor} canManage={!!(loggedInAdmin || departmentCanUseSecondGradeTools || (activeTeacher && teacherRoleGrade(activeTeacher) === "2" && normalizedTeacherRole(activeTeacher) === "gradeHead"))} showToast={showToast}
+    {canUseSeparation && ["placement", "separation"].includes(workspaceMode) && <DeferredPanel label="반편성 화면을 불러오는 중입니다.">
+      {placementGrades.length > 1 && <div role="tablist" aria-label="반편성 학년" style={{ display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>{placementGrades.map(g => <button key={g} type="button" role="tab" aria-selected={placementGrade === g} onClick={() => setPlacementGrade(g)} style={{ minHeight: 40, padding: "0 18px", borderRadius: 999, border: placementGrade === g ? "1.5px solid #2563eb" : "1px solid #d1d5db", background: placementGrade === g ? "#eff6ff" : "#fff", color: placementGrade === g ? "#1d4ed8" : "#374151", font: "inherit", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>지금 {g}학년 → 내년 {Number(g) + 1}학년</button>)}</div>}
+      <ClassPlacement key={`pl-${placementGrade}`} grade={placementGrade} roster={separationRoster} actor={actor} canManage={!!(loggedInAdmin || deptCanPlacementGrade(placementGrade) || staffOfGrade(placementGrade, ["gradeHead"]))} showToast={showToast}
       initialView={workspaceMode === "separation" ? "sep" : ""} viewRequest={workspaceMode === "separation" ? 1 : 0}
-      separation={<ClassSeparationTool roster={separationRoster} homeroomClass={separationHomeroom} canViewAll={separationViewAll} canEditAll={!!loggedInAdmin} actor={actor} showToast={showToast} />} /></DeferredPanel>}
+      separation={<ClassSeparationTool key={`sep-${placementGrade}`} grade={placementGrade} roster={separationRoster} homeroomClass={separationHomeroom} canViewAll={separationViewAll} canEditAll={!!loggedInAdmin} actor={actor} showToast={showToast} />} /></DeferredPanel>}
     {canUseGradeDepartmentTools && visitedWorkspaceModes.some(mode => ["contacts", "gradeData"].includes(mode)) && <div style={{ display: ["contacts", "gradeData"].includes(workspaceMode) ? "block" : "none" }} aria-hidden={!(["contacts", "gradeData"].includes(workspaceMode))}>
       <DeferredPanel label="학년부 도구를 불러오는 중입니다."><GradeDepartmentTools view={lastDepartmentToolView === "records" ? "contacts" : lastDepartmentToolView} db={db} persist={persist} showToast={showToast} actor={actor} accessRole={activeAccessRole} homeroomClass={activeTeacher?.homeroomClass || ""} /></DeferredPanel>
     </div>}

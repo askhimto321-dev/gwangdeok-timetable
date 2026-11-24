@@ -8,35 +8,44 @@ import { schoolYearOf } from "./curriculum.js";
 import { placementKey } from "./classPlacement.js";
 
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
-export default function PlacementNotice({ userKey = "", onOpen }) {
+export default function PlacementNotice({ userKey = "", grades = ["2"], onOpen }) {
   const [info, setInfo] = React.useState(null);
   const year = schoolYearOf();
-  const kDay = `kd_placement_notice_day_${userKey}`, kSeen = `kd_placement_notice_seen_${userKey}`;
+  // 학년마다 따로 기억해요(2학년은 예전 키 그대로)
+  const kOf = g => (String(g) === "2" ? "" : `_g${g}`);
+  const kDay = `kd_placement_notice_day_${userKey}`;
   React.useEffect(() => {
     let on = true;
-    readStorage(placementKey(year), null).then(p => {
-      if (!on || !p || !(p.students || p.bySid)) return;
-      const stamp = `${p.at || ""}|${(p.moves || []).length}`;
-      try { if (localStorage.getItem(kDay) === today() || localStorage.getItem(kSeen) === stamp) return; } catch { /* 기억 못 해도 띄워요 */ }
-      const students = p.students ? Object.values(p.students) : Object.values(p.bySid);
-      const classes = new Set(students.map(s => Number(s?.cls ?? s))).size;
-      setInfo({ stamp, n: students.length, classes, moves: (p.moves || []).length, file: p.fileName || "", at: p.at || "" });
-    }).catch(() => {});
+    (async () => {
+      try { if (localStorage.getItem(kDay) === today()) return; } catch { /* 기억 못 해도 띄워요 */ }
+      for (const g of grades) {
+        const p = await readStorage(placementKey(year, g), null).catch(() => null);
+        if (!on) return;
+        if (!p || !(p.students || p.bySid)) continue;
+        const stamp = `${p.at || ""}|${(p.moves || []).length}`;
+        const kSeen = `kd_placement_notice_seen_${userKey}${kOf(g)}`;
+        try { if (localStorage.getItem(kSeen) === stamp) continue; } catch { /* 기억 못 해도 띄워요 */ }
+        const students = p.students ? Object.values(p.students) : Object.values(p.bySid);
+        const classes = new Set(students.map(s => Number(s?.cls ?? s))).size;
+        setInfo({ grade: String(g), kSeen, stamp, n: students.length, classes, moves: (p.moves || []).length, file: p.fileName || "", at: p.at || "" });
+        return;
+      }
+    })();
     return () => { on = false; };
-  }, [userKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [userKey, grades.join(",")]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!info) return null;
-  const close = mode => { try { if (mode === "day") localStorage.setItem(kDay, today()); if (mode === "seen") localStorage.setItem(kSeen, info.stamp); } catch { /* 편의 기능 */ } setInfo(null); };
+  const close = mode => { try { if (mode === "day") localStorage.setItem(kDay, today()); if (mode === "seen") localStorage.setItem(info.kSeen, info.stamp); } catch { /* 편의 기능 */ } setInfo(null); };
   const d = new Date(info.at);
   return createPortal(<div className="kpn" role="dialog" aria-modal="true" aria-label="반편성 알림" onClick={e => e.target === e.currentTarget && close("")}><style>{CSS}</style>
     <div className="box">
       <button type="button" data-kdn-bare className="x" onClick={() => close("")} aria-label="닫기"><X size={16} /></button>
       <span className="ico"><LayoutGrid size={22} /></span>
       <small className="eye">반편성 확인 요청</small>
-      <h3>{year + 1}학년도 3학년 반편성 결과가 올라왔어요</h3>
+      <h3>{year + 1}학년도 {Number(info.grade) + 1}학년 반편성 결과가 올라왔어요</h3>
       <div className="nums"><span><b>{info.classes}</b>개 반</span><span><b>{info.n}</b>명</span>{info.moves ? <span><b>{info.moves}</b>건 이동</span> : null}</div>
       <p>새 반 명단을 보고 <em>분리희망이 반영됐는지</em> 확인해 주세요. 학생에게 <em>리더 후보 · 조합 우려 · 배려 필요 · 생활지도 주의</em>를, 반에는 <em>리더 후보 부족 · 성비 불균형</em> 같은 점검을 표시할 수 있어요.</p>
       {!Number.isNaN(d.getTime()) && <small className="meta">{d.getMonth() + 1}월 {d.getDate()}일 반영{info.file ? ` · ${info.file}` : ""}</small>}
-      <button type="button" data-kdn-bare className="go" onClick={() => { close("seen"); onOpen?.(); }}>반편성 열기</button>
+      <button type="button" data-kdn-bare className="go" onClick={() => { close("seen"); onOpen?.(info.grade); }}>반편성 열기</button>
       <div className="later"><button type="button" data-kdn-bare onClick={() => close("day")}>오늘 그만 보기</button><button type="button" data-kdn-bare onClick={() => close("seen")}>이 결과는 그만 보기</button></div>
     </div>
   </div>, document.body);
