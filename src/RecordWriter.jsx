@@ -688,6 +688,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
     <div className="krw-ai-steps" role="tablist">{[["prompt", "1", "요청문", "요청문 만들기"], ["answer", "2", "답 점검", "AI 답 붙여넣어 점검"], ["trim", "3", "줄이기", "문장 빼서 바이트 맞추기"], ...(aiContext.subject ? [["examples", "4", "예시", "공식 기재 예시"]] : [])].map(([key, no, label, tip]) => <button key={key} type="button" data-kdn-bare role="tab" title={tip} aria-selected={step === key} onClick={() => setStep(key)}><i>{no}</i>{label}</button>)}</div>
     {step === "prompt" && <div className="krw-ai-body">
       <p className="krw-ai-lead">누가기록·기재요령·남은 바이트를 담은 요청문이에요. <b>학생 이름은 빠져요.</b></p>
+      {budget < 400 && <p className="krw-ai-warn">같은 칸의 다른 활동 글이 자리를 거의 다 써서 이 활동에 남은 자리가 <b>{budget.toLocaleString()}바이트</b>뿐이에요. 다른 활동 글을 줄이거나 '쓸 칸'을 확인해 주세요.</p>}
       <div className={`krw-ai-sum${notes.length + reflNotes.length ? "" : " is-empty"}`}>
         <div className="hd"><ListChecks size={16} /><b>① 요청문에 넣을 것</b><span>{notes.length + reflNotes.length ? "이 자료로 요청문을 만들어요" : "아직 누가기록·소감문을 고르지 않았어요"}</span></div>
         <div className="chips">{incSummary.length ? incSummary.map(text => <i key={text}>{text}</i>) : <em>기재요령과 바이트 조건만 들어가요</em>}</div>
@@ -1981,6 +1982,7 @@ const CSS = `
 .krw-ai-body{display:grid;gap:8px}
 .krw-ai-chk{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
 .krw-ai-lead{margin:0;font-size:12.5px;line-height:1.55;color:var(--kdn-ink-soft,#5b606b)}.krw-ai-lead b{color:var(--kdn-ink,#17181d)}
+.krw-ai-warn{margin:0;padding:8px 10px;border-radius:10px;font-size:12.5px;line-height:1.55;background:color-mix(in srgb,#d97706 12%,transparent);color:#92400e}.krw-ai-warn b{color:inherit}
 .krw-focus{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:4px;padding:4px;border-radius:14px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
 .krw-focus button{position:relative;display:grid;justify-items:start;gap:1px;min-width:0;padding:8px 12px;border:0;border-radius:10px;background:transparent;font:inherit;color:var(--kdn-ink-soft,#5b606b);text-align:left;cursor:pointer}
 .krw-focus button::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:9px;background:var(--c);opacity:.35}

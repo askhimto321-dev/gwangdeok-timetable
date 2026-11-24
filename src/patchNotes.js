@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-24-d",
+    date: "2026-11-24",
+    title: "교과세특 요청문 다듬기",
+    items: [
+      { audience: "staff", text: "교과세특 AI 요청문에 첫 문장, 마지막 견해, 자료 한계 쓰는 법을 더했고, 예시를 실제 잘 쓴 글 두 편으로 바꿨어요. 남은 자리가 적거나 자료가 비어 있으면 미리 알려 줘요." },
+    ],
+  },
+  {
     id: "2026-11-24-c",
     date: "2026-11-24",
     title: "선생님 ZONE 메뉴 정리",
