@@ -88,3 +88,33 @@ test("시간표: 그룹마다 한 과목씩, 새 반에 같은 과목·그룹 �
   assert.equal(c.issues[0].kind, "none");
   assert.ok(courseCheck(placement, "s1", 1).ok);
 });
+
+import { subjectCatalog, trySubjectChange, applySubjectChange, resetSubjects, subjectDiff } from "../src/classPlacement.js";
+test("선택과목 바꾸기: 그 반에 같은 과목·그룹 듣는 다른 학생이 있어야 하고, 기록·되돌리기", () => {
+  const room = parseRoomSheet([
+    [], ["연번", "선택구분", "운영학기", "과목", "동시그룹", "세부그룹", "1", "2", "합계"],
+    [1, "선택1", "1학기", "화학", "A", 1, 5, 5, 10],
+    [2, "선택1", "1학기", "물리", "B", 1, 5, 0, 5],
+    [3, "선택1", "1학기", "생명", "A", 1, 0, 4, 4],
+    [4, "선택1", "1학기", "지구", "B", 1, 3, 0, 3],
+  ]);
+  const p = { rooms: room, students: {
+    s1: { cls: 1, orig: 1, sj: [{ sem: "1", n: "화학", g: "A" }, { sem: "1", n: "물리", g: "B" }] },
+    s2: { cls: 1, orig: 1, sj: [{ sem: "1", n: "화학", g: "A" }, { sem: "1", n: "지구", g: "B" }] },
+    t1: { cls: 2, orig: 2, sj: [{ sem: "1", n: "생명", g: "A" }] },
+  } };
+  assert.deepEqual(subjectCatalog(p)[1].지구, ["B"]);
+  // s1 물리 → 지구: 1반에 지구 B 듣는 학생(s2)이 있어 가능
+  const ok = trySubjectChange(p, "s1", "1", "물리", "지구");
+  assert.equal(ok.g, "B"); assert.equal(ok.check.ok, true);
+  // s1 화학 → 생명: 생명 A는 1반 학생이 아무도 안 들어 수강 불가
+  const bad = trySubjectChange(p, "s1", "1", "화학", "생명");
+  assert.equal(bad.check.ok, false);
+  // s2 지구 → 물리 후 s1이 지구로 가면: 1반 지구 B 학생이 없어 불가(자기 자신은 세지 않음)
+  const q = applySubjectChange(p, { sid: "s2", sem: "1", from: "지구", to: "물리", g: "B", by: "t" });
+  assert.equal(trySubjectChange(q, "s1", "1", "물리", "지구").check.ok, false);
+  assert.deepEqual(subjectDiff(q.students.s2), [{ sem: "1", from: "지구", to: "물리" }]);
+  assert.equal(q.subjChanges.length, 1);
+  const r = resetSubjects(q, "s2");
+  assert.equal(r.students.s2.sj[1].n, "지구"); assert.equal(r.students.s2.sj0, undefined); assert.equal(r.subjChanges.length, 0);
+});
