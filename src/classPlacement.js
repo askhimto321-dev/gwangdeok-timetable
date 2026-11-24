@@ -3,8 +3,9 @@
 // ② 새 반 명단을 보며 선생님들이 학생·반에 검토 표시(리더 후보, 조합 우려 등)를 남깁니다.
 // 학생은 지금 2학년 학번(예: 20415)으로 맞춥니다. 파일 양식이 학교마다 달라 여러 형식을 읽어요.
 
-export const placementKey = year => `kd_class_placement_v1:${Number(year)}`;
-export const placementReviewKey = year => `kd_class_placement_review_v1:${Number(year)}`;
+// 학년(지금 학년)마다 따로 저장: 2학년(→3학년)은 예전 키를 그대로 써요.
+export const placementKey = (year, grade = "2") => `kd_class_placement_v1:${Number(year)}${String(grade) === "2" ? "" : `:g${grade}`}`;
+export const placementReviewKey = (year, grade = "2") => `kd_class_placement_review_v1:${Number(year)}${String(grade) === "2" ? "" : `:g${grade}`}`;
 
 // 학생 표시(검토할 때 쓰는 말)
 export const STUDENT_FLAGS = [
@@ -233,6 +234,23 @@ export function courseCheck(placement, sid, to, members = null) {
 }
 export const courseIssueText = i => (i.kind === "ob" ? `${i.sem}학기 원반 '${i.n}' 안 고름` : i.kind === "none" ? `${i.sem}학기 '${i.n}': ${i.to ? `${i.to}반에 ` : ""}같은 과목·그룹 듣는 학생 없음` : `${i.sem}학기 '${i.n}': 다른 과목과 시간이 겹침`);
 
+// '시수배당표' 시트: 학기마다 반별 시수 → 반마다 그 학기 공통(반 전체가 듣는) 과목
+// selective: 선택 과목 이름(강의실배정의 과목) — 이 과목들은 빼요. 돌려주는 값: { 학기: { 반: [과목] } }
+export function parseHoursSheet(aoa = [], selective = new Set()) {
+  const rows = (aoa || []).map(r => (r || []).map(c => String(c ?? "").trim()));
+  const hi = rows.slice(0, 15).findIndex(r => r.includes("과목") && r.some(c => /^학기$/.test(c)));
+  if (hi < 0) return null;
+  const h = rows[hi]; const cSem = h.findIndex(c => /^학기$/.test(c)); const cSub = h.indexOf("과목");
+  const clsCols = h.map((x, i) => ({ i, cls: Number(x) })).filter(x => x.i > cSub && /^\d{1,2}$/.test(h[x.i]));
+  const out = {};
+  rows.slice(hi + 1).forEach(r => {
+    const m = String(r[cSem] || "").match(/^(\d)학기$/); const sub = r[cSub];
+    if (!m || !sub || /합계/.test(sub) || selective.has(sub)) return;
+    clsCols.forEach(x => { if (Number(r[x.i]) > 0) { const list = ((out[m[1]] ||= {})[x.cls] ||= []); if (!list.includes(sub)) list.push(sub); } });
+  });
+  return Object.keys(out).length ? out : null;
+}
+
 // 파일 전체 읽기: '학생배정현황' 같은 프로그램 시트가 있으면 그것, 없으면 일반 명단(parsePlacementSheets)
 export function parsePlacementFile(sheets = [], roster = {}, opts = {}) {
   const prog = sheets.find(s => /학생배정현황/.test(s.name)) || sheets.find(s => parseAssignmentSheet(s.aoa, opts));
@@ -240,7 +258,13 @@ export function parsePlacementFile(sheets = [], roster = {}, opts = {}) {
   if (parsed && parsed.stats.students) {
     const roomSheet = sheets.find(s => /강의실\s*배정/.test(s.name));
     const rooms = roomSheet ? parseRoomSheet(roomSheet.aoa) : null;
-    if (rooms) parsed.rooms = rooms;
+    if (rooms) {
+      const hoursSheet = sheets.find(s => /시수\s*배당/.test(s.name));
+      const selective = new Set([...rooms.sections.map(k => k.split("|")[1]), ...Object.values(rooms.ob).flatMap(o => Object.values(o).flat())]);
+      const common = hoursSheet ? parseHoursSheet(hoursSheet.aoa, selective) : null;
+      if (common) rooms.common = common;
+      parsed.rooms = rooms;
+    }
     const unmatched = Object.keys(parsed.students).filter(sid => Object.keys(roster || {}).length && !roster[sid]);
     return { kind: "program", sheet: prog.name, ...parsed, stats: { ...parsed.stats, unmatched } };
   }

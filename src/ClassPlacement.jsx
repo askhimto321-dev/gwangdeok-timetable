@@ -24,9 +24,9 @@ const fmt = iso => { const d = new Date(iso || ""); return Number.isNaN(d.getTim
 const oldLabel = sid => `${Number(String(sid).slice(1, 3))}-${Number(String(sid).slice(3, 5))}`;
 const ORDER = ["same", "unknown", "ok"];
 
-export default function ClassPlacement({ roster = {}, actor = null, canManage = false, canMove = true, showToast = () => {}, separation = null, initialView = "", viewRequest = 0 }) {
+export default function ClassPlacement({ grade = "2", roster = {}, actor = null, canManage = false, canMove = true, showToast = () => {}, separation = null, initialView = "", viewRequest = 0 }) {
   const year = schoolYearOf();
-  const nextGrade = 3;
+  const nextGrade = Number(grade) + 1;
   const [placement, setPlacement] = React.useState(undefined);
   const [review, setReview] = React.useState({ students: {}, classes: {}, groups: [] });
   const [groupEdit, setGroupEdit] = React.useState(null); // { id?, name, memo, members: [] }
@@ -63,9 +63,9 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   React.useEffect(() => {
     let on = true;
     Promise.all([
-      readStorage(placementKey(year), null).catch(() => null),
-      readStorage(placementReviewKey(year), null).catch(() => null),
-      Promise.all(oldClasses.map(async c => [c, await readStorage(separationKey(year, "2", c), { entries: {} }).catch(() => ({ entries: {} }))])),
+      readStorage(placementKey(year, grade), null).catch(() => null),
+      readStorage(placementReviewKey(year, grade), null).catch(() => null),
+      Promise.all(oldClasses.map(async c => [c, await readStorage(separationKey(year, String(grade), c), { entries: {} }).catch(() => ({ entries: {} }))])),
     ]).then(([p, r, seps]) => {
       if (!on) return;
       setPlacement(normalizePlacement(p, roster));
@@ -78,7 +78,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   React.useEffect(() => {
     if (view === "sep" || !oldClasses.length) return;
     let on = true;
-    Promise.all(oldClasses.map(async c => [c, await readStorage(separationKey(year, "2", c), { entries: {} }).catch(() => ({ entries: {} }))])).then(seps => on && setSepData(Object.fromEntries(seps)));
+    Promise.all(oldClasses.map(async c => [c, await readStorage(separationKey(year, String(grade), c), { entries: {} }).catch(() => ({ entries: {} }))])).then(seps => on && setSepData(Object.fromEntries(seps)));
     return () => { on = false; };
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -91,7 +91,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       try { wb = XLSX.read(await file.arrayBuffer(), { type: "array" }); }
       catch (error) { if (/password/i.test(String(error?.message))) throw new Error("암호가 걸린 파일이에요. 엑셀에서 암호를 지우고(파일 › 정보 › 통합 문서 보호 › 암호) 다시 올려 주세요."); throw error; }
       const sheets = wb.SheetNames.map(name => ({ name, aoa: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: "", raw: false }) }));
-      const result = parsePlacementFile(sheets, roster, { grade: "2" });
+      const result = parsePlacementFile(sheets, roster, { grade: String(grade) });
       if (!result.stats.students) throw new Error("학생과 새 반을 찾지 못했어요. '학생배정현황' 시트(구반·구번호·반·이름) 또는 이름·반·이전 학번 열이 있는지 확인해 주세요.");
       setPreview({ ...result, fileName: file.name });
     } catch (error) { showToast(error?.message || "파일을 읽지 못했어요.", "error"); }
@@ -105,7 +105,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       if (ids.length && same / ids.length >= 0.95 && window.confirm(`지금 반편성과 같은 파일이에요.\n이동 기록 ${placement.moves?.length || 0}건은 그대로 두고, 과목·강의실 배정 정보만 새로 반영할까요?\n(취소를 누르면 새 파일로 바꿀지 다시 물어요)`)) {
         const students = Object.fromEntries(Object.entries(placement.students).map(([id, x]) => { const n = preview.students[id]; return [id, n ? { ...x, name: n.name || x.name, gender: n.gender || x.gender, can: n.can, ob: n.ob, sj: n.sj, no: x.no || n.no } : x]; }));
         const value = { ...placement, students, classOb: preview.classOb || placement.classOb || {}, rooms: preview.rooms || null, infoAt: new Date().toISOString(), infoBy: me.name };
-        const result = await writeStorage(placementKey(year), value);
+        const result = await writeStorage(placementKey(year, grade), value);
         if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
         setPlacement(value); setPreview(null);
         showToast(preview.rooms ? "과목·강의실 정보를 반영했어요. 옮긴 학생 중 들을 수 없는 과목이 생긴 학생을 표시해요." : "과목 정보를 반영했어요.", "success");
@@ -114,15 +114,15 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
     }
     if (placement?.moves?.length && !window.confirm(`지금까지 옮긴 ${placement.moves.length}건이 있어요. 새 파일로 바꾸면 이동 기록이 지워져요. 바꿀까요?`)) return;
     const value = { students: preview.students, classOb: preview.classOb || {}, rooms: preview.rooms || null, moves: [], fileName: preview.fileName, kind: preview.kind, at: new Date().toISOString(), by: me.name, stats: { students: preview.stats.students, hasCan: !!preview.stats.hasCan, unmatched: (preview.stats.unmatched || []).slice(0, 60) } };
-    const result = await writeStorage(placementKey(year), value);
+    const result = await writeStorage(placementKey(year, grade), value);
     if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
     setPlacement(value); setPreview(null); setTab(0);
     showToast(`반편성 결과를 반영했어요. 학생 ${preview.stats.students}명`, "success");
   };
-  const clear = async () => { if (!window.confirm("올린 반편성 결과와 이동 기록을 지울까요? 선생님들이 남긴 검토 표시는 남아요.")) return; await writeStorage(placementKey(year), null); setPlacement(null); };
+  const clear = async () => { if (!window.confirm("올린 반편성 결과와 이동 기록을 지울까요? 선생님들이 남긴 검토 표시는 남아요.")) return; await writeStorage(placementKey(year, grade), null); setPlacement(null); };
   // 이동: 저장된 최신 자료 위에 적용(다른 선생님이 동시에 옮겨도 덮어쓰지 않게)
   const commit = async (fn, okMsg) => {
-    const result = await updateStorage(placementKey(year), null, cur => { const base = normalizePlacement(cur, roster); return base ? fn(base) : cur; });
+    const result = await updateStorage(placementKey(year, grade), null, cur => { const base = normalizePlacement(cur, roster); return base ? fn(base) : cur; });
     if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return false; }
     setPlacement(normalizePlacement(result?.value, roster)); if (okMsg) showToast(okMsg, "success"); return true;
   };
@@ -187,7 +187,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
   };
 
   const saveReview = async change => {
-    const result = await updateStorage(placementReviewKey(year), { students: {}, classes: {}, groups: [] }, cur => change({ students: { ...(cur?.students || {}) }, classes: { ...(cur?.classes || {}) }, groups: [...(cur?.groups || [])] }));
+    const result = await updateStorage(placementReviewKey(year, grade), { students: {}, classes: {}, groups: [] }, cur => change({ students: { ...(cur?.students || {}) }, classes: { ...(cur?.classes || {}) }, groups: [...(cur?.groups || [])] }));
     if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return false; }
     setReview({ students: result?.value?.students || {}, classes: result?.value?.classes || {}, groups: result?.value?.groups || [] }); return true;
   };
@@ -245,7 +245,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       <li>{preview.kind === "program" ? `'${preview.sheet}' 시트` : "명단"}에서 학생 <em>{preview.stats.students}</em>명, 새 반 <em>{(preview.stats.classes || []).length}</em>개</li>
       <li>{preview.stats.hasCan ? "배정가능학급(원반 과목 기준)이 있어 학생마다 갈 수 있는 반으로만 옮길 수 있어요." : "배정가능학급 정보가 없어 어느 반으로든 옮길 수 있어요."}</li>
       {preview.rooms && <li>'강의실배정' 시트로 시간표 규칙을 확인해, 옮기면 <em>수강 불가 과목</em>이 생기는 반은 이동 불가로 막아요.</li>}
-      {(preview.stats.unmatched || []).length > 0 && <li className="warn">지금 2학년 명단에 없는 학번 {preview.stats.unmatched.length}개(전입·전출 등): {preview.stats.unmatched.slice(0, 10).map(x => (typeof x === "string" ? oldLabel(x) : x.name)).join(", ")}</li>}
+      {(preview.stats.unmatched || []).length > 0 && <li className="warn">지금 {grade}학년 명단에 없는 학번 {preview.stats.unmatched.length}개(전입·전출 등): {preview.stats.unmatched.slice(0, 10).map(x => (typeof x === "string" ? oldLabel(x) : x.name)).join(", ")}</li>}
     </ul>
     <div className="ft"><button type="button" className="kpl-btn" onClick={() => setPreview(null)}>취소</button><button type="button" className="kpl-btn pri" onClick={save}>이대로 반영</button></div>
   </section>;
@@ -318,11 +318,12 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
         if (!why.length && empty.length) why.push(`${empty.join("·")}그룹 과목 없음`);
         if (why.length) bad.push({ id, why });
       });
-      return { sem, letters, blocked, obc, slot, bad, common: commonFor(c, sem, classes) };
+      return { sem, letters, blocked, obc, slot, bad, common: placement.rooms.common?.[sem]?.[c] || commonFor(c, sem, classes) };
     });
     return { cls: c, n: ids.length, sems, bad: sems.reduce((t, x) => t + x.bad.length, 0) };
   }) : [];
   const ttBadN = ttCheck.filter(x => x.bad).length;
+  const groupRange = placement?.rooms ? Object.entries(placement.rooms.letters).map(([sem, l]) => `${sem}학기 ${l[0]}~${l[l.length - 1]}`).join(", ") : "1학기 A~E, 2학기 F~I";
   const allView = tab === "all";
   // 인쇄·PDF: 반별 현황표 + 반마다 한 장(학생 명단·표시·메모)
   const doPrint = () => {
@@ -574,7 +575,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
       const sel = ttCheck.find(x => x.cls === ttSel) || ttCheck.find(x => x.bad) || ttCheck[0];
       const badIds = x => Array.from(new Set(x.sems.flatMap(t => t.bad.map(b => b.id))));
       return <div className="kpl-ttv">
-        <div className="note"><b>반별 시간표 검증</b><small>반마다 공통 과목 5개 + 그룹 과목(1학기 A~E, 2학기 F~I)으로 시간표를 짤 수 있는지 봐요. 반 학생 모두가 그룹마다 한 과목씩 들을 수 있으면 ✓예요(이동 반영).</small></div>
+        <div className="note"><b>반별 시간표 검증</b><small>반마다 공통 과목 5개 + 그룹 과목({groupRange})으로 시간표를 짤 수 있는지 봐요. 반 학생 모두가 그룹마다 한 과목씩 들을 수 있으면 ✓예요(이동 반영).</small></div>
         <div className="ctiles">{ttCheck.map(x => <button key={x.cls} type="button" data-kdn-bare className={`${x.bad ? "bad" : "ok"}${sel?.cls === x.cls ? " on" : ""}`} onClick={() => setTtSel(x.cls)}>
           <span className="top"><b>{x.cls}반</b><span className="st">{x.bad ? `문제 ${badIds(x).length}` : "가능"}</span></span><span className="sems">{x.sems.map(t => <i key={t.sem} className={t.bad.length ? "no" : "ok"} title={`${t.sem}학기 ${t.bad.length ? `문제 ${t.bad.length}명` : "가능"}`}>{t.sem}학기</i>)}</span></button>)}</div>
         {sel && <section className={`card${sel.bad ? " bad" : ""}`}>
@@ -589,7 +590,7 @@ export default function ClassPlacement({ roster = {}, actor = null, canManage = 
             {t.bad.length > 0 && <ul className="bad">{t.bad.map(b => <li key={b.id}><b>{nameOf(b.id)}</b> <small>{oldLabel(b.id)}</small> {b.why.map((w, k) => <em key={k}>{w}</em>)}</li>)}</ul>}
           </div>)}
         </section>}
-        <p className="kpl-nil">공통 과목은 교육과정 편성표 기준이에요(음악·미술 감상과 비평은 1~{Math.ceil(classes.length / 2)}반과 {Math.ceil(classes.length / 2) + 1}~{classes[classes.length - 1]}반이 학기마다 엇갈려요). 그룹 칸 숫자는 그 반에서 그 과목을 듣는 학생 수예요.</p>
+        <p className="kpl-nil">{placement.rooms.common ? "공통 과목은 반편성 파일의 시수배당표에서 반마다 읽었어요." : `공통 과목은 교육과정 편성표 기준이에요(음악·미술 감상과 비평은 1~${Math.ceil(classes.length / 2)}반과 ${Math.ceil(classes.length / 2) + 1}~${classes[classes.length - 1]}반이 학기마다 엇갈려요).`} 그룹 칸 숫자는 그 반에서 그 과목을 듣는 학생 수예요.</p>
       </div>; })()}
     {curView === "check" && <>
       <div className="kpl-sum">
