@@ -229,7 +229,9 @@ test("반편성 파일 다시 올리기: 새 파일 반·과목 반영, 옮긴 �
   assert.equal(value.students.c.sj[0].n, "물리"); assert.ok(value.students.c.sj0);
   assert.equal(value.students.d.sj[0].n, "지구"); assert.equal(value.students.d.sj0, undefined);
   assert.ok(value.students.e); assert.equal(value.students.gone, undefined);
-  assert.deepEqual(stats, { cls: 1, subj: 1, added: 1, removed: 1, keptMoves: 1, keptSubj: 1 });
+  assert.deepEqual(stats, { cls: 1, subj: 1, added: 1, removed: 1, keptMoves: 1, keptSubj: 1, changedSubj: 1 });
+  const fresh = mergePlacementFile(old, file, {}, { keepMoves: false, keepSubj: false }).value;
+  assert.equal(fresh.students.b.cls, 1); assert.equal(fresh.students.c.sj[0].n, "화학"); assert.equal(fresh.students.c.sj0, undefined); assert.equal(fresh.moves.length, 0);
 });
 test("과목 바꾼 학생 점검: 자기 말고 그 반에 같은 과목·그룹 듣는 학생이 없으면 수강 불가", () => {
   const room = parseRoomSheet([[], ["연번", "선택구분", "운영학기", "과목", "동시그룹", "세부그룹", "1", "합계"], [1, "s", "1학기", "화학", "A", 1, 5, 5], [2, "s", "1학기", "물리", "A", 1, 5, 5]]);

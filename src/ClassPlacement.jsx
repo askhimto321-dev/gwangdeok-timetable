@@ -105,16 +105,16 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
     if (placement?.students && preview.kind === "program") {
       const ids = Object.keys(preview.students); const both = ids.filter(id => placement.students[id]).length;
       if (ids.length && both / ids.length >= 0.9) {
-        const { value: merged, stats: st } = mergePlacementFile(placement, preview, { fileName: preview.fileName, kind: preview.kind, at: new Date().toISOString(), by: me.name, infoAt: new Date().toISOString(), infoBy: me.name, stats: { students: preview.stats.students, hasCan: !!preview.stats.hasCan, unmatched: (preview.stats.unmatched || []).slice(0, 60) } });
-        const keepN = (placement.moves?.length || 0) + (placement.subjChanges?.length || 0);
-        const ask = `고친 반편성 파일이에요.\n파일에서 반이 바뀐 학생 ${st.cls}명 · 과목이 바뀐 학생 ${st.subj}명${st.added ? ` · 새 학생 ${st.added}명` : ""}${st.removed ? ` · 빠진 학생 ${st.removed}명` : ""}\n\n새 파일 반·과목으로 바꾸면서, 선생님들이 옮긴 반(${st.keptMoves}명)과 바꾼 과목(${st.keptSubj}명)은 살릴까요?\n(취소를 누르면 기록 없이 새 파일 그대로 바꿀지 다시 물어요)`;
-        if (!keepN || window.confirm(ask)) {
-          const result = await writeStorage(placementKey(year, grade), merged);
-          if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
-          setPlacement(merged); setPreview(null);
-          showToast(`새 파일을 반영했어요. 반 바뀜 ${st.cls}명 · 과목 바뀜 ${st.subj}명${keepN ? ` · 옮긴 반 ${st.keptMoves}명 · 바꾼 과목 ${st.keptSubj}명 유지` : ""}`, "success");
-          return;
-        }
+        const extra = { fileName: preview.fileName, kind: preview.kind, at: new Date().toISOString(), by: me.name, infoAt: new Date().toISOString(), infoBy: me.name, stats: { students: preview.stats.students, hasCan: !!preview.stats.hasCan, unmatched: (preview.stats.unmatched || []).slice(0, 60) } };
+        const st = mergePlacementFile(placement, preview, extra).stats;
+        const keepMoves = st.keptMoves ? window.confirm(`엑셀과 다른 반으로 옮긴 학생이 ${st.keptMoves}명 있어요.\n옮긴 반을 그대로 둘까요?\n(취소: 엑셀 반대로)`) : true;
+        const keepSubj = st.keptSubj ? window.confirm(`선생님이 과목·그룹을 바꿔 엑셀과 다른 학생이 ${st.keptSubj}명 있어요.\n바꾼 과목·그룹을 그대로 둘까요?\n(취소: 엑셀 과목·그룹대로)`) : true;
+        const merged = mergePlacementFile(placement, preview, extra, { keepMoves, keepSubj }).value;
+        const result = await writeStorage(placementKey(year, grade), merged);
+        if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
+        setPlacement(merged); setPreview(null);
+        showToast(`새 파일을 반영했어요. 엑셀에서 반 바뀜 ${st.cls}명 · 과목 바뀜 ${st.subj}명${st.keptMoves ? (keepMoves ? ` · 옮긴 반 ${st.keptMoves}명 유지` : " · 옮긴 반은 엑셀대로") : ""}${st.keptSubj ? (keepSubj ? ` · 바꾼 과목 ${st.keptSubj}명 유지` : " · 과목·그룹은 엑셀대로") : ""}`, "success");
+        return;
       }
     }
     if ((placement?.moves?.length || placement?.subjChanges?.length) && !window.confirm(`옮긴 기록 ${placement.moves?.length || 0}건 · 과목 바꾼 기록 ${placement.subjChanges?.length || 0}건이 있어요. 새 파일 그대로 바꾸면 기록이 지워져요. 바꿀까요?`)) return;
@@ -254,7 +254,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       <li>{preview.kind === "program" ? `'${preview.sheet}' 시트` : "명단"}에서 학생 <em>{preview.stats.students}</em>명, 새 반 <em>{(preview.stats.classes || []).length}</em>개</li>
       <li>{preview.stats.hasCan ? "배정가능학급(원반 과목 기준)이 있어 학생마다 갈 수 있는 반으로만 옮길 수 있어요." : "배정가능학급 정보가 없어 어느 반으로든 옮길 수 있어요."}</li>
       {preview.rooms && <li>'강의실배정' 시트로 시간표 규칙을 확인해, 옮기면 <em>수강 불가 과목</em>이 생기는 반은 이동 불가로 막아요.</li>}
-      {placement?.students && (() => { const st = mergePlacementFile(placement, preview).stats; return <li>지금 반편성과 비교: 반이 바뀐 학생 <em>{st.cls}</em>명 · 과목이 바뀐 학생 <em>{st.subj}</em>명{st.added ? <> · 새 학생 <em>{st.added}</em>명</> : null}{st.removed ? <> · 빠진 학생 <em>{st.removed}</em>명</> : null}</li>; })()}
+      {placement?.students && (() => { const st = mergePlacementFile(placement, preview).stats; return <li>지금 반편성과 비교: 반이 바뀐 학생 <em>{st.cls}</em>명 · 과목이 바뀐 학생 <em>{st.subj}</em>명{st.added ? <> · 새 학생 <em>{st.added}</em>명</> : null}{st.removed ? <> · 빠진 학생 <em>{st.removed}</em>명</> : null}{st.keptMoves || st.keptSubj ? <> · 선생님이 바꿔 엑셀과 다른 학생: 반 <em>{st.keptMoves}</em>명 · 과목 <em>{st.keptSubj}</em>명(반영할 때 엑셀대로 할지 물어요)</> : null}</li>; })()}
       {(preview.stats.unmatched || []).length > 0 && <li className="warn">지금 {grade}학년 명단에 없는 학번 {preview.stats.unmatched.length}개(전입·전출 등): {preview.stats.unmatched.slice(0, 10).map(x => (typeof x === "string" ? oldLabel(x) : x.name)).join(", ")}</li>}
     </ul>
     <div className="ft"><button type="button" className="kpl-btn" onClick={() => setPreview(null)}>취소</button><button type="button" className="kpl-btn pri" onClick={save}>이대로 반영</button></div>
