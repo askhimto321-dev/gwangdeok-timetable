@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-25-e",
+    date: "2026-11-25",
+    title: "선택과목 그룹 자동 배정",
+    items: [
+      { audience: "staff", text: "반편성 '선택과목' 바꾸기에서 빼는 과목과 넣는 과목만 고르면 그룹(A, B, C…)을 알아서 다시 배정해요. 다른 과목 그룹이 함께 옮겨지면 바꾼 뒤 시간표로 미리 보여 줘요." },
+    ],
+  },
+  {
     id: "2026-11-25-d",
     date: "2026-11-25",
     title: "원반 과목도 바꾸기",
