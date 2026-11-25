@@ -118,3 +118,30 @@ test("선택과목 바꾸기: 그 반에 같은 과목·그룹 듣는 다른 학
   const r = resetSubjects(q, "s2");
   assert.equal(r.students.s2.sj[1].n, "지구"); assert.equal(r.students.s2.sj0, undefined); assert.equal(r.subjChanges.length, 0);
 });
+
+test("선택과목 바꾸기: 원반 과목 대신 원반 시간에 열리는 다른 반 수업 듣기", () => {
+  // 2반은 B 그룹 시간에 원반(화학). B 시간에 1반·3반 학생들이 듣는 물리·지구 수업이 열려요.
+  const room = parseRoomSheet([
+    [], ["연번", "선택구분", "운영학기", "과목", "동시그룹", "세부그룹", "1", "2", "3", "합계"],
+    [1, "s", "1학기", "생명", "A", 1, 3, 3, 3, 9],
+    [2, "s", "1학기", "물리", "B", 1, 3, 0, 3, 6],
+    [3, "s", "1학기", "지구", "B", 1, 3, 0, 0, 3],
+    [4, "s", "1학기", "화학", "원반", "", 0, 20, 0, 20],
+    [5, "s", "1학기", "정치", "A", 1, 0, 0, 2, 2],
+  ]);
+  const p = { rooms: room, students: {
+    a: { cls: 2, orig: 2, sj: [{ sem: "1", n: "화학", g: "원반" }, { sem: "1", n: "생명", g: "A" }] },
+    b: { cls: 2, orig: 2, sj: [{ sem: "1", n: "화학", g: "원반" }, { sem: "1", n: "생명", g: "A" }] },
+    c: { cls: 1, orig: 1, sj: [{ sem: "1", n: "생명", g: "A" }, { sem: "1", n: "물리", g: "B" }] },
+  } };
+  const r = trySubjectChange(p, "a", "1", "화학", "물리");
+  assert.equal(r.g, "B"); assert.equal(r.ox, true); assert.equal(r.check.ok, true);
+  // 원반 시간(B)에 정치 수업은 없어요
+  assert.equal(trySubjectChange(p, "a", "1", "화학", "정치").check.ok, false);
+  const q = applySubjectChange(p, { sid: "a", sem: "1", from: "화학", to: "물리", g: r.g, ox: r.ox, by: "t" });
+  assert.deepEqual(q.students.a.sj[0], { sem: "1", n: "물리", g: "B", ox: true });
+  assert.equal(courseCheck(q, "a", 2).ok, true);
+  // 다시 화학(원반)으로
+  const back = trySubjectChange(q, "a", "1", "물리", "화학");
+  assert.equal(back.g, "원반"); assert.equal(back.check.ok, true);
+});
