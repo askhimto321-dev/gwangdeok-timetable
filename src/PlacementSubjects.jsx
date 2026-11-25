@@ -54,7 +54,7 @@ export default function PlacementSubjects({ placement, roster = {}, canEdit = fa
     const now = (x.sj || []).filter(s => String(s.sem) === sem && s.g === g);
     if (!now.length) return <span className="none">-</span>;
     const was = new Set((x.sj0 || x.sj || []).filter(s => String(s.sem) === sem).map(s => s.n));
-    return <div className="blk">{now.map(s => { const isNew = x.sj0 && !was.has(s.n); return <span key={s.n} data-k={kindOf(s.n)} className={`sn${isNew ? " new" : ""}${subj === `${sem}|${s.n}` ? " hit" : ""}`} title={`${sem}학기 ${g === "원반" ? "원반" : `${g} 그룹`} · ${s.n}${isNew ? " (바꾼 과목)" : ""}`}>{s.n}</span>; })}</div>;
+    return <div className="blk">{now.map(s => { const isNew = x.sj0 && !was.has(s.n); return <span key={s.n} data-k={kindOf(s.n)} className={`sn${isNew ? " new" : ""}${subj === `${sem}|${s.n}` ? " hit" : ""}`} title={`${sem}학기 ${g === "원반" ? "원반" : `${g} 그룹`} · ${s.n}${s.ox ? " (원반 대신 듣는 과목)" : ""}${isNew ? " (바꾼 과목)" : ""}`}>{s.n}</span>; })}</div>;
   };
 
   const cur = edit ? students[edit] : null;
@@ -86,7 +86,7 @@ export default function PlacementSubjects({ placement, roster = {}, canEdit = fa
       <ul>{logs.slice().reverse().map(l => <li key={l.id}><b>{nameOf(l.sid)}</b><span className="mono">{oldLabel(l.sid)} · {students[l.sid]?.cls}반</span><span>{l.sem}학기 {l.from.n}({l.from.g}) → <strong>{l.to.n}({l.to.g})</strong></span><small>{l.by} · {fmt(l.at)}</small></li>)}</ul>
     </details>
     {cur && <SubjectEditor sid={edit} x={cur} name={nameOf(edit)} placement={placement} catalog={catalog} sems={sems} canEdit={canEdit} onClose={() => setEdit("")}
-      onApply={async (sem, from, to, g) => { await commit(p => applySubjectChange(p, { sid: edit, sem, from, to, g, by: me.name }), `${nameOf(edit)} 학생 ${sem}학기 '${from}' → '${to}'(으)로 바꿨어요.`); }}
+      onApply={async (sem, from, to, g, ox) => { await commit(p => applySubjectChange(p, { sid: edit, sem, from, to, g, ox, by: me.name }), `${nameOf(edit)} 학생 ${sem}학기 '${from}' → '${to}'(으)로 바꿨어요.`); }}
       onReset={async () => { if (!window.confirm(`${nameOf(edit)} 학생 과목을 처음 엑셀대로 되돌릴까요?`)) return; await commit(p => resetSubjects(p, edit), `${nameOf(edit)} 학생 과목을 처음대로 되돌렸어요.`); }} />}
   </section>;
 }
@@ -98,9 +98,10 @@ function SubjectEditor({ sid, x, name, placement, catalog, sems, canEdit, onClos
   const diff = subjectDiff(x);
   const results = React.useMemo(() => {
     const out = {};
-    sems.forEach(sem => (x.sj || []).filter(s => String(s.sem) === sem && s.g !== "원반").forEach(s => {
+    sems.forEach(sem => (x.sj || []).filter(s => String(s.sem) === sem).forEach(s => {
       const taken = new Set((x.sj || []).filter(y => String(y.sem) === sem).map(y => y.n));
-      Object.keys(catalog[sem] || {}).filter(n => !taken.has(n)).sort((a, b) => a.localeCompare(b, "ko")).forEach(n => { out[`${sem}|${s.n}|${n}`] = trySubjectChange(placement, sid, sem, s.n, n); });
+      const obc = (s.g === "원반" || s.ox) ? (placement?.rooms?.ob?.[x.cls]?.[sem] || []) : [];
+      Array.from(new Set([...Object.keys(catalog[sem] || {}), ...obc])).filter(n => !taken.has(n)).sort((a, b) => a.localeCompare(b, "ko")).forEach(n => { out[`${sem}|${s.n}|${n}`] = trySubjectChange(placement, sid, sem, s.n, n); });
     }));
     return out;
   }, [placement, sid, x, catalog, sems]);
@@ -111,14 +112,14 @@ function SubjectEditor({ sid, x, name, placement, catalog, sems, canEdit, onClos
     {sems.map(sem => <div key={sem} className="sem"><h5>{sem}학기</h5>
       <table><tbody>{(x.sj || []).filter(s => String(s.sem) === sem).map(s => { const k = `${sem}|${s.n}`; const to = pick[k] || ""; const r = to ? results[`${sem}|${s.n}|${to}`] : null; const orig = diff.find(d => d.sem === sem && d.to === s.n) ? { n: diff.find(d => d.sem === sem && d.to === s.n).from } : null;
         return <tr key={s.n}>
-          <td className="g"><i className={s.g === "원반" ? "ob" : ""}>{s.g === "원반" ? "원반" : s.g}</i></td>
+          <td className="g"><i className={s.g === "원반" ? "ob" : ""}>{s.g === "원반" ? "원반" : s.g}</i>{s.ox && <small className="oxs">원반 대신</small>}</td>
           <td className="n"><b>{s.n}</b>{orig && <small>처음: {orig.n}</small>}</td>
-          <td className="to">{s.g === "원반" ? <small className="lock">원반 과목은 반 전체가 함께 들어 바꿀 수 없어요</small> : canEdit && <>
+          <td className="to">{canEdit && <>{(s.g === "원반" || s.ox) && <small className="lock">원반 시간({(placement?.rooms?.letters?.[sem] || []).filter(l => !(placement?.rooms?.part?.[sem]?.[l] || []).map(Number).includes(Number(x.cls))).join("·") || "-"} 그룹)에 다른 반에서 열리는 수업으로 바꿀 수 있어요</small>}
             <select value={to} onChange={e => setPick(v => ({ ...v, [k]: e.target.value }))}><option value="">바꿀 과목 고르기</option>
-              {Object.keys(catalog[sem] || {}).filter(n => results[`${sem}|${s.n}|${n}`] !== undefined).map(n => { const rr = results[`${sem}|${s.n}|${n}`]; return <option key={n} value={n}>{okOf(rr) ? "○" : "✕"} {n}{rr?.g ? ` (${rr.g})` : ""}</option>; })}
+              {Object.keys(results).filter(key => key.startsWith(`${sem}|${s.n}|`)).map(key => key.split("|")[2]).map(n => { const rr = results[`${sem}|${s.n}|${n}`]; return <option key={n} value={n}>{okOf(rr) ? "○" : "✕"} {n}{rr?.g ? ` (${rr.g}${rr.ox ? " · 원반 대신" : ""})` : ""}</option>; })}
             </select>
-            {r && <div className={`res ${okOf(r) ? "ok" : "bad"}`}>{okOf(r) ? <>{x.cls}반에서 들을 수 있어요 · {r.g} 그룹{r.check?.plan?.length ? ` · 다른 과목 그룹 조정: ${r.check.plan.map(p => `${p.n} ${p.from}→${p.to}`).join(", ")}` : ""}</> : <>{r.check.issues.map(courseIssueText).join(" · ")}</>}
-              <button type="button" data-kdn-bare className={okOf(r) ? "go" : "go warn"} disabled={busy} onClick={async () => { if (!okOf(r) && !window.confirm(`${x.cls}반에서 시간표가 맞지 않아요.\n${r.check.issues.map(courseIssueText).join("\n")}\n그래도 바꿀까요?`)) return; setBusy(true); await onApply(sem, s.n, to, r.g); setBusy(false); setPick(v => { const n = { ...v }; delete n[k]; return n; }); }}>{okOf(r) ? "바꾸기" : "그래도 바꾸기"}</button></div>}
+            {r && <div className={`res ${okOf(r) ? "ok" : "bad"}`}>{okOf(r) ? <>{x.cls}반에서 들을 수 있어요 · {r.g === "원반" ? "원반으로 돌아가요" : r.ox ? `원반 시간 ${r.g} 그룹에 다른 반 수업으로` : `${r.g} 그룹`}{r.check?.plan?.length ? ` · 다른 과목 그룹 조정: ${r.check.plan.map(p => `${p.n} ${p.from}→${p.to}`).join(", ")}` : ""}</> : <>{r.check.issues.map(courseIssueText).join(" · ")}</>}
+              <button type="button" data-kdn-bare className={okOf(r) ? "go" : "go warn"} disabled={busy} onClick={async () => { if (!okOf(r) && !window.confirm(`${x.cls}반에서 시간표가 맞지 않아요.\n${r.check.issues.map(courseIssueText).join("\n")}\n그래도 바꿀까요?`)) return; setBusy(true); await onApply(sem, s.n, to, r.g, !!r.ox); setBusy(false); setPick(v => { const n = { ...v }; delete n[k]; return n; }); }}>{okOf(r) ? "바꾸기" : "그래도 바꾸기"}</button></div>}
           </>}</td>
         </tr>; })}</tbody></table></div>)}
     <footer>{canEdit && x.sj0 && <button type="button" data-kdn-bare className="rs" onClick={onReset}><RotateCcw size={13} /> 처음 엑셀대로 되돌리기</button>}<button type="button" data-kdn-bare className="ok" onClick={onClose}>닫기</button></footer>
@@ -189,7 +190,7 @@ const CSS = `
 .kps-modal .sem td.g{width:44px;text-align:center}.kps-modal .sem td.g i{display:inline-block;min-width:24px;padding:2px 5px;border-radius:6px;background:var(--kdn-surface-2,#f3f4f6);font-style:normal;font-weight:800;font-size:12px}.kps-modal .sem td.g i.ob{font-size:11px}
 .kps-modal .sem td.n{width:34%}.kps-modal .sem td.n small{display:block;color:#7c3aed;font-size:11.5px}
 .kps-modal .sem select{width:100%;height:34px;border-radius:9px;border:1px solid var(--kdn-line,#d1d5db);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);font:inherit;font-size:13.5px;padding:0 8px}
-.kps-modal .lock{color:var(--kdn-muted,#6b7280);font-size:12px}
+.kps-modal .lock{display:block;margin-bottom:5px;color:var(--kdn-muted,#6b7280);font-size:12px}.kps-modal .oxs{display:block;margin-top:3px;color:#b45309;font-size:10.5px;font-weight:800}
 .kps-modal .res{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:6px;padding:7px 10px;border-radius:9px;font-size:12.5px;line-height:1.5}
 .kps-modal .res.ok{background:color-mix(in srgb,#16a34a 10%,transparent);color:#166534}.kps-modal .res.bad{background:color-mix(in srgb,#dc2626 10%,transparent);color:#991b1b}
 .kps-modal .res .go{margin-left:auto;height:30px;padding:0 14px;border-radius:8px;border:0;background:#16a34a;color:#fff;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.kps-modal .res .go.warn{background:#dc2626}

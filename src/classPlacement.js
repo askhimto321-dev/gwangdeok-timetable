@@ -188,7 +188,7 @@ export function sectionMembers(placement) {
   const m = new Map();
   Object.values(placement?.students || {}).forEach(x => {
     if (Number(x.cls) !== Number(x.orig) || !Array.isArray(x.sj)) return;
-    x.sj.forEach(s => { if (s.g === "원반") return; const k = `${s.sem}|${s.n}|${s.g}`; if (!m.has(k)) m.set(k, new Map()); const c = Number(x.cls); m.get(k).set(c, (m.get(k).get(c) || 0) + 1); });
+    x.sj.forEach(s => { if (s.g === "원반" || s.ox) return; const k = `${s.sem}|${s.n}|${s.g}`; if (!m.has(k)) m.set(k, new Map()); const c = Number(x.cls); m.get(k).set(c, (m.get(k).get(c) || 0) + 1); });
   });
   return m;
 }
@@ -209,11 +209,16 @@ export function courseCheck(placement, sid, to, members = null) {
     if (!mine.length) return;
     const obc = rm.ob?.[to]?.[sem] || [];
     const names = mine.map(x => x.n);
-    obc.filter(n => !names.includes(n)).forEach(n => issues.push({ sem, n, kind: "ob" }));
     const blocked = L.filter(l => !(rm.part?.[sem]?.[l] || []).map(Number).includes(Number(to)));
+    // 원반 대신 듣는 과목(ox): 원반 시간(그 반이 빠지는 그룹)에 열리는 다른 반 수업으로 들어요. 그만큼 원반 과목을 안 골라도 돼요.
+    const outs = mine.filter(x => x.ox && !obc.includes(x.n));
+    const sec = new Set(rm.sections || []);
+    const oxBy = {};
+    outs.forEach(x => { const l = [x.g, ...blocked.filter(b => b !== x.g)].find(b => blocked.includes(b) && sec.has(`${sem}|${x.n}|${b}`) && !Object.values(oxBy).includes(b)); if (l) { oxBy[x.n] = l; if (l !== x.g) plan.push({ sem, n: x.n, from: x.g, to: l }); } else issues.push({ sem, n: x.n, kind: "noslot", to }); });
+    obc.filter(n => !names.includes(n)).slice(outs.length).forEach(n => issues.push({ sem, n, kind: "ob" }));
     const avail = L.filter(l => !blocked.includes(l));
     mine.filter(x => obc.includes(x.n) && x.g !== "원반").forEach(x => plan.push({ sem, n: x.n, from: x.g, to: "원반" }));
-    const todo = mine.filter(x => !obc.includes(x.n));
+    const todo = mine.filter(x => !obc.includes(x.n) && !(x.ox && !obc.includes(x.n)));
     const opts = todo.map(x => { const o = avail.filter(l => cnt(sem, x.n, l) > 0); return o.includes(x.g) ? [x.g, ...o.filter(l => l !== x.g)] : o; });
     // 고를 수 있는 그룹이 적은 과목부터 채워요
     const order = todo.map((x, i) => i).sort((a, b) => opts[a].length - opts[b].length);
@@ -228,11 +233,12 @@ export function courseCheck(placement, sid, to, members = null) {
     go(0, new Set(), new Map());
     const by = {}; const lost = [];
     todo.forEach((x, i) => { const l = best?.get(i); if (l) { by[l] = x.n; if (l !== x.g) plan.push({ sem, n: x.n, from: x.g, to: l }); } else { lost.push(x.n); issues.push({ sem, n: x.n, kind: opts[i].length ? "clash" : "none", to }); } });
+    Object.entries(oxBy).forEach(([n, l]) => { by[l] = n; });
     tt[sem] = { letters: L, blocked, by, ob: obc.filter(n => names.includes(n)), lost };
   });
   return { ok: !issues.length, issues, plan, tt };
 }
-export const courseIssueText = i => (i.kind === "ob" ? `${i.sem}학기 원반 '${i.n}' 안 고름` : i.kind === "none" ? `${i.sem}학기 '${i.n}': ${i.to ? `${i.to}반에 ` : ""}같은 과목·그룹 듣는 학생 없음` : `${i.sem}학기 '${i.n}': 다른 과목과 시간이 겹침`);
+export const courseIssueText = i => (i.kind === "noslot" ? `${i.sem}학기 '${i.n}': ${i.to ? `${i.to}반 ` : ""}원반 시간에 열리는 수업이 없음` : i.kind === "ob" ? `${i.sem}학기 원반 '${i.n}' 안 고름` : i.kind === "none" ? `${i.sem}학기 '${i.n}': ${i.to ? `${i.to}반에 ` : ""}같은 과목·그룹 듣는 학생 없음` : `${i.sem}학기 '${i.n}': 다른 과목과 시간이 겹침`);
 
 // '시수배당표' 시트: 학기마다 반별 시수 → 반마다 그 학기 공통(반 전체가 듣는) 과목
 // selective: 선택 과목 이름(강의실배정의 과목) — 이 과목들은 빼요. 돌려주는 값: { 학기: { 반: [과목] } }
@@ -336,6 +342,9 @@ export function subjectCatalog(placement) {
 // 돌려주는 값: { g, check } — check는 courseCheck 결과(정보가 없으면 null)
 export function trySubjectChange(placement, sid, sem, from, to) {
   const s = placement?.students?.[sid]; if (!s || !Array.isArray(s.sj)) return null;
+  const old0 = s.sj.find(x => String(x.sem) === String(sem) && x.n === from);
+  const obMode = old0 && (old0.g === "원반" || old0.ox);
+  if (obMode) return tryOutOfHomeroom(placement, sid, sem, from, to);
   const letters = subjectCatalog(placement)[String(sem)]?.[to] || [];
   const others = s.sj.filter(x => String(x.sem) === String(sem) && x.n !== from && x.g !== "원반").map(x => x.g);
   const old = s.sj.find(x => String(x.sem) === String(sem) && x.n === from);
@@ -354,13 +363,29 @@ export function trySubjectChange(placement, sid, sem, from, to) {
   }
   return first;
 }
+// 원반 과목을 다른 과목으로: 원반 시간(그 반이 빠지는 그룹)에 열리는 그 과목 수업으로 들어요. 원반 과목으로 되돌리면 다시 원반.
+function tryOutOfHomeroom(placement, sid, sem, from, to) {
+  const s = placement.students[sid]; const rm = placement.rooms; const cls = Number(s.cls);
+  const obc = rm?.ob?.[cls]?.[sem] || [];
+  const rest = { ...placement, students: Object.fromEntries(Object.entries(placement.students).filter(([id]) => id !== sid)) };
+  const members = sectionMembers(rest);
+  const make = (g, ox) => { const sj = s.sj.map(x => (String(x.sem) === String(sem) && x.n === from ? (ox ? { sem: x.sem, n: to, g, ox: true } : { sem: x.sem, n: to, g }) : x)); return courseCheck({ ...placement, students: { ...placement.students, [sid]: { ...s, sj } } }, sid, cls, members); };
+  if (obc.includes(to)) return { g: "원반", ox: false, check: make("원반", false) };
+  if (!rm?.letters) { const g = subjectCatalog(placement)[String(sem)]?.[to]?.[0] || ""; return { g, ox: true, check: null }; }
+  const L = rm.letters[sem] || [];
+  const blocked = L.filter(l => !(rm.part?.[sem]?.[l] || []).map(Number).includes(cls));
+  const sec = new Set(rm.sections || []);
+  const g = blocked.find(l => sec.has(`${sem}|${to}|${l}`));
+  if (!g) return { g: "", ox: true, check: { ok: false, issues: [{ sem, n: to, kind: "noslot", to: cls }], plan: [], tt: {} } };
+  return { g, ox: true, check: make(g, true) };
+}
 // 과목 바꾸기 기록(sj0 = 처음 엑셀 과목, subjChanges = 기록)
-export function applySubjectChange(placement, { sid, sem, from, to, g, by = "", at = new Date().toISOString() }) {
+export function applySubjectChange(placement, { sid, sem, from, to, g, ox = false, by = "", at = new Date().toISOString() }) {
   const s = placement?.students?.[sid]; if (!s || !Array.isArray(s.sj)) return placement;
   const old = s.sj.find(x => String(x.sem) === String(sem) && x.n === from); if (!old) return placement;
-  const sj = s.sj.map(x => (x === old ? { ...x, n: to, g } : x));
+  const sj = s.sj.map(x => { if (x !== old) return x; const { ox: _o, ...base } = x; return ox ? { ...base, n: to, g, ox: true } : { ...base, n: to, g }; });
   const id = `sc${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
-  return { ...placement, students: { ...placement.students, [sid]: { ...s, sj, sj0: s.sj0 || s.sj } }, subjChanges: [...(placement.subjChanges || []), { id, sid, sem: String(sem), from: { n: old.n, g: old.g }, to: { n: to, g }, by, at }] };
+  return { ...placement, students: { ...placement.students, [sid]: { ...s, sj, sj0: s.sj0 || s.sj } }, subjChanges: [...(placement.subjChanges || []), { id, sid, sem: String(sem), from: { n: old.n, g: old.g }, to: { n: to, g, ...(ox ? { ox: true } : {}) }, by, at }] };
 }
 // 처음 엑셀 과목으로 되돌리기(그 학생 기록도 지워요)
 export function resetSubjects(placement, sid) {
