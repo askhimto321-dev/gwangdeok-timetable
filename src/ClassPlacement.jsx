@@ -10,7 +10,7 @@ import { LEVEL_INFO, SEPARATION_LEVELS, separationKey, separationPairs, together
 import { printPlacement } from "./placementPrint.js";
 import PlacementSubjects from "./PlacementSubjects.jsx";
 import { subjectDiff } from "./classPlacement.js";
-import { courseCheck, courseIssueText, sectionMembers } from "./classPlacement.js";
+import { courseCheck, courseIssueText, sectionMembers, mergePlacementFile, studentCourseCheck } from "./classPlacement.js";
 import { placementKey, placementReviewKey, parsePlacementFile, normalizePlacement, bySidOf, movableClasses, swapCandidates, applyMove, undoMove, classSummary, checkPairs, studentResults, STUDENT_FLAGS, CLASS_CHECKS } from "./classPlacement.js";
 
 // 3학년 공통 과목(교육과정 편성표 기준). 음악·미술 감상과 비평은 앞 절반 반이 1학기 음악·2학기 미술, 뒤 절반 반은 반대로 엇갈려요.
@@ -101,20 +101,23 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
   };
   const save = async () => {
     if (!preview) return;
-    // 같은 반편성 파일(학생·처음 반이 같음)이면 이동 기록은 두고 과목·강의실 정보만 새로 반영할 수 있어요
+    // 같은 학생들의 반편성 파일(고쳐서 다시 올림)이면: 새 파일 반·과목을 기준으로 바꾸고, 옮긴 반·바꾼 과목은 살릴 수 있어요
     if (placement?.students && preview.kind === "program") {
-      const ids = Object.keys(preview.students); const same = ids.filter(id => placement.students[id] && Number(placement.students[id].orig) === Number(preview.students[id].cls)).length;
-      if (ids.length && same / ids.length >= 0.95 && window.confirm(`지금 반편성과 같은 파일이에요.\n이동 기록 ${placement.moves?.length || 0}건은 그대로 두고, 과목·강의실 배정 정보만 새로 반영할까요?\n(취소를 누르면 새 파일로 바꿀지 다시 물어요)`)) {
-        const students = Object.fromEntries(Object.entries(placement.students).map(([id, x]) => { const n = preview.students[id]; return [id, n ? { ...x, name: n.name || x.name, gender: n.gender || x.gender, can: n.can, ob: n.ob, sj: x.sj0 ? x.sj : n.sj, no: x.no || n.no } : x]; }));
-        const value = { ...placement, students, classOb: preview.classOb || placement.classOb || {}, rooms: preview.rooms || null, infoAt: new Date().toISOString(), infoBy: me.name };
-        const result = await writeStorage(placementKey(year, grade), value);
-        if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
-        setPlacement(value); setPreview(null);
-        showToast(preview.rooms ? "과목·강의실 정보를 반영했어요. 옮긴 학생 중 들을 수 없는 과목이 생긴 학생을 표시해요." : "과목 정보를 반영했어요.", "success");
-        return;
+      const ids = Object.keys(preview.students); const both = ids.filter(id => placement.students[id]).length;
+      if (ids.length && both / ids.length >= 0.9) {
+        const { value: merged, stats: st } = mergePlacementFile(placement, preview, { fileName: preview.fileName, kind: preview.kind, at: new Date().toISOString(), by: me.name, infoAt: new Date().toISOString(), infoBy: me.name, stats: { students: preview.stats.students, hasCan: !!preview.stats.hasCan, unmatched: (preview.stats.unmatched || []).slice(0, 60) } });
+        const keepN = (placement.moves?.length || 0) + (placement.subjChanges?.length || 0);
+        const ask = `고친 반편성 파일이에요.\n파일에서 반이 바뀐 학생 ${st.cls}명 · 과목이 바뀐 학생 ${st.subj}명${st.added ? ` · 새 학생 ${st.added}명` : ""}${st.removed ? ` · 빠진 학생 ${st.removed}명` : ""}\n\n새 파일 반·과목으로 바꾸면서, 선생님들이 옮긴 반(${st.keptMoves}명)과 바꾼 과목(${st.keptSubj}명)은 살릴까요?\n(취소를 누르면 기록 없이 새 파일 그대로 바꿀지 다시 물어요)`;
+        if (!keepN || window.confirm(ask)) {
+          const result = await writeStorage(placementKey(year, grade), merged);
+          if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
+          setPlacement(merged); setPreview(null);
+          showToast(`새 파일을 반영했어요. 반 바뀜 ${st.cls}명 · 과목 바뀜 ${st.subj}명${keepN ? ` · 옮긴 반 ${st.keptMoves}명 · 바꾼 과목 ${st.keptSubj}명 유지` : ""}`, "success");
+          return;
+        }
       }
     }
-    if (placement?.moves?.length && !window.confirm(`지금까지 옮긴 ${placement.moves.length}건이 있어요. 새 파일로 바꾸면 이동 기록이 지워져요. 바꿀까요?`)) return;
+    if ((placement?.moves?.length || placement?.subjChanges?.length) && !window.confirm(`옮긴 기록 ${placement.moves?.length || 0}건 · 과목 바꾼 기록 ${placement.subjChanges?.length || 0}건이 있어요. 새 파일 그대로 바꾸면 기록이 지워져요. 바꿀까요?`)) return;
     const value = { students: preview.students, classOb: preview.classOb || {}, rooms: preview.rooms || null, moves: [], fileName: preview.fileName, kind: preview.kind, at: new Date().toISOString(), by: me.name, stats: { students: preview.stats.students, hasCan: !!preview.stats.hasCan, unmatched: (preview.stats.unmatched || []).slice(0, 60) } };
     const result = await writeStorage(placementKey(year, grade), value);
     if (result?.ok === false) { showToast("저장하지 못했어요.", "error"); return; }
@@ -251,6 +254,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
       <li>{preview.kind === "program" ? `'${preview.sheet}' 시트` : "명단"}에서 학생 <em>{preview.stats.students}</em>명, 새 반 <em>{(preview.stats.classes || []).length}</em>개</li>
       <li>{preview.stats.hasCan ? "배정가능학급(원반 과목 기준)이 있어 학생마다 갈 수 있는 반으로만 옮길 수 있어요." : "배정가능학급 정보가 없어 어느 반으로든 옮길 수 있어요."}</li>
       {preview.rooms && <li>'강의실배정' 시트로 시간표 규칙을 확인해, 옮기면 <em>수강 불가 과목</em>이 생기는 반은 이동 불가로 막아요.</li>}
+      {placement?.students && (() => { const st = mergePlacementFile(placement, preview).stats; return <li>지금 반편성과 비교: 반이 바뀐 학생 <em>{st.cls}</em>명 · 과목이 바뀐 학생 <em>{st.subj}</em>명{st.added ? <> · 새 학생 <em>{st.added}</em>명</> : null}{st.removed ? <> · 빠진 학생 <em>{st.removed}</em>명</> : null}</li>; })()}
       {(preview.stats.unmatched || []).length > 0 && <li className="warn">지금 {grade}학년 명단에 없는 학번 {preview.stats.unmatched.length}개(전입·전출 등): {preview.stats.unmatched.slice(0, 10).map(x => (typeof x === "string" ? oldLabel(x) : x.name)).join(", ")}</li>}
     </ul>
     <div className="ft"><button type="button" className="kpl-btn" onClick={() => setPreview(null)}>취소</button><button type="button" className="kpl-btn pri" onClick={save}>이대로 반영</button></div>
@@ -312,7 +316,7 @@ export default function ClassPlacement({ grade = "2", roster = {}, actor = null,
   const cc = (id, c) => courseCheck(placement, id, c, secMem);
   // 옮길 수 있는 반 = 배정가능학급(원반 과목) 안에서, 시간표 규칙상 수강 불가 과목이 생기지 않는 반(원래 반은 늘 가능)
   const movableOk = id => { const x = placement?.students?.[id]; return movableClasses(placement, id).filter(c => !placement?.rooms || Number(c) === Number(x?.orig) || cc(id, c)?.ok !== false); };
-  const courseBad = new Map(); if (placement?.rooms) Object.entries(placement.students).forEach(([id, x]) => { if (Number(x.cls) === Number(x.orig)) return; const k = cc(id, x.cls); if (k && !k.ok) courseBad.set(id, k.issues); });
+  const courseBad = new Map(); if (placement?.rooms) Object.entries(placement.students).forEach(([id, x]) => { const moved = Number(x.cls) !== Number(x.orig); if (!moved && !x.sj0) return; const k = moved ? cc(id, x.cls) : studentCourseCheck(placement, id); if (k && !k.ok) courseBad.set(id, k.issues); });
   // 시간표 검증: 반마다 학기별로 학생 모두가 그룹(A~E · F~I)마다 한 과목씩 들을 수 있는지
   const ttCheck = placement?.rooms ? summary.map(x => {
     const c = x.cls; const ids = Object.entries(placement.students).filter(([, v]) => Number(v.cls) === c).map(([id]) => id);
