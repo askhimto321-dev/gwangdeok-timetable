@@ -3,7 +3,7 @@
 import React from "react";
 import { BookOpen, Check, History, RotateCcw, Search, X } from "lucide-react";
 import { SUBJECT_AREAS, subjectArea } from "./curriculum.js";
-import { subjectCatalog, arrangeSubjectSet, applySubjectSet, trySubjectChange, applySubjectChange, resetSubjects, subjectDiff, courseIssueText } from "./classPlacement.js";
+import { subjectCatalog, sectionMembers, checkManualGroups, arrangeSubjectSet, applySubjectSet, trySubjectChange, applySubjectChange, resetSubjects, subjectDiff, courseIssueText } from "./classPlacement.js";
 
 // 과목 색: 2022 개정 교육과정 교과(군)별(curriculum.js subjectArea)
 const kindOf = name => subjectArea(name);
@@ -95,8 +95,10 @@ export default function PlacementSubjects({ placement, roster = {}, canEdit = fa
 function SubjectEditor({ sid, x, name, placement, catalog, sems, canEdit, onClose, onApply, onApplySet, onReset }) {
   const [pick, setPick] = React.useState({}); // { 학기: { from, to } }
   const [reset, setReset] = React.useState({}); // { 학기: [고른 과목] } — 과목 다시 고르기
+  const [manual, setManual] = React.useState({}); // { 학기: { letters: {그룹: 과목}, ob: [원반 과목] } } — 그룹 직접 넣기
+  const memOthers = React.useMemo(() => sectionMembers({ ...placement, students: Object.fromEntries(Object.entries(placement?.students || {}).filter(([id]) => id !== sid)) }), [placement, sid]);
   const [busy, setBusy] = React.useState(false);
-  React.useEffect(() => { setPick({}); setReset({}); }, [sid, x]);
+  React.useEffect(() => { setPick({}); setReset({}); setManual({}); }, [sid, x]);
   const diff = subjectDiff(x);
   const rm = placement?.rooms;
   const okOf = r => !r?.check || r.check.ok;
@@ -108,7 +110,7 @@ function SubjectEditor({ sid, x, name, placement, catalog, sems, canEdit, onClos
       {L.map(l => { const here = sj.filter(t => String(t.sem) === sem && t.g === l); return <div key={l} className={`gc${blocked.includes(l) ? " bl" : ""}`} title={blocked.includes(l) ? `${x.cls}반은 ${l} 시간에 원반 수업` : ""}><i>{l}</i>{here.length ? here.map(t => <b key={t.n} data-k={subjectArea(t.n)} className={mark.has(t.n) ? "chg" : ""}>{t.n}{t.ox ? <small>원반 대신</small> : null}</b>) : <em>{blocked.includes(l) ? "원반 시간" : "-"}</em>}</div>; })}</div>; };
   return <div className="kps-modal" role="dialog" aria-modal="true" aria-label={`${name} 선택과목`} onClick={e => { if (e.target === e.currentTarget) onClose(); }}><style>{CSS}</style><div className="box">
     <header><b>{name}</b><span className="mono">{oldLabel(sid)} → {x.cls}반</span>{diff.length > 0 && <em>바꿈 {diff.length}</em>}<button type="button" data-kdn-bare className="x" onClick={onClose} aria-label="닫기"><X size={16} /></button></header>
-    <p className="lead">{canEdit ? `'과목 다시 고르기'로 학기 과목을 한 번에 고르거나, 한 과목씩 빼고 넣을 수 있어요. 어느 쪽이든 ${x.cls}반 시간표에 맞게 그룹(A, B, C…)을 알아서 배정해요.` : "선택과목을 볼 수 있어요."}</p>
+    <p className="lead">{canEdit ? `'그룹 직접 넣기'로 A, B, C…마다 과목을 직접 고르거나, '과목 다시 고르기'(그룹 자동 배정), 한 과목씩 바꾸기 중 편한 방법을 써요.` : "선택과목을 볼 수 있어요."}</p>
     {sems.map(sem => { const mine = (x.sj || []).filter(t => String(t.sem) === sem); if (!mine.length) return null;
       const pk = pick[sem] || {}; const from = pk.from || ""; const to = pk.to || "";
       const fromItem = mine.find(t => t.n === from);
@@ -118,12 +120,31 @@ function SubjectEditor({ sid, x, name, placement, catalog, sems, canEdit, onClos
       const r = to ? cands.find(([n]) => n === to)?.[1] : null;
       const set = v => setPick(p => ({ ...p, [sem]: { ...(p[sem] || {}), ...v } }));
       const rs = reset[sem];
+      const mn = manual[sem];
+      const mr = mn ? checkManualGroups(placement, sid, sem, mn) : null;
+      const setCell = (l, n) => setManual(v => ({ ...v, [sem]: { ...v[sem], letters: { ...v[sem].letters, [l]: n } } }));
+      const toggleOb = n => setManual(v => { const ob = v[sem].ob || []; return { ...v, [sem]: { ...v[sem], ob: ob.includes(n) ? ob.filter(k => k !== n) : [...ob, n] } }; });
       const obAll = rm?.ob?.[x.cls]?.[sem] || [];
       const toggle = n => setReset(v => { const cur = v[sem] || []; return { ...v, [sem]: cur.includes(n) ? cur.filter(k => k !== n) : [...cur, n] }; });
       const rr = rs ? arrangeSubjectSet(placement, sid, sem, rs) : null;
       const groupsPick = rs ? [...(obAll.length ? [{ key: "ob", label: `${x.cls}반 원반 과목`, list: obAll }] : []), ...[...SUBJECT_AREAS, { key: "etc", label: "기타" }].map(a => ({ key: a.key, label: a.label, list: Object.keys(catalog[sem] || {}).filter(n => !obAll.includes(n) && subjectArea(n) === a.key).sort((p, q) => p.localeCompare(q, "ko")) })).filter(g => g.list.length)] : [];
-      return <div key={sem} className="sem"><h5>{sem}학기 <small>지금</small>{canEdit && <button type="button" data-kdn-bare className={`rsb${rs ? " on" : ""}`} onClick={() => setReset(v => { const n = { ...v }; if (rs) delete n[sem]; else n[sem] = []; return n; })}>{rs ? "다시 고르기 취소" : "과목 다시 고르기"}</button>}</h5>
-        {grid(sem, x.sj || [], new Set(diff.filter(d => d.sem === sem).map(d => d.to)))}
+      return <div key={sem} className="sem"><h5>{sem}학기 <small>지금</small>{canEdit && !mn && <button type="button" data-kdn-bare className={`rsb${rs ? " on" : ""}`} onClick={() => setReset(v => { const n = { ...v }; if (rs) delete n[sem]; else n[sem] = []; return n; })}>{rs ? "다시 고르기 취소" : "과목 다시 고르기"}</button>}
+          {canEdit && !rs && <button type="button" data-kdn-bare className={`rsb${mn ? " on" : ""}${mn ? "" : " sec"}`} onClick={() => setManual(v => { const n = { ...v }; if (mn) delete n[sem]; else n[sem] = { letters: Object.fromEntries(mine.filter(t => t.g !== "원반").map(t => [t.g, t.n])), ob: mine.filter(t => t.g === "원반").map(t => t.n) }; return n; })}>{mn ? "직접 넣기 취소" : "그룹 직접 넣기"}</button>}</h5>
+        {!mn && grid(sem, x.sj || [], new Set(diff.filter(d => d.sem === sem).map(d => d.to)))}
+        {mn && <div className="manual">
+          <p className="rp-h"><b>그룹마다 과목을 직접 골라요</b><span>○ 이 반에서 들을 수 있음 · ✕ 이 반에 그 그룹 듣는 학생 없음</span><button type="button" data-kdn-bare onClick={() => setManual(v => ({ ...v, [sem]: { letters: {}, ob: [] } }))}>모두 비우기</button></p>
+          <div className="mgrid">
+            {obAll.length > 0 && <div className="mc ob"><i>원반</i>{obAll.map(n => <label key={n} className="obck"><input type="checkbox" checked={(mn.ob || []).includes(n)} onChange={() => toggleOb(n)} /><span data-k={subjectArea(n)}>{n}</span></label>)}</div>}
+            {lettersOf(sem).map(l => { const bl = blockedOf(sem).includes(l); const opts = Object.keys(catalog[sem] || {}).filter(n => (catalog[sem][n] || []).includes(l)).sort((a, b) => a.localeCompare(b, "ko")); const cur = mn.letters?.[l] || ""; const cell = mr?.cells?.[l];
+              return <div key={l} className={`mc${bl ? " bl" : ""}${cell && !cell.ok ? " bad" : ""}`}><i>{l}{bl && <small>원반 시간</small>}</i>
+                <select value={cur} onChange={e => setCell(l, e.target.value)}><option value="">{bl ? "원반 수업" : "비움"}</option>{opts.map(n => { const okN = bl || (memOthers.get(`${sem}|${n}|${l}`)?.get(Number(x.cls)) || 0) > 0; return <option key={n} value={n}>{okN ? "○" : "✕"} {n}</option>; })}</select>
+                {cur && <b data-k={subjectArea(cur)}>{cur}{cell?.ox ? <small>원반 대신</small> : null}</b>}
+                {cell && !cell.ok && <em>{cell.why}</em>}
+              </div>; })}
+          </div>
+          {mr && <div className={`res ${mr.ok ? "ok" : "bad"}`}><div className="rh"><b>{mr.ok ? `${x.cls}반 시간표에 맞아요` : "확인할 것이 있어요"}</b>{!mr.ok && <span>{mr.issues.join(" · ")}</span>}</div>
+            <div className="rf"><button type="button" data-kdn-bare className={mr.ok ? "go" : "go warn"} disabled={busy} onClick={async () => { if (!mr.ok && !window.confirm(`${mr.issues.join("\n")}\n그래도 저장할까요?`)) return; setBusy(true); await onApplySet(sem, mr.sj); setBusy(false); setManual(v => { const n = { ...v }; delete n[sem]; return n; }); }}>{mr.ok ? "이대로 저장" : "그래도 저장"}</button></div></div>}
+        </div>}
         {rs && <div className="repick">
           <p className="rp-h"><b>{sem}학기 과목을 처음부터 골라요</b><span>고른 과목 <strong>{rs.length}</strong>개 · 지금 {mine.length}개</span><button type="button" data-kdn-bare onClick={() => setReset(v => ({ ...v, [sem]: mine.map(t => t.n) }))}>지금 과목 불러오기</button><button type="button" data-kdn-bare onClick={() => setReset(v => ({ ...v, [sem]: [] }))}>모두 비우기</button></p>
           {groupsPick.map(g => <div key={g.key} className="rp-g"><small>{g.label}</small><div>{g.list.map(n => <button key={n} type="button" data-kdn-bare data-k={g.key === "ob" ? subjectArea(n) : g.key} aria-pressed={rs.includes(n)} className={rs.includes(n) ? "on" : ""} onClick={() => toggle(n)}>{rs.includes(n) && <Check size={12} />}{n}</button>)}</div></div>)}
@@ -133,13 +154,13 @@ function SubjectEditor({ sid, x, name, placement, catalog, sems, canEdit, onClos
             <div className="rf"><button type="button" data-kdn-bare className={rr.ok ? "go" : "go warn"} disabled={busy} onClick={async () => { if (!rr.ok && !window.confirm(`${x.cls}반에서 시간표가 맞지 않아요.\n${rr.issues.map(courseIssueText).join("\n")}\n그래도 저장할까요?`)) return; setBusy(true); await onApplySet(sem, rr.sj); setBusy(false); setReset(v => { const n = { ...v }; delete n[sem]; return n; }); }}>{rr.ok ? "이대로 저장" : "그래도 저장"}</button></div>
           </div>}
         </div>}
-        {canEdit && !rs && <div className="chgrow">
+        {canEdit && !rs && !mn && <div className="chgrow">
           <label><span>빼는 과목</span><select value={from} onChange={e => set({ from: e.target.value, to: "" })}><option value="">고르기</option>{mine.map(t => <option key={t.n} value={t.n}>{t.n} ({t.g === "원반" ? "원반" : t.g})</option>)}</select></label>
           <span className="ar">→</span>
           <label><span>넣는 과목</span><select value={to} disabled={!from} onChange={e => set({ to: e.target.value })}><option value="">{from ? "고르기 (○ 가능 · ✕ 안 됨)" : "빼는 과목부터"}</option>{cands.map(([n, rr]) => <option key={n} value={n}>{okOf(rr) ? "○" : "✕"} {n}</option>)}</select></label>
         </div>}
-        {!rs && fromItem && (fromItem.g === "원반" || fromItem.ox) && !to && <p className="hint">원반 과목은 {x.cls}반 원반 시간({blockedOf(sem).join("·") || "-"} 그룹)에 다른 반에서 열리는 수업으로만 바꿀 수 있어요.</p>}
-        {!rs && r && <div className={`res ${okOf(r) ? "ok" : "bad"}`}>
+        {!rs && !mn && fromItem && (fromItem.g === "원반" || fromItem.ox) && !to && <p className="hint">원반 과목은 {x.cls}반 원반 시간({blockedOf(sem).join("·") || "-"} 그룹)에 다른 반에서 열리는 수업으로만 바꿀 수 있어요.</p>}
+        {!rs && !mn && r && <div className={`res ${okOf(r) ? "ok" : "bad"}`}>
           <div className="rh"><b>{okOf(r) ? `바꾼 뒤 ${x.cls}반 시간표` : "시간표가 맞지 않아요"}</b>
             <span>{okOf(r) ? <>{to} → {r.g === "원반" ? "원반" : `${r.g} 그룹${r.ox ? " (원반 대신)" : ""}`}{r.moved?.length ? ` · 함께 옮김: ${r.moved.map(m => `${m.n} ${m.from}→${m.to}`).join(", ")}` : ""}</> : r.check.issues.map(courseIssueText).join(" · ")}</span></div>
           {okOf(r) && r.sj && grid(sem, r.sj, new Set([to, ...(r.moved || []).map(m => m.n)]))}
@@ -203,7 +224,7 @@ const CSS = `
 .kps-fold ul{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:6px}
 .kps-fold li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;padding:7px 10px;border-radius:9px;background:var(--kdn-surface-2,#f6f7f9);font-size:13px}.kps-fold li small{margin-left:auto;color:var(--kdn-muted,#6b7280)}
 .kps-modal{position:fixed;inset:0;z-index:80;display:grid;place-items:center;padding:16px;background:rgba(15,18,26,.45)}
-.kps-modal .box{width:min(640px,100%);max-height:88vh;overflow:auto;border-radius:16px;background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);box-shadow:0 20px 50px rgba(0,0,0,.25);padding:16px 18px;display:grid;gap:12px}
+.kps-modal .box{width:min(860px,100%);max-height:88vh;overflow:auto;border-radius:16px;background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);box-shadow:0 20px 50px rgba(0,0,0,.25);padding:16px 18px;display:grid;gap:12px}
 .kps-modal header{display:flex;align-items:center;gap:10px}.kps-modal header b{font-size:17px}.kps-modal header em{padding:1px 8px;border-radius:99px;background:#ede9fe;color:#5b21b6;font-style:normal;font-size:12px;font-weight:800}
 .kps-modal header .x{margin-left:auto;display:grid;place-items:center;width:32px;height:32px;border-radius:9px;border:0;background:transparent;color:var(--kdn-muted,#6b7280);cursor:pointer}
 .kps-modal .lead{margin:0;font-size:13px;line-height:1.55;color:var(--kdn-ink-soft,#4b5563)}
@@ -239,6 +260,19 @@ const CSS = `
 .kps-modal .rp-g button.on{background:color-mix(in srgb,var(--c) 18%,var(--kdn-surface,#fff));border-color:var(--c);font-weight:800}
 .kps-modal .rp-g button[data-k="kor"]{--c:#ca8a04}.kps-modal .rp-g button[data-k="math"]{--c:#2563eb}.kps-modal .rp-g button[data-k="eng"]{--c:#7c3aed}.kps-modal .rp-g button[data-k="soc"]{--c:#ea580c}.kps-modal .rp-g button[data-k="sci"]{--c:#16a34a}.kps-modal .rp-g button[data-k="lang2"]{--c:#db2777}.kps-modal .rp-g button[data-k="tech"]{--c:#0891b2}.kps-modal .rp-g button[data-k="artpe"]{--c:#92400e}.kps-modal .rp-g button[data-k="lib"]{--c:#475569}
 .kps-modal .repick .res{margin:0 0 12px}
+.kps-modal .rsb+.rsb{margin-left:6px}.kps-modal .rsb.sec{border-color:#93c5fd;color:#1d4ed8}
+.kps-modal .manual{display:grid;gap:8px;padding:10px 12px 0;border-top:1px solid var(--kdn-line,#e5e7eb);background:var(--kdn-surface-2,#f8fafc)}
+.kps-modal .mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));border:1px solid var(--kdn-line,#d1d5db);border-radius:10px;overflow:hidden;background:var(--kdn-surface,#fff)}
+.kps-modal .mc{display:flex;flex-direction:column;gap:5px;padding:8px 6px;border-left:1px solid var(--kdn-line,#d1d5db);min-width:0}.kps-modal .mc:first-child{border-left:0}
+.kps-modal .mc>i{font-style:normal;text-align:center;font-size:12px;font-weight:800;color:var(--kdn-ink-soft,#4b5563)}.kps-modal .mc>i small{display:block;font-size:10px;color:#b45309}
+.kps-modal .mc select{height:30px;font-size:12px;padding:0 4px}
+.kps-modal .mc>b{display:block;padding:4px 5px;border-radius:7px;font-size:12px;line-height:1.25;text-align:center;word-break:keep-all;--c:#64748b;background:color-mix(in srgb,var(--c) 15%,var(--kdn-surface,#fff));box-shadow:inset 3px 0 0 var(--c)}.kps-modal .mc>b small{display:block;font-size:10px;color:#b45309}
+.kps-modal .mc>em{font-style:normal;font-size:11px;line-height:1.35;color:#b91c1c}
+.kps-modal .mc.bad{background:color-mix(in srgb,#dc2626 6%,transparent)}
+.kps-modal .mc.bl{background:repeating-linear-gradient(135deg,transparent 0 6px,color-mix(in srgb,var(--kdn-ink,#111827) 4%,transparent) 6px 12px)}
+.kps-modal .obck{display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer}.kps-modal .obck span{flex:1;padding:3px 5px;border-radius:6px;--c:#64748b;background:color-mix(in srgb,var(--c) 15%,var(--kdn-surface,#fff));box-shadow:inset 3px 0 0 var(--c);word-break:keep-all}
+.kps-modal .mc [data-k="kor"]{--c:#ca8a04}.kps-modal .mc [data-k="math"]{--c:#2563eb}.kps-modal .mc [data-k="eng"]{--c:#7c3aed}.kps-modal .mc [data-k="soc"]{--c:#ea580c}.kps-modal .mc [data-k="sci"]{--c:#16a34a}.kps-modal .mc [data-k="lang2"]{--c:#db2777}.kps-modal .mc [data-k="tech"]{--c:#0891b2}.kps-modal .mc [data-k="artpe"]{--c:#92400e}.kps-modal .mc [data-k="lib"]{--c:#475569}
+.kps-modal .manual .res{margin:0 0 12px}
 .kps-modal footer{display:flex;gap:8px;justify-content:flex-end}
 .kps-modal footer button{height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--kdn-line,#d1d5db);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);font:inherit;font-size:13.5px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
 .kps-modal footer .rs{margin-right:auto;color:#5b21b6}.kps-modal footer .ok{background:var(--kdn-ink,#111827);color:var(--kdn-surface,#fff);border-color:transparent}

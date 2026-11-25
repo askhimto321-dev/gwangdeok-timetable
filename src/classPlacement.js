@@ -413,6 +413,40 @@ export function arrangeSubjectSet(placement, sid, sem, names = []) {
   const final = list.map(x => { if (x.g === "원반") return x; const l = Object.keys(by).find(k => by[k] === x.n); return l ? { ...x, g: l } : x; });
   return { ok: check.ok, check, sj: [...keep, ...final], issues: check.issues.filter(i => String(i.sem) === sem) };
 }
+// 그룹마다 직접 고르기: pick = { letters: { 그룹: 과목 }, ob: [원반 과목] }. 고른 그대로 두고 칸마다 되는지만 봐요.
+// 그 반이 참여하는 그룹: 그 반에 같은 과목·그룹을 듣는 다른 학생이 있어야 해요. 원반 시간 그룹: 그 시간에 그 과목 수업이 열려 있으면 '원반 대신'.
+// 돌려주는 값: { ok, sj, cells: { 그룹: { ok, why, ox } }, issues: [글] }
+export function checkManualGroups(placement, sid, sem, pick = {}) {
+  const s = placement?.students?.[sid]; if (!s) return null;
+  sem = String(sem); const cls = Number(s.cls); const rm = placement.rooms;
+  const obc = rm?.ob?.[cls]?.[sem] || [];
+  const L = rm?.letters?.[sem] || Object.keys(pick.letters || {}).sort();
+  const blocked = L.filter(l => rm?.part && !(rm.part?.[sem]?.[l] || []).map(Number).includes(cls));
+  const sec = new Set(rm?.sections || []);
+  const rest = { ...placement, students: Object.fromEntries(Object.entries(placement.students).filter(([id]) => id !== sid)) };
+  const mem = sectionMembers(rest);
+  const cells = {}; const issues = []; const list = [];
+  const ob = (pick.ob || []).filter(n => obc.includes(n));
+  ob.forEach(n => list.push({ sem, n, g: "원반" }));
+  const seen = new Map();
+  Object.entries(pick.letters || {}).forEach(([l, n]) => {
+    if (!n) return;
+    if (seen.has(n)) { cells[l] = { ok: false, why: `${seen.get(n)} 그룹과 같은 과목` }; issues.push(`'${n}'을 두 그룹에 넣었어요`); return; }
+    seen.set(n, l);
+    if (!rm?.sections?.length) { cells[l] = { ok: true }; list.push({ sem, n, g: l }); return; }
+    if (!sec.has(`${sem}|${n}|${l}`)) { cells[l] = { ok: false, why: `${l} 그룹에 열리지 않는 과목` }; issues.push(`'${n}'은 ${l} 그룹에 열리지 않아요`); list.push({ sem, n, g: l }); return; }
+    if (blocked.includes(l)) { cells[l] = { ok: true, ox: true }; list.push({ sem, n, g: l, ox: true }); return; }
+    const c = mem.get(`${sem}|${n}|${l}`)?.get(cls) || 0;
+    if (!c) { cells[l] = { ok: false, why: `${cls}반에 ${l} 그룹 '${n}' 듣는 학생 없음` }; issues.push(`${cls}반에 ${l} 그룹 '${n}'을 듣는 학생이 없어요`); }
+    else cells[l] = { ok: true, n: c };
+    list.push({ sem, n, g: l });
+  });
+  const oxN = list.filter(x => x.ox).length; const missOb = obc.filter(n => !ob.includes(n)).length;
+  if (missOb > oxN) issues.push(`원반 과목 ${missOb - oxN}개를 안 골랐어요(원반 시간에 다른 수업을 넣으면 그만큼 빼도 돼요)`);
+  if (oxN > missOb) issues.push(`원반 과목을 들으면서 원반 시간 수업도 넣었어요`);
+  const keep = (s.sj || []).filter(x => String(x.sem) !== sem);
+  return { ok: !issues.length, sj: [...keep, ...list], cells, issues };
+}
 // 다시 고른 과목 저장(기록에는 뺀 과목 → 넣은 과목)
 export function applySubjectSet(placement, { sid, sem, sj, by = "", at = new Date().toISOString() }) {
   const s = placement?.students?.[sid]; if (!s || !Array.isArray(sj)) return placement;

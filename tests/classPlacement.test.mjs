@@ -188,3 +188,20 @@ test("선택과목 다시 고르기: 고른 과목으로 그룹 자동 배정, �
   // 화학·물리 둘 다 A만 열려 겹쳐요
   assert.equal(arrangeSubjectSet(p, "s", "1", ["윤리", "화학", "물리"]).ok, false);
 });
+
+import { checkManualGroups } from "../src/classPlacement.js";
+test("선택과목 그룹 직접 고르기: 칸마다 확인", () => {
+  const room = parseRoomSheet([
+    [], ["연번", "선택구분", "운영학기", "과목", "동시그룹", "세부그룹", "1", "2", "합계"],
+    [1, "s", "1학기", "화학", "A", 1, 5, 5, 10], [2, "s", "1학기", "물리", "A", 1, 5, 5, 10],
+    [3, "s", "1학기", "지구", "B", 1, 5, 0, 5], [4, "s", "1학기", "윤리", "원반", "", 0, 20, 20],
+  ]);
+  const p = { rooms: room, students: {
+    s: { cls: 2, orig: 2, sj: [{ sem: "1", n: "윤리", g: "원반" }, { sem: "1", n: "화학", g: "A" }] },
+    a: { cls: 2, orig: 2, sj: [{ sem: "1", n: "윤리", g: "원반" }, { sem: "1", n: "물리", g: "A" }] },
+  } };
+  const ok = checkManualGroups(p, "s", "1", { letters: { A: "물리", B: "지구" }, ob: [] });
+  assert.equal(ok.ok, true); assert.equal(ok.cells.B.ox, true);
+  const bad = checkManualGroups(p, "s", "1", { letters: { A: "화학" }, ob: ["윤리"] });
+  assert.equal(bad.ok, false); assert.equal(bad.cells.A.ok, false); // 2반에 화학 A 듣는 다른 학생 없음
+});
