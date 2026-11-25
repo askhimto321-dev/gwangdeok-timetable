@@ -497,27 +497,28 @@ export function studentCourseCheck(placement, sid) {
 // - 과목: 파일 과목이 예전 파일과 같으면 선생님이 바꾼 과목을 살리고, 파일에서 과목이 바뀌었으면 새 파일 과목으로
 // - 새 파일에만 있는 학생은 넣고, 새 파일에 없는 학생은 빼요
 // 돌려주는 값: { value, stats: { cls, subj, added, removed, keptMoves, keptSubj } }
-export function mergePlacementFile(placement, file, extra = {}) {
+// opts.keepMoves / opts.keepSubj: false면 옮긴 반 / 바꾼 과목을 버리고 새 파일대로
+export function mergePlacementFile(placement, file, extra = {}, { keepMoves = true, keepSubj: keepSubjOpt = true } = {}) {
   const key = list => JSON.stringify((list || []).map(x => `${x.sem}|${x.n}|${x.g}`).sort());
-  const stats = { cls: 0, subj: 0, added: 0, removed: 0, keptMoves: 0, keptSubj: 0 };
+  const stats = { cls: 0, subj: 0, added: 0, removed: 0, keptMoves: 0, keptSubj: 0, changedSubj: 0 };
   const students = {};
   Object.entries(file.students || {}).forEach(([id, n]) => {
     const x = placement.students?.[id];
     if (!x) { students[id] = n; stats.added += 1; return; }
     const moved = Number(x.cls) !== Number(x.orig);
     if (Number(x.orig) !== Number(n.cls)) stats.cls += 1;
-    const cls = moved ? Number(x.cls) : Number(n.cls);
-    if (moved && cls !== Number(n.cls)) stats.keptMoves += 1;
+    const cls = moved && keepMoves ? Number(x.cls) : Number(n.cls);
+    if (moved && Number(x.cls) !== Number(n.cls)) stats.keptMoves += 1;
     const fileSame = key(x.sj0 || x.sj) === key(n.sj);
     if (!fileSame) stats.subj += 1;
-    const keepSubj = !!x.sj0 && fileSame;
-    if (keepSubj) stats.keptSubj += 1;
+    if (x.sj0 && fileSame && key(x.sj) !== key(n.sj)) { stats.keptSubj += 1; stats.changedSubj += 1; }
+    const keepSubj = keepSubjOpt && !!x.sj0 && fileSame;
     const { sj0, ...base } = x;
     students[id] = { ...base, name: n.name || x.name, gender: n.gender || x.gender, can: n.can, ob: n.ob, no: n.no || x.no, orig: Number(n.cls), cls, sj: keepSubj ? x.sj : n.sj, ...(keepSubj ? { sj0: n.sj } : {}) };
   });
   stats.removed = Object.keys(placement.students || {}).filter(id => !file.students?.[id]).length;
   const ids = new Set(Object.keys(students));
-  const moves = (placement.moves || []).filter(m => ids.has(m.sid) && (!m.swap || ids.has(m.swap)));
-  const subjChanges = (placement.subjChanges || []).filter(c => students[c.sid]?.sj0);
+  const moves = keepMoves ? (placement.moves || []).filter(m => ids.has(m.sid) && (!m.swap || ids.has(m.swap))) : [];
+  const subjChanges = keepSubjOpt ? (placement.subjChanges || []).filter(c => students[c.sid]?.sj0) : [];
   return { value: { ...placement, ...extra, students, moves, subjChanges, classOb: file.classOb || placement.classOb || {}, rooms: file.rooms || null }, stats };
 }
