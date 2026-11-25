@@ -165,3 +165,26 @@ test("선택과목 바꾸기: 새 과목에 맞춰 다른 과목 그룹까지 �
   const q = applySubjectChange(p, { sid: "s1", sem: "1", from: "지구", to: "물리", g: r.g, sj: r.sj, by: "t" });
   assert.deepEqual(q.students.s1.sj.map(x => `${x.n}${x.g}`).sort(), ["물리A", "화학B"]);
 });
+
+import { arrangeSubjectSet, applySubjectSet } from "../src/classPlacement.js";
+test("선택과목 다시 고르기: 고른 과목으로 그룹 자동 배정, 원반 대신까지", () => {
+  const room = parseRoomSheet([
+    [], ["연번", "선택구분", "운영학기", "과목", "동시그룹", "세부그룹", "1", "2", "합계"],
+    [1, "s", "1학기", "화학", "A", 1, 5, 5, 10], [2, "s", "1학기", "물리", "A", 1, 5, 5, 10],
+    [3, "s", "1학기", "지구", "B", 1, 5, 0, 5], [4, "s", "1학기", "생명", "B", 1, 5, 0, 5],
+    [5, "s", "1학기", "윤리", "원반", "", 0, 20, 20],
+  ]);
+  const p = { rooms: room, students: {
+    s: { cls: 2, orig: 2, sj: [{ sem: "1", n: "윤리", g: "원반" }, { sem: "1", n: "화학", g: "A" }] },
+    a: { cls: 2, orig: 2, sj: [{ sem: "1", n: "윤리", g: "원반" }, { sem: "1", n: "물리", g: "A" }] },
+    b: { cls: 1, orig: 1, sj: [{ sem: "1", n: "지구", g: "B" }, { sem: "1", n: "화학", g: "A" }] },
+  } };
+  // 윤리(원반) 빼고 물리·지구: 물리는 A, 지구는 2반 원반 시간(B)에 1반 수업으로
+  const r = arrangeSubjectSet(p, "s", "1", ["물리", "지구"]);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.sj.map(x => `${x.n}${x.g}${x.ox ? "*" : ""}`).sort(), ["물리A", "지구B*"]);
+  const q = applySubjectSet(p, { sid: "s", sem: "1", sj: r.sj, by: "t" });
+  assert.equal(q.subjChanges[0].from.n, "윤리, 화학");
+  // 화학·물리 둘 다 A만 열려 겹쳐요
+  assert.equal(arrangeSubjectSet(p, "s", "1", ["윤리", "화학", "물리"]).ok, false);
+});
