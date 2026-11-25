@@ -205,3 +205,35 @@ test("선택과목 그룹 직접 고르기: 칸마다 확인", () => {
   const bad = checkManualGroups(p, "s", "1", { letters: { A: "화학" }, ob: ["윤리"] });
   assert.equal(bad.ok, false); assert.equal(bad.cells.A.ok, false); // 2반에 화학 A 듣는 다른 학생 없음
 });
+
+import { mergePlacementFile, studentCourseCheck } from "../src/classPlacement.js";
+test("반편성 파일 다시 올리기: 새 파일 반·과목 반영, 옮긴 반·바꾼 과목은 살림", () => {
+  const sj = n => [{ sem: "1", n, g: "A" }];
+  const old = { moves: [{ id: "m1", sid: "b", from: 1, to: 2 }], students: {
+    a: { cls: 1, orig: 1, sj: sj("화학") },
+    b: { cls: 2, orig: 1, sj: sj("화학") },
+    c: { cls: 1, orig: 1, sj: sj("물리"), sj0: sj("화학") },
+    d: { cls: 1, orig: 1, sj: sj("물리"), sj0: sj("화학") },
+    gone: { cls: 1, orig: 1, sj: sj("화학") },
+  } };
+  const file = { students: {
+    a: { cls: 3, sj: sj("화학") },          // 파일에서 반이 바뀜 → 3반
+    b: { cls: 1, sj: sj("화학") },          // 옮긴 학생 → 2반 그대로
+    c: { cls: 1, sj: sj("화학") },          // 파일 과목 그대로 → 선생님이 바꾼 물리 유지
+    d: { cls: 1, sj: sj("지구") },          // 파일에서 과목이 바뀜 → 지구
+    e: { cls: 2, sj: sj("화학") },
+  } };
+  const { value, stats } = mergePlacementFile(old, file);
+  assert.equal(value.students.a.cls, 3); assert.equal(value.students.a.orig, 3);
+  assert.equal(value.students.b.cls, 2); assert.equal(value.students.b.orig, 1);
+  assert.equal(value.students.c.sj[0].n, "물리"); assert.ok(value.students.c.sj0);
+  assert.equal(value.students.d.sj[0].n, "지구"); assert.equal(value.students.d.sj0, undefined);
+  assert.ok(value.students.e); assert.equal(value.students.gone, undefined);
+  assert.deepEqual(stats, { cls: 1, subj: 1, added: 1, removed: 1, keptMoves: 1, keptSubj: 1 });
+});
+test("과목 바꾼 학생 점검: 자기 말고 그 반에 같은 과목·그룹 듣는 학생이 없으면 수강 불가", () => {
+  const room = parseRoomSheet([[], ["연번", "선택구분", "운영학기", "과목", "동시그룹", "세부그룹", "1", "합계"], [1, "s", "1학기", "화학", "A", 1, 5, 5], [2, "s", "1학기", "물리", "A", 1, 5, 5]]);
+  const p = { rooms: room, students: { s: { cls: 1, orig: 1, sj: [{ sem: "1", n: "물리", g: "A" }], sj0: [{ sem: "1", n: "화학", g: "A" }] }, t: { cls: 1, orig: 1, sj: [{ sem: "1", n: "화학", g: "A" }] }, u: { cls: 1, orig: 1, sj: [{ sem: "1", n: "화학", g: "A" }] } } };
+  assert.equal(studentCourseCheck(p, "s").ok, false);
+  assert.equal(studentCourseCheck(p, "t").ok, true);
+});

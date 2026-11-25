@@ -484,3 +484,40 @@ export function subjectDiff(student) {
   });
   return out;
 }
+
+// 한 학생의 지금 반 시간표 점검(자기 자신은 빼고 센 반 인원 기준) — 과목을 바꾼 학생·옮긴 학생 경고용
+export function studentCourseCheck(placement, sid) {
+  const s = placement?.students?.[sid]; if (!s) return null;
+  const rest = { ...placement, students: Object.fromEntries(Object.entries(placement.students).filter(([id]) => id !== sid)) };
+  return courseCheck(placement, sid, s.cls, sectionMembers(rest));
+}
+
+// 같은 반편성 파일을 고쳐 다시 올렸을 때: 새 파일을 기준(처음 반·과목)으로 삼고, 선생님이 옮긴 반과 바꾼 과목은 살려요.
+// - 처음 반(orig)은 새 파일 반으로. 옮기지 않은 학생은 새 반으로, 옮긴 학생은 옮긴 반 그대로(새 반과 같아지면 '안 옮김')
+// - 과목: 파일 과목이 예전 파일과 같으면 선생님이 바꾼 과목을 살리고, 파일에서 과목이 바뀌었으면 새 파일 과목으로
+// - 새 파일에만 있는 학생은 넣고, 새 파일에 없는 학생은 빼요
+// 돌려주는 값: { value, stats: { cls, subj, added, removed, keptMoves, keptSubj } }
+export function mergePlacementFile(placement, file, extra = {}) {
+  const key = list => JSON.stringify((list || []).map(x => `${x.sem}|${x.n}|${x.g}`).sort());
+  const stats = { cls: 0, subj: 0, added: 0, removed: 0, keptMoves: 0, keptSubj: 0 };
+  const students = {};
+  Object.entries(file.students || {}).forEach(([id, n]) => {
+    const x = placement.students?.[id];
+    if (!x) { students[id] = n; stats.added += 1; return; }
+    const moved = Number(x.cls) !== Number(x.orig);
+    if (Number(x.orig) !== Number(n.cls)) stats.cls += 1;
+    const cls = moved ? Number(x.cls) : Number(n.cls);
+    if (moved && cls !== Number(n.cls)) stats.keptMoves += 1;
+    const fileSame = key(x.sj0 || x.sj) === key(n.sj);
+    if (!fileSame) stats.subj += 1;
+    const keepSubj = !!x.sj0 && fileSame;
+    if (keepSubj) stats.keptSubj += 1;
+    const { sj0, ...base } = x;
+    students[id] = { ...base, name: n.name || x.name, gender: n.gender || x.gender, can: n.can, ob: n.ob, no: n.no || x.no, orig: Number(n.cls), cls, sj: keepSubj ? x.sj : n.sj, ...(keepSubj ? { sj0: n.sj } : {}) };
+  });
+  stats.removed = Object.keys(placement.students || {}).filter(id => !file.students?.[id]).length;
+  const ids = new Set(Object.keys(students));
+  const moves = (placement.moves || []).filter(m => ids.has(m.sid) && (!m.swap || ids.has(m.swap)));
+  const subjChanges = (placement.subjChanges || []).filter(c => students[c.sid]?.sj0);
+  return { value: { ...placement, ...extra, students, moves, subjChanges, classOb: file.classOb || placement.classOb || {}, rooms: file.rooms || null }, stats };
+}
