@@ -1774,9 +1774,16 @@ export default function App() {
     }
   }, [loggedInDepartment, departmentGradeAccessList, departmentTimetableAccessList, grade]);
 
+  // 지금 학년 시간표 권한이 없으면 시간표 화면만 선생님 ZONE으로 돌려보내요(성적·진학은 학년 성적 권한으로 따로 봐요).
   useEffect(() => {
-    if (loggedInTeacher && !teacherCanViewTimetable && section !== "teacherZone" && section !== "home" && !(isNewUi() && section == null)) setSection("teacherZone");
+    if (loggedInTeacher && !teacherCanViewTimetable && section === "timetable") setSection("teacherZone");
   }, [loggedInTeacher, teacherCanViewTimetable, section]);
+  // 성적·진학: 지금 학년 성적 권한이 없으면 볼 수 있는 학년으로 바꿔요(선생님 ZONE에서 다른 학년을 골라 둔 경우).
+  useEffect(() => {
+    if (!loggedInTeacher || section !== "grades" || !teacherGradeAccessList.length || teacherGradeAccessList.includes(String(grade))) return;
+    const next = teacherGradeAccessList.find(item => !DISABLED_GRADES.includes(item)) || teacherGradeAccessList[0];
+    if (next) setGrade(next);
+  }, [loggedInTeacher, section, teacherGradeAccessList, grade]);
 
   useEffect(() => {
     if (section === "timetable" && tab === "teacherZone" && (loggedInAdmin || loggedInTeacher || loggedInDepartment || loggedInMonitor)) {
