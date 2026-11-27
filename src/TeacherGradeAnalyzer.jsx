@@ -1900,12 +1900,14 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
           {sortedWritten.map(item => <button key={item.id} type="button" data-kdn-bare role="tab" aria-selected={activeView === item.id} onClick={() => setActiveView(item.id)}>{item.title}</button>)}
           <button type="button" data-kdn-bare role="tab" aria-selected={activeView === "combined"} onClick={() => setActiveView("combined")}>학기말 성적</button>
           <button type="button" data-kdn-bare role="tab" aria-selected={activeView === "minimum"} className="is-min" onClick={() => setActiveView("minimum")}><ShieldCheck size={14}/> 최성보</button>
+          <button type="button" data-kdn-bare role="tab" aria-selected={activeView === "forecast"} className="is-fc" onClick={() => setActiveView("forecast")}><BarChart3 size={14}/> 예상 결과</button>
         </div> : <div style={ui.resultTabs}>
           {sortedWritten.map(item => <button key={item.id} type="button" onClick={() => setActiveView(item.id)} style={{ ...ui.resultTab, ...(activeView === item.id ? ui.resultTabActive : {}) }}>{item.title}</button>)}
           <button type="button" onClick={() => setActiveView("combined")} style={{ ...ui.resultTab, ...(activeView === "combined" ? ui.resultTabActive : {}) }}>학기말 성적</button>
           <button type="button" onClick={() => setActiveView("minimum")} style={{ ...ui.resultTab, ...ui.minimumResultTab, ...(activeView === "minimum" ? ui.resultTabActive : {}) }}><ShieldCheck size={14}/> 최성보</button>
+          <button type="button" onClick={() => setActiveView("forecast")} style={{ ...ui.resultTab, ...(activeView === "forecast" ? ui.resultTabActive : {}) }}><BarChart3 size={14}/> 예상 결과</button>
         </div>}
-        {!activeRows.length ? <div style={ui.emptyState}><FileSpreadsheet size={30} /><b>분석할 파일을 업로드해주세요.</b><span>지필평가 파일부터 올리면 전 학급 학생 구조가 자동으로 만들어집니다.</span></div> : <>
+        {activeView === "forecast" ? <GradeForecast rows={combinedRows} written={sortedWritten} areas={uploadedAreas} plannedWritten={plannedWritten} plannedPerformance={plannedPerformance} settings={settings} weightTotal={weightTotal} /> : !activeRows.length ? <div style={ui.emptyState}><FileSpreadsheet size={30} /><b>분석할 파일을 업로드해주세요.</b><span>지필평가 파일부터 올리면 전 학급 학생 구조가 자동으로 만들어집니다.</span></div> : <>
           {activeView === "combined" && Math.abs(weightTotal.total - 100) > 1e-9 && <div style={ui.warningBanner}><AlertTriangle size={16} /><span>반영비율 합계가 {weightTotal.total}%입니다. 100%로 맞추기 전 결과는 검토용입니다.</span></div>}
           {activeView === "combined" && (plannedWritten.length > 0 || plannedPerformance.length > 0) && <div style={ui.warningBanner}><AlertTriangle size={16}/><span>{[...plannedWritten.map(item=>item.title),...plannedPerformance.map(item=>item.name)].filter(Boolean).join(", ")} 성적 파일이 아직 등록되지 않았습니다. 예정 반영비율은 최성보 계산과 사전 점검에 먼저 적용됩니다.</span></div>}
           {newUi && activeView !== "minimum" ? <div className="kdn-rs-bar">
@@ -2019,6 +2021,98 @@ export default function TeacherGradeAnalyzer({ teacher, teacherAccounts = [], ro
 
 // 새 UI 등급컷 카드: 등급마다 컷 점수를 크게, 실제 인원 막대와 기준 인원 눈금을 함께 보여줍니다.
 const CUT_CARD_COLORS = ["#e2531a", "#f08a4b", "#f6b26b", "#94a3b8", "#64748b", "#475569", "#334155", "#1e293b", "#0f172a"];
+// ── 예상 결과: 아직 없는 점수(예정 시험·미입력)를 가상 점수로 채워 성취도·등급컷을 미리 봐요. 저장하지 않아요. ──
+function forecastRng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function forecastNormal(rand) { const u = Math.max(1e-9, rand()), v = rand(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); }
+function GradeForecast({ rows = [], written = [], areas = [], plannedWritten = [], plannedPerformance = [], settings = {}, weightTotal = {} }) {
+  const items = [
+    ...written.map(item => ({ key: `w:${item.id}`, id: item.id, kind: "w", title: item.title, max: Number(item.maxScore) || 100, weight: asNumber(item.weight) || 0 })),
+    ...areas.map(area => ({ key: `p:${area.id}`, id: area.id, kind: "p", title: area.name, max: Number(area.maxScore) || 100, weight: asNumber(area.weight) || 0 })),
+    ...plannedWritten.map(item => ({ key: `pw:${item.id}`, kind: "pw", title: `${item.title || "정기시험"} (예정)`, max: Number(item.maxScore) || 100, weight: asNumber(item.weight) || 0 })),
+    ...plannedPerformance.map(area => ({ key: `pp:${area.id}`, kind: "pp", title: `${area.name || "수행평가"} (예정)`, max: Number(area.maxScore) || 100, weight: asNumber(area.weight) || 0 })),
+  ].filter(item => item.weight > 0);
+  const real = rows.filter(row => !row.excluded);
+  const [fakeN, setFakeN] = useState(150);
+  const [seed, setSeed] = useState(1);
+  const [overwrite, setOverwrite] = useState(false); // 이미 있는 점수도 가상 점수로
+  const [cfg, setCfg] = useState({}); // { 항목: { mode: "keep"|"rand", adj, mean, sd } }
+  const conf = key => ({ mode: real.length ? "keep" : "rand", adj: 0, mean: 70, sd: 15, ...(cfg[key] || {}) });
+  const setConf = (key, patch) => setCfg(v => ({ ...v, [key]: { ...conf(key), ...patch } }));
+  const scoreOf = (row, item) => (row.fake ? null : item.kind === "w" ? row.writtenScores?.[item.id] : item.kind === "p" ? row.areaScores?.[item.id] : null);
+  const result = useMemo(() => {
+    const rand = forecastRng(seed * 7919 + 17);
+    const base = real.length ? real.map(row => ({ ...row })) : Array.from({ length: Math.max(1, Math.min(600, Number(fakeN) || 0)) }, (_, i) => ({ sid: `가상${i + 1}`, name: `가상 학생 ${i + 1}`, fake: true, progressRate: null }));
+    // 학생 실력 순서: 지금까지 비율(없으면 무작위)
+    const skill = base.map(row => (Number.isFinite(row.progressRate) ? row.progressRate : null));
+    const out = base.map(() => ({ total: 0, filled: 0 }));
+    items.forEach(item => {
+      const c = conf(item.key);
+      const need = base.map((row, i) => { const v = asNumber(scoreOf(row, item)); return overwrite || v == null ? i : -1; }).filter(i => i >= 0);
+      const pct = new Map();
+      if (c.mode === "keep") need.forEach(i => { const own = skill[i] ?? (Number(c.mean) || 70); pct.set(i, own + (Number(c.adj) || 0)); });
+      else {
+        // 평균·표준편차로 점수를 뽑고, 지금까지 성적 순서대로 나눠 줘요(성적이 없으면 무작위)
+        const draws = need.map(() => (Number(c.mean) || 0) + (Number(c.sd) || 0) * forecastNormal(rand)).sort((a, b) => b - a);
+        const order = [...need].sort((a, b) => (skill[b] ?? -1 + rand()) - (skill[a] ?? -1 + rand()) || rand() - 0.5);
+        order.forEach((i, k) => pct.set(i, draws[k]));
+      }
+      base.forEach((row, i) => {
+        const v = asNumber(scoreOf(row, item));
+        let p;
+        if (pct.has(i)) { p = Math.max(0, Math.min(100, pct.get(i))); out[i].filled += 1; } else p = (v / item.max) * 100;
+        out[i].total += (p / 100) * item.weight;
+      });
+    });
+    const list = base.map((row, i) => ({ ...row, fTotal: roundTo(out[i].total, 2), fFilled: out[i].filled }));
+    const ranked = rankAndGrade(list, { vectorOf: row => [row.fTotal], isEligible: () => true, system: settings.gradeSystem });
+    ranked.forEach(row => { row.fAch = achievementFromScore(settings.achievementMode === "fixed" ? Math.round(row.fTotal) : row.fTotal, settings.courseType, settings.achievementMode, settings.manualCuts || {}); });
+    return ranked;
+  }, [rows, items.map(item => `${item.key}:${item.weight}:${item.max}`).join(","), cfg, seed, fakeN, overwrite, settings.gradeSystem, settings.achievementMode, settings.courseType, settings.manualCuts]); // eslint-disable-line react-hooks/exhaustive-deps
+  const total = result.length;
+  const cum = gradeQuotaCumulative(total, settings.gradeSystem);
+  const cutRows = cum.map((limit, index) => { const g = index + 1; const these = result.filter(row => row.grade === g); return { grade: g, count: these.length, target: Math.max(0, limit - (index ? cum[index - 1] : 0)), min: these.length ? Math.min(...these.map(row => row.fTotal)) : null }; });
+  const labels = settings.courseType === "common" ? ["A", "B", "C", "D", "E", "미도달"] : ["A", "B", "C", "D", "E"];
+  const achRows = labels.map(label => ({ label, count: result.filter(row => row.fAch === label).length }));
+  const filledN = items.reduce((sum, item) => sum + result.filter(row => overwrite || asNumber(scoreOf(row, item)) == null).length, 0);
+  const avg = total ? roundTo(result.reduce((sum, row) => sum + row.fTotal, 0) / total, 1) : null;
+  return <div className="kdn-fc"><style>{FORECAST_CSS}</style>
+    <div className="kdn-fc-note"><b>예상 결과(가상 점수)</b><span>아직 없는 점수를 아래 가정으로 채워 계산해요. 화면에서만 보고 저장하지 않아요. 동점 처리는 총점만 비교해요.</span></div>
+    {Math.abs((weightTotal.total || 0) - 100) > 1e-9 && <p className="kdn-fc-warn">반영비율 합계가 {weightTotal.total}%예요. 2단계에서 예정 시험·수행 영역까지 넣어 100%로 맞추면 더 정확해요.</p>}
+    {!items.length ? <p className="kdn-fc-warn">반영비율이 있는 시험·수행 영역이 없어요. 2단계에서 정기시험·수행평가 영역(예정 포함)과 비율을 넣어 주세요.</p> : <>
+      <div className="kdn-fc-opts">
+        {!real.length && <label>가상 학생 수 <input type="number" min="1" max="600" value={fakeN} onChange={e => setFakeN(e.target.value)} /></label>}
+        {real.length > 0 && <label className="ck"><input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} /> 이미 있는 점수도 가상 점수로 바꿔 보기</label>}
+        <button type="button" data-kdn-bare onClick={() => setSeed(v => v + 1)}><RotateCcw size={13} /> 무작위 다시 뽑기</button>
+        <button type="button" data-kdn-bare onClick={() => setCfg({})}>가정 초기화</button>
+      </div>
+      <div className="kdn-fc-items"><table><thead><tr><th>시험·수행 영역</th><th>비율</th><th>가상 점수 넣을 학생</th><th>가정</th></tr></thead><tbody>{items.map(item => { const c = conf(item.key); const n = result.filter(row => overwrite || asNumber(scoreOf(row, item)) == null).length; return <tr key={item.key} className={n ? "" : "done"}>
+        <td><b>{item.title}</b><small>만점 {item.max}</small></td><td>{item.weight}%</td><td>{n ? `${n}명` : "모두 있음"}</td>
+        <td>{n ? <div className="cfg">
+          <select value={c.mode} onChange={e => setConf(item.key, { mode: e.target.value })}>{real.length > 0 && <option value="keep">학생마다 지금까지 성적 비율대로</option>}<option value="rand">평균·표준편차로 뽑기(성적 순서 유지)</option></select>
+          {c.mode === "keep" ? <label>±<input type="number" step="1" value={c.adj} onChange={e => setConf(item.key, { adj: e.target.value })} />점(100점 기준)</label>
+            : <><label>평균 <input type="number" value={c.mean} onChange={e => setConf(item.key, { mean: e.target.value })} />점</label><label>표준편차 <input type="number" value={c.sd} onChange={e => setConf(item.key, { sd: e.target.value })} /></label></>}
+        </div> : <small className="ok">실제 점수 사용</small>}</td></tr>; })}</tbody></table></div>
+      <div className="kdn-fc-kpi"><span>학생 <b>{total}</b>명{!real.length ? " (가상)" : ""}</span><span>예상 평균 <b>{formatScore(avg, 1)}</b>점</span><span>가상 점수 <b>{filledN}</b>칸</span></div>
+      <h4 className="kdn-fc-h">예상 등급컷</h4>
+      <GradeCutCards rows={cutRows} total={total} />
+      <h4 className="kdn-fc-h">예상 성취도</h4>
+      <AchievementDonut rows={achRows} total={total} mode={settings.achievementMode} settings={settings} />
+      {real.length > 0 && <details className="kdn-fc-list"><summary>학생별 예상 보기</summary><table><thead><tr><th>반-번호</th><th>이름</th><th>지금까지 비율</th><th>예상 총점</th><th>예상 등급</th><th>예상 성취도</th></tr></thead><tbody>{[...result].sort((a, b) => (a.rank || 0) - (b.rank || 0)).map(row => <tr key={row.sid}><td>{row.classNumber}-{row.number}</td><td>{row.name}</td><td>{row.progressRate == null ? "-" : `${formatScore(row.progressRate, 1)}%`}</td><td><b>{formatScore(row.fTotal, 2)}</b></td><td>{row.grade}등급</td><td>{row.fAch}</td></tr>)}</tbody></table></details>}
+    </>}
+  </div>;
+}
+const FORECAST_CSS = `.kdn-fc{display:grid;gap:12px}
+.kdn-fc-note{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:10px 14px;border-radius:12px;background:color-mix(in srgb,#7c3aed 8%,var(--kdn-surface,#fff));border:1px solid color-mix(in srgb,#7c3aed 25%,transparent);font-size:13px;color:var(--kdn-ink-soft,#4b5563)}.kdn-fc-note b{color:#5b21b6;font-size:14px}
+.kdn-fc-warn{margin:0;padding:8px 12px;border-radius:10px;background:color-mix(in srgb,#d97706 12%,transparent);color:#92400e;font-size:13px}
+.kdn-fc-opts{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:13px}.kdn-fc-opts input[type=number]{width:72px;margin-left:6px}.kdn-fc-opts .ck{display:inline-flex;gap:6px;align-items:center}
+.kdn-fc-opts button{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--kdn-line,#d1d5db);background:var(--kdn-surface,#fff);color:var(--kdn-ink,#111827);font:inherit;font-size:13px;font-weight:800;cursor:pointer}
+.kdn-fc-items{overflow:auto;border:1px solid var(--kdn-line,#e5e7eb);border-radius:12px}.kdn-fc-items table,.kdn-fc-list table{width:100%;border-collapse:collapse;font-size:13px}
+.kdn-fc-items th,.kdn-fc-list th{background:var(--kdn-surface-2,#f3f4f6);text-align:left;padding:8px 10px;font-size:12.5px;white-space:nowrap}.kdn-fc-items td,.kdn-fc-list td{padding:8px 10px;border-top:1px solid var(--kdn-line,#eef0f3);vertical-align:middle}
+.kdn-fc-items td small{display:block;color:var(--kdn-muted,#6b7280);font-size:11.5px}.kdn-fc-items tr.done td{color:var(--kdn-muted,#6b7280)}.kdn-fc-items .ok{color:#15803d;font-weight:700}
+.kdn-fc-items .cfg{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}.kdn-fc-items .cfg select{height:30px}.kdn-fc-items .cfg input{width:64px;margin:0 4px}
+.kdn-fc-kpi{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13.5px;color:var(--kdn-ink-soft,#4b5563)}.kdn-fc-kpi b{font-size:16px;color:var(--kdn-ink,#111827)}
+.kdn-fc-h{margin:6px 0 0;font-size:14px}
+.kdn-fc-list{border:1px solid var(--kdn-line,#e5e7eb);border-radius:12px;padding:0 12px}.kdn-fc-list summary{padding:10px 0;cursor:pointer;font-weight:800;font-size:13.5px}.kdn-fc-list table{margin-bottom:12px}`;
 function GradeCutCards({ rows, total }) {
   return <div className={`kdn-cutcards${rows.length > 5 ? " is-9" : ""}`}>{rows.map((item, index) => {
     const span = Math.max(1, item.count || 0, item.target || 0);
