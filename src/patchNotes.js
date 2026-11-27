@@ -5,6 +5,14 @@ export const SHOW_DAYS = 2;
 
 export const PATCH_NOTES = [
   {
+    id: "2026-11-27-b",
+    date: "2026-11-27",
+    title: "성적·진학 열림 오류 수정",
+    items: [
+      { audience: "staff", text: "선생님 ZONE에서 다른 학년을 골라 둔 뒤 '성적·진학'을 누르면 선생님 ZONE으로 되돌아가던 문제를 고쳤어요. 성적·진학에서는 볼 수 있는 학년으로 알아서 바뀌어요." },
+    ],
+  },
+  {
     id: "2026-11-27-a",
     date: "2026-11-27",
     title: "성적 산출 예상 결과",
