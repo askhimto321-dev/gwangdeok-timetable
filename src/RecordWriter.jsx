@@ -12,7 +12,7 @@ import { booksForAssignment } from "./lessonStamps.js";
 import { loadExamples, exampleGroupFor, examplesFor, EXAMPLE_GROUPS } from "./sehtukExamples.js";
 import { loadStandards, matchStandardSubject, resolveStandardSubject, findStandards, standardLine } from "./standards2022.js";
 import TourGuide from "./TourGuide.jsx";
-import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, parseReflectionSheets, reflectionResponse, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt, AI_FILL, AI_FILL_DEFAULT, aiFillRange } from "./recordText.js";
+import { neisBytes, charCount, RECORD_AREAS, HOMEROOM_AREAS, mergeActivities, checkRecordText, issueSummary, autoFixRecordText, parsePastedRows, parseCheckSheet, parseEventSheets, parseNeisRecordSheets, parseReflectionSheets, reflectionResponse, lineBreakEvents, eventInField, areaLimit, RECORD_GUIDE, splitSentences, findDuplicateSentences, buildAiPrompt, AI_FILL, AI_FILL_DEFAULT, aiFillRange, subjectFillRange } from "./recordText.js";
 
 const DRAFT_PREFIX = "kd_rec_pending_v1:";
 const VIEW_KEY = "kd_rec_view_v1";
@@ -616,6 +616,10 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
   const [step, setStep] = useState("prompt");
   const [refine, setRefine] = useState(true);
   const [answer, setAnswer] = useState("");
+  // AI 답 아래 구분선(---) 뒤의 바이트 수·확인할 점은 칸에 넣지 않아요.
+  const answerParts = String(answer || "").split(/\n[ \t]*-{3,}[ \t]*(?:\n|$)/);
+  const answerBody = answerParts[0].trim();
+  const answerNotes = answerParts.slice(1).join("\n").trim();
   const [drop, setDrop] = useState({});
   const target = targets.find(t => t.key === targetKey);
   const budget = Math.max(0, budgetFor(targetKey));
@@ -708,7 +712,7 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
               : <p className="none">기재 예시는 넣지 않아요. <button type="button" data-kdn-bare className="krw-linkbtn" onClick={() => { setPickOpen(false); setStep("examples"); }}>예시 고르기</button></p>}
           </section>}
           <section><h4>학생 진로희망</h4>{hope ? <label className="opt"><input type="checkbox" checked={useHope} onChange={event => setUseHope(event.target.checked)} /><span><b>{hope}</b><em>관찰 기록에 있는 내용만 진로와 이어 쓰도록 알려요</em></span></label> : <p className="none">{aiContext.subject ? "교과 화면에는 진로희망이 없어요." : "학생 화면 위 '진로희망' 칸에 적으면 요청문에 넣을 수 있어요."}</p>}</section>
-          <section><h4>분량 <small>칸 한도 {budget.toLocaleString()}바이트 기준</small></h4><div className="krw-fill" role="radiogroup">{Object.entries(AI_FILL).map(([key, f]) => <button key={key} type="button" data-kdn-bare role="radio" aria-checked={fill === key} className={fill === key ? "on" : ""} onClick={() => setFill(key)}><b>{f.label}{key === AI_FILL_DEFAULT ? " (기본)" : ""}</b><small>한도의 {f.lo}-{f.hi}% · 약 {aiFillRange(budget, key).lo}-{aiFillRange(budget, key).hi}자</small></button>)}</div></section>
+          <section><h4>분량 <small>칸 한도 {budget.toLocaleString()}바이트 기준</small></h4><div className="krw-fill" role="radiogroup">{Object.entries(AI_FILL).map(([key, f]) => <button key={key} type="button" data-kdn-bare role="radio" aria-checked={fill === key} className={fill === key ? "on" : ""} onClick={() => setFill(key)}><b>{f.label}{key === AI_FILL_DEFAULT ? " (기본)" : ""}</b><small>{(() => { const r = aiContext.subject && useFrame ? subjectFillRange(budget, key) : aiFillRange(budget, key); return `약 ${r.loB.toLocaleString()}-${r.hiB.toLocaleString()}바이트 · ${r.lo}-${r.hi}자`; })()}</small></button>)}</div></section>
           <section><h4>여러 활동 쓰는 법</h4><label className="opt"><input type="checkbox" checked={multi} onChange={event => setMultiPick(event.target.checked)} /><span><b>활동마다 줄 바꿔 따로 쓰기</b><em>관련 없는 활동을 '~에서는', '~에서도'로 억지로 이어 한 문단으로 만들지 않게 해요</em></span></label></section>
           <section><h4>지금 칸에 쓴 글</h4><label className="opt"><input type="checkbox" checked={refine} onChange={event => setRefine(event.target.checked)} /><span><b>함께 보내 다듬어 달라고 하기</b><em>{current.trim() ? clip(current, 90) : "아직 비어 있어요"}</em></span></label></section>
         </div>
@@ -727,9 +731,10 @@ function AiHelper({ rec, sid, studentName, targets, targetKey, setTarget, budget
       <p className="krw-ai-lead">AI 답을 붙여넣으면 바이트와 기재요령을 바로 점검해요. <b>관찰하지 않은 내용</b>이 없는지 꼭 읽어 보세요.{aiContext.next && <button type="button" data-kdn-bare className="krw-linkbtn nextlink" onClick={aiContext.next}>다음 학생 요청문으로 →</button>}</p>
       {filledCats.length > 0 && <div className="krw-ai-load"><select value={loadKey || defaultLoad} onChange={event => setLoadKey(event.target.value)} aria-label="가져올 누가기록">{filledCats.map(c => <option key={c.key} value={c.key}>{c.label} 누가기록</option>)}</select><button type="button" data-kdn-bare className="krw-btn" onClick={() => { const text = rec.textOf(sid, loadKey || defaultLoad); setAnswer(value => value.trim() ? `${value.trim()}\n${text}` : text); }}><ClipboardPaste size={14} /> 누가기록 가져오기</button></div>}
       <textarea value={answer} spellCheck={false} onChange={event => setAnswer(event.target.value)} placeholder="AI 답을 붙여넣거나, 위에서 누가기록(보관해 둔 AI 초안 등)을 가져와 다듬어요" />
-      <div className="krw-ai-meter"><ByteMeter text={answer} limit={budget || 1} />{autoFixRecordText(answer) !== answer && <button type="button" data-kdn-bare className="krw-fix" onClick={() => setAnswer(autoFixRecordText(answer))}><Wand2 size={13} /> 기호 자동 고치기</button>}</div>
-      {answer && <IssueList text={answer} />}
-      <div className="krw-ai-acts"><button type="button" data-kdn-bare className="krw-btn pri" disabled={!answer.trim()} onClick={() => { if (!current.trim() || window.confirm(`'${target?.label}' 칸의 지금 글을 이 글로 바꿀까요?`)) putText(answer, "replace"); }}>칸을 이 글로 바꾸기</button><button type="button" data-kdn-bare className="krw-btn" disabled={!answer.trim()} onClick={() => putText(answer, "append")}>칸 끝에 덧붙이기</button><button type="button" data-kdn-bare className="krw-btn ghost" disabled={!answer.trim()} onClick={() => { const key = cats.find(c => c.target === targetKey)?.key || "memo"; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev ? "\n\n" : ""}[AI 초안 ${todayLabel()}]\n${answer.trim()}`); showToast?.("누가기록에 보관했어요.", "success"); }}>누가기록에 보관</button></div>
+      {answerNotes && <div className="krw-ai-notes"><b>AI가 적은 확인할 점 (칸에는 넣지 않아요)</b><p>{answerNotes}</p></div>}
+      <div className="krw-ai-meter"><ByteMeter text={answerBody} limit={budget || 1} />{autoFixRecordText(answerBody) !== answerBody && <button type="button" data-kdn-bare className="krw-fix" onClick={() => setAnswer(autoFixRecordText(answerBody) + (answerNotes ? `\n---\n${answerNotes}` : ""))}><Wand2 size={13} /> 기호 자동 고치기</button>}</div>
+      {answerBody && <IssueList text={answerBody} />}
+      <div className="krw-ai-acts"><button type="button" data-kdn-bare className="krw-btn pri" disabled={!answerBody} onClick={() => { if (!current.trim() || window.confirm(`'${target?.label}' 칸의 지금 글을 이 글로 바꿀까요?`)) putText(answerBody, "replace"); }}>칸을 이 글로 바꾸기</button><button type="button" data-kdn-bare className="krw-btn" disabled={!answerBody} onClick={() => putText(answerBody, "append")}>칸 끝에 덧붙이기</button><button type="button" data-kdn-bare className="krw-btn ghost" disabled={!answer.trim()} onClick={() => { const key = cats.find(c => c.target === targetKey)?.key || "memo"; const prev = rec.textOf(sid, key); rec.edit(`s|${sid}|${key}`, `${prev}${prev ? "\n\n" : ""}[AI 초안 ${todayLabel()}]\n${answer.trim()}`); showToast?.("누가기록에 보관했어요.", "success"); }}>누가기록에 보관</button></div>
     </div>}
     {step === "examples" && <ExamplesPane subject={aiContext.subject || ""} picked={exPick} onPick={item => { setExPick(item); setUseEx(true); if (item) { setStep("prompt"); showToast?.(`'${item.s}' 예시를 요청문에 문체 참고로 넣었어요.`, "success"); } }} />}
     {step === "trim" && <div className="krw-ai-body">
@@ -1982,6 +1987,7 @@ const CSS = `
 .krw-ai-body{display:grid;gap:8px}
 .krw-ai-chk{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
 .krw-ai-lead{margin:0;font-size:12.5px;line-height:1.55;color:var(--kdn-ink-soft,#5b606b)}.krw-ai-lead b{color:var(--kdn-ink,#17181d)}
+.krw-ai-notes{padding:8px 10px;border-radius:10px;background:var(--kdn-surface-2,#f3f4f6);font-size:12.5px;line-height:1.55;color:var(--kdn-ink-soft,#4b5563)}.krw-ai-notes b{display:block;margin-bottom:3px;font-size:12px;color:var(--kdn-ink,#111827)}.krw-ai-notes p{margin:0;white-space:pre-wrap}
 .krw-ai-warn{margin:0;padding:8px 10px;border-radius:10px;font-size:12.5px;line-height:1.55;background:color-mix(in srgb,#d97706 12%,transparent);color:#92400e}.krw-ai-warn b{color:inherit}
 .krw-focus{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:4px;padding:4px;border-radius:14px;background:var(--kdn-surface,#fff);border:1px solid var(--kdn-line,#e7e5e0)}
 .krw-focus button{position:relative;display:grid;justify-items:start;gap:1px;min-width:0;padding:8px 12px;border:0;border-radius:10px;background:transparent;font:inherit;color:var(--kdn-ink-soft,#5b606b);text-align:left;cursor:pointer}
